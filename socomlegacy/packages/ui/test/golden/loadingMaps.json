@@ -1,0 +1,241 @@
+{
+ "_source": "disc RUN/MP*.ZDB: READERM.ZAR mission.rdr through @s2u/ui loadingBinding; LDZANIM.ZAR set dlgLoad.rdr through @s2u/scene parseAnimSets (SHA-256 of each animation's JSON in the ZAnimRtSet shape, MP2's whole); 2026-10-02",
+ "maps": [
+  {
+   "map": "MP1.ZDB",
+   "title": "BLIZZARD",
+   "picture": "ld_mp1_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om01",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP2.ZDB",
+   "title": "FROSTFIRE",
+   "picture": "ld_mp2_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om02",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP5.ZDB",
+   "title": "ABANDONED",
+   "picture": "ld_mp5_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om05",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP6.ZDB",
+   "title": "DESERT GLORY",
+   "picture": "ld_mp6_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om06",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP7.ZDB",
+   "title": "NIGHT STALKER",
+   "picture": "ld_mp7_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om07",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP8.ZDB",
+   "title": "RAT'S NEST",
+   "picture": "ld_mp8_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om08",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP9.ZDB",
+   "title": "BITTER JUNGLE",
+   "picture": "ld_mp9_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om09",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP10.ZDB",
+   "title": "BLOOD LAKE",
+   "picture": "ld_mp10_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om10",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP11.ZDB",
+   "title": "DEATH TRAP",
+   "picture": "ld_mp11_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om11",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP12.ZDB",
+   "title": "THE RUINS",
+   "picture": "ld_mp12_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/om12",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP51.ZDB",
+   "title": "VIGILANCE",
+   "picture": "ld_mp51_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp51",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP52.ZDB",
+   "title": "THE MIXER",
+   "picture": "ld_mp52_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp52",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP53.ZDB",
+   "title": "FOXHUNT",
+   "picture": "ld_mp53_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp53",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP61.ZDB",
+   "title": "SUJO",
+   "picture": "ld_mp61_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp61",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP62.ZDB",
+   "title": "ENOWAPI",
+   "picture": "ld_mp62_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp62",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP64.ZDB",
+   "title": "SHADOW FALLS",
+   "picture": "ld_mp64_prog.tif",
+   "description": "",
+   "library": "ui/assetlib/ld/lp64",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP71.ZDB",
+   "title": "FISH HOOK",
+   "picture": "ld_mp71_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp71",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP72.ZDB",
+   "title": "CROSSROADS",
+   "picture": "ld_mp72_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp72",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP73.ZDB",
+   "title": "SANDSTORM",
+   "picture": "ld_mp73_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp73",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP81.ZDB",
+   "title": "CHAIN REACTION",
+   "picture": "ld_mp81_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp81",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP82.ZDB",
+   "title": "GUIDANCE",
+   "picture": "ld_mp82_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp82",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  },
+  {
+   "map": "MP83.ZDB",
+   "title": "REQUIEM",
+   "picture": "ld_mp83_prog.tif",
+   "description": " ",
+   "library": "ui/assetlib/ld/lp83",
+   "anims": 6,
+   "spin": "f35b51adca923423dc3b2248a022c5f2fd6be5ef6309546199f3e1e7d8ca4474",
+   "fade": "e2f157748b02c8293f4ce7e9cb899275813466a6abd881d64728b41eafae54f9"
+  }
+ ],
+ "mp2": {
+  "spin": {
+   "name": "SpinLoadingCD",
+   "names": ["NA","SpinLoadingCD","load_CD_Parent"],
+   "nodeRefs": [{"name":"NA"},{"name":"load_CD_Parent"}],
+   "params": {"flags":34,"priority":3,"seqOffsets":[0,0,0,0],"state":1},
+   "sequences": [{"offset":0,"name":"NA","word":258,"size":232,"commands":[{"offset":28,"set":0,"cmd":1,"timeless":false,"size":4,"bytes":"01001000"},{"offset":32,"set":0,"cmd":22,"timeless":false,"size":92,"bytes":"160071010003010000000000000000000000000000000000000000000000000000000000000000000000000000000000380000000000403fcdcc8c3fcdcc8c3f00000000000000000000803f00000000bcbbbbbf8b8808be00000000"},{"offset":124,"set":0,"cmd":1,"timeless":false,"size":4,"bytes":"01001000"},{"offset":128,"set":0,"cmd":22,"timeless":false,"size":92,"bytes":"160071010003010000000000000000000000000000000000000000000000000000000000000000000000000000000000380000000000403f000000000000803f00000000cdcc8c3fcdcc8c3f00000000bcbbbb3f8b88083e00000000"},{"offset":220,"set":0,"cmd":14,"timeless":true,"size":12,"bytes":"0e00320001000000ffffffff"}]}]
+  },
+  "fade": {
+   "name": "OnMenuStart",
+   "names": ["NA","OnMenuStart","MENUFADER","IsNetwork","RateLevel"," ","IsSessionMaster","mp_locked_game","ForceMediusStatusReport","ReturnToLobby","ForGameCompleteScreen"],
+   "nodeRefs": [{"name":"NA"},{"name":"MENUFADER"},{"name":"RateLevel"},{"name":"ReturnToLobby"}],
+   "params": {"flags":34,"priority":3,"seqOffsets":[0,0,0,0],"state":1},
+   "sequences": [{"offset":0,"name":"NA","word":258,"size":52,"commands":[{"offset":28,"set":0,"cmd":25,"timeless":false,"size":24,"bytes":"19006000010000000000803f00000000abaa2abf0000c03f"}]},{"offset":52,"name":"NA","word":258,"size":404,"commands":[{"offset":80,"set":0,"cmd":2,"timeless":true,"size":24,"bytes":"020062000100000001014200000003000000000000000000"},{"offset":104,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e9000500000000000000"},{"offset":120,"set":0,"cmd":2,"timeless":true,"size":24,"bytes":"020062000200000001014200000006000000000000000000"},{"offset":144,"set":0,"cmd":61,"timeless":false,"size":16,"bytes":"3d00400007000000000000000b020000"},{"offset":160,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"01014200000008000000000000000000"},{"offset":176,"set":0,"cmd":5,"timeless":true,"size":8,"bytes":"0500220002000000"},{"offset":184,"set":0,"cmd":4,"timeless":true,"size":8,"bytes":"0400220001000000"},{"offset":192,"set":0,"cmd":17,"timeless":true,"size":8,"bytes":"1100220000000300"},{"offset":200,"set":0,"cmd":2,"timeless":true,"size":24,"bytes":"02006200020000003d0040000a0000000100000002020000"},{"offset":224,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e90000000000d1070000"},{"offset":240,"set":0,"cmd":3,"timeless":true,"size":24,"bytes":"03006200020000003d0040000a0000000200000002020000"},{"offset":264,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e90000000000d2070000"},{"offset":280,"set":0,"cmd":3,"timeless":true,"size":24,"bytes":"03006200020000003d0040000a0000000300000002020000"},{"offset":304,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e90000000000d3070000"},{"offset":320,"set":0,"cmd":3,"timeless":true,"size":24,"bytes":"03006200020000003d0040000a0000000400000002020000"},{"offset":344,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e90000000000d4070000"},{"offset":360,"set":0,"cmd":3,"timeless":true,"size":24,"bytes":"03006200020000003d0040000a0000000500000002020000"},{"offset":384,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e90000000000d5070000"},{"offset":400,"set":0,"cmd":3,"timeless":true,"size":24,"bytes":"03006200020000003d0040000a0000000600000002020000"},{"offset":424,"set":1,"cmd":1,"timeless":true,"size":16,"bytes":"010142000200e90000000000d5070000"},{"offset":440,"set":0,"cmd":5,"timeless":true,"size":8,"bytes":"0500220002000000"},{"offset":448,"set":0,"cmd":5,"timeless":true,"size":8,"bytes":"0500220001000000"}]}]
+  }
+ }
+}

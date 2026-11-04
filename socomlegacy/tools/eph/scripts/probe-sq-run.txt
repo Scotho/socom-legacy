@@ -1,0 +1,6 @@
+# EPH probe script (tools/eph/probe.ts, PCSX2 alone; grammar <t_ms> <input> <pressure>). Seat ac, 2026-11-01, for 6d before the cancel reruns.
+# Square while running: lup full, Square 1.2 s in (R4B-12: running always gives the running jump). Look: speed >= 15 u/s at the press.
+300 lup 1
+1500 square 1
+1650 square 0
+2500 lup 0

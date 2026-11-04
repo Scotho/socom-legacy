@@ -1,0 +1,52 @@
+{
+ "_source": "disc RUN/READERC.ZAR member character.rdr (AngleUnits, body_items, gear, characters) and RUN/MP2.ZDB member READERM.ZAR/chartype.rdr; reader parseCharacterTable / playerCharacter (packages/scene/src/character.ts); research 78 §5; extracted 2026-10-02",
+ "angleUnits": "DEG",
+ "bodyItems": ["head", "rthigh", "hips", "lthigh", "spinehi", "rcalf", "spinelo", "skel_root", "aimnodes", "rscap", "lscap", "lshoulder_wgt", "lbicep", "lforearm", "lhand", "rshoulder_wgt", "rbicep", "rforearm", "rhand", "neck", "rfoot", "rtoe", "lcalf", "lfoot", "ltoe", "rifle", "pistol", "grenade", "weapon"],
+ "gearCount": 49,
+ "character": "mp2_seal1",
+ "model": "seal_A_scuba",
+ "defaultGear": [
+  {
+   "name": "seal_A_right_eye",
+   "model": "right_eye",
+   "part": "head",
+   "translation": [0.5406, 1.014, -0.359],
+   "rotation": [45.1331, 90, -45.1331]
+  },
+  {
+   "name": "seal_A_left_eye",
+   "model": "left_eye",
+   "part": "head",
+   "translation": [0.5302, 1.0131, 0.3343],
+   "rotation": [45.1331, 90, -45.1331]
+  },
+  {
+   "name": "seal_holster",
+   "model": "gear_holster",
+   "part": "rthigh",
+   "translation": [0, 0, 0],
+   "rotation": [-82.47, 84.57, 14.08]
+  },
+  {
+   "name": "seal_scuba_aslt_gear",
+   "model": "seal_scuba_aslt_gear",
+   "part": "hips",
+   "translation": [0, 0, 0],
+   "rotation": [0, 0.1, 0]
+  },
+  {
+   "name": "seal_scuba_knife",
+   "model": "seal_scuba_knife",
+   "part": "rcalf",
+   "translation": [1.61, 0.388, -0.93],
+   "rotation": [-82.4, 84.57, -6.51]
+  },
+  {
+   "name": "Satchel",
+   "model": "Satchel",
+   "part": "spinehi",
+   "translation": [-1.287, -1.333, 0],
+   "rotation": [45.2, 90, -45.2]
+  }
+ ]
+}

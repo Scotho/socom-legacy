@@ -1,0 +1,40 @@
+*.sh text eol=lf
+*.py text eol=lf
+server/linux/* text eol=lf
+scripts/hooks/* text eol=lf
+tools_py/release/leak_allow.txt text eol=lf
+server/ops/*.sh text eol=lf
+server/ops/backup.cron text eol=lf
+server/ops/ops.env.example text eol=lf
+# The npm workspace's parts (under web/ until 2026-10-02, RS.R4) and its root files: text, LF
+socomlegacy/** text eol=lf
+# The movie decoder and its source tarball are binaries, committed as they are (OT.R66, 2026-10-19): never normalized
+socomlegacy/packages/fmv/wasm/out/* binary
+landing/** text eol=lf
+shared/** text eol=lf
+package.json text eol=lf
+package-lock.json text eol=lf
+# The rules above normalise every path under the workspace's parts to text/LF, which corrupts binary font files
+# (autocrlf strips bytes it mistakes for CRLF). Mark the vendored fonts binary; a later line wins for the same path.
+# (Merged from the old .gitattributes.)
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.otf binary
+# The same for every other binary in the workspace: the landing site's tracked goldens and any picture, sound or movie
+# (the game-derived ones are ignored, but a binary must never be normalised if one is ever tracked).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.ogg binary
+*.mp4 binary
+*.wav binary
+# The committed disc fixtures (RS.R8's size policy, H71): the disc's own bytes -- no eol conversion, no text diff. After
+# the `socomlegacy/** text eol=lf` line above, so this one wins; the manifest beside them stays text.
+socomlegacy/test-fixtures/RUN/** binary -eol
+# RV2-00's recorded replay fixtures (gzip): the same, never normalised -- an LF rewrite would corrupt the gzip stream.
+socomlegacy/test-fixtures/replay/** binary -eol
+*.s2r binary

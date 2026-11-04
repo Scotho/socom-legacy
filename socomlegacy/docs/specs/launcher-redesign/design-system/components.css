@@ -1,0 +1,1391 @@
+/* The s2u design system, layer 3 of 3: the components (spec section 6, the S2U Briefing guidelines). Every rule
+   speaks in --s2u-* tokens; css.test.ts refuses a colour literal, a !important, a hand-widened edge.
+   Part A: chrome and containers. Part B follows the "---- part B" mark; part C (1.1.0), the launcher, the
+   "---- part C" mark; part D (1.2.0), the public-site adoptions, the "---- part D" mark; part E (1.3.0), the live
+   site's launcher patterns, the "---- part E" mark; part F (1.4.0), the check list's drawn marks, the "---- part F"
+   mark. Part G (1.5.0), the Console launcher (cx-*), is its own @layer block after the "---- part G" mark: the owner's
+   design export verbatim but for the token prefix, held by its own guards (css.test.ts, "1.5.0"), not A-F's. Part H
+   (1.6.0), the select-backed roller (MU2-8), extends part G's .cx-roller from the A-F block, after part F, under A-F's guards.
+   Part I (1.8.0), the extraction popover (DX-2), adds .cx-extract to part G's dialog from the A-F block, after part H,
+   under A-F's guards.    Part J (1.9.0), the home's scrolling list (CX-LEGEND), makes part G's home list scroll inside the
+   stage above the phone rule, from the A-F block after part I, under A-F's guards. Part K (2.1.0), the screen
+   head's Back, adds .cx-back beside the eyebrow and title, from the A-F block after part J, under A-F's guards.
+   Part G's .cx-screenhead is not edited. Part L (2.2.0), the launcher's motion polish (CX-54), settles part G's
+   dialog and toast in, eases and glows its focused row and gives a press its scale, from the A-F block after part K,
+   under A-F's guards; part G is not edited. */
+@layer s2u.components {
+  /* ---- the bar: the artifact's TopNav. Landmark <header>; nav aria-label="Sections"; the current link carries
+     aria-current="page" and .is-on. Focus order: brand, links, end. 48px on ground, a 1px panel-edge rule under. */
+  .s2u-bar {
+    position: fixed; left: 0; right: 0; top: 0; z-index: var(--s2u-z-bar);
+    display: flex; align-items: center; gap: var(--s2u-space-6);
+    height: calc(48px + env(safe-area-inset-top, 0px)); padding: env(safe-area-inset-top, 0px) var(--s2u-gutter) 0;
+    background: var(--s2u-ground); box-shadow: inset 0 -1px 0 var(--s2u-panel-edge);
+  }
+  .s2u-bar__brand { flex: none; display: inline-flex; align-items: center; gap: var(--s2u-space-2); text-decoration: none; color: var(--s2u-gold); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; }
+  .s2u-bar__ii { color: var(--s2u-glyph-cross); font-style: italic; font-weight: 600; }
+  .s2u-bar__word { white-space: nowrap; }
+  .s2u-bar__nav {
+    display: flex; gap: var(--s2u-space-1); flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    /* the nav scrolls where it does not fit: the last visible link fades at the right edge so the cut reads as a
+       scroll, not a clip. Opaque against transparent is all the mask needs, so the ground token stands for opaque. */
+    mask-image: linear-gradient(to right, var(--s2u-ground) calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, var(--s2u-ground) calc(100% - 28px), transparent);
+  }
+  .s2u-bar__nav::-webkit-scrollbar { display: none; }
+  .s2u-bar__nav a {
+    display: block; padding: 6px 10px; text-decoration: none; color: var(--s2u-text);
+    font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; white-space: nowrap;
+    transition: color var(--s2u-dur-fast), background-color var(--s2u-dur-fast);
+  }
+  .s2u-bar__nav a:hover, .s2u-bar__nav a.is-on, .s2u-bar__nav a[aria-current="page"] { background: var(--s2u-tab-lit); color: var(--s2u-gold); }
+  .s2u-bar__end { flex: none; margin-left: auto; display: flex; align-items: center; gap: var(--s2u-space-2); }
+  @media (max-width: 720px) {
+    .s2u-bar { gap: var(--s2u-space-3); }
+  }
+
+  /* ---- the head: a screen's title block. The title draws first whatever the source order; the subtitle under it. */
+  .s2u-head { display: flex; flex-direction: column; margin-bottom: var(--s2u-space-6); }
+  .s2u-title {
+    order: 0; margin: 0;
+    font: var(--s2u-type-screen-title); font-style: var(--s2u-italic-screen-title); font-stretch: 62.5%;
+    letter-spacing: var(--s2u-tracking-screen-title); text-transform: uppercase;
+    color: var(--s2u-gold-display); text-shadow: var(--s2u-title-glow); text-wrap: balance;
+  }
+  .s2u-title--story { font: var(--s2u-type-story-title); font-style: var(--s2u-italic-story-title); font-stretch: 62.5%; letter-spacing: var(--s2u-tracking-story-title); text-transform: none; color: var(--s2u-text-strong); text-shadow: var(--s2u-story-glow); }
+  .s2u-kicker {
+    order: 1; margin: var(--s2u-space-2) 0 0; display: flex; align-items: center; gap: var(--s2u-space-2);
+    font: var(--s2u-type-subtitle); letter-spacing: var(--s2u-tracking-subtitle); text-transform: uppercase; color: var(--s2u-text-strong);
+  }
+  .s2u-blink { width: 8px; height: 8px; background: var(--s2u-gold); animation: s2u-blink 1.4s steps(2) infinite; }
+  @keyframes s2u-blink { 50% { opacity: 0.25; } }
+  .s2u-lede { order: 2; margin: var(--s2u-space-3) 0 0; color: var(--s2u-text-dim); max-width: var(--s2u-measure); }
+
+  /* ---- a section */
+  .s2u-section { max-width: var(--s2u-max); margin: 0 auto; padding: var(--s2u-space-12) var(--s2u-gutter); }
+  .s2u-section > * { min-width: 0; }
+  @media (max-width: 720px) { .s2u-section { padding-top: var(--s2u-space-8); padding-bottom: var(--s2u-space-8); } }
+
+  /* ---- the briefing grid: a tab-w column of tabs beside a panel column, both stretched; the bottom tab group
+     and the panel's image meet at the foot (briefing README, Layout and edges) */
+  .s2u-briefing { display: grid; grid-template-columns: var(--s2u-tab-w) minmax(0, 1fr); gap: var(--s2u-space-4); align-items: stretch; }
+  .s2u-briefing__tabs { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
+  .s2u-briefing__tabs-end { margin-top: auto; padding-top: var(--s2u-space-8); display: flex; flex-direction: column; gap: var(--s2u-space-2); }
+  .s2u-briefing__panel { display: flex; flex-direction: column; gap: var(--s2u-space-2); min-width: 0; }
+  .s2u-briefing__panel > .s2u-panel--image { margin-top: auto; }
+  @media (max-width: 720px) {
+    .s2u-briefing { grid-template-columns: minmax(0, 1fr); }
+    .s2u-briefing__tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+    .s2u-briefing__tabs-end { margin-top: 0; padding-top: 0; flex-direction: row; }
+    .s2u-briefing__tabs .s2u-tab { flex: none; }
+  }
+
+  /* ---- a panel: the artifact's Panel, two boxes with a space-2 gap; flat; lights like a tab when it is a link */
+  .s2u-panel { display: flex; flex-direction: column; gap: var(--s2u-space-2); min-width: 0; }
+  .s2u-panel__head {
+    margin: 0; background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0);
+    padding: var(--s2u-space-3) var(--s2u-space-4);
+    font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold);
+  }
+  .s2u-panel__body { background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); padding: var(--s2u-space-4); flex: 1; color: var(--s2u-text); font: var(--s2u-type-body); }
+  .s2u-panel__body > :first-child { margin-top: 0; } .s2u-panel__body > :last-child { margin-bottom: 0; }
+  /* a link that is a panel head or a card title keeps the head's gold (cyan on the teal head read wrong: owner,
+     2026-09-28); its underline is gold mixed down against the panel and comes up full when pointed at; a link
+     that leaves the site carries a small arrow, outside the underline */
+  .s2u-panel__head a, .s2u-card > h3 a { color: var(--s2u-gold); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; text-decoration-color: color-mix(in srgb, var(--s2u-gold) 45%, var(--s2u-panel)); }
+  .s2u-panel__head a:hover, .s2u-card > h3 a:hover, .s2u-panel__head a:focus-visible, .s2u-card > h3 a:focus-visible { text-decoration-color: var(--s2u-gold); }
+  .s2u-panel__head a[target="_blank"]::after, .s2u-card > h3 a[target="_blank"]::after { content: ' ↗'; display: inline-block; font-size: 0.8em; color: var(--s2u-text-dim); }
+  .s2u-panel__body p, .s2u-panel__body ul, .s2u-panel__body ol { max-width: var(--s2u-measure); }
+  .s2u-panel--image .s2u-panel__body { padding: 0; }
+  .s2u-panel--image img { display: block; width: 100%; height: auto; }
+  .s2u-panel.is-link { text-decoration: none; transition: background-color var(--s2u-dur-fast); }
+  .s2u-panel.is-link:hover .s2u-panel__body, .s2u-panel.is-link:focus-within .s2u-panel__body { background: var(--s2u-tab-lit); }
+
+  /* ---- a card: a panel whose h3 is the heading strip; __num only for a sequence (spec 11) */
+  .s2u-card { display: flex; flex-direction: column; gap: var(--s2u-space-2); min-width: 0; position: relative; }
+  .s2u-card > h3 { margin: 0; background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); padding: var(--s2u-space-3) var(--s2u-space-4); font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold); overflow-wrap: anywhere; }
+  .s2u-card__body { background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); padding: var(--s2u-space-4); flex: 1; font: var(--s2u-type-body); color: var(--s2u-text); }
+  .s2u-card__body > :first-child { margin-top: 0; } .s2u-card__body > :last-child { margin-bottom: 0; }
+  .s2u-card__body p { margin: var(--s2u-space-2) 0; max-width: var(--s2u-measure); overflow-wrap: anywhere; }
+  .s2u-card__num { position: absolute; right: var(--s2u-space-3); top: 10px; font: var(--s2u-type-readout-caption); color: var(--s2u-text-dim); }
+  .s2u-card__how { color: var(--s2u-text-dim); font: var(--s2u-type-body-small); }
+  .s2u-cards--2, .s2u-cards--3 { display: grid; gap: var(--s2u-space-4); }
+  .s2u-cards--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .s2u-cards--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .s2u-cards--2, .s2u-cards--3 { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ---- a tile: the play list's box; the whole tile is the link; lit like a tab when pointed at */
+  .s2u-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2u-space-4); }
+  @media (max-width: 960px) { .s2u-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 480px) { .s2u-tiles { grid-template-columns: minmax(0, 1fr); } .s2u-tile__frame.is-blank { aspect-ratio: 16 / 6; } }
+  .s2u-tile { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); overflow: hidden; transition: background-color var(--s2u-dur-fast); }
+  .s2u-tile:hover, .s2u-tile:focus-within { background: var(--s2u-tab-lit); }
+  .s2u-tile__frame { position: relative; aspect-ratio: 16 / 10; background: var(--s2u-ground-deep); overflow: hidden; }
+  .s2u-tile__frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+  .s2u-tile__frame.is-blank { display: grid; place-items: center; background: var(--s2u-tab); }
+  .s2u-tile__frame.is-blank::before { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(135deg, transparent 0 14px, var(--s2u-panel-edge) 14px 15px); }
+  .s2u-tile__frame.is-blank span { position: relative; padding: 6px 10px; box-shadow: var(--s2u-panel-inset); font: var(--s2u-type-readout-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); background: var(--s2u-ground); }
+  .s2u-tile__text { flex: 1; display: flex; flex-direction: column; gap: var(--s2u-space-1); padding: var(--s2u-space-3) var(--s2u-space-4) var(--s2u-space-4); }
+  .s2u-tile time { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-tile h3 { margin: 2px 0 0; font: var(--s2u-type-body); font-weight: 600; line-height: 1.25; color: var(--s2u-text-strong); text-wrap: balance; overflow-wrap: anywhere; }
+  .s2u-tile:hover h3, .s2u-tile:focus-within h3 { color: var(--s2u-gold); }
+  .s2u-tile h3 a { color: inherit; text-decoration: none; }
+  .s2u-tile h3 a::after { content: ''; position: absolute; inset: 0; }
+  .s2u-tile h3 a:focus-visible { outline: none; }
+  .s2u-tile:focus-within { outline: 2px solid var(--s2u-focus); outline-offset: 2px; }
+  .s2u-tile p { margin: var(--s2u-space-1) 0 0; color: var(--s2u-text-dim); font: var(--s2u-type-body-small); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .s2u-tile__read { margin-top: auto; padding-top: var(--s2u-space-3); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-text-dim); }
+  .s2u-tile.is-latest::before { content: 'LATEST'; position: absolute; left: 10px; top: 10px; z-index: 2; padding: 3px 6px; font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); color: var(--s2u-ground); background: var(--s2u-gold); }
+
+  /* ---- a tab: the artifact's Tab, also the site's button. Rest, lit (hover / is-on / aria-current /
+     aria-pressed=true are one state), pressed, disabled, busy. Accessible name: its text. */
+  .s2u-tab {
+    display: inline-block; appearance: none; border: 0; margin: 0; text-align: left; cursor: pointer; text-decoration: none;
+    background: var(--s2u-tab); color: var(--s2u-text); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0);
+    padding: var(--s2u-space-3) var(--s2u-space-4);
+    font: var(--s2u-type-tab); letter-spacing: var(--s2u-tracking-tab); text-transform: uppercase;
+    transition: background-color var(--s2u-dur-fast), color var(--s2u-dur-fast);
+  }
+  .s2u-tab:hover, .s2u-tab.is-on, .s2u-tab[aria-current], .s2u-tab[aria-pressed="true"] { background: var(--s2u-tab-lit); color: var(--s2u-gold); }
+  .s2u-tab:active { background: var(--s2u-highlight-pressed); }
+  .s2u-tab[disabled], .s2u-tab[aria-disabled="true"] { opacity: var(--s2u-disabled); cursor: default; }
+  .s2u-tab[disabled]:hover, .s2u-tab[aria-disabled="true"]:hover { background: var(--s2u-tab); color: var(--s2u-text); }
+  .s2u-tab.is-busy { cursor: wait; }
+  .s2u-tab--ghost { background: transparent; box-shadow: none; color: var(--s2u-text-dim); }
+  .s2u-tab--nav { padding: 6px 12px; font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); }
+  .s2u-tab__what { display: block; margin-top: 2px; font: var(--s2u-type-readout-caption); letter-spacing: 0; text-transform: none; color: var(--s2u-text-dim); }
+  .s2u-tab[aria-pressed="true"] .s2u-tab__what { color: var(--s2u-gold); }
+
+  /* ---- an icon control: the one place a glyph stands alone (the sound button; the viewer's fullscreen button is
+     s2u-fab). Not a Tab: panel fill, no lit state, the glyph in text and gold when pointed at. aria-label required. */
+  .s2u-iconbtn { width: 32px; height: 30px; padding: 0; border: 0; display: inline-grid; place-items: center; cursor: pointer; background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); color: var(--s2u-text); }
+  .s2u-iconbtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .s2u-iconbtn:hover { color: var(--s2u-gold); }
+  /* Disabled: a field's select, a label standing in for a button (the viewer's ISO-source chip), and
+     an icon control -- none of Tab's or Check's own disabled rule reaches these. */
+  .s2u-field select:disabled, .s2u-label:disabled, .s2u-iconbtn:disabled { opacity: var(--s2u-disabled); cursor: default; }
+  .s2u-iconbtn:disabled:hover { color: var(--s2u-text); }
+
+  .s2u-tabs { display: flex; flex-wrap: wrap; gap: var(--s2u-space-2); }
+  .s2u-tabs--column { flex-direction: column; flex-wrap: nowrap; width: var(--s2u-tab-w); max-width: 100%; }
+  .s2u-tabs--column .s2u-tab { display: block; }
+
+  /* ---- part B ---- */
+
+  /* ---- a field: label above a control in the game's box. <div class="s2u-field [is-ok|is-bad]"> with
+     <label class="s2u-field__label" for>, the control, and an optional <p class="s2u-field__note">. */
+  .s2u-field { display: grid; gap: 6px; min-width: 0; }
+  .s2u-field__label { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-gold); margin-top: var(--s2u-space-2); }
+  .s2u-field input, .s2u-field textarea, .s2u-field select {
+    width: 100%; min-width: 0; padding: 10px 12px; border: 0;
+    background: var(--s2u-tab); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0);
+    color: var(--s2u-text); font: var(--s2u-type-body);
+  }
+  .s2u-field input::placeholder, .s2u-field textarea::placeholder { color: var(--s2u-text-dim); }
+  .s2u-field input:focus, .s2u-field textarea:focus, .s2u-field select:focus { background: var(--s2u-tab-lit); outline: 2px solid var(--s2u-focus); outline-offset: 2px; }
+  .s2u-field--area textarea { min-height: 150px; resize: vertical; }
+  .s2u-field select {
+    appearance: none; padding-right: 34px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23c4a04a' stroke-width='2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+  }
+  .s2u-field select option { background: var(--s2u-panel); color: var(--s2u-text); }
+  .s2u-field__note { margin: 0; font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+  .s2u-field.is-ok .s2u-field__note { color: var(--s2u-glyph-triangle); }
+  .s2u-field.is-bad .s2u-field__note { color: var(--s2u-warn); }
+  .s2u-field.is-bad input, .s2u-field.is-bad textarea { box-shadow: inset 0 0 0 1px var(--s2u-warn); }
+  [data-density="compact"] .s2u-field input, [data-density="compact"] .s2u-field select { padding: 6px 8px; font: var(--s2u-type-readout); }
+  [data-density="compact"] .s2u-field select { padding-right: 28px; background-position: right 8px center; }
+
+  /* ---- a range: <label class="s2u-range">text <input type=range> <output>1.00</output></label> */
+  .s2u-range { display: flex; align-items: center; gap: var(--s2u-space-2); margin: 6px 0 2px; color: var(--s2u-text); min-width: 0; font: var(--s2u-type-body); }
+  [data-density="compact"] .s2u-range { font: var(--s2u-type-readout); }
+  .s2u-range input[type="range"] { flex: 1; min-width: 90px; accent-color: var(--s2u-gold); }
+  .s2u-range output { min-width: 56px; text-align: right; color: var(--s2u-glyph-cross); font: var(--s2u-type-readout); font-variant-numeric: tabular-nums; }
+
+  /* ---- a check: <label class="s2u-check"><input type=checkbox> <span>text</span></label> */
+  .s2u-check { display: inline-flex; align-items: center; gap: var(--s2u-space-2); color: var(--s2u-text); cursor: pointer; font: var(--s2u-type-body); }
+  [data-density="compact"] .s2u-check { font: var(--s2u-type-readout); }
+  .s2u-check input { appearance: none; width: 14px; height: 14px; margin: 0; flex: none; background: var(--s2u-tab); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); display: grid; place-items: center; cursor: pointer; }
+  .s2u-check input:checked { background: var(--s2u-gold); }
+  .s2u-check input:checked::before { content: ''; width: 10px; height: 8px; background: var(--s2u-ground); clip-path: polygon(0% 52%, 14% 36%, 38% 62%, 86% 0%, 100% 16%, 38% 100%); }
+  .s2u-check input[type="radio"] { border-radius: 50%; }
+  .s2u-check input[type="radio"]:checked::before { width: 6px; height: 6px; border: 0; border-radius: 50%; background: var(--s2u-ground); transform: none; }
+  .s2u-check:has(input[disabled]) { opacity: var(--s2u-disabled); cursor: default; }
+
+  /* ---- a colour swatch input */
+  .s2u-colour { display: inline-flex; align-items: center; gap: 6px; color: var(--s2u-text); font: var(--s2u-type-body); }
+  [data-density="compact"] .s2u-colour { font: var(--s2u-type-readout); }
+  .s2u-colour input[type="color"] { width: 34px; height: 20px; padding: 0; border: 0; box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); background: var(--s2u-tab); cursor: pointer; }
+
+  /* ---- a disclosure: <details class="s2u-disclosure"><summary>label</summary>…</details> */
+  .s2u-disclosure > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--s2u-space-2); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-text); }
+  [data-density="compact"] .s2u-disclosure > summary { font: var(--s2u-type-readout); letter-spacing: 0; text-transform: none; }
+  .s2u-disclosure > summary::-webkit-details-marker { display: none; }
+  .s2u-disclosure > summary::before { content: ''; width: 0; height: 0; border: 5px solid transparent; border-left-color: var(--s2u-text-dim); transition: transform var(--s2u-dur-fast); }
+  .s2u-disclosure[open] > summary::before { transform: rotate(90deg); }
+  .s2u-disclosure > summary:hover { color: var(--s2u-gold); }
+  .s2u-disclosure > :not(summary) { margin-left: var(--s2u-space-3); }
+
+  /* ---- the overlay: the artifact's ViewerPanel. Head = <button class="s2u-overlay__toggle" aria-expanded
+     aria-controls>; .is-folded shows only the head. The one rounded, lifted surface. */
+  .s2u-overlay {
+    position: fixed; z-index: var(--s2u-z-overlay); width: min(400px, calc(100vw - 24px));
+    background: var(--s2u-ground); border-radius: var(--s2u-radius-viewer);
+    box-shadow: var(--s2u-viewer-lift), var(--s2u-panel-inset);
+    color: var(--s2u-text); overflow: hidden;
+  }
+  .s2u-overlay__toggle {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--s2u-space-2);
+    padding: 10px 14px; border: 0; background: var(--s2u-panel); color: var(--s2u-gold); cursor: pointer; text-align: left;
+    font: 600 12px/16px var(--s2u-font-label); letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .s2u-overlay__toggle:hover { color: var(--s2u-gold-display); }
+  .s2u-overlay__toggle::after { content: ''; flex: none; width: 0; height: 0; border: 5px solid transparent; border-top-color: var(--s2u-text-dim); border-bottom: 0; transition: transform var(--s2u-dur-fast); }
+  .s2u-overlay.is-folded .s2u-overlay__toggle::after { transform: rotate(-90deg); }
+  .s2u-overlay__body { padding: 12px 14px; display: grid; gap: 10px; max-height: calc(100dvh - 104px); overflow-y: auto; overscroll-behavior: contain; font: var(--s2u-type-readout); }
+  .s2u-overlay.is-folded .s2u-overlay__body { display: none; }
+  .s2u-overlay .s2u-tab { padding: 10px 12px; }
+  .s2u-overlay .s2u-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2u-space-2); }
+  .s2u-overlay .s2u-tabs .s2u-tab { display: grid; gap: 2px; border-radius: var(--s2u-radius-viewer); font: var(--s2u-type-tab); letter-spacing: 0.06em; }
+  @media (max-width: 720px) { .s2u-overlay { width: calc(100vw - 2 * var(--s2u-space-4)); } .s2u-overlay__body { max-height: calc(55vh - 96px); } }
+  /* the fullscreen button: 44px, a pill, the corner-bracket glyph */
+  .s2u-fab { width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--s2u-radius-pill); background: var(--s2u-panel); box-shadow: var(--s2u-viewer-lift), var(--s2u-panel-inset); display: grid; place-items: center; color: var(--s2u-text); cursor: pointer; }
+  .s2u-fab svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .s2u-fab:hover { color: var(--s2u-gold); }
+
+  /* ---- a stat: the artifact's StatTile; figure over caption, left-aligned; up/down by lightness */
+  .s2u-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2u-space-2); list-style: none; margin: 0; padding: 0; }
+  @media (max-width: 720px) { .s2u-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .s2u-stat { background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); padding: var(--s2u-space-4) var(--s2u-space-4) var(--s2u-space-3); display: grid; gap: 2px; min-width: 0; }
+  .s2u-stat__v { display: block; font: var(--s2u-type-stat-number); color: var(--s2u-gold); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s2u-stat__k { display: block; font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-text-dim); }
+  .s2u-stat.is-up .s2u-stat__v { color: var(--s2u-glyph-triangle); }
+  .s2u-stat.is-down .s2u-stat__v { color: var(--s2u-warn); }
+
+  /* ---- the lamp: the bezelled LED of the ONLINE header; role="img" with an aria-label the script updates */
+  .s2u-lamp { display: inline-block; width: 16px; height: 16px; border-radius: 50%; flex: none; background: var(--s2u-tab); box-shadow: 0 0 0 2px var(--s2u-panel-edge); }
+  .s2u-lamp.is-up { background: var(--s2u-glyph-triangle); }
+  .s2u-lamp.is-down { background: var(--s2u-warn); }
+  .s2u-lamp--small { width: 9px; height: 9px; }
+
+  /* ---- a label: the small caps mark; --warn is the viewer's dev-build badge */
+  .s2u-label { display: inline-block; font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; padding: 3px 6px; margin: 0 var(--s2u-space-2) 0 0; vertical-align: 2px; box-shadow: var(--s2u-panel-inset); color: var(--s2u-text-dim); }
+  .s2u-label--warn { color: var(--s2u-warn); box-shadow: inset 0 0 0 1px var(--s2u-warn); text-transform: none; letter-spacing: 0; font: var(--s2u-type-readout-caption); }
+
+  /* ---- a notice: a boxed remark; --warn is the viewer's EXPERIMENTAL line */
+  .s2u-notice { margin-top: var(--s2u-space-4); padding: 14px 18px; background: var(--s2u-panel); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); font: var(--s2u-type-body); }
+  .s2u-notice p { margin: 0; max-width: var(--s2u-measure); }
+  .s2u-notice b { color: var(--s2u-gold); font-weight: 600; }
+  .s2u-notice--warn { margin: 0; padding: 0 0 0 8px; background: none; box-shadow: none; border-left: 2px solid var(--s2u-warn); font: var(--s2u-type-readout); color: var(--s2u-text-dim); }
+  .s2u-notice--warn strong { color: var(--s2u-warn); font-weight: 500; }
+
+  /* ---- status: the machine's lines, mono; aria-live="polite" on what the scripts write */
+  .s2u-status { margin: var(--s2u-space-1) 0; font: var(--s2u-type-readout); color: var(--s2u-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .s2u-status.is-ok { color: var(--s2u-glyph-triangle); }
+  .s2u-status.is-bad, .s2u-status.is-warn { color: var(--s2u-warn); }
+  ul.s2u-status { padding-left: 18px; max-height: 30vh; overflow: auto; }
+  ul.s2u-status li { margin-bottom: 2px; }
+  .s2u-status--pill { position: fixed; top: 12px; right: 12px; z-index: var(--s2u-z-overlay); margin: 0; padding: 6px 10px; background: var(--s2u-ground); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-viewer); color: var(--s2u-glyph-cross); font-variant-numeric: tabular-nums; }
+
+  /* ---- loading: a ground box with a status line over a gold bar (the viewer's) */
+  .s2u-loading { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: var(--s2u-z-overlay); width: min(360px, calc(100vw - 32px)); padding: var(--s2u-space-3) var(--s2u-space-4); background: var(--s2u-ground); box-shadow: var(--s2u-viewer-lift), var(--s2u-panel-inset); border-radius: var(--s2u-radius-viewer); }
+  .s2u-loading[hidden] { display: none; }
+  .s2u-loading .s2u-status { margin: 0 0 6px; }
+  .s2u-loading__bar { height: 4px; background: var(--s2u-panel-edge); overflow: hidden; }
+  .s2u-loading__bar::before { content: ''; display: block; height: 100%; width: calc(100% * var(--s2u-progress, 0)); background: var(--s2u-gold); transition: width 90ms linear; }
+
+  /* ---- lists */
+  .s2u-list--plain, .s2u-list--steps { margin: 0; padding-left: 18px; font: var(--s2u-type-body); }
+  .s2u-list--plain li, .s2u-list--steps li, .s2u-list--check li { margin: 6px 0; }
+  .s2u-list--plain b { color: var(--s2u-text-strong); font-weight: 600; }
+  .s2u-list--steps { padding-left: 22px; }
+  .s2u-list--steps li::marker { color: var(--s2u-gold); font-weight: 600; }
+  .s2u-list--check { list-style: none; margin: 0; padding-left: 0; font: var(--s2u-type-body); }
+  .s2u-list--check li { position: relative; padding-left: 34px; }
+  .s2u-list--check li::before { position: absolute; left: 0; top: 0; font: var(--s2u-type-readout); line-height: inherit; color: var(--s2u-gold); }
+  .s2u-list--check.is-done li::before { content: '[X]'; }
+  .s2u-list--check.is-todo li::before { content: '[ ]'; color: var(--s2u-text-dim); }
+
+  /* ---- the hint bar: the artifact's HintBar. <ul class="s2u-hints"> of <li><button|a class="s2u-hint"><svg
+     class="s2u-hint__glyph s2u-hint__glyph--cross" viewBox="0 0 14 14" aria-hidden="true">…</svg>Word</…></li> */
+  .s2u-hints { display: flex; justify-content: flex-end; gap: 28px; list-style: none; margin: 0; padding: 0; }
+  .s2u-hint { display: inline-flex; align-items: center; gap: var(--s2u-space-2); padding: 0; border: 0; background: none; cursor: pointer; text-decoration: none; color: var(--s2u-text-strong); font: var(--s2u-type-hint); letter-spacing: var(--s2u-tracking-hint); text-transform: uppercase; }
+  .s2u-hint:hover { color: var(--s2u-gold); }
+  .s2u-hint__glyph { width: 14px; height: 14px; flex: none; fill: none; stroke-width: 2.2; }
+  .s2u-hint__glyph--square { stroke: var(--s2u-glyph-square); }
+  .s2u-hint__glyph--triangle { stroke: var(--s2u-glyph-triangle); }
+  .s2u-hint__glyph--cross { stroke: var(--s2u-glyph-cross); }
+  .s2u-hint__glyph--circle { stroke: var(--s2u-warn); }
+
+  /* ---- fine print: body-small in text-dim; the viewer's is readout-caption */
+  .s2u-fine { margin: 14px 0 0; font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+  [data-density="compact"] .s2u-fine { font: var(--s2u-type-readout-caption); margin: 0; }
+
+  /* ---- the footer */
+  .s2u-foot { box-shadow: inset 0 1px 0 var(--s2u-panel-edge); padding: 36px var(--s2u-gutter) 40px; }
+  .s2u-foot__inner { max-width: calc(var(--s2u-max) - 2 * var(--s2u-gutter)); margin: 0 auto; display: grid; grid-template-columns: 1fr auto; gap: var(--s2u-space-6); align-items: start; }
+  @media (max-width: 720px) { .s2u-foot__inner { grid-template-columns: 1fr; } }
+  .s2u-foot__brand { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-gold); margin-bottom: var(--s2u-space-2); display: flex; align-items: center; gap: var(--s2u-space-2); }
+  .s2u-foot p { margin: 0; max-width: 62ch; font: var(--s2u-type-body-small); color: var(--s2u-text-dim); }
+  .s2u-foot nav { display: grid; gap: 6px; }
+  .s2u-foot nav a { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-text); text-decoration: none; }
+  .s2u-foot nav a:hover { color: var(--s2u-gold); }
+  .s2u-foot .s2u-fine { max-width: calc(var(--s2u-max) - 2 * var(--s2u-gutter)); margin: 18px auto 0; }
+
+  /* ---- the wheel: the menu roller; the lit row in a highlight box, pulsing as SELECT RANK does */
+  .s2u-wheel { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 24px; }
+  .s2u-wheel a { display: inline-block; text-decoration: none; padding: 6px 14px; color: var(--s2u-text); border-radius: var(--s2u-radius-0); }
+  .s2u-wheel__w { display: inline-block; font: 800 24px/1 var(--s2u-font-display); font-style: italic; font-stretch: 62.5%; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+  .s2u-wheel a:hover, .s2u-wheel a:focus-visible, .s2u-wheel .is-lit a { background: var(--s2u-highlight); color: var(--s2u-text-strong); animation: s2u-pulse 1.2s ease-in-out infinite; }
+  @keyframes s2u-pulse { 50% { opacity: 0.7; } }
+  @media (max-width: 720px) { .s2u-wheel { flex-direction: column; align-items: center; gap: 2px; } .s2u-wheel__w { font-size: 21px; } }
+
+  /* ---- typed text: the artifact's TypedText; typed.ts writes the text, this draws the caret */
+  .s2u-typed { margin: 0; font: var(--s2u-type-body); color: var(--s2u-text); }
+  .s2u-typed__caret { display: inline-block; width: 0.55em; height: 1em; background: var(--s2u-caret); vertical-align: -0.15em; margin-left: 0.15em; animation: s2u-caret 1s steps(1) infinite; }
+  @keyframes s2u-caret { 50% { opacity: 0; } }
+  .s2u-typed--boot { background: var(--s2u-ground-deep); padding: var(--s2u-space-4); color: var(--s2u-cyan-boot); font: var(--s2u-type-readout); letter-spacing: 0.2em; text-transform: uppercase; }
+  .s2u-typed--boot .s2u-typed__caret { background: var(--s2u-cyan-boot); }
+
+  /* ---- part C: the launcher (1.1.0; MU.R19, MU.R20; socomlegacy/docs/plans/briefs/modern-ui-launcher-layout.md,
+     sections 2 to 4; README, "The launcher components"). The project's own launcher, a browser adaptation (MU.R1):
+     no screen of the original game is drawn here. Four regions -- top bar, shelf (with the hero on home), content,
+     action bar -- in a viewport-high frame where only the content scrolls. Motion is the tokens' (MU.R13 F6). ---- */
+
+  /* ---- utilities: a visually hidden line (the launcher's role="status" words); an authored icon at its size */
+  .s2u-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .s2u-icon { width: var(--s2u-icon-20); height: var(--s2u-icon-20); flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  .s2u-icon--16 { width: var(--s2u-icon-16); height: var(--s2u-icon-16); }
+  .s2u-icon--24 { width: var(--s2u-icon-24); height: var(--s2u-icon-24); }
+  .s2u-icon--40 { width: var(--s2u-icon-40); height: var(--s2u-icon-40); }
+
+  /* ---- the focus ring, one rule for keyboard and pad (:focus-visible, and .is-pad-focused set by the page's pad
+     walker) on every control inside the launcher's surfaces. Instant (MU.R13 F2). Scoped to them so no page that
+     does not use the launcher changes; base.css draws the same ring for :focus-visible everywhere. */
+  :is(.s2u-launcher, .s2u-shelf, .s2u-dialog) :is(button, a[href], input, select, textarea, summary, [tabindex]):is(:focus-visible, .is-pad-focused) {
+    outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset);
+  }
+  /* a .s2u-tile is one link stretched over the tile: the tile draws the ring (its :focus-within rule, part A), so the
+     link inside it draws none, and a pad focus on the link rings the tile as a keyboard focus does */
+  :is(.s2u-launcher, .s2u-dialog) .s2u-tile h3 a:is(:focus-visible, .is-pad-focused) { outline: none; }
+  :is(.s2u-launcher, .s2u-dialog) .s2u-tile:has(.is-pad-focused) { background: var(--s2u-tab-lit); outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+
+  /* ---- the frame (brief 2.8): <div class="s2u-launcher [is-opened]"> holding .s2u-topbar, .s2u-hero (home only),
+     .s2u-shelf, .s2u-launcher__content and .s2u-actionbar. The body does not scroll; the content row is the only
+     flexible one. Home: bar 56, hero, shelf 128, content, bar 64. Opened: the hero folds and the shelf compacts to
+     48, so at 1440x900 the content region is 732px. */
+  .s2u-launcher {
+    display: grid; height: 100vh; height: 100dvh; overflow: hidden; min-width: 0;
+    grid-template-rows: var(--s2u-bar-h) auto auto minmax(0, 1fr) var(--s2u-action-h);
+    grid-template-areas: "bar" "hero" "shelf" "content" "action";
+    background: var(--s2u-ground); color: var(--s2u-text);
+  }
+  .s2u-launcher > .s2u-topbar { grid-area: bar; }
+  .s2u-launcher > .s2u-hero { grid-area: hero; }
+  .s2u-launcher > .s2u-shelf { grid-area: shelf; }
+  .s2u-launcher > .s2u-actionbar { grid-area: action; }
+  .s2u-launcher__content {
+    grid-area: content; min-height: 0; min-width: 0; padding: var(--s2u-space-6) var(--s2u-gutter);
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  }
+  .s2u-launcher.is-opened .s2u-hero {
+    height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; visibility: hidden;
+    transition: height var(--s2u-dur-base) var(--s2u-ease), padding var(--s2u-dur-base) var(--s2u-ease), opacity var(--s2u-dur-base) var(--s2u-ease), visibility 0s linear var(--s2u-dur-base);
+  }
+  /* a section of two panes: stacked (the content scrolls) under 960px; side by side from 960px, each its own scroller */
+  .s2u-launcher__panes { display: grid; gap: var(--s2u-space-6); min-width: 0; }
+  .s2u-launcher__pane { min-width: 0; }
+
+  /* ---- the top bar: brand (the page's h1), one adaptation badge, the status chips, the account chip */
+  .s2u-topbar {
+    display: flex; align-items: center; gap: var(--s2u-space-6); min-width: 0;
+    height: var(--s2u-bar-h); padding: 0 var(--s2u-gutter);
+    background: var(--s2u-ground); box-shadow: inset 0 -1px 0 var(--s2u-panel-edge);
+  }
+  .s2u-topbar__brand { flex: none; margin: 0; display: inline-flex; align-items: center; gap: var(--s2u-space-2); white-space: nowrap; font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-topbar__badge { margin: 0; flex: none; }
+  .s2u-topbar__status { margin-left: auto; display: flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; }
+  .s2u-topbar__account { flex: none; }
+  .s2u-topbar__account.is-in .s2u-chip__word { color: var(--s2u-gold); }
+  .s2u-topbar__account.is-agreement { box-shadow: inset 0 0 0 1px var(--s2u-warn); }
+
+  /* ---- the hero (home only): the focused tile's title, one count line, its one primary, one news line, and an
+     optional picture. The backdrop (the shipped poster or loop; ground-deep when absent) sits under a scrim that is
+     opaque enough under the text for every text colour (tokens.test.ts, the scrim over white). */
+  .s2u-hero {
+    position: relative; isolation: isolate; overflow: hidden; min-width: 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s2u-space-8);
+    height: var(--s2u-hero-h); padding: var(--s2u-space-6) var(--s2u-gutter);
+    background: var(--s2u-ground-deep);
+    transition: height var(--s2u-dur-base) var(--s2u-ease), padding var(--s2u-dur-base) var(--s2u-ease), opacity var(--s2u-dur-base) var(--s2u-ease), visibility 0s;
+  }
+  .s2u-hero__backdrop { position: absolute; inset: 0; z-index: -1; }
+  .s2u-hero__backdrop img, .s2u-hero__backdrop video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .s2u-hero__backdrop::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to right, var(--s2u-scrim) 0 70%, color-mix(in srgb, var(--s2u-ground) 40%, transparent)); }
+  .s2u-hero__body { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2u-space-3); min-width: 0; max-width: min(var(--s2u-measure), 66%); transition: opacity var(--s2u-dur-fast) var(--s2u-ease); }
+  .s2u-hero__title { margin: 0; font: var(--s2u-type-screen-title); font-style: var(--s2u-italic-screen-title); font-stretch: 62.5%; letter-spacing: var(--s2u-tracking-screen-title); text-transform: uppercase; color: var(--s2u-gold-display); text-shadow: var(--s2u-title-glow); }
+  .s2u-hero__count { margin: 0; font: var(--s2u-type-subtitle); letter-spacing: var(--s2u-tracking-subtitle); text-transform: uppercase; color: var(--s2u-text-strong); font-variant-numeric: tabular-nums; }
+  .s2u-hero__actions { display: flex; flex-wrap: wrap; gap: var(--s2u-space-2); margin-top: var(--s2u-space-2); }
+  .s2u-hero__line { margin: 0; max-width: 100%; font: var(--s2u-type-body-small); color: var(--s2u-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* the picture: compose with .s2u-tile__frame (and .is-blank before the disc) for its fill and its img */
+  .s2u-hero__media { margin: 0; width: clamp(240px, 30vw, 440px); max-height: 100%; aspect-ratio: 16 / 10; box-shadow: var(--s2u-panel-inset); transition: opacity var(--s2u-dur-fast) var(--s2u-ease); }
+  /* the focused tile changed: the script sets .is-changing, swaps the words after --s2u-dur-fast, and clears it */
+  .s2u-hero.is-changing .s2u-hero__body, .s2u-hero.is-changing .s2u-hero__media { opacity: 0; }
+  .s2u-hero.is-loading .s2u-hero__count { color: var(--s2u-text-dim); }
+
+  /* ---- the shelf: one row of tiles (icon 40, word, a sub-label when the tile needs the disc); the selected tile's
+     ink bar glides under it (MU.R13 F2) at --s2u-ink-x / --s2u-ink-w, set by the script; the focused tile is raised
+     and ringed, instantly. Compact (opened): 48px, icon 20 beside the word. */
+  .s2u-shelf {
+    position: relative; display: flex; align-items: stretch; gap: var(--s2u-space-2); min-width: 0;
+    height: var(--s2u-shelf-h); padding: var(--s2u-space-3) var(--s2u-gutter) var(--s2u-space-4);
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x mandatory; scroll-padding-inline: var(--s2u-gutter);
+    background: var(--s2u-ground); box-shadow: inset 0 -1px 0 var(--s2u-panel-edge);
+    transition: height var(--s2u-dur-base) var(--s2u-ease);
+  }
+  .s2u-shelf::-webkit-scrollbar { display: none; }
+  .s2u-shelf__tile {
+    position: relative; flex: none; scroll-snap-align: start;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2u-space-1);
+    min-width: calc(2 * var(--s2u-space-12)); padding: var(--s2u-space-2) var(--s2u-space-4);
+    appearance: none; border: 0; margin: 0; cursor: pointer; text-decoration: none;
+    background: transparent; color: var(--s2u-text); border-radius: var(--s2u-radius-0);
+    transition: background-color var(--s2u-dur-fast), color var(--s2u-dur-fast);
+  }
+  .s2u-shelf__tile:hover { background: var(--s2u-surface-card); }
+  .s2u-shelf__tile:focus-visible, .s2u-shelf__tile.is-pad-focused { background: var(--s2u-surface-hover); box-shadow: var(--s2u-viewer-lift), var(--s2u-panel-inset); }
+  .s2u-shelf__tile[aria-selected="true"], .s2u-shelf__tile[aria-current="page"], .s2u-shelf__tile.is-on { color: var(--s2u-gold); }
+  .s2u-shelf__tile:disabled, .s2u-shelf__tile[aria-disabled="true"] { opacity: var(--s2u-disabled); cursor: default; }
+  .s2u-shelf__icon { width: var(--s2u-icon-40); height: var(--s2u-icon-40); flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+  .s2u-shelf__word { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; white-space: nowrap; }
+  /* "needs disc": the tile stays focusable and opens on its lock line; the sub-label's room is kept on every tile */
+  .s2u-shelf__sub { font: var(--s2u-type-stat-caption); letter-spacing: var(--s2u-tracking-stat-caption); text-transform: uppercase; color: var(--s2u-gold); visibility: hidden; }
+  .s2u-shelf__tile.is-locked .s2u-shelf__sub { visibility: visible; }
+  .s2u-shelf__ink {
+    position: absolute; left: 0; bottom: 0; height: 2px; width: var(--s2u-ink-w, 0px); transform: translateX(var(--s2u-ink-x, 0px));
+    background: var(--s2u-gold); pointer-events: none;
+    transition: transform var(--s2u-dur-base) var(--s2u-ease), width var(--s2u-dur-base) var(--s2u-ease);
+  }
+  .s2u-launcher.is-opened .s2u-shelf, .s2u-shelf.is-compact { height: var(--s2u-shelf-h-compact); padding-top: 0; padding-bottom: 0; }
+  /* compact, the shelf has no vertical padding and scrolls (it clips): the tiles draw their ring inside themselves */
+  .s2u-launcher.is-opened .s2u-shelf__tile, .s2u-shelf.is-compact .s2u-shelf__tile { flex-direction: row; gap: var(--s2u-space-2); min-width: 0; padding: 0 var(--s2u-space-3); --s2u-focus-offset: calc(-1 * var(--s2u-focus-w)); }
+  .s2u-launcher.is-opened .s2u-shelf__tile:focus-visible, .s2u-launcher.is-opened .s2u-shelf__tile.is-pad-focused, .s2u-shelf.is-compact .s2u-shelf__tile:focus-visible, .s2u-shelf.is-compact .s2u-shelf__tile.is-pad-focused { box-shadow: var(--s2u-panel-inset); }
+  .s2u-launcher.is-opened .s2u-shelf__icon, .s2u-shelf.is-compact .s2u-shelf__icon { width: var(--s2u-icon-20); height: var(--s2u-icon-20); }
+  .s2u-launcher.is-opened .s2u-shelf__tile:not(.is-locked) .s2u-shelf__sub, .s2u-shelf.is-compact .s2u-shelf__tile:not(.is-locked) .s2u-shelf__sub { display: none; }
+
+  /* ---- prompts: glyph + verb, the pad's buttons for what a press does here (the Deck's footer). Shapes in their
+     glyph colours, Circle in the text colour (MU.R20: no Circle colour until the owner names one); L1 R1 L2 R2
+     Options as text keys. Hidden on a touch screen unless a pad is live (the script sets .is-pad). */
+  .s2u-prompts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-2) var(--s2u-space-6); list-style: none; margin: 0; padding: 0; min-width: 0; }
+  .s2u-prompt { display: inline-flex; align-items: center; gap: var(--s2u-space-2); margin: 0; padding: 0; border: 0; background: none; color: var(--s2u-text-strong); font: var(--s2u-type-hint); letter-spacing: var(--s2u-tracking-hint); text-transform: uppercase; white-space: nowrap; }
+  button.s2u-prompt { cursor: pointer; }
+  button.s2u-prompt:hover { color: var(--s2u-gold); }
+  .s2u-prompt__glyph { width: var(--s2u-icon-16); height: var(--s2u-icon-16); flex: none; fill: none; stroke-width: 2.2; }
+  .s2u-prompt__glyph--cross { stroke: var(--s2u-glyph-cross); }
+  .s2u-prompt__glyph--circle { stroke: var(--s2u-text); }
+  .s2u-prompt__glyph--square { stroke: var(--s2u-glyph-square); }
+  .s2u-prompt__glyph--triangle { stroke: var(--s2u-glyph-triangle); }
+  .s2u-prompt__key { display: inline-block; min-width: var(--s2u-icon-24); padding: 1px var(--s2u-space-1); text-align: center; font: var(--s2u-type-stat-caption); letter-spacing: 0; color: var(--s2u-text-strong); background: var(--s2u-surface-card); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0); }
+  @media (hover: none) {
+    .s2u-prompts:not(.is-pad) { display: none; }
+  }
+
+  /* ---- a chip: a state at a glance (the disc, the server, the controller and microphone lamps, the account).
+     Compose the lamp: <span class="s2u-lamp s2u-lamp--small s2u-chip__lamp">. The state is in the word as well as
+     the lamp, never in colour alone. Disc: empty / reading / ready / error; a lamp: live / wait / alert. */
+  .s2u-chip {
+    display: inline-flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; max-width: 100%;
+    height: calc(var(--s2u-space-8) + var(--s2u-space-1)); padding: 0 var(--s2u-space-3);
+    appearance: none; border: 0; margin: 0; text-decoration: none;
+    background: var(--s2u-surface-card); color: var(--s2u-text); box-shadow: var(--s2u-panel-inset); border-radius: var(--s2u-radius-0);
+    font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; white-space: nowrap;
+    transition: background-color var(--s2u-dur-fast), color var(--s2u-dur-fast);
+  }
+  button.s2u-chip, a.s2u-chip { cursor: pointer; }
+  button.s2u-chip:hover, a.s2u-chip:hover { background: var(--s2u-surface-hover); color: var(--s2u-gold); }
+  button.s2u-chip:disabled, .s2u-chip[aria-disabled="true"] { opacity: var(--s2u-disabled); cursor: default; }
+  .s2u-chip__word { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .s2u-chip.is-empty { color: var(--s2u-text-dim); }
+  .s2u-chip.is-reading { cursor: progress; }
+  .s2u-chip.is-reading .s2u-chip__lamp { background: var(--s2u-state-wait); }
+  .s2u-chip.is-wait .s2u-chip__lamp { background: var(--s2u-state-wait); }
+  .s2u-chip.is-ready .s2u-chip__lamp { background: var(--s2u-state-ready); }
+  .s2u-chip.is-live .s2u-chip__lamp { background: var(--s2u-state-live); }
+  .s2u-chip.is-error .s2u-chip__lamp { background: var(--s2u-state-alert); }
+  .s2u-chip.is-alert .s2u-chip__lamp { background: var(--s2u-state-alert); }
+  .s2u-chip.is-error, .s2u-chip.is-alert { box-shadow: inset 0 0 0 1px var(--s2u-warn); }
+
+  /* ---- the action bar: the prompts at the left, the launch cluster at the right -- the disc chip immediately left
+     of a compact START (brief 2.2). START is <button class="s2u-tab s2u-start">: disabled (the tab's own),
+     armed (.is-armed: ground on gold, the screen's one highest-contrast object), launching (.is-launching: the one
+     360ms step, MU.R13 F6). Its room suffix is .s2u-start__room ("LAUNCH . ALPHA"). */
+  .s2u-actionbar {
+    display: flex; align-items: center; gap: var(--s2u-space-6); min-width: 0;
+    height: var(--s2u-action-h); padding: 0 var(--s2u-gutter);
+    background: var(--s2u-ground); box-shadow: inset 0 1px 0 var(--s2u-panel-edge);
+  }
+  .s2u-actionbar__prompts { flex: 1; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+  .s2u-actionbar__cluster { flex: none; margin-left: auto; display: flex; align-items: center; gap: var(--s2u-space-3); min-width: 0; }
+  .s2u-start { display: inline-flex; align-items: center; gap: var(--s2u-space-2); white-space: nowrap; }
+  .s2u-start.is-armed { background: var(--s2u-gold); color: var(--s2u-ground); }
+  .s2u-start.is-armed:hover { background: var(--s2u-gold-display); color: var(--s2u-ground); }
+  .s2u-start.is-launching { background: var(--s2u-gold-display); color: var(--s2u-ground); cursor: wait; transition: background-color var(--s2u-dur-signature) var(--s2u-ease); }
+  .s2u-start__room { color: inherit; }
+
+  /* ---- settings: one settings home, a category list beside its page (brief 2.7). Groups by where the value is
+     stored (This browser / Memory card / Account); a locked group keeps its items focusable, dimmed, under one lock
+     line ("Needs disc", "Sign in to change"). The list is .s2u-tabs.s2u-tabs--column of .s2u-tab.s2u-settings__item;
+     the selected category carries aria-current. Under 960px the list, then the page (.is-paged), Circle back. */
+  .s2u-settings { display: grid; gap: var(--s2u-space-6); min-width: 0; min-height: 0; }
+  .s2u-settings__list { display: flex; flex-direction: column; gap: var(--s2u-space-6); min-width: 0; }
+  .s2u-settings__group { display: flex; flex-direction: column; gap: var(--s2u-space-2); margin: 0; min-width: 0; }
+  .s2u-settings__group > ul { list-style: none; margin: 0; padding: 0; }
+  .s2u-settings__head { margin: 0; font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-settings__lock { margin: 0; font: var(--s2u-type-body-small); color: var(--s2u-text); }
+  .s2u-settings__group:not(.is-locked) .s2u-settings__lock { display: none; }
+  .s2u-settings__item { display: block; width: 100%; }
+  .s2u-settings__group.is-locked .s2u-settings__item { opacity: var(--s2u-disabled); }
+  .s2u-settings__page { display: flex; flex-direction: column; gap: var(--s2u-space-4); min-width: 0; }
+  .s2u-settings__title { margin: 0; display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-4); font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-settings__where { font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); color: var(--s2u-text-dim); }
+
+  /* ---- a dialog: title, body, two buttons with No first (the confirms open on No). Fixed over the page on the
+     scrim -- it never pushes the frame; the script traps focus and restores it. A <div class="s2u-dialog"
+     role="dialog" aria-modal="true" aria-labelledby>, not a <dialog> opened with showModal(): the top layer would
+     sit over a page's own on-screen keyboard (`--s2u-z-osk`) and make it inert, where that keyboard types into the
+     dialog's fields. */
+  .s2u-dialog {
+    position: fixed; inset: 0; z-index: var(--s2u-z-overlay);
+    display: grid; place-items: center; padding: var(--s2u-space-4);
+    background: var(--s2u-scrim); color: var(--s2u-text);
+  }
+  .s2u-dialog[hidden] { display: none; }
+  .s2u-dialog__box {
+    display: flex; flex-direction: column; gap: var(--s2u-space-4); min-width: 0;
+    width: min(480px, 100%); max-height: calc(100dvh - 2 * var(--s2u-space-8)); overflow-y: auto; overscroll-behavior: contain;
+    padding: var(--s2u-space-6); background: var(--s2u-panel); color: var(--s2u-text);
+    box-shadow: var(--s2u-viewer-lift), var(--s2u-panel-inset); border-radius: var(--s2u-radius-0);
+  }
+  .s2u-dialog__title { margin: 0; font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-dialog__body { font: var(--s2u-type-body-small); color: var(--s2u-text); }
+  .s2u-dialog__body > :first-child { margin-top: 0; }
+  .s2u-dialog__body > :last-child { margin-bottom: 0; }
+  .s2u-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2u-space-2); }
+  .s2u-dialog.is-busy .s2u-dialog__actions { cursor: wait; }
+  .s2u-dialog.is-busy .s2u-dialog__actions .s2u-tab { pointer-events: none; opacity: var(--s2u-disabled); }
+
+  /* (2.0.0, CX-29: part C's on-screen keyboard is retired -- no page drew it; the console's keyboard is part G's
+     `.cx-osk`. Its z-order token, `--s2u-z-osk`, stays in base.css: the tokens are the system's contract.) */
+
+  /* ---- the launcher's breakpoints: two panes from 960px; the phone frame at <= 720px */
+  @media (min-width: 960px) {
+    .s2u-launcher__panes { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 100%; }
+    .s2u-launcher__pane { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+    .s2u-launcher__content:has(> .s2u-launcher__panes) { overflow: hidden; }
+    .s2u-settings { grid-template-columns: var(--s2u-tab-w) minmax(0, 1fr); align-items: start; height: 100%; }
+    .s2u-settings__list, .s2u-settings__page { min-height: 0; max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  }
+  @media (max-width: 959px) {
+    .s2u-settings:not(.is-paged) .s2u-settings__page { display: none; }
+    .s2u-settings.is-paged .s2u-settings__list { display: none; }
+  }
+  /* the phone (brief 2.4): the frame is one column that scrolls as a whole, the top bar and the shelf held at the
+     top and the action bar at the foot (sticky), so the hero and the content move together between them; lamps
+     marked .s2u-topbar__fold go into the account menu; the prompts show only with a pad. */
+  @media (max-width: 720px) {
+    .s2u-launcher { display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+    .s2u-launcher > .s2u-topbar { position: sticky; top: 0; z-index: 1; order: 0; flex: none; height: var(--s2u-bar-h-narrow); }
+    .s2u-launcher > .s2u-shelf { position: sticky; top: var(--s2u-bar-h-narrow); z-index: 1; order: 1; flex: none; }
+    .s2u-launcher > .s2u-hero { order: 2; flex: none; }
+    .s2u-launcher__content { order: 3; flex: 1 0 auto; overflow: visible; }
+    .s2u-launcher > .s2u-actionbar { position: sticky; bottom: 0; z-index: 1; order: 4; flex: none; margin-top: auto; }
+    .s2u-launcher.is-opened .s2u-hero { display: none; }
+    .s2u-topbar { gap: var(--s2u-space-3); }
+    .s2u-topbar__fold { display: none; }
+    .s2u-hero { grid-template-columns: minmax(0, 1fr); height: auto; }
+    .s2u-hero__body { max-width: none; }
+    .s2u-hero__media { display: none; }
+    .s2u-hero__backdrop::after { background: var(--s2u-scrim); }
+    .s2u-shelf, .s2u-launcher.is-opened .s2u-shelf, .s2u-shelf.is-compact { height: var(--s2u-shelf-h-narrow); padding: var(--s2u-space-1) var(--s2u-gutter); }
+    .s2u-shelf__tile, .s2u-launcher.is-opened .s2u-shelf__tile, .s2u-shelf.is-compact .s2u-shelf__tile { flex-direction: column; gap: 0; min-width: calc(var(--s2u-space-12) + var(--s2u-space-4)); padding: var(--s2u-space-1) var(--s2u-space-2); --s2u-focus-offset: calc(-1 * var(--s2u-focus-w)); }
+    .s2u-shelf__icon, .s2u-launcher.is-opened .s2u-shelf__icon, .s2u-shelf.is-compact .s2u-shelf__icon { width: var(--s2u-icon-24); height: var(--s2u-icon-24); }
+    .s2u-shelf__tile:not(.is-locked) .s2u-shelf__sub { display: none; }
+    .s2u-actionbar { height: var(--s2u-action-h-narrow); padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .s2u-actionbar__prompts:not(.is-pad) { display: none; }
+    .s2u-actionbar__cluster { flex: 1; justify-content: space-between; }
+  }
+
+  /* ---- part D: adopted from the public site's design guide (1.2.0; MU.R21, MU.R22; README, "From the public site",
+     teaser@185764c3:socomlegacy/packages/viewer/src/teaser/{DESIGN.md,patterns.css}). Additive: no earlier class or token
+     changes. Three action levels with a selected and a disabled state, a callout, a backdrop panel, the reading
+     column. Every state draws the one ring (:focus-visible and .is-pad-focused) at the focus tokens: the guide's 3px
+     offset is not adopted. The 2px rules are gradients on the fill, not edges (the edge guard stays at 1px). ---- */
+
+  /* an action: the shared geometry (44px at least) and the secondary look -- tab fill, text-dim edge, text-strong label */
+  .s2u-action {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s2u-space-2);
+    min-height: var(--s2u-hit-min); margin: 0; padding: var(--s2u-space-2) var(--s2u-space-4);
+    background: var(--s2u-tab); border: 1px solid var(--s2u-text-dim); border-radius: var(--s2u-radius-0);
+    color: var(--s2u-text-strong); font: var(--s2u-type-tab); letter-spacing: var(--s2u-tracking-tab);
+    text-decoration: none; cursor: pointer; appearance: none;
+    transition: background-color var(--s2u-dur-fast), border-color var(--s2u-dur-fast), color var(--s2u-dur-fast);
+  }
+  .s2u-action--secondary { background: var(--s2u-tab); }
+  .s2u-action--large { min-height: var(--s2u-hit-primary); }
+  .s2u-action:hover:not(:disabled):not([aria-disabled="true"]) { background-color: var(--s2u-tab-lit); border-color: var(--s2u-gold); color: var(--s2u-gold-display); }
+  .s2u-action:active:not(:disabled):not([aria-disabled="true"]) { background-color: var(--s2u-highlight-pressed); color: var(--s2u-text-strong); }
+  /* primary: gold fill and edge, ground-deep label; gold-display on hover, text-strong on press */
+  .s2u-action--primary { background: var(--s2u-gold); border-color: var(--s2u-gold); color: var(--s2u-ground-deep); }
+  .s2u-action--primary:hover:not(:disabled):not([aria-disabled="true"]) { background-color: var(--s2u-gold-display); border-color: var(--s2u-gold-display); color: var(--s2u-ground-deep); }
+  .s2u-action--primary:active:not(:disabled):not([aria-disabled="true"]) { background-color: var(--s2u-text-strong); border-color: var(--s2u-text-strong); color: var(--s2u-ground-deep); }
+  /* tertiary: a gold-display link, visibly underlined, no container */
+  .s2u-action--tertiary {
+    min-height: var(--s2u-hit-min); padding: 0 var(--s2u-space-2); background: none; border: 0;
+    color: var(--s2u-gold-display); font: var(--s2u-type-body); letter-spacing: 0; text-decoration: underline; text-underline-offset: 4px;
+  }
+  .s2u-action--tertiary:hover:not(:disabled):not([aria-disabled="true"]) { background: none; color: var(--s2u-text-strong); }
+  .s2u-action--tertiary:active:not(:disabled):not([aria-disabled="true"]) { background: none; color: var(--s2u-text-strong); }
+  /* selected: a gold label and edge and a 2px bottom rule (shape as well as colour); aria-pressed / aria-current are kept */
+  .s2u-action[aria-pressed="true"], .s2u-action[aria-current], .s2u-action.is-on {
+    border-color: var(--s2u-gold); color: var(--s2u-gold-display);
+    background-image: linear-gradient(var(--s2u-gold), var(--s2u-gold)); background-size: 100% var(--s2u-rule-w);
+    background-position: bottom; background-repeat: no-repeat;
+  }
+  /* a selected primary: gold-display on gold would be about 1.2:1, so the label stays ground-deep and the bar is ground-deep
+     (hover and press change only the fill colour, so the bar and the label survive them) */
+  .s2u-action--primary[aria-pressed="true"], .s2u-action--primary[aria-current], .s2u-action--primary.is-on {
+    color: var(--s2u-ground-deep); background-image: linear-gradient(var(--s2u-ground-deep), var(--s2u-ground-deep));
+  }
+  /* a selected tertiary has no container to hold a bar: it keeps its underline, thickened to the rule width, in text-strong */
+  .s2u-action--tertiary[aria-pressed="true"], .s2u-action--tertiary[aria-current], .s2u-action--tertiary.is-on {
+    color: var(--s2u-text-strong); background-image: none; text-decoration-thickness: var(--s2u-rule-w);
+  }
+  /* disabled: tab fill, highlight edge, text-dim label, no glow, no hover; the status text beside it explains why */
+  .s2u-action:disabled, .s2u-action[aria-disabled="true"] {
+    background: var(--s2u-tab); background-image: none; border-color: var(--s2u-highlight); color: var(--s2u-text-dim); box-shadow: none; cursor: not-allowed;
+  }
+  .s2u-action--tertiary:disabled, .s2u-action--tertiary[aria-disabled="true"] { background: none; border: 0; text-decoration: none; }
+  /* the one ring, for keyboard and pad */
+  .s2u-action:focus-visible, .s2u-action.is-pad-focused { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+  /* inset only where a scroller would clip the ring */
+  .s2u-focus-inset { --s2u-focus-offset: calc(-1 * var(--s2u-focus-w)); }
+
+  /* a callout: a panel with a 2px gold top rule. No hover lift: an informational card does not move. */
+  .s2u-panel--callout > .s2u-panel__body {
+    background-color: var(--s2u-panel); background-image: linear-gradient(var(--s2u-gold), var(--s2u-gold));
+    background-size: 100% var(--s2u-rule-w); background-position: top; background-repeat: no-repeat;
+  }
+  /* a panel whose body sits over authored or shipped media (never a game screenshot, MU.R22): the page sets
+     --s2u-backdrop-image on the panel; the body shows it under the shade, so the words stay legible; the head stays the
+     plain panel; with no image the body is the plain panel; forced colours drop both. The shade is below the body's
+     content by z-order (the body is its own stacking context), so no child is made positioned. */
+  .s2u-panel--backdrop > .s2u-panel__body {
+    position: relative; isolation: isolate; background-color: var(--s2u-panel); background-image: var(--s2u-backdrop-image);
+    background-size: cover; background-position: center;
+  }
+  .s2u-panel--backdrop > .s2u-panel__body::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--s2u-backdrop-shade); pointer-events: none; }
+  @media (forced-colors: active) {
+    .s2u-panel--backdrop > .s2u-panel__body { background-image: none; }
+    .s2u-panel--backdrop > .s2u-panel__body::before { display: none; }
+  }
+  /* the reading column: the 1040px measure plus the page gutters */
+  .s2u-reading { box-sizing: border-box; width: 100%; max-width: calc(var(--s2u-measure-reading) + 2 * var(--s2u-gutter)); margin-inline: auto; padding-inline: var(--s2u-gutter); }
+
+  /* ---- part E: the live site's launcher patterns (1.3.0; MU.R19, MU.R23, MU.R24; README, "From the live site",
+     read at the lobby-armory build @803f2671, socomlegacy/packages/viewer/{src/startup.css,src/teaser/patterns.css,index.html}).
+     Additive: no earlier class or token changes, and .s2u-briefing (part A's tabs grid) is untouched -- the live
+     briefing callout is .s2u-facts. The pattern comes over, never its content (MU.R23). A 2px-or-wider live border is
+     a gradient layer here (the edge guard stays at 1px); the live gold-source frames are the highlight edge. ---- */
+
+  /* the memory-card slot (startup.css l.21-37, 133-136; index.html l.66-72): the readout label across the top, the
+     disc's icon on a ground-deep tile, a panel with a 4px left edge (gold; ready: state-ready; error: alert). States
+     .is-empty (the status line hidden) / .is-reading (the icon turns once per 5 x dur-slow; still under reduced motion)
+     / .is-ready (the ready fill, text-strong, the check in place of the groove) / .is-error (warn); .is-over while a
+     file is dragged over the page. The state is in the words too, never in the colour alone. */
+  .s2u-slot {
+    position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-6); min-width: 0;
+    padding: var(--s2u-space-4) var(--s2u-space-6) var(--s2u-space-4) calc(var(--s2u-space-6) + var(--s2u-slot-edge-w));
+    border: 1px solid var(--s2u-highlight); border-radius: var(--s2u-radius-0);
+    background-color: var(--s2u-panel); background-image: linear-gradient(var(--s2u-slot-edge), var(--s2u-slot-edge));
+    background-size: var(--s2u-slot-edge-w) 100%; background-position: left; background-repeat: no-repeat;
+    box-shadow: var(--s2u-viewer-lift); color: var(--s2u-text);
+  }
+  .s2u-slot__label {
+    display: flex; justify-content: space-between; gap: var(--s2u-space-3); flex-basis: 100%;
+    margin: 0 0 var(--s2u-space-2); padding-bottom: var(--s2u-space-2); border-bottom: 1px solid var(--s2u-highlight);
+    font: var(--s2u-type-readout); letter-spacing: var(--s2u-tracking-tab); text-transform: uppercase; color: var(--s2u-gold);
+  }
+  .s2u-slot__icon {
+    display: inline-flex; flex: none; padding: var(--s2u-space-2);
+    background: var(--s2u-ground-deep); border: 1px solid var(--s2u-highlight); color: var(--s2u-gold);
+  }
+  .s2u-slot__icon svg { display: block; width: var(--s2u-icon-40); height: var(--s2u-icon-40); fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .s2u-slot__check { display: none; }
+  .s2u-slot__copy { flex: 1; min-width: 0; }
+  .s2u-slot__title { margin: 0; font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-slot__file { margin: var(--s2u-space-1) 0 0; font: var(--s2u-type-subtitle); color: var(--s2u-text-strong); overflow-wrap: anywhere; }
+  .s2u-slot__status { margin: 0; font: var(--s2u-type-body-small); color: var(--s2u-text); overflow-wrap: anywhere; }
+  .s2u-slot__action { flex: none; display: flex; align-items: center; gap: var(--s2u-space-2); }
+  .s2u-slot.is-empty .s2u-slot__status { display: none; }
+  .s2u-slot.is-reading { cursor: progress; }
+  .s2u-slot.is-reading .s2u-slot__icon svg { animation: s2u-slot-turn calc(var(--s2u-dur-slow) * 5) linear infinite; }
+  @keyframes s2u-slot-turn { to { transform: rotate(360deg); } }
+  .s2u-slot.is-ready { --s2u-slot-edge: var(--s2u-state-ready); border-color: var(--s2u-state-ready); background-color: var(--s2u-slot-ready-fill); }
+  .s2u-slot.is-ready .s2u-slot__title, .s2u-slot.is-ready .s2u-slot__label, .s2u-slot.is-ready .s2u-slot__icon { color: var(--s2u-text-strong); }
+  .s2u-slot.is-ready .s2u-slot__check { display: block; }
+  .s2u-slot.is-ready .s2u-slot__groove { display: none; }
+  .s2u-slot.is-error { --s2u-slot-edge: var(--s2u-state-alert); border-color: var(--s2u-warn); }
+  .s2u-slot.is-error .s2u-slot__status { color: var(--s2u-warn); }
+  .s2u-slot.is-over { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+
+  /* the fact panel (the live briefing callout: startup.css l.224-233, 243-258; index.html l.36-65): a 2px gold top
+     rule over the panel-to-tab gradient; a 240px title column beside the lede; then the fact columns, ruled, each a
+     .s2u-facts__head over a list (s2u-list--check is-done / is-todo, or plain); a .s2u-facts__note across the foot.
+     Three columns, two at <= 900px, one at <= 640px. Used by the launcher as its Ready check. */
+  .s2u-facts {
+    display: grid; grid-template-columns: 240px minmax(0, 1fr); column-gap: var(--s2u-space-6); min-width: 0;
+    padding: var(--s2u-space-4) var(--s2u-space-6); color: var(--s2u-text);
+    background-color: var(--s2u-panel);
+    background-image: linear-gradient(var(--s2u-gold), var(--s2u-gold)), linear-gradient(120deg, var(--s2u-panel), var(--s2u-tab));
+    background-size: 100% var(--s2u-rule-w), auto; background-position: top, center; background-repeat: no-repeat;
+  }
+  .s2u-facts__title { margin: 0; align-self: center; font: var(--s2u-type-subtitle); letter-spacing: var(--s2u-tracking-subtitle); text-transform: uppercase; color: var(--s2u-text-strong); }
+  .s2u-facts__lede { margin: 0; align-self: center; font: var(--s2u-type-body-small); color: var(--s2u-text-strong); }
+  .s2u-facts__grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2u-space-6); margin-top: var(--s2u-space-4); min-width: 0; }
+  .s2u-facts__col { min-width: 0; }
+  .s2u-facts__col + .s2u-facts__col { border-left: 1px solid var(--s2u-highlight); padding-left: var(--s2u-space-4); }
+  .s2u-facts__head { margin: 0 0 var(--s2u-space-2); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-tab); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-facts__col ul { margin: 0; }
+  .s2u-facts__col li { margin: 0 0 var(--s2u-space-1); font: var(--s2u-type-body-small); }
+  .s2u-facts__note { grid-column: 1 / -1; margin: var(--s2u-space-3) 0 0; padding-top: var(--s2u-space-3); border-top: 1px solid var(--s2u-highlight); font: var(--s2u-type-body-small); color: var(--s2u-text); }
+  .s2u-facts a { color: var(--s2u-gold-display); text-underline-offset: 4px; }
+  .s2u-facts a:hover { color: var(--s2u-text-strong); }
+  .s2u-facts a.is-pad-focused { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+
+  /* the summary card (the home of the launcher brief, section 3): one icon, one title, at most three short lines, one
+     action at the foot. The whole card is one link-like control: .s2u-summary__link (in the title) is stretched over
+     it and the card draws the one ring (the tile pattern, part C), so the pad walks cards; the action's Cross prompt
+     shows with the pad focus only. No hover lift: nothing moves when pointed at. .s2u-summaries lays them out 3 / 2 / 1. */
+  .s2u-summaries { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s2u-space-6); min-width: 0; }
+  .s2u-summary {
+    position: relative; display: flex; flex-direction: column; gap: var(--s2u-space-2); min-width: 0;
+    padding: var(--s2u-space-4) var(--s2u-space-6); background: var(--s2u-panel); color: var(--s2u-text);
+    border: 1px solid var(--s2u-highlight); border-radius: var(--s2u-radius-0);
+    transition: background-color var(--s2u-dur-fast);
+  }
+  .s2u-summary:hover { background: var(--s2u-tab-lit); }
+  /* the ring for a keyboard (:focus-visible) or the pad, never for a mouse click (:focus-within would) */
+  .s2u-summary:has(:focus-visible, .is-pad-focused) { background: var(--s2u-tab-lit); outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+  .s2u-summary__icon { display: inline-flex; flex: none; color: var(--s2u-gold); }
+  .s2u-summary__icon svg { width: var(--s2u-icon-24); height: var(--s2u-icon-24); }
+  .s2u-summary__title { margin: 0; font: var(--s2u-type-panel-heading); letter-spacing: var(--s2u-tracking-panel-heading); text-transform: uppercase; color: var(--s2u-gold); }
+  .s2u-summary__link { color: inherit; text-decoration: none; }
+  .s2u-summary__link::after { content: ''; position: absolute; inset: 0; }
+  /* the link draws no ring of its own: one rule at (0,4,0), above part C's launcher ring (0,3,1), so it holds anywhere */
+  .s2u-summary .s2u-summary__title .s2u-summary__link:is(:focus-visible, .is-pad-focused) { outline: none; }
+  .s2u-summary:hover .s2u-summary__title, .s2u-summary:has(:focus-visible, .is-pad-focused) .s2u-summary__title { color: var(--s2u-gold-display); }
+  .s2u-summary__lines { display: flex; flex-direction: column; gap: var(--s2u-space-1); margin: 0; padding: 0; list-style: none; min-width: 0; }
+  .s2u-summary__lines > * { margin: 0; font: var(--s2u-type-body-small); color: var(--s2u-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s2u-summary__lines > :nth-child(n+4) { display: none; }
+  .s2u-summary__action { margin-top: auto; align-self: flex-end; display: inline-flex; align-items: center; gap: var(--s2u-space-2); font: var(--s2u-type-hint); letter-spacing: var(--s2u-tracking-hint); text-transform: uppercase; color: var(--s2u-text-strong); }
+  .s2u-summary__prompt { display: none; }
+  .s2u-summary:has(.is-pad-focused) .s2u-summary__prompt { display: inline-flex; }
+  @media (min-width: 720px) { .s2u-summaries { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (min-width: 1100px) { .s2u-summaries { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+  /* the project nav as icon + word (patterns.css l.104-130; startup.css l.236-253): <nav class="s2u-navlinks"> of
+     .s2u-navlinks__link, each an s2u-icon (20px, our scale; the live 18px is not adopted) and its word, 44px; the ring
+     sits inside the link (a bar clips). In a .s2u-topbar at <= 640px the nav wraps to a second row of plain words. */
+  .s2u-navlinks { display: flex; align-items: center; justify-content: flex-end; gap: var(--s2u-space-4); min-width: 0; }
+  .s2u-navlinks__link {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s2u-space-2);
+    min-height: var(--s2u-hit-min); padding: 0 var(--s2u-space-2); --s2u-focus-offset: calc(-1 * var(--s2u-focus-w));
+    font: var(--s2u-type-subtitle); letter-spacing: var(--s2u-tracking-tab); text-transform: uppercase; text-decoration: none; white-space: nowrap;
+    color: var(--s2u-text); transition: color var(--s2u-dur-fast);
+  }
+  .s2u-navlinks__link:hover { color: var(--s2u-gold-display); }
+  .s2u-navlinks__link[aria-current] { color: var(--s2u-gold); background-image: linear-gradient(var(--s2u-gold), var(--s2u-gold)); background-size: 100% var(--s2u-rule-w); background-position: bottom; background-repeat: no-repeat; }
+  .s2u-navlinks__link:focus-visible, .s2u-navlinks__link.is-pad-focused { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+
+  /* START large (startup.css l.113-114, 263): 48px, at least 180px (124px at <= 640px), a CSS play triangle before
+     the word. Compose: <button class="s2u-tab s2u-start s2u-start--large">; the states are .s2u-start's. */
+  .s2u-start--large {
+    justify-content: center; gap: var(--s2u-space-3);
+    min-height: var(--s2u-hit-primary); min-width: var(--s2u-start-min-w); padding: var(--s2u-space-3) var(--s2u-space-6);
+    font: var(--s2u-type-tab); letter-spacing: var(--s2u-tracking-tab);
+  }
+  .s2u-start--large::before { content: ''; flex: none; width: 0; height: 0; border-left: 10px solid currentColor; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+
+  /* the action bar's ready rule and its error growth (startup.css l.115-119, 247-250): .is-ready turns its top rule
+     gold (a 1px gradient layer in place of the panel-edge rule); .is-error grows by space-12 and shows the
+     .s2u-actionbar__error line in warn, wrapped, never clipped (the live bar's graphics error). */
+  .s2u-actionbar.is-ready { box-shadow: none; background-image: linear-gradient(var(--s2u-gold), var(--s2u-gold)); background-size: 100% 1px; background-position: top; background-repeat: no-repeat; }
+  .s2u-actionbar.is-error { height: auto; min-height: calc(var(--s2u-action-h-error) + env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; align-content: center; row-gap: var(--s2u-space-2); padding-top: var(--s2u-space-2); }
+  .s2u-actionbar__error { flex: 1 1 0; min-width: 0; margin: 0; font: var(--s2u-type-body-small); color: var(--s2u-warn); white-space: normal; overflow-wrap: anywhere; }
+  .s2u-actionbar:not(.is-error) .s2u-actionbar__error { display: none; }
+
+  /* the frame's safe areas (startup.css l.7, 109, 236): the top bar takes the top inset, the action bar the bottom,
+     every row the side insets (a notched phone in landscape keeps START's edge); the grid's first row holds the top
+     inset and its last is the action bar's own height. At zero insets every height is the 1.1.0 one. The content keeps
+     a focused control off the bars (startup.css l.7: scroll-padding-block); on the phone, where the frame scrolls as a
+     whole under sticky bars, the reservation is the bars plus space-6, as the live page's. */
+  .s2u-launcher { grid-template-rows: calc(var(--s2u-bar-h) + env(safe-area-inset-top, 0px)) auto auto minmax(0, 1fr) auto; }
+  .s2u-launcher > .s2u-topbar { height: calc(var(--s2u-bar-h) + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); }
+  .s2u-launcher > .s2u-actionbar { height: calc(var(--s2u-action-h) + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .s2u-launcher > .s2u-actionbar.is-error { height: auto; }
+  .s2u-launcher > .s2u-topbar, .s2u-launcher > .s2u-shelf, .s2u-launcher__content, .s2u-launcher > .s2u-actionbar {
+    padding-left: max(var(--s2u-gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--s2u-gutter), env(safe-area-inset-right, 0px));
+  }
+  .s2u-launcher__content { scroll-padding-block: var(--s2u-space-6); }
+
+  /* the tip: ours (ground, a 1px focus edge, text-strong: legible beside the ring) with the live arrow only
+     (startup.css l.205-208). Fixed, placed by the page; data-side="below" (the arrow on its top edge, pointing up) or
+     "above"; the page sets --s2u-tip-arrow to the arrow's x (50% by default). */
+  .s2u-tip {
+    position: fixed; z-index: var(--s2u-z-tip); box-sizing: border-box; width: min(320px, calc(100vw - 2 * var(--s2u-space-3)));
+    margin: 0; padding: var(--s2u-space-3) var(--s2u-space-4);
+    background: var(--s2u-ground); border: 1px solid var(--s2u-focus); border-radius: var(--s2u-radius-0);
+    color: var(--s2u-text-strong); font: var(--s2u-type-body-small); box-shadow: var(--s2u-viewer-lift);
+  }
+  .s2u-tip[hidden] { display: none; }
+  .s2u-tip[data-side]::before {
+    content: ''; position: absolute; left: var(--s2u-tip-arrow); width: 10px; height: 10px;
+    background: var(--s2u-ground); border: 0 solid var(--s2u-focus); transform: translateX(-50%) rotate(45deg);
+  }
+  .s2u-tip[data-side="below"]::before { top: -6px; border-top: 1px solid var(--s2u-focus); border-left: 1px solid var(--s2u-focus); }
+  .s2u-tip[data-side="above"]::before { bottom: -6px; border-bottom: 1px solid var(--s2u-focus); border-right: 1px solid var(--s2u-focus); }
+
+  /* the look card's frame guide (startup.css l.187-196): an empty picture draws a ground-deep frame (72% x 78%; a 4:3
+     picture 46%) over a 24px panel-edge grid on panel, instead of a black box. Authored CSS, no asset (MU.R3); an img
+     with no src inside it is hidden. Compose with .s2u-tile__frame; .s2u-tile__frame--4x3 for the narrower frame. */
+  .s2u-tile__frame.is-guide {
+    background-color: var(--s2u-panel);
+    background-image: linear-gradient(var(--s2u-ground-deep), var(--s2u-ground-deep)), repeating-linear-gradient(0deg, transparent 0 23px, var(--s2u-panel-edge) 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, var(--s2u-panel-edge) 23px 24px);
+    background-size: 72% 78%, auto, auto; background-position: center; background-repeat: no-repeat, repeat, repeat;
+  }
+  .s2u-tile__frame--4x3.is-guide { background-size: 46% 78%, auto, auto; }
+  .s2u-tile__frame.is-guide img:not([src]) { display: none; }
+
+  /* part E's breakpoints */
+  @media (max-width: 900px) {
+    .s2u-facts__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .s2u-facts__col:nth-child(2n+1) { border-left: 0; padding-left: 0; }
+  }
+  @media (max-width: 720px) {
+    .s2u-launcher { scroll-padding-block: calc(var(--s2u-bar-h-narrow) + var(--s2u-shelf-h-narrow) + var(--s2u-space-6) + env(safe-area-inset-top, 0px)) calc(var(--s2u-action-h-narrow) + var(--s2u-space-6) + env(safe-area-inset-bottom, 0px)); }
+    .s2u-launcher > .s2u-topbar { height: calc(var(--s2u-bar-h-narrow) + env(safe-area-inset-top, 0px)); }
+    .s2u-launcher > .s2u-shelf { top: calc(var(--s2u-bar-h-narrow) + env(safe-area-inset-top, 0px)); }
+    .s2u-launcher > .s2u-actionbar { height: calc(var(--s2u-action-h-narrow) + env(safe-area-inset-bottom, 0px)); }
+    .s2u-launcher > .s2u-actionbar.is-error { height: auto; }
+    .s2u-actionbar.is-error { min-height: calc(var(--s2u-action-h-error-narrow) + env(safe-area-inset-bottom, 0px)); }
+    .s2u-actionbar__error { flex-basis: 100%; }
+    .s2u-summary { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: var(--s2u-space-3); padding: var(--s2u-space-3) var(--s2u-space-4); }
+    .s2u-summary__lines { flex: 1 1 0; }
+    .s2u-summary__lines > :nth-child(n+2) { display: none; }
+    .s2u-summary__action { margin-top: 0; }
+  }
+  @media (max-width: 640px) {
+    .s2u-topbar:has(> .s2u-navlinks) { flex-wrap: wrap; align-content: center; row-gap: 0; }
+    /* in the launcher the two-row bar has a token height (the narrow bar + one 44px row), so the sticky shelf and the
+       scroll reservation below it can follow it */
+    .s2u-launcher > .s2u-topbar:has(> .s2u-navlinks) { height: calc(var(--s2u-bar-h-narrow-nav) + env(safe-area-inset-top, 0px)); }
+    .s2u-launcher:has(> .s2u-topbar > .s2u-navlinks) > .s2u-shelf { top: calc(var(--s2u-bar-h-narrow-nav) + env(safe-area-inset-top, 0px)); }
+    .s2u-launcher:has(> .s2u-topbar > .s2u-navlinks) { scroll-padding-block: calc(var(--s2u-bar-h-narrow-nav) + var(--s2u-shelf-h-narrow) + var(--s2u-space-6) + env(safe-area-inset-top, 0px)) calc(var(--s2u-action-h-narrow) + var(--s2u-space-6) + env(safe-area-inset-bottom, 0px)); }
+    .s2u-navlinks { flex: 1 0 100%; order: 3; height: var(--s2u-hit-min); justify-content: space-between; gap: var(--s2u-space-1); }
+    .s2u-navlinks__link { padding-inline: 0; gap: var(--s2u-space-1); font: var(--s2u-type-body-small); letter-spacing: 0; text-transform: none; }
+    .s2u-facts { grid-template-columns: minmax(0, 1fr); padding: var(--s2u-space-4); }
+    .s2u-facts__lede { margin-top: var(--s2u-space-3); }
+    .s2u-facts__grid { grid-template-columns: minmax(0, 1fr); gap: var(--s2u-space-4); }
+    .s2u-facts__col + .s2u-facts__col { border-left: 0; padding-left: 0; border-top: 1px solid var(--s2u-highlight); padding-top: var(--s2u-space-3); }
+    .s2u-start--large { min-width: var(--s2u-start-min-w-narrow); padding-inline: var(--s2u-space-3); font: var(--s2u-type-subtitle); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .s2u-slot.is-reading .s2u-slot__icon svg { animation: none; }
+  }
+  @media (forced-colors: active) {
+    .s2u-slot { border: 1px solid CanvasText; background-image: none; }
+    .s2u-facts, .s2u-actionbar.is-ready, .s2u-navlinks__link[aria-current] { background-image: none; }
+    .s2u-summary, .s2u-tip { border: 1px solid CanvasText; }
+    .s2u-tip[data-side]::before { display: none; }
+    .s2u-tile__frame.is-guide { background-image: none; border: 1px solid CanvasText; }
+  }
+
+  /* ---- part F: the check list's drawn marks (1.4.0; README, "The check list's marks"; the rendered design review r1,
+     item 13). Additive: .s2u-list--check and its [X] / [ ] glyphs are unchanged (the reading pages use them).
+     .is-marks lays each item as a grid row -- a 16px mark column beside the text, every child in the text column, so a
+     fix sits under its text -- and draws the slot's authored marks (part E's README drawing, on its 64-unit grid): the
+     check when done, the empty ring (the slot's circle) to do. Each is a mask over the item's colour, one line high
+     and centred in it, so the mark sits on the first line however the text wraps. The mask's stroke colour is only
+     its alpha. ---- */
+  .s2u-list--check.is-marks li { display: grid; grid-template-columns: var(--s2u-icon-16) minmax(0, 1fr); column-gap: var(--s2u-space-2); align-items: start; padding-left: 0; }
+  .s2u-list--check.is-marks li > * { grid-column: 2; min-width: 0; }
+  .s2u-list--check.is-marks li::before {
+    content: ''; position: static; grid-column: 1; grid-row: 1; width: var(--s2u-icon-16); height: 1lh; background-color: currentColor;
+    mask-position: center; mask-size: var(--s2u-icon-16) var(--s2u-icon-16); mask-repeat: no-repeat;
+    -webkit-mask-position: center; -webkit-mask-size: var(--s2u-icon-16) var(--s2u-icon-16); -webkit-mask-repeat: no-repeat;
+  }
+  .s2u-list--check.is-marks.is-done li::before { content: ''; mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='m17 33 10 10 22-23' fill='none' stroke='%23c4a04a' stroke-width='7'/%3E%3C/svg%3E"); -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='m17 33 10 10 22-23' fill='none' stroke='%23c4a04a' stroke-width='7'/%3E%3C/svg%3E"); }
+  .s2u-list--check.is-marks.is-todo li::before { content: ''; mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='26' fill='none' stroke='%23c4a04a' stroke-width='5'/%3E%3C/svg%3E"); -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='26' fill='none' stroke='%23c4a04a' stroke-width='5'/%3E%3C/svg%3E"); }
+  @media (forced-colors: active) {
+    .s2u-list--check.is-marks li::before { forced-color-adjust: none; background-color: CanvasText; }
+  }
+
+  /* ---- part H: the select-backed roller (1.6.0; MU2-8 of the redotcom modern UI polish plan; README, "The select-backed
+     roller"). Additive to part G's `.cx-roller`, which stays the export's bytes (css.test.ts holds it by hash), so this
+     part sits with A-F and their guards: `.cx-roller--select` is the same anatomy over a native select -- the value pill
+     is the select (`.cx-roller__value`, part G's pill and its lit state), the step marks either side are the pointer's
+     (`.cx-roller__step`, aria-hidden: the select is the row's one stop), and the gold bar is part G's `.is-focused`,
+     which the page puts on the row while its select has the focus. Each rule is one class more specific than part G's
+     (part G's block comes later in the file). Sized for a panel's row, not the console's stage; a
+     disabled value stays readable (dim text, no opacity). The open list's options are drawn on the panel. ---- */
+  .cx-roller.cx-roller--select { min-height: var(--s2u-hit-min); padding: 0 var(--s2u-space-3); gap: var(--s2u-space-3); }
+  .cx-roller--select .cx-roller__label { font: var(--s2u-type-tab); letter-spacing: var(--s2u-tracking-tab); }
+  .cx-roller--select .cx-roller__ctl { gap: var(--s2u-space-2); min-width: 0; }
+  .cx-roller--select .cx-roller__value {
+    appearance: none; -webkit-appearance: none; min-width: 0; max-width: 100%; margin: 0; padding: var(--s2u-space-1) var(--s2u-space-3);
+    border: 0; background-color: transparent; color: var(--s2u-text-strong); cursor: pointer;
+    font: var(--s2u-type-tab); letter-spacing: var(--s2u-tracking-tab); text-align: center; text-align-last: center;
+  }
+  .cx-roller--select .cx-roller__value option { background-color: var(--s2u-panel); color: var(--s2u-text-strong); }
+  .cx-roller--select .cx-roller__value option:disabled { color: var(--s2u-text-dim); }
+  .cx-roller--select .cx-roller__value:disabled { cursor: default; color: var(--s2u-text-dim); background-color: transparent; }
+  .cx-roller__step { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: var(--s2u-icon-24); cursor: pointer; }
+  .cx-roller__ctl .cx-roller__step:hover .cx-ico { color: var(--s2u-text-strong); }
+  .cx-roller--select:has(.cx-roller__value:disabled) .cx-roller__step { visibility: hidden; }
+
+  /* ---- part I: the extraction popover (1.8.0; DX-2 of the redotcom front-end plan, FI.R7; README, "The extraction
+     popover"). A browser adaptation: part G's .cx-dialog while the page copies the disc's files into the browser's
+     storage. Additive to part G, which stays the export's bytes: .cx-extract is the dialog's own parts -- the scene (a
+     disc that turns, file chips streaming along a lane into a storage box whose level rises with the bar), the file in
+     hand, the figures, the determinate bar (part G's .cx-bar, its sweep off, filled by --s2u-progress as
+     .s2u-loading__bar is), the legend. The phase is the dialog's class: .is-plan / .is-copy / .is-verify turn the disc,
+     only .is-copy streams the chips, .is-done and .is-error stand still. Each rule is one class more specific than the
+     part G rule it meets (part G's block comes later in the file). Motion is the duration tokens only, and stands still
+     under reduced motion (base's 0s and its own block below); the bar still fills, its value being the markup's. ---- */
+  .cx-dialog.cx-extract { gap: 1.25rem; }
+  .cx-extract__scene { display: flex; align-items: center; gap: 1.5rem; min-height: 6rem; padding: 0.5rem 0; }
+  .cx-extract__disc { flex: none; width: 5.5rem; height: 5.5rem; fill: none; stroke: var(--s2u-gold); stroke-width: 2; }
+  .cx-extract__groove { stroke: var(--s2u-gold-display); stroke-dasharray: 30 12; }
+  .cx-extract.is-plan .cx-extract__disc, .cx-extract.is-copy .cx-extract__disc, .cx-extract.is-verify .cx-extract__disc { animation: cx-extract-turn calc(var(--s2u-dur-slow) * 5) linear infinite; }
+  @keyframes cx-extract-turn { to { transform: rotate(360deg); } }
+  .cx-extract__lane { position: relative; flex: 1; min-width: 0; height: 2.75rem; overflow: hidden; border-bottom: 1px solid var(--s2u-highlight); background: var(--s2u-tab); }
+  .cx-extract__chip { display: none; position: absolute; left: -1.5rem; top: 0.375rem; width: 1.5rem; height: 2rem; background: var(--s2u-gold); clip-path: polygon(0 0, 65% 0, 100% 30%, 100% 100%, 0 100%); }
+  .cx-extract.is-copy .cx-extract__chip { display: block; animation: cx-extract-flow calc(var(--s2u-dur-slow) * 3) linear infinite both; }
+  .cx-extract.is-copy .cx-extract__chip:nth-child(2) { animation-delay: calc(var(--s2u-dur-slow) * -1); }
+  .cx-extract.is-copy .cx-extract__chip:nth-child(3) { animation-delay: calc(var(--s2u-dur-slow) * -2); }
+  @keyframes cx-extract-flow { from { left: -1.5rem; } to { left: 100%; } }
+  .cx-extract__store { position: relative; flex: none; width: 5.5rem; height: 5.5rem; color: var(--s2u-text); }
+  .cx-extract__store svg { position: relative; display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; }
+  .cx-extract__level { position: absolute; inset: 31.25% 15.625% 15.625%; background: var(--s2u-highlight); transform-origin: bottom; transform: scaleY(var(--s2u-progress, 0)); transition: transform var(--s2u-dur-base) linear; }
+  .cx-extract.is-done .cx-extract__store { color: var(--s2u-state-ready); }
+  .cx-extract__file { margin: 0; min-height: 1.6em; font: 500 1.25rem/1.3 var(--s2u-font-mono); color: var(--s2u-text-strong); overflow-wrap: anywhere; }
+  .cx-extract__figs { display: flex; gap: 3rem; margin: 0; }
+  .cx-extract__figs > div { display: flex; flex-direction: column; gap: 0.25rem; }
+  .cx-extract__figs dt { font: 500 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-text-dim); }
+  .cx-extract__figs dd { margin: 0; font: 500 1.75rem/1 var(--s2u-font-mono); font-variant-numeric: tabular-nums; color: var(--s2u-text-strong); }
+  .cx-bar.cx-extract__bar { width: 100%; height: 0.5rem; }
+  .cx-bar.cx-extract__bar i { width: 100%; transform-origin: left; transform: scaleX(var(--s2u-progress, 0)); animation: none; transition: transform var(--s2u-dur-base) linear; }
+  .cx-extract__where { margin: 0; font-size: 1.125rem; color: var(--s2u-text); }
+  .cx-extract__legend { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+  .cx-extract__cancel { display: flex; align-items: center; gap: 0.75rem; min-height: 2.75rem; padding: 0 1.25rem 0 0.5rem; border-radius: var(--s2u-radius-pill); font: 600 1.125rem/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-strong); }
+  .cx-extract__cancel:hover { background: var(--s2u-tab-lit); }
+  .cx-extract .cx-toggle > span { display: flex; align-items: center; gap: 0.75rem; }
+  .cx-extract .cx-toggle.is-focused .cx-btn { color: var(--s2u-ground-deep); }
+  /* At a phone's width the popover fits the viewport with a 16px gutter and wraps its lines: no horizontal overflow
+     (the merge controller's check of DX-3's frames at 412x915). Its scrim's track may shrink below the dialog's
+     content, and the dialog is capped to the viewport; part G's .cx-scrim and .cx-dialog are left as the export has them. */
+  .cx-scrim:has(> .cx-extract) { grid-template-columns: minmax(0, 1fr); }
+  .cx-dialog.cx-extract { min-width: 0; max-width: calc(100vw - 2rem); }
+  .cx-extract p, .cx-extract__figs dd, .cx-extract__legend { overflow-wrap: anywhere; }
+  @media (max-width: 760px) {
+    .cx-scrim:has(> .cx-extract) { padding-left: 1rem; padding-right: 1rem; }
+    .cx-dialog.cx-extract { width: 100%; padding: 1.5rem 1.25rem; gap: 1rem; }
+    .cx-extract .cx-dialog__title { font-size: 2.5rem; }
+    .cx-extract__scene { gap: 0.75rem; min-height: 4rem; }
+    .cx-extract__disc, .cx-extract__store { width: 3.5rem; height: 3.5rem; }
+    .cx-extract__figs { flex-wrap: wrap; gap: 1rem 2rem; }
+    .cx-extract__figs dd { font-size: 1.375rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cx-extract.is-plan .cx-extract__disc, .cx-extract.is-copy .cx-extract__disc, .cx-extract.is-verify .cx-extract__disc { animation: none; }
+    .cx-extract.is-copy .cx-extract__chip { display: none; animation: none; }
+    .cx-extract__level, .cx-bar.cx-extract__bar i { transition: none; }
+  }
+  @media (forced-colors: active) {
+    .cx-extract__chip, .cx-extract__level, .cx-bar.cx-extract__bar i { forced-color-adjust: none; background-color: CanvasText; }
+  }
+
+  /* ---- part J: the home's scrolling list (1.9.0; CX-LEGEND of the redotcom front-end plan, issue #238; README, "The
+     home's scrolling list"). A browser adaptation. Part G draws the crossbar home for its 1920x1080 stage and gives it
+     no scroll above the phone rule: .cx-home is laid over the stage (inset: 0) and its body is as tall as its list, so
+     where the stage is shorter than the design's -- a page whose fit floors the scale (the redotcom console's 0.8, at
+     1280x720 and 1366x768), or a larger interface size -- a category whose actions outrun the stage drew its lower rows
+     past it, under .cx-legend, which comes later in the page and took their pointer. Additive to part G, which stays the
+     export's bytes: above the phone rule the body takes the room the crossbar leaves and the list is its own scroll
+     container, bounded by the stage, so its last row scrolls clear of the legend; its bar hidden as the system's other
+     scrolling rows hide theirs (.s2u-shelf, .s2u-bar__nav). The padding, given back by the margin above and at the
+     sides and added to the list's width (so the actions keep --s2u-cx-list-w and their place), is the room the pad's
+     focus ring is drawn in -- part G draws it var(--s2u-focus-w) wide at outline-offset 3px past a focused .cx-item --
+     which the scroll box would clip; none is taken below, so the box ends where the stage does. Each rule is one class
+     more specific than the part G rule it meets (part G's block comes later in the file). At 760px and below part G's
+     own rule scrolls the stage, and nothing here applies. ---- */
+  @media (width > 760px) {
+    .cx-home .cx-home__body { flex: 1 1 0; min-height: 0; }
+    .cx-home__body > .cx-list { align-self: stretch; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding: calc(var(--s2u-focus-w) + 3px); margin: calc(-1 * (var(--s2u-focus-w) + 3px)) calc(-1 * (var(--s2u-focus-w) + 3px)) 0; width: calc(var(--s2u-cx-list-w) + 2 * (var(--s2u-focus-w) + 3px)); }
+    .cx-home__body > .cx-list::-webkit-scrollbar { display: none; }
+    .cx-home__body > .cx-list > * { flex-shrink: 0; }
+  }
+
+  /* ---- part K: the screen head's Back (2.1.0; CX-37 of the redotcom launcher plan; README, "The screen head's Back").
+     A browser adaptation. Every pushed page draws a Back control at the head's left, before the eyebrow and the title,
+     and it acts as Circle. Part G's .cx-screenhead stays the export's bytes (a flex row, the checks at the far end): the
+     button and the title share one wrapper so they sit together and the checks stay the other end. The Circle glyph
+     shows when the page is in pad mode. Tokens only. Each rule is one class more specific than the part G rule it meets
+     (part G's block comes later in the file). ---- */
+  .cx-screen .cx-screenhead > .cx-screenhead__id { display: flex; align-items: flex-end; gap: var(--s2u-space-4); min-width: 0; }
+  .cx-screen .cx-back { display: inline-flex; align-items: center; gap: var(--s2u-space-2); margin: 0; padding: var(--s2u-space-2) var(--s2u-space-3); border: 0; background: transparent; color: var(--s2u-text); font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-tab); text-transform: uppercase; cursor: pointer; }
+  .cx-screen .cx-back:hover, .cx-screen .cx-back:focus-visible, .cx-screen .cx-back.is-focused { color: var(--s2u-gold); }
+  .cx-screen .cx-back .cx-ico { width: 1.25rem; height: 1.25rem; }
+  .cx-back__pad { display: none; }
+  html[data-input="pad"] .cx-screen .cx-back__pad { display: inline-flex; }
+
+  /* ---- part L: the launcher's motion polish (2.2.0; CX-54 of the redotcom console plan, CX.R19: the owner's "a UI
+     animation polish pass leaning towards the sony / socom feel of it"; README, "The launcher's motion polish").
+     A browser adaptation. Short and decisive, a slight overshoot at most (base.css's --s2u-ease-settle); transform
+     and opacity only, so nothing changes a box's size or place; reduced motion stops all of it (base.css). Each rule is
+     one class or element more specific than the part G rule it meets (part G's block comes later in the file). ---- */
+  .cx-scrim .cx-dialog { animation: cx-settle-pop var(--s2u-dur-base) var(--s2u-ease-settle) both; }
+  @keyframes cx-settle-pop { from { opacity: 0; transform: translateY(0.5rem) scale(0.96); } }
+  body .cx-toast { animation: cx-settle-in var(--s2u-dur-base) var(--s2u-ease-settle) both; }
+  @keyframes cx-settle-in { from { opacity: 0; transform: translate(-50%, 0.75rem); } to { transform: translate(-50%, 0); } }
+  /* the focused row settles in, and a soft gold glow breathes on a layer above it that takes no pointer; a split row
+     (the disc cog's) keeps its plain focus */
+  .cx-app .cx-item.is-focused { position: relative; animation: cx-focus var(--s2u-dur-base) var(--s2u-ease-settle) both; }
+  @keyframes cx-focus { from { transform: scaleX(0.985); } }
+  .cx-app .cx-item.is-focused::after { content: ''; position: absolute; inset: 0; pointer-events: none; box-shadow: var(--s2u-title-glow); opacity: 0; animation: cx-glow calc(var(--s2u-dur-slow) * 4) var(--s2u-ease) infinite; }
+  @keyframes cx-glow { 50% { opacity: 0.6; } }
+  .cx-app .cx-split > .cx-item.is-focused::after { content: none; }
+  /* a press scales the row a touch: a pad's Cross through the root's data-press (the page sets it for the press), a
+     click through :active; START's own :active stays part G's when it is ready */
+  /* the row's own transitions, part G's three and the press's transform, so the scale eases back as well as in */
+  .cx-app .cx-item { transition: background var(--s2u-dur-fast) var(--s2u-ease), box-shadow var(--s2u-dur-fast) var(--s2u-ease), padding var(--s2u-dur-fast) var(--s2u-ease), transform var(--s2u-dur-fast) var(--s2u-ease); }
+  :root[data-press="cross"] .cx-app .cx-item.is-focused, .cx-app .cx-item:active { transform: scale(0.985); }
+  .cx-app .cx-start:active { transform: scale(0.98); }
+}
+
+/* ---- part G: the Console launcher, cx-* (1.5.0; README, "The Console launcher (1.5.0)"; the owner's design export of
+   2026-10-11, components/bundle.css from its "Console launcher (cx-*)" header to its end). The export's block
+   verbatim, its own @layer s2u.components block, with one mechanical change: every token it reads is the system's
+   prefixed name -- the export's var(--gold), var(--font-label), var(--cx-safe-x) are var(--s2u-gold),
+   var(--s2u-font-label), var(--s2u-cx-safe-x) here, read from tokens.css and base.css (the 1.5.0 tokens are base.css's).
+   It sets no custom property of its own. The A-F guards (no colour literal, the shadow and radius allowlists, no
+   widened edge) are the Briefing's and stop at this mark: the console layer's pills, rounded keys and gold glows are
+   the export's own; css.test.ts ("1.5.0") holds part G to the export by hash with the prefix taken off, every token
+   it reads declared, and its only colour literals the alpha-suffixed token colours it lists. ---- */
+/* ---------- Console launcher (cx-*), 2026-10-11 ----------
+   The launcher's console layer: a 1920x1080 stage drawn in rem (1rem = 16 design px) that the page scales by setting the root
+   font-size (see "Console launcher", Scaling). Reads the page's tokens directly, like ls-*. These rules are the Crossbar
+   prototype's stylesheet verbatim, minus the page's own html/body rules. The page must patch the DOM in place (never replace
+   it on every press) or the transitions below never run. */
+@layer s2u.components {
+  /* ---------- frame ---------- */
+  .cx-app { position: fixed; inset: 0; z-index: 1; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; padding: var(--s2u-cx-safe-y) var(--s2u-cx-safe-x); padding-top: max(var(--s2u-cx-safe-y), env(safe-area-inset-top, 0px)); padding-bottom: max(calc(var(--s2u-cx-safe-y) * 0.7), env(safe-area-inset-bottom, 0px)); }
+  .cx-backdrop { position: fixed; inset: 0; overflow: hidden; z-index: 0; background: var(--s2u-ground); }
+  .cx-backdrop img { position: absolute; inset: -3%; width: 106%; height: 106%; object-fit: cover; object-position: 60% 40%; transition: filter var(--s2u-dur-base) var(--s2u-ease); }
+  .cx-backdrop.is-drift img { animation: cx-drift 48s var(--s2u-ease) infinite alternate; }
+  @keyframes cx-drift { from { transform: scale(1) translate(0, 0); } to { transform: scale(1.05) translate(-1.5%, -1%); } }
+  .cx-backdrop::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, var(--s2u-veil-strong) 0%, var(--s2u-veil) 36%, var(--s2u-veil-soft) 64%, var(--s2u-veil-faint) 100%), linear-gradient(180deg, var(--s2u-veil) 0%, var(--s2u-veil-clear) 22%, var(--s2u-veil-clear) 66%, var(--s2u-veil-strong) 100%); transition: background var(--s2u-dur-base); }
+  .cx-backdrop.is-deep::before { background: var(--s2u-scrim); }
+  .cx-backdrop.is-deep img { filter: blur(4px); }
+  .cx-backdrop.is-scan::after { content: ""; position: absolute; inset: -30px 0 0; z-index: 2; background: repeating-linear-gradient(0deg, #0000 0 2px, #0000001f 2px 3px); pointer-events: none; animation: cx-scan 6s linear infinite; }
+  @keyframes cx-scan { to { transform: translateY(30px); } }
+  .cx-roll { display: none; position: absolute; left: 0; right: 0; top: 0; height: 22vh; z-index: 2; pointer-events: none; background: linear-gradient(180deg, #dfe4e500 0%, #dfe4e50d 50%, #dfe4e500 100%); animation: cx-roll 9s linear infinite; }
+  .cx-backdrop.is-scan .cx-roll { display: block; }
+  @keyframes cx-roll { from { transform: translateY(-25vh); } to { transform: translateY(105vh); } }
+
+  /* ---------- header ---------- */
+  .cx-header { display: flex; align-items: center; justify-content: space-between; gap: 2rem; min-height: var(--s2u-cx-header-h); }
+  .cx-brand { display: flex; align-items: center; gap: 1rem; }
+  .cx-brand svg { width: 2.75rem; height: 2.75rem; flex: none; }
+  .cx-brand__name { font: italic 800 2.125rem/1 var(--s2u-font-display); font-stretch: 62.5%; letter-spacing: 0.02em; color: var(--s2u-gold-display); }
+  .cx-brand__sub { font: 500 1rem/1 var(--s2u-font-label); letter-spacing: 0.5em; color: var(--s2u-text-strong); }
+  .cx-status { display: flex; align-items: center; gap: 2rem; font: 500 1.125rem/1 var(--s2u-font-label); letter-spacing: 0.06em; text-transform: uppercase; }
+  .cx-lampword { display: flex; align-items: center; gap: 0.5rem; color: var(--s2u-text); }
+  .cx-lampword.is-ready .cx-ico { color: var(--s2u-state-ready); }
+  .cx-lampword.is-off { color: var(--s2u-text-dim); }
+  .cx-lampword.is-wait { color: var(--s2u-text-dim); }
+  .cx-player { display: flex; align-items: center; gap: 0.75rem; min-height: 3rem; padding: 0.375rem 1.25rem 0.375rem 0.375rem; border-radius: 999px; transition: background var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-player:hover { background: var(--s2u-tab-lit); }
+  .cx-player__tile { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; border-radius: 999px; background: var(--s2u-tab-lit); color: var(--s2u-text-strong); }
+  .cx-player__name { color: var(--s2u-text-strong); font-weight: 600; }
+  .cx-player.is-out .cx-player__name { color: var(--s2u-gold); }
+  .cx-player.is-out .cx-player__tile { color: var(--s2u-gold); }
+  .cx-dot { width: 0.625rem; height: 0.625rem; border-radius: 999px; background: var(--s2u-state-ready); }
+  .cx-proto { font: 500 1rem/1 var(--s2u-font-mono); letter-spacing: 0.04em; color: var(--s2u-text-dim); padding: 0.5rem 0.75rem; box-shadow: inset 0 0 0 1px var(--s2u-text-dim); text-transform: none; }
+
+  /* ---------- crossbar home ---------- */
+  .cx-stage { position: relative; min-height: 0; }
+  .cx-home { position: absolute; inset: 0; display: flex; flex-direction: column; animation: cx-in var(--s2u-dur-base) var(--s2u-ease) both; }
+  @keyframes cx-in { from { opacity: 0; transform: translateY(0.75rem); } }
+  @keyframes cx-pop { from { opacity: 0; transform: scale(0.97); } }
+  @keyframes cx-fade { from { opacity: 0; } }
+  .cx-crossbar { margin-top: 7.5rem; height: 9.5rem; position: relative; }
+  .cx-crossbar__track { position: absolute; left: 4rem; top: 0; display: flex; align-items: flex-end; height: 100%; transition: transform var(--s2u-dur-base) var(--s2u-ease); will-change: transform; }
+  .cx-cat { width: var(--s2u-cx-cat-pitch); height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.75rem; color: var(--s2u-text-dim); transition: color var(--s2u-dur-fast) var(--s2u-ease), opacity var(--s2u-dur-base) var(--s2u-ease); }
+  .cx-cat .cx-ico { width: 2.75rem; height: 2.75rem; transform-origin: 50% 100%; transition: transform var(--s2u-dur-base) var(--s2u-ease), filter var(--s2u-dur-base) var(--s2u-ease); }
+  .cx-cat__label { transition: transform var(--s2u-dur-base) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease); transform-origin: 50% 100%; }
+  .cx-cat__label { font: 500 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; white-space: nowrap; }
+  .cx-cat:hover { color: var(--s2u-text); }
+  .cx-cat.is-current { color: var(--s2u-gold-display); }
+  .cx-cat.is-current .cx-ico { transform: translateY(-0.5rem) scale(1.9); stroke-width: 1.1; filter: drop-shadow(0 0 6px #dcb85c66); }
+  .cx-cat.is-current .cx-cat__label { font-size: 1.375rem; font-weight: 600; letter-spacing: 0.12em; text-shadow: var(--s2u-title-glow); }
+  .cx-cat.is-past { opacity: 0.55; }
+  .cx-cat.is-gone { opacity: 0; pointer-events: none; }
+  .cx-crossbar__hint { position: absolute; bottom: 0.25rem; display: flex; align-items: center; opacity: 0.7; z-index: 1; }
+  .cx-crossbar__hint .cx-shoulder, .cx-tabs__hint .cx-shoulder { min-width: 2.25rem; height: 1.375rem; border-width: 1.5px; border-color: var(--s2u-text-dim); color: var(--s2u-text-dim); font-size: 1rem; }
+  .cx-crossbar__hint--l { left: 0; }
+  .cx-crossbar__hint--r { right: 0; }
+  .cx-crossbar__hint .cx-ico { width: 1.25rem; height: 1.25rem; stroke-width: 2.4; }
+  .cx-tabs__hint { display: flex; align-items: center; gap: 0.75rem; opacity: 0.7; padding: 0.25rem 1.5rem; font: 500 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-text-dim); }
+  .cx-home__body { margin-top: 2.25rem; margin-left: calc(var(--s2u-cx-cat-pitch) + 4rem); display: flex; gap: 6rem; align-items: flex-start; min-height: 0; }
+
+  .cx-list { list-style: none; margin: 0; padding: 0; width: var(--s2u-cx-list-w); display: flex; flex-direction: column; gap: 0.375rem; }
+  .cx-item { width: 100%; display: flex; align-items: center; gap: 1.25rem; padding: 0.875rem 1.5rem; min-height: 4.5rem; box-sizing: border-box; color: var(--s2u-text); transition: background var(--s2u-dur-fast) var(--s2u-ease), box-shadow var(--s2u-dur-fast) var(--s2u-ease), padding var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-item__title { transition: font-size var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-item__icon { transition: color var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-item__icon { color: var(--s2u-text-dim); }
+  .cx-item__icon .cx-ico { width: 2rem; height: 2rem; }
+  .cx-item__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .cx-item__title { font: 500 1.5rem/1.2 var(--s2u-font-label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--s2u-text); }
+  .cx-item__sub { font: 400 1.125rem/1.35 var(--s2u-font-body); color: var(--s2u-text-dim); }
+  .cx-item__state { font: 600 1.125rem/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-dim); white-space: nowrap; }
+  .cx-item__state.is-ready { color: var(--s2u-state-ready); }
+  .cx-item__state.is-alert { color: var(--s2u-warn); }
+  .cx-item:hover { background: var(--s2u-row-veil); }
+  .cx-item.is-focused { background: var(--s2u-tab-lit); box-shadow: inset 4px 0 0 var(--s2u-gold), inset 0 0 0 1px var(--s2u-gold); padding-block: 1.125rem; }
+  .cx-item.is-focused .cx-item__title { font-size: 1.875rem; font-weight: 600; color: var(--s2u-text-strong); }
+  .cx-item.is-focused .cx-item__sub { color: var(--s2u-text); }
+  .cx-item.is-focused .cx-item__icon { color: var(--s2u-gold); }
+  .cx-item.is-disabled .cx-item__title { color: var(--s2u-text-dim); }
+
+  .cx-readout { width: 30rem; padding: 1.75rem; display: flex; flex-direction: column; gap: 1.5rem; background: var(--s2u-panel-veil); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); }
+  .cx-readout__head { font: 600 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-gold); }
+  .cx-readout__figs { display: flex; gap: 3.5rem; }
+  .cx-fig { display: flex; flex-direction: column; gap: 0.25rem; }
+  .cx-fig__n { font: 500 4.5rem/1 var(--s2u-font-mono); color: var(--s2u-text-strong); font-variant-numeric: tabular-nums; }
+  .cx-fig__n.is-small { font-size: 2.75rem; }
+  .cx-fig__label { font: 500 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-text-dim); }
+  .cx-readout__line { margin: 0; font: 400 1.125rem/1.45 var(--s2u-font-body); color: var(--s2u-text); }
+  .cx-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+  .cx-check { display: flex; align-items: center; gap: 0.75rem; font: 500 1.25rem/1.2 var(--s2u-font-label); letter-spacing: 0.04em; color: var(--s2u-text-strong); }
+  .cx-check .cx-ico { width: 1.75rem; height: 1.75rem; color: var(--s2u-state-ready); stroke-width: 2.2; }
+  .cx-check.is-wait { color: var(--s2u-text); }
+  .cx-check.is-wait .cx-ico { color: var(--s2u-warn); }
+
+  /* ---------- pushed screens ---------- */
+  .cx-screen { position: absolute; inset: 0; display: flex; flex-direction: column; padding-top: 2.5rem; animation: cx-in var(--s2u-dur-base) var(--s2u-ease) both; }
+  .cx-screenhead { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+  .cx-eyebrow { display: flex; align-items: center; gap: 0.75rem; font: 500 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-text-dim); }
+  .cx-eyebrow .cx-ico { width: 1.375rem; height: 1.375rem; color: var(--s2u-gold); }
+  .cx-title { margin: 0.375rem 0 0; font: italic 800 4.5rem/0.95 var(--s2u-font-display); font-stretch: 62.5%; letter-spacing: 0.02em; text-transform: uppercase; color: var(--s2u-gold-display); text-shadow: var(--s2u-title-glow); }
+  .cx-screen__body { margin-top: 2rem; flex: 1; min-height: 0; display: flex; gap: 2rem; }
+
+  .cx-filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .cx-filter { display: inline-flex; align-items: center; min-height: 3rem; padding: 0 1.5rem; border-radius: 999px; font: 500 1.125rem/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text); box-shadow: inset 0 0 0 1px var(--s2u-highlight); transition: background var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-filter:hover { background: var(--s2u-tab-lit); }
+  .cx-filter[aria-pressed="true"] { background: var(--s2u-text-strong); color: var(--s2u-ground-deep); font-weight: 600; box-shadow: none; }
+  .cx-shoulder { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 2.75rem; height: 1.75rem; padding: 0 0.5rem; border: 2px solid var(--s2u-text); border-radius: 0.875rem 0.875rem 0.3125rem 0.3125rem; font: 600 1rem/1 var(--s2u-font-label); letter-spacing: 0.04em; color: var(--s2u-text-strong); }
+  .cx-shoulder.is-trigger { height: 2.125rem; border-radius: 1.125rem 1.125rem 0.3125rem 0.3125rem; padding-top: 0.25rem; }
+  .cx-shoulders { display: inline-flex; gap: 0.375rem; align-items: center; }
+
+  .cx-rooms { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .cx-rooms__head, .cx-room { display: grid; grid-template-columns: 11rem minmax(0, 1fr) 11rem 8rem 7.5rem; gap: 1rem; align-items: center; padding: 0 1.5rem; }
+  .cx-rooms__head { padding-bottom: 0.5rem; font: 500 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-text-dim); }
+  .cx-room { min-height: var(--s2u-cx-row-h); background: var(--s2u-row-veil); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); font-size: 1.375rem; color: var(--s2u-text);  transition: background var(--s2u-dur-fast) var(--s2u-ease), box-shadow var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease);}
+  .cx-room__name { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--s2u-text-strong); }
+  .cx-room__count { font: 500 1.25rem/1 var(--s2u-font-mono); font-variant-numeric: tabular-nums; }
+  .cx-room__count.is-full { color: var(--s2u-warn); }
+  .cx-room:hover { background: var(--s2u-tab-lit); }
+  .cx-room.is-focused { background: var(--s2u-tab-lit); box-shadow: inset 4px 0 0 var(--s2u-gold); color: var(--s2u-text-strong); }
+  .cx-room.is-selected { background: var(--s2u-highlight); color: var(--s2u-text-strong); }
+  .cx-room.is-selected .cx-room__name::after { content: ""; display: inline-block; width: 0.625rem; height: 0.625rem; margin-left: 0.75rem; vertical-align: middle; background: var(--s2u-gold); }
+  .cx-ping { display: flex; align-items: center; gap: 0.5rem; font: 600 1rem/1 var(--s2u-font-label); letter-spacing: 0.1em; }
+  .cx-ping svg { width: 1.125rem; height: 1rem; }
+  .cx-ping.is-good { color: var(--s2u-state-ready); } .cx-ping.is-fair { color: var(--s2u-text); } .cx-ping.is-poor { color: var(--s2u-warn); }
+  .cx-room.is-focused .cx-ping, .cx-room.is-selected .cx-ping { color: var(--s2u-text-strong); }
+  .cx-rooms__foot { margin-top: 0.75rem; padding: 0 1.5rem; font-size: 1rem; color: var(--s2u-text-dim); }
+  .cx-empty { padding: 2rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-start; background: var(--s2u-row-veil); }
+
+  .cx-drawer { width: 35rem; flex: none; display: flex; flex-direction: column; background: var(--s2u-panel); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); }
+  .cx-drawer__map { position: relative; height: 15rem; overflow: hidden; background: var(--s2u-tab); }
+  .cx-drawer__map img { width: 100%; height: 100%; object-fit: cover; object-position: 55% 45%; }
+  .cx-drawer__map::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, #00293300 40%, var(--s2u-panel) 100%); }
+  .cx-drawer__map.is-guide { display: grid; place-items: center; color: var(--s2u-text-dim); font: 500 1rem/1 var(--s2u-font-label); letter-spacing: 0.18em; }
+  .cx-drawer__name { position: absolute; left: 1.75rem; bottom: 1rem; z-index: 1; font: italic 800 3rem/1 var(--s2u-font-display); font-stretch: 62.5%; text-transform: uppercase; color: var(--s2u-text-strong); }
+  .cx-drawer__body { padding: 1.25rem 1.75rem 1.75rem; display: flex; flex-direction: column; gap: 1.25rem; flex: 1; }
+  .cx-facts { margin: 0; display: grid; grid-template-columns: 8.75rem minmax(0, 1fr); row-gap: 0.75rem; font-size: 1.25rem; }
+  .cx-facts dt { font: 500 1rem/1.6 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-text-dim); }
+  .cx-facts dd { margin: 0; color: var(--s2u-text-strong); }
+  .cx-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+  .cx-side { padding: 0.875rem 1rem; background: var(--s2u-tab); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); display: flex; flex-direction: column; gap: 0.25rem; }
+  .cx-side__name { font: 600 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; color: var(--s2u-gold); }
+  .cx-side__n { font: 500 1.75rem/1 var(--s2u-font-mono); color: var(--s2u-text-strong); }
+  .cx-drawer__cta { margin-top: auto; display: flex; align-items: center; gap: 0.75rem; font: 600 1.25rem/1.2 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-strong); }
+
+  /* options */
+  .cx-tabs { width: 21.25rem; flex: none; display: flex; flex-direction: column; gap: 0.375rem; }
+  .cx-tab { min-height: 4.25rem; padding: 0 1.5rem; display: flex; align-items: center; gap: 1rem; background: var(--s2u-tab); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); font: 500 1.375rem/1 var(--s2u-font-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--s2u-text);  transition: background var(--s2u-dur-fast) var(--s2u-ease), box-shadow var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease);}
+  .cx-tab .cx-ico { width: 1.625rem; height: 1.625rem; }
+  .cx-tab:hover { background: var(--s2u-tab-lit); }
+  .cx-tab.is-current { background: var(--s2u-tab-lit); box-shadow: inset 4px 0 0 var(--s2u-gold); color: var(--s2u-gold-display); font-weight: 600; }
+  .cx-rows { flex: 0 1 57.5rem; min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+  .cx-roller { min-height: var(--s2u-cx-row-h); padding: 0 1.5rem; display: flex; align-items: center; gap: 1.5rem; background: var(--s2u-row-veil); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); color: var(--s2u-text);  transition: background var(--s2u-dur-fast) var(--s2u-ease), box-shadow var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease);}
+  .cx-roller__label { flex: 1; font: 500 1.375rem/1.2 var(--s2u-font-label); letter-spacing: 0.04em; }
+  .cx-roller__ctl { display: flex; align-items: center; gap: 0.75rem; }
+  .cx-roller__ctl .cx-ico { width: 1.25rem; height: 1.25rem; stroke-width: 2.4; color: var(--s2u-text-dim); }
+  .cx-roller__value { min-width: 15rem; padding: 0.5rem 1rem; border-radius: 999px; transition: background var(--s2u-dur-fast) var(--s2u-ease); text-align: center; font: 600 1.25rem/1.2 var(--s2u-font-label); letter-spacing: 0.06em; color: var(--s2u-text-strong); }
+  .cx-roller__value.is-changed::after { content: " •"; color: var(--s2u-gold); }
+  .cx-roller:hover { background: var(--s2u-tab-lit); }
+  .cx-roller.is-focused { background: var(--s2u-tab-lit); box-shadow: inset 4px 0 0 var(--s2u-gold); color: var(--s2u-text-strong); }
+  .cx-roller.is-focused .cx-roller__value { background: var(--s2u-highlight); }
+  .cx-roller.is-focused .cx-roller__ctl .cx-ico { color: var(--s2u-text-strong); }
+  .cx-roller.is-action .cx-roller__value { background: var(--s2u-tab-lit); box-shadow: inset 0 0 0 1px var(--s2u-highlight); }
+  .cx-roller.is-locked { opacity: 0.45; }
+  .cx-aside { flex: 1; min-width: 0; padding: 1.75rem; display: flex; flex-direction: column; gap: 1rem; background: var(--s2u-panel-veil); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); align-self: flex-start; }
+  .cx-aside p { margin: 0; font-size: 1.25rem; line-height: 1.4; color: var(--s2u-text-strong); }
+  .cx-aside .cx-aside__note { font-size: 1.0625rem; color: var(--s2u-text-dim); }
+
+  /* ---------- legend ---------- */
+  .cx-legend { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding-top: calc(var(--s2u-cx-safe-y) * 0.7); box-shadow: inset 0 1px 0 var(--s2u-highlight); min-height: var(--s2u-cx-legend-h); position: relative; }
+  .cx-legend.is-ready { box-shadow: inset 0 2px 0 var(--s2u-gold); }
+  .cx-prompts { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 2.25rem; flex-wrap: wrap; }
+  .cx-prompt { display: flex; align-items: center; gap: 0.625rem; padding: 0 0.75rem 0 0.375rem; margin-left: -0.375rem; border-radius: 999px; transition: background var(--s2u-dur-fast) var(--s2u-ease); font: 600 1.125rem/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-strong); min-height: 2.75rem; }
+  button.cx-prompt:hover { background: var(--s2u-tab-lit); }
+  .cx-label { display: block; text-box: trim-both cap alphabetic; }
+  @supports not (text-box: trim-both cap alphabetic) { .cx-label { padding-top: 0.1em; } }
+  .cx-btn { width: 1.75rem; height: 1.75rem; flex: none; display: inline-block; }
+  .cx-btn svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .cx-btn .g { stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .cx-btn--cross { color: var(--s2u-glyph-cross); } .cx-btn--circle { color: var(--s2u-text); } .cx-btn--square { color: var(--s2u-glyph-square); } .cx-btn--triangle { color: var(--s2u-glyph-triangle); }
+  .cx-dpad { width: 2rem; height: 2rem; color: var(--s2u-text-strong); }
+  .cx-dpad .on { fill: currentColor; }
+  .cx-dpad .off { fill: none; stroke: var(--s2u-text-dim); stroke-width: 1.5; }
+  .cx-cluster { display: flex; align-items: center; gap: 1.75rem; }
+  .cx-chip { display: flex; align-items: center; gap: 0.75rem; min-height: 3.5rem; padding: 0 1.25rem 0 0.75rem; border-radius: 999px; transition: background var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-chip:hover { background: var(--s2u-tab-lit); }
+  .cx-chip .cx-ico { width: 2rem; height: 2rem; }
+  .cx-chip.is-ready .cx-ico { color: var(--s2u-state-ready); }
+  .cx-chip.is-empty .cx-ico, .cx-chip.is-reading .cx-ico { color: var(--s2u-warn); }
+  .cx-chip__text { display: flex; flex-direction: column; }
+  .cx-chip__word { font: 600 1.125rem/1.2 var(--s2u-font-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--s2u-text-strong); }
+  .cx-chip__sub { font-size: 1rem; line-height: 1.3; color: var(--s2u-text-dim); }
+  .cx-chip:hover .cx-chip__sub { color: var(--s2u-text); }
+  .cx-start { display: flex; align-items: center; justify-content: center; gap: 0.875rem; min-height: 4rem; min-width: 17.5rem; padding: 0 2.25rem 0 1.75rem; box-sizing: border-box; border-radius: 999px; background: var(--s2u-tab); box-shadow: inset 0 0 0 1px var(--s2u-highlight); font: 600 1.5rem/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-dim); transition: background var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease), transform var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-start .cx-play { width: 1.25rem; height: 1.25rem; fill: currentColor; }
+  .cx-start.is-ready { background: var(--s2u-gold); color: var(--s2u-ground-deep); box-shadow: 0 0 1.5rem #dcb85c55; animation: cx-breathe 2.8s var(--s2u-ease) infinite; }
+  @keyframes cx-breathe { 50% { box-shadow: 0 0 2.5rem #dcb85c8c; } }
+  .cx-start.is-ready:active { transform: scale(0.97); }
+  .cx-start.is-ready:hover { background: var(--s2u-gold-display); }
+  .cx-start.is-arming { background: var(--s2u-gold-display); box-shadow: 0 0 3rem #dcb85cb3; transform: scale(1.04); animation: none; transition: transform var(--s2u-dur-signature) var(--s2u-ease), box-shadow var(--s2u-dur-signature) var(--s2u-ease); }
+  .cx-legend__error { animation: cx-in var(--s2u-dur-fast) var(--s2u-ease) both; border-radius: 999px; position: absolute; right: 0; top: -2.5rem; margin: 0; padding: 0.5rem 1rem; background: var(--s2u-panel); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); font-size: 1.0625rem; color: var(--s2u-warn); }
+  .cx-legend__error:empty { display: none; }
+
+  /* ---------- dialogs ---------- */
+  .cx-scrim { position: fixed; inset: 0; background: var(--s2u-scrim); display: grid; place-items: center; padding: var(--s2u-cx-safe-y) var(--s2u-cx-safe-x) calc(var(--s2u-cx-legend-h) + var(--s2u-cx-safe-y) + 1rem); box-sizing: border-box; z-index: 10; animation: cx-fade var(--s2u-dur-fast) var(--s2u-ease) both; }
+  .cx-dialog { animation: cx-pop var(--s2u-dur-base) var(--s2u-ease) both; border-radius: 1rem; width: 61.25rem; max-width: 100%; display: flex; flex-direction: column; gap: 1.5rem; padding: 2rem 2.25rem 2.25rem; background: var(--s2u-panel); box-shadow: inset 0 2px 0 var(--s2u-gold), inset 0 0 0 1px var(--s2u-panel-edge), var(--s2u-viewer-lift); box-sizing: border-box; }
+  .cx-dialog__title { margin: 0; font: italic 800 3.5rem/1 var(--s2u-font-display); font-stretch: 62.5%; letter-spacing: 0.02em; text-transform: uppercase; color: var(--s2u-gold-display); text-shadow: var(--s2u-title-glow); }
+  .cx-dialog__lead { margin: -0.75rem 0 0; font-size: 1.25rem; color: var(--s2u-text); }
+  .cx-personas { display: flex; gap: 1rem; }
+  .cx-persona { flex: 1; display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-radius: 0.75rem; transition: background var(--s2u-dur-fast) var(--s2u-ease); background: var(--s2u-tab); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); }
+  .cx-persona__tile { width: 3.5rem; height: 3.5rem; border-radius: 999px; display: grid; place-items: center; background: var(--s2u-panel); color: var(--s2u-text); }
+  .cx-persona__tile .cx-ico { width: 1.875rem; height: 1.875rem; }
+  .cx-persona__name { font: 600 1.5rem/1.1 var(--s2u-font-label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--s2u-text); }
+  .cx-persona__sub { font-size: 1rem; color: var(--s2u-text-dim); }
+  .cx-persona.is-current { background: var(--s2u-tab-lit); box-shadow: inset 0 0 0 1px var(--s2u-gold); }
+  .cx-persona.is-current .cx-persona__name { color: var(--s2u-gold-display); }
+  .cx-persona.is-current .cx-persona__tile { color: var(--s2u-gold); }
+  .cx-persona.is-focused { box-shadow: inset 4px 0 0 var(--s2u-gold), inset 0 0 0 1px var(--s2u-gold); }
+  .cx-field { display: flex; flex-direction: column; gap: 0.5rem; }
+  .cx-field__label { font: 600 1rem/1.2 var(--s2u-font-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--s2u-gold); }
+  .cx-field__box { min-height: 4.5rem; display: flex; align-items: center; padding: 0 1.5rem; background: var(--s2u-ground); box-shadow: inset 0 0 0 1px var(--s2u-highlight), inset 0 -2px 0 var(--s2u-gold); font: 500 2rem/1 var(--s2u-font-mono); letter-spacing: 0.3em; color: var(--s2u-text-strong); }
+  .cx-field__box.is-empty { font: 400 1.25rem/1 var(--s2u-font-body); letter-spacing: 0; color: var(--s2u-text-dim); }
+  .cx-caret { display: inline-block; width: 1rem; height: 2.25rem; margin-left: 0.25rem; background: var(--s2u-caret); animation: cx-blink 1s steps(1) infinite; vertical-align: middle; }
+  @keyframes cx-blink { 50% { opacity: 0; } }
+  .cx-field__error { margin: 0; font-size: 1.0625rem; color: var(--s2u-warn); }
+  .cx-osk { border-radius: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; padding: 1.25rem; background: var(--s2u-ground); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); }
+  .cx-osk__row { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 0.5rem; }
+  .cx-osk__row.is-wide { grid-template-columns: 2fr 4fr 2fr 2fr; }
+  .cx-osk__key { min-height: var(--s2u-cx-key-h); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.625rem; background: var(--s2u-tab); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); font: 500 1.5rem/1 var(--s2u-font-label); color: var(--s2u-text-strong); transition: transform var(--s2u-dur-fast) var(--s2u-ease), background var(--s2u-dur-fast) var(--s2u-ease); }
+  .cx-osk__key.is-word { font-size: 1.125rem; font-weight: 600; letter-spacing: 0.12em; color: var(--s2u-text); }
+  .cx-osk__key.is-on { color: var(--s2u-gold-display); box-shadow: inset 0 -2px 0 var(--s2u-gold); }
+  .cx-osk__key.is-done { background: var(--s2u-gold); color: var(--s2u-ground-deep); }
+  .cx-osk__key:hover { background: var(--s2u-tab-lit); }
+  .cx-osk__key.is-done:hover { background: var(--s2u-gold-display); }
+  .cx-osk__key.is-focused { background: var(--s2u-highlight); box-shadow: inset 0 0 0 1px var(--s2u-gold); transform: translateY(-4px); }
+  .cx-osk__key.is-done.is-focused { background: var(--s2u-gold-display); color: var(--s2u-ground-deep); }
+  .cx-osk__key .cx-btn { width: 1.375rem; height: 1.375rem; }
+  .cx-dialog__note { margin: 0; font-size: 1rem; color: var(--s2u-text-dim); }
+  .cx-toggle > span { text-box: trim-both cap alphabetic; }
+  .cx-toggle { min-height: 4rem; padding: 0 1.75rem; border-radius: 999px; transition: background var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease); display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: var(--s2u-tab); box-shadow: inset 0 0 0 1px var(--s2u-panel-edge); font: 500 1.375rem/1.2 var(--s2u-font-label); color: var(--s2u-text); }
+  .cx-toggle b { font-weight: 600; color: var(--s2u-text-strong); letter-spacing: 0.06em; text-transform: uppercase; }
+  .cx-toggle:hover { background: var(--s2u-tab-lit); }
+  .cx-toggle.is-focused { background: var(--s2u-text-strong); box-shadow: 0 0 1.25rem #dfe4e533; color: var(--s2u-ground-deep); }
+  .cx-toggle.is-focused b { color: var(--s2u-ground-deep); }
+
+  /* launch */
+  .cx-launch { animation: cx-fade var(--s2u-dur-base) var(--s2u-ease) both; position: fixed; inset: 0; z-index: 20; background: var(--s2u-ground); display: flex; flex-direction: column; justify-content: center; padding: 0 calc(var(--s2u-cx-safe-x) * 2); gap: 1.5rem; }
+  .cx-launch__title { margin: 0; font: italic 800 7.5rem/0.9 var(--s2u-font-display); font-stretch: 62.5%; letter-spacing: 0.02em; color: var(--s2u-gold-display); text-shadow: var(--s2u-title-glow); }
+  .cx-launch p { margin: 0; max-width: 52rem; font-size: 1.5rem; line-height: 1.45; color: var(--s2u-text-strong); }
+  .cx-launch .cx-launch__note { font-size: 1.25rem; color: var(--s2u-text-dim); }
+  .cx-bar { width: 40rem; max-width: 100%; height: 0.375rem; background: var(--s2u-tab); overflow: hidden; }
+  .cx-bar i { display: block; height: 100%; width: 30%; background: var(--s2u-gold); animation: cx-load 1.4s var(--s2u-ease) infinite; }
+  @keyframes cx-load { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  .cx-launch__back { margin-top: 2rem; padding: 0 1.25rem 0 0.5rem; border-radius: 999px; display: flex; align-items: center; gap: 0.75rem; font: 600 1.125rem/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-strong); align-self: flex-start; min-height: 2.75rem; }
+
+  .cx-toast { animation: cx-in var(--s2u-dur-base) var(--s2u-ease) both; border-radius: 999px; position: fixed; left: 50%; bottom: calc(var(--s2u-cx-legend-h) + var(--s2u-cx-safe-y) + 1.5rem); transform: translateX(-50%); z-index: 30; padding: 1rem 1.5rem; background: var(--s2u-panel); box-shadow: inset 0 0 0 1px var(--s2u-highlight), var(--s2u-viewer-lift); font-size: 1.25rem; color: var(--s2u-text-strong); max-width: 60rem; }
+
+  /* focus ring: drawn for pad and keyboard input, never for a pointer click */
+  :root[data-input="pad"] .is-focused { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+  :root[data-input="pad"] .cx-item.is-focused, :root[data-input="pad"] .cx-room.is-focused, :root[data-input="pad"] .cx-roller.is-focused { outline-offset: 3px; }
+  :root[data-input="pad"] .cx-cat.is-current { outline: none; }
+  :root[data-input="pad"] :focus { outline: none; }
+  :root[data-input="pad"] .is-focused:focus { outline: 2px solid var(--s2u-focus); }
+
+  /* ---------- phone / narrow ---------- */
+  @media (max-width: 760px) {
+    .cx-app { padding: 0.75rem 1.25rem; padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px)); }
+    .cx-status .cx-lampword, .cx-brand__sub, .cx-proto { display: none; }
+    .cx-stage { overflow-y: auto; }
+    .cx-home { position: static; }
+    .cx-crossbar { margin-top: 1.5rem; height: 8rem; overflow: hidden; }
+    .cx-home__body { margin-left: 0; flex-direction: column; gap: 1.5rem; }
+    .cx-list, .cx-readout { width: 100%; box-sizing: border-box; }
+    .cx-screen { position: static; padding-top: 1.5rem; }
+    .cx-screen__body { flex-direction: column; }
+    .cx-rooms__head { display: none; }
+    .cx-room { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; padding-block: 0.75rem; }
+    .cx-room > :nth-child(3) { display: none; }
+    .cx-drawer, .cx-tabs, .cx-rows { width: 100%; }
+    .cx-tabs { flex-direction: row; overflow-x: auto; }
+    .cx-tabs__hint, .cx-crossbar__hint { display: none; }
+    .cx-tab { flex: none; }
+    .cx-roller__value { min-width: 9rem; }
+    .cx-prompts { display: none; }
+    :root[data-input="pad"] .cx-prompts { display: flex; }
+    .cx-legend { flex-wrap: wrap; }
+    .cx-cluster { width: 100%; justify-content: space-between; }
+    .cx-start { min-width: 12rem; }
+    .cx-title { font-size: 3.5rem; }
+    .cx-dialog { padding: 1.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cx-backdrop img, .cx-backdrop::after, .cx-roll, .cx-caret, .cx-bar i, .cx-start.is-ready, .cx-home, .cx-screen, .cx-scrim, .cx-dialog, .cx-launch, .cx-toast, .cx-legend__error { animation: none; }
+    .cx-crossbar__track, .cx-cat, .cx-cat .cx-ico, .cx-cat__label, .cx-item, .cx-item__title, .cx-room, .cx-roller, .cx-tab, .cx-osk__key, .cx-start, .cx-filter, .cx-toggle, .cx-backdrop img, .cx-backdrop::before { transition: none; }
+  }
+  @media (forced-colors: active) {
+    .cx-backdrop { display: none; }
+    .cx-item.is-focused, .cx-room.is-focused, .cx-roller.is-focused, .cx-tab.is-current, .cx-persona.is-focused, .cx-osk__key.is-focused, .cx-toggle.is-focused, .cx-filter[aria-pressed="true"] { outline: 2px solid CanvasText; outline-offset: -2px; }
+    .cx-room, .cx-roller, .cx-tab, .cx-osk__key, .cx-dialog, .cx-drawer, .cx-readout, .cx-start, .cx-filter, .cx-toggle, .cx-shoulder { border: 1px solid CanvasText; }
+  }
+}

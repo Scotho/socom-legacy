@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en" data-console>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings organisation — proposal mock</title>
+<style>
+@font-face {
+  font-family: "Oswald";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("../../../../../shared/fonts/oswald-normal-variable-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("../../../../../shared/fonts/jetbrains-mono-normal-variable-latin.woff2") format("woff2");
+}
+:root {
+  --ink: #eef2f5;
+  --ink-hi: #f4f7f9;
+  --accent: #f2b43a;
+  --accent-hi: #ffd27a;
+  --on-accent: #140d02;
+  --section: #6fb6e0;
+  --bad: #ff8a7a;
+  --ground: #03080e;
+  --panel: #02060aeb;
+  --edge: #3ca0dc24;
+  --dim: color-mix(in srgb, var(--ink) 62%, transparent);
+  --font: "Oswald", "Arial Narrow", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background:
+    radial-gradient(1200px 500px at 70% -10%, #1060a055, transparent 60%),
+    var(--ground);
+  color: var(--ink);
+  font: 400 17px/1.4 var(--font);
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; }
+.kicker { font: 400 12px/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+h1 { font: 400 34px/1.15 var(--font); margin: 0 0 8px; font-weight: 400; }
+.lede { margin: 0 0 18px; max-width: 68ch; color: color-mix(in srgb, var(--ink) 78%, transparent); }
+.layouts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.layouts button, .family button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 4px;
+  color: var(--dim);
+}
+.layouts button.is-on, .family button.is-on { color: var(--ink-hi); box-shadow: inset 0 -2px 0 var(--accent); }
+.layouts button:hover, .family button:hover { color: var(--ink); }
+.frame {
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  border-radius: 4px;
+  min-height: 640px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.crumb { display: flex; gap: 8px; align-items: center; padding: 22px 28px 0; font: 400 12px/1.2 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
+.crumb button { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+.crumb button:hover { color: var(--accent-hi); }
+.crumb .here { color: var(--accent); }
+.title { margin: 6px 28px 16px; font: 400 34px/1.15 var(--font); }
+.family { display: flex; gap: 4px; padding: 0 28px 12px; }
+.body { display: grid; grid-template-columns: 220px minmax(0, 1fr) 280px; gap: 8px; min-height: 0; flex: 1; padding: 0 12px 20px; }
+.tabs { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px; }
+.tab {
+  display: flex; align-items: center; min-height: 40px; padding: 8px 14px; border-radius: 4px;
+  color: var(--dim); text-align: left;
+}
+.tab:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); color: var(--ink); }
+.tab.is-current { color: var(--ink-hi); }
+.tab.is-current span { box-shadow: inset 0 -2px 0 var(--accent); }
+.rows { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding: 4px 12px 12px; max-height: 520px; }
+.row {
+  display: flex; align-items: center; gap: 16px; min-height: 54px; padding: 8px 20px; border-radius: 4px; width: 100%; color: var(--ink);
+}
+.row:hover { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.row.is-on { background: color-mix(in srgb, var(--ink) 6%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
+.row .lab { flex: 1; text-align: left; font-size: 17px; }
+.row .hint { display: block; font-size: 13px; opacity: 0.58; }
+.head {
+  min-height: 0; padding: 18px 20px 6px; font: 400 11px/1.2 var(--mono); letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--section);
+}
+.val { font: 400 13px/1.3 var(--mono); color: color-mix(in srgb, var(--ink) 85%, transparent); }
+.pill { width: 46px; height: 26px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 16%, transparent); position: relative; flex: none; }
+.pill i { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 80%, transparent); }
+.pill.on { background: var(--accent); }
+.pill.on i { left: 24px; background: var(--on-accent); }
+.track { width: 140px; height: 14px; position: relative; flex: none; }
+.track::before { content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 16%, transparent); }
+.track b { position: absolute; left: 0; top: 5px; height: 3px; background: var(--accent); border-radius: 2px; }
+.track s { position: absolute; top: 1px; width: 13px; height: 13px; margin-left: -6px; border-radius: 50%; background: var(--accent-hi); }
+.arrow { color: var(--accent); opacity: 0.45; }
+.row.is-on .arrow { opacity: 1; }
+.danger { color: var(--bad); }
+.aside { padding: 8px 16px; }
+.aside h2 { margin: 0 0 8px; font: 400 18px/1.3 var(--font); }
+.aside p { margin: 0 0 10px; font-size: 15px; color: color-mix(in srgb, var(--ink) 82%, transparent); }
+.aside .note { font: 400 12px/1.4 var(--mono); color: var(--dim); }
+.foot { margin: 14px 0 0; font-size: 14px; color: var(--dim); max-width: 78ch; }
+@media (max-width: 860px) {
+  .body { grid-template-columns: 1fr; }
+  .tabs { flex-direction: row; overflow: auto; }
+  .rows { max-height: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Proposal mock · LATER 294</p>
+  <h1>Settings organisation</h1>
+  <p class="lede">Three layouts of the rows the launcher already has. A is the recommendation. Clicks only change which proposal you are looking at.</p>
+  <div class="layouts" id="layouts"></div>
+  <div class="frame" id="frame"></div>
+  <p class="foot" id="foot"></p>
+</div>
+<script>
+const LAYOUTS = [
+  ["A", "A · Game and Launcher"],
+  ["B", "B · reorder today’s tabs"],
+  ["C", "C · Client and Game"],
+];
+
+const card = "Saved to your memory card.";
+const browser = "Saved to this browser.";
+
+function row(id, label, kind, value, about, note) {
+  return { id, label, kind, value, about, note };
+}
+function head(label) { return { kind: "h", label }; }
+
+const displayGame = [
+  row("BRIGHTNESS", "Brightness", "slider", "50%", "The picture’s brightness.", card),
+  row("BOBBING_1ST_PERSON", "Head bob", "toggle", true, "Head bob on or off.", card),
+  row("DISPLAY_MP_TEAM_NAMES", "Teammate names", "toggle", true, "Teammate names on or off.", card),
+  row("HelpWindowsEnabled", "Help windows", "toggle", true, "Help windows on or off.", card),
+  row("ScreenOriginX", "Screen position, across", "select", "125", "The picture’s position across the screen (SCREEN ADJUST).", card),
+  row("ScreenOriginY", "Screen position, down", "select", "165", "The picture’s position down the screen (SCREEN ADJUST).", card),
+];
+const detail = row("detail-distance", "Detail distance", "slider", "2.0×", "How far the fine detail textures on floors and walls reach in a match. 1.0× is the original; the PS2 picture always draws the original.", "Saved to this browser. The Forge uses it too.");
+const audio = [
+  row("MUSIC_VOLUME", "Music volume", "slider", "70%", "The music volume.", card),
+  row("SOUND_VOLUME", "Sound volume", "slider", "80%", "The sound volume.", card),
+  row("DIALOG_VOLUME", "Dialog volume", "slider", "80%", "The dialog volume.", card),
+  row("HEADSET_CONTROLLER", "Headset volume", "slider", "75%", "The headset volume.", card),
+  row("STEREO_CONTROLLER", "Sound mode", "select", "Stereo", "Mono, stereo or Dolby.", card),
+];
+const controls = [
+  row("VIBRATION_CONTROLLER", "Vibration", "toggle", true, "Vibration on or off, where your controller has it.", card),
+  row("AutoAim", "Aim assist", "toggle", true, "Aim assist on or off.", card),
+  row("INVERT_PITCH_CONTROLLER", "Pitch", "select", "Normal", "Pitch normal or inverted.", card),
+  row("FIREMODESWAP_CONTROLLER", "Fire rate", "select", "L3", "The fire rate on L3 or on Select.", card),
+  row("stick_preset", "Stick preset", "select", "Soldier", "The stick preset: Trainee, Soldier, Seal or Custom.", card),
+  row("STICK_SENSITIVITY", "Look speed", "slider", "40%", "The look speed, with the Custom preset.", card),
+  row("STICK_INERTIA", "Acceleration", "slider", "30%", "The acceleration, with the Custom preset.", card),
+  row("STICK_DEADZONE", "Dead zone", "slider", "20%", "The stick dead zone, with the Custom preset.", card),
+];
+const device = [
+  row("pad-device", "Controller", "select", "Automatic", "Which controller the game reads; Automatic takes the first standard one.", browser),
+  row("pad-dead", "Stick dead zone", "slider", "15%", "How far the stick moves before anything happens. Raise it if your aim drifts on its own.", "Saved to this browser, for this controller."),
+  row("stance-mode", "Stance mode", "select", "Prone-pop", "Prone-pop, or Separate with Crouch and Prone on their own buttons.", "Saved to this browser. Applies now."),
+  row("remap", "Button mapping", "action", "Remap", "Choose which button does what, action by action.", "Saved to this browser, for this controller."),
+  row("overlay-button", "Overlay button", "select", "Home", "The button that opens this menu over a game.", browser),
+];
+const voice = [
+  row("mic-on", "Use microphone in game", "toggle", true, "Your microphone for voice chat in the game.", browser),
+  row("mic-device", "Microphone", "select", "System default", "Which microphone the game uses. Names show once the browser has allowed it.", browser),
+];
+const appearance = [
+  row("theme-panel", "Theme & background", "action", "Navy & Gold · Wave only", "The launcher’s colours and what sits behind the wave.", "Saved to this browser. Applies now."),
+  row("drift", "Backdrop motion", "toggle", false, "A slow drift across the backdrop picture. Always off when your system asks for reduced motion.", browser),
+  row("clock", "Clock", "select", "24-hour", "The clock in the launcher’s header, 24-hour or 12-hour.", browser),
+  row("sounds", "Launcher sounds", "toggle", true, "Short sounds as you move, choose and go back in the launcher. The game’s own sound is not changed.", browser),
+  row("soundVolume", "Launcher sound volume", "slider", "70%", "How loud the launcher’s sounds are.", browser),
+  row("uiscale", "Interface size", "select", "100%", "Makes every word and control in the launcher larger.", browser),
+  row("scan", "Scanline overlay", "toggle", false, "Faint horizontal lines over the launcher, like the briefing room’s CRT.", browser),
+];
+const app = [
+  row("install-app", "Install app", "action", "Install", "Add the launcher to this device with its own icon and window.", "On iPhone and iPad, installed apps keep storage separate from Safari."),
+  row("disc-kept", "Remove downloaded content", "action", "Remove", "Disc files kept in this browser, removed only after a confirm.", "Kept in this browser only. Your disc itself is not touched."),
+  row("version", "Version", "info", "v0.1.0", "The launcher’s version, as the badge beside its name shows it.", "This build of the launcher."),
+];
+const account = [
+  row("remember", "Remember me on this browser", "info", "On the sign-in", "Keeps you signed in on this browser after a reload. It is chosen on the sign-in.", "Chosen on the sign-in."),
+  row("signout", "Sign out", "action", "Sign out", "Signs you out of the server on this browser.", "Your memory card is not changed."),
+];
+const mobile = [
+  row("mobile-layout", "Touch layout", "action", "Edit layout", "Drag each button and stick to where your thumbs reach.", "Saved to this browser on this device."),
+];
+const whispers = [
+  row("EnableExternalWhispers", "External whispers", "toggle", false, "External whispers on or off.", card),
+];
+
+const A = {
+  blurb: "Settings opens on Game or Launcher. Controller is the first Launcher tab, and the device, the browser dead zone and Button mapping lead it. Game keeps the memory-card tabs.",
+  families: {
+    Game: {
+      Display: [...displayGame, head("This browser"), detail],
+      Audio: audio,
+      Controls: controls,
+      Communication: whispers,
+    },
+    Launcher: {
+      Controller: [...device, head("Voice"), ...voice],
+      Appearance: appearance,
+      App: app,
+      Account: account,
+      Mobile: mobile,
+    },
+  },
+  start: ["Launcher", "Controller", "remap"],
+  list: [
+    ["Game", "Display, sound and the card’s controls"],
+    ["Launcher", "Controller, appearance, app and account"],
+  ],
+};
+const B = {
+  blurb: "The eight tabs stay. Controller leads with the browser rows, then the card rows under a heading. Display and Communication get the same kind of heading. The Settings list stays System Settings, App and Theme.",
+  families: {
+    Settings: {
+      Display: [...displayGame, head("This browser"), detail],
+      App: app,
+      Appearance: appearance,
+      Audio: audio,
+      Controller: [...device, head("In the game"), ...controls],
+      Mobile: mobile,
+      Communication: [...whispers, head("This browser"), ...voice],
+      Account: account,
+    },
+  },
+  start: ["Settings", "Controller", "remap"],
+  list: [
+    ["System Settings", "Opens Display, as it does today"],
+    ["App", "Installation, updates and storage"],
+    ["Theme", "The theme drop-up, beside the Appearance tab"],
+  ],
+};
+const C = {
+  blurb: "Client and Game are the only tabs. Each page is one scroll with section headings. Button mapping sits in the first section of Client.",
+  families: {
+    Pages: {
+      Client: [
+        head("Controller"), ...device,
+        head("Voice"), ...voice,
+        head("Appearance"), ...appearance,
+        head("App"), ...app,
+        head("Account"), ...account,
+        head("Mobile"), ...mobile,
+      ],
+      Game: [
+        head("Display"), ...displayGame, head("This browser"), detail,
+        head("Audio"), ...audio,
+        head("Controls"), ...controls,
+        head("Communication"), ...whispers,
+      ],
+    },
+  },
+  start: ["Pages", "Client", "remap"],
+  list: null,
+};
+
+const SPEC = { A, B, C };
+const opened = location.hash.slice(1);
+const layout0 = SPEC[opened] ? opened : "A";
+const start0 = SPEC[layout0].start;
+const state = { layout: layout0, family: start0[0], tab: start0[1], focus: start0[2], list: false };
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function rowsOf() {
+  const spec = SPEC[state.layout];
+  return spec.families[state.family][state.tab];
+}
+function focusRow() {
+  const rows = rowsOf().filter((r) => r.kind !== "h");
+  return rows.find((r) => r.id === state.focus) || rows[0];
+}
+
+function renderLayouts() {
+  document.getElementById("layouts").innerHTML = LAYOUTS.map(([id, label]) =>
+    `<button type="button" data-layout="${id}" class="${state.layout === id ? "is-on" : ""}">${esc(label)}</button>`).join("");
+}
+
+function render() {
+  renderLayouts();
+  const spec = SPEC[state.layout];
+  document.getElementById("foot").textContent = spec.blurb + " Sample values are not defaults. Mobile is drawn here so the tab is visible; today it appears only when the browser has touch. The update row is omitted; it appears only while a new build waits.";
+  const frame = document.getElementById("frame");
+  if (state.list && spec.list) {
+    frame.innerHTML = `
+      <div class="crumb"><span class="here">Settings</span></div>
+      <div class="title">Settings</div>
+      <div class="rows" style="max-width:640px;padding:0 28px 28px">
+        ${spec.list.map(([title, sub], i) => `<button type="button" class="row ${i === 0 ? "is-on" : ""}" data-door="${esc(title)}"><span class="lab">${esc(title)}<span class="hint">${esc(sub)}</span></span><span class="arrow">›</span></button>`).join("")}
+      </div>`;
+    return;
+  }
+  const families = Object.keys(spec.families);
+  const tabs = Object.keys(spec.families[state.family]);
+  const rows = rowsOf();
+  const focus = focusRow();
+  const familyNav = families.length > 1
+    ? `<div class="family">${families.map((f) => `<button type="button" data-family="${esc(f)}" class="${f === state.family ? "is-on" : ""}">${esc(f)}</button>`).join("")}</div>`
+    : "";
+  const crumb = spec.list
+    ? `<button type="button" data-list>Settings</button><span>/</span><span class="here">${esc(state.family === "Settings" ? state.tab : state.family)}</span>`
+    : `<span class="here">Settings</span>`;
+  frame.innerHTML = `
+    <div class="crumb">${crumb}</div>
+    <div class="title">${esc(state.tab)}</div>
+    ${familyNav}
+    <div class="body">
+      <nav class="tabs" aria-label="Categories">${tabs.map((t) => `<button type="button" class="tab ${t === state.tab ? "is-current" : ""}" data-tab="${esc(t)}"><span>${esc(t)}</span></button>`).join("")}</nav>
+      <div class="rows">${rows.map((r) => drawRow(r, focus)).join("")}</div>
+      <aside class="aside">${focus ? `<h2>${esc(focus.label)}</h2><p>${esc(focus.about)}</p><p class="note">${esc(focus.note)}</p>` : ""}</aside>
+    </div>`;
+}
+
+function drawRow(r, focus) {
+  if (r.kind === "h") return `<div class="head">${esc(r.label)}</div>`;
+  const on = focus && focus.id === r.id ? " is-on" : "";
+  let ctl = "";
+  if (r.kind === "toggle") ctl = `<span class="pill ${r.value ? "on" : ""}" aria-hidden="true"><i></i></span>`;
+  else if (r.kind === "slider") {
+    const n = parseFloat(r.value);
+    const pct = r.value.includes("×") ? ((n - 1) / 3) * 100 : n;
+    ctl = `<span class="track" aria-hidden="true"><b style="width:${pct}%"></b><s style="left:${pct}%"></s></span><span class="val">${esc(r.value)}</span>`;
+  } else if (r.kind === "action") ctl = `<span class="val ${r.id === "signout" || r.id === "disc-kept" ? "danger" : ""}">${esc(r.value)}</span><span class="arrow">›</span>`;
+  else ctl = `<span class="val">${esc(r.value)}</span>`;
+  return `<button type="button" class="row${on}" data-id="${esc(r.id)}"><span class="lab">${esc(r.label)}</span>${ctl}</button>`;
+}
+
+document.body.addEventListener("click", (ev) => {
+  const layout = ev.target.closest("[data-layout]");
+  if (layout) {
+    state.layout = layout.dataset.layout;
+    location.hash = state.layout;
+    const spec = SPEC[state.layout];
+    state.family = spec.start[0];
+    state.tab = spec.start[1];
+    state.focus = spec.start[2];
+    state.list = false;
+    render();
+    return;
+  }
+  const door = ev.target.closest("[data-door]");
+  if (door) {
+    const spec = SPEC[state.layout];
+    const name = door.dataset.door;
+    if (spec.families[name]) {
+      state.family = name;
+      state.tab = Object.keys(spec.families[name])[0];
+    } else if (name === "System Settings") {
+      state.family = "Settings";
+      state.tab = "Display";
+    } else if (name === "App") {
+      state.family = "Settings";
+      state.tab = "App";
+    } else {
+      state.family = "Settings";
+      state.tab = "Appearance";
+    }
+    state.focus = "";
+    state.list = false;
+    render();
+    return;
+  }
+  if (ev.target.closest("[data-list]")) { state.list = true; render(); return; }
+  const family = ev.target.closest("[data-family]");
+  if (family) {
+    state.family = family.dataset.family;
+    state.tab = Object.keys(SPEC[state.layout].families[state.family])[0];
+    state.focus = "";
+    render();
+    return;
+  }
+  const tab = ev.target.closest("[data-tab]");
+  if (tab) { state.tab = tab.dataset.tab; state.focus = ""; render(); return; }
+  const id = ev.target.closest("[data-id]");
+  if (id) { state.focus = id.dataset.id; render(); }
+});
+
+render();
+</script>
+</body>
+</html>

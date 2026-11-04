@@ -1,0 +1,19 @@
+{
+  "format": "s2u-pack",
+  "formatVersion": 2,
+  "id": "example.paintball",
+  "version": "1.0.0",
+  "name": "Paintball (example)",
+  "description": "An example rules pack built only on the published creator rules contract: hits do no damage, a marker's hit eliminates, the side with none left loses the round. Plays on any floor: it names no entity, door or switch.",
+  "target": "SCUS-97275",
+  "contract": "^0.1.1",
+  "kinds": ["rules"],
+  "sides": "server",
+  "dependencies": [],
+  "files": [
+    { "path": "rules/paintball.json", "sha256": "f85753e7cc0c39e779d961b2be464bbd260b1d6bd0d41744730782e83f43afdc", "size": 3143, "role": "rules" }
+  ],
+  "intents": [
+    { "kind": "new-behaviour", "files": ["rules/paintball.json"] }
+  ]
+}

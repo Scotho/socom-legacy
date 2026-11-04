@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Rerun after SEP-POP on r0004 (seat ac, 2026-11-02; tools/eph/scripts/hunt-*.txt).
+# Starts from the saved standing state (r0004 --state 5, M51 insertion point 938.2,-145.5,858.2; r0001 --state 8 936.9,-145.5,855.0), facing +z (yaw 180).
+# Tests: M1 variant of hunt-momentum-jump-release: Square pressed ONE guest frame (33 ms at 30 Hz) BEFORE the stick is released, so the jump starts while the run stick is still held on both sides.
+# Look: running jump (PS2 action 8, airborne) on both sides; the carry and the stop after landing against hunt-momentum-jump-release (same-ms) -- the confound there was the stick zero reaching the page a tick before Square.
+500 rleft 1    # turn left: yaw 180 -> about 270 (facing +x)
+1380 rleft 0
+2380 lup 1     # run +x
+2947 square 1  # jump one frame before the release
+2980 lup 0
+3097 square 0

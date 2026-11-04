@@ -1,0 +1,131 @@
+{
+  "schema": "s2u-rules",
+  "vocabulary": 0,
+  "id": "ctf",
+  "name": "Capture the flag",
+  "description": "Take the enemy flag from its stand to your own base. A carrier who dies sends it home.",
+  "config": [
+    { "id": "capturesToWin", "type": "int", "default": 3, "min": 1, "max": 10, "label": "Captures to win" },
+    { "id": "capturePoints", "type": "int", "default": 1, "min": 0, "max": 100, "label": "Points per capture" }
+  ],
+  "variables": [
+    { "id": "captures", "scope": "team", "type": "int", "start": 0, "min": 0, "max": 10, "reset": "round" }
+  ],
+  "items": [
+    { "id": "flag-seal", "grants": { "kind": "token" } },
+    { "id": "flag-terrorist", "grants": { "kind": "token" } }
+  ],
+  "entities": {
+    "zones": ["base-seal", "base-terrorist"],
+    "spawners": ["stand-seal", "stand-terrorist"]
+  },
+  "rules": [
+    {
+      "id": "flags-out",
+      "when": "round.start",
+      "then": [
+        { "do": "spawner.release", "spawner": "stand-seal", "item": "flag-seal" },
+        { "do": "spawner.release", "spawner": "stand-terrorist", "item": "flag-terrorist" },
+        { "do": "message.show", "text": "Capture the flag: take the enemy flag to your own base" }
+      ]
+    },
+    {
+      "id": "seal-takes-flag",
+      "when": { "event": "item.pickup", "item": "flag-terrorist" },
+      "if": [{ "test": "team", "who": "player", "is": "seal" }],
+      "then": [{ "do": "message.show", "text": "The SEALs have the terrorists' flag" }]
+    },
+    {
+      "id": "terrorist-flag-home",
+      "when": { "event": "item.pickup", "item": "flag-terrorist" },
+      "if": [{ "test": "team", "who": "player", "is": "terrorist" }],
+      "then": [
+        { "do": "item.take", "who": "player", "item": "flag-terrorist" },
+        { "do": "spawner.release", "spawner": "stand-terrorist", "item": "flag-terrorist" }
+      ]
+    },
+    {
+      "id": "terrorist-takes-flag",
+      "when": { "event": "item.pickup", "item": "flag-seal" },
+      "if": [{ "test": "team", "who": "player", "is": "terrorist" }],
+      "then": [{ "do": "message.show", "text": "The terrorists have the SEALs' flag" }]
+    },
+    {
+      "id": "seal-flag-home",
+      "when": { "event": "item.pickup", "item": "flag-seal" },
+      "if": [{ "test": "team", "who": "player", "is": "seal" }],
+      "then": [
+        { "do": "item.take", "who": "player", "item": "flag-seal" },
+        { "do": "spawner.release", "spawner": "stand-seal", "item": "flag-seal" }
+      ]
+    },
+    {
+      "id": "seal-captures",
+      "when": { "event": "zone.enter", "zone": "base-seal" },
+      "if": [
+        { "test": "team", "who": "player", "is": "seal" },
+        { "test": "hasItem", "who": "player", "item": "flag-terrorist" }
+      ],
+      "then": [
+        { "do": "item.take", "who": "player", "item": "flag-terrorist" },
+        { "do": "variable.add", "var": "captures", "team": "seal", "amount": 1 },
+        { "do": "score.award", "who": "player", "points": { "param": "capturePoints" } },
+        { "do": "spawner.release", "spawner": "stand-terrorist", "item": "flag-terrorist" },
+        { "do": "message.show", "text": "The SEALs captured the flag" }
+      ]
+    },
+    {
+      "id": "seal-wins",
+      "when": { "event": "zone.enter", "zone": "base-seal" },
+      "if": [
+        { "test": "team", "who": "player", "is": "seal" },
+        { "test": "compare", "left": { "var": "captures", "team": "seal" }, "op": ">=", "right": { "param": "capturesToWin" } }
+      ],
+      "then": [{ "do": "round.end", "winner": "seal" }]
+    },
+    {
+      "id": "terrorist-captures",
+      "when": { "event": "zone.enter", "zone": "base-terrorist" },
+      "if": [
+        { "test": "team", "who": "player", "is": "terrorist" },
+        { "test": "hasItem", "who": "player", "item": "flag-seal" }
+      ],
+      "then": [
+        { "do": "item.take", "who": "player", "item": "flag-seal" },
+        { "do": "variable.add", "var": "captures", "team": "terrorist", "amount": 1 },
+        { "do": "score.award", "who": "player", "points": { "param": "capturePoints" } },
+        { "do": "spawner.release", "spawner": "stand-seal", "item": "flag-seal" },
+        { "do": "message.show", "text": "The terrorists captured the flag" }
+      ]
+    },
+    {
+      "id": "terrorist-wins",
+      "when": { "event": "zone.enter", "zone": "base-terrorist" },
+      "if": [
+        { "test": "team", "who": "player", "is": "terrorist" },
+        { "test": "compare", "left": { "var": "captures", "team": "terrorist" }, "op": ">=", "right": { "param": "capturesToWin" } }
+      ],
+      "then": [{ "do": "round.end", "winner": "terrorist" }]
+    },
+    {
+      "id": "seal-carrier-down",
+      "when": "player.death",
+      "if": [{ "test": "hasItem", "who": "victim", "item": "flag-terrorist" }],
+      "then": [
+        { "do": "item.take", "who": "victim", "item": "flag-terrorist" },
+        { "do": "spawner.release", "spawner": "stand-terrorist", "item": "flag-terrorist" },
+        { "do": "message.show", "text": "The terrorists' flag is back on its stand" }
+      ]
+    },
+    {
+      "id": "terrorist-carrier-down",
+      "when": "player.death",
+      "if": [{ "test": "hasItem", "who": "victim", "item": "flag-seal" }],
+      "then": [
+        { "do": "item.take", "who": "victim", "item": "flag-seal" },
+        { "do": "spawner.release", "spawner": "stand-seal", "item": "flag-seal" },
+        { "do": "message.show", "text": "The SEALs' flag is back on its stand" }
+      ]
+    }
+  ]
+}

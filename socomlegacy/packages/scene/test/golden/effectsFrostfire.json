@@ -1,0 +1,2744 @@
+{
+ "_source": "disc RUN/MP2.ZDB members CZANIM.ZAR then MZANIM.ZAR (first name wins) through parseAnimSets + decodeEffectProgram (packages/scene/src/zanim.ts, effects.ts); read 2026-10-02",
+ "programs": {
+  "muzzle_m4SD": {
+   "name": "muzzle_m4SD",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "call",
+       "anim": "shell_eject"
+      },
+      {
+       "op": "call",
+       "anim": "shell_smoke_med"
+      }
+     ]
+    }
+   ]
+  },
+  "muzzle_m4": {
+   "name": "muzzle_m4",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "call",
+       "anim": "shell_eject"
+      },
+      {
+       "op": "call",
+       "anim": "flash_fire_hider"
+      },
+      {
+       "op": "call",
+       "anim": "shell_smoke_med"
+      }
+     ]
+    }
+   ]
+  },
+  "muzzle_m4SD_zoom": {
+   "name": "muzzle_m4SD_zoom",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "call",
+       "anim": "zoom_fire_silent"
+      },
+      {
+       "op": "call",
+       "anim": "shell_smoke_med"
+      }
+     ]
+    }
+   ]
+  },
+  "muzzle_m4_zoom": {
+   "name": "muzzle_m4_zoom",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "call",
+       "anim": "zoom_flash_fire"
+      },
+      {
+       "op": "call",
+       "anim": "shell_smoke_med"
+      }
+     ]
+    }
+   ]
+  },
+  "shell_eject": {
+   "name": "shell_eject",
+   "root": 1,
+   "flags": 674,
+   "nodes": [
+    "NA",
+    "bullet_shell_9m",
+    "camera"
+   ],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "valve",
+       "valve": "bullet_ejecting",
+       "operation": 12,
+       "operand": 1
+      },
+      {
+       "op": "active",
+       "node": -7,
+       "on": true
+      },
+      {
+       "op": "translate",
+       "node": -7,
+       "ref": -6,
+       "flags": 0,
+       "xyz": [
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "op": "rotate",
+       "node": -7,
+       "ref": -6,
+       "flags": 0,
+       "xyz": [
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "valve",
+         "valve": "bullet_ejecting",
+         "operation": 4,
+         "operand": 5
+        }
+       ]
+      },
+      {
+       "op": "motion",
+       "motion": {
+        "flags": 3315,
+        "node": -7,
+        "frame": -6,
+        "direction": [
+         0,
+         0,
+         0
+        ],
+        "launch": {
+         "azimuth": 170,
+         "zenith": 30,
+         "speed": 25,
+         "accel": 0
+        },
+        "range": {
+         "azimuth": 20,
+         "zenith": 0,
+         "speed": 10,
+         "accel": 0
+        },
+        "gravityScale": 1,
+        "terminal": -0.0010204081190750003,
+        "callerVelocity": 1,
+        "bounce": 0.30000001192092896,
+        "tolerance": 0.3499999940395355,
+        "lifetime": 1.2000000476837158,
+        "refSpeed": 0,
+        "sound": null,
+        "tumble": {
+         "rate": 0.5235987901687622,
+         "accel": -0.0872664600610733
+        },
+        "angular": null,
+        "materials": [
+         {
+          "material": 25,
+          "sound": ".BUL_CASE_METAL",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.3499999940395355
+         },
+         {
+          "material": 26,
+          "sound": ".BUL_CASE_METAL",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.3499999940395355
+         },
+         {
+          "material": 7,
+          "sound": ".BUL_CAS_STONE",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.25
+         },
+         {
+          "material": 22,
+          "sound": ".BUL_CAS_STONE",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.25
+         },
+         {
+          "material": 4,
+          "sound": ".BUL_CAS_DIRT",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.10000000149011612
+         },
+         {
+          "material": 8,
+          "sound": ".BUL_CAS_DIRT",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.15000000596046448
+         },
+         {
+          "material": 5,
+          "sound": ".BUL_CAS_SAND",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.15000000596046448
+         },
+         {
+          "material": 19,
+          "sound": ".BUL_CAS_WOOD",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.27000001072883606
+         },
+         {
+          "material": 20,
+          "sound": ".BUL_CAS_WOOD",
+          "sequence": null,
+          "refSpeed": null,
+          "bounce": 0.27000001072883606
+         }
+        ]
+       }
+      },
+      {
+       "op": "valve",
+       "valve": "bullet_ejecting",
+       "operation": 13,
+       "operand": 1
+      },
+      {
+       "op": "else"
+      },
+      {
+       "op": "valve",
+       "valve": "bullet_ejecting",
+       "operation": 13,
+       "operand": 1
+      },
+      {
+       "op": "motion",
+       "motion": {
+        "flags": 3091,
+        "node": -7,
+        "frame": -6,
+        "direction": [
+         0,
+         0,
+         0
+        ],
+        "launch": {
+         "azimuth": 170,
+         "zenith": 30,
+         "speed": 25,
+         "accel": 0
+        },
+        "range": {
+         "azimuth": 20,
+         "zenith": 0,
+         "speed": 10,
+         "accel": 0
+        },
+        "gravityScale": 1,
+        "terminal": -0.0010204081190750003,
+        "callerVelocity": 1,
+        "bounce": 0.30000001192092896,
+        "tolerance": 0.3499999940395355,
+        "lifetime": 0.699999988079071,
+        "refSpeed": 0,
+        "sound": null,
+        "tumble": {
+         "rate": 0.5235987901687622,
+         "accel": -0.0872664600610733
+        },
+        "angular": null,
+        "materials": []
+       }
+      },
+      {
+       "op": "endif"
+      },
+      {
+       "op": "active",
+       "node": -7,
+       "on": false
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 2,
+     "ops": [
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "range",
+         "flags": 265,
+         "node": 2,
+         "other": -6,
+         "rangeSquared": 10000
+        }
+       ]
+      },
+      {
+       "op": "fail"
+      },
+      {
+       "op": "endif"
+      }
+     ]
+    }
+   ]
+  },
+  "shell_smoke_med": {
+   "name": "shell_smoke_med",
+   "root": 0,
+   "flags": 162,
+   "nodes": [
+    "NA",
+    "camera"
+   ],
+   "sequences": [
+    {
+     "name": "smoke",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "random",
+         "p": 0.5
+        }
+       ]
+      },
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 939507665,
+        "flagsB": 1,
+        "name": "blue_smoke01",
+        "setActive": false,
+        "node": -6,
+        "follow": true,
+        "perEvent": 1,
+        "events": 2,
+        "interval": 0.009999999776482582,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         60,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "fixed",
+        "worldFrom": "fixed",
+        "baseScale": 60,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": false,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -2,
+          2
+         ],
+         [
+          -2,
+          2
+         ],
+         [
+          -2,
+          2
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         1,
+         0
+        ],
+        "friction": 0,
+        "size": [
+         2,
+         3
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.5,
+         1
+        ],
+        "nearFade": [
+         0,
+         0
+        ],
+        "farFade": [
+         200,
+         800
+        ],
+        "textures": [
+         {
+          "name": "cloudpuff01.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "cloudpuff01.tif",
+        "colours": [
+         [
+          0,
+          0.4000000059604645,
+          0.4000000059604645,
+          0.5,
+          1
+         ],
+         [
+          0.10000000149011612,
+          0.4000000059604645,
+          0.4000000059604645,
+          0.5,
+          1.100000023841858
+         ],
+         [
+          0.6000000238418579,
+          0.4000000059604645,
+          0.4000000059604645,
+          0.5,
+          0.05000000074505806
+         ],
+         [
+          1,
+          0.4000000059604645,
+          0.4000000059604645,
+          0.5,
+          0
+         ]
+        ],
+        "scales": [
+         [
+          0,
+          0.10000000149011612
+         ],
+         [
+          0.699999988079071,
+          20
+         ],
+         [
+          1,
+          20
+         ]
+        ]
+       }
+      },
+      {
+       "op": "wait",
+       "seconds": 0.25,
+       "range": 0,
+       "frames": null
+      },
+      {
+       "op": "endif"
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 2,
+     "ops": [
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "range",
+         "flags": 265,
+         "node": 1,
+         "other": -6,
+         "rangeSquared": 10000
+        }
+       ]
+      },
+      {
+       "op": "fail"
+      },
+      {
+       "op": "endif"
+      },
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "operator",
+         "operator": 1
+        },
+        {
+         "kind": "other",
+         "cmd": 70
+        }
+       ]
+      },
+      {
+       "op": "fail"
+      },
+      {
+       "op": "endif"
+      }
+     ]
+    }
+   ]
+  },
+  "shell_smoke_big": {
+   "name": "shell_smoke_big",
+   "root": 0,
+   "flags": 162,
+   "nodes": [
+    "NA",
+    "camera"
+   ],
+   "sequences": [
+    {
+     "name": "smoke_big",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 939507667,
+        "flagsB": 0,
+        "name": "chamber_smoke01",
+        "setActive": true,
+        "node": -6,
+        "follow": true,
+        "perEvent": 1,
+        "events": -1,
+        "interval": 0.029999999329447746,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         10,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "fixed",
+        "worldFrom": "fixed",
+        "baseScale": 10,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": false,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -3,
+          3
+         ],
+         [
+          -3,
+          3
+         ],
+         [
+          -3,
+          3
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         20,
+         0
+        ],
+        "friction": 0,
+        "size": [
+         0.800000011920929,
+         1.399999976158142
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         1,
+         1
+        ],
+        "nearFade": [
+         0,
+         0
+        ],
+        "farFade": [
+         200,
+         400
+        ],
+        "textures": [
+         {
+          "name": "effect_dustpuff01.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "effect_dustpuff01.tif",
+        "colours": [
+         [
+          0,
+          0.44999998807907104,
+          0.44999998807907104,
+          0.44999998807907104,
+          0.30000001192092896
+         ],
+         [
+          0.20000000298023224,
+          0.44999998807907104,
+          0.44999998807907104,
+          0.44999998807907104,
+          0.20000000298023224
+         ],
+         [
+          1,
+          0.44999998807907104,
+          0.44999998807907104,
+          0.44999998807907104,
+          0
+         ]
+        ],
+        "scales": [
+         [
+          0,
+          0.6000000238418579
+         ],
+         [
+          1,
+          1
+         ]
+        ]
+       }
+      },
+      {
+       "op": "wait",
+       "seconds": 0.20000000298023224,
+       "range": 0,
+       "frames": null
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 2,
+     "ops": [
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "range",
+         "flags": 265,
+         "node": 1,
+         "other": -6,
+         "rangeSquared": 10000
+        }
+       ]
+      },
+      {
+       "op": "fail"
+      },
+      {
+       "op": "endif"
+      }
+     ]
+    }
+   ]
+  },
+  "light_flash_large": {
+   "name": "light_flash_large",
+   "root": 0,
+   "flags": 4258,
+   "nodes": [
+    "NA",
+    "explosion_light"
+   ],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "light",
+       "light": {
+        "flags": 1516,
+        "node": null,
+        "atContext": true,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "rgb": [
+         214.1999969482422,
+         242.25,
+         216.75
+        ],
+        "opacity": 64,
+        "blend": 72,
+        "ranges": [
+         [
+          0,
+          100,
+          190
+         ],
+         [
+          0.5,
+          0,
+          0
+         ],
+         [
+          1,
+          0,
+          0
+         ]
+        ],
+        "duration": 1
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "zoom_flash_fire": {
+   "name": "zoom_flash_fire",
+   "root": 0,
+   "flags": 4258,
+   "nodes": [
+    "NA",
+    "muzzle_m4_light"
+   ],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "light",
+       "light": {
+        "flags": 1250,
+        "node": -6,
+        "atContext": false,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "rgb": [
+         204,
+         173.40000915527344,
+         119.8499984741211
+        ],
+        "opacity": 51.20000076293945,
+        "blend": 68,
+        "ranges": [
+         [
+          0,
+          5,
+          12
+         ],
+         [
+          0.05000000074505806,
+          15,
+          60
+         ],
+         [
+          0.10000000149011612,
+          0,
+          0
+         ]
+        ],
+        "duration": 0.10000000149011612
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "FRAG_sparks": {
+   "name": "FRAG_sparks",
+   "root": 0,
+   "flags": 4258,
+   "nodes": [
+    "NA",
+    "spark_streak"
+   ],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "active",
+       "node": -7,
+       "on": true
+      },
+      {
+       "op": "translate",
+       "node": -7,
+       "ref": -6,
+       "flags": 0,
+       "xyz": [
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "random",
+         "p": 0.25
+        }
+       ]
+      },
+      {
+       "op": "motion",
+       "motion": {
+        "flags": 11,
+        "node": -7,
+        "frame": 0,
+        "direction": [
+         0,
+         0.5555555820465088,
+         -0.4444444179534912
+        ],
+        "launch": {
+         "azimuth": 0,
+         "zenith": 50,
+         "speed": 0,
+         "accel": -200
+        },
+        "range": {
+         "azimuth": 0,
+         "zenith": 0,
+         "speed": 0,
+         "accel": 0
+        },
+        "gravityScale": 1,
+        "terminal": -0.0010204081190750003,
+        "callerVelocity": 0,
+        "bounce": 0.30000001192092896,
+        "tolerance": 0.3499999940395355,
+        "lifetime": 0.20000000298023224,
+        "refSpeed": 0,
+        "sound": null,
+        "tumble": null,
+        "angular": null,
+        "materials": []
+       }
+      },
+      {
+       "op": "else"
+      },
+      {
+       "op": "motion",
+       "motion": {
+        "flags": 11,
+        "node": -7,
+        "frame": 0,
+        "direction": [
+         -0.4444444179534912,
+         0.5555555820465088,
+         1.9427282893502706e-8
+        ],
+        "launch": {
+         "azimuth": 90,
+         "zenith": 50,
+         "speed": 0,
+         "accel": -130
+        },
+        "range": {
+         "azimuth": 0,
+         "zenith": 0,
+         "speed": 0,
+         "accel": 0
+        },
+        "gravityScale": 1,
+        "terminal": -0.0010204081190750003,
+        "callerVelocity": 0,
+        "bounce": 0.30000001192092896,
+        "tolerance": 0.3499999940395355,
+        "lifetime": 0.30000001192092896,
+        "refSpeed": 0,
+        "sound": null,
+        "tumble": null,
+        "angular": null,
+        "materials": []
+       }
+      },
+      {
+       "op": "endif"
+      }
+     ]
+    },
+    {
+     "name": "fire_streak",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 402636755,
+        "flagsB": 1052672,
+        "name": "spark_streak",
+        "setActive": true,
+        "node": -7,
+        "follow": true,
+        "perEvent": 10,
+        "events": -1,
+        "interval": 0.05000000074505806,
+        "perDistance": false,
+        "type": 3,
+        "streak": [
+         0.6299999952316284,
+         0.6499999761581421
+        ],
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "fixed",
+        "worldFrom": "fixed",
+        "baseScale": 0,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": false,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -200,
+          200
+         ],
+         [
+          110,
+          180
+         ],
+         [
+          -200,
+          200
+         ]
+        ],
+        "box": [
+         [
+          -1,
+          1
+         ],
+         [
+          -1,
+          1
+         ],
+         [
+          -1,
+          1
+         ]
+        ],
+        "accel": [
+         -560,
+         -1000,
+         -560
+        ],
+        "friction": 2,
+        "size": [
+         0.5,
+         0.800000011920929
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         1.399999976158142,
+         2.200000047683716
+        ],
+        "nearFade": [
+         100,
+         0
+        ],
+        "farFade": [
+         1100,
+         1200
+        ],
+        "textures": [
+         {
+          "name": "effect_spark01.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "effect_spark01.tif",
+        "colours": [
+         [
+          0,
+          0.5,
+          0.5,
+          0.5,
+          0.30000001192092896
+         ],
+         [
+          0.10000000149011612,
+          0.5,
+          0.5,
+          0.5,
+          0.20000000298023224
+         ],
+         [
+          0.30000001192092896,
+          0.5,
+          0.5,
+          0.5,
+          0.10000000149011612
+         ],
+         [
+          1,
+          0.5,
+          0.5,
+          0.5,
+          0
+         ]
+        ],
+        "scales": []
+       }
+      },
+      {
+       "op": "wait",
+       "seconds": 0.05000000074505806,
+       "range": 0,
+       "frames": null
+      },
+      {
+       "op": "active",
+       "node": 1,
+       "on": false
+      }
+     ]
+    }
+   ]
+  },
+  "frag_grenade": {
+   "name": "frag_grenade",
+   "root": 0,
+   "flags": 4258,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "translate",
+       "node": -7,
+       "ref": 0,
+       "flags": 2,
+       "xyz": [
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "op": "call",
+       "anim": "FRAG_sparks"
+      },
+      {
+       "op": "call",
+       "anim": "dust_explode_long"
+      },
+      {
+       "op": "call",
+       "anim": "light_flash_large"
+      },
+      {
+       "op": "call",
+       "anim": "bsmoke_explode_large"
+      },
+      {
+       "op": "call",
+       "anim": "dust_ground_roll"
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "sound",
+       "sound": ".GREN_MED",
+       "node": 0,
+       "volume": 1,
+       "flags": 136,
+       "newPlay": true
+      }
+     ]
+    }
+   ]
+  },
+  "frag_grenade_stone": {
+   "name": "frag_grenade_stone",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "flash",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 903710539,
+        "flagsB": 4097,
+        "name": "firepuffStone",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 3,
+        "events": 1,
+        "interval": 0.003000000026077032,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         50,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "fixed",
+        "worldFrom": "fixed",
+        "baseScale": 0,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -10,
+          10
+         ],
+         [
+          -10,
+          10
+         ],
+         [
+          -10,
+          10
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         0,
+         0
+        ],
+        "friction": 60,
+        "size": [
+         1.399999976158142,
+         1.899999976158142
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.1599999964237213,
+         0.25
+        ],
+        "nearFade": [
+         0.5,
+         1
+        ],
+        "farFade": [
+         200,
+         440
+        ],
+        "textures": [
+         {
+          "name": "explosion2.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "explosion2.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          0.30000001192092896
+         ],
+         [
+          0.5,
+          1,
+          0.800000011920929,
+          0.6000000238418579,
+          0.20000000298023224
+         ],
+         [
+          1,
+          1,
+          0.20000000298023224,
+          0,
+          0
+         ]
+        ],
+        "scales": [
+         [
+          0,
+          1
+         ],
+         [
+          0.4000000059604645,
+          6
+         ],
+         [
+          1,
+          2
+         ]
+        ]
+       }
+      },
+      {
+       "op": "wait",
+       "seconds": 0.05000000074505806,
+       "range": 0,
+       "frames": null
+      },
+      {
+       "op": "call",
+       "anim": "frag_grenade"
+      }
+     ]
+    }
+   ]
+  },
+  "he_grenade": {
+   "name": "he_grenade",
+   "root": 0,
+   "flags": 4258,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "translate",
+       "node": -7,
+       "ref": 0,
+       "flags": 2,
+       "xyz": [
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "op": "call",
+       "anim": "he_sparks_quick"
+      },
+      {
+       "op": "call",
+       "anim": "he_sparks_quick"
+      },
+      {
+       "op": "call",
+       "anim": "dust_explode_long"
+      },
+      {
+       "op": "call",
+       "anim": "dust_explode_plume"
+      },
+      {
+       "op": "call",
+       "anim": "bsmoke_explode_large"
+      },
+      {
+       "op": "call",
+       "anim": "HE_light_flash_large"
+      },
+      {
+       "op": "call",
+       "anim": "fire_explode_small"
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "sound",
+       "sound": ".GREN_MED",
+       "node": 0,
+       "volume": 1,
+       "flags": 136,
+       "newPlay": true
+      }
+     ]
+    }
+   ]
+  },
+  "HE_light_flash_large": {
+   "name": "HE_light_flash_large",
+   "root": 0,
+   "flags": 4258,
+   "nodes": [
+    "NA",
+    "explosion_light"
+   ],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "light",
+       "light": {
+        "flags": 1516,
+        "node": null,
+        "atContext": true,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "rgb": [
+         229.5,
+         216.75,
+         165.75
+        ],
+        "opacity": 64,
+        "blend": 72,
+        "ranges": [
+         [
+          0,
+          100,
+          190
+         ],
+         [
+          0.699999988079071,
+          0,
+          0
+         ],
+         [
+          1,
+          0,
+          0
+         ]
+        ],
+        "duration": 1
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "bullet_hit_metal_thick": {
+   "name": "bullet_hit_metal_thick",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "sound",
+       "sound": ".BUL_METAL",
+       "node": 0,
+       "volume": 1,
+       "flags": 136,
+       "newPlay": true
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "valve",
+         "valve": "lensfx",
+         "operation": 2,
+         "operand": 5
+        }
+       ]
+      },
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 903710475,
+        "flagsB": 1052675,
+        "name": "NVGPUFF",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 1,
+        "events": 1,
+        "interval": 0.003000000026077032,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "normal",
+        "worldFrom": "fixed",
+        "baseScale": 45,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -15,
+          15
+         ],
+         [
+          -15,
+          15
+         ],
+         [
+          -15,
+          15
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         0,
+         0
+        ],
+        "friction": 60,
+        "size": [
+         0.5,
+         0.75
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.10000000149011612,
+         0.20000000298023224
+        ],
+        "nearFade": [
+         70,
+         170
+        ],
+        "farFade": [
+         650,
+         700
+        ],
+        "textures": [
+         {
+          "name": "effect_muzzle01.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "effect_muzzle01.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          1
+         ],
+         [
+          0.5,
+          1,
+          0.800000011920929,
+          0.6000000238418579,
+          0.20000000298023224
+         ],
+         [
+          1,
+          1,
+          0.20000000298023224,
+          0,
+          0
+         ]
+        ],
+        "scales": [
+         [
+          0,
+          0.5
+         ],
+         [
+          1,
+          56
+         ]
+        ]
+       }
+      },
+      {
+       "op": "endif"
+      }
+     ]
+    },
+    {
+     "name": "fire_flash",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 903710475,
+        "flagsB": 1216515,
+        "name": "firepuff",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 4,
+        "events": 1,
+        "interval": 0.003000000026077032,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "normal",
+        "worldFrom": "fixed",
+        "baseScale": 20,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -15,
+          15
+         ],
+         [
+          -15,
+          15
+         ],
+         [
+          -15,
+          15
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         0,
+         0
+        ],
+        "friction": 60,
+        "size": [
+         1,
+         1.2000000476837158
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.1599999964237213,
+         0.20000000298023224
+        ],
+        "nearFade": [
+         0.5,
+         1
+        ],
+        "farFade": [
+         650,
+         700
+        ],
+        "textures": [
+         {
+          "name": "explosion2.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "explosion2.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          1
+         ],
+         [
+          0.10000000149011612,
+          1,
+          1,
+          1,
+          0.4000000059604645
+         ],
+         [
+          0.5,
+          1,
+          0.800000011920929,
+          0.6000000238418579,
+          0.20000000298023224
+         ],
+         [
+          1,
+          1,
+          0.20000000298023224,
+          0,
+          0
+         ]
+        ],
+        "scales": [
+         [
+          0,
+          1
+         ],
+         [
+          1,
+          2
+         ]
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "if",
+       "conditions": [
+        {
+         "kind": "random",
+         "p": 0.30000001192092896
+        }
+       ]
+      },
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 402636555,
+        "flagsB": 1217793,
+        "name": "sparks",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 5,
+        "events": 1,
+        "interval": 0.00019999999494757503,
+        "perDistance": false,
+        "type": 3,
+        "streak": [
+         10,
+         0.699999988079071
+        ],
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "reflected",
+        "worldFrom": "fixed",
+        "baseScale": 80,
+        "worldScale": 0,
+        "baseUnit": true,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -60,
+          60
+         ],
+         [
+          -60,
+          60
+         ],
+         [
+          -60,
+          60
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         -50,
+         0
+        ],
+        "friction": 5,
+        "size": [
+         0.07999999821186066,
+         0.10000000149011612
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.20000000298023224,
+         0.30000001192092896
+        ],
+        "nearFade": [
+         0.5,
+         1
+        ],
+        "farFade": [
+         200,
+         250
+        ],
+        "textures": [
+         {
+          "name": "effect_spark01.tif",
+          "t": 0
+         },
+         {
+          "name": "effect_spark02.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "effect_spark01.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          1
+         ],
+         [
+          0.3499999940395355,
+          1,
+          1,
+          0.800000011920929,
+          0.800000011920929
+         ],
+         [
+          0.75,
+          1,
+          0.5,
+          0,
+          0.699999988079071
+         ],
+         [
+          1,
+          1,
+          0.30000001192092896,
+          0,
+          0
+         ]
+        ],
+        "scales": []
+       }
+      },
+      {
+       "op": "else"
+      },
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 402636555,
+        "flagsB": 1217793,
+        "name": "sparks2",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 3,
+        "events": 1,
+        "interval": 0.00019999999494757503,
+        "perDistance": false,
+        "type": 3,
+        "streak": [
+         10,
+         0.699999988079071
+        ],
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "reflected",
+        "worldFrom": "fixed",
+        "baseScale": 40,
+        "worldScale": 0,
+        "baseUnit": true,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -30,
+          30
+         ],
+         [
+          -30,
+          30
+         ],
+         [
+          -30,
+          30
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         -50,
+         0
+        ],
+        "friction": 5,
+        "size": [
+         0.07999999821186066,
+         0.10000000149011612
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.20000000298023224,
+         0.30000001192092896
+        ],
+        "nearFade": [
+         0.5,
+         1
+        ],
+        "farFade": [
+         200,
+         250
+        ],
+        "textures": [
+         {
+          "name": "effect_spark01.tif",
+          "t": 0
+         },
+         {
+          "name": "effect_spark02.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "effect_spark01.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          1
+         ],
+         [
+          0.3499999940395355,
+          1,
+          1,
+          0.800000011920929,
+          0.800000011920929
+         ],
+         [
+          0.75,
+          1,
+          0.5,
+          0,
+          0.699999988079071
+         ],
+         [
+          1,
+          1,
+          0.30000001192092896,
+          0,
+          0
+         ]
+        ],
+        "scales": []
+       }
+      },
+      {
+       "op": "endif"
+      },
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 402636555,
+        "flagsB": 1217793,
+        "name": "sparks3",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 5,
+        "events": 1,
+        "interval": 0.00019999999494757503,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "reflected",
+        "worldFrom": "fixed",
+        "baseScale": 40,
+        "worldScale": 0,
+        "baseUnit": true,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -20,
+          20
+         ],
+         [
+          -20,
+          20
+         ],
+         [
+          -20,
+          20
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         -80,
+         0
+        ],
+        "friction": 5,
+        "size": [
+         0.07999999821186066,
+         0.20000000298023224
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         0.30000001192092896,
+         0.5
+        ],
+        "nearFade": [
+         0.5,
+         1
+        ],
+        "farFade": [
+         200,
+         250
+        ],
+        "textures": [
+         {
+          "name": "effect_spark01.tif",
+          "t": 0
+         },
+         {
+          "name": "effect_spark02.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "effect_spark01.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          1
+         ],
+         [
+          0.3499999940395355,
+          1,
+          1,
+          0.800000011920929,
+          0.800000011920929
+         ],
+         [
+          0.75,
+          1,
+          0.5,
+          0,
+          0.699999988079071
+         ],
+         [
+          1,
+          1,
+          0.30000001192092896,
+          0,
+          0
+         ]
+        ],
+        "scales": []
+       }
+      },
+      {
+       "op": "wait",
+       "seconds": 1.2000000476837158,
+       "range": 0,
+       "frames": null
+      }
+     ]
+    },
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "particles",
+       "source": {
+        "flagsA": 903710475,
+        "flagsB": 1216515,
+        "name": "flamelinger",
+        "setActive": true,
+        "node": 0,
+        "follow": false,
+        "perEvent": 3,
+        "events": 1,
+        "interval": 0.003000000026077032,
+        "perDistance": false,
+        "type": 4,
+        "streak": null,
+        "spin": null,
+        "offset": [
+         0,
+         0,
+         0
+        ],
+        "baseVelocity": [
+         0,
+         0,
+         0
+        ],
+        "worldVelocity": [
+         0,
+         0,
+         0
+        ],
+        "baseFrom": "normal",
+        "worldFrom": "fixed",
+        "baseScale": 2,
+        "worldScale": 0,
+        "baseUnit": false,
+        "worldUnit": false,
+        "atContext": true,
+        "atNode": false,
+        "positionBlock": null,
+        "randomVelocity": [
+         [
+          -3,
+          3
+         ],
+         [
+          -3,
+          3
+         ],
+         [
+          -3,
+          3
+         ]
+        ],
+        "box": [
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ],
+         [
+          0,
+          0
+         ]
+        ],
+        "accel": [
+         0,
+         0,
+         0
+        ],
+        "friction": 10,
+        "size": [
+         0.6000000238418579,
+         0.699999988079071
+        ],
+        "startAge": [
+         0,
+         0
+        ],
+        "lifetime": [
+         1,
+         1.2000000476837158
+        ],
+        "nearFade": [
+         0.5,
+         1
+        ],
+        "farFade": [
+         300,
+         350
+        ],
+        "textures": [
+         {
+          "name": "explosion2.tif",
+          "t": 0
+         }
+        ],
+        "textureMode": "random",
+        "texture": "explosion2.tif",
+        "colours": [
+         [
+          0,
+          1,
+          1,
+          1,
+          0.10000000149011612
+         ],
+         [
+          0.10000000149011612,
+          1,
+          1,
+          1,
+          0.07000000029802322
+         ],
+         [
+          0.5,
+          1,
+          0.800000011920929,
+          0.6000000238418579,
+          0.05000000074505806
+         ],
+         [
+          1,
+          1,
+          0.20000000298023224,
+          0,
+          0
+         ]
+        ],
+        "scales": [
+         [
+          0,
+          1
+         ],
+         [
+          1,
+          5
+         ]
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "bullet_hit_asphalt": {
+   "name": "bullet_hit_asphalt",
+   "root": 0,
+   "flags": 162,
+   "nodes": [],
+   "sequences": [
+    {
+     "name": "NA",
+     "activation": 1,
+     "ops": [
+      {
+       "op": "call",
+       "anim": "bullet_hit_stone"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "bulletImpacts": {
+  "UNKNOWN": null,
+  "PARTICLE_SYSTEM": null,
+  "ACTION": null,
+  "INVISIBLE_DI": null,
+  "GRASS": {
+   "anim": "bullet_hit_grass",
+   "sounds": [
+    ".BUL_GRASS"
+   ],
+   "calls": [],
+   "sources": 6
+  },
+  "SAND": {
+   "anim": "bullet_hit_sand",
+   "sounds": [
+    ".BUL_SAND"
+   ],
+   "calls": [],
+   "sources": 6
+  },
+  "MUD": {
+   "anim": "bullet_hit_mud",
+   "sounds": [
+    ".BUL_MUD"
+   ],
+   "calls": [],
+   "sources": 7
+  },
+  "STONE": {
+   "anim": "bullet_hit_stone",
+   "sounds": [
+    ".BUL_STONE"
+   ],
+   "calls": [],
+   "sources": 8
+  },
+  "DIRT": {
+   "anim": "bullet_hit_dirt",
+   "sounds": [
+    ".BUL_DIRT"
+   ],
+   "calls": [],
+   "sources": 8
+  },
+  "GLASS": {
+   "anim": "bullet_hit_glass",
+   "sounds": [
+    ".BUL_GLASS"
+   ],
+   "calls": [],
+   "sources": 0
+  },
+  "GLASS_THICK": {
+   "anim": "bullet_hit_glass_thick",
+   "sounds": [],
+   "calls": [
+    "bullet_hit_glass"
+   ],
+   "sources": 0
+  },
+  "WATER": {
+   "anim": "bullet_hit_water",
+   "sounds": [
+    ".BUL_WATER"
+   ],
+   "calls": [],
+   "sources": 4
+  },
+  "UNDERWATER": null,
+  "PERSON": {
+   "anim": "bullet_hit_person",
+   "sounds": [
+    ".BUL_INTO_BODY"
+   ],
+   "calls": [],
+   "sources": 12
+  },
+  "BROKEN GLASS": null,
+  "LEAVES": {
+   "anim": "bullet_hit_leaves",
+   "sounds": [
+    ".BUL_LEAVES"
+   ],
+   "calls": [],
+   "sources": 6
+  },
+  "ICE": {
+   "anim": "bullet_hit_ice",
+   "sounds": [
+    ".BUL_ICE"
+   ],
+   "calls": [],
+   "sources": 2
+  },
+  "SNOW": {
+   "anim": "bullet_hit_snow",
+   "sounds": [
+    ".BUL_SNOW"
+   ],
+   "calls": [],
+   "sources": 8
+  },
+  "GRAVEL": {
+   "anim": "bullet_hit_gravel",
+   "sounds": [
+    ".BUL_GRAVEL"
+   ],
+   "calls": [],
+   "sources": 8
+  },
+  "WOOD_THICK": {
+   "anim": "bullet_hit_wood_thick",
+   "sounds": [
+    ".BUL_WOOD_L_SPL"
+   ],
+   "calls": [],
+   "sources": 7
+  },
+  "WOOD_THIN": {
+   "anim": "bullet_hit_wood_thin",
+   "sounds": [
+    ".BUL_WOOD_SMALL"
+   ],
+   "calls": [],
+   "sources": 7
+  },
+  "RUBBER": {
+   "anim": "bullet_hit_rubber",
+   "sounds": [
+    ".BUL_RUBBER"
+   ],
+   "calls": [],
+   "sources": 2
+  },
+  "ASPHALT": {
+   "anim": "bullet_hit_asphalt",
+   "sounds": [],
+   "calls": [
+    "bullet_hit_stone"
+   ],
+   "sources": 0
+  },
+  "LEAFY_TREE": {
+   "anim": "bullet_hit_leafy_tree",
+   "sounds": [
+    ".BUL_LEAVES",
+    ".BUL_LEAVES"
+   ],
+   "calls": [],
+   "sources": 2
+  },
+  "SNOWY_TREE": null,
+  "METAL_THICK": {
+   "anim": "bullet_hit_metal_thick",
+   "sounds": [
+    ".BUL_METAL"
+   ],
+   "calls": [],
+   "sources": 6
+  },
+  "METAL_THIN": {
+   "anim": "bullet_hit_metal_thin",
+   "sounds": [
+    ".BUL_TIN"
+   ],
+   "calls": [],
+   "sources": 5
+  },
+  "METAL_RAILING": null,
+  "METAL_GRATE": null,
+  "METAL_GRATE_THIN": null,
+  "FABRIC_HEAVY": {
+   "anim": "bullet_hit_fabric_heavy",
+   "sounds": [
+    ".BUL_FABRIC"
+   ],
+   "calls": [],
+   "sources": 1
+  },
+  "PIPE_STEAM": {
+   "anim": "bullet_hit_pipe_steam",
+   "sounds": [
+    ".BUL_BARREL",
+    "!SMK_CANISTER"
+   ],
+   "calls": [],
+   "sources": 1
+  },
+  "GASTANK": {
+   "anim": "bullet_hit_gastank",
+   "sounds": [
+    ".BUL_BARREL"
+   ],
+   "calls": [],
+   "sources": 1
+  },
+  "ITEM": null,
+  "CAMO_NET": null,
+  "THATCH": {
+   "anim": "bullet_hit_thatch",
+   "sounds": [
+    ".BUL_WOOD_L_SPL"
+   ],
+   "calls": [],
+   "sources": 4
+  },
+  "CHAINLINK_FENCE": null,
+  "LEATHER": {
+   "anim": "bullet_hit_leather",
+   "sounds": [
+    ".BUL_WOOD_SMALL"
+   ],
+   "calls": [],
+   "sources": 2
+  },
+  "BARREL": {
+   "anim": "bullet_hit_barrel",
+   "sounds": [
+    ".BUL_BARREL"
+   ],
+   "calls": [],
+   "sources": 5
+  },
+  "PLASTER": {
+   "anim": "bullet_hit_plaster",
+   "sounds": [
+    ".BUL_PLASTER"
+   ],
+   "calls": [
+    "bullet_hit_stone"
+   ],
+   "sources": 0
+  },
+  "CARPET": {
+   "anim": "bullet_hit_carpet",
+   "sounds": [
+    ".BUL_PLASTER"
+   ],
+   "calls": [
+    "bullet_hit_stone"
+   ],
+   "sources": 0
+  },
+  "GRASS_VOL": null,
+  "BUSH_VOL": null,
+  "SNOWY_GRASS_VOL": null,
+  "GLASS_OPAQUE": {
+   "anim": "bullet_hit_glass_opaque",
+   "sounds": [],
+   "calls": [
+    "bullet_hit_glass"
+   ],
+   "sources": 0
+  },
+  "GLASS_MEDIUM": {
+   "anim": "bullet_hit_glass_medium",
+   "sounds": [],
+   "calls": [
+    "bullet_hit_glass"
+   ],
+   "sources": 0
+  }
+ },
+ "grenadeHits": [
+  "grenade_hit_asphalt",
+  "grenade_hit_barrel",
+  "grenade_hit_carpet",
+  "grenade_hit_dirt",
+  "grenade_hit_fabric_heavy",
+  "grenade_hit_grass",
+  "grenade_hit_grating",
+  "grenade_hit_gravel",
+  "grenade_hit_ice",
+  "grenade_hit_leafy_tree",
+  "grenade_hit_leather",
+  "grenade_hit_leaves",
+  "grenade_hit_metal_grate",
+  "grenade_hit_metal_thick",
+  "grenade_hit_metal_thin",
+  "grenade_hit_person",
+  "grenade_hit_plaster",
+  "grenade_hit_rubber",
+  "grenade_hit_sand",
+  "grenade_hit_snow",
+  "grenade_hit_stone",
+  "grenade_hit_thatch",
+  "grenade_hit_water",
+  "grenade_hit_wood_thick",
+  "grenade_hit_wood_thin"
+ ],
+ "fragMaterials": [
+  "frag_grenade_asphalt",
+  "frag_grenade_dirt",
+  "frag_grenade_fabric_heavy",
+  "frag_grenade_glass",
+  "frag_grenade_grass",
+  "frag_grenade_metal_thick",
+  "frag_grenade_metal_thin",
+  "frag_grenade_person",
+  "frag_grenade_sand",
+  "frag_grenade_snow",
+  "frag_grenade_stone",
+  "frag_grenade_thatch",
+  "frag_grenade_underwater",
+  "frag_grenade_wood_thick",
+  "frag_grenade_wood_thin"
+ ]
+}

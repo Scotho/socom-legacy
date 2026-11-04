@@ -1,0 +1,17 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement campaign, case qpd-pop-a (tools/eph/scripts/movement-campaign.sh).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point; the runner refuses two sides in different start stances). One trial per run: the campaign runs it three times.
+# Tests: the pop from the quick drop: qpd-drop-a, then from its prone the stick left at 0.2 and a full Triangle tap.
+# Look: the stance the pop ends in (stand or crouch), how long it takes against light-from-prone and the smoke script's prone -> stand, whether the stick moves or turns the body on the way up; the page beside it.
+# Owner (2026-10-31): "Pop back up by tapping triangle and move left stick analog any direction"; and "confirming the rebinding and prone pop and prone drop mechanics".
+# Stick pushes: 0.2 is inside the move stick's per-axis dead zone 0.3 (pad +0x288, FUN_002da930 D:L179566-179592; viewer moveStick.ts LEFT_DEAD_ZONE), so the original moves nothing on it; 0.5 is past the dead zone and under 0.838, the crouch walk (FUN_00584c60, desktop@be5578311:tools_py/parity/seal_speed_fit.py:74). Left (lleft): a direction other than the facing, so the drop's direction tells facing from stick.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 (tools/eph/pageSeed.ts); PCSX2: the plain keys and the prepared macros (tools/eph/padIni.ts PREPARED).
+500 triangle 0.2
+600 triangle 0     # light Triangle: stand -> crouch
+3000 lleft 0.2      # the stick pushed left, slightly
+3150 triangle 1.0  # full Triangle with the stick held: the drop
+3300 triangle 0
+3550 lleft 0
+6500 lleft 0.2      # from the drop's prone: the stick pushed left
+6600 triangle 1.0  # a Triangle tap with the stick held: the pop
+6750 triangle 0
+7100 lleft 0

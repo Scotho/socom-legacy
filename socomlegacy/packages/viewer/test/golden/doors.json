@@ -1,0 +1,969 @@
+{
+ "_source": "disc RUN/MP2.ZDB and RUN/MP6.ZDB (READERM.ZAR actions.rdr DOOR records, MZANIM.ZAR, the _GEO.ZED scene graph and hull) through simMapFromBytes -> readDoors (packages/viewer/src/simMap.ts, doors.ts); read 2026-10-02; re-read 2026-10-23 (ai::ANIMATE decoded, the ai namespace named)",
+ "MP2": [
+  {
+   "index": 0,
+   "node": "bdoor_4",
+   "path": "worldmodel/bdoor_4",
+   "valve": "bdoor_4",
+   "range": 30,
+   "elevation": -1,
+   "programs": [
+    {
+     "name": "singleDoor_right",
+     "root": 0,
+     "flags": 162,
+     "nodes": [],
+     "sequences": [
+      {
+       "name": "seq_0",
+       "activation": 1,
+       "ops": [
+        {
+         "op": "if",
+         "conditions": [
+          {
+           "kind": "valve",
+           "valve": "NA",
+           "operation": 2,
+           "operand": 0,
+           "context": true
+          }
+         ]
+        },
+        {
+         "op": "callSequence",
+         "sequence": "open"
+        },
+        {
+         "op": "else"
+        },
+        {
+         "op": "callSequence",
+         "sequence": "close"
+        },
+        {
+         "op": "endif"
+        }
+       ]
+      },
+      {
+       "name": "open",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.25,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 1,
+         "context": true
+        },
+        {
+         "op": "other",
+         "cmd": 5,
+         "name": "ai::EVENT"
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_WOOD_OPEN",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 0.699999988079071,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           -0.7660444378852844,
+           0,
+           0.6427876353263855
+          ]
+         }
+        }
+       ]
+      },
+      {
+       "name": "close",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.25,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 0,
+         "context": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 0.699999988079071,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           0.7660444378852844,
+           0,
+           0.6427876353263855
+          ]
+         }
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_WOOD_CLS",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "local": [
+    6.123031769111886e-17,
+    0,
+    -1,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1,
+    0,
+    6.123031769111886e-17,
+    0,
+    588.75732421875,
+    142,
+    1117,
+    1
+   ],
+   "parent": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1.1368683772161603e-13,
+    0,
+    0,
+    1
+   ],
+   "owners": [
+    301,
+    302
+   ],
+   "sweep": {
+    "minX": 575.6765382020411,
+    "maxX": 601.8381102354589,
+    "minZ": 1103.919213983291,
+    "maxZ": 1130.080786016709
+   }
+  },
+  {
+   "index": 1,
+   "node": "wdoor_1",
+   "path": "worldmodel/wdoor_1",
+   "valve": "wdoor_1",
+   "range": 30,
+   "elevation": -1,
+   "programs": [
+    {
+     "name": "singleDoor_right",
+     "root": 0,
+     "flags": 162,
+     "nodes": [],
+     "sequences": [
+      {
+       "name": "seq_0",
+       "activation": 1,
+       "ops": [
+        {
+         "op": "if",
+         "conditions": [
+          {
+           "kind": "valve",
+           "valve": "NA",
+           "operation": 2,
+           "operand": 0,
+           "context": true
+          }
+         ]
+        },
+        {
+         "op": "callSequence",
+         "sequence": "open"
+        },
+        {
+         "op": "else"
+        },
+        {
+         "op": "callSequence",
+         "sequence": "close"
+        },
+        {
+         "op": "endif"
+        }
+       ]
+      },
+      {
+       "name": "open",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.25,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 1,
+         "context": true
+        },
+        {
+         "op": "other",
+         "cmd": 5,
+         "name": "ai::EVENT"
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_WOOD_OPEN",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 0.699999988079071,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           -0.7660444378852844,
+           0,
+           0.6427876353263855
+          ]
+         }
+        }
+       ]
+      },
+      {
+       "name": "close",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.25,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 0,
+         "context": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 0.699999988079071,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           0.7660444378852844,
+           0,
+           0.6427876353263855
+          ]
+         }
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_WOOD_CLS",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "local": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    765,
+    142,
+    991,
+    1
+   ],
+   "parent": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "owners": [
+    303,
+    304
+   ],
+   "sweep": {
+    "minX": 751.9192139832911,
+    "maxX": 778.0807860167089,
+    "minZ": 977.9192139832911,
+    "maxZ": 1004.0807860167089
+   }
+  },
+  {
+   "index": 2,
+   "node": "wdoor_2",
+   "path": "worldmodel/wdoor_2",
+   "valve": "wdoor_2",
+   "range": 30,
+   "elevation": -1,
+   "programs": [
+    {
+     "name": "singleDoor_right",
+     "root": 0,
+     "flags": 162,
+     "nodes": [],
+     "sequences": [
+      {
+       "name": "seq_0",
+       "activation": 1,
+       "ops": [
+        {
+         "op": "if",
+         "conditions": [
+          {
+           "kind": "valve",
+           "valve": "NA",
+           "operation": 2,
+           "operand": 0,
+           "context": true
+          }
+         ]
+        },
+        {
+         "op": "callSequence",
+         "sequence": "open"
+        },
+        {
+         "op": "else"
+        },
+        {
+         "op": "callSequence",
+         "sequence": "close"
+        },
+        {
+         "op": "endif"
+        }
+       ]
+      },
+      {
+       "name": "open",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.25,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 1,
+         "context": true
+        },
+        {
+         "op": "other",
+         "cmd": 5,
+         "name": "ai::EVENT"
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_WOOD_OPEN",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 0.699999988079071,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           -0.7660444378852844,
+           0,
+           0.6427876353263855
+          ]
+         }
+        }
+       ]
+      },
+      {
+       "name": "close",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.25,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 0,
+         "context": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 0.699999988079071,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           0.7660444378852844,
+           0,
+           0.6427876353263855
+          ]
+         }
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_WOOD_CLS",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "local": [
+    6.123031769111886e-17,
+    0,
+    -1,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1,
+    0,
+    6.123031769111886e-17,
+    0,
+    897.5,
+    99.99998474121094,
+    995,
+    1
+   ],
+   "parent": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1.1368683772161603e-13,
+    0,
+    0,
+    1
+   ],
+   "owners": [
+    305,
+    306
+   ],
+   "sweep": {
+    "minX": 884.4192139832911,
+    "maxX": 910.5807860167089,
+    "minZ": 981.9192139832911,
+    "maxZ": 1008.0807860167089
+   }
+  }
+ ],
+ "MP6": [
+  {
+   "index": 0,
+   "node": "cdoor1",
+   "path": "worldmodel/cdoor1",
+   "valve": "cdoor1",
+   "range": 30,
+   "elevation": -1,
+   "programs": [
+    {
+     "name": "singleDoor_right",
+     "root": 0,
+     "flags": 162,
+     "nodes": [],
+     "sequences": [
+      {
+       "name": "seq_0",
+       "activation": 1,
+       "ops": [
+        {
+         "op": "if",
+         "conditions": [
+          {
+           "kind": "valve",
+           "valve": "NA",
+           "operation": 2,
+           "operand": 0,
+           "context": true
+          }
+         ]
+        },
+        {
+         "op": "callSequence",
+         "sequence": "open"
+        },
+        {
+         "op": "else"
+        },
+        {
+         "op": "callSequence",
+         "sequence": "close"
+        },
+        {
+         "op": "endif"
+        }
+       ]
+      },
+      {
+       "name": "open",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.6499999761581421,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 1,
+         "context": true
+        },
+        {
+         "op": "other",
+         "cmd": 5,
+         "name": "ai::EVENT"
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_METAL_OPN",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 1,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           -0.9961947202682495,
+           0,
+           0.08715580403804779
+          ]
+         }
+        },
+        {
+         "op": "other",
+         "cmd": 26,
+         "name": "ai::SIGNAL"
+        },
+        {
+         "op": "if",
+         "conditions": [
+          {
+           "kind": "valve",
+           "valve": "cdoor1",
+           "operation": 2,
+           "operand": 1
+          }
+         ]
+        },
+        {
+         "op": "call",
+         "anim": "okforhostages"
+        },
+        {
+         "op": "endif"
+        }
+       ]
+      },
+      {
+       "name": "close",
+       "activation": 2,
+       "ops": [
+        {
+         "op": "other",
+         "cmd": 16,
+         "name": "ai::MOVE"
+        },
+        {
+         "op": "aiAnimate",
+         "type": 63,
+         "prewait": 0,
+         "postwait": 0.6499999761581421,
+         "blocking": false,
+         "select": 0
+        },
+        {
+         "op": "valve",
+         "valve": "NA",
+         "operation": 11,
+         "operand": 0,
+         "context": true
+        },
+        {
+         "op": "sound",
+         "sound": ".DOOR_METAL_CLS",
+         "node": -6,
+         "volume": 1,
+         "flags": 130,
+         "newPlay": true
+        },
+        {
+         "op": "fromTo",
+         "node": -6,
+         "flags": 97,
+         "seconds": 1,
+         "from": [
+          0,
+          0,
+          0
+         ],
+         "to": [
+          0,
+          0,
+          0
+         ],
+         "rotation": {
+          "from": [
+           0,
+           0,
+           0,
+           1
+          ],
+          "to": [
+           0,
+           0.9961947202682495,
+           0,
+           0.08715580403804779
+          ]
+         }
+        },
+        {
+         "op": "other",
+         "cmd": 26,
+         "name": "ai::SIGNAL"
+        },
+        {
+         "op": "if",
+         "conditions": [
+          {
+           "kind": "valve",
+           "valve": "cdoor1",
+           "operation": 2,
+           "operand": 0
+          }
+         ]
+        },
+        {
+         "op": "call",
+         "anim": "not_okforhostages"
+        },
+        {
+         "op": "endif"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "local": [
+    2.186285422245784e-15,
+    0,
+    -1,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1,
+    0,
+    2.186285422245784e-15,
+    0,
+    1732.564208984375,
+    50.5,
+    1218.419189453125,
+    1
+   ],
+   "parent": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    2.7284841053187847e-12,
+    0,
+    -3.865352482534945e-12,
+    1
+   ],
+   "owners": [
+    19,
+    20
+   ],
+   "sweep": {
+    "minX": 1719.5425923412695,
+    "maxX": 1745.5858256274805,
+    "minZ": 1205.3975728100195,
+    "maxZ": 1231.4408060962305
+   }
+  }
+ ]
+}

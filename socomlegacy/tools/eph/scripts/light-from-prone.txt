@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement campaign, case light-from-prone (tools/eph/scripts/movement-campaign.sh).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point; the runner refuses two sides in different start stances). One trial per run: the campaign runs it three times.
+# Tests: the light Triangle (L2 + Triangle on a live pad: Triangle at 0.2) from prone: a full Triangle (stand -> prone), settled, then a light Triangle.
+# Look: the stance it ends in (crouch) and the rise's length, the baseline for the pops (qpd-pop-a, -b).
+# Owner (2026-10-31): "much more time should be spent testing various movement features (and confirming the rebinding and prone pop and prone drop mechanics)".
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 (tools/eph/pageSeed.ts); PCSX2: the plain keys and the prepared macros (tools/eph/padIni.ts PREPARED).
+500 triangle 1.0   # full Triangle: stand -> prone
+650 triangle 0
+3500 triangle 0.2
+3600 triangle 0     # light Triangle from prone

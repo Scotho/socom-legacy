@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 580" role="img" aria-label="How SOCOM Legacy connects: the SOCOM Legacy client in your browser reads your retail disc or ISO and takes mods and packs from Thunderstore. It logs in and browses through the central service the project runs. Community hosts keep a control link to the central service, and each host's supervisor starts match servers that run the authoritative match simulations; every action a player takes is verified by the match simulation.">
+  <style>
+    .bg { fill: #000e11; }
+    .box { fill: #002933; stroke-width: 1.5; }
+    .inner { fill: #032326; stroke-width: 1.2; }
+    .zone { fill: none; stroke-width: 1.5; stroke-dasharray: 6 5; }
+    .us { stroke: #dcb85c; } .node { stroke: #5fb3bf; } .player { stroke: #dfe4e5; } .ts { stroke: #23aaff; }
+    .dash { stroke-dasharray: 5 4; }
+    text { font-family: "Oswald", "Arial Narrow", "Helvetica Neue", Arial, sans-serif; }
+    .lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; fill: #8a9a9c; }
+    .lbl.gold { fill: #dcb85c; } .lbl.cyan { fill: #5fb3bf; } .lbl.blue { fill: #23aaff; }
+    .ttl { font-size: 17px; font-weight: 500; fill: #dfe4e5; }
+    .sub { font-size: 13px; fill: #b4bfc1; }
+    .mn { font-family: "JetBrains Mono", Menlo, Consolas, monospace; font-size: 11px; fill: #b4bfc1; }
+    .dim { fill: #8a9a9c; }
+    .edge { fill: none; stroke-width: 1.7; }
+    .e-us { stroke: #dcb85c; } .e-node { stroke: #5fb3bf; } .e-ts { stroke: #23aaff; }
+    .elbl { font-family: "JetBrains Mono", Menlo, Consolas, monospace; font-size: 10.5px; fill: #8a9a9c; }
+  </style>
+  <defs>
+    <marker id="a-us" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dcb85c"/></marker>
+    <marker id="a-node" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fb3bf"/></marker>
+    <marker id="a-ts" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#23aaff"/></marker>
+    <radialGradient id="glow" cx="15%" cy="0%" r="80%"><stop offset="0" stop-color="#003a46"/><stop offset="0.6" stop-color="#000e11" stop-opacity="0"/></radialGradient>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="580" rx="6"/>
+  <rect x="0" y="0" width="1280" height="580" rx="6" fill="url(#glow)"/>
+
+  <!-- Thunderstore -->
+  <rect class="box ts" x="24" y="24" width="228" height="72" rx="3"/>
+  <text class="lbl blue" x="40" y="50">THUNDERSTORE</text>
+  <text class="ttl" x="40" y="76">Mods &amp; packs</text>
+  <path class="edge e-ts" d="M138 96 V138" marker-end="url(#a-ts)"/>
+  <text class="elbl" x="148" y="122">mods</text>
+
+  <!-- the player -->
+  <rect class="box player" x="24" y="140" width="228" height="240" rx="3"/>
+  <text class="lbl" x="40" y="166">PLAYER</text>
+  <text class="ttl" x="40" y="192">SOCOM Legacy client</text>
+  <text class="sub" x="40" y="214">in your browser</text>
+  <rect class="inner player" x="40" y="236" width="196" height="124" rx="3"/>
+  <text class="lbl" x="54" y="260">YOUR DISC</text>
+  <text class="ttl" x="54" y="286">Retail Disc or ISO</text>
+  <text class="mn" x="54" y="312">cached in browser</text>
+  <text class="mn dim" x="54" y="340">nothing uploaded</text>
+
+  <!-- central -->
+  <rect class="zone us" x="320" y="40" width="300" height="428" rx="4"/>
+  <text class="lbl gold" x="340" y="66">CENTRAL SERVICE</text>
+  <text class="mn dim" x="600" y="66" text-anchor="end">private</text>
+  <rect class="inner us" x="340" y="80" width="260" height="60" rx="3"/>
+  <text class="lbl" x="354" y="100">ACCOUNTS</text><text class="ttl" x="354" y="124">Logins &amp; tickets</text>
+  <rect class="inner us" x="340" y="150" width="260" height="60" rx="3"/>
+  <text class="lbl" x="354" y="170">LOBBY</text><text class="ttl" x="354" y="194">Universes &amp; rooms</text>
+  <rect class="inner us" x="340" y="220" width="260" height="60" rx="3"/>
+  <text class="lbl" x="354" y="240">SOCIAL</text><text class="ttl" x="354" y="264">Friends, clans, chat</text>
+  <rect class="inner us" x="340" y="290" width="260" height="60" rx="3"/>
+  <text class="lbl" x="354" y="310">STATS</text><text class="ttl" x="354" y="334">Ladder &amp; stats</text>
+  <rect class="inner us" x="340" y="360" width="260" height="60" rx="3"/>
+  <text class="lbl" x="354" y="380">DIRECTORY</text><text class="ttl" x="354" y="404">Validated hosts</text>
+  <text class="mn" x="340" y="450" style="fill:#dcb85c">not planned for release</text>
+
+  <!-- log in and browse -->
+  <path class="edge e-us" d="M252 200 H318" marker-end="url(#a-us)"/>
+  <text class="elbl" x="285" y="222" text-anchor="middle">log in</text>
+  <text class="elbl" x="285" y="236" text-anchor="middle">browse</text>
+
+  <!-- the control link -->
+  <line class="edge e-node" x1="660" y1="125" x2="660" y2="365"/>
+  <text class="elbl" x="682" y="185" text-anchor="middle" transform="rotate(-90 682 185)">control link</text>
+  <path class="edge e-us" d="M600 180 H658" marker-end="url(#a-us)"/>
+  <path class="edge e-node" d="M658 320 H602" marker-end="url(#a-node)"/>
+  <path class="edge e-node" d="M660 125 H698"/>
+  <path class="edge e-node" d="M660 245 H698"/>
+  <path class="edge e-node" d="M660 365 H698"/>
+
+  <!-- hosts -->
+  <rect class="box node" x="700" y="80" width="230" height="90" rx="3"/>
+  <text class="lbl cyan" x="716" y="108">HOST · FIREHUGE</text>
+  <text class="ttl" x="716" y="136">Supervisor</text>
+  <rect class="box node" x="700" y="200" width="230" height="90" rx="3"/>
+  <text class="lbl cyan" x="716" y="228">COMMUNITY HOST</text>
+  <text class="ttl" x="716" y="256">Supervisor</text>
+  <rect class="box node dash" x="700" y="320" width="230" height="90" rx="3"/>
+  <text class="lbl cyan" x="716" y="346">MORE HOSTS</text>
+  <text class="ttl" x="716" y="370">Any region, one list</text>
+  <text class="mn" x="716" y="394">easy setup with HyperNode · coming</text>
+
+  <!-- match servers -->
+  <text class="lbl cyan" x="990" y="66">MATCH SERVERS · ONE PER GAME</text>
+  <path class="edge e-node" d="M930 125 H960 V107 H988" marker-end="url(#a-node)"/>
+  <path class="edge e-node" d="M960 125 V171 H988" marker-end="url(#a-node)"/>
+  <rect class="inner node" x="990" y="80" width="260" height="54" rx="3"/>
+  <text class="lbl" x="1004" y="100">MATCH SERVER</text><text class="ttl" x="1004" y="123">Crossroads</text>
+  <rect class="inner node" x="990" y="144" width="260" height="54" rx="3"/>
+  <text class="lbl" x="1004" y="164">MATCH SERVER</text><text class="ttl" x="1004" y="187">Frostfire</text>
+  <path class="edge e-node" d="M930 245 H960 V235 H988" marker-end="url(#a-node)"/>
+  <rect class="inner node dash" x="990" y="208" width="260" height="54" rx="3"/>
+  <text class="lbl" x="1004" y="228">NEXT GAME</text><text class="ttl" x="1004" y="251">Started on demand</text>
+  <text class="mn" x="990" y="296">authoritative match simulations</text>
+  <text class="mn" x="990" y="318" style="fill:#5fb3bf">release planned once stable</text>
+
+  <!-- play -->
+  <path class="edge e-node" d="M138 380 V540 H1264 V107 H1252" marker-end="url(#a-node)"/>
+  <text class="elbl" x="420" y="532">play: every action verified by the match simulation</text>
+</svg>

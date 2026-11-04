@@ -1,0 +1,16 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-tap-lateral-ladder (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: standing, left full tapped for 33, 67, 100, 150 and 250 ms, 700 ms apart: the shortest push each side acts on, and what a short push does.
+# Look: per tap, the distance (dist), the peak speed and the glide after it on each side (the smoke run saw the page glide 0.95 u over one frame where the PS2 stopped dead); the PS2 samples the pad once a 30 Hz frame (tilt.ts PS2_STEP_MS), so a 33 ms tap may land on no frame -- a tap that moves the page and not the PS2 is that, not a rule; a sidestep or plant body (topActionId) on PCSX2 for a short tap.
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: +x toward the dip at x 950-980; the five taps together are under about 40 u at 65 u/s, on the flat strip x 920-950, z 810-855 (y -145 to -147; pop-stick's header); the bank's foot from x 910 (-x), the dip at x 950-980 (+x), water +z of z about 871 (flags105e +0x80, the 2026-10-31 runs) and the dip's edge.
+500 lleft 1
+533 lleft 0
+1233 lleft 1
+1300 lleft 0
+2000 lleft 1
+2100 lleft 0
+2800 lleft 1
+2950 lleft 0
+3650 lleft 1
+3900 lleft 0

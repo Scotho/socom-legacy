@@ -1,0 +1,20 @@
+{
+  "name": "@s2u/match",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The match server's game: the Room and its game modules, the MatchServer, the replay recorder and the round's stats arithmetic; imports nothing of @s2u/central (the server split, SA-3)",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@s2u/archive": "*",
+    "@s2u/creator-contracts": "*",
+    "@s2u/scene": "*",
+    "@s2u/ui": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.12"
+  }
+}

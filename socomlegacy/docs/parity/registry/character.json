@@ -1,0 +1,1161 @@
+{
+ "area": "character",
+ "notes": ["docs/research/77-motion-format.md", "docs/research/78-character-mesh-and-skeleton.md", "docs/research/150-the-reload-while-running.md", "docs/research/218-the-permission-as-built.md", "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md", "docs/research/251-the-effective-action-life-model.md"],
+ "entries": [
+  {
+   "id": "character.motion.clip.one-key",
+   "claim": "A motion clip is one flat ZAR key with no children; its bytes are the whole clip and its name is the key's (77 §1).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB MOTION_S.ZAR and RUN/MOTION_P.ZAR, key tree",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.test.ts", "name": "names each clip of a MOTION_*.ZAR by its key (77 §2)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "holds the seven victory clips, each read to its last byte: frame counts, 30 keys a second, 26 parts", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.victory.seven-clips",
+   "claim": "Every map's MOTION_S.ZAR holds the same seven victory clips (backflip 155 frames, break 95, chicken 190, face 149, funky 85, macarena 205, rodeo 153; key sizes 36,224 / 21,904 / 44,148 / 33,676 / 19,724 / 45,884 / 35,772 B), their payloads byte-identical on all 22 maps (77 §1, §8).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB MOTION_S.ZAR, every key",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "reads all seven victory clips laid out from their pinned names, flags and frames to their key sizes (77 §8)", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "re-reads the victory pin from MP2's MOTION_S.ZAR: sizes, frames, durations, flags, 77 §8's payload SHA-1s, decoded digests", "data": "fixture" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "decodes the same seven clips on all 22 maps, byte for byte outside the writer's records", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.head.layout",
+   "claim": "The clip head is 0x20 bytes: u32 version 5, f32 duration, u32 frame count, u32 part count, f32 -1, f32 1, u32 name-table offset 0x20 + 16 x count, u32 track-data offset; backflip's reads 00000005 40a55555 0000009b 0000001a bf800000 3f800000 000001c0 000002b0 (77 §2).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB MOTION_S.ZAR victory_backflip bytes 0x00-0x1f; all 341 clips",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "lays victory_backflip out to 77 §2's stored head and its 36,224 bytes, and reads it to the last byte", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "reads the head: version 5, the duration, the frame count, the part count; the rate is frames over duration", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "refuses a wrong version, an unknown flag bit, a short or long file and a misplaced name table", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "re-reads backflip's head words and its constant channels through parseMotionClip", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.head.duration",
+   "claim": "A clip's duration is its frame count / 30 (exactly, as an f32) on all 341 clips: 30 keys a second (77 §2, §7).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR and MOTION_P.ZAR head +0x04, +0x08",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "times a clip at frames / 30 seconds in f32: 30 keys a second on the seven victory clips", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "re-reads the pack pin from MOTION_P.ZAR: 334 clips, sizes, frames, part sets, flags, digests, seal_run's root", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.records.skipped",
+   "claim": "The 16 x count bytes after the head are the export tool's CZSIObject records (heap pointers), rebuilt by the loader CZSIObject_Read; the reader skips them (77 §3).",
+   "level": "reading",
+   "source": "FUN_00289380 D:L132329 (CZSIObject_Read); disc MOTION_S.ZAR records",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.test.ts", "name": "ignores the 16-byte object records: they are the writer's pointers (77 §3)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.names.table",
+   "claim": "The name table holds one NUL-terminated name per track, each padded with '-' (0x2d) to four bytes, filling the head's two offsets exactly (77 §4).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR / MOTION_P.ZAR, [+0x18, +0x1c)",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "reads all 334 of the player pack's clips laid out from their pinned part sets, flags and frames to their key sizes", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "refuses a wrong version, an unknown flag bit, a short or long file and a misplaced name table", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.names.victory-parts",
+   "claim": "The victory clips carry 26 tracks in one order: skel_root hips aimnodes spinelo spinehi neck head lshoulder_wgt lscap rscap rshoulder_wgt rbicep rforearm rhand weapon lbicep lforearm lhand rthigh rcalf rfoot rtoe lthigh lcalf lfoot ltoe -- the skeleton's 25 parts under its model plus the weapon, in an order not the skeleton's, with no parent links (77 §4).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR name tables; reCOM zSeal/zseal.h:534-558",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "names the skeleton's 25 parts under its model plus the weapon in every victory clip, in an order not the skeleton's (77 §4)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "carries CZSealBody's 25 parts by name, m_root as skel_root, and the weapon as the 26th", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.track.layout",
+   "claim": "Each track is a u32 flag word, then the translation channel (int16 x y z per key, n + 1 keys, or 4 int16 once when constant), then the rotation channel (int16 x y z w per key, n + 1 keys, or once when constant); every clip is read to its last byte (77 §5).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR (7 clips) and MOTION_P.ZAR (334 clips), track data",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "reads all 334 of the player pack's clips laid out from their pinned part sets, flags and frames to their key sizes", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "lays victory_backflip out to 77 §2's stored head and its 36,224 bytes, and reads it to the last byte", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "reads an animated channel as frameCount + 1 keys and a constant one as a single key (77 §5)", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "re-reads the pack pin from MOTION_P.ZAR: 334 clips, sizes, frames, part sets, flags, digests, seal_run's root", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.track.pad",
+   "claim": "An animated translation of an odd key count leaves the stream two bytes short of 4 and is zero-padded (victory_chicken, n + 1 = 191) (77 §5).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR victory_chicken",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "reads all seven victory clips laid out from their pinned names, flags and frames to their key sizes (77 §8)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "pads the stream to 4 bytes after an odd-length translation run, and reads past the pad (77 §5)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.track.flags",
+   "claim": "Only the flag words 0x0c, 0x1c, 0x2c, 0x3c occur (0x10 rotation constant, 0x20 translation constant); the victory clips share one pattern -- skel_root 0x1c, hips, the shoulder weights, the biceps and weapon 0x0c, the toes 0x3c, the rest 0x2c, spinehi 0x2c on three clips and 0x3c on four (77 §5).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR and MOTION_P.ZAR track flag words",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "carries the four flag words only, and 77 §5's one pattern on the victory clips, spinehi 0x2c on three and 0x3c on four", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "holds the seven victory clips, each read to its last byte: frame counts, 30 keys a second, 26 parts", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.track.closing-key",
+   "claim": "Every animated channel stores n + 1 keys and key n equals key 0, on the victory clips and all 7,309 animated channels of the pack, one-shots included (77 §5).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR and MOTION_P.ZAR keys",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "walks seal_run's pinned root at research 25's (41, 2638, 7233 - 492.5 i): 57.7 units a second along -z", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "closes every animated channel on its first key: key n is key 0 (77 §5)", "data": "fixture" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "reads all 334 clips to the last byte: 30 keys a second, the four flag words, unit keys, every channel closed", "data": "fixture" }
+   ],
+   "owed": "A unit pin of every channel's closing key needs the keys themselves (165,028 rotation keys in the pack); the unit tier holds it on seal_run's root only, and the per-clip decoded SHA-1 in golden/character-motion.json holds the rest where the fixtures are."
+  },
+  {
+   "id": "character.motion.scale.translation",
+   "claim": "A translation key is int16 / 256 (the decomp's root-key scale 0x3b800000); victory_backflip's 19 constant translations lie within one step of seal_A_scuba's bind translations, truncated toward zero, the worst 0.94 of a step (77 §6).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR victory_backflip constant channels against CLIB_GEO.ZED models/seal_A_scuba nparams",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "puts backflip's 19 constant translations within one 1/256 step of seal_A_scuba's bind node, truncated toward zero (77 §6)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "scales translations by 1/256 and rotations by 1/32767, x y z w (77 §6)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "agrees with seal_A_scuba's bind skeleton: victory_backflip's constant translations and rotations are the nodes' own (77 §6)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.scale.rotation",
+   "claim": "A rotation key is x, y, z, w as int16 / 32767, w last (skel_root's constant is (0, 0, 0, 32767)), and is three.js's quaternion as it stands: backflip's constant rtoe (-417, -417, -23165, 23166) gives row 0 (0.000, -0.999, 0.036), seal_A_scuba's bind row (77 §6).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR victory_backflip constant rotations against CLIB_GEO.ZED models/seal_A_scuba nparams",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "turns backflip's constant rotations into the bind rows through partMatrix: rtoe row 0 (0.000, -0.999, 0.036) (77 §6)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "builds the part's local matrix in the engine's row-major, row-vector convention (sceneGraph.ts)", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "stores unit quaternions: every key within 1e-4 of length 1, no NaN (77 §6)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.hemisphere",
+   "claim": "Adjacent rotation keys can sit in opposite hemispheres (592 of the victory clips' 23,202 pairs, 4,632 of the pack's 156,771): any blend must take the shorter arc (77 §6).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR and MOTION_P.ZAR rotation keys",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.test.ts", "name": "PLACEHOLDER (W2.R2): between keys, translations lerp and rotations slerp on the shorter arc", "data": "none" }
+   ],
+   "owed": "The pair counts (592, 4,632) are not pinned: a fixture test counting negative dot products over the real keys is owed; the blend itself is the named placeholder MOTION_BLEND, not a reading."
+  },
+  {
+   "id": "character.motion.root.ground",
+   "claim": "skel_root moves on the ground plane at its hip height (victory y 10.1-11.6 against the bind 11.67) with the identity rotation constant; the body's vertical travel and turn are in hips (backflip's hips y -2.70 to +6.38, up to 177 degrees) (77 §6).",
+   "level": "reading",
+   "source": "disc MOTION_S.ZAR skel_root and hips channels",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "turns backflip's constant rotations into the bind rows through partMatrix: rtoe row 0 (0.000, -0.999, 0.036) (77 §6)", "data": "none" }
+   ],
+   "owed": "Only skel_root's identity constant is pinned; the root's y range and the hips' travel and turn need the animated keys, which are not pinned -- a fixture test of the ranges is owed."
+  },
+  {
+   "id": "character.motion.root.seal-run",
+   "claim": "seal_run (19 frames, 0.633 s) carries research 25's walk keys: its root at (41, 2638, 7233 - ~492.5 i) in 1/256 units, each step 492 or 493, so 57.7 units a second along -z at 30 keys a second (77 §6, §12).",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR seal_run skel_root translations",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "walks seal_run's pinned root at research 25's (41, 2638, 7233 - 492.5 i): 57.7 units a second along -z", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "re-reads the pack pin from MOTION_P.ZAR: 334 clips, sizes, frames, part sets, flags, digests, seal_run's root", "data": "fixture" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "is the pack research 25 read in memory: seal_run's root keys, seal_crouch_step's constant root", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.time.keys",
+   "claim": "Key i sits at i x duration / n seconds and key n at the duration; the game's time function keeps t x n, the fractional frame (77 §7, research 25 §2).",
+   "level": "reading",
+   "source": "FUN_0028d670 D:L134881; disc clip heads",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "times a clip at frames / 30 seconds in f32: 30 keys a second on the seven victory clips", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "lands on the keys at whole frames: key i at i / rate seconds", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "wraps a looping clip, clamps a one-shot one at its last key, and holds on request", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.rdr.looped",
+   "claim": "motion.rdr in RUN/READERC.ZAR holds 398 entries, looped 1 on 150 and 0 on 248: seal_run 1, seal_stand 1, seal_jump 0, seal_land_hard 0, every victory clip 0 (77 §7).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR motion.rdr animations/looped",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/viewer/test/motionTable.parity.test.ts", "name": "holds 398 entries, 150 looped and 248 not: seal_run 1, seal_stand 1, seal_jump 0, seal_land_hard 0, every victory clip 0", "data": "none" },
+    { "file": "packages/viewer/test/motionTable.parity.test.ts", "name": "re-reads all 398 entries from READERC.ZAR's motion.rdr through motionTableFromArchive", "data": "fixture" },
+    { "file": "packages/viewer/test/motionTable.test.ts", "name": "holds research 77 §7's 398 entries, 150 looped and 248 not, and the values it prints", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.rdr.coverage",
+   "claim": "motion.rdr names 326 of the pack's 334 clips and all seven victory clips (77 §7).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR motion.rdr anim_name against RUN/MOTION_P.ZAR keys",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/viewer/test/motionTable.parity.test.ts", "name": "names 326 of the player pack's 334 clips and all seven victory clips", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.rdr.playback-victory",
+   "claim": "The victory clips' playback is 4.8, 2.8, 5.9, 4.6, 2.5, 6.6 and 4.7 s with max_velocity < 0, 0.23-0.43 s under their files' durations, and they play in their playback seconds (77 §7).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR motion.rdr playback, max_velocity; FUN_00287620 D:L131193 (the loader, cited in packages/viewer/src/locomotion.ts)",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/viewer/test/motionTable.parity.test.ts", "name": "plays the victory clips in their playback seconds, 0.23-0.43 under the files' durations, through motionOf", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.rdr.playback-rule",
+   "claim": "playback is not simply a speed: seal_crouch_step (max_velocity -2) plays in its playback 0.4 s against the file's 0.633 s, while seal_run and seal_walk (max_velocity 6.5, playback 1) keep the clip's own 0.633 s duration (77 §7; shown on one clip, a reading beyond).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR motion.rdr; research 25 §8.2's in-memory 0.4 s; FUN_00287620 D:L131193",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/viewer/test/motionTable.parity.test.ts", "name": "plays seal_crouch_step in its playback 0.4 s against the file's 0.633, and seal_run at its own 0.633 s (77 §7's reading)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.rdr.callbacks",
+   "claim": "motion.rdr's zanim_callback fires zAnim animations at a fraction of a clip: seal_jump jump_whoosh at 0.4, seal_stand cold_breath at 0.1; 26 callback names in all, 24 of them in CZANIM's common set (77 §7, §9).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR motion.rdr zanim_callback",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/viewer/test/motionTable.parity.test.ts", "name": "fires 77 §7's zAnim callbacks: seal_jump jump_whoosh at 0.4, seal_stand cold_breath at 0.1, 26 names in all", "data": "none" }
+   ],
+   "owed": "That 24 of the 26 are animations of CZANIM's common set (cold_breath and knife_blood_squirt not) is not pinned: it needs CZANIM's 624 names in a pin; a fixture test crossing the two is owed."
+  },
+  {
+   "id": "character.motion.pack.shape",
+   "claim": "RUN/MOTION_P.ZAR holds 334 clips read to the last byte by the same reader: 1-81 frames (81 on the three buddy-carry pickups, 1 on the held poses), 34 distinct part sets of 4, 7, 11, 14, 15, 16, 25, 26, 27 or 28 parts, six prop parts beyond the 26 (rifle, pistol, launcher, back, rifle_out, do_not_use), upper-body layers without a root, seal_headlooks on 4 (77 §4, §12).",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR, every key",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "reads all 334 of the player pack's clips laid out from their pinned part sets, flags and frames to their key sizes", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "carries 77 §12's cycles with their frame counts, and the pack's shape: 1-81 frames, 34 part sets, six props", "data": "none" },
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "re-reads the pack pin from MOTION_P.ZAR: 334 clips, sizes, frames, part sets, flags, digests, seal_run's root", "data": "fixture" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "names parts beyond the victory clips' 26 -- the weapon props -- and carries partial bodies", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.pack.cycles",
+   "claim": "The cycles a mover needs carry these frame counts: seal_stand 16, seal_walk 25, seal_jog 22, seal_run 19, seal_walk_bw 16, seal_run_bw 18, seal_lstrafe 22, seal_rstrafe 23, seal_crouch 21, seal_crouchwalk 28, seal_prone 10, seal_prone_crawl 26, seal_jump 20, seal_runningjump_launch 25, seal_runningjump_in_air 14, seal_land_soft 20, seal_land_hard 20, seal_recoil 2, seal_reload 45, seal_fp_stand 8, seal_fp_walk 25, seal_fp_run 18 (77 §12).",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR clip heads +0x08",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "carries 77 §12's cycles with their frame counts, and the pack's shape: 1-81 frames, 34 part sets, six props", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "carries the cycles a walk, a run and a jump need, by name (motion.rdr names the same clips)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.motion.pack.families",
+   "claim": "The pack's 334 clips fall into seal_* 154, seal_p_* 79, seal_fp_* 13, seal_pfp_* 12, seal_mv_* 6, guard_* 34, death_* 22, civ_* 12, torturer_* 2 (77 §12).",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR key names",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "sorts the pack into 77 §12's families: seal 154, seal_p 79, seal_fp 13, seal_pfp 12, seal_mv 6, guard 34, death 22, civ 12, torturer 2", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.motion.pack.crouch-step",
+   "claim": "seal_crouch_step (19 frames) has a 0x3c root -- both channels constant, no root motion -- research 25 §8.2's descriptor bit, the loader's m_constPos (77 §3, §12).",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR seal_crouch_step; FUN_00289380 D:L132329",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/motion.parity.test.ts", "name": "walks seal_run's pinned root at research 25's (41, 2638, 7233 - 492.5 i): 57.7 units a second along -z", "data": "none" },
+    { "file": "packages/scene/test/motion.test.ts", "name": "is the pack research 25 read in memory: seal_run's root keys, seal_crouch_step's constant root", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.zanim.main-params",
+   "claim": "Every zAnim archive's Anim_Main_Params is version 72, gravity -98 (reCOM's default -9.8: zAnim units are tenths of a metre), flags 0, user action 0 (77 §9).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB CZANIM.ZAR, MZANIM.ZAR, LDZANIM.ZAR Anim_Main_Params",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/zanim.parity.test.ts", "name": "reads Anim_Main_Params as version 72, gravity -98 (zAnim in tenths of a metre), flags 0, user action 0 on all three", "data": "none" },
+    { "file": "packages/scene/test/zanim.test.ts", "name": "reads the main params (_zanim_main_params, zanim.h:357-364) and the sets", "data": "none" },
+    { "file": "packages/scene/test/zanim.parity.test.ts", "name": "re-reads the pin from MP2's three zAnim archives through parseAnimSets", "data": "fixture" },
+    { "file": "packages/scene/test/zanim.test.ts", "name": "reads all 66 to the byte: 9,912 animations, 18,642 sequences, 73,634 commands, 30 SoftImage scripts, no motion clip named", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.zanim.tree.frostfire",
+   "claim": "On Frostfire CZANIM is one set common (624 names, 10 script paths, 288 animations), MZANIM one set mission (281 names, 76 animations), LDZANIM 95 sets with 63 animations; no SoftImage script (77 §9).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CZANIM.ZAR, MZANIM.ZAR, LDZANIM.ZAR",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/zanim.parity.test.ts", "name": "holds 77 §9's counts: CZANIM one set common, 624 names, 288 animations; MZANIM mission 281 / 76; LDZANIM 95 sets, 63 animations", "data": "none" },
+    { "file": "packages/scene/test/zanim.parity.test.ts", "name": "re-reads the pin from MP2's three zAnim archives through parseAnimSets", "data": "fixture" },
+    { "file": "packages/scene/test/zanim.test.ts", "name": "CZANIM.ZAR: one set, common -- 624 names, 10 script paths, no SoftImage script, 288 animations", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.zanim.totals",
+   "claim": "Over the 66 archives of the 22 maps: 9,912 animations, 18,642 sequences, 73,634 commands, 30 SoftImage scripts (on MP6, MP10, MP11, MP52, MP53, MP62, MP73, MP82) (77 §9).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB zAnim archives",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/zanim.test.ts", "name": "reads all 66 to the byte: 9,912 animations, 18,642 sequences, 73,634 commands, 30 SoftImage scripts, no motion clip named", "data": "fixture" }
+   ],
+   "owed": "Only Frostfire's three archives are pinned (golden/character-zanim.json); a per-map pin of the 22 maps' counts needs public/maps on the generating host -- owed with the fixtures stream."
+  },
+  {
+   "id": "character.zanim.layout",
+   "claim": "Node references are parent bits 0-7, name bits 8-18 through the local table, search bits 19-21; a command header is type bits 0-15, quad_align 16, timeless 17, size in bytes 18-31; the commands tile their sequences and the sequences tile Seq_Data; Anim_Params byte 0 names the animation's own key (77 §9).",
+   "level": "reading",
+   "source": "disc zAnim archives; reCOM zAnim/zanim.h:342-348, 417-435, 463-481",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/zanim.test.ts", "name": "reads an animation: its params, its local name table, its node references", "data": "none" },
+    { "file": "packages/scene/test/zanim.test.ts", "name": "splits the command stream into sequences and each sequence into its commands, to the byte", "data": "none" },
+    { "file": "packages/scene/test/zanim.test.ts", "name": "refuses a count that disagrees with its list, a name that is not the key's, and a stream that does not tile", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.zanim.if-endif",
+   "claim": "Command types 0x02 and 0x05 balance in MP2's CZANIM, MZANIM and LDZANIM (42/42, 79/79, 58/58) but not over all 66 archives (4,280 against 4,279), and in 18,641 of 18,642 sequences nest with 0x03/0x04 only inside one pair -- reCOM's DATATYPE_IF / END_IF with ELSEIF / ELSE (77 §9; the counts are data, the names an inference).",
+   "level": "reading",
+   "source": "disc zAnim archives command types; reCOM zAnim/zanim.h",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/zanim.parity.test.ts", "name": "balances IF 0x02 against END_IF 0x05 in each of MP2's three zAnim archives (77 §9: 4,280 against 4,279 over all 66)", "data": "none" }
+   ],
+   "owed": "The nesting (0x03/0x04 only inside a 0x02...0x05 pair, 18,641 of 18,642 sequences) and the all-66 totals (4,280 / 4,279) are not tested: a disc-tier test walking every map's zAnim archives is owed."
+  },
+  {
+   "id": "character.zanim.no-body-motion",
+   "claim": "No zAnim name table of the 66 archives names a MOTION_S or MOTION_P clip, and Frostfire's three carry no SoftImage script: zAnim names no body motion (77 §9).",
+   "level": "reading",
+   "source": "disc zAnim archives name tables against MOTION_S.ZAR / MOTION_P.ZAR keys",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [
+    { "file": "packages/scene/test/zanim.test.ts", "name": "names no body motion: no set carries a MOTION_S clip or a SoftImage script on Frostfire (77 §9)", "data": "fixture" }
+   ],
+   "owed": "A unit pin needs CZANIM's and MZANIM's name tables (905 names on Frostfire); not written."
+  },
+  {
+   "id": "character.zanim.object-motion",
+   "claim": "zAnimObjectMotionBegin is zAnim's OBJECT_MOTION begin hook, not the clip sampler: it reads a command of at least 0x80 bytes and draws 8 random ranges, so SOCOM II's OBJECT_MOTION is not reCOM's 20-byte type 0x13 (77 §11).",
+   "level": "reading",
+   "source": "FUN_00262690 D:L110465",
+   "note": "docs/research/77-motion-format.md",
+   "tests": [],
+   "owed": "A source finding about which function is not the sampler; no engine code implements it, so there is nothing to pin until the OBJECT_MOTION command is decoded (77 §11's open item)."
+  },
+  {
+   "id": "character.mesh.key.children",
+   "claim": "A CLIB_MDL.ZED mesh key MESH_<name> holds the whole DMA buffer and three u32 children: MESH_<name>_START (the count quadword's byte offset; seal_A_scuba 83,008 of 89,504), ref_count (the tag count, 405) and mtx_count (26 on all 411 meshes) (78 §1).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED MESH_* keys",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "pins Frostfire's 17 meshes (78 §1, §3): mtx_count 26, ref_count the tag count, no vertex on slots 0, 10 or 25", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "re-reads the library pin from MP2's CLIB_MDL.ZED through readMeshLibrary, a SHA-1 of each decode", "data": "fixture" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "Frostfire: all 17 meshes, in key order, each with a 26-slot palette and ref_count = its tag count", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.mesh.chain.tags",
+   "claim": "The chain is a count quadword (DMA end, low u16 the tag count) then per batch, per bone, a reloc-9 matrix tag (ref, QWC 4, ADDR the palette slot, STCYCL 1,1 / UNPACK V4-32 num=4 addr=0) and a reloc-10 bone list, then one reloc-11 draw packet; reloc-6 cites the texture in force (78 §2.1).",
+   "level": "reading",
+   "source": "disc CLIB_MDL.ZED MESH_* chains, 24,061 batches on 22 maps",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "decodes the pinned chain to 78 §4: 2,094 vertices, 1,523 triangles, 56 batches, 7 textures, 405 tags, up to 5 bones", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "reads a two-bone batch: the bone lists become per-vertex influences, the draw packet the uvs and indices", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "refuses a chain whose head is not the count quadword the engine reads (research 78 §2)", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "refuses a bone list with no matrix tag in front of it", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "decodes the real seal_A_scuba exactly as the chain rebuilt from the pin: batches, passes, influences, weights", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.mesh.bonelist.lanes",
+   "claim": "A bone list is VU1 0x52's input: TOP+4 = (flags, the batch's triangle count, palette slot, vertex count), then per vertex (x, y, z, dst) as ITOF15 x 10 in the bone's frame with dst / 2 the vertex, and (nx, ny, nz, w) as ITOF15; seal_A_scuba's first list stores (2, 38, 16, 46) and vertex 0 (0x2ada, 0xf82a, 0x27, 0) / (0xe389, 0x8b99, 0xd30a, 0x20e0) (78 §2.2).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED MESH_seal_A_scuba +0x20; research 15 §4.1-4.2",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "reads 78 §2.2's stored first bone list: header (2, 38 triangles, slot 16, 46 vertices), vertex 0 as ITOF15 x 10 and ITOF15", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "reads a two-bone batch: the bone lists become per-vertex influences, the draw packet the uvs and indices", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "refuses a bone list whose header disagrees with its tag", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "decodes the real seal_A_scuba exactly as the chain rebuilt from the pin: batches, passes, influences, weights", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.mesh.bonelist.flags",
+   "claim": "A pass's flags are bit 1 first (writes), bit 0 accumulate, bit 2 last: the first pass 2, a lone bone 6, later passes 1 or 5; the first pass lists every vertex exactly once; bones per batch run 1 to 14 (seal_A_scuba: 12 of 56 batches on one bone) (78 §2.2).",
+   "level": "reading",
+   "source": "disc CLIB_MDL.ZED bone lists TOP+4.x; research 15 §4.1",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "flags each pass as 78 §2.2 reads them: the first 2 (6 when alone), the rest accumulate 1, the last 4; 12 batches of one bone", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "refuses a batch whose first pass does not write every vertex: the accumulate passes would add to stale staging", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.mesh.weights",
+   "claim": "A vertex's weights sum to one to a lane's last bit per influence, 1.0 stored as 32767; seal_A_scuba weights 995 vertices on one bone, 773 on two, 263 on three, 62 on four and 1 on five (78 §2.2).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED MESH_seal_A_scuba bone lists' w lanes",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "weights its vertices as 78 §2.2 counts them: 995 on one bone, 773 on two, 263 on three, 62 on four, 1 on five", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "sums every vertex's weights to one, to a lane's last bit per influence, 1.0 stored as 32767 (78 §2.2)", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "decodes the real seal_A_scuba exactly as the chain rebuilt from the pin: batches, passes, influences, weights", "data": "fixture" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "seal_A_scuba: 2,094 vertices, 1,523 triangles, 56 batches in 7 textures, up to 5 bones a vertex", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.mesh.skinning",
+   "claim": "The game's skinning is VU1 0x52's sum of w x (p x M_b) per influence, the translation weighted too, the normal through the 3x3 alone and not renormalised (78 §2.2, research 15 §4.2-4.3).",
+   "level": "reading",
+   "source": "research 15 §4.2-4.3 (VU1 microcode 0x52)",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.test.ts", "name": "skins as the VU does: each bone weighs its own local position through its own matrix, the translation weighted too", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.mesh.draw.packet",
+   "claim": "The draw packet is the index list (V4-8 USN at 4 + 3V, byte / 3, flag byte 3), the header (TOP+0 a TRIANGLE_FAN template PRIM 125 fogged, TOP+1 TRIANGLE PRIM 123 NLOOP V, TOP+2 (4 + 3V, 0, V, T)) and the uvs (V2-16 ITOF12 at TOP+5+3k); no position, normal or colour (78 §2.3).",
+   "level": "reading",
+   "source": "disc CLIB_MDL.ZED reloc-11 payloads, 24,061 on 22 maps",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.test.ts", "name": "reads a two-bone batch: the bone lists become per-vertex influences, the draw packet the uvs and indices", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "refuses an index past the vertex count", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "re-reads the library pin from MP2's CLIB_MDL.ZED through readMeshLibrary, a SHA-1 of each decode", "data": "fixture" }
+   ],
+   "owed": "seal_A_scuba's real indices and uvs are not pinned (the rebuilt chain uses placeholder triangles of the pinned count); they are held by the decode SHA-1 in the fixture tier only. A unit pin of the 4,569 indices and 2,094 uvs is owed if the size is accepted."
+  },
+  {
+   "id": "character.mesh.draw.winding",
+   "claim": "CCW is front: the bind-pose CCW normal of a triangle agrees with its skinned vertex normals on 17,323 of 17,336 Frostfire triangles (78 §2.3).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED and CLIB_GEO.ZED",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [],
+   "owed": "No test holds the count: a fixture test skinning Frostfire's 17 meshes in the bind pose and counting agreeing triangles is owed (it needs the real positions and indices)."
+  },
+  {
+   "id": "character.mesh.submesh.merge",
+   "claim": "Batches that share a (texture, fog) merge into one sub-mesh in the order the chain first draws each, indices re-based, no vertex shared across batches: seal_A_scuba's 56 batches in 7 (glove, sleave, shirt, boot, pants, mask, facemap) (78 §2.4).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED MESH_seal_A_scuba",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "decodes the pinned chain to 78 §4: 2,094 vertices, 1,523 triangles, 56 batches, 7 textures, 405 tags, up to 5 bones", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "makes one sub-mesh per texture, re-basing each batch's indices onto the vertices before it", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.mesh.csubmesh.record",
+   "claim": "zdb_CSubMesh_Read fetches one u32 (matrix_id, by elimination the string at 0x3fc2d0) into this + 0x68 and tail-calls zdb_CVisual_Read: no bone index or weight is read on the EE; a node's palette slot is its matrix_id (78 §2.5-§2.6).",
+   "level": "reading",
+   "source": "FUN_003b8c20 D:L309604-309605; FUN_003c3570 D:L315500",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "refuses a palette that is not the pre-order 0..n-1 the mesh indexes", "data": "none" },
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "lists the models that are characters: a model visual of vtype 1", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "reads seal_A_scuba as 78 §3.1 draws it: 26 palette slots in pre-order, their parents, body beside skel_root", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.skeleton.tree",
+   "claim": "seal_A_scuba's skeleton is 26 palette slots in pre-order: skel_root, hips, rthigh, rcalf, rfoot, rtoe, lthigh, lcalf, lfoot, ltoe, aimnodes, spinelo, spinehi, rshoulder_wgt, rscap, rbicep, rforearm, rhand, neck, head, lshoulder_wgt, lscap, lbicep, lforearm, lhand, body, with 78 §3.1's parents; body is a sibling of skel_root at the model origin with the identity; the model node is the identity (78 §3.1).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_GEO.ZED models/seal_A_scuba nparams, visuals/vis matrix_id",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "reads seal_A_scuba as 78 §3.1 draws it: 26 palette slots in pre-order, their parents, body beside skel_root", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "composes the pinned bind locals local x parent: skel_root at (0, 11.67, 0.5334), head at y 17.625", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "re-reads the pin from MP2's CLIB_GEO.ZED through readSkeleton: seal_A_scuba's parts, matrices, boxes, words", "data": "fixture" },
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "seal_A_scuba: 26 parts, the skeleton's 25 under skel_root and `body` beside it", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.skeleton.all-models",
+   "claim": "All 411 character meshes of the 22 maps have this skeleton, names and parents (three con_torturer_mp_2 name slot 25 body_1) (78 §3.1).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB CLIB_GEO.ZED, every model",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "pins every Frostfire character model to the same tree: 17 models, the SEAL names and parents on each", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "re-reads every Frostfire character model's tree and bind locals (SHA-1) as pinned", "data": "fixture" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "MP6: every character model has the SEAL tree, slot 25 body or body_1 (78 §3.1)", "data": "fixture" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "MP72: every character model has the SEAL tree, slot 25 body or body_1 (78 §3.1)", "data": "fixture" }
+   ],
+   "owed": "Three maps are tested (MP2, MP6, MP72: the fixtures); the other 19 maps' models (and the body_1 on MP9-MP11) need public/maps: a 22-map fixture test is owed."
+  },
+  {
+   "id": "character.skeleton.bind-pose",
+   "claim": "Each node's nparams matrix is local to its parent, row-major, row-vector, the bind world local x parent; every bind matrix is a rotation to 7e-7 plus a translation; skel_root at (0, 11.67, 0.5334), head at y 17.625, rtoe z -0.576 ahead of rfoot z 1.091: the model faces -z (78 §3.2).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_GEO.ZED models/seal_A_scuba nparams",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "composes the pinned bind locals local x parent: skel_root at (0, 11.67, 0.5334), head at y 17.625", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "faces -z: the toes lie ahead of the ankles, rtoe z -0.576 against rfoot z 1.091 (78 §3.2)", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "holds every bind matrix, local and world, to a rotation plus a translation within 7e-7 (78 §3.2)", "data": "none" },
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "reads the parts in palette order, with their parents, and composes the bind pose local x parent", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.skeleton.bind-extent",
+   "claim": "The skinned bind-pose SEAL spans x -8.005 to 7.974, y 0 to 19.431 (soles to crown), z -1.702 to 2.174 (78 §3.2).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED and CLIB_GEO.ZED seal_A_scuba",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "seal_A_scuba stands in its bind pose from y 0 to 19.431, 16 wide, facing -z", "data": "fixture" },
+    { "file": "packages/viewer/test/body.test.ts", "name": "is 19.43 tall with its eyes 18.16 over its feet -- not the 15.4 of W1.R2, which is research 17's camera target", "data": "fixture" }
+   ],
+   "owed": "A unit pin needs seal_A_scuba's 3,583 bone-frame positions (the rebuilt chain carries zero positions); owed if a positions pin of that size is accepted."
+  },
+  {
+   "id": "character.skeleton.palette-is-bind",
+   "claim": "The palette is the bind pose: every bone's own copy of every vertex, carried through its bone's bind world, lands on one point to 0.0017 on all 411 meshes (0.00154 on MP2) (78 §3.3).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB CLIB_MDL.ZED and CLIB_GEO.ZED",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "MP2: the palette is the bind pose -- every bone's own copy of a vertex lands on the same point", "data": "fixture" },
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "MP6: the palette is the bind pose -- every bone's own copy of a vertex lands on the same point", "data": "fixture" },
+    { "file": "packages/scene/test/skeleton.test.ts", "name": "MP72: the palette is the bind pose -- every bone's own copy of a vertex lands on the same point", "data": "fixture" }
+   ],
+   "owed": "Needs the bone-frame positions to run without data; not pinned (see character.skeleton.bind-extent)."
+  },
+  {
+   "id": "character.skeleton.empty-slots",
+   "claim": "Slots 0 (skel_root), 10 (aimnodes) and 25 (body) carry no vertex on any of the 411 meshes; seal_A_scuba's bones are the other 23 (78 §3.1).",
+   "level": "reading",
+   "source": "disc CLIB_MDL.ZED reloc-9 slots",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "pins Frostfire's 17 meshes (78 §1, §3): mtx_count 26, ref_count the tag count, no vertex on slots 0, 10 or 25", "data": "none" },
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "decodes the pinned chain to 78 §4: 2,094 vertices, 1,523 triangles, 56 batches, 7 textures, 405 tags, up to 5 bones", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.gear.player",
+   "claim": "Frostfire's player mp2_seal1 (the first navyseals entry of chartype.rdr) is seal_A_scuba in six pieces of default gear -- seal_A_right_eye and seal_A_left_eye on head, seal_holster on rthigh, seal_scuba_aslt_gear on hips, seal_scuba_knife on rcalf, Satchel on spinehi -- no goggles; character.rdr has 49 gear entries in DEG (78 §5.2).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr; RUN/MP2.ZDB READERM.ZAR chartype.rdr",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/character.parity.test.ts", "name": "dresses mp2_seal1 as seal_A_scuba in six pieces of 78 §5.2: two eyes, holster, belt, knife, satchel -- no goggles", "data": "none" },
+    { "file": "packages/scene/test/character.parity.test.ts", "name": "re-reads the pin from READERC.ZAR's character.rdr and MP2's chartype.rdr through parseCharacterTable", "data": "fixture" },
+    { "file": "packages/scene/test/character.test.ts", "name": "mp2_seal1 is seal_A_scuba, in its eyes, holster, belt, knife and satchel -- no goggles", "data": "fixture" },
+    { "file": "packages/viewer/test/body.test.ts", "name": "is mp2_seal1, seal_A_scuba, in its six pieces of default gear, and the map stays clean", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.gear.body-items",
+   "claim": "character.rdr's body_items lists exactly the 25 skeleton parts under skel_root's model, then rifle, pistol, grenade and weapon (and the gear_nodes) (78 §3.1, §5.2).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr body_items",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/character.parity.test.ts", "name": "lists in body_items exactly the 25 parts under skel_root's model, then rifle, pistol, grenade, weapon (78 §3.1, §5.2)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.gear.offset-order",
+   "claim": "A gear offset's angles turn x, then y, then z about the fixed axes (R = Rz Ry Rx on a column vector, stored row-major with the translation in the fourth row, a point landing at p x offset x part): the one order of twelve under which every worn piece undoes its part's bind turn -- 0.005 left eye, 0.009 holster, 0.012 knife, 0.021 belt, 0.041 satchel (78 §5.3).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr gear ofs against CLIB_GEO.ZED models/seal_A_scuba",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/character.parity.test.ts", "name": "undoes each worn piece's part bind turn under gearMatrix -- x, then y, then z about the fixed axes (78 §5.3)", "data": "none" },
+    { "file": "packages/scene/test/character.test.ts", "name": "builds the offset as the engine stores a matrix: x, then y, then z, about the fixed axes, then the translation", "data": "none" },
+    { "file": "packages/scene/test/character.test.ts", "name": "each worn gear's turn undoes its part's bind turn: the gear is modelled in the character's own axes", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.gear.belt",
+   "claim": "The assault belt hangs at the hips' bind origin (0, 11.67, 0.5334) and keeps the hips' 1.19 degree tilt (78 §5.3).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr seal_scuba_aslt_gear; CLIB_GEO.ZED hips nparams",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/character.parity.test.ts", "name": "hangs the belt at the hips' bind origin with the hips' 1.19 degree tilt kept (78 §5.3)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.gear.eye-height",
+   "claim": "The eye gear's offsets put the bind-pose eyes 18.16 over the feet (the mean of the two, 18.161), 1.01 forward of the head joint and about 0.33 to each side -- not W1.R2's 15.4, research 17's camera target (78 §6.3).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr seal_A_right_eye / seal_A_left_eye ofs; CLIB_GEO.ZED head",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/character.parity.test.ts", "name": "puts the eyes 18.16 over the feet in the bind pose (the mean of the two, 18.161), 0.33 to each side, ahead along -z (78 §6.3)", "data": "none" },
+    { "file": "packages/viewer/test/body.test.ts", "name": "is 19.43 tall with its eyes 18.16 over its feet -- not the 15.4 of W1.R2, which is research 17's camera target", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.gear.scaled-form",
+   "claim": "Every FLIB_MDL.ZED packet is the scaled VU1 form 0x70 (ITOF15 x TOP+3.w, s 1.0 to 4.1 on the gear): read so each fitting lands inside its FLIB_GEO bbox, read as 0x68 it is 500 to 2,048 times too big (78 §5.1).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB FLIB_MDL.ZED / FLIB_GEO.ZED; research 15 §2",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/scaled.test.ts", "name": "reads a position as int16 / 32768 times TOP+3.w, and leaves the offset form alone", "data": "none" },
+    { "file": "packages/mesh/test/scaled.test.ts", "name": "every FLIB_MDL model decodes inside its FLIB_GEO bounding box read as 0x70, and far outside it read as 0x68", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.gear.on-body",
+   "claim": "On the bind body every worn piece touches it (nearest vertex 0.08-0.29), belt, holster and knife within a vertex spacing (median 0.52, 0.65, 0.43), the satchel a pack 2.5 thick on the back (78 §5.3).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED, CLIB_GEO.ZED, FLIB_MDL.ZED; RUN/READERC.ZAR character.rdr",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/scene/test/character.test.ts", "name": "the gear sits on the bind-pose body where the offsets put it: on its surface, not sunk in it", "data": "fixture" }
+   ],
+   "owed": "Needs the body's and the gear's positions; a unit pin is owed with the positions pin (character.skeleton.bind-extent)."
+  },
+  {
+   "id": "character.body.four-influences",
+   "claim": "three skins with four influences: a vertex keeps its four largest, renormalised; seal_A_scuba's one five-bone vertex weighs 0 on its fifth, so its cut is exact (78 §6.1).",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CLIB_MDL.ZED MESH_seal_A_scuba weights",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/mesh/test/skin.parity.test.ts", "name": "costs nothing to the renderer's four influences: seal_A_scuba's one five-bone vertex weighs 0 on its fifth (78 §6.1)", "data": "none" },
+    { "file": "packages/mesh/test/skin.test.ts", "name": "reduces to the four largest influences for a renderer, renormalised, and says how much weight it dropped", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.body.dropped-weight",
+   "claim": "Over the 411 meshes, 1,257 vertices have five or six influences and the largest weight a four-influence cut drops is 0.151 (MP51's seal_B_woodland) (78 §6.1).",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB CLIB_MDL.ZED, every mesh",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [],
+   "owed": "MP51 is not among the fixtures; a 22-map fixture test (public/maps) of the five- and six-influence counts and the 0.151 is owed."
+  },
+  {
+   "id": "character.body.yaw",
+   "claim": "The model faces -z (facing step 0); it is turned by atan2(-fx, -fz) to lie along a slot's facing (78 §6.3).",
+   "level": "reading",
+   "source": "disc CLIB_GEO.ZED bind pose (toes ahead along -z); research 75 §11",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/viewer/test/body.test.ts", "name": "turns the model's forward onto every one of the eight facings", "data": "none" },
+    { "file": "packages/scene/test/skeleton.parity.test.ts", "name": "faces -z: the toes lie ahead of the ankles, rtoe z -0.576 against rfoot z 1.091 (78 §3.2)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.body.cull",
+   "claim": "Every CMesh/CSubMesh of the 411 has vparams bit 3 (cull) set; it is clear on the gear's eyelids, the holster's strap, the sheath's loop and the goggles (FLIB_GEO), so those draw double-sided (78 §2.5, §6.2).",
+   "level": "reading",
+   "source": "disc CLIB_GEO.ZED / FLIB_GEO.ZED vparams word 0",
+   "note": "docs/research/78-character-mesh-and-skeleton.md",
+   "tests": [
+    { "file": "packages/viewer/test/body.test.ts", "name": "is mp2_seal1, seal_A_scuba, in its six pieces of default gear, and the map stays clean", "data": "fixture" },
+    { "file": "packages/viewer/test/body.test.ts", "name": "draws as a three SkinnedMesh whose bind pose is the identity pose: every bone matrix is the placement", "data": "fixture" }
+   ],
+   "owed": "The vparams words are not pinned (the skeleton pin's synthetic GEO writes zero vparams); a unit pin of the CLIB_GEO / FLIB_GEO vparams per node is owed."
+  },
+  {
+   "id": "character.reload.start-by-speed",
+   "claim": "A reload's clip is picked once, when it starts: still (|v|^2 <= 400) the stance's whole-body clip on the action stack (seal_reload 45 keys, seal_crouch_reload, seal_prone_reload), moving the family's Moving clip on the second channel; prone always the prone clip; nothing ever returns to a still clip (research 150 R150.1, R150.4).",
+   "level": "reading",
+   "source": "FUN_005a82e0 D:L462815-462923; FUN_00588bc0 D:L446083-446086; FUN_00587780 D:L445345-445370",
+   "note": "docs/research/150-the-reload-while-running.md",
+   "tests": [
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a reload started running plays seal_mv_reload over the run -- the arms its own, the legs the run's -- and stays it when the mover slows under 20", "data": "none" },
+    { "file": "packages/viewer/test/weapon.test.ts", "name": "plays the stance's still reload, in over its BlendTime default 0.4; started moving, the overlay over 0.4; the rule itself is test/reloadRun.test.ts", "data": "none" },
+    { "file": "packages/viewer/test/weapon.test.ts", "name": "one moving decision: the page's body (play.ts) asks reloadMoving, as the room does, and keeps no copy of the test", "data": "none" },
+    { "file": "packages/viewer/test/weapon.test.ts", "name": "FUN_005a82e0's still test: speed squared at most 400 is still, the fall speed counted too", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.reload.overlay-mask",
+   "claim": "Moving rifle reload (seal_mv_reload, 33 keys, playback 1.2, BlendOverlay) is laid over the merged pose at 1.0 on the 14 parts it carries -- spinehi, the arms, the shoulders, the scaps, the neck, the head and the rifle -- never spinelo, hips, skel_root or the legs; the same shape for seal_p_mv_reload, seal_mv_reload_shotgun and seal_mv_pump_shotgun (R150.2).",
+   "level": "reading",
+   "source": "FUN_00577ea0 D:L437455-437461; FUN_00576bb0 D:L436734-436738; disc RUN/MOTION_P.ZAR seal_mv_reload name table; RUN/READERC.ZAR motion.rdr BlendOverlay",
+   "note": "docs/research/150-the-reload-while-running.md",
+   "tests": [
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a reload started running plays seal_mv_reload over the run -- the arms its own, the legs the run's -- and stays it when the mover slows under 20", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "motion.rdr flags the four moving reloads BlendOverlay and no still one; NoInterrupt 0.35 crouched, 0.5 prone, none standing; NoPitchtwist on all but the pump", "data": "fixture" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "seal_mv_reload carries 14 parts from spinehi up with the rifle -- no skel_root, hips, spinelo or legs; seal_reload the whole body, 45 keys", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "character.reload.still-cut",
+   "claim": "Past its NoInterrupt (none standing, 0.35 crouched, 0.5 prone), on a clock of the record's ReloadTime when still (else the clip's playback), a still reload is cut by a move axis or the turn axis over 0.1; Rifle reload, Rifle crouch reload and Rifle m203 reload go on as Moving rifle reload at the phase reached (the overlay's clock phase x playback x (n-1)/n), Pistol reload and Pistol crouch reload as Moving pistol reload; the prone reloads, the shotgun's and the pump just end (R150.3).",
+   "level": "reading",
+   "source": "FUN_00550ef0 D:L418176-418226; FUN_00587c20 D:L445549-445565; disc RUN/READERC.ZAR motion.rdr NoInterrupt",
+   "note": "docs/research/150-the-reload-while-running.md",
+   "tests": [
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a still standing reload is seal_reload, whole body, the twist off; the first push over 0.1 cuts it and seal_mv_reload carries on at the phase the cut reads (PAR-67: a game frame behind the drawn one)", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a crouched still reload is cut only past NoInterrupt 0.35 (FUN_00587c20 445555); a push before it changes nothing", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "the prone, the shotgun's and the pump's reloads end at the cut; the pistol's goes on as seal_p_mv_reload; the m203's as seal_mv_reload (FUN_00550ef0 418205-418226)", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "crouched with a ReloadTime 3 weapon (the M60E3) the mover lets the stick through on the tick the layer's phase passes 0.35; without one, the clip's own playback", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.reload.clocks-and-blends",
+   "claim": "The overlay plays keys 0..n-1 at n / playback a second and is freed at the last key (playback x (n-1)/n in), the body cross-fading from the pose on screen over 0.4 s at its start and its end; a still reload comes in over its BlendTime default 0.4, plays keys 0..n-1 over playback x ((n-1)/n)^2, holds the last key until the driver's end test pops it (PAR-69's end, a command past the last key without a ReloadTime) and goes out from the pop over the next play's BlendTime (seal_stand 0.5; PAR-73); its NoPitchtwist turns the aim's twist off, the overlay's does not (R150.5, R150.6).",
+   "level": "reading",
+   "source": "FUN_0028d170 D:L134692-134757; FUN_0057a010 D:L438627-438633; FUN_00579ef0 D:L438544-438547; FUN_00576860 D:L436643, D:L436664; FUN_002874f0 D:L131142-131148; FUN_00287620; FUN_00587a30 D:L445469-445473; the held stop FUN_0028c4f0 D:L134260-134266 and the pop FUN_00582540 D:L418193 -> FUN_0028c6e0 D:L134283-134308, FUN_005870e0 D:L418203 (PAR-73, research 251 section 12.5)",
+   "note": "docs/research/150-the-reload-while-running.md",
+   "tests": [
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a still standing reload is seal_reload, whole body, the twist off; the first push over 0.1 cuts it and seal_mv_reload carries on at the phase the cut reads (PAR-67: a game frame behind the drawn one)", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "an uncut still reload plays keys 0..n-1 over playback x ((n-1)/n)^2, holds the last until the driver's end pops it a frame later (PAR-73), and fades from the pop over the idle's BlendTime (seal_stand 0.5)", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a turn-only cut (the stick inside 0.1, the look turning) changes no play: the body cross-fades over 0.4 s from the pose on screen, no joint jumping in one tick", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.reload.lock-follows-clip",
+   "claim": "The fire's reload lock is the clip's life: FUN_005a7ab0 answers while the stack's top is a reload clip or the second channel plays Moving rifle/pistol reload, so a still reload cut by the stick is locked until the overlay's last key (and a cut prone, shotgun or pump reload not at all after the cut); the room runs the same cut on its own mover and the page's Fire follows the pose's cut one tick later at most (PF-18, PF.R37).",
+   "level": "reading",
+   "source": "FUN_005a7ab0 D:L462526-462558; FUN_00550ef0 D:L418180-418225; FUN_0028d170 D:L134737; the push's initial skip FUN_0028dc90 D:L135209-135212, spent by the driver's peek FUN_0028c4f0 D:L418293, D:L134257 (PAR-61, issue #160, research 251 section 12.5); the push after the frame's driver, FUN_001ec480 D:L50920-50935 and FUN_005506a0 D:L417907 (PAR-67)",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a standing reload cut as soon as it can be, on the fifth frame (RELOAD_CUT_DELAY_READING, PAR-67; the third under PAR-61): the clip is at its last key by 1.22 s and Fire fires again at the overlay's 1.164 s from its phase a game frame behind, not 1.6 (FUN_005a7ab0 D:L462548-462555)", "data": "none" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a crouched reload cut at 0.35 holds the fire 0.665 + 0.65 x 1.164 s; a cut prone, shotgun or pump reload holds nothing past the cut (the magazine was filled at the start)", "data": "none" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "the room's lock follows its own mover's cut: a standing reload the stick cuts on tick 7, five past its first (PAR-67; tick 5 under PAR-61), lets a round go at tick 7 + 68 (1.164 s from its lagged phase), one at tick 74 is dropped 'reload or empty'; uncut the lock is the clip's end", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-61, moved by PAR-67: a standing still reload (no NoInterrupt) holds through a stick past 0.1 on the four commands after its first; the fifth cuts it, two game frames past the push, and the overlay carries on from that command's phase a game frame behind (FUN_0028dc90 D:L135209-135212, FUN_00550ef0 D:L418180, the peek FUN_0028c4f0 D:L418293, the advance D:L418454; FUN_001ec480 D:L50920-50935)", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-67: a crouched still reload's mover hold and its life are cut on one command, the stick held from its first: the first whose phase a game frame behind the push's clock passes NoInterrupt 0.35 -- the 41st, not the 39th (FUN_00587c20 D:L445550-445556; FUN_001ec480 D:L50920-50935)", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "the pose holds a standing still reload through a push on the four frames after its start and cuts it on the fifth (PAR-67; the third under PAR-61), handing Fire the carried life left the room's reloadCutAt gives on that command, from the phase a game frame behind the push's clock", "data": "fixture" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "a pistol still reload pushed on the command between its last key (the 100th) and its pop (the 101st): the room cuts it there and its lock ends on the 104th, the page's Fire one margin tick after (the 105th), not at its own 1.8 s; uncut, the pose holds key 25 until the pop and fades from there", "data": "fixture" },
+    { "file": "packages/viewer/test/reloadRun.test.ts", "name": "the shotgun's still reload (nothing carries on) pushed between its last key (the 86th) and its pop (the 87th) ends the room's lock there, the page's a margin tick later -- not at 1.6 s; the M4A1's, whose carried tail reaches its own end, is unmoved", "data": "fixture" }
+   ],
+   "owed": "A capture of the original's running reload (HUMAN_TASKS H77); the uncut lock is still the start's length, not the clip's last key (research 218 section 2.2)."
+  },
+  {
+   "id": "character.motion.rdr.nofire",
+   "claim": "motion.rdr's NoFire is read by FUN_00287620 into the motion's +0x2c: absent 0, bare NoFire () 1.0, numeric the float; the disc gives seal_stand2prone bare, seal_crouch2prone 0.8, seal_land_hard 0.3, the hang, the ladder slide and the claymore's placing bare, seal_jump, seal_land_soft and the six short MP flinches none (194 A02).",
+   "level": "reading",
+   "source": "FUN_00287620 D:L131397-131429 (key ELF 0x3ef9f8); disc RUN/READERC.ZAR motion.rdr NoFire",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/motionTable.test.ts",
+     "name": "reads each entry's fields by the file's names, numbers or absent; a flag with no value is absent",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/motionTable.test.ts",
+     "name": "motion.rdr's NoFire: absent null, bare 1, numeric the float (FUN_00287620 D:L131397-131429): seal_stand2prone 1, seal_crouch2prone 0.8, seal_land_hard 0.3, seal_jump and seal_land_soft null",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "character.hostage.models",
+   "claim": "A hostage is MP6's chartype.rdr escortees entry dressed by character.rdr: mp_fem1 thai_biologist01, mp_fem2 thai_biologist02, mp_fem3 thai_wife, each texture_asset thcivpow under the parent mp_hostage_extract (default gear the two eyes), 3,292 / 3,358 / 3,459 vertices at LOD 0; a map with no escortee entry fields none (238 §1.1).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr mp_fem1-3, mp_hostage_extract; RUN/MP6.ZDB READERM.ZAR chartype.rdr escortees, CLIB_MDL.ZED",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/body.test.ts",
+     "name": "loadBody('escortees', 0..2) decodes thai_biologist01, thai_biologist02 and thai_wife with thcivpow on the SEAL's 26-part skeleton, in order (HOSTAGE_MODELS_READING); index 3 is null",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/character.test.ts",
+     "name": "teamCharacter reads chartype.rdr's escortees as mp_fem1, mp_fem2, mp_fem3 (FUN_0053b5f0 L405207-405245); healthOf follows the base chain to mp_hostage_extract: head 8, body 40, arms 10, legs 15, armor 0 (HOSTAGE_HEALTH_READING)",
+     "data": "fixture"
+    }
+   ],
+   "owed": "Every test reads the fixtures (MP6, READERC): a no-data pin of the escortee lookup on a hand-made chartype is owed; the console's draw of the three is capture C2's."
+  },
+  {
+   "id": "character.hostage.skeleton",
+   "claim": "The three hostage meshes carry the SEAL's 26 skeleton parts by name, parent and order (skel_root, hips, rthigh ... lhand, body), so the SEAL's skinning, clips and capsule bones apply unchanged; their bind poses are their own (238 §1.1, §1.8).",
+   "level": "reading",
+   "source": "disc RUN/MP6.ZDB CLIB_GEO.ZED thai_biologist01/02, thai_wife against seal_A_des",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/body.test.ts",
+     "name": "loadBody('escortees', 0..2) decodes thai_biologist01, thai_biologist02 and thai_wife with thcivpow on the SEAL's 26-part skeleton, in order (HOSTAGE_MODELS_READING); index 3 is null",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/simMap.test.ts",
+     "name": "simSkeletonsFromBytes builds the three escortee skeletons with civ_stand and civ_crouch idles and no prone (TypeSkeletons.escortees)",
+     "data": "fixture"
+    }
+   ],
+   "owed": "The fixture tests hold it; no no-data test can (the skeletons are the disc's)."
+  },
+  {
+   "id": "character.hostage.anim-set",
+   "claim": "A hostage plays animset.rdr's No_weapon anim set: Stand civ_stand, Stand -> Crouch civ_stand2crouch, Crouch civ_crouch, Walk/Jog/Run civ_walk/civ_jog/civ_run, Walk backwards civ_walk_bw, Strafe right/left civ_rstep/civ_lstep, Step civ_step, GLOBAL included, no Prone; going down civ_stand2crouch once then civ_crouch (189 #13, 199 §9; 238 §1.2, §3).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR animset.rdr 'No_weapon anim set', motion.rdr; RUN/MOTION_P.ZAR civ_*",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/locomotion.test.ts",
+     "name": "the No_weapon set's ten civ_* clips are in MOTION_CLIPS with motion.rdr's rules (CIV_CLIPS_READING); civ_walk, civ_jog and civ_run travel 11.72, 25.00 and 40.62 u a cycle (V6, research 206 §2; CIV_ROOT_TRAVEL_READING) and their bands are 0-29, 12-56, 34-65 u/s (FUN_005e0030 D:L494315-494470; CIV_BANDS_READING)",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/remoteEscortee.test.ts",
+     "name": "an id set as escortee 1 is drawn on thai_biologist02 with no weapon, no sidearm and no binoculars; stance 0 plays civ_stand, stance 1 civ_stand2crouch once then civ_crouch (HOSTAGE_CROUCH_CLIP_READING); moving at 20, 40 and 60 u/s plays civ_walk, civ_jog, civ_run",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "character.hostage.root-travel",
+   "claim": "civ_walk, civ_jog and civ_run's roots travel 11.72, 25.00 and 40.62 units a cycle (K 5.97, 2.93, 1.81), so they play through motionOf with K as the SEAL's clips do (V6, research 206 §2, over 189 §7's 'travel 0'; 238 §1.3).",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR civ_walk/jog/run skel_root keys; FUN_0028ab10 D:L133249-133292, FUN_0028aa20 D:L133196-133219",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/locomotion.test.ts",
+     "name": "the No_weapon set's ten civ_* clips are in MOTION_CLIPS with motion.rdr's rules (CIV_CLIPS_READING); civ_walk, civ_jog and civ_run travel 11.72, 25.00 and 40.62 u a cycle (V6, research 206 §2; CIV_ROOT_TRAVEL_READING) and their bands are 0-29, 12-56, 34-65 u/s (FUN_005e0030 D:L494315-494470; CIV_BANDS_READING)",
+     "data": "fixture"
+    }
+   ],
+   "owed": "The fixture test holds the read travel; a no-data pin would need the clips' root keys copied into a test, not done."
+  },
+  {
+   "id": "character.hostage.speed-bands",
+   "claim": "The hostage's forward bands are civ_walk 0-29, civ_jog 12-56, civ_run 34-65 u/s (transition_speed_A/B x 10, FUN_005e0030 D:L494315-494470) and its tops 65 ahead, 11 back, 8 aside, 0 crouched (FUN_005e0450 D:L494498-494627): at 20, 40 and 60 u/s it leads with civ_walk, civ_jog, civ_run (199 §3, §12.4; 238 §1.3).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR motion.rdr civ_walk/jog/run transition_speed_A/B; FUN_005e0030 D:L494315-494470",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/locomotion.test.ts",
+     "name": "the No_weapon set's ten civ_* clips are in MOTION_CLIPS with motion.rdr's rules (CIV_CLIPS_READING); civ_walk, civ_jog and civ_run travel 11.72, 25.00 and 40.62 u a cycle (V6, research 206 §2; CIV_ROOT_TRAVEL_READING) and their bands are 0-29, 12-56, 34-65 u/s (FUN_005e0030 D:L494315-494470; CIV_BANDS_READING)",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/remoteEscortee.test.ts",
+     "name": "an id set as escortee 1 is drawn on thai_biologist02 with no weapon, no sidearm and no binoculars; stance 0 plays civ_stand, stance 1 civ_stand2crouch once then civ_crouch (HOSTAGE_CROUCH_CLIP_READING); moving at 20, 40 and 60 u/s plays civ_walk, civ_jog, civ_run",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "character.hostage.health",
+   "claim": "A hostage's health is mp_hostage_extract's, read through the base chain: head 8, body 40, larm and rarm 10, lleg and rleg 15, armour 0 on every part (189 §2, §14.11; 238 §1.7).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr mp_hostage_extract health, armor; FUN_0053ddb0 L406804-406833",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/character.test.ts",
+     "name": "teamCharacter reads chartype.rdr's escortees as mp_fem1, mp_fem2, mp_fem3 (FUN_0053b5f0 L405207-405245); healthOf follows the base chain to mp_hostage_extract: head 8, body 40, arms 10, legs 15, armor 0 (HOSTAGE_HEALTH_READING)",
+     "data": "fixture"
+    }
+   ],
+   "owed": "The fixture test holds the read; the room's hit path that applies it is HX-1's (roomExtraction.test.ts)."
+  },
+  {
+   "id": "character.hostage.death-lists",
+   "claim": "A hostage dies in damanim.rdr's TEAMMATE lists (FUN_005a0950 D:L458919-458939): death_buddy_stand01/02/03 standing, death_buddy_crouch01, death_buddy_prone01 for a head or body hit; a limb's row is empty and falls to *DAT_0044cee4, the BODY STAND list's first (death_stand_chest01), in every stance (D:L458957-458959; 238 §1.5).",
+   "level": "reading",
+   "source": "FUN_005a0950 D:L458898-458960; disc RUN/READERC.ZAR damanim.rdr TEAMMATE_HEAD/BODY_DEATH_ANIMATIONS",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/deaths.test.ts",
+     "name": "a hostage's death clip is the TEAMMATE list's by stance -- death_buddy_stand01/02/03 for a head or body hit standing, crouch01, prone01; a limb hit BODY STAND's first in every stance (FUN_005a0950 D:L458919-458939, D:L458957-458959)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/remoteEscortee.test.ts",
+     "name": "setOpacity fades the body's materials and hides it at 0 (HOSTAGE_FADE_READING, HOSTAGE_HIDDEN_READING); a dead escortee plays its TEAMMATE clip (HOSTAGE_DEATH_LIST_READING)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "character.hostage.voices",
+   "claim": "mp_fem1-3 voice three slots of their own -- CHRSND_DEATH .FEMALE_DEATH, CHRSND_DAMAGE .FEMALE_DAMAGE, CHRSND_YES ^CO_0343 -- and nothing else: their parent mp_hostage_extract names no sound, so RESTRAINED, HELPME, PANIC, WAIT_UP, NO and DEATH_QUIET play nothing (FUN_0053b710 D:L405260-405266; 199 §8, §12.9). On MP6 the DAMAGE and DEATH names are filed by no block the map loads, nor their fallbacks, so a hostage is silent when hurt or killed; YES is the HOSTAGE group's ^CO_0343, three streams CO_0343A-C.VAG in the HOSTAGE block MP6 loads (FUN_0053c200; 238 §1.4).",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR character.rdr mp_fem1-3 sounds; RUN/SOUNDRDR.ZAR sounds.rdr HOSTAGE group and block; RUN/SOUNDS/BNKSTORE.ZAR MP6_vc.bnk; FUN_0053b710 D:L405260-405266",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/deathVoice.test.ts",
+     "name": "mp_fem1-3 voice .FEMALE_DEATH and .FEMALE_DAMAGE of their own (their parent mp_hostage_extract names no sound) and nothing else: no RESTRAINED, HELPME, PANIC, WAIT_UP or NO (HOSTAGE_VOICES_READING; FUN_0053b710 D:L405260-405266)",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/deathVoice.test.ts",
+     "name": "on MP6 a hostage's damage and death voices resolve to nothing and its YES to the HOSTAGE group's ^CO_0343, three streams CO_0343A-C in the HOSTAGE block, not a bank sound (HOSTAGE_VOICES_READING)",
+     "data": "disc"
+    }
+   ],
+   "owed": "The fixture and disc tests hold the read and MP6's resolution; the page's play of the voices waits on audio.ts (held this sprint, research 238 §6), the YES through the stream path."
+  },
+  {
+   "id": "character.hostage.fade",
+   "claim": "A rescued hostage's opacity falls 0.75 a second to 0 (<= 1.33 s), then its node is inactive: unpicked, unhit, unseen (CAiSRescued::Tick sub 2, FUN_00559070 D:L422191-422212; FUN_002d6260 D:L176893; 199 §2, §12.3; 238 §1.6).",
+   "level": "reading",
+   "source": "FUN_00559070 D:L422191-422212; the AI word's nibble D:L432905-432913, D:L432833-432834",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/remoteEscortee.test.ts",
+     "name": "setOpacity fades the body's materials and hides it at 0 (HOSTAGE_FADE_READING, HOSTAGE_HIDDEN_READING); a dead escortee plays its TEAMMATE clip (HOSTAGE_DEATH_LIST_READING)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/remoteEscortee.test.ts",
+     "name": "a fading hostage's materials blend by alpha (src SrcAlpha, dst OneMinusSrcAlpha) and get their own blend back at 1",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "character.hostage.hit-volumes",
+   "claim": "The room hits a hostage on its own skeleton's capsules at its stance (the No_weapon set's civ_stand / civ_crouch idles), not a SEAL type's: the hostage models' bind poses are their own (238 §1.8).",
+   "level": "reading",
+   "source": "disc RUN/MP6.ZDB CLIB_GEO.ZED thai_*; RUN/MOTION_P.ZAR civ_stand, civ_crouch",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [
+    {
+     "file": "packages/match/test/roomDamage.test.ts",
+     "name": "a hostage's hit volumes are its own skeleton's at its stance (TypeSkeletons.escortees): a head capsule at the thai_wife's idle, not SEAL 1's",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/simMap.test.ts",
+     "name": "simSkeletonsFromBytes builds the three escortee skeletons with civ_stand and civ_crouch idles and no prone (TypeSkeletons.escortees)",
+     "data": "fixture"
+    }
+   ],
+   "owed": "The fixture tests hold the lookup; the shot that uses it is HX-1's hit path (roomExtraction.test.ts)."
+  },
+  {
+   "id": "character.hostage.hands-byte",
+   "claim": "The replicated byte 0x7e drives FUN_005dfe30(body, b), the rifle raise state +0xf74; whether it changes a hostage's clip is not traced, and the port ignores a hostage's item, aim and binoculars (HOSTAGE_HANDS_PLACEHOLDER; 199 §12.10; 238 §3).",
+   "level": "reading",
+   "source": "FUN_005dfe30 (199 §12.10, V5)",
+   "note": "docs/research/238-the-hostage-as-built-the-body-and-the-ai.md",
+   "tests": [],
+   "owed": "Untraced: capture C2's hostage frames with 0x7e set settle it; no test can hold an unread effect."
+  },
+  {
+   "id": "character.action.stance-gate",
+   "claim": "A stance press is a request (actor+0x374) asked every frame: while a full-body one-shot other than a stance transition owns the body (a still reload, a throw, a full-body swap, the standing Jump) it waits and is taken when the one-shot ends; a transition (0x11, 0x13, 0x19) takes its own reversal and refuses the third stance; every walk action and hold clip is a one-shot on the disc.",
+   "level": "reading",
+   "source": "FUN_00552ec0 D:L418927-418930, D:L418932, D:L418953, D:L418995; FUN_00588080 D:L445716-445734; FUN_00552d60 D:L418867-418908; FUN_00551ec0 D:L418606-418611; disc READERC.ZAR motion.rdr looped",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/parity/actionStack.test.ts", "name": "defers stance while a still crouch reload owns the body", "data": "none" },
+    { "file": "packages/viewer/test/parity/actionStack.test.ts", "name": "defers stance while the full-body swap owns the body", "data": "none" },
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "defers stance during the accepted full-body throw", "data": "fixture" },
+    { "file": "packages/viewer/test/parity/movement.test.ts", "name": "does not switch directly to prone inside the standing Jump action", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a stance press while the crouched reload owns the body waits and is taken when the reload ends (FUN_00552ec0 D:L418927-418930, FUN_00552d60)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "the request survives the whole one-shot: a full-body swap then prone, taken at the swap's end and not before", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a stance transition on top refuses only the stance it does not share (FUN_00588080 D:L445716-445734; D:L418932, D:L418953, D:L418995)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "the jump asks the same body owner: refused under the crouched reload, a throw and the full-body swap, taken when free (FUN_0057e1b0 D:L440805-440810)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "every walk action and kit hold is a one-shot on the disc (motion.rdr looped 0), the idle a loop", "data": "fixture" }
+   ],
+   "owed": "PENDING_STANCE_RETRY_READING: the tick the request is taken after a one-shot's end is the port's order, owed a capture (research 251 section 7)."
+  },
+  {
+   "id": "character.action.stance-request-life",
+   "claim": "The request is kept by an obstacle's refusal (asked again each frame) and forgotten by a headroom refusal, a press back to the stance held takes it back, and the stance button's next press toggles from it, not from the stance.",
+   "level": "reading",
+   "source": "FUN_00552ec0 D:L418935-418940, D:L418958-418966, D:L418987-418991, D:L419007-419011; FUN_00594cf0 D:L453331-453430 (D:L453351-453354, D:L453380-453384 read actor+0x374)",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "an obstacle keeps the request: prone refused 11 short of a wall is taken once the SEAL turns along it (D:L418935-418940)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "no headroom forgets the request: a stand refused under a roof is not taken once the SEAL walks out (D:L419007-419011)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a press back to the stance held takes the request back (the press writes actor+0x374 whole)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "WalkMode: the C key's second tap during the crouched reload takes the first back -- the press toggles from the request (FUN_00594cf0 D:L453351-453354)", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.action.dive-swap",
+   "claim": "The dive is refused while a weapon swap owns the actor -- the full-body swap or the moving swap's overlay (FUN_005a7980(actor, 1)) -- and the overlay owns no body: the stance is free under it, and the moving reload's overlay neither refuses the dive nor owns the body.",
+   "level": "reading",
+   "source": "FUN_00584b00 D:L443995-444001; FUN_005a7980 D:L462471-462506 (DAT_003dec68 D:L462488-462501)",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/parity/actionStack.test.ts", "name": "refuses a dive during a moving weapon swap", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a swap owns the actor for the dive -- the full-body clip and the moving overlay, not a hold -- and with none the run dives (FUN_00584b00 D:L443995-444001, FUN_005a7980 D:L462471-462506)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "the moving swap's overlay owns no body: a stance press under it is taken at once (FUN_005551a0: the top is the looped locomotion)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "WalkMode with the firearm: a reload under way on the run puts no hold on the mover, and the full press dives (research 230 section 1.1: the moving reload's overlay is no swap)", "data": "none" }
+   ],
+   "owed": "FUN_005a7980(actor, 1) also refuses on the kit's change flag (actor+0x5e1 bit 0x10, D:L462482; set by FUN_005c50b0 D:L478992-479008 from FUN_005c4b10): a dive during a pending kit change is refused in the original and not in the port (research 251 sections 3 and 6, review F5)."
+  },
+  {
+   "id": "character.action.room-order",
+   "claim": "A full-body one-shot on the body defers a stance press (FUN_00552ec0's outer gate); with a hold and a stance press on one command the page and the room both defer it and take it on the same tick -- the room laying the hold first is a PORT INVARIANT for their agreement, not the original's order: the original pushes a reload's clip from the kit's timer a later frame than the press, its same-frame order with the stance applier unread.",
+   "level": "reading",
+   "source": "FUN_00552ec0 D:L418927-418930 (the deferral); FUN_005c32b0 D:L477661-477677 and D:L476550-476558 -> FUN_005c2a90 (the clip pushed from the kit's timer: why the order is the port's)",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "WalkMode: a stance press during the crouched reload rides the command, waits on the page and in the room, and both take it on the same tick", "data": "none" }
+   ],
+   "owed": "The original's same-frame order of the stance applier and the kit tick that pushes the reload clip: research 230 section 7's still-reload capture (research 251 section 2.4)."
+  },
+  {
+   "id": "character.action.end-reason",
+   "claim": "Every end of a body owner or the overlay on the mover is one notification with its reason: complete, cut, replaced, knock or completed (the knock's forced swap end).",
+   "level": "reading",
+   "source": "FUN_00587c20 D:L445514-445576 with FUN_00550ef0 D:L418180-418190 (the cut); FUN_0057e770 D:L440992-440998 (the knock); FUN_005a5da0 D:L461653-461756 (the forced swap end)",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "each end is heard once with its reason (onActionEnd): complete, cut, replaced, knock, completed", "data": "none" }
+   ]
+  },
+  {
+   "id": "character.action.victory-dance-owner",
+   "claim": "The victory dance is a full-body one-shot on the actor's stack -- its own action type pushed by FUN_0057dcc0 after the stack is cleared, every dance looped(0) on the disc -- so a stance press under it waits as the request (FUN_00552ec0's outer gate passes only a looped top or a transition) and is taken when it ends, and the jump is refused under it (FUN_0057e1b0's looped test).",
+   "level": "reading",
+   "source": "FUN_0057dcc0 D:L440586-440588; FUN_00588bc0 pushes D:L440820, D:L440843; FUN_00552ec0 D:L418927-418930; FUN_0057e1b0 D:L440810; disc READERC.ZAR motion.rdr animations/victory_* looped (research 303 section 2)",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "(a) the dance is the body owner, of its own family -- its own action type pushed on the stack as the jump's are (FUN_0057dcc0 D:L440588; FUN_0057e1b0 D:L440820, D:L440843)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "(b) a stance press under the dance waits as the request and is taken when the dance ends (FUN_00552ec0 D:L418927-418930: a looped(0) top, no transition)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "(d) the jump asks the same body owner: refused under the dance, taken once it ended (FUN_0057e1b0 D:L440810)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "(f) the dance's start clears a jump under way on the page (replaced) and the dance plays; a hold under way wins, as on the room (FUN_0057dcc0 D:L440586, FUN_0058a4d0)", "data": "none" }
+   ],
+   "owed": "Reading, pending review (the PARITY-1 close's fold). The dive out of a dance (the full press, FUN_00594cf0 D:L453387-453389; the dance replaced) is not this claim: its speed at the dance's first tick is VICTORY_DIVE_READING (research 251 sections 7 and 9). Owed: a capture of a stance press, a jump and a full press during a dance."
+  },
+  {
+   "id": "character.action.windup-selection",
+   "claim": "During the grenade's pre-release wind-up (no throw clip on the body yet) an eligible shoulder selection of another slot takes it and zeroes the power: nothing spent, nothing thrown; an ineligible one is refused and the wind-up goes on; the same slot changes nothing; after the release the selection is refused.",
+   "level": "reading",
+   "source": "FUN_00594cf0 D:L453288-453310, D:L453478, D:L453508-453517; FUN_005c4b10 D:L478905-478915; FUN_00592d40 D:L451964",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "permits shoulder selection during pre-release wind-up", "data": "fixture" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "an eligible selection during the wind-up takes the slot and drops the pressure: nothing spent, nothing thrown", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "an ineligible selection during the wind-up is refused and the wind-up goes on to its throw; the item in the hand changes nothing", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "after the release the selection is refused: the throw is under way and its grenade flies (the post-release control)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "the browser menu's cancel stays its own: the held trigger dropped, the slot kept (the control)", "data": "none" },
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "the wind-up owns no body; an ineligible selection is refused and the wind-up throws; after the release the throw owns the body and refuses it (PAR-20 D07)", "data": "fixture" },
+    { "file": "packages/viewer/test/matchThrow.test.ts", "name": "a shoulder press through mountThrowables: in the wind-up the hands are not busy and another slot is taken, the power zeroed and nothing thrown; once thrown, busy and refused", "data": "none" }
+   ],
+   "owed": "The mount-level test runs mountThrowables on the page's fakes (a firearm whose shoulderGate always passes, no grid or body); an ineligible selection during the wind-up is held at the thrower (effectiveAction.test.ts), not through the mount."
+  },
+  {
+   "id": "character.action.reload-end-reason",
+   "claim": "An accepted reload's end keeps the magazine selected at the clip's start whatever ended it (its lock's end, an accepted cancel, a reaction or a pop of the stack that takes its clip), while a reload the room refused is undone; the lock is the clip's life and ends where the original pops the clip, the room and the page on the same command: a knock clears the second channel and pops the stack, so any reload's or after-shot's clip under way ends -- still crouched, prone or standing, moving or carried -- while a lock still on the kit's timer is kept; a ladder's start and a landing that plays a clip pop the stack only, ending a still clip (a climb's start would too, but under a still clip's lock the climb is not offered: NU-1b B1, the offer's gate); off the floor the fall covers the clip and its lock holds in the air.",
+   "level": "reading",
+   "source": "FUN_005c2a90 D:L477479-477483; FUN_005a7ab0 D:L462512-462560 (FUN_005c2400 D:L477159, FUN_0058a470 D:L446733-446747); FUN_0057e770 D:L440992-440998 (FUN_005a5da0 D:L461713-461714, FUN_0058a4d0 D:L446762-446768); FUN_00580b70 D:L442186-442214, FUN_00580a80 D:L442147-442163, FUN_0057f880 D:L441547-441558, FUN_0057f690 D:L441466-441477; FUN_0057e050 D:L440726 with FUN_00588bc0 D:L446105-446292; FUN_005af590 D:L466691-466693",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a reload ends with one reason: complete, cancelled and a knock keep the magazine, rejected undoes it, replaced on a new hand", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a knock on the still reload's hold ends the page's reload as a knock, the magazine kept; the stick's cut and the clip's end do not (reloadEndOfBody)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a still reload's hold replaced off the floor ends no reload at the take-off, as the room ends none there: the fall covers the clip and its lock holds in the air (PAR-28 end 4, research 251 s12.3: the landing ends it, `onStackPop`); a hold over it is refused and ends nothing (PAR-29, s11)", "data": "none" },
+    { "file": "packages/viewer/test/fire.test.ts", "name": "a swap to the pistol in the bolt's lock clears the bolt's after-shot: no after-shot plays on the pistol and it fires", "data": "none" },
+    { "file": "packages/viewer/test/fire.test.ts", "name": "a spawn's fresh kit (refill) drops a reload waiting its ReloadDelay and a bolt's after-shot: neither lands after it", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "PAR-28 end 1: a knock during a bolt's after-shot clip ends its lock and clip, the knock's end (the pop, FUN_0058a4d0 D:L440997, with the kit's timer 0, D:L476550-476560; the room's endStillReload the same)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "WalkMode.onActionEnd hears the walk's mover, a respawn's new one too, and stops at the unsubscribe", "data": "none" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-19 D04: a knock pops a still crouched reload's clip and its lock ends at that command, the magazine kept; unknocked the lock runs on (FUN_0057e770, FUN_005a7ab0)", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-28 end 1: a knock ends a moving reload's lock at its command, room and page together, the magazine kept -- FUN_0057e770 calls FUN_005a5da0 (D:L440993), which clears the second channel (D:L461713-461714), and FUN_005a7ab0's kit term is 0 once the clip is pushed (FUN_005c2400 D:L477159; D:L476560)", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-28 end 1: a knock during a pump's after-shot clip ends the after-shot's lock and life, room and page together -- the pop (FUN_0058a4d0, D:L440997) takes the clip, the kit's timer already 0 (D:L476550-476560)", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-28 end 1's control: a knock while the kit's after-shot timer still runs (kit+0x820 > 0, before the clip) leaves the lock, room and page -- FUN_005a7ab0 answers on that timer (D:L462522, D:L477159) and the knock does not touch the kit (FUN_0057e770 D:L440958-441078)", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-28 end 3: a knock ends a standing still reload's lock and its life, room and page on the same command, the magazine kept -- seal_reload on the stack (D02), popped by FUN_0058a4d0 (D:L440997); the port lays no hold for it", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "NU-1b B1 (was PAR-28 end 2, climb): the still clip's life and its lock run on through the refused press, room and page on the same command", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "PAR-28 end 2 (PAR-47): a ladder's mount from its foot ends the still clip's life and its lock, room and page on the same command -- FUN_0057f880 pops to the base (D:L441547-441558) before its push; the stick's cut on that command finds no clip (the contact's call, D:L418131-418132, before the cut, D:L418174-418190)", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadLock.test.ts", "name": "PAR-28 end 4: a crouched still reload's clip, covered by the fall when the body leaves the floor, holds its lock in the air and ends at the landing that plays a clip, room and page on the same command -- the fall pops nothing (FUN_0057e050 D:L440726; FUN_00588bc0 D:L446105-446292), FUN_005a7ab0 finds the reload in the stack (D:L462532-462544), and the landing pops to the base before its clip (FUN_005af590 D:L466691-466693)", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a knock ends the clip under way whatever its life (the second channel cleared too, FUN_005a5da0 D:L461713-461714), the knock's end", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a climb's or a ladder's start and a landing that plays a clip pop the stack only: the clip ends while it is still on it (the life lives), an accepted end; a moving reload or a carried overlay is left", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "WalkMode.onStackPop hears a knock at the last command run, a climb's and a ladder's start at the command whose tick laid them, and a landing that plays a clip at its own command", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a knock ends a standing still reload (its lock and its life: the jump after it is the walk's own again) and a moving one, the magazine kept (end 1, end 3)", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a climb's start ends a standing still reload's lock and its life: the next jump is the walk's own (end 2)", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a crouched still reload's lock holds while the body is off the floor and ends at the landing's clip (end 4)", "data": "fixture" }
+   ],
+   "owed": "Reading, pending review (PARITY-2 PAR-28 with PAR-47, research 251 section 12). The clipless landing and the covered clip's clock through a flight are CLIPLESS_LANDING_RELOAD_READING (research 251 section 7); the first usable shot after each end, and the flinch's and the death's ends, are owed a capture and a review (D04's YES half; research 251 sections 6 and 12.4)."
+  },
+  {
+   "id": "character.action.throw-end",
+   "claim": "A valid movement cut past the throw's NoInterrupt ends its one-shot after the release: the throw's busy state ends with it, the grenade already in the air and the spent ammo staying; uncut the busy runs to the clip's end.",
+   "level": "reading",
+   "source": "FUN_00550ef0 D:L418180-418190; FUN_00587c20 D:L445549-445564; FUN_005be9a0 (the release before NoInterrupt, research 230 section 2.2)",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "ends throw busy state with the movement cut", "data": "fixture" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "the throw's busy tail ends with its hold's cut: the grenade in the air and the spent one stay (D08)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "uncut, the busy tail runs to the clip's end with the hold; with no hold on the body it keeps its own clock (the controls)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "the throw's and the placing's pose end with their hold whatever the reason, the hold's own end too (throwPoseEnds)", "data": "none" },
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a cut pops the throw's clip where it is, asking the body's cross-fade over the play beneath's BlendTime; held uncut, it stays at 1 past its last key", "data": "fixture" }
+   ],
+   "owed": "PAR-85 (research 251 section 12.9; reading, pending review): the throw is the stack's top -- it pops at its hold's end, whatever the reason, and the body cross-fades from its last drawn pose over the play beneath's BlendTime (the run's 0.4, the idle's 0.5), eased (FUN_0028da00 D:L135100-135107, FUN_00576860); a frame-by-frame capture of a running throw is owed to prove it. The two PAR-85 tests were titled \"the throw's pose ends on a cut, a knock or a replacement of its hold, not on the hold's own end (throwPoseEnds)\" and \"a cut stops the throw's clip where it is and fades the layer out from the cut; uncut it plays to its end\". Was: the pose's fade at a cut the clip's natural out-blend reading (BLEND_TIME_DEFAULT), the original's snapshot blend there owed a capture (D08's YES half, research 230 section 7)."
+  },
+  {
+   "id": "character.action.standing-reload-jump",
+   "claim": "A reload begun standing still is a one-shot on the stack (seal_reload, motion.rdr looped 0) until its last key or the first push past NoInterrupt carries it into the moving overlay, so the jump is refused while it plays, the jump on the cut's own frame too (read before the cut); the port refuses it the same way on both ends without a wire change: the room on its own still clip's life (room.ts jumpRefused: reloadLife, PF-18, at both places Button.Jump reaches the walker sim), the page on the same life on its command clock (StillReloadLife, the press spent off the command).",
+   "level": "reading",
+   "source": "FUN_0057e1b0 D:L440805-440810; FUN_00550ef0 D:L418119-418130 before D:L418174-418190, D:L418202-418214; disc READERC.ZAR motion.rdr seal_reload looped 0",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/effectiveAction.test.ts", "name": "a still standing reload refuses the jump (FUN_0057e1b0 D:L440805-440810)", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "a still standing reload refuses Button.Jump while its clip lives, and the jump is admitted on the command after the one its uncut end pops it on (PAR-69: 1.6 x (44/45)^2 = 1.530 s on the lagged clock, 93 commands; was 92)", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "the jump and the stick's cut on one command: the jump is refused, read before the cut (FUN_00550ef0 D:L418119-418130 before D:L418174-418190), and the next command's jump is admitted", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "WalkMode with the firearm: a still standing reload refuses the jump, and the press is spent off the command (FUN_0057e1b0 D:L440805-440810; D:L418128)", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "WalkMode with the firearm: the stick's cut lets the next jump through, the press on the cut's own frame refused (D:L418119-418130 before D:L418174-418190)", "data": "fixture" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "the page's commands into the room's mover: the jump rides the first command the page admits, the room's life refused every command before it and the room jumps on that same command", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadDelay.test.ts", "name": "the Spas 12 end to end (Room.reload, then Button.Jump): from the page's reloadStart the room refuses the jump exactly while the page's StillReloadLife lives and takes it on the command the page first admits -- no snap-back after the clip (D02's review F1, F2)", "data": "fixture" }
+   ],
+   "owed": "Landed at PARITY-1 wave 4 (research 251 section 6's no-wire route; the same-command order, the jump read first, is the main merge controller's ruling on FUN_00550ef0 D:L418119-418130 before D:L418174-418190 -- reading, pending review). Owed from D02's review: F3, the !busy() clause in both hunks (a move holding the mover takes the press) has no source -- in the original a non-looped top refuses even a hang's let-go (D:L418120-418140); F4, the backlog-drop loop's refusal reads a stale p.ran (PF-18's existing approximation); the end edge's frame order and the no-clips gap (research 251 section 6)."
+  },
+  {
+   "id": "character.action.still-reload-life",
+   "claim": "The still reload's (or after-shot's) clip lives from its first command -- the kit's timer's end, the timer itself putting nothing on the stack -- to the command its uncut end pops it on (PAR-69: the driver's end test on the lagged clock, the phase a game frame behind the push's plus half the clip's own frame step, past (n-1)/n -- a command past its last key period x ((n-1)/n)^2 without a ReloadTime: seal_reload over 1.6 s, 93 commands, was 92) or whose stick or turn passes 0.1 past its NoInterrupt; a reload begun moving holds none; the page's life and the room's agree command for command.",
+   "level": "reading",
+   "source": "FUN_00550ef0 D:L418174-418193; FUN_00582540 D:L442925 -> FUN_0028c6e0 D:L134291-134302; FUN_00587c20 D:L445549-445565; D:L476550-476558 -> FUN_005c2a90; disc READERC.ZAR motion.rdr NoInterrupt and playback, MOTION_P.ZAR seal_reload 45 keys",
+   "note": "docs/research/251-the-effective-action-life-model.md",
+   "tests": [
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "lives from its first command to the command its uncut end pops it on (PAR-69: on the lagged clock, a command past its last key): a jump on that command is refused, the next admitted; never before its first command", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "seal_reload uncut: played out on the 93rd command (t > 1.5464 s), not the 92nd that first reaches its last key (1.5297 s)", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "the half step is at the clip's own playback, not the ReloadTime's: seal_reload_shotgun (18 keys, 1.6) over a ReloadTime of 2 comes off on the 108th command (at the period's step it would be the 109th)", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a push past NoInterrupt cuts it after the command it rides (the jump on that command refused, read before the cut); a push before NoInterrupt changes nothing", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "holds no life for a moving start, without the clips (no spec: research 251 section 6's named gap), or once its reload ends", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "reads the cut off the walk's mover: its cut stick (PAR-64: the pad's copy) and its turn past 0.1 (reloadCutOf)", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "a full stick pushed from rest cuts a standing still clip on its own tick, on the walk's life and the layer's snapshot alike", "data": "none" },
+    { "file": "packages/viewer/test/stillReloadLife.test.ts", "name": "PAR-61, moved by PAR-67: a push on the four commands after the first does not cut a standing still clip (no NoInterrupt); the fifth, two game frames past the push, does", "data": "none" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "the page's StillReloadLife and the room's reloadLife agree command for command: a still reload to its last key, and one cut by the stick (the same clock, the same cut axes)", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "a reload begun moving puts no still clip on the stack (the overlay rides the looped top): the jump is admitted under it", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "the ReloadDelay timer puts nothing on the stack (D:L476550-476558) and runs on the page, which sends the reload at its end (its reloadStart): the room's clip life starts at the command the reload names, no second delay", "data": "fixture" },
+    { "file": "packages/central/test/roomReloadDelay.test.ts", "name": "the Spas 12, the JACKHAMMER (ReloadDelay 0.5) and the 870 (1): the page's reloadStart comes the delay after the press, and the room's lock and still clip start at the command it names, no later -- the page's StillReloadLife and the room's reloadLife agree command for command", "data": "fixture" },
+    { "file": "packages/central/test/roomStillReloadJump.test.ts", "name": "without the clips the room holds no still clip's life (no motion.rdr: PF-18's own fallback), so the jump under a still reload is admitted -- research 251 section 6's named gap, pinned", "data": "fixture" }
+   ],
+   "owed": "Without the clips no life is held and the jump is admitted (the named gap, pinned); the end edge's frame order (the actor update at D:L418118 before the looped test) is owed (research 251 section 6). The room's added ReloadDelay offset is gone (PARITY-1 wave 4, 3c): the room's reload begins at the page's reloadStart."
+  }
+ ]
+}

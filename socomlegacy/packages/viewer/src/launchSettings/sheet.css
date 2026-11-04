@@ -1,0 +1,53 @@
+/*
+ * The launch settings sheet (web sprint 37 PTT-9, W37.R6; research 243 §9; `./sheet.ts`). LAUNCH_SETTINGS_ADAPTATION:
+ * a development build's only -- this file is imported by the sheet's module alone, which `../pageEntry.ts` loads under
+ * a literal `import.meta.env.DEV`, so no release or demo build carries it. Placement only: every colour, type and
+ * radius is the design system's (its classes on the markup, its tokens here).
+ *
+ * The page's `html, body { overflow: hidden }` (`../styles.css`, the canvas page) would clip a long sheet, so the sheet
+ * is its own scrolling layer over the viewport, as the disc page is.
+ */
+#launch-settings { position: fixed; inset: 0; z-index: 3; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; background: var(--s2u-ground); }
+#launch-settings form { display: grid; gap: var(--s2u-space-4); }
+#launch-settings .s2u-section { padding-top: var(--s2u-space-6); padding-bottom: 0; }
+#launch-settings .s2u-head { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); align-items: center; column-gap: var(--s2u-space-4); margin-bottom: var(--s2u-space-4); }
+#launch-settings .s2u-head > .s2u-title, #launch-settings .s2u-head > .s2u-lede { grid-column: 1 / -1; order: 0; }
+#launch-settings .s2u-head > .s2u-kicker { order: 0; grid-column: 1; margin: 0; }
+#launch-settings .s2u-head > [data-role="status-strip"] { order: 0; grid-column: 2; margin-top: 0; justify-content: flex-end; }
+#launch-settings [data-role="stage"] { display: flex; flex-direction: column; gap: var(--s2u-space-4); }
+#launch-settings [data-role="options"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 960px) {
+  #launch-settings [data-role="options"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #launch-settings [data-panel="options"] { order: -1; }
+}
+@media (max-width: 720px) {
+  #launch-settings .s2u-head { grid-template-columns: minmax(0, 1fr); }
+  #launch-settings .s2u-head > [data-role="status-strip"] { grid-column: 1; justify-content: flex-start; }
+}
+@media (min-width: 961px) {
+  #launch-settings [data-role="stage"] { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(22rem, 1fr); align-items: start; }
+  #launch-settings [data-panel="maps"] { grid-column: 1; grid-row: 1; }
+  #launch-settings [data-panel="options"] { grid-column: 2; grid-row: 1; }
+  #launch-settings [data-role="maps"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #launch-settings [data-role="options"] { grid-template-columns: 1fr 1fr; }
+}
+#launch-settings .s2u-field + .s2u-field { margin-top: var(--s2u-space-2); }
+#launch-settings .s2u-panel__body > .s2u-tabs { margin-top: var(--s2u-space-3); }
+#launch-settings .s2u-field input[readonly] { width: 100%; box-sizing: border-box; }
+#launch-settings .is-pad-focused { outline: 2px solid var(--s2u-focus); outline-offset: 3px; }
+#launch-settings [data-role="launch-bar"] { background: var(--s2u-ground); padding-bottom: var(--s2u-space-3); box-shadow: inset 0 1px 0 var(--s2u-panel-edge); }
+@media (min-width: 961px) { #launch-settings [data-role="launch-bar"] { position: sticky; bottom: 0; z-index: 2; } }
+#launch-settings [data-role="launch-bar"] .s2u-panel__body { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s2u-space-3); }
+#launch-settings [data-action="launch"].s2u-start--large { width: auto; justify-content: center; }
+#launch-settings [data-role="address-line"] { display: flex; gap: var(--s2u-space-2); align-items: center; margin-top: 0; min-width: 0; }
+#launch-settings [data-role="address-line"] .s2u-field { flex: 1; min-width: 0; }
+#launch-settings [data-role="address-line"] .s2u-tab { flex: none; }
+#launch-settings [data-role="recents"], #launch-settings [data-role="launch-bar"] .s2u-status { grid-column: 1 / -1; margin-top: 0; }
+#launch-settings .s2u-disclosure > summary .s2u-field__note { display: inline; margin-left: var(--s2u-space-2); }
+#launch-settings .s2u-tiles { max-width: none; }
+#launch-settings .s2u-tile p { max-width: none; }
+#launch-settings .s2u-tile > .s2u-tab { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; padding: 0; background: transparent; box-shadow: none; color: transparent; }
+#launch-settings .s2u-tile > .s2u-tab:hover,
+#launch-settings .s2u-tile > .s2u-tab:focus-visible,
+#launch-settings .s2u-tile > .s2u-tab[aria-pressed="true"] { background: transparent; color: transparent; }
+#launch-settings .s2u-tile:has(> .s2u-tab[aria-pressed="true"]) { outline-width: 2px; outline-style: solid; outline-color: var(--s2u-gold); outline-offset: 2px; }

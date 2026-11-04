@@ -1,0 +1,13 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Hunt case, case hunt-stances-dive-run-backright (eph-hunt-2026-11-01, seat ac: stances, dives and pops; measured by tools/eph/analyze.ts).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: run it three times.
+# Tests: the full Triangle while running diagonally back and right (ldown 1 + lright 1 pressed on the same frame: S+D, a pair that reached the game in round 4 Q2): the diagonal dive.
+# Look: transitionMs and endStance of the act; headingDeg before and after it (does the dive keep the diagonal, snap to one axis as the prone class does (FUN_00583500 keeps one axis), or stop); stickForward / stickLateral each side.
+# Ground: from the start -x and -z together, on the flat strip x 920-950, z 810-855; 500 ms at about 37-65 u/s reaches about x 920, z 838 at the act; the stick released 700 ms after it, by the bank's foot at x 910.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 (tools/eph/pageSeed.ts); PCSX2: the plain keys and the prepared macros (tools/eph/padIni.ts PREPARED).
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+500 ldown 1
+500 lright 1
+1000 triangle 1.0  # full Triangle while running back and right
+1150 triangle 0
+1700 ldown 0
+1700 lright 0

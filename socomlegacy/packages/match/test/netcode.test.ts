@@ -1,0 +1,371 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { CollisionOwner, GridParams, SpawnSlot, WorldPoly } from '@s2u/scene';
+import {
+  Button, cameraLook, centreClaim, faceToward, groundGrid, holdBits, MoverSim, moverSnapshot, packGround, PROTOCOL_VERSION, STEP_PROBE_LIFT_READING,
+  quantiseCommand, Walker, wrapYaw,
+  type Command, type SimMap,
+} from '../../viewer/src/sim';
+import { NetClient, type NetWalk, type WebSocketLike } from '../../viewer/src/net/client';
+import { Room } from '../src/room';
+
+/**
+ * The netcode end to end (web sprint 3, M4; the bar's item 1): the page's `NetClient` against the server's `Room`
+ * over an in-memory socket, under the injector's latency and loss, the page's mover driven as `WalkMode` drives it
+ * networked -- presses applied at once, each tick on the quantised command. The prediction must agree with the server
+ * with no correction at all, at every latency; and the others must be drawn between snapshots, behind the server.
+ */
+
+function map(deck = 30): SimMap {
+  const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
+  const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => ({
+    modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1]),
+  });
+  // A floor with a raised deck: the run crosses its edge, so the script walks off it and lands (the air, the landing).
+  const polys = [floor(-1000, -1000, 1000, 1000, 0), floor(-400, -300, -100, 300, deck)];
+  const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
+  const ground = packGround(params, polys, owners);
+  const slot = (side: 0 | 1, x: number, z: number): SpawnSlot => ({ side, index: 0, position: [x, deck, z], onFloor: true, step: 2, facing: [1, 0], loc: { map: 0, x: 0, z: 0 } });
+  return { stem: 'MP99', name: 'DECK', ground, grid: groundGrid(ground), spawns: null, slots: [slot(0, -300, 0), slot(1, -300, 100)], respawns: [], notes: [] };
+}
+
+/** `WalkMode` as the net client drives it: a press applied at once, the ticks on the quantised command. */
+class PageWalk implements NetWalk {
+  sim: MoverSim | null = null;
+  tap: ((cmd: Omit<Command, 'seq'>, feet: [number, number, number], facing?: readonly [number, number]) => void) | null = null;
+  locked = true;
+  /**
+   * The ticks tapped since the tap was set: the next one is command `taps + 1`, the number the client gives it
+   * (`WalkMode` keeps the same count, so the page's tick draws on the seq the server's will: LANDING_HIT_DRAW_READING).
+   */
+  private taps = 0;
+  /**
+   * LATER 14: the look as an honest page's: `WalkMode.respawn` snaps the camera to the spawn's yaw (`walk.ts`), and the
+   * script's stick turns on from there -- its yaw offset at the first command after the spawn so that command faces it.
+   * Opt-in (`snapLook`): a script whose look is a turning stick; an absolute aim (a shooter's at a body) is not offset.
+   */
+  private snapTo: number | null = null;
+  private yawOffset = 0;
+  constructor(readonly grid: ReturnType<typeof groundGrid>, readonly snapLook = false) {}
+  setNetTap(tap: typeof this.tap): void { this.tap = tap; this.taps = 0; }
+  setLocked(on: boolean): void { this.locked = on; }
+  respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = []): boolean {
+    this.sim = new MoverSim(new Walker(this.grid), null);
+    this.sim.walker.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);   // `walk.ts` respawn: the tick's pick (PL-2)
+    this.sim.walker.state.yaw = yaw;
+    for (const c of replay) this.sim.apply(c);
+    this.snapTo = yaw;
+    return true;
+  }
+  nudge(dx: number, dy: number, dz: number): void { const s = this.sim!.walker.state; s.x += dx; s.y += dy; s.z += dz; }
+  /** Protocol 11 (NET-WIRE): the room's facing correction, laid on the mover where the gate's next step starts. */
+  nudgeFacing(dyaw: number, dpitch: number): void { const s = this.sim!.walker.state; s.yaw = wrapYaw(s.yaw + dyaw); s.pitch += dpitch; }
+  /** One tick of play: the press, then the quantised tick, then the tap. */
+  play(input: Omit<Command, 'seq'>): void {
+    // Locked (dead, or not yet stood anywhere) the page sends no stick and no presses -- but the Action press, the
+    // respawn's (`WalkMode.action`).
+    const seq = ++this.taps;
+    if (this.snapLook && this.snapTo !== null && this.sim && !this.locked) { this.yawOffset = this.snapTo - input.yaw; this.snapTo = null; }
+    input = { ...input, yaw: wrapYaw(input.yaw + this.yawOffset) };
+    if (!this.sim || this.locked) { this.tap?.({ ...input, forward: 0, right: 0, buttons: input.buttons & Button.Action }, [0, 0, 0]); return; }
+    const cmd = quantiseCommand({ ...input, seq });
+    this.sim.apply(cmd);
+    const s = this.sim.walker.state;
+    this.tap?.(cmd, [s.x, s.y, s.z], [s.yaw, s.pitch]);                 // protocol 11: the facing, reconciled too
+  }
+}
+
+/** A socket pair: the page's end (`WebSocketLike`) and the server's `Conn`. */
+function pair(room: Room, id: number): (url: string) => WebSocketLike {
+  return () => {
+    const page: WebSocketLike = {
+      binaryType: 'arraybuffer', readyState: 0, onopen: null, onclose: null, onmessage: null, onerror: null,
+      send(data) {
+        if (typeof data === 'string') {
+          const ev = JSON.parse(data);
+          if (ev.type === 'hello') room.hello(id, conn, ev);
+          else room.text(id, ev);
+        } else room.binary(id, data);
+      },
+      close() { room.leave(id); },
+    };
+    const conn = {
+      send: (frame: Uint8Array | string) => page.onmessage?.({ data: typeof frame === 'string' ? frame : frame.slice().buffer }),
+      close: () => page.onclose?.({ code: 1000, reason: '' }),
+    };
+    setTimeout(() => { page.readyState = 1; page.onopen?.({}); }, 0);
+    return page;
+  };
+}
+
+afterEach(() => { vi.useRealTimers(); });
+
+function script(t: number, yaw: number): Omit<Command, 'seq'> {
+  return {
+    forward: t < 240 ? 1 : 0.4, right: t > 150 && t < 300 ? 0.6 : 0, yaw: yaw + (t < 200 ? t * 0.3 : 60 - t * 0.1), pitch: -5, turn: t < 200 ? 0.09 : -0.03,
+    buttons: t === 90 || t === 330 ? Button.Jump : t === 260 || t === 380 ? Button.Stance : 0, stance: t === 260 ? 1 : 0, weapon: 0,
+  };
+}
+
+describe.each([0, 50, 100, 150])('the netcode at %i ms each way, 2 %% loss (bar 1)', (latency) => {
+  it('predicts the local SEAL exactly as the server runs it: no correction, the same feet at the same command', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const page = new PageWalk(m.grid);
+    let seed = 42;
+    const client = new NetClient({
+      url: 'mem', map: 'MP99', name: 'Pred', socket: pair(room, 1), simulate: { latencyMs: latency, jitterMs: latency / 5, loss: 0.02 },
+      random: () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; },
+    }, page);
+    let yaw = 0;
+    client.on((ev) => { if (ev.type === 'spawn') yaw = ev.yaw; });
+    for (let t = 0; t < 600; t++) {
+      page.play(script(t - 30, yaw));
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    for (let t = 0; t < 60; t++) { page.play({ forward: 0, right: 0, yaw, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 }); room.step(); vi.advanceTimersByTime(1000 / 60); }
+    expect(client.role).toBe('player');
+    expect(client.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+    const server = room.player(1)!.sim;
+    // The server has run every command the page sent (the last 60 are standing still: the feet agree).
+    const s = server.walker.state, p = page.sim!.walker.state;
+    expect([s.x, s.y, s.z]).toEqual([p.x, p.y, p.z]);
+    expect(Math.hypot(p.x + 300, p.z)).toBeGreaterThan(100);       // it went somewhere
+    client.close();
+  });
+});
+
+describe('a heavy landing: the hit clip is the same on both ends (review 2, M-2: LANDING_HIT_DRAW_READING)', () => {
+  it('walks off a deck high enough for a class-2 landing and takes no correction; the page and the server land one clip', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    // 100 over the floor at g 235: about 216.8 a second at contact, between the heavy (206.8) and the deadly (237.5).
+    const m = map(100);
+    let seed = 7;
+    const clips = new Set<string>();
+    for (let run = 0; run < 4; run++) {
+      const room = new Room(m, null, { now: () => Date.now() });
+      const page = new PageWalk(m.grid);
+      const client = new NetClient({
+        url: 'mem', map: 'MP99', name: `Heavy${run}`, socket: pair(room, 1), simulate: { latencyMs: 50, loss: 0.02 },
+        random: () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; },
+      }, page);
+      let yaw = 0;
+      client.on((ev) => { if (ev.type === 'spawn') yaw = ev.yaw; });
+      // A different number of idle ticks before the run each time: the landing falls on another command.
+      for (let t = 0; t < 900; t++) {
+        page.play({ forward: t > 30 + run * 7 && t < 600 ? 1 : 0, right: 0, yaw, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+        room.step();
+        vi.advanceTimersByTime(1000 / 60);
+      }
+      const server = room.player(1)!.sim.walker, mine = page.sim!.walker;
+      expect(mine.landing?.cls).toBe(2);
+      expect(server.landing?.clip).toBe(mine.landing?.clip);
+      expect(client.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+      expect([server.state.x, server.state.y, server.state.z]).toEqual([mine.state.x, mine.state.y, mine.state.z]);
+      clips.add(mine.landing!.clip!);
+      client.close();
+    }
+    expect([...clips].sort()).toEqual(['hit', 'hitStomach']);    // both of the game's clips came up
+  });
+});
+
+describe("a toss from a held peek leaves the peek as it is on the server (review 3, A1: FUN_005b4340's state-3 bypass, 469345)", () => {
+  it('a command carrying the lean toss while the lean is held: the snapshot keeps the lean clip, the peek and no action', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const page = new PageWalk(m.grid);
+    const client = new NetClient({ url: 'mem', map: 'MP99', name: 'Peek', socket: pair(room, 1) }, page);
+    let yaw = 0;
+    client.on((ev) => { if (ev.type === 'spawn') yaw = ev.yaw; });
+    const step = (buttons: number): void => {
+      page.play({ forward: 0, right: 0, yaw, pitch: 0, turn: 0, buttons, stance: 0, weapon: 0 });
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+    };
+    for (let t = 0; t < 120; t++) step(0);
+    for (let t = 0; t < 60; t++) step(Button.LeanRight);
+    const server = room.player(1)!.sim;
+    const snap = (): ReturnType<typeof moverSnapshot> => moverSnapshot(server.walker, server.moves, 0, 0);
+    const before = snap();
+    expect(before.peek).toBe(1);
+    expect(before.traversal?.clip).toBe('seal_stand2rlean');
+    expect(before.action).toBeNull();
+    step(Button.LeanRight | holdBits('seal_toss_rlean'));
+    expect(server.walker.holding?.clip).toBe('seal_toss_rlean');     // the server took the toss
+    let ticks = 0;
+    while (server.walker.holding !== null && ticks < 200) {
+      const now = snap();
+      expect(now.peek).toBe(1);
+      expect(now.traversal).toEqual(before.traversal);
+      expect(now.action).toBeNull();
+      expect(server.moves!.peek()).toBeGreaterThan(0.99);
+      step(Button.LeanRight);
+      ticks++;
+    }
+    expect(ticks).toBeGreaterThan(60);                                 // the toss ran out under the held peek
+    expect(snap().traversal).toEqual(before.traversal);
+    expect(client.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+    client.close();
+  });
+});
+
+describe('the others, drawn behind the server (M4)', () => {
+  it('interpolates a running body between snapshots, 100 ms behind, smoothly', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const a = new PageWalk(m.grid), b = new PageWalk(m.grid);
+    const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1), simulate: { latencyMs: 50 } }, a);
+    const cb = new NetClient({ url: 'mem', map: 'MP99', name: 'B', socket: pair(room, 2) }, b);
+    const xs: number[] = [];
+    for (let t = 0; t < 240; t++) {
+      a.play({ forward: 0, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      b.play({ forward: t > 30 ? 1 : 0, right: 0, yaw: 270, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+      const other = ca.bodies().find((x) => x.id === 2);
+      if (t > 120 && other) xs.push(other.feet[0]);
+    }
+    // B runs toward +x at a steady speed: A draws it moving every frame, no step backwards, no frozen pair.
+    for (let i = 1; i < xs.length; i++) expect(xs[i]!).toBeGreaterThan(xs[i - 1]!);
+    const steps = xs.slice(1).map((x, i) => x - xs[i]!);
+    expect(Math.max(...steps) / Math.min(...steps)).toBeLessThan(1.6);
+    // Drawn behind B's own mover by about the delay and the latency.
+    const lag = b.sim!.walker.state.x - xs[xs.length - 1]!;
+    expect(lag).toBeGreaterThan(0);
+    expect(ca.snapshotRate()).toBeGreaterThan(25);
+    ca.close(); cb.close();
+  });
+});
+
+describe('a death and a respawn in the stream (M6)', () => {
+  it('takes no snapped correction through a kill, the wait and the respawn', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    m.respawns.push(...m.slots.map((s) => ({ ...s })));
+    const room = new Room(m, null, { now: () => Date.now() });
+    const a = new PageWalk(m.grid), b = new PageWalk(m.grid, true);   // LATER 14: B's stick snaps to each spawn's facing
+    const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1), simulate: { latencyMs: 40 } }, a);
+    const cb = new NetClient({ url: 'mem', map: 'MP99', name: 'B', socket: pair(room, 2), simulate: { latencyMs: 40 } }, b);
+    let look = { yaw: 0, pitch: 0 };
+    for (let t = 0; t < 14 * 60; t++) {
+      const firing = t >= 60 && t < 100 && a.sim !== null && room.player(2) !== undefined;
+      const pb = room.player(2)?.sim.walker.state ?? { x: 0, y: 0, z: 0 };
+      // A turns to B as the server has it (the test is about the stream, not the aim).
+      if (firing) {
+        const sa = a.sim!.walker.state;
+        look = faceToward({ feet: [sa.x, sa.y, sa.z], posture: a.sim!.walker.posture }, [pb.x, pb.y + 12, pb.z]);
+      }
+      a.play({ forward: 0, right: 0, yaw: look.yaw, pitch: look.pitch, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      // B runs about, and presses Action every second (the respawn's press once dead).
+      b.play({ forward: 1, right: t % 120 < 60 ? 0.5 : -0.5, yaw: 90 + (t % 360), pitch: 0, turn: 0.1, buttons: t % 60 === 0 ? Button.Action : 0, stance: 0, weapon: 0 });
+      if (firing && t % 9 === 0) {
+        // A's round down its look (protocol 5: the eye and the aim at the cone's centre), at the command just sent.
+        const sa = a.sim!.walker.state;
+        const body = { feet: [sa.x, sa.y, sa.z], yaw: sa.yaw, pitch: sa.pitch, posture: a.sim!.walker.posture };
+        const { eye } = cameraLook(body);
+        const claim = centreClaim(body, [sa.x, sa.y + 15.4, sa.z], Math.hypot(pb.x - eye[0], pb.y + 12 - eye[1], pb.z - eye[2]));
+        room.text(1, { type: 'fire', seq: ca.lastSeq(), ...claim, weapon: 0, viewTick: room.tick });
+      }
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    expect(room.player(2)!.deaths).toBeGreaterThanOrEqual(1);
+    expect(room.player(2)!.alive).toBe(true);
+    expect(cb.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+    ca.close(); cb.close();
+  });
+});
+
+describe('a new match stands everyone at the start (M6, W3.R11)', () => {
+  it('takes no correction when the server re-spawns a living player at the next match', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now(), roundSeconds: 2 });
+    const a = new PageWalk(m.grid, true);                          // LATER 14: its stick snaps to each spawn's facing
+    const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1), simulate: { latencyMs: 30 } }, a);
+    let spawns = 0;
+    ca.on((ev) => { if (ev.type === 'spawn') spawns++; });
+    for (let t = 0; t < (2 + 16 + 23 + 3) * 60; t++) {
+      a.play({ forward: 1, right: (t % 200) < 100 ? 0.4 : -0.4, yaw: t * 0.5, pitch: 0, turn: 0.1, buttons: 0, stance: 0, weapon: 0 });
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    expect(spawns).toBe(2);                                   // the first match's, and the next's
+    expect(ca.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+    ca.close();
+  });
+});
+
+describe('a watcher (the map viewer Online setting, 2026-09-29)', () => {
+  it('joins as a spectator outside the queue, drives no walk, sees the players, and is never promoted', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const a = new PageWalk(m.grid), w = new PageWalk(m.grid);
+    w.locked = false;
+    const hellos: unknown[] = [];
+    const watchSocket = (url: string): WebSocketLike => {
+      const s = pair(room, 2)(url);
+      const send = s.send.bind(s);
+      s.send = (data) => { if (typeof data === 'string') hellos.push(JSON.parse(data)); send(data); };
+      return s;
+    };
+    const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1) }, a);
+    const cw = new NetClient({ url: 'mem', map: 'MP99', name: 'W', socket: watchSocket, watch: true }, w);
+    expect(w.tap).toBeNull();                                        // the walk is not driven
+    expect(w.locked).toBe(false);
+    for (let t = 0; t < 120; t++) {
+      a.play({ forward: t > 30 ? 1 : 0, right: 0, yaw: 270, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    expect(hellos[0]).toMatchObject({ type: 'hello', watch: true });
+    expect(cw.role).toBe('spectator');
+    expect(cw.queue).toBe(0);
+    expect(ca.role).toBe('player');
+    expect(cw.bodies().map((b) => b.id)).toEqual([1]);              // it sees the player
+    expect(room.lobby.watching(2)).toBe(true);
+    expect(room.lobby.spectators().map((s) => s.id)).toEqual([2]);
+    ca.close();                                                     // the only player leaves: the watcher stays one
+    room.step();
+    expect(room.lobby.member(2)?.role).toBe('spectator');
+    expect(room.lobby.players()).toEqual([]);
+    cw.close();
+    expect(w.tap).toBeNull();
+    expect(w.locked).toBe(false);
+  });
+});
+
+describe('PL-8: the client of an idler moved out (protocol 5 `demoted`)', () => {
+  it('turns spectator: no commands go up after it, the mover is held', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const sent: (string | Uint8Array)[] = [];
+    let page: WebSocketLike | null = null;
+    const walk = new PageWalk(map().grid);
+    const client = new NetClient({
+      url: 'mem', map: 'MP99', name: 'Idle', socket: () => {
+        page = {
+          binaryType: 'arraybuffer', readyState: 1, onopen: null, onclose: null, onmessage: null, onerror: null,
+          send: (d) => { sent.push(d); }, close: () => undefined,
+        };
+        return page;
+      },
+    }, walk);
+    page!.onopen?.({});
+    page!.onmessage?.({ data: JSON.stringify({ type: 'welcome', id: 1, version: PROTOCOL_VERSION, map: 'MP99', tick: 0, role: 'player', team: 'seal', queue: 0, name: 'Idle', players: [], rules: 'respawn', round: 1, rounds: 11, ghost: false }) });
+    page!.onmessage?.({ data: JSON.stringify({ type: 'spawn', id: 1, at: [0, 0, 0], yaw: 0, after: 0 }) });
+    walk.play({ forward: 1, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+    expect(sent.some((d) => typeof d !== 'string')).toBe(true);
+    page!.onmessage?.({ data: JSON.stringify({ type: 'demoted', position: 2 }) });
+    expect(client.role).toBe('spectator');
+    expect(client.queue).toBe(2);
+    expect(walk.locked).toBe(true);
+    const before = sent.length;
+    for (let i = 0; i < 5; i++) walk.play({ forward: 1, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+    expect(sent.slice(before).filter((d) => typeof d !== 'string')).toHaveLength(0);
+  });
+});

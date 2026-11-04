@@ -1,0 +1,17 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Momentum and timing hunt, case hunt-momentum-step-035-to-100 (EPH hunt 2026-11-01, seat ac; measured by tools/eph/analyze.ts; one trial per run, three trials a case).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: facing +x, a creep at 0.35 (axis about 0.101) 0.8 s, then the stick full for 0.5 s without passing rest.
+# Look: the acceleration from a moving start: the ramp from 0.101 to 1 at up to 5 a second (about 0.18 s) against t90Ms from rest (the smoke: 116.7 ms both sides) -- whether either side restarts the run clip from rest or blends from the creep, and t90Ms of the full slice.
+# Measures: t90Ms, steadySpeed, stickForward per slice; stopDist and stopMs after the release
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+# Reading to test against (viewer mover.ts header, the decompilation as transcribed there, not re-read for this script): FUN_00586c10 ramps each move axis toward the pad at lo + (hi - lo)(1 - (1 - |target|)^8) a second (dynamics.rdr 2 and 5), and snaps to the pad when |prev| > 0.9 and the change beats 9 a second (the lateral axis: 0.78 and 7.8), restarting a 0.2 s clip blend (decomp 445053-445054); FUN_00586f00 stops at once when the stick is within 0.03 of rest; FUN_005b56c0's slope and water slow-down is not modelled on the page. The stick levels after the pad reader (viewer moveStick.ts, D:L179566-179634): 0.35 -> 0.101, 0.5 -> 0.404, 0.65 -> 0.707, 0.8 and 1 -> 1.
+# The turn: the right stick full left 880 ms, to yaw about 270 (facing +x), as turn-fwd-then-left (yaw90-tilt 20261031T165500Z..165635Z: 700 ms gave about 66 degrees with the stick's ramp; 128.1 deg/s at full push, viewer look.ts MAX_YAW_RATE). PCSX2's yaw is not sampled: read the heading of travel; a side whose turn ends more than about 5 degrees off the other reads its path along another line.
+# Ground: facing +x, lup runs x 937 -> 1027 at z 855-859, dry (flags105e 0), both sides together (strafe-then-fwd 20261031T162728Z, turn-fwd-then-left); sampled dry to x 1011 and z 832-890 there; the dip x 950-980 (y -148 to -150) is gentle; the water lies +z of z about 871 at x 917-937. At 65 u/s the strip holds about 1.2 s of full run.
+# Lines marked "slice" repeat the held pressure: no key traffic (padIni keyActions and run.ts KeyTranslator skip an unchanged pressure; the page's __ephPadSet sets the same value), but analyze.ts cuts a segment there, so each slice has its own steadySpeed and stickForward / ctlForward median.
+500 rleft 1    # turn left: yaw 180 -> about 270 (facing +x)
+1380 rleft 0
+2380 lup 0.35  # creep +x
+3180 lup 1     # full, no rest between
+3280 lup 1     # slice
+3380 lup 1     # slice
+3680 lup 0     # release near x 975

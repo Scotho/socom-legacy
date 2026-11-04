@@ -1,0 +1,19 @@
+{
+  "format": "s2u-pack",
+  "formatVersion": 2,
+  "id": "example.capture-the-flag",
+  "version": "1.0.0",
+  "name": "Capture the flag (example)",
+  "description": "An example rules pack built only on the published creator rules contract: two bases, two flags, captures win the round. Plays on any base: it names no map door or switch.",
+  "target": "SCUS-97275",
+  "contract": "^0.1.1",
+  "kinds": ["rules"],
+  "sides": "server",
+  "dependencies": [],
+  "files": [
+    { "path": "rules/ctf.json", "sha256": "b8449eb435855ce68615a02f26bae1fe7008b918699603ab6b7d38c4c282ffab", "size": 5460, "role": "rules" }
+  ],
+  "intents": [
+    { "kind": "new-behaviour", "files": ["rules/ctf.json"] }
+  ]
+}

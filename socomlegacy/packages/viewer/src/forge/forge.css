@@ -1,0 +1,872 @@
+/*
+ * FORGE (a browser adaptation, no original): the forge's own editor chrome -- a toolbar, two docks, the viewport and a
+ * status bar -- on the design system's tokens. Nothing of the game is drawn here; the canvas is the viewer's renderer.
+ * FUI-7 (FUI.R4): every colour, type role, radius, shadow and stacking step is an `--fx-*` alias of a system token in
+ * `./tokens.css`, the one alias block; this sheet holds the layout and the shared states (the focus ring, disabled).
+ */
+@import './tokens.css';
+body.forge-page {
+  --fx-top: 46px;
+  --fx-status: 26px;
+  --fx-left: 270px;
+  --fx-right: 290px;
+  margin: 0;
+  overflow: hidden;
+  background: var(--fx-bg);
+  color: var(--fx-text);
+  font: var(--fx-type-body);
+  user-select: none;
+}
+.fx-ico { width: var(--fx-ico); height: var(--fx-ico); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.fx-dim { color: var(--fx-dim); }
+.fx-spacer { flex: 1 1 auto; }
+
+/* ---------- the shared states (FUI-7: VP-2, VP-7) ---------- */
+/* One focus ring for keyboard and pad, the system's (shared/ds README, "The focus ring"): the pad's own marks (the
+   lobby's `.is-focus`, the START menu's `.is-on` row) draw it too until their walkers set `.is-pad-focused`. */
+body.forge-page :is(:focus-visible, .is-pad-focused), .agent-panel :is(:focus-visible, .is-pad-focused), .fx-lobby-btn.is-focus, .fx-lobby-card-field.is-focus, .fx-menu li.is-on {
+  outline: var(--fx-focus-w) solid var(--fx-focus);
+  outline-offset: var(--fx-focus-offset);
+}
+/* A scroller would clip a ring drawn outside its rows: there it sits inside (shared/ds README, the same advice). */
+.fx-top, .fx-assets, .fx-outliner, .fx-menu, .fx-check, .fx-saves-list, .fx-lobby-rows, .fx-lobby-lines { --fx-focus-offset: calc(-1 * var(--fx-focus-w)); }
+/* One disabled look: faded at the system's opacity, no hover, no press; a `.fx-why` line says why. Busy is aria-busy. */
+body.forge-page :is(button, select, input):disabled, .fx-fields.is-off, .fx-menu li.is-off { opacity: var(--fx-disabled); cursor: default; }
+body.forge-page [aria-busy="true"] { cursor: progress; }
+.fx-why { margin: var(--s2u-space-1) 0 0; font: var(--fx-type-body); color: var(--fx-dim); }
+
+/* ---------- the button kit (FUI-7: VP-10; adopted by the panels through `./ui/kit`) ---------- */
+.fx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2u-space-1);
+  min-height: 28px;
+  padding: 0 var(--s2u-space-3);
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  background: var(--fx-panel-2);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-btn:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-gold); }
+/* One per card, the next step; never Close. */
+.fx-btn--primary { color: var(--fx-on-accent); background: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-btn--primary:hover:not(:disabled) { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
+.fx-btn--tertiary { color: var(--fx-gold-hi); background: transparent; border-color: transparent; text-decoration: underline; }
+.fx-btn--tertiary:hover:not(:disabled) { background: transparent; border-color: transparent; }
+.fx-btn--danger { color: var(--fx-danger); border-color: var(--fx-danger); }
+.fx-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--fx-danger) 16%, var(--fx-panel-2)); border-color: var(--fx-danger); }
+
+/* ---------- the toolbar ---------- */
+/* One row when it fits. When it does not (the name field, the bomb tools), it wraps, and the page copies the
+   wrapped height into --fx-top so the docks stay under it. The min-height is the one-row size, not the variable:
+   tying it to the variable would leave a wrapped bar tall after the window grew wide again. */
+.fx-top {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--fx-top);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--s2u-space-2);
+  box-sizing: border-box;
+  background: linear-gradient(var(--fx-panel), var(--fx-bar));
+  border-bottom: 1px solid var(--fx-edge);
+  z-index: var(--fx-z-bar);
+  /* LATER 226 (the merge controller's product-track call, 2026-10-21): the row is about 1112-1271 px wide; narrower, it
+     scrolls sideways (a thin bar a mouse can take, a drag on touch) instead of running past the screen's edge, its
+     height kept. Where it fits nothing scrolls. #351's wrap of the row (a second row at 1280) is not kept: the docks
+     start at `--fx-top` (LATER 176), and a taller toolbar would cover their top (the B132 landing, 2026-10-22). */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.fx-top > * { flex: 0 0 auto; }
+.fx-top > .fx-spacer { flex: 1 1 8px; min-width: 8px; }
+.fx-home { display: grid; place-items: center; width: 28px; height: 28px; color: var(--fx-dim); text-decoration: none; }
+.fx-home:hover { color: var(--fx-text); }
+.fx-brand { display: flex; align-items: center; gap: 6px; padding: 0 10px 0 2px; margin-right: var(--s2u-space-1); border-right: 1px solid var(--fx-edge); height: 28px; }
+.fx-logo { font-family: var(--s2u-font-display); color: var(--fx-gold); font-size: 20px; letter-spacing: 0.1em; font-style: italic; }
+.fx-badge { padding: 1px 5px; border: 1px solid var(--fx-gold); color: var(--fx-gold); font: var(--fx-type-control); font-family: var(--s2u-font-label); letter-spacing: 0.1em; }
+.fx-group { display: flex; align-items: center; gap: 2px; padding: 0 6px; height: 30px; border-right: 1px solid var(--fx-edge); }
+.fx-label { color: var(--fx-dim); font: var(--fx-type-caption); text-transform: uppercase; letter-spacing: 0.12em; margin-right: var(--s2u-space-1); }
+.fx-tool, .fx-chip, .fx-play, .fx-star {
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-tool { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 7px; }
+/* `display: inline-flex` beats the hidden attribute, the same way the lobby window's flex did (FG-44). */
+.fx-tool[hidden] { display: none; }
+.fx-tool:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-control-edge); }
+.fx-tool.is-on { background: var(--fx-selected); border-color: var(--fx-gold); color: var(--fx-gold); }
+.fx-tool:disabled { background: transparent; border-color: transparent; }
+.fx-tool.fx-team-a.is-on { color: var(--fx-team-a); border-color: var(--fx-team-a); }
+.fx-tool.fx-team-b.is-on { color: var(--fx-team-b); border-color: var(--fx-team-b); }
+.fx-tool.fx-team-a .fx-ico { color: var(--fx-team-a); }
+.fx-tool.fx-team-b .fx-ico { color: var(--fx-team-b); }
+.fx-tool.fx-bomb.is-on { color: var(--fx-bomb); border-color: var(--fx-bomb); }
+.fx-tool.fx-bomb .fx-ico { color: var(--fx-bomb); }
+.fx-tool.fx-side-seal.is-on { color: var(--fx-side-seal); border-color: var(--fx-side-seal); }
+.fx-tool.fx-side-seal .fx-ico { color: var(--fx-side-seal); }
+.fx-tool.fx-side-terrorist.is-on { color: var(--fx-side-terrorist); border-color: var(--fx-side-terrorist); }
+.fx-tool.fx-side-terrorist .fx-ico { color: var(--fx-side-terrorist); }
+.fx-select, .fx-search, .fx-num {
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  background: var(--fx-bg);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  height: 26px;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+.fx-select:hover:not(:disabled), .fx-search:hover:not(:disabled), .fx-num:hover:not(:disabled) { border-color: var(--fx-gold); }
+/* R7-1 (the rendered pass 2 at 02106bc86: the row 1491 px at a 1440 window; the UI seat's ruling, product track): the row's
+   natural width at the default font is at most 1260 px, so it fits the 1280 default window and 1440 with nothing to
+   scroll, and 1024 scrolls (LATER 226). At the root, no control hidden: the base group's select and layout name are the
+   row's own flex items (the group `display: contents`, its edge drawn by its ::after), each shrinking to a floor where
+   the row is tight; the right-hand tools whose label repeats their icon are their icon at every width (`.fx-tool--icon`,
+   the label their aria-label); the compact row (<= 2200 px, below; a 1920 window included) packs its tools, groups and gaps tighter. */
+.fx-top > .fx-group--base { display: contents; }
+.fx-top > .fx-group--base > * { flex: 0 0 auto; }
+.fx-top > .fx-group--base::after { content: ''; flex: none; align-self: center; height: 30px; border-right: 1px solid var(--fx-edge); }
+.fx-top > .fx-group--base > .fx-select { flex: 0 1 190px; min-width: 112px; }
+.fx-top > .fx-group--base > .fx-name { flex: 0 1 9em; min-width: 96px; }
+.fx-tool--icon > span { display: none; }
+.fx-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 var(--s2u-space-4);
+  margin-left: 6px;
+  font-family: var(--s2u-font-display);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fx-on-accent);
+  background: var(--fx-gold);
+  border-color: var(--fx-gold);
+}
+.fx-play .fx-ico { fill: currentColor; }
+.fx-play:hover { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
+.fx-play.is-on { color: var(--fx-danger); background: color-mix(in srgb, var(--fx-danger) 16%, var(--fx-bg)); border-color: var(--fx-danger); }
+
+/* ---------- the docks ---------- */
+.fx-dock {
+  position: fixed;
+  top: var(--fx-top);
+  bottom: var(--fx-status);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--fx-panel);
+  z-index: var(--fx-z-dock);
+}
+.fx-left { left: 0; width: var(--fx-left); border-right: 1px solid var(--fx-edge); padding: var(--s2u-space-2); gap: 6px; }
+/* FUI-22 (D5, FUI.R21; D3; a browser adaptation, FG.R2): the left dock is one asset list -- the archive, one row of the
+   search and the filters (its own class: the status strip's `.fx-chips` rule shrank and clipped it), then the list,
+   which takes the rest of the dock's height (the preview is the list's tooltip now, `./assetPreview.css`). */
+.fx-asset-filters { display: flex; align-items: center; gap: var(--s2u-space-1); flex: none; min-width: 0; }
+.fx-asset-filters .fx-search { flex: 1 1 auto; min-width: 0; }
+.fx-asset-chips { display: flex; align-items: center; gap: var(--s2u-space-1); flex: none; }
+.fx-asset-chips .fx-chip { padding: 0 var(--s2u-space-2); }
+.fx-right { right: 0; width: var(--fx-right); border-left: 1px solid var(--fx-edge); overflow-y: auto; }
+body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
+/* FUI-1 fix-up (FUI.R5; a browser adaptation, FG.R2): a dock past five panels draws a tab strip over them, one tab open
+   at a time (`./shell/panel`); FUI-22 (FUI.R22): a tab shows only its own sections, the other tabs' hidden. */
+.fx-dock-tabs {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--fx-panel);
+  border-bottom: 1px solid var(--fx-edge);
+  z-index: var(--fx-z-local);
+}
+.fx-dock-tab {
+  flex: 1 1 auto;
+  min-height: 32px;
+  padding: 0 var(--s2u-space-2);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fx-dim);
+  font: var(--fx-type-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.fx-dock-tab:hover { color: var(--fx-text); }
+.fx-dock-tab[aria-selected="true"] { color: var(--fx-text); border-bottom-color: var(--fx-gold); }
+/* FUI-1 fix-up: a card registered into a dock (the starters') takes the dock's width (290 px, 240 px at 760 px), not the
+   dialog's 420 px; nothing in it runs past the dock's edge. The dialog's cards (`.fx-modal .fx-card`) are unchanged. */
+.fx-dock .fx-card {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  padding: var(--s2u-space-3);
+  border: 0;
+}
+.fx-dock .fx-card .fx-saves-list li { flex-wrap: wrap; }
+.fx-dock .fx-card :is(select, pre) { max-width: 100%; }
+/* FUI-1 fix-up (FUI.R5): the workspace dock -- the full viewport under the toolbar, over the docks, above the status
+   strip; its header the breadcrumb, the title and Back (Circle and Esc close it, `./shell/panel`). */
+.fx-workspace {
+  position: fixed;
+  top: var(--fx-top);
+  left: 0;
+  right: 0;
+  bottom: var(--fx-status);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--fx-panel);
+  z-index: var(--fx-z-bar);
+}
+.fx-workspace[hidden], body.is-playing .fx-workspace, body.is-matching .fx-workspace { display: none; }
+.fx-workspace-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2u-space-3);
+  padding: var(--s2u-space-2) var(--s2u-space-3);
+  background: var(--fx-panel-2);
+  border-bottom: 1px solid var(--fx-edge);
+}
+.fx-workspace-crumb { font: var(--fx-type-caption); color: var(--fx-dim); letter-spacing: 0.06em; text-transform: uppercase; }
+.fx-workspace-title { margin: 0; font: var(--fx-type-title); color: var(--fx-text); }
+.fx-workspace-body { flex: 1; min-height: 0; overflow: auto; padding: var(--s2u-space-3); }
+.fx-panel-head { display: flex; align-items: baseline; justify-content: space-between; }
+.fx-panel-head h2, .fx-panel > summary {
+  margin: 0;
+  font: var(--fx-type-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fx-text);
+}
+.fx-panel-head .fx-dim { font: var(--fx-type-caption); }
+.fx-chip { display: inline-flex; align-items: center; gap: var(--s2u-space-1); height: 24px; padding: 0 10px; border-color: var(--fx-control-edge); border-radius: var(--fx-radius-pill); }
+.fx-chip:hover { background: var(--fx-hover); }
+.fx-chip .fx-ico { width: 12px; height: 12px; }
+.fx-chip.is-on { background: var(--fx-selected); border-color: var(--fx-gold); color: var(--fx-gold); }
+.fx-chip.is-on .fx-ico { fill: currentColor; }
+.fx-assets {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  background: var(--fx-bg);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+}
+.fx-assets li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 var(--s2u-space-2) 0 var(--s2u-space-1);
+  cursor: pointer;
+  font: var(--fx-type-mono);
+  border-left: 2px solid transparent;
+}
+.fx-assets li:hover { background: var(--fx-hover); }
+.fx-assets li.is-on { background: var(--fx-selected); color: var(--fx-gold); border-left-color: var(--fx-gold); }
+.fx-assets li.fx-sep { height: 0; padding: 0; margin: var(--s2u-space-1) var(--s2u-space-2); border-top: 1px dashed var(--fx-divider); cursor: default; }
+.fx-assets li.fx-sep:hover { background: none; }
+/* FUI-22 (D3): a tile's own control -- its name truncated (the full name in its tooltip), its count -- one row height for
+   every tile; the focus ring (the one rule above) and the picked row's fill and gold rule stay apart. */
+.fx-asset-pick {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+}
+.fx-asset-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-assets .fx-dim { font: var(--fx-type-mono); }
+.fx-star { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; color: var(--fx-dim); }
+.fx-star .fx-ico { width: 13px; height: 13px; }
+.fx-star:hover { color: var(--fx-gold); }
+.fx-star.is-on { color: var(--fx-gold); }
+.fx-star.is-on .fx-ico { fill: currentColor; }
+/* An empty list's line (VP-15: its own rule, more specific than a list's row, so no !important). */
+.fx-empty, :is(.fx-assets, .fx-outliner, .fx-saves-list) li.fx-empty { color: var(--fx-dim); font: var(--fx-type-body); cursor: default; padding: var(--s2u-space-2); height: auto; }
+
+.fx-panel { border-bottom: 1px solid var(--fx-edge); }
+.fx-panel > summary { padding: 9px 10px; cursor: pointer; background: var(--fx-panel-2); list-style: none; }
+.fx-panel > summary::-webkit-details-marker { display: none; }
+/* The disclosure chevron drawn by its border (VP-12: no Unicode mark), turned open. */
+.fx-panel > summary::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 5px 2px 2px;
+  border: solid var(--fx-dim);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+}
+.fx-panel[open] > summary::before { transform: rotate(45deg); }
+/* FUI-22 (D2; a browser adaptation): one section style for every dock panel's body -- the Inspector, the Outliner, the
+   View, the Settings, the agent's and the starters' -- its spacing on the system's steps, one sub-heading. */
+.fx-dock .fx-panel > .fx-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2u-space-2);
+  box-sizing: border-box;
+  padding: var(--s2u-space-2) var(--s2u-space-3) var(--s2u-space-3);
+  border: 0;
+}
+.fx-section h3 { margin: var(--s2u-space-1) 0 0; font: var(--fx-type-caption); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fx-dim); }
+/* The selection's head stays at the top of the dock's scroll, under the tab strip: its name and its kind. */
+.fx-inspect-head {
+  position: sticky;
+  top: 33px;
+  z-index: var(--fx-z-local);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2u-space-2);
+  padding: var(--s2u-space-1) 0;
+  background: var(--fx-panel);
+}
+.fx-dock[data-forge-dock-layout="stacked"] .fx-inspect-head { top: 0; }
+.fx-inspect-name { flex: 1 1 auto; min-width: 0; font: var(--fx-type-mono); color: var(--fx-gold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-inspect-kind { flex: none; font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-dim); }
+/* One stepper for every number of the dock: one height, the readout's face. */
+.fx-stepper { box-sizing: border-box; height: 26px; padding: 0 var(--s2u-space-1) 0 var(--s2u-space-2); font: var(--fx-type-mono); }
+.fx-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fx-fields.is-off { pointer-events: none; }
+.fx-field { display: flex; align-items: center; gap: 0; }
+.fx-field > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
+  font: var(--fx-type-control);
+  font-family: var(--s2u-font-label);
+  color: var(--fx-on-accent);
+  background: var(--fx-dim);
+  border-radius: var(--fx-radius) 0 0 var(--fx-radius);
+}
+.fx-field:nth-child(1) > span { background: var(--fx-axis-x); }
+.fx-field:nth-child(2) > span { background: var(--fx-axis-y); }
+.fx-field:nth-child(3) > span { background: var(--fx-axis-z); }
+.fx-field:nth-child(4) > span { background: var(--fx-gold); }
+.fx-num { width: 100%; min-width: 0; border-radius: 0 var(--fx-radius) var(--fx-radius) 0; font-family: var(--s2u-font-mono); user-select: text; }
+.fx-outliner { margin: 0; padding: var(--s2u-space-1) 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.fx-outliner li { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; cursor: pointer; font: var(--fx-type-mono); }
+.fx-outliner li > span:first-of-type { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-outliner li:hover { background: var(--fx-hover); }
+.fx-outliner li.is-on { background: var(--fx-selected); color: var(--fx-gold); }
+.fx-outliner li .fx-ico { width: 13px; height: 13px; color: var(--fx-dim); }
+.fx-outliner li.fx-team-a .fx-ico { color: var(--fx-team-a); }
+.fx-outliner li.fx-team-b .fx-ico { color: var(--fx-team-b); }
+/* FCW-32 step 4 (FUI.R23; a browser adaptation): a rules entity's Outliner row, and the Rules panel in the dock's one
+   section style -- its rows, their presses, the rule's text and the refusal under it. */
+.fx-outliner li.fx-rules-entity .fx-ico { color: var(--fx-gold); }
+.fx-rules-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-2); }
+.fx-rules-name { font: var(--fx-type-mono); color: var(--fx-gold); }
+.fx-rules-empty { display: flex; align-items: center; gap: var(--s2u-space-2); margin: 0; font: var(--fx-type-body); }
+.fx-rules-list { display: flex; flex-direction: column; gap: var(--s2u-space-1); margin: 0; padding: 0; list-style: none; }
+.fx-rules-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2u-space-1); font: var(--fx-type-mono); }
+.fx-rules-words { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-rules-row { flex: 1 1 100%; min-width: 0; text-align: left; font: var(--fx-type-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-rules-acts { display: flex; flex-wrap: wrap; gap: var(--s2u-space-1); }
+.fx-rules-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2u-space-1); }
+.fx-rules-read, .fx-rules-text { box-sizing: border-box; width: 100%; margin: 0; font: var(--fx-type-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.fx-rules-read { max-height: 160px; overflow: auto; color: var(--fx-dim); }
+.fx-rules-text { min-height: 10em; resize: vertical; }
+.fx-rules-editor { display: flex; flex-direction: column; gap: var(--s2u-space-1); flex: 1 1 100%; }
+.fx-rules-error, .fx-rules-said { margin: 0; font: var(--fx-type-body); color: var(--fx-alert); overflow-wrap: anywhere; }
+.fx-rules-finding { width: 100%; text-align: left; font: var(--fx-type-mono); white-space: normal; overflow-wrap: anywhere; }
+/* FG-21: the NPCs by side, in the outliner and the Characters list. */
+.fx-outliner li.fx-bomb .fx-ico { color: var(--fx-bomb); }
+.fx-outliner li.fx-side-seal .fx-ico, .fx-assets li.fx-side-seal .fx-ico { color: var(--fx-side-seal); }
+.fx-outliner li.fx-side-terrorist .fx-ico, .fx-assets li.fx-side-terrorist .fx-ico { color: var(--fx-side-terrorist); }
+.fx-assets li.fx-group-head { cursor: default; padding-top: 10px; font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); }
+.fx-assets li.fx-group-head:hover { background: none; }
+.fx-toggle { display: flex; align-items: center; gap: var(--s2u-space-2); height: 24px; cursor: pointer; font: var(--fx-type-control); }
+.fx-toggle input[type=checkbox] {
+  appearance: none;
+  width: 28px;
+  height: 14px;
+  margin: 0;
+  border-radius: var(--fx-radius-pill);
+  background: var(--fx-divider);
+  box-shadow: inset 0 0 0 1px var(--fx-control-edge);
+  position: relative;
+  cursor: pointer;
+  flex: none;
+  transition: background var(--s2u-dur-fast) var(--s2u-ease);
+}
+.fx-toggle input[type=checkbox]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
+.fx-toggle input[type=checkbox]:checked { background: var(--fx-gold); }
+.fx-toggle input[type=checkbox]:checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
+.fx-detail-distance .fx-range { flex: 1 1 auto; min-width: 0; }
+.fx-detail-distance__value { flex: none; min-width: 3.5ch; text-align: right; }
+/* FG-45 (an adaptation, no original): the create card's visibility toggle, under the lobby's name. */
+.fx-card .fx-lobby-visibility { margin-top: 10px; color: var(--fx-text); }
+
+/* ---------- the map settings (FG-24; the forge's own, no original) ---------- */
+.fx-inspector .fx-lock { align-self: flex-start; }
+.fx-outliner li.is-locked { color: var(--fx-dim); }
+.fx-outliner .fx-lock { height: 18px; padding: 0 6px; font: var(--fx-type-control); }
+.fx-setting { display: flex; flex-direction: column; gap: var(--s2u-space-1); font: var(--fx-type-control); }
+.fx-setting-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-2); color: var(--fx-text); }
+.fx-setting-value { font: var(--fx-type-mono); color: var(--fx-gold); white-space: nowrap; }
+.fx-setting-pair { display: flex; align-items: center; gap: 6px; }
+.fx-setting-pair .fx-range { flex: 1 1 auto; }
+.fx-setting-reset { flex: none; height: 20px; padding: 0 var(--s2u-space-2); font: var(--fx-type-control); }
+.fx-setting-nums { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.fx-setting-nums .fx-setting-head { font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-setting-num { border-radius: var(--fx-radius); height: 26px; }
+.fx-setting-note { margin: calc(-1 * var(--s2u-space-1)) 0 0; font: var(--fx-type-body); line-height: 1.4; }
+.fx-range {
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.fx-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--fx-radius-pill); background: var(--fx-divider); border: 1px solid var(--fx-control-edge); }
+.fx-range::-moz-range-track { height: 4px; border-radius: var(--fx-radius-pill); background: var(--fx-divider); border: 1px solid var(--fx-control-edge); }
+.fx-range::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -5px; border-radius: 50%; background: var(--fx-gold); border: 1px solid var(--fx-bg); }
+.fx-range::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fx-gold); border: 1px solid var(--fx-bg); }
+
+/* ---------- the viewport ---------- */
+.fx-viewport {
+  position: fixed;
+  top: var(--fx-top);
+  bottom: var(--fx-status);
+  left: var(--fx-left);
+  right: var(--fx-right);
+  overflow: hidden;
+  background: var(--fx-deep);
+}
+body.fx-docks-off .fx-viewport, body.is-playing .fx-viewport { left: 0; right: 0; }
+.fx-canvas, .fx-input { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.fx-input { touch-action: none; }
+.fx-input.is-placing { cursor: crosshair; }
+body.is-playing .fx-input { display: none; }
+.fx-vp-label {
+  position: absolute;
+  top: var(--s2u-space-2);
+  left: 10px;
+  padding: 2px var(--s2u-space-2);
+  font: var(--fx-type-mono);
+  color: var(--fx-text);
+  background: var(--fx-veil);
+  border: 1px solid var(--fx-edge);
+  pointer-events: none;
+}
+/* FUI-3 (FUI.R6, the review's PAD-5): the legend strip at the status bar, in place of the hint line -- the system's
+   prompts (`.s2u-prompts`, glyph + verb), wrapping rather than hiding at any width; a prompt that presses is a touch
+   button, the rest of the strip lets the pointer through to the viewport. The Circle wears the owner's red. */
+.fx-legend {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  justify-content: center;
+  padding: var(--s2u-space-1) var(--s2u-space-3);
+  background: var(--fx-veil);
+  border-top: 1px solid var(--fx-edge);
+  pointer-events: none;
+}
+.fx-legend[hidden] { display: none; }
+/* R7-A R2: the legend's inline form (`drawLegend`'s placement 'inline'), the menu header's prompts -- in the header's
+   flow, with no strip veil or rule; its own class, so `.fx-legend` (the strip, absolute in `.fx-modal` too) never takes it
+   to the bottom of the window as a second strip. */
+.fx-legend-inline {
+  position: static;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+.fx-legend-item { display: contents; }
+.fx-legend button.s2u-prompt, .fx-legend-inline button.s2u-prompt { pointer-events: auto; min-height: 24px; }
+.fx-legend-note { font: var(--fx-type-control); color: var(--fx-gold); }
+body.is-matching .fx-legend { display: none; }
+.fx-legend .s2u-prompt__glyph--circle, .fx-menu .s2u-prompt__glyph--circle { stroke: var(--s2u-glyph-circle); }
+.s2u-prompt__glyph--dpad { stroke: none; }
+.s2u-prompt__glyph--dpad .on { fill: var(--fx-text); }
+.s2u-prompt__glyph--dpad .off { fill: var(--fx-edge); }
+@media (pointer: coarse) {
+  .fx-legend button.s2u-prompt, .fx-legend-inline button.s2u-prompt { min-height: 44px; padding: 0 var(--s2u-space-1); }
+}
+.fx-toast {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 6px var(--s2u-space-3);
+  background: var(--fx-selected);
+  border: 1px solid var(--fx-gold);
+  color: var(--fx-gold);
+  font: var(--fx-type-control);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--s2u-dur-base) var(--s2u-ease), transform var(--s2u-dur-base) var(--s2u-ease);
+  pointer-events: none;
+}
+.fx-toast.is-on { opacity: 1; transform: none; }
+/* FUI-4 (`./shell/notify`): a refusal's toast is only its cue (the line keeps it), drawn on the alert state; a toast with an
+   action (Undo) takes the pointer while it shows. */
+.fx-toast[data-kind="refusal"] { border-color: var(--fx-alert); color: var(--fx-alert); }
+.fx-toast.has-action.is-on { pointer-events: auto; display: flex; align-items: center; gap: var(--s2u-space-2); }
+.fx-toast-action {
+  font: var(--fx-type-control);
+  color: var(--fx-gold-hi);
+  background: transparent;
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  padding: 2px var(--s2u-space-2);
+  cursor: pointer;
+}
+.fx-toast-action:hover { border-color: var(--fx-gold); }
+.fx-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid var(--fx-text-strong);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.fx-crosshair[hidden], body.is-playing .fx-crosshair { display: none; }
+/* FG-47: the Select tool's box, drawn while a left-drag on no placement picks what lies in it. */
+.fx-marquee {
+  position: absolute;
+  border: 1px dashed var(--fx-gold);
+  background: color-mix(in srgb, var(--fx-gold) 12%, transparent);
+  pointer-events: none;
+}
+.fx-marquee[hidden], body.is-playing .fx-marquee { display: none; }
+
+/* ---------- the status bar ---------- */
+.fx-status {
+  position: fixed;
+  inset: auto 0 0 0;
+  height: var(--fx-status);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 var(--s2u-space-2);
+  box-sizing: border-box;
+  background: var(--fx-bar);
+  border-top: 1px solid var(--fx-edge);
+  font: var(--fx-type-mono);
+  color: var(--fx-dim);
+  z-index: var(--fx-z-bar);
+}
+.fx-status-msg { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fx-text); }
+.fx-status-msg.is-bad { color: var(--fx-alert); }
+.fx-cell { padding: 0 10px; border-left: 1px solid var(--fx-edge); white-space: nowrap; }
+/* FUI-4 (VP-13): the cells by name, never by position -- a sixth thing in the bar moves no colour. */
+.fx-cell--mode { color: var(--fx-gold); }
+.fx-status-msg.is-bad::before { content: '! '; }
+/* FUI-4 (`./shell/statusBar`): the chip strip -- the system's s2u-chip and s2u-lamp, the word always shown -- sized to the
+   bar; a chip with nothing to say is hidden. */
+.fx-chips { display: flex; align-items: center; gap: var(--s2u-space-1); padding: 0 var(--s2u-space-2); min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.fx-chips:empty { display: none; }
+.fx-chips [hidden] { display: none; }
+.fx-chip-group { display: inline-flex; align-items: center; gap: 2px; }
+.fx-status .s2u-chip, .fx-chips--match .s2u-chip { height: 20px; padding: 0 var(--s2u-space-2); font: var(--fx-type-control); }
+.fx-chip-action {
+  height: 20px;
+  padding: 0 var(--s2u-space-2);
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  background: var(--fx-panel-2);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-chip-action:hover { border-color: var(--fx-gold); color: var(--fx-gold); }
+/* The match covers the bar: its chips (the agent's) under the match's Back, above its canvas and touch layer. */
+.fx-chips--match { position: absolute; top: 48px; right: 10px; z-index: var(--fx-z-match-back); flex-direction: column; align-items: flex-end; padding: 0; }
+.fx-chips--match .s2u-chip { background: var(--fx-veil); }
+/* The message log: the last notices, newest first, over the bar; opened from Messages. */
+.fx-log-btn {
+  flex: none;
+  height: 20px;
+  margin-left: var(--s2u-space-2);
+  padding: 0 var(--s2u-space-2);
+  font: var(--fx-type-body);
+  color: var(--fx-dim);
+  background: transparent;
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-log-btn:hover, .fx-log-btn[aria-expanded="true"] { color: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-notify-log {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: min(520px, 100vw);
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--s2u-space-1) 0;
+  list-style: none;
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-divider);
+  box-shadow: var(--fx-lift);
+  font: var(--fx-type-body);
+  color: var(--fx-text);
+}
+.fx-notify-log[hidden] { display: none; }
+.fx-notify-log li { padding: 2px var(--s2u-space-3); white-space: normal; }
+.fx-notify-log li.is-error, .fx-notify-log li.is-refusal { color: var(--fx-alert); }
+.fx-notify-log li.is-toast, .fx-notify-log__empty { color: var(--fx-dim); }
+
+/* ---------- windows the full row does not fit: the labels gone, the row compact ---------- */
+/* R7 fix-up (round 7's review, finding 1): the full row with its labels is about 2150-2240 px, so the compact
+   row holds up to 2200 px -- a 1920 window no longer opens with Play past its edge. */
+@media (max-width: 2200px) {
+  .fx-tool span { display: none; }
+  .fx-tool { padding: 0 6px; }
+  /* R7-1: the compact row -- every tool its icon (24 x 28), the groups, gaps and ends packed -- is about 1235-1255 px
+     with the base select and the name at their floors (112 px, 96 px), so 1280 fits it; the select and the name take
+     back what the window gives up to 190 px and 9em. */
+  .fx-top { gap: 4px; padding: 0 6px; }
+  .fx-top .fx-tool { padding: 0 3px; }
+  .fx-top .fx-base-ask .fx-tool { padding: 0 6px; }
+  .fx-top .fx-group { padding: 0 4px; }
+  .fx-top .fx-brand { padding: 0 6px 0 2px; margin-right: 0; }
+  .fx-top .fx-label { margin-right: 0; }
+  .fx-top .fx-play { padding: 0 10px; margin-left: 0; }
+}
+@media (max-width: 760px) {
+  body.forge-page { --fx-left: 0px; --fx-right: 0px; }
+  .fx-left { width: 240px; }
+  .fx-right { width: 240px; }
+  .fx-dock { box-shadow: var(--fx-lift); }
+  /* LATER 176 (the merge controller's product-track call, 2026-10-21): the docks are drawers over the viewport here, and
+     the overlay's touch Menu pushed below the toolbar (`../modern/overlay/index.ts`) lay over the left one's top; while
+     it is pushed the docks start at its clear line. Wider (the wide docks from 761 px), the Menu sits over the viewport
+     between them, grazing the left dock's edge by at most 1.5 px just above 760 px (its border and padding, no control). */
+  body.mu-menu-below-bar .fx-dock { top: var(--mu-touch-menu-clear); }
+  .fx-group:not(:has(.fx-play)) { padding: 0 2px; }
+  .fx-label, .fx-brand .fx-badge, .fx-cell--cam, .fx-cell--speed { display: none; }
+}
+
+/* ---------- the loading veil, the dialog, the controls card ---------- */
+.fx-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: radial-gradient(ellipse at center, var(--fx-veil), var(--fx-veil-strong));
+  z-index: var(--fx-z-local);
+}
+.fx-loading[hidden] { display: none; }
+.fx-loading-title { font-family: var(--s2u-font-display); font-size: 22px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fx-gold); font-style: italic; }
+.fx-loading-bar { width: min(360px, 70%); height: 4px; background: var(--fx-divider); overflow: hidden; }
+.fx-loading-fill { height: 100%; width: 0; background: var(--fx-gold); transition: width var(--s2u-dur-fast) linear; }
+.fx-loading-line { font: var(--fx-type-mono); color: var(--fx-dim); min-height: 1.4em; }
+.fx-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--fx-scrim);
+  backdrop-filter: blur(2px);
+  /* Above the lobby window (20) so a question can be clicked, under the match (30). */
+  z-index: var(--fx-z-modal);
+}
+.fx-modal[hidden] { display: none; }
+.fx-card {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px 20px;
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-control-edge);
+  border-top: 2px solid var(--fx-gold);
+  box-shadow: var(--fx-lift);
+}
+.fx-card h2 { margin: 0 0 var(--s2u-space-2); font: var(--fx-type-title); letter-spacing: 0.06em; color: var(--fx-text); }
+.fx-card p { margin: 0 0 var(--s2u-space-4); color: var(--fx-dim); line-height: 1.5; }
+.fx-card footer { display: flex; justify-content: flex-end; gap: var(--s2u-space-2); margin-top: var(--s2u-space-3); }
+.fx-modal.fx-check-modal { place-items: center start; padding-left: var(--s2u-space-4); background: transparent; backdrop-filter: none; pointer-events: none; }
+.fx-check-card { width: min(420px, calc(100vw - 32px)); pointer-events: auto; }
+/* FUI-2 (IA-1): the check's list on demand, a sheet beside the editor -- no scrim, no dialog; only its card takes the
+   pointer, so the toolbar, the viewport and a card opened after it (Saves, over it at the dialog's step) stay usable. */
+.fx-check-sheet {
+  position: fixed;
+  inset: var(--fx-top) auto var(--fx-status) 0;
+  display: grid;
+  place-items: center start;
+  padding-left: var(--s2u-space-4);
+  pointer-events: none;
+  z-index: var(--fx-z-menu);
+}
+.fx-check-sheet[hidden] { display: none; }
+/* FUI-2 (IA-13, PAD-2): a destructive card's act -- drawn as danger, never the primary; its Cancel is focused first. */
+.fx-card footer .fx-tool.fx-danger { color: var(--fx-danger); border-color: var(--fx-danger); }
+.fx-card footer .fx-tool.fx-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--fx-danger) 16%, var(--fx-panel-2)); }
+.fx-card[data-danger] { border-top-color: var(--fx-danger); }
+.fx-check { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; }
+.fx-check li {
+  display: flex;
+  gap: var(--s2u-space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s2u-space-2) 0;
+  border-top: 1px solid var(--fx-edge);
+  font: var(--fx-type-body);
+  line-height: 1.4;
+}
+.fx-check .fx-tool { height: 28px; flex: none; padding: 0 10px; }
+.fx-card footer .fx-tool { border-color: var(--fx-control-edge); padding: 0 14px; }
+.fx-tool.fx-primary { color: var(--fx-on-accent); background: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-tool.fx-primary:hover:not(:disabled) { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
+.fx-help { width: min(760px, calc(100vw - 32px)); }
+.fx-help header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2u-space-3); margin-bottom: 6px; }
+.fx-help-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s2u-space-1) var(--s2u-space-6); }
+.fx-help h3 { margin: var(--s2u-space-3) 0 6px; font: var(--fx-type-caption); letter-spacing: 0.14em; text-transform: uppercase; color: var(--fx-gold); }
+.fx-help dl { display: grid; grid-template-columns: auto 1fr; gap: var(--s2u-space-1) var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
+.fx-help dt { font-family: var(--s2u-font-mono); color: var(--fx-text); white-space: nowrap; }
+.fx-help dd { margin: 0; color: var(--fx-dim); font: var(--fx-type-body); }
+.fx-saves { width: min(520px, calc(100vw - 32px)); }
+.fx-saves-list { list-style: none; margin: 0 0 var(--s2u-space-3); padding: 0; max-height: 240px; overflow: auto; }
+.fx-saves-list li { display: flex; gap: 6px; align-items: center; padding: var(--s2u-space-1) 0; }
+/* LATER 214: the copies kept aside, under the list. */
+.fx-kept h3 { margin: var(--s2u-space-1) 0 2px; font-size: inherit; }
+.fx-kept p { margin: 0 0 var(--s2u-space-1); }
+.fx-save-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-share-label { display: flex; flex-direction: column; gap: var(--s2u-space-1); font: var(--fx-type-caption); color: var(--fx-dim); }
+.fx-share-link { width: 100%; }
+
+/* ---------- Play: the offline match over the forge (`./match`) ---------- */
+.fx-match { position: fixed; inset: 0; z-index: var(--fx-z-match); background: var(--fx-deep); }
+.fx-match[hidden] { display: none; }
+.fx-match > canvas { width: 100%; height: 100%; display: block; }
+.fx-match-back {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  /* Above the match canvas (z-index 1000) and its touch layer (1001), both painted inside this host. */
+  z-index: var(--fx-z-match-back);
+  background: var(--fx-veil);
+  border-color: var(--fx-control-edge);
+}
+.fx-base-ask { display: inline-flex; align-items: center; gap: 6px; color: var(--fx-dim); font: var(--fx-type-body); white-space: nowrap; }
+.fx-base-ask[hidden] { display: none; }
+.fx-outliner-tools { display: flex; gap: 6px; }
+.fx-outliner-tools .fx-search { flex: 1 1 auto; min-width: 0; }
+.fx-outliner-tools .fx-select { width: 6.5em; }
+.fx-outliner li.fx-missing { color: var(--fx-dim); }
+.fx-outliner li.fx-missing .fx-ico { color: var(--fx-alert); }
+.fx-match-back span { display: inline !important; }
+
+/* ---------- the forge's menu on START (FG-18, `./padMenu`) ---------- */
+.fx-padmenu { z-index: var(--fx-z-menu); }
+.fx-menu { width: min(460px, calc(100vw - 32px)); padding: 14px 0 10px; }
+.fx-menu header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 18px 10px; border-bottom: 1px solid var(--fx-edge); }
+.fx-menu header h2 { margin: 0; color: var(--fx-gold); font-style: italic; letter-spacing: 0.12em; text-transform: uppercase; }
+.fx-menu header .fx-dim { font: var(--fx-type-caption); text-align: right; }
+.fx-menu .fx-menu-list { --fx-menu-cols: 1; list-style: none; margin: 6px 0 0; padding: 0; max-height: calc(100vh - 170px); overflow-y: auto; }
+.fx-menu-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2u-space-3);
+  min-height: 34px;
+  padding: var(--s2u-space-1) 18px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+/* The focused row (the pad's `.is-on` here): the system's raised fill and the one ring above. */
+.fx-menu li.is-on { background: var(--fx-hover); }
+.fx-menu-list > li.is-head {
+  display: block;
+  min-height: 0;
+  padding: 10px 18px var(--s2u-space-1);
+  cursor: default;
+  font: var(--fx-type-caption);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fx-dim);
+}
+.fx-menu-list > li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fx-menu-label { font-family: var(--s2u-font-display); font-size: 14px; letter-spacing: 0.06em; color: var(--fx-text); }
+.fx-menu li.is-on .fx-menu-label { color: var(--fx-gold); }
+.fx-menu-note { font: var(--fx-type-body); color: var(--fx-dim); }
+.fx-menu-value { font: var(--fx-type-mono); color: var(--fx-text); white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+/* LATER 230 (the merge controller's product-track call, 2026-10-21): a value's two arrows are steps a pointer turns,
+   drawn as the row's own glyphs; on a coarse pointer a 44 px hit area, invisible padding. */
+.fx-menu-step { appearance: none; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.fx-menu-step:disabled { cursor: default; }
+/* The review's F1 and F3: a value with steps clips nothing (their hit areas reach past it); its text clips alone. */
+.fx-menu-value.has-steps { display: inline-flex; align-items: center; gap: 0.5ch; overflow: visible; min-width: 0; }
+.fx-menu-value.has-steps .fx-menu-step { flex: none; }
+.fx-menu-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* FUI-3 (the review's PAD-6, UX-6, VP-11's menu half): the header's breadcrumb and Back, its glyph prompts, the section
+   strip L1 / R1 page (the current one gold-ruled, as the console's tabs); a section's heading row ruled above; a row that
+   opens a sub-screen marked; a row's own Square and Triangle as buttons; a grid sub-screen's cells. The menu fades in
+   on the system's settle (reduced motion: none, base.css). */
+.fx-padmenu:not([hidden]) { animation: fx-menu-in var(--s2u-dur-base) var(--s2u-ease-settle); }
+@keyframes fx-menu-in { from { opacity: 0; } to { opacity: 1; } }
+.fx-menu-title { display: flex; align-items: baseline; gap: var(--s2u-space-2); min-width: 0; }
+.fx-menu-back, .fx-menu-section, .fx-menu-act {
+  appearance: none;
+  margin: 0;
+  font: var(--fx-type-control);
+  color: var(--fx-text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-menu-back { padding: 0 var(--s2u-space-2); border-color: var(--fx-control-edge); }
+.fx-menu header .s2u-prompts { justify-content: flex-end; gap: var(--s2u-space-1) var(--s2u-space-3); }
+.fx-menu-sections { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: var(--s2u-space-1); }
+.fx-menu-section { padding: 2px var(--s2u-space-2); border-bottom: 2px solid transparent; border-radius: 0; text-transform: uppercase; letter-spacing: 0.08em; }
+.fx-menu-section[aria-current="true"] { color: var(--fx-gold); border-bottom-color: var(--fx-gold); }
+.fx-menu-back:hover, .fx-menu-section:hover, .fx-menu-act:hover { color: var(--fx-gold); }
+.fx-menu-list > li.is-section { margin-top: var(--s2u-space-1); border-top: 1px solid var(--fx-edge); color: var(--fx-gold); }
+.fx-menu-list > li.is-section:first-child { margin-top: 0; border-top: 0; }
+.fx-menu-more { flex: none; font: var(--fx-type-mono); color: var(--fx-gold); }
+.fx-menu-acts { display: inline-flex; flex: none; gap: var(--s2u-space-1); }
+.fx-menu-act { height: 24px; padding: 0 var(--s2u-space-2); background: var(--fx-panel-2); border-color: var(--fx-control-edge); }
+.fx-menu-list.is-grid { display: grid; grid-template-columns: repeat(var(--fx-menu-cols), minmax(0, 1fr)); }
+.fx-menu-list.is-grid > li:not(.is-cell) { grid-column: 1 / -1; }
+.fx-menu-list.is-grid > li.is-cell { flex-direction: column; align-items: flex-start; justify-content: center; padding: var(--s2u-space-1) var(--s2u-space-2); }
+.fx-menu-list.is-grid > li.is-cell .fx-menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* The re-review's G1 and G2: on a coarse pointer a row is tall enough for a 44 px area (the polish pass's touch rule),
+   each arrow's area a 44 px box centred on its glyph inside its own row, and a value at least wide enough that the
+   two areas never meet (one-character values: Rounds, Players). */
+@media (pointer: coarse) {
+  .fx-menu-list > li { min-height: 52px; }
+  .fx-menu-act, .fx-menu-section, .fx-menu-back { min-height: 44px; }
+  .fx-menu-step { display: inline-grid; place-items: center; box-sizing: border-box; min-width: 44px; height: 44px; padding: 0; margin: 0 -18px; position: relative; }
+  .fx-menu-value.has-steps .fx-menu-text { min-width: 5ch; text-align: center; }
+}

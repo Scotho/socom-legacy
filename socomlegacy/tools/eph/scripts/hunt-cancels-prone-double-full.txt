@@ -1,0 +1,12 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Animation cancels hunt, case prone-double-full (seat ac, 2026-11-01; tools/eph/scripts/hunt-cancels-*.txt).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: run it three times.
+# Tests: a full Triangle (stand -> prone), then a second full Triangle 300 ms into the drop (about 950 ms long on PCSX2, prone-from-stand).
+# Look: whether the second full press does anything mid-drop on each side (a reversal, a stand on landing, or nothing); stm3-b put a LIGHT press there, this is the full one. endStance at 3 s, topActionId through 800-2500 ms.
+# Ground: in place on the flat start (x 920-950, z 810-855 lie at y -145 to -147, the lowest y per 10 u cell over the 2026-10-31 runs' pcsx2.csv); no stick, so no travel but what the animation itself carries.
+# Every case: read actionId and topActionId in pcsx2.csv frame by frame from the second press (a clip the original plays that the page's action_name never shows is the finding), beside posture / stanceRequest and the page's stance, action_name, action_t and action_reversed.
+# Owner (Craig, 2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 held 3 frames before a light release (tools/eph/pageMap.ts); Square is the jump.
+500 triangle 1.0   # full Triangle: stand -> prone
+600 triangle 0
+800 triangle 1.0   # second full Triangle 300 ms into the drop
+900 triangle 0

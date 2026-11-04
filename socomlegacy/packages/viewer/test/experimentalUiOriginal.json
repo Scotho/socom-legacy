@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "713680b5a",
+  "sourceFiles": "socomlegacy/packages/viewer/src at 713680b5a (main): hud.ts, reticle.ts and everything they import",
+  "fixture": "experimentalUiFixture.ts",
+  "generator": "experimentalUiFixture.ts snapshot() run over git-archive 713680b5a's viewer src in a scratch tree (three and the @s2u packages resolved from this worktree, unchanged against 713680b5a); the same run over 8181ebab7's src reproduces the earlier pin byte for byte",
+  "evidence": "HUD and reticle OFF submission of main at 713680b5a; re-pinned from 8181ebab7 after main's HUD changed (96114392f, 8cc2f851f, d252f1a18, a8d143802; the reticle is unchanged); synthetic draw calls, geometry and sampler state; no GPU pixels",
+  "hashes": {
+    "hud/1080": "0c4fbf368d5881e59b2f562ecb8f02118fd4ac777ce45cfa4e1911e7df2cf95d",
+    "reticle/1080": "5fc9d637f1a30d4dc79264a9d20c0f1d0c65e475c508139b7437fedd2524cc07",
+    "hud/1440": "fecb190624698c69be96e1745131d328cd4881cb38d8149bd1299188b45f73cd",
+    "reticle/1440": "3828cfd0e94230586ddec8f3e53bfca4fb8b3beb7bdbe192b0f4b36e0efaead3"
+  }
+}

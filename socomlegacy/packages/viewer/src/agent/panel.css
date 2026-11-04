@@ -1,0 +1,97 @@
+/* Forge/test-room instrumentation, a browser adaptation using the site's existing materials. FUI-7 (FUI.R4): its colours,
+   type, radii and states are the Forge's `--fx-*` aliases of the design system (`../forge/tokens.css`, read here too:
+   the test room's dock sits outside the Forge's body); the one focus ring is the system's own (shared/ds base.css). */
+@import '../forge/tokens.css';
+.agent-panel {
+  --agent-bg: var(--fx-panel);
+  --agent-edge: var(--fx-control-edge);
+  --agent-text: var(--fx-text);
+  --agent-dim: var(--fx-dim);
+  --agent-gold: var(--fx-gold);
+  box-sizing: border-box; padding: var(--s2u-space-4); background: var(--agent-bg); color: var(--agent-text);
+  border: 1px solid var(--agent-edge); border-radius: var(--fx-radius);
+  font: var(--fx-type-body); line-height: 1.5; user-select: text;
+  min-width: 0; max-width: 100%; text-align: left;
+}
+.agent-panel *, .agent-panel *::before, .agent-panel *::after { box-sizing: border-box; }
+.agent-panel__header { display: flex; align-items: center; gap: 10px; }
+.agent-panel h2 { font: var(--fx-type-title); margin: 0; }
+.agent-panel h3 { font-size: 13px; margin: 0 0 var(--s2u-space-2); font-weight: 600; }
+.agent-panel__mark { font-size: 27px; color: var(--agent-gold); line-height: 1; }
+.agent-panel__intro { margin: 11px 0 var(--s2u-space-4); color: var(--agent-dim); }
+.agent-panel__status { display: flex; align-items: center; gap: 7px; margin: 0; }
+.agent-panel__dot { height: 6px; width: 6px; background: var(--agent-dim); border-radius: 50%; flex: none; }
+.agent-panel[data-state="connected"] .agent-panel__dot { background: var(--fx-ready); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fx-ready) 11%, transparent); }
+.agent-panel[data-state="approval"] .agent-panel__dot { background: var(--agent-gold); }
+.agent-panel[data-state="error"] .agent-panel__dot { background: var(--fx-alert); }
+.agent-panel__target { color: var(--agent-dim); margin: 3px 0 15px; overflow-wrap: anywhere; font-size: 13px; }
+.agent-panel__label { display: block; margin: var(--s2u-space-3) 0 var(--s2u-space-2); color: var(--agent-dim); font-size: 13px; }
+.agent-panel__select, .agent-panel__manual {
+  display: block; width: 100%; padding: 9px; margin-top: 5px; color: var(--agent-text); background: var(--fx-bg);
+  border: 1px solid var(--agent-edge); border-radius: var(--fx-radius); font: inherit;
+}
+.agent-panel__select:hover, .agent-panel__manual:hover { border-color: var(--agent-gold); }
+.agent-panel button { font: inherit; cursor: pointer; min-height: 36px; border-radius: var(--fx-radius); padding: var(--s2u-space-2) 11px; }
+/* One disabled look (the Forge's, FUI-7): faded at the system's opacity; busy is aria-busy, never a wait cursor. */
+.agent-panel button:disabled { opacity: var(--fx-disabled); cursor: default; }
+.agent-panel [aria-busy="true"] { cursor: progress; }
+.agent-panel__primary { width: 100%; color: var(--fx-on-accent); background: var(--agent-gold); border: 1px solid var(--agent-gold); font-weight: 600 !important; }
+.agent-panel__primary:hover:not(:disabled) { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
+.agent-panel__hint, .agent-panel__privacy { font-size: 13px; color: var(--agent-dim); margin: var(--s2u-space-2) 0 var(--s2u-space-3); }
+.agent-panel__manual { min-height: 170px; resize: vertical; font-size: 12px; }
+.agent-panel__consent { border-top: 1px solid var(--agent-edge); border-bottom: 1px solid var(--agent-edge); padding: 15px 0; margin: var(--s2u-space-4) 0; }
+.agent-panel__client { overflow-wrap: anywhere; margin: 5px 0; }
+.agent-panel__comparison { font: 500 29px/1.2 var(--s2u-font-display); letter-spacing: .12em; color: var(--agent-gold); margin: var(--s2u-space-2) 0; }
+.agent-panel__permissions { border: 0; margin: 14px 0; padding: 0; }
+.agent-panel__permissions legend { font-size: 13px; margin-bottom: var(--s2u-space-2); color: var(--agent-dim); }
+.agent-panel__permission { display: flex; align-items: center; gap: var(--s2u-space-2); margin: 7px 0; }
+.agent-panel__permission input { accent-color: var(--agent-gold); width: 15px; height: 15px; }
+.agent-panel__buttons { display: flex; gap: 7px; flex-wrap: wrap; }
+.agent-panel__buttons .agent-panel__primary { flex: 1; width: auto; }
+.agent-panel__secondary, .agent-panel__disconnect, .agent-panel__file-button { background: transparent; color: var(--agent-text); border: 1px solid var(--agent-edge); }
+.agent-panel__secondary:hover:not(:disabled), .agent-panel__disconnect:hover:not(:disabled), .agent-panel__file-button:hover { background: var(--fx-hover); border-color: var(--agent-gold); }
+.agent-panel__files { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
+.agent-panel__files .agent-panel__hint { flex-basis: 100%; margin: 0; }
+.agent-panel__file-button { position: relative; padding: var(--s2u-space-2) 10px; border-radius: var(--fx-radius); cursor: pointer; overflow: hidden; }
+.agent-panel__file-button input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+/* The file button's input is invisible (opacity 0), so its ring would be too: the label draws the same one ring. */
+.agent-panel__file-button:has(:focus-visible) { outline: var(--fx-focus-w) solid var(--fx-focus); outline-offset: var(--fx-focus-offset); }
+.agent-panel__error { color: var(--fx-alert); overflow-wrap: anywhere; }
+.agent-panel__recent { border-top: 1px solid var(--agent-edge); padding-top: 13px; margin-top: var(--s2u-space-4); }
+.agent-panel__activity { list-style: none; margin: 0; padding: 0; font-size: 12px; max-height: 180px; overflow: auto; }
+.agent-panel__activity li { padding: 5px 0 5px var(--s2u-space-3); position: relative; overflow-wrap: anywhere; }
+.agent-panel__activity li::before { content: ''; position: absolute; left: 0; top: var(--s2u-space-3); height: 4px; width: 4px; border-radius: 50%; background: var(--agent-dim); }
+.agent-panel__activity-success::before { background: var(--fx-ready) !important; }
+.agent-panel__activity-error::before { background: var(--fx-alert) !important; }
+.agent-panel__disconnect { width: 100%; margin-top: 14px; }
+.agent-panel__privacy { margin: 14px 0 0; }
+.agent-panel [hidden] { display: none !important; }
+.agent-panel[data-state="connected"] { border-color: color-mix(in srgb, var(--fx-ready) 50%, var(--fx-panel)); transition: border-color var(--s2u-dur-base); }
+@media (prefers-reduced-motion: reduce) { .agent-panel { transition: none !important; } }
+@media (max-width: 420px) { .agent-panel { padding: var(--s2u-space-3); } .agent-panel__buttons { flex-direction: column; } }
+.agent-testroom-dock {
+  position: fixed; right: var(--s2u-space-4); top: 64px; z-index: var(--fx-z-testroom); width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 90px); overflow: auto; background: var(--fx-panel); color: var(--fx-text);
+  border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius);
+}
+.agent-testroom-dock > summary { cursor: pointer; padding: 10px 14px; font: var(--fx-type-body); line-height: 1.5; }
+.agent-testroom-dock .agent-panel { border: 0; }
+/* In the test room's settings panel (the owner, 2026-10-30): a block at its bottom, not the floating dock. */
+.agent-testroom-dock.agent-testroom-dock--in-panel { position: static; width: auto; max-height: none; overflow: visible; margin-top: var(--s2u-space-4); }
+/* B190: one of the panel's sections, so held to its rules (`../styles.css`, the polish pass): nothing cut off, and on a
+   touch screen every control at least 44 px tall -- the summary (its one line centred), the agent picker, the buttons,
+   the file button. */
+.agent-testroom-dock--in-panel > summary { overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .agent-testroom-dock--in-panel > summary { box-sizing: border-box; min-height: 44px; padding-top: max(10px, calc((44px - 1.5em) / 2)); padding-bottom: max(10px, calc((44px - 1.5em) / 2)); }
+  .agent-testroom-dock--in-panel select, .agent-testroom-dock--in-panel button, .agent-testroom-dock--in-panel input[type="text"] { min-height: 44px; }
+  .agent-testroom-dock--in-panel .agent-panel__file-button { display: inline-flex; align-items: center; min-height: 44px; }
+}
+/* FUI-25 (FUI.R25; a browser adaptation): every permission listed with its state; the short-form toggle. */
+.agent-panel__short { display: flex; align-items: center; gap: var(--s2u-space-2); font-size: 13px; color: var(--agent-dim); margin: 8px 0 0; }
+.agent-panel__permission-state { margin-left: auto; font-size: 13px; color: var(--agent-dim); }
+.agent-panel__permission[data-state="not-requested"] { opacity: var(--fx-disabled); }
+.agent-panel__granted h3 { font-size: 13px; margin: 12px 0 4px; }
+.agent-panel__granted-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.agent-panel__granted-no { color: var(--agent-dim); }
+.agent-panel__permission[hidden] { display: none; }

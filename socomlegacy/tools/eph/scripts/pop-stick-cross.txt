@@ -1,0 +1,14 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Prone-pop case, case pop-stick-cross (MV-PARITY item (a); run alone, with pop-stick and pop-stick-square).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: pop-stick with Cross pressed just after the light Triangle's release: does Cross drive the slide?
+# Look: popSpeed, popTopAction and popJumpBit of pop1, against pop-stick's.
+# Model: incline-prone.txt lines 43-51 shifted by -13000 ms: lright 3062, light Triangle 3198/3385, Cross 3467/3592 (16467/16592).
+# Ground: as pop-stick (the flat strip x 920-950 at y -145 to -147; the stick released by x 898, the bank's foot).
+500 triangle 1.0   # full Triangle: stand -> prone
+650 triangle 0
+3062 lright 1      # the stick held, prone
+3198 triangle 0.2  # light Triangle: the pop
+3385 triangle 0    # released: the act
+3467 cross 1       # Cross just after the release
+3592 cross 0
+4000 lright 0

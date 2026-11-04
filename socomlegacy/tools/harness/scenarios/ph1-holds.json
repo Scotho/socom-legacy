@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "name": "ph1-holds",
+  "map": "mission-1",
+  "revision": "r0001",
+  "spawn": { "x": 0, "y": 0, "z": 0, "yaw": 0, "how": "walk-from-slot" },
+  "seed": null,
+  "frameHz": 29.97,
+  "pad": [
+    { "frame": 0, "b": "0x0000", "lx": 128, "ly": 128, "rx": 128, "ry": 128 },
+    { "frame": 30, "b": "0x0000", "ly": 0 },
+    { "frame": 330, "b": "0x0000", "ly": 255 },
+    { "frame": 630, "b": "0x0000", "ly": 128, "rx": 255 },
+    { "frame": 930, "b": "0x0000", "rx": 0 },
+    { "frame": 1230, "b": "0x0000", "ly": 0, "rx": 255 },
+    { "frame": 1530, "b": "0x0000", "ly": 128, "rx": 128 }
+  ],
+  "events": {},
+  "stop": { "orFrames": 1800 },
+  "fields": "frostfire-box",
+  "cites": {
+    "world": "PH-1's run proof (plan 2026-10-11-web-parity-harness.md, PH-1): the first mission's HUD reached by the desktop's own driver, then 60 s of forward / back / turn holds through the pad file (recomp-run.ts). The recomp starts at the mission's own spawn, so the port's recorder does not run it (walk-from-slot); the spawn's numbers here are unused. No X or place press: the comparator aligns on the first stick change, frame 30."
+  }
+}

@@ -1,0 +1,385 @@
+{
+ "_source": "disc RUN/MP2.ZDB members HUD_TXR/HUD2_TXR/HUDW_TXR/FONT_TXR.ZED with their _PAL.ZED through readHud (packages/viewer/src/hudAssets.ts, rows flipped top first); sha256 of the decoded RGBA; read 2026-10-02; TCM.tif and TCMarrow.tif re-read 2026-10-06 (research 301); the voice icons and hud_talk.tif added 2026-10-08 (MATCH-05, research 170 §5.2); ret_bomb.tif and ret_base.tif added 2026-10-10 (the compass marks' HUD2 bitmaps, research 239 s5.1, 87 s1.7), decoded from the MP2 test fixture",
+ "bitmaps": {
+  "ret_bomb.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "6b19e50d4ca7f7ccf80e33e03dbea3b3560b6bd9a8ad82f693201b42eb2068b4"
+  },
+  "ret_base.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "8783f46c23017c7c758d81d02e0483616e1670821ad8d850e64122edf0a50865"
+  },
+  "action_climb.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "acc121790e2df992c8d9a46e48746231be066a8689d517a1379b3878695eaed9"
+  },
+  "action_slide.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "d58bb15667ff11c8bec48556a97babe0be13ba7418b27a0be73d9ec97d18ca85"
+  },
+  "action_door_open.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "3ce7a8a7f6a776acdf440e02d38d7ea6bf80605097cc4a5e376cf0c1808703ca"
+  },
+  "action_door_close.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "a84d7886478fa743e26991686ff638e27ce44f1157a001ac9056c0a91a116735"
+  },
+  "action_pickup_item.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "44440ac570a89e384e265231390ccb210c5fdbc334d430f756eb4bf1c47fc83d"
+  },
+  "action_pickup_item1.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "89bf85e7a3a04455d388e90ac95c77f4e5576ff369698e3bd4eb34e9369cd374"
+  },
+  "action_pickup_item2.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "5e6b9c403ccdeddb7adf98cd91035a46f391c0e240a20e55b576a6acc793ff26"
+  },
+  "action_mp_bomb.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "1dc12f4bc374a3279d08aa80084df7b6ae5f52bd1d54393aaed3a5541f5f5d9f"
+  },
+  "action_drop_mp_bomb.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "aa4558f42fb63a318d34a5989dccd462a9c9dcaf8be7c637ebf84ffe838e1be6"
+  },
+  "action_defuse.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "c1a806c28f4ea558672d51ea9809d160b53c35399172089d80c5fa495f22697a"
+  },
+  "action_place_c4.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "26cf769544780282d7589b6decd22d8bae9f471256de6dde0df07c38c4a6fbcb"
+  },
+  "action_button.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "90f4865d908db9cd6528b1b49246ac7750e3ccac01431457df665427bcf88126"
+  },
+  "action_pull_lever.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "e84a4592d8c1cef437698cc3712e20cdcc33a21ee3439e6f48925171274d4509"
+  },
+  "action_mount_turret.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "06b1114ae704049deceb2de1f2ad230025ff60da0e7257bf017c359e11f39fee"
+  },
+  "action_dismount_turret.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "ebe21ca68d8c3806f2c02fc127f6f6fc6117af25ca1ec9054251a2ee9b241a66"
+  },
+  "action_victory_dance.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "747d99bd10ec11d9eed9107ad6de8e7936f66020f4ad2a961c055983c04de992"
+  },
+  "action_x.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "aaa20bd6c03b5d93d8ac461bfc3baa6244452de38aafb6f87605843ca337fe29"
+  },
+  "action_escortee.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "c516b7d9de52f9cb2e77be2e52447a0f45f5922a6f13c127dc5cfa2b9fa4a77f"
+  },
+  "newweapnbkrnd.tif": {
+   "width": 128,
+   "height": 64,
+   "sha256": "a2ef8646d7521a6e5e395231f2033320949a22807ecad93ac42e3670d17e1d5e"
+  },
+  "compass_lo.tif": {
+   "width": 128,
+   "height": 128,
+   "sha256": "dbeaf57228d2035ea1c3d393afc898d04699b288d96ef68bd5c08fe8fc2a0edb"
+  },
+  "compass_bkrnd.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "74f4e508be39e34bef13e173bc41e2b4a3f085efb4fbbf6f03f5c166167a2911"
+  },
+  "team_background.tif": {
+   "width": 8,
+   "height": 8,
+   "sha256": "de2b92fdc8f3e5a49d019d9c7c16394bb247ffdf51de8b28215e5f9b5f90ab4b"
+  },
+  "teammate_health.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "7b7858bddae8fb754ecc5c5fd6375f58155a0bfc62cc70fbe39574f02b3277df"
+  },
+  "fov.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "d0a16bb70473c6d564f5ceb40d11b25ca1ccabebb66570dd05d6a09653985d7a"
+  },
+  "hud_arrow_off2.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "b5a009aca1589c6c5357d123e590684cfbd0851824d8c983aaa7c1fe47eb5596"
+  },
+  "ret_triangle.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "f83bad8c572c191c8293f4524db72fe4adf36ab363a57b5aac26c62be4cdd9c4"
+  },
+  "ret_nav_01.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "439176a777a1859953b1c3c386b256932c76f22ec8c544361528bb60f9421564"
+  },
+  "ret_nav_02.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "b0eb40f46f4d79c5f7692909740bc2c8364aa77d18bb75dec3f6a90361830b4b"
+  },
+  "ret_nav_03.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "7a57dbca4a12338ec7cfa5db6eb02b0c32e4818fb322b4bebc0b06bdacbf36cf"
+  },
+  "ret_nav_04.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "e212a9a62508a447c0ded3616b727ecf7fd28a1261d98d0294458e18fc88b186"
+  },
+  "ret_nav_05.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "541ce20781380024ae3455dd994263623ba366f6df0f21105684af922f62713c"
+  },
+  "ret_nav_06.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "ed6de070904447bda20e36f41d4af75281075214a296ed3664f1f6e1543b4ed9"
+  },
+  "ret_nav_07.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "fb1973181e0e11c8358baf9c31e4eaa1c5bede3b896c79a634a6687afa46e84d"
+  },
+  "ret_nav_08.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "83fd603cb6df1816fe0fb45fadb2b0fb1a79525d2789434f4c493f5f0d3f0634"
+  },
+  "ret_nav_09.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "c1fc40de49b2ca8e0175b64c740b05f95a2ed17c2c288de6ef891b2f0dfdcc76"
+  },
+  "ret_nav_10.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "4500270ccc8bdd3263f3e5597c93670a6fd7dd544bcdd89424a22767d789b0ed"
+  },
+  "ret_nav_11.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "376e44ebf4716ea8b8df38c26edcf46f6e5263edc5e9fea15764c3bbe4daccca"
+  },
+  "ret_nav_12.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "fc2ccefcad686f523913051062039f0e6137b222364ddb064d419a33418c65c9"
+  },
+  "ret_nav_13.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "e0f22c42f63bb81352196504b3322f5e91772a6630c7b0a1feca4e9340adf700"
+  },
+  "ret_nav_14.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "a41f145d9bf4e1717b4347a918d2a284638f4b25781277d55f576f9eaa018614"
+  },
+  "ret_nav_15.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "e5385def98a3bea529774edcc3210d8e79bf84a0ff42341e89407dc7551b1dc9"
+  },
+  "ret_nav_16.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "8dd52d6ee106942251f9f788ae2b03ab853fa2912242d36d8abe67452420f335"
+  },
+  "ret_nav_17.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "6ab35f07bb9ce97cee3adc14ce2a7c2712f88594d2d3de6b37418a7c2d5f5303"
+  },
+  "ret_nav_18.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "26178e8d6fb48b2c3d590daac9762e8a1aae73b3ba507547f4fab28371acfe01"
+  },
+  "ret_nav_19.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "074963d7a3aa9d286a13916b2ab140ce0e606baec26586dad25c9d0b1bd176d3"
+  },
+  "ret_nav_20.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "af5c3c58259567d5a675f49a9afe380a9841deded23af4d774fe2c011c62afb5"
+  },
+  "ret_nav_21.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "902b02bbae28c764259ef0f7148fe3bd64b02c045ad75d24ae6f729702d3f4c5"
+  },
+  "ret_nav_22.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "da80b71788f9a81f3442cb56fb56ee18b13df55ea816dbc4f6ea9c30acd9e4a0"
+  },
+  "ret_nav_23.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "d0484129fd258843376f913e9ee56f9294154e044a7a12de941d9fb668d93c82"
+  },
+  "ret_nav_24.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "524367df50ca0af9cbe18c8ff8ad749a369b62973f391ddc18b29144cbc67e41"
+  },
+  "ret_hostage.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "b42b25903dca119a1724a66ae3eb912bdb132d8fb30787f8b28e3b12a97302e0"
+  },
+  "ret_extraction.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "da45d9047da983e590834247a48c72ab02db0d8800f6955d5ec4ca3db0f46ae9"
+  },
+  "m4carbine_icon.tif": {
+   "width": 128,
+   "height": 32,
+   "sha256": "8ba61fb36e08c7a3a71a7cc3a2361d212b215d280716c3dbb2db976551e6a600"
+  },
+  "mark23_icon.tif": {
+   "width": 64,
+   "height": 32,
+   "sha256": "6f081a8d8a3fa16d58dd40dc9da6ead2426729fec493ef248910c71b20512abb"
+  },
+  "firemode.tif": {
+   "width": 32,
+   "height": 16,
+   "sha256": "0476b98e75b352b974e74395b82fe2d658c5580f1a98e4427414867f606e11c4"
+  },
+  "grenade_frag_icon.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "b377686a6c06c1bc98fa33d880d3d5daafeb5a24f3312f24526f0397ffa98b6e"
+  },
+  "grenade_he_icon.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "e5731969ed535977d62e3bcb4bda414b25d4fe350c50086cf38c0c1790c1101e"
+  },
+  "grenade_smoke_icon.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "55da1f777d615f5215522fc11f383f0d936b1c7e763130ea2765e3615557eee0"
+  },
+  "grenade_flashbang_icon.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "477d94593acaec6b90e1524b2976e477b72a320712d351d73601f6ec7e38b3ec"
+  },
+  "claymore_icon.tif": {
+   "width": 64,
+   "height": 32,
+   "sha256": "161a66c36d488c78ed142a536731c7bcc58c98f2fa8bdcbb608438771995c170"
+  },
+  "detonator_icon.tif": {
+   "width": 32,
+   "height": 32,
+   "sha256": "dfc1b2112ea4629f7bd40bf0c6d7b76e57b3a39b8e7aa77ef5fcb5f209dbe574"
+  },
+  "font_text_01.tif": {
+   "width": 512,
+   "height": 128,
+   "sha256": "51747405cd5baaa77a95418179be2385e4f048fb4ac4683fc5a5c3d0cf53e630"
+  },
+  "font_special_01.tif": {
+   "width": 256,
+   "height": 64,
+   "sha256": "f7e52bb961448ad851ecf6c35d39955c019dd3a1462b80653938f4891a56ad7d"
+  },
+  "tcm.tif": {
+   "width": 128,
+   "height": 32,
+   "sha256": "80c8df1cbbf1f3877a3d7bcfbd89b91226f7eaa942f0062d0eea0691de129524"
+  },
+  "tcmarrow.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "fd3eeee1a3e7cd9b6174f0238ad117767cbdb65263311301e64751aac308a3eb"
+  },
+  "action_tune_team.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "256564385a667d4bfbd1e615ccbaffb2a02a72db67736976ace7b8df2a376187"
+  },
+  "action_tune_defense.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "3a61c5c16d26a609ad1c89f96e7c9fa66bbc2d407980107574fcd1202e349067"
+  },
+  "action_tune_offense.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "d14d563183b02d62d674c093f171111e75bfe6912439a347c672de86acdfdae6"
+  },
+  "action_dead_zone.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "da14f46de16108a46029ff1e87de1a942f78d821e1ff98dda009397d5a497ccd"
+  },
+  "action_tune_spectators.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "b2178aa8b9e193f17c8158c29a260150f0de13029d4583b8fc137f7ff4a8346a"
+  },
+  "action_no_talk2.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "83202459f61748c7d8ba273dea4eb3ffea24d8380d65c233a3a37a8f9b909b40"
+  },
+  "action_ok_talk2.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "22a8484da62702dd9c45b739468b8150d2ea87d38a4eff5e4da68cc737917b13"
+  },
+  "action_channel_busy.tif": {
+   "width": 64,
+   "height": 64,
+   "sha256": "1341fb1ead7adc43770fc640d221aae2afbeaacf7e07cae782b0eeb36d2fc761"
+  },
+  "hud_talk.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "5d61e624f081d04158c23674701685e5814424aeca081d71455be5d5863d6394"
+  }
+ }
+}

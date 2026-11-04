@@ -1,0 +1,27 @@
+{
+ "_source": "disc RUN/READERC.ZAR dynamics.rdr (metres x10 to units where the reader scales), read through @s2u/scene readSealTuning; the walk, jump, look and camera fields only; 2026-10-02",
+ "dynamics": {
+  "gravity": 235,
+  "jumpFactor": 0.85,
+  "groundTouchDistance": 8,
+  "maxSlopeDeg": 50,
+  "stepHeight": 6.5,
+  "accelX": [2,5],
+  "accelZ": [2,5],
+  "turnMaxRate": 2,
+  "pitchRate": 0.85,
+  "turnThrottle": [0.9,0.4],
+  "pitchThrottle": [0.9,0.4],
+  "aimPitch": [-70,60],
+  "proneAimPitch": [-20,25],
+  "initAimPitch": -9.167,
+  "aimYaw": 85,
+  "proneAimYaw": 45,
+  "landFallRate": 40,
+  "landHardFallRate": 115,
+  "fallingDamage": [62,91,120],
+  "climbHeights": [13,21.5,26.5],
+  "bobbing": {"walkAmplitude":6,"walkRate":15,"crawlAmplitude":4,"crawlRate":8},
+  "peekDecayRate": 6
+ }
+}

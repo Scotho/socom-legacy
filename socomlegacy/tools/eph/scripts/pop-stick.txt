@@ -1,0 +1,12 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Prone-pop case, case pop-stick (MV-PARITY item (a); run alone, with pop-stick-square and pop-stick-cross).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: the prone-pop slide alone: a full Triangle to prone, 2.4 s to settle, then lright held and a light Triangle (press 187 ms), the stick released 0.6 s after the Triangle's release.
+# Look: popSpeed, popTopAction and popJumpBit of pop1 (tools/eph/analyze.ts, the 0.6 s after the light Triangle's release): the original slid about 65 u/s while rising from prone with the stick held (2026-10-31, 154254Z pcsx2.csv 16414-16815: x 1008.8 -> 984.8); the page stayed crouched in place.
+# Model: incline-prone.txt lines 43-51 (lright 16062; light Triangle 16198/16385), shifted by -13000 ms: lright 3062, light Triangle 3198/3385. A light Triangle (0.2) acts at its release (FUN_00594cf0 D:L453336-453351).
+# Ground: lright runs -x at yaw 180, onto the flat strip x 920-950, z 810-855 (y -145 to -147, the lowest y per 10 u cell over the 2026-10-31 runs' pcsx2.csv). A 65 u/s slide for 0.6 s is about 39 u, to about x 898, where the bank's foot starts (y -144 at x 910, -142 at x 900): released there so the body does not climb it.
+500 triangle 1.0   # full Triangle: stand -> prone
+650 triangle 0
+3062 lright 1      # the stick held, prone
+3198 triangle 0.2  # light Triangle: the pop
+3385 triangle 0    # released: the act
+4000 lright 0

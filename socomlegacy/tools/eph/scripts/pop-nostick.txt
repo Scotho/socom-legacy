@@ -1,0 +1,9 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Prone-pop case, case pop-nostick (EPH-TILT round 4, MV-PARITY (a); run alone, with pop-stick and pop-stick-half).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: the light Triangle's rise from prone with no stick: times the reversed Crouch -> Prone (0x13) the original holds (FINDINGS 2026-10-31 Q3: with the stick off 0x11 plays, root to 5.5, then 0x12).
+# Look: popTopAction over pop1, transitionMs and endStance of act2, and topActionId in pcsx2.csv frame by frame after the release (3385 ms).
+# Timings as pop-stick without the stick.
+500 triangle 1.0   # full Triangle: stand -> prone
+650 triangle 0
+3198 triangle 0.2  # light Triangle: the pop, no stick
+3385 triangle 0    # released: the act

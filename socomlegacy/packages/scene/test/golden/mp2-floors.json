@@ -1,0 +1,50 @@
+{
+  "_source": "test-fixtures RUN/MP2.ZDB (the disc file): MP2_GEO.ZED through parseSceneGraph, worldCollision, collisionOwners, and MP2.ZED grid_params, into buildGrid (scene/src); the polygons of each probed cell whose footprint box holds the point. Pinned 2026-10-02.",
+  "grid": {"atomCount":8192,"posts":16,"cellDim":160,"cellsX":8,"cellsZ":9,"originX":0,"originZ":0},
+  "points": [[796,614],[536,1254],[710,980],[720,990],[730,998],[674.5,720.5],[677,723],[679.5,725.5],[668,722]],
+  "owners": [
+    {
+      "modelName": "worldmodel",
+      "path": "worldmodel/deckv_19",
+      "flags": 2155884657,
+      "polys": [{"region":34,"ditype":3,"material":25,"ptcount":4,"cameratype":0,"points":[640,100,480,640,100,640,800,100,640,800,100,480]}]
+    },
+    {
+      "modelName": "worldmodel",
+      "path": "worldmodel/deckv_31",
+      "flags": 2155884657,
+      "polys": [{"region":34,"ditype":3,"material":25,"ptcount":4,"cameratype":0,"points":[600,142,1120,480,142,1120,480,142,1275,600,142,1275]}]
+    },
+    {
+      "modelName": "worldmodel",
+      "path": "worldmodel/deckv_49",
+      "flags": 2155884657,
+      "polys": [{"region":34,"ditype":3,"material":25,"ptcount":4,"cameratype":0,"points":[680,100,1040,760,100,1000,760,100,960,680,100,960]}]
+    },
+    {
+      "modelName": "worldmodel",
+      "path": "worldmodel/rmp1",
+      "flags": 2155876465,
+      "polys": [
+        {"region":0,"ditype":3,"material":28,"ptcount":4,"cameratype":0,"points":[760,142,1000,760,142,975,680,142,974.9992065429688,680,142,1000]},
+        {"region":0,"ditype":2,"material":28,"ptcount":4,"cameratype":0,"points":[680,141.25,1000,680,141.25,974.9992065429688,760,141.25,975,760,141.25,1000]}
+      ]
+    },
+    {
+      "modelName": "worldmodel",
+      "path": "worldmodel/deckv_21",
+      "flags": 2155884657,
+      "polys": [{"region":34,"ditype":3,"material":25,"ptcount":4,"cameratype":0,"points":[640,100,640,640,100,800,800,100,800,800,100,640]}]
+    },
+    {
+      "modelName": "worldmodel",
+      "path": "worldmodel/pipeworks",
+      "flags": 2155876465,
+      "polys": [
+        {"region":0,"ditype":3,"material":0,"ptcount":4,"cameratype":0,"points":[680,112,720,674,112,720,674,112,726,680,112,726]},
+        {"region":0,"ditype":2,"material":7,"ptcount":4,"cameratype":0,"points":[620,139,880,620,139,720,680,139,720,680,139,880]},
+        {"region":0,"ditype":3,"material":7,"ptcount":4,"cameratype":0,"points":[680,142,880,680,142,720,620,142,720,620,142,880]}
+      ]
+    }
+  ]
+}

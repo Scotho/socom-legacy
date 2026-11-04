@@ -1,0 +1,51 @@
+{
+ "_source": "disc RUN/UIZANIM.ZAR, RUN/EXTZANIM.ZAR, RUN/MPZANIM.ZAR, read with @s2u/scene parseAnimSets; condition tokens by @s2u/ui conditionTokens; 2026-10-02",
+ "archives": {
+  "UIZANIM.ZAR": {
+   "sets": 95,
+   "anims": 1525,
+   "priorities": {"3":1525},
+   "commands": {"0:1":872,"0:11":16,"0:14":56,"0:15":576,"0:17":4420,"0:2":2195,"0:22":1068,"0:25":247,"0:3":1851,"0:30":373,"0:39":372,"0:4":761,"0:40":372,"0:44":280,"0:45":1163,"0:46":376,"0:47":2,"0:48":2,"0:5":2195,"0:50":260,"0:51":26,"0:52":12,"0:61":3245,"1:1":5678},
+   "conditions": {"0:10":7,"0:43":1817,"0:61":4482,"0:7":18,"1:1":525},
+   "uiCommands": {"total":5678,"noNode":2829},
+   "autoStart": ["dlgCreateGame.rdr/missionsel_popup_onstart","dlgManageRoster.rdr/playerinfo_onstart","dlgManageRosterLeader.rdr/playerinfo_onstart","dlgMPBriefingRoom.rdr/playerinfo_onstart","dlgLadderLobby.rdr/playerinfo_onstart","dlgFriendList.rdr/playerinfo_onstart","uianimXP.rdr/led","UIanim.rdr/menu_fade_up"],
+   "guards": ["dlgCreateGame.rdr/add_a_mission","dlgOnlineOptions.rdr/OnMultiplayerDisconnectFromOptions","dlgLAN_Options.rdr/OnMultiplayerDisconnectFromOptions","dlgNetPlayerName.rdr/OnNetError","dlgGameLobby.rdr/CountDown","dlgGameLobby.rdr/goto_eq_mp_set_return_valve","dlgGameLobby.rdr/exit_lobby","dlgNetAuthenticate.rdr/OnNetError","dlgNetAuthenticate.rdr/OnDNASErrorContinue","dlgNetAuthenticate.rdr/OnDNASErrorHalt","dlgNetAuthenticate.rdr/OnDNASError","dlgLANPlayerName.rdr/OnNetError","dlgLANPlayerName.rdr/OnExit","dlgLANConnect.rdr/OnNetError"]
+  },
+  "EXTZANIM.ZAR": {
+   "sets": 95,
+   "anims": 61,
+   "priorities": {"3":61},
+   "commands": {"0:14":6,"0:15":29,"0:17":94,"0:2":59,"0:25":23,"0:3":43,"0:30":14,"0:39":13,"0:4":42,"0:40":13,"0:45":15,"0:46":29,"0:5":59,"0:50":33,"0:61":54,"1:1":165},
+   "conditions": {"0:43":34,"0:61":105,"1:1":19},
+   "uiCommands": {"total":165,"noNode":118},
+   "autoStart": ["dlgExitState.rdr/menu_fade_up","UIanim.rdr/menu_fade_up","UIanim.rdr/menu_fade_up"],
+   "guards": []
+  },
+  "MPZANIM.ZAR": {
+   "sets": 95,
+   "anims": 130,
+   "priorities": {"3":130},
+   "commands": {"0:14":13,"0:15":60,"0:17":159,"0:2":113,"0:25":18,"0:3":31,"0:30":12,"0:39":27,"0:4":83,"0:40":27,"0:44":2,"0:45":33,"0:46":31,"0:5":113,"0:50":58,"0:61":61,"1:1":287},
+   "conditions": {"0:43":62,"0:61":145,"1:1":35},
+   "uiCommands": {"total":287,"noNode":198},
+   "autoStart": ["dlgMultiplayerRound.rdr/menu_fade_up","dlgMultiplayerFinal.rdr/menu_fade_up","dlgMultiplayerFinalReally.rdr/menu_fade_up","UIanim.rdr/menu_fade_up","UIanim.rdr/menu_fade_up","UIanim.rdr/menu_fade_up"],
+   "guards": []
+  }
+ },
+ "menufaderFades": [
+  "dlg_equipment_main.rdr/LoadMission",
+  "dlg_equipment_mp.rdr/OnNetError",
+  "dlg_equipment_mp.rdr/hdd_error",
+  "dlgMenu.rdr/UiAttractMode",
+  "dlgNetPlayerName.rdr/memcard_operations",
+  "dlgGameLobby.rdr/check_loop",
+  "dlgGameLobby.rdr/exit_lobby",
+  "dlgGameLobby.rdr/spectator_rejected",
+  "dlgGameLobby.rdr/hdd_error",
+  "dlgGameLobby.rdr/OnNetError",
+  "dlgGameLobby.rdr/OnNetError",
+  "dlgGameLobby.rdr/team_monitor",
+  "dlgDownloadPatch.rdr/exit_download_screen",
+  "dlgDownloadPatch.rdr/ReturnToMMenu"
+ ]
+}

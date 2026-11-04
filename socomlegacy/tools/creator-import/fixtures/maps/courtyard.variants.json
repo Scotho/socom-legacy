@@ -1,0 +1,54 @@
+{
+  "fixtureFormat": "neutral-fixture-mutations-1",
+  "base": "courtyard.source.json",
+  "note": "Source mutations for future refusal tests, not packs, map definitions, patch APIs, or replacement renders.",
+  "cases": [
+    {
+      "id": "unsafe-bounds",
+      "operation": "replace-bounds",
+      "value": {
+        "min": [
+          -1,
+          0,
+          -1
+        ],
+        "max": [
+          1,
+          1,
+          1
+        ]
+      },
+      "expected": "bounds-containment"
+    },
+    {
+      "id": "disconnected",
+      "operation": "add-wall-box",
+      "value": {
+        "id": "splitter",
+        "min": [
+          4,
+          0,
+          -16
+        ],
+        "max": [
+          5,
+          4,
+          16
+        ]
+      },
+      "expected": "disconnected-team-spawns"
+    },
+    {
+      "id": "missing-region",
+      "operation": "replace-pickup-region",
+      "value": "absent-region",
+      "expected": "unknown-region-reference"
+    },
+    {
+      "id": "missing-team-site",
+      "operation": "remove-team-site",
+      "value": "B",
+      "expected": "incomplete-demolition-sites"
+    }
+  ]
+}

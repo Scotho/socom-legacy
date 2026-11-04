@@ -1,0 +1,1422 @@
+{
+ "area": "frontend",
+ "notes": ["docs/research/102-the-card-file-codec.md", "docs/research/103-the-locale-and-string-service.md", "docs/research/104-the-valve-store-and-ui-variables.md", "docs/research/105-the-dialog-loader.md", "docs/research/106-the-zanim-ui-runtime.md", "docs/research/107-the-ui-command-table.md", "docs/research/109-the-pss-demuxer.md", "docs/research/110-the-frame-clock.md", "docs/research/111-ui-text.md", "docs/research/112-the-2d-compositor.md", "docs/research/114-unplaced-dialogs.md", "docs/research/121-the-movie-player.md", "docs/research/125-the-loading-screen.md", "docs/research/250-the-actions-on-the-menu-launched-match.md", "docs/research/253-weapon-exchange-as-one-part.md", "docs/research/254-default-fire-mode-as-the-original-reads-it.md", "docs/research/255-the-page-gaps-of-wave-2-as-built.md", "docs/research/257-the-shared-effects-on-the-menu-path.md"],
+ "entries": [
+  {
+   "id": "frontend.commands.table.rows",
+   "claim": "The UI command table at 0x3dd4d0 has 207 rows {id, name, fn, fn2}, ids 1..208 without 30, then an all-zero row 207; @s2u/ui's UI_COMMAND_TABLE is it row for row.",
+   "level": "reading",
+   "source": "disc socom2_game.elf binding table 0x3dd4d0",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"UI_COMMAND_TABLE is the pinned ELF table row for row: index, id, name, fn, fn2 of 207 rows; the terminator row 207 all zero","data":"none"},
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"207 rows; ids 1..208 without 30, each once; 11 rows with an fn2","data":"none"},
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"the ELF's 207 binding names are UI_COMMAND_TABLE's, in order (research 107 R107.1)","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the ELF's table, its ctype fold bytes and the scripts' names without a node equal the pin whole","data":"disc"},
+    {"file":"tools/test/uiCommandTableDisc.test.ts","name":"UI_COMMAND_TABLE is the table at 0x3dd4d0: index, id, name, fn and fn2 of all 207 rows; then the all-zero row","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.commands.lookup.fold",
+   "claim": "A command name is matched to its row case-insensitively and keys the row's id; over 0x00-0x7F FUN_00198b80 folds (+0x20) A-Z alone (bit 0 of the ctype table at 0x1d08d1 by the byte's signed index), and every retail name is ASCII.",
+   "level": "reading",
+   "source": "FUN_00198b80 D:L15551-15606 (lb at 0x198b84, 0x198b90); disc socom2_game.elf ctype 0x1d08d1",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the fold over 0..0x7F is the ctype table's: uiCommandFold adds 0x20 exactly where the pinned bit 0 is set, A-Z alone","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"every name in the pinned table and the pinned scripts is ASCII, so the high-byte fold reaches no retail lookup","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"every pinned row keys its own id by its name in either case, and the key calls that row (D:L121391-121427)","data":"none"},
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"a name matches its row case-insensitively: the key is the row id, not its index","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the ELF's table, its ctype fold bytes and the scripts' names without a node equal the pin whole","data":"disc"},
+    {"file":"tools/test/uiCommandTableDisc.test.ts","name":"`FUN_00198b80` folds A-Z only: bit 0 of the ctype table at 0x1d08d1 is set for 0x41-0x5a alone among 0..255","data":"disc"}
+   ],
+   "owed": "uiCommandTableDisc.test.ts's fold test indexes the table unsigned (0x1d08d1 + c), so it holds 0x00-0x7F only and its title's 'among 0..255' is wrong: an edit owed when that file may be edited (TA.R5); the high bytes are frontend.commands.lookup.fold-high."
+  },
+  {
+   "id": "frontend.commands.lookup.fold-high",
+   "claim": "FUN_00198b80 indexes the ctype table by the signed byte, so bytes 0x80-0xFF read 0x1d0851-0x1d08d0 and 27 of them (0x83 0x87 0x97 0x9b 0xa2 0xa4 0xb0 0xb5 0xc1 0xcf-0xd2 0xd5 0xd6 0xda 0xdb 0xdf 0xe0 0xe2 0xe7 0xe9 0xec 0xed 0xf2 0xf4 0xf6) fold to (char)c + 0x20; research 107 R107.2 ('A..Z alone among 0..255') and uiCommandFold fold none of them.",
+   "level": "drift",
+   "source": "FUN_00198b80 D:L15563-15572 (lb at 0x198b84, 0x198b90); disc socom2_game.elf 0x1d0851-0x1d08d0 bit 0",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the signed index folds 27 bytes of 0x80..0xFF (0x83 0x87 0x97 ... 0xf6: bit 0 of 0x1d0851-0x1d08d0)","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"DRIFT: for every byte 0x80..0xFF, uiCommandFold adds 0x20 (mod 256) exactly where the pinned bit 0 is set, as the signed index does","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the ELF's table, its ctype fold bytes and the scripts' names without a node equal the pin whole","data":"disc"}
+   ],
+   "owed": "The DRIFT test is it.fails: the note (R107.2, line 18) and uiCommandFold (packages/ui/src/uiCommands.ts:435-439) are the owner's to correct; no retail name holds a byte above 0x7F, so retail lookups are unaffected."
+  },
+  {
+   "id": "frontend.commands.lookup.absent",
+   "claim": "A null name keys 0xE8, an empty or unknown name (NA, MENUFADER, REBOOT) keys 0; key 0, 0xE8 or 30 calls nothing and the answer is 1.",
+   "level": "reading",
+   "source": "FUN_002745a0 D:L121393-121430",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"no name is 0xE8; an empty name, a name no row has (NA, MENUFADER, REBOOT) is 0","data":"none"},
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"a name no row has, or none: nothing is called, the answer is 1 (D:L121428-121430)","data":"none"},
+    {"file":"tools/test/uiCommandTableDisc.test.ts","name":"key 0xE8 calls nothing: the word at row 0xE8 (past the table) is not 0xE8, and no row has that id","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.commands.dispatch.order",
+   "claim": "The dispatcher asks a command's node first; declined or absent, the row of the key (byte +10 if set, else the lookup) answers.",
+   "level": "reading",
+   "source": "FUN_002745a0 D:L121344-121431",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"with a node, the node goes first (D:L121370-121385): taken, its answer stands; declined or absent, the table answers","data":"none"},
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"a key already in byte +10 is used without a lookup (D:L121389-121391); the lookup leaves it 0 on the disc","data":"none"},
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"the call picks the row whose id is the key (D:L121411-121427); 0 and 0xE8 pick none","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.commands.scripts.names",
+   "claim": "The three zAnim archives send 6,130 ui::UI_COMMANDs, 3,145 without a node; every name without a node keys a row but NA; SwitchMenu is called 467 times (454 spelt SWITCHMENU), DisableButton 415, PopUpDialog 252.",
+   "level": "reading",
+   "source": "disc RUN/UIZANIM.ZAR, EXTZANIM.ZAR, MPZANIM.ZAR set 1 cmd 1",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the scripts send 6,130 ui::UI_COMMANDs, 3,145 without a node; each name keys a row but NA (key 0, answer 1)","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"the most-called rows without a node, keyed case-insensitively: SwitchMenu 467 (454 SWITCHMENU), DisableButton 415, PopUpDialog 252 ...","data":"none"},
+    {"file":"tools/test/uiCommandTableDisc.test.ts","name":"byte +10 is 0 in every one; every name is ASCII; without a node, every name but NA keys a row","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.commands.answers.constant",
+   "claim": "Of the 207 bodies, 121 answer 1 at every exit and 3 answer 0 (AbortLoad, GetAcctInfo, IsClanChallengeGame); the 40 rows without a decompiled block are described by their instructions.",
+   "level": "reading",
+   "source": "FUN_00278060 D:L123260-123270; disc socom2_game.elf instructions of the 40 folded rows",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"a constant answer is cited: 1 at every exit of 121 bodies, 0 of three; the rest state or unread (null)","data":"none"},
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"a row with no decompiled block cites what its instructions show (`folded`, research 107 §5)","data":"none"},
+    {"file":"tools/test/uiCommandTableDisc.test.ts","name":"each folded row's `folded` is its instructions: the leaf, the tail jump, the global reads, the constant, the unread","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.commands.stubs.retail",
+   "claim": "ClearGameState and DeletePatch are `jr ra` / `addiu v0, zero, 1` (answer 1); GetAcctInfo and IsClanChallengeGame are `jr ra` / `move v0, zero` (answer 0).",
+   "level": "reading",
+   "source": "disc socom2_game.elf 0x27c7e0, 0x2ca330, 0x27dc80, 0x2795d0",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"the four bodies implemented here answer their disassembly: ClearGameState, DeletePatch 1; GetAcctInfo, IsClanChallengeGame 0","data":"none"},
+    {"file":"tools/test/uiCommandTableDisc.test.ts","name":"the four bodies implemented here are `jr ra` with the answer in its delay slot","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.commands.fn2.builders",
+   "claim": "The 11 fn2 words are record builders (a zeroed allocation of 0x14..0xac bytes keyed by the table walk); the dispatcher never calls them and the port calls none.",
+   "level": "reading",
+   "source": "FUN_002745a0 D:L121413-121421; FUN_0034eae0 D:L248953-248966",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [
+    {"file":"packages/ui/test/uiCommands.test.ts","name":"207 rows; ids 1..208 without 30, each once; 11 rows with an fn2","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.commands.fn2.records",
+   "claim": "Each fn2 builder allocates its own record size -- GetTextInput 0xac, PlayMPEG 0x44, SendChatText and SendMediusChat 0x30, CompareValues and CopyUIVar 0x18, GetMissionInformation 0x20, four of 0x14 -- and fills it from named parameters (ARGUMENT, RECIP_UIVAR, From, To, FILE, INDEX, NAME, NUMBER, VALUE1/2, UIVAR1/2, UiVar, Purpose).",
+   "level": "reading",
+   "source": "FUN_00395f40 D:L289092; FUN_0027ad60 D:L124676; FUN_0027fbc0; FUN_00274fc0 D:L121675; FUN_00276080 D:L122255",
+   "note": "docs/research/107-the-ui-command-table.md",
+   "tests": [],
+   "owed": "No test reads the builders' sizes or keys; the port calls no fn2 (research 107 §7). A disc test reading each builder's FUN_0034eae0 size argument from the ELF is owed, with fn2's caller (PLAT-36)."
+  },
+  {
+   "id": "frontend.dialogs.lookup.depth-first",
+   "claim": "Every dialog key is a depth-first, first-match, case-sensitive search of the node given (FUN_0032f0e0, strcmp), so the first copy in document order wins and SCREENS is never looked up.",
+   "level": "reading",
+   "source": "FUN_0032f0e0 D:L230255-230299; FUN_00198f18",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"searches depth-first and takes the first match in document order, a nested one before a later sibling","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"never reaches a doubled key's second copy","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"compares with strcmp (FUN_00198f18): case-sensitive","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"never looks up SCREENS: loose tokens beside it change nothing (the fourteen \":end of file\" layouts, research 96 §2.3)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.loader.boot-chain",
+   "claim": "The boot reaches dlgIntroScreen -> dlgIntroCinematic (SONY448, MPEG 1, no BUTTON binding) -> dlgSecondCinematic (INTRO_2; nine BUTTON keys to goto_menu, four TRIGGER keys empty slots) -> dlgMenu.",
+   "level": "reading",
+   "source": "FUN_00381550 D:L277197-277422; FUN_00365d50 D:L262463-262795; disc RUN/UI/READERC.ZAR",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgIntroCinematic: SONY448 as an MPEG background (type 1, not looping); no BUTTON binding, so nothing skips it; ONMPEGEND (3) switches to dlgSecondCinematic","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgSecondCinematic: INTRO_2, nine BUTTON keys to goto_menu; the four TRIGGER keys are empty slots (ParseButtonAnim reads BUTTON or EVENT, D:L262477-262479)","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgIntroScreen: its screen-level BUTTONS () is read by nothing; ONSTART runs do_onstart","data":"none"},
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"the boot chain dlgIntroScreen -> dlgIntroCinematic -> dlgSecondCinematic -> dlgMenu; one dangling name, dlgStickSetup; Tut_11 and Tut_12 missing","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"each pinned tree is parseRdr of its READERC member, whole","data":"disc"},
+    {"file":"tools/test/dialogInventoryDisc.test.ts","name":"the boot chain and the dangling names (the code names from the ELF)","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.loader.dlgmenu",
+   "claim": "dlgMenu loads to 17 controls and no objects in the node order new_game_button ... InfoTextX, new_game_button at (256, 330), SplashLogo at (70, 45), over the MPEG background menuloop.pss (type 1, not looping).",
+   "level": "reading",
+   "source": "FUN_00367950 D:L263627-263658; disc RUN/UI/READERC.ZAR dlgMenu.rdr",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgMenu: the 17 records in the engine's node order, new_game_button at (256, 330) and SplashLogo at (70, 45); MENULOOP not looping","data":"none"},
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"dlgMenu: 17 records, the STATUS 2026-09-06 RAM read's positions; dlgOptions_Menu: its 15 nodes","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.loader.dlgoptions",
+   "claim": "dlgOptions_Menu loads to 15 nodes; its RADIOSTRIP HDDOnOff takes its first subordinate's CHILDOF, itself; its VALVE key is read by no widget reader.",
+   "level": "reading",
+   "source": "FUN_00383360 D:L278331; disc RUN/UI/READERC.ZAR dlgOptions_Menu.rdr",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgOptions_Menu: 15 nodes; HDDOnOff takes its first subordinate's CHILDOF -- itself; its VALVE key is read by no widget reader","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"CHILDOF is the first anywhere in the record: a RADIOSTRIP with none of its own takes its first subordinate's","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.loader.tallies",
+   "claim": "The 103 dlg* layouts load to IMAGE 2,057, TEXT 1,291, BUTTON 298, TELETYPE 106, LISTBOX 58, WRAPPEDTEXT 49, MAPCONTROL 36, RADIOSTRIP 18, SLIDERBAR 8, COUNTER 4, SECURETEXT 3, PROGRESSBAR 1; 42 CHECKBOX subordinates; 144 map elements; 99 backgrounds (90 IMAGE, 9 MPEG); no record dropped.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERC.ZAR, READERX.ZAR",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"the per-dialog tallies sum to the totals: IMAGE 2,057, TEXT 1,291, BUTTON 298 ... CHECKBOX 42, elements 72 + 72, backgrounds 90 + 9 (R105.4)","data":"none"},
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"the 103 dlg* layouts hold research 96 §2's tallies, by site","data":"disc"},
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"loads all 110 READERC members and READERX's 4: every record built, no TYPE unknown, none without a SPEC","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.loader.debriefing-name",
+   "claim": "dlgDebriefing's three-token NAME (\"Extras\" \"are\" \"available\") is one object named Extras to the engine (FUN_0032ee10 takes a list's first string): 49 objects, not parseUiLayout's 48.",
+   "level": "reading",
+   "source": "FUN_0032ee10 D:L230100-230139",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"NAME, TYPE, XPOS, YPOS, OPACITY (default 1), CHILDOF; a NAME of three tokens is its first","data":"none"},
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"the per-dialog tallies sum to the totals: IMAGE 2,057, TEXT 1,291, BUTTON 298 ... CHECKBOX 42, elements 72 + 72, backgrounds 90 + 9 (R105.4)","data":"none"},
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"each dlg* layout's counts equal PLAT-06's pin; dlgDebriefing has one object more (its three-token NAME)","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.bindings.codes",
+   "claim": "ParseButtonAnim reads BUTTON (START 0 ... TRIGGER_L2 13, else 0; state UP 0, FALLING 1, DOWN 2, RISING 3, else 1) or EVENT (63 names, unknown 0); with neither the slot keeps FUN_003838b0's button code 0x10, state 1, no animation.",
+   "level": "reading",
+   "source": "FUN_00365d50 D:L262463-262795; FUN_0036a5d0 D:L264986-265078; FUN_003838b0 D:L278439-278463",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"a BUTTON: its code (FUN_0036a5d0 D:L264986-265078), its STATE (UP 0, FALLING 1, DOWN 2, RISING 3; else 1)","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"an EVENT: its code; an unknown name is 0, ONSTART's (D:L262682)","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"neither BUTTON nor EVENT (a TRIGGER, a BUTTONS): the slot keeps FUN_003838b0's defaults and no animation","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgSecondCinematic: INTRO_2, nine BUTTON keys to goto_menu; the four TRIGGER keys are empty slots (ParseButtonAnim reads BUTTON or EVENT, D:L262477-262479)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.screen.keys",
+   "claim": "The design reader reads LIBRARY then LIBRARIES (UIVAR <name> a var), USES_MEMCARD, FONT (the first anywhere), NOFONTLIB, BACKGROUND TYPE (IMAGE 0, MPEG 1, MPEG_LOOPING 2, strcasecmp; else 0) and FILENAME, ANIMATIONS, CONTROLS, OBJECTS, SCRIPT_LIBRARY, MODELS.",
+   "level": "reading",
+   "source": "FUN_00381550 D:L277232-277420",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"LIBRARY first, then LIBRARIES; \"UIVAR <name>\" in LIBRARIES is a var resolved at load (D:L277232-277306)","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"USES_MEMCARD and NOFONTLIB are flags; FONT is the first anywhere -- an object's, when the screen has none (D:L277307-277322)","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"BACKGROUND: TYPE IMAGE 0, MPEG 1, MPEG_LOOPING 2 (strcasecmp), another word 0; FILENAME (D:L277323-277351)","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"the screen ANIMATIONS, SCRIPT_LIBRARY (strings only) and MODELS (FUN_003812b0 D:L277126-277190)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.records.factories",
+   "claim": "FUN_00383360 reads NAME, TYPE, XPOS, YPOS, OPACITY (1), SPEC, CHILDOF; a record with no SPEC or a type neither factory makes is passed over; the node order is each control, its subordinates, then the objects.",
+   "level": "reading",
+   "source": "FUN_00383360 D:L278260-278342; FUN_00382890; FUN_00382070; FUN_00367950 D:L263627-263658",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"a record with no SPEC, or a TYPE its factory does not make, is passed over; an empty NAME is \"unnamed\"","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"the menu's nodes: each control, then its subordinates, then the objects (FUN_00367950 D:L263627-263658)","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"falls back to the object factory: a TEXT among the CONTROLS is a TEXT","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.widgets.fields",
+   "claim": "Each widget type reads its fields with its constructor's defaults (TEXT SCALE 1, COLOR 128; TELETYPE MAXHEIGHT -1; WRAPPEDTEXT SPACING 10, HEIGHT -1; LISTBOX SPEED 60; SLIDERBAR NUM_INTERVALS 10, CENTER_VALUE 0.5 ...), research 105 §3's table.",
+   "level": "reading",
+   "source": "FUN_00382070, FUN_00383160, FUN_00380620, FUN_0037eab0, FUN_0037da50, FUN_0037d600 (research 105 §3)",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"TEXT (D:L277613-277656): CAPTION, SCALE 1, FONT, HCENTERED, RIGHT_JUSTIFIED read after it, COLOR 128","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"IMAGE (FUN_00383160 D:L278187-278230): FILENAME, SIZE then XSIZE/YSIZE over it, PULSE when present","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"TELETYPE (D:L277667-277698): MAXHEIGHT -1, PULSERATE, SPACING, INTERVAL, MAXLENGTH, NOCURSOR, FADECURSOR","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"WRAPPEDTEXT (D:L277701-277744): WIDTH, SPACING 10, HEIGHT -1, the arrows, AUTOSCROLL, DISPLAY_ONE_LINE","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"BUTTON (FUN_00380620 D:L276723-277103): sizes, offsets, a state as a block, a state flat, the bindings","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"LISTBOX (FUN_0037eab0 D:L275893-276585): the image, the list fields, the columns, the options, SPEED 60","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"SLIDERBAR (D:L277921-277946): a button, NUM_INTERVALS 10, KNOB_TEXTURE, KNOB_SIZE, CENTER_VALUE 0.5","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"CHECKBOX (FUN_0037e2a0 D:L275588-275646): CHECK_X/Y then CHECK_OFFSET, the sizes, the texture, ONCHECK / ONUNCHECK","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"RADIOSTRIP (FUN_0037da50 D:L275264-275367): a button; SUBORDINATES through the control factory, CHILDOF from each SPEC","data":"none"},
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"MAPCONTROL (FUN_0037d600 D:L275098-275207): UPPERLEFT, LOWERRIGHT, ELEMENTS through the object factory, ANIMATIONS","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.keys.unread",
+   "claim": "Keys no engine reader reads (TRIGGER in three cinematics, a UIVAR's TYPE, LONGETIVY, APTION, a RADIOSTRIP's VALVE, screen BUTTONS (), a TEXT's SPACING/WIDTH ...) are exactly research 105 §4.2's list.",
+   "level": "reading",
+   "source": "FUN_00381550; FUN_0032d6e0 D:L263224 (the tree freed)",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogLoader.test.ts","name":"sorts them: SCREENS a container, a doubled key shadowed, the rest unread at the top of their subtree","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgLoad: nine objects, background LittleBlack.tif, LIBRARY common/assetlib/loading, FONT font_text_01 (research 125 R125.1)","data":"none"},
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"every key of every dialog is read, a doubled key's shadow, SCREENS, or listed in ENGINE_UNREAD","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.inventory.members",
+   "claim": "READERC holds 110 members (103 dlg*, 4 Common_*, mp_rooms, UiParams, uisounds), READERX four dialogs; the three zAnim archives hold 95 slots each, UIZANIM naming 95, EXTZANIM 2, MPZANIM 4.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERC.ZAR, READERX.ZAR, RUN/*ZANIM.ZAR",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"READERC holds 110 members, 103 of them dlg*; READERX the four end-of-round and exit dialogs","data":"none"},
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"the zAnim archives: 95 slots each; UIZANIM names all 95, EXTZANIM 2, MPZANIM 4","data":"none"},
+    {"file":"tools/test/dialogInventoryDisc.test.ts","name":"READERC holds 110 members: 103 dlg*, 4 Common_*, mp_rooms, UiParams, uisounds; READERX four dialogs","data":"disc"},
+    {"file":"tools/test/dialogInventoryDisc.test.ts","name":"the zAnim archives: 95 slots each; UIZANIM names all 95, EXTZANIM 2, MPZANIM 4","data":"disc"},
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"the seven non-dialog members load to empty designs: no CONTROLS, OBJECTS or MODELS key in them","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.dialogs.gate.title-image",
+   "claim": "The PCSX2 title RAM image holds dlgMenu.rdr and dlgOptions_Menu.rdr resident, byte-equal to READERC's members.",
+   "level": "reading",
+   "source": "capture SOCOM_PC_ROOT/logs/parity/title_pcsx2.rdram",
+   "note": "docs/research/105-the-dialog-loader.md",
+   "tests": [
+    {"file":"tools/test/dialogLoaderDisc.test.ts","name":"holds dlgMenu.rdr and dlgOptions_Menu.rdr resident, byte-equal to READERC's members","data":"capture"}
+   ],
+   "owed": "The proven gate (a PLAT-36 RAM dump at LoadList compared name for name) is not taken: research 105 §5. The image is not committed (TA.R2)."
+  },
+  {
+   "id": "frontend.strings.tables.front-end",
+   "claim": "The front end loads UIMn (1,411 strings), UIMPX (34), UIX (45), HudC (440) from RUN/LOCALE/STATES and UILd (7, ids 2000-2006) from the map archive's UILDLOC.ZAR, byte-equal in all 34 map archives.",
+   "level": "reading",
+   "source": "FUN_003a3900 L297225-297310; FUN_001f6660 L55825; disc RUN/LOCALE/STATES/*LOC.ZAR, RUN/*.ZDB",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/scene/test/locService.parity.test.ts","name":"five tables, 1,411 / 34 / 45 / 440 / 7 strings, each within its archive's id range; UILd 2000-2006 (R103.1)","data":"none"},
+    {"file":"packages/scene/test/locService.test.ts","name":"lists the five the front end loads and the four the campaign does, with their id ranges and loaders","data":"none"},
+    {"file":"packages/scene/test/locService.parity.test.ts","name":"the five tables' rows, the pinned texts and READERC's references equal the pin whole","data":"disc"},
+    {"file":"packages/scene/test/locService.test.ts","name":"loads the five front-end tables through an AssetSource, UILdLOC from the map archive","data":"disc"},
+    {"file":"packages/scene/test/locService.test.ts","name":"carries one UILdLOC, byte-equal, in every map archive; the campaign tables only through a campaign mission","data":"disc"},
+    {"file":"packages/scene/test/locService.test.ts","name":"UILdLOC is a member of the map archive: seven strings, ids 2000-2006, all non-empty","data":"fixture"}
+   ]
+  },
+  {
+   "id": "frontend.strings.refs.resolve",
+   "claim": "READERC's 866 _<id>_..._MSG references resolve but four (dlgSetSOP's _549_, _550_, _552_, _553_): UIMn 783, UIMPX 46, UIX 22, HudC 10, UILd 1.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERC.ZAR through the LOC tables",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/scene/test/locService.parity.test.ts","name":"READERC's 866 references resolve but four: UIMn 783, UIMPX 46, UIX 22, UILd 1, HudC 10, unresolved 4 (R103.4)","data":"none"},
+    {"file":"packages/scene/test/locService.parity.test.ts","name":"the HudC references are the login dialog's persistent SOP and taunt defaults, ids 60757-60766 (R103.5)","data":"none"},
+    {"file":"packages/scene/test/locService.test.ts","name":"resolves the dialogs' references but four, which are in no table; HudCLOC is named by the login dialog","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.strings.lookup.whole-name",
+   "claim": "A _MSG name is looked up by the whole name (a hash of MSG_ID and a string compare), not by the id it spells: UIMnLOC's _273_<m>Minutes_MSG are ids 273-279.",
+   "level": "reading",
+   "source": "FUN_003631f0 -> FUN_003a3700 -> FUN_003a3100 -> FUN_003a41f0",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/scene/test/locService.parity.test.ts","name":"a message name is looked up whole, not by the id it spells (R103.7): the seven create-game times _273_<m>Minutes_MSG are 273-279","data":"none"},
+    {"file":"packages/scene/test/locService.test.ts","name":"resolves a message name by the whole name, not by the id it spells (FUN_003a41f0: a hash of MSG_ID, strcmp)","data":"none"},
+    {"file":"packages/scene/test/locService.test.ts","name":"resolves the seven create-game times by their names to seven ids, where the spelled id is 273 for all","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.strings.caption.op1",
+   "claim": "The op-1 Caption rule: the s16 id at +0xc when non-zero, else the literal argument at +8, itself looked up as a name.",
+   "level": "reading",
+   "source": "FUN_0036fcc0 L268063-268070",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/scene/test/locService.test.ts","name":"applies the op-1 Caption rule: the s16 id when non-zero, else the literal argument, which is set with translation","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.strings.load.once",
+   "claim": "A second load of a table already loaded is ignored (the loader returns early on a known name).",
+   "level": "reading",
+   "source": "FUN_003a3900 L297249-297254",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/scene/test/locService.test.ts","name":"ignores a second load of a table already loaded, as FUN_003a3900 returns early on a known name (L297249-297254)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.strings.crops.captions",
+   "claim": "The console crops' captions (login, eula, universe, persona, game lobby, rooms ...) are the UIMn strings their ids resolve to; rooms.png opens on the decoded 0xA6.",
+   "level": "reading",
+   "source": "disc RUN/LOCALE/STATES/UIMNLOC.ZAR; capture SOCOM_PC_ROOT/scripts/parity/refs",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/scene/test/locService.parity.test.ts","name":"the console crops' captions (R103.6) are UIMn strings: the titles one line of at most 24, the popups run on, rooms.png opens on 0xA6","data":"none"},
+    {"file":"packages/scene/test/locService.test.ts","name":"resolves the ids of the captions compared with the console crops (research 103 §4) to short UIMnLOC strings","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.strings.menu.roller",
+   "claim": "The main menu's row labels are textures (menu_<row>_on/off.tif) on UI_MDL.ZED's mainmenu_roller, one quad per node; dlgMenu's six BUTTONs carry CAPTION \" \".",
+   "level": "reading",
+   "source": "disc RUN/UI/UI_MDL.ZED mainmenu_roller; RUN/UI/READERC.ZAR dlgMenu.rdr",
+   "note": "docs/research/103-the-locale-and-string-service.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgMenu: the six row buttons carry CAPTION \" \" (the labels are the roller's textures) and glow ACTIVE 0.3-1 over 0.8 s","data":"none"},
+    {"file":"packages/scene/test/locService.test.ts","name":"draws the main menu's row labels from textures on the roller model, not from text","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.strings.utf8.reader",
+   "claim": "The engine's character reader decodes UTF-8 of one, two or three bytes; on the disc's LOC tables it agrees byte for byte with decodeLocText (no 0xC0, 0xC1 or 0xE0+ lead).",
+   "level": "reading",
+   "source": "FUN_0039f0c0 / FUN_0039f160 D:L294576-294620",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/text/face.test.ts","name":"a byte below 0xC0 is its own code, a C0-DF lead takes one more byte, an E0+ lead two (16 bits)","data":"none"},
+    {"file":"packages/ui/test/text/textDisc.test.ts","name":"the LOC tables hold no lead byte on which FUN_0039f0c0 and decodeLocText part (0xC0, 0xC1, 0xE0 and above); their text round-trips to its bytes","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.valves.ops.apply",
+   "claim": "The VALVE ops 0-18: tests 0-10 return their truth and write nothing, assignments 11-18 write and return true, past 18 false; a valve the registry lacks is false and nothing is made; op 9 is always true, -= floors at 0.",
+   "level": "reading",
+   "source": "FUN_00353fd0 D:L252128-252345",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/valves.test.ts","name":"a valve no store holds: false and nothing made, even for op 0 (D:L252156-252157)","data":"none"},
+    {"file":"packages/ui/test/valves.test.ts","name":"an operand that is a valve reads its u16; one the store lacks reads 0 (flag 0x10, D:L252162-252179)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"op 9 |~ is true whatever the value (D:L252209-252211); -= floors at 0 (D:L252244-252263)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.valves.watchers.fire",
+   "claim": "A write whose 32-bit result differs from the u16 held calls every watcher whose mask holds the event (1 non-zero, 2 zero), in the order added; the same value calls none.",
+   "level": "reading",
+   "source": "FUN_003519f0 D:L250781-250803",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/valves.test.ts","name":"runs the valve's watchers in the order added, each whose mask holds the event","data":"none"},
+    {"file":"packages/ui/test/valves.test.ts","name":"a write of the same value fires nothing; the event is the 32-bit result's, not the stored u16's","data":"none"},
+    {"file":"packages/ui/test/valves.test.ts","name":"a mask with neither bit never fires (`param_2 & 0xff & mask`, D:L250795)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.valves.registry.types",
+   "claim": "The registry is one list in creation order, names matched with strcmp; type 1 PERM, 2 TEMP, 3 PERSIST; find-or-make promotes PERM over TEMP, never over PERSIST; teardown drops TEMP.",
+   "level": "reading",
+   "source": "FUN_00351ef0 D:L250995-251017; FUN_00351ff0 D:L251034-251067; FUN_00352500/00352610 D:L251228-251308",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/valves.test.ts","name":"names are case-sensitive (FUN_00351ef0 D:L250995-251017 compares with strcmp 0x198f18)","data":"none"},
+    {"file":"packages/ui/test/valves.test.ts","name":"acquire and set promote a held valve: PERM over TEMP but never over PERSIST, PERSIST always, TEMP never","data":"none"},
+    {"file":"packages/ui/test/valves.test.ts","name":"remove(TEMP) drops the TEMP valves only, remove(NONE) all (FUN_00352500/00352610 D:L251228-251308)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.valves.persist.65",
+   "claim": "The persistent valves are the PERSIST ones, written {NAME, VAL} in registry order; the card's PersistentValves.rdr is 4,144 bytes naming 65 valves, none a volume, brightness or stick slider.",
+   "level": "reading",
+   "source": "FUN_00352a90 D:L251463-251483; disc card PersistentValves.rdr",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/valves.test.ts","name":"the persistent valves are the PERSIST ones, NAME and VAL, in registry order (FUN_00352a90 D:L251463-251483)","data":"none"},
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"UIMnLOC: 1,411 strings, ids 1-1441; the card's PersistentValves.rdr: 65 valves, none a volume, brightness or stick slider (R104.5)","data":"none"},
+    {"file":"tools/test/dialogInventoryDisc.test.ts","name":"is 4,144 bytes naming 65 valves, the same names on every card, none a volume, brightness or stick slider","data":"fixture"}
+   ]
+  },
+  {
+   "id": "frontend.valves.defaults.global",
+   "claim": "Valve defaults come from READERC.ZAR's global_valves.rdr (185 entries, 65 PERSIST, 23 non-zero) and each mission.rdr's Valves, not from UiParams.rdr.",
+   "level": "reading",
+   "source": "CValve_Open D:L152619; disc RUN/READERC.ZAR global_valves.rdr",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/valves.test.ts","name":"a valves table: type words PERM/TEMP/PERSIST in any case, else the default (CValve_Parse FUN_00351a90 D:L250805-250870)","data":"none"},
+    {"file":"packages/ui/test/valves.test.ts","name":"a mission's Valves: PERM tag 1 else TEMP, PERSIST tag 3 (FUN_002acc10 D:L152384-152420)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.valves.defaults.table",
+   "claim": "RUN/READERC.ZAR's global_valves.rdr declares 185 valves, 65 PERSIST and the rest PERM by the loader's default, 23 of them non-zero.",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR global_valves.rdr; CValve_Open D:L152619",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/viewer/test/globalValves.parity.test.ts","name":"pins 185 valves, 65 typed PERSIST and the rest untyped, 23 of them non-zero","data":"none"},
+    {"file":"packages/viewer/test/globalValves.parity.test.ts","name":"the pinned table boots 65 PERSIST valves, the untyped 120 PERM by CValve_Open's fallback (D:L152619)","data":"none"},
+    {"file":"packages/viewer/test/globalValves.parity.test.ts","name":"readGlobalValves reads RUN/READERC.ZAR's table row for row as the pin holds it","data":"fixture"}
+   ],
+   "owed": "The pin (golden/global-valves.json) is re-derived from the READERC.ZAR fixture only: a SOCOM_DISC re-derivation is owed."
+  },
+  {
+   "id": "frontend.uivars.manager.slots",
+   "claim": "The UI-variable manager holds 256 slots; lookup by name is strcasecmp; a new name takes the first dormant slot; longevity 0 dormant, 1 temporary, 2 permanent, 3 persistent, only ever raised.",
+   "level": "reading",
+   "source": "FUN_002b1390 D:L328198; FUN_003859d0 D:L279467-279487; CUIVariableSpec D:L280328-280346",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/uiVars.test.ts","name":"holds 256 slots (FUN_002b1390(0x437e80, 0x100), D:L328198); a 257th name has none","data":"none"},
+    {"file":"packages/ui/test/uiVars.test.ts","name":"finds a name case-insensitively among the live vars (strcasecmp 0x198b80, D:L279424-279425)","data":"none"},
+    {"file":"packages/ui/test/uiVars.test.ts","name":"a new name takes the first dormant slot (FUN_003859d0 D:L279467-279487), so a freed slot is reused in place","data":"none"},
+    {"file":"packages/ui/test/uiVars.test.ts","name":"raises the longevity, never lowers it (D:L279438-279440)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.uivars.serialize.rule",
+   "claim": "Serialize writes every live longevity-3 var with a name in slot order, except PLAYERPASSWORD and STORE_PASSWORD while the valve SecurePassword is 0.",
+   "level": "reading",
+   "source": "FUN_00385670 D:L279374-279407",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/uiVars.test.ts","name":"only longevity 3, in slot order, the two password vars left out while SecurePassword is 0 (D:L279389-279394)","data":"none"},
+    {"file":"packages/ui/test/uiVars.test.ts","name":"with SecurePassword non-zero the password vars are written too (D:L279384-279385, D:L279394)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.uivars.tuners.defaults",
+   "claim": "InitSystemTuners adds its eight vars at longevity 1 then stores 2, and writes SOUND_VOLUME 1.0, MUSIC_VOLUME 0.74, BRIGHTNESS 0.5, DIALOG_VOLUME 1.0, HEADSET_CONTROLLER 0.75.",
+   "level": "reading",
+   "source": "FUN_0038a7a0 D:L282238-282472",
+   "note": "docs/research/104-the-valve-store-and-ui-variables.md",
+   "tests": [
+    {"file":"packages/ui/test/uiVars.test.ts","name":"registers the eight tuner vars at 1 and stores longevity 2 over it (D:L282254-282255 ... D:L282450-282451)","data":"none"},
+    {"file":"packages/ui/test/uiVars.test.ts","name":"writes the five float defaults (D:L282262-282270, 282287, 282312, 282433, 282458); the stick vars get none","data":"none"},
+    {"file":"packages/ui/test/uiVars.test.ts","name":"the five tuner defaults are the f32 words FUN_0038a7a0 writes","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.condition.no-precedence",
+   "claim": "A condition reads strictly left to right with no precedence (A OR B AND C is (A OR B) AND C); NOT inverts the next operand or group; every operand runs.",
+   "level": "reading",
+   "source": "FUN_0025e960 D:L108329-108409",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"reads left to right with no precedence: A OR B AND C is (A OR B) AND C (D:L108398-108409)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"NOT inverts the next operand, a bracketed group included (D:L108329-108332, D:L108369-108372, D:L108383-108386)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"runs every operand: nothing short-circuits (D:L108380, D:L108389)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.frame.order",
+   "claim": "One scheduler list walked once a frame; a called animation joins its end and runs later in the same frame, after its caller's step; a call of a running animation starts nothing.",
+   "level": "reading",
+   "source": "FUN_0025d550 D:L107473-107481; FUN_00270ef0 D:L119142-119216",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"a called animation joins the end of the list: it runs later in the same frame, after its caller's commands","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"flag 0x200 holds the caller while the callee is alive; it sees the end on the frame after (D:L107473-107481)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"a start of a running animation starts nothing: no copies are allowed (FUN_00270ef0 D:L119142-119216, flag 0x80 clear)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.yield.rules",
+   "claim": "END_WHILE and LOOP end the sequence's frame; a WAIT, a motion, a false VALVE test, a ui::UI_COMMAND answering false or FAIL holds its sequence to the next frame.",
+   "level": "reading",
+   "source": "FUN_0025ede0 D:L108458-108472; 0x25ec50; FUN_002745a0 D:L121413-121415",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"END_WHILE jumps to its WHILE and ends the frame: one pass a frame; a false WHILE steps past its END_WHILE","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"holds while elapsed + dt <= time (0x25ecac c.le.s), then passes the rest of the frame on (0x25ecb8-0x25ece8)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"a VALVE test as a statement is not done until true: the sequence waits on it (D:L114896-114899)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"a ui::UI_COMMAND answered false is ticked again next frame (FUN_002745a0 D:L121413-121415)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"FAIL is never done (tick 0x25dce0: return 0): the animation never ends","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.activation.autostart",
+   "claim": "An animation whose flags & 7 are 1 starts with its set's activation (17 on the disc, UIanim.rdr's menu_fade_up in each archive); a start in a set not activated starts nothing.",
+   "level": "reading",
+   "source": "FUN_0026c600 D:L116340-116380; FUN_002713f0 D:L119327-119331; FUN_002734b0 D:L120734-120737",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"17 animations start with their set's activation (flags & 7 == 1), menu_fade_up among them; 14 UIZANIM ones carry an activation guard","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"a set's activation starts the animations whose flags & 7 are 1 (FUN_0026c600 D:L116340-116380, FUN_002713f0 D:L119327-119331)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"a start in a set not yet activated starts nothing (FUN_002734b0 D:L120734-120737: the set's byte +1, set by FUN_0026c600 D:L116324-116325)","data":"none"},
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"the inventory of the three archives and the 14 MENUFADER fades equal the pin whole","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.activation.guards",
+   "claim": "14 UIZANIM animations carry an activation sequence (IF <cond> FAIL ENDIF) run once with 1.0 s at the start; it refuses the start when its condition holds.",
+   "level": "reading",
+   "source": "FUN_002734b0 D:L120743-120747; FUN_0026d870",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"17 animations start with their set's activation (flags & 7 == 1), menu_fade_up among them; 14 UIZANIM ones carry an activation guard","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"an activation guard that does not finish in one 1.0-s step refuses the start (FUN_002734b0 D:L120743-120747, FUN_0026d870)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.inventory.commands",
+   "claim": "The disc's scripts use set 0 commands {1,2,3,4,5,11,14,15,17,22,25,30,39,40,44,45,46,47,48,50,51,52,61}, condition tokens {7,10,43,61} and set 1's ui::UI_COMMAND (5,678 / 165 / 287, +579 tokens), no ui::UI_APP_COMMAND; all at priority 3 over 1,716 animations; the runtime implements every one.",
+   "level": "reading",
+   "source": "disc RUN/UIZANIM.ZAR, EXTZANIM.ZAR, MPZANIM.ZAR; FUN_0025bc20",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"the commands and condition tokens are research 106 §4's by set:cmd, and the runtime implements every one","data":"none"},
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"95 sets in each archive; 1,525 / 61 / 130 animations, every one at priority 3 (research 106 R106.2: one list, 1,716)","data":"none"},
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"the inventory of the three archives and the 14 MENUFADER fades equal the pin whole","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.fade.menu-fade-up",
+   "claim": "UIanim.rdr's menu_fade_up starts with its set's activation and takes MENUFADER's opacity from 1 at -2/3 a second, snapped to 0 when 1.5 s are up.",
+   "level": "reading",
+   "source": "FUN_0025f880 D:L108814-108831; disc RUN/UIZANIM.ZAR UIanim.rdr",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"UIanim.rdr menu_fade_up: not before the set is active, started by its activation; MENUFADER from 1 at -2/3 a second, 0 at 1.5 s (FUN_0025f880 D:L108814-108831)","data":"none"},
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"the pinned animations are UIZANIM's, field for field and byte for byte","data":"disc"},
+    {"file":"packages/ui/test/zanimRuntimeDisc.test.ts","name":"UIanim.rdr menu_fade_up: not before the set is active, started by its activation; MENUFADER from 1 at -2/3 a second, 0 at 1.5 s (FUN_0025f880 D:L108814-108831)","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.motion.opacity",
+   "claim": "OBJECT_OPACITY_FROM_TO and the motion start at \"from\", add the stored rate x dt each frame and snap to \"to\" when time < dt + elapsed, passing the rest of dt on.",
+   "level": "reading",
+   "source": "FUN_0025f880 D:L108814-108831; FUN_0025f9b0 D:L108905-109030",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"starts at \"from\", adds rate x dt a frame, snaps to \"to\" when time < dt + elapsed and passes the rest on","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"steps by the stored rate, not by (to - from) / time: a rate of -0.5 over 1.5 s leaves 0.25 before the snap (note 106 §7)","data":"none"},
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"flags 0x300: scale from the stored \"from\" at the stored rate, then \"to\" (D:L109310-109317, D:L108925-108939, D:L109019-109027)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.valves.store",
+   "claim": "A name a VALVE command or a motion reads is found or made at TEMP on first use and every op goes through the valve store.",
+   "level": "reading",
+   "source": "FUN_00351ff0(name, 2) D:L117834; FUN_0026eb30",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimRuntime.test.ts","name":"makes a valve it names at TEMP on first use (FUN_00351ff0(name, 2), D:L117834)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.zanim.menu.attract",
+   "claim": "dlgMenu.rdr's UiAttractMode, with no popup and no saved-games list, fades MENUFADER 0 -> 0.99 at 1.98 a second and switches to dlgAttractCinematic; with the list shown it calls UiStopAttract instead.",
+   "level": "reading",
+   "source": "disc RUN/UIZANIM.ZAR dlgMenu.rdr; FUN_0025e230 D:L107965-107984",
+   "note": "docs/research/106-the-zanim-ui-runtime.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"dlgMenu.rdr UiAttractMode: with no popup and no list it fades out and switches to dlgAttractCinematic; with the list shown it does neither","data":"none"},
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"the pinned animations are UIZANIM's, field for field and byte for byte","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.clock.tick.rate",
+   "claim": "The menu ticks at 29.97 Hz (two NTSC fields a frame; DAT_003e1400 = 30), not 60.",
+   "level": "reading",
+   "source": "FUN_003aff30 D:L304731-304768; DAT_003e1400",
+   "note": "docs/research/110-the-frame-clock.md",
+   "tests": [
+    {"file":"packages/ui/test/clock.test.ts","name":"two NTSC fields a tick: 29.97 Hz, the hardware's two-field frame 30000/1001 to 1 ppm","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.clock.dt.scale",
+   "claim": "The game's dt is 525/15734 s: timer 0 counts H-blanks over the truncated 15734.",
+   "level": "reading",
+   "source": "FUN_0034f3c0 D:L249327-249333",
+   "note": "docs/research/110-the-frame-clock.md",
+   "tests": [
+    {"file":"packages/ui/test/clock.test.ts","name":"dt's scale is the truncated 15734, not 15734.25: the game's two-field dt is 525 / 15734 s (29.9695 Hz), 16 ppm off the tick","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.clock.fade.tick15",
+   "claim": "The 0.5 s MENUFADER fade (the code's and the disc's 14 scripted fades, 0 -> 0.99 at 1.98 a second) reaches 0.99 on tick 15; on tick 30 only at 60 Hz.",
+   "level": "reading",
+   "source": "FUN_003654c0; disc RUN/UIZANIM.ZAR (14 OBJECT_OPACITY_FROM_TO on MENUFADER)",
+   "note": "docs/research/110-the-frame-clock.md",
+   "tests": [
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"14 OBJECT_OPACITY_FROM_TO fade MENUFADER from 0 to 0.99 at 1.98 a second for 0.5 s; dlgMenu.rdr UiAttractMode one of them","data":"none"},
+    {"file":"packages/ui/test/zanimScripts.parity.test.ts","name":"dlgMenu.rdr UiAttractMode on the clock (no popup, no list; a host answering true): MENUFADER at 0.99 on tick 15 at 29.97 Hz, on tick 30 at 60 Hz","data":"none"},
+    {"file":"packages/ui/test/clock.test.ts","name":"at the reading's 29.97 Hz: on tick 15 (0.5005 s), not before, and held to tick 600","data":"none"},
+    {"file":"packages/ui/test/clock.test.ts","name":"14 OBJECT_OPACITY_FROM_TO on MENUFADER from 0 to 0.99 at 1.98 a second for 0.5 s; dlgMenu.rdr UiAttractMode one of them","data":"disc"},
+    {"file":"packages/ui/test/clock.test.ts","name":"dlgMenu.rdr UiAttractMode, run on the clock (no popup, no list; a host answering true): MENUFADER at 0.99 on tick 15; at 60 Hz on tick 30","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.clock.step.clamp",
+   "claim": "The shell clamps every step to 0.05 s; the port catches a late frame up in whole ticks, at most 0.05 s of them (CATCHUP_LIMIT_READING), and freezes on a hidden tab (HIDDEN_TAB_READING).",
+   "level": "reading",
+   "source": "FUN_003654c0 A2 D:L262270-262273",
+   "note": "docs/research/110-the-frame-clock.md",
+   "tests": [
+    {"file":"packages/ui/test/clock.test.ts","name":"a very late frame: the catch-up is capped at CATCHUP_LIMIT_READING (0.05 s, the shell's step clamp) and the rest is lost","data":"none"},
+    {"file":"packages/ui/test/clock.test.ts","name":"the hidden tab (HIDDEN_TAB_READING freeze): no ticks while hidden, no burst on return, the carry kept","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.clock.movie.pace",
+   "claim": "Movies show one picture a tick, the PTS unread (MOVIE_PACE_READING): SONY448's 310 pictures last 10.34 s.",
+   "level": "reading",
+   "source": "D:L208692-208699; D:L208419",
+   "note": "docs/research/110-the-frame-clock.md",
+   "tests": [
+    {"file":"packages/ui/test/clock.test.ts","name":"MOVIE_PACE_READING: one picture a tick, the PTS unread (R121.9): SONY448's 310 pictures last 10.34 s against their 10.33","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"one menu frame per 1001/30000 s: SONY448's 310 pictures take 10.3437 s","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.faces.fonts-rdr",
+   "claim": "fonts.rdr holds two faces, font_titlebar_01 (166 glyphs, shadow (3,3) 0.65) and font_text_01 (184 glyphs from 185 records, shadow (1,1) 0.75, 18 coloured glyphs on its second atlas); both hold A-Z.",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR fonts.rdr",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"two faces, font_titlebar_01 and font_text_01: 166 and 184 glyphs (185 records: code 96 twice is one glyph)","data":"none"},
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"the face fields: shadows (3,3) 0.65 and (1,1) 0.75; opacity 0.7, scale 1, xspacing 0, no glow texture, no Korean table","data":"none"},
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"18 glyphs of font_text_01 carry a colour (150,150,150) on its second atlas, and draw with no shadow","data":"none"},
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"the pinned tree is parseRdr of RUN/READERC.ZAR's fonts.rdr, whole","data":"disc"},
+    {"file":"packages/ui/test/text/textDisc.test.ts","name":"every face of fonts.rdr loads: the two faces, their glyphs, textures, shadows","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.text.glyph.duplicate",
+   "claim": "A code listed twice is one glyph with both elements, drawn twice (the map filled through operator[]): font_text_01's code 96.",
+   "level": "reading",
+   "source": "FUN_0035c3a0; FUN_0035c2c0",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"a code listed twice is one glyph with both elements (R111.3): font_text_01's 96, drawn twice; its width the larger element's","data":"none"},
+    {"file":"packages/ui/test/text/face.test.ts","name":"a code listed twice is one glyph: the second record's element appended, its scalars written over (FUN_0035c3a0)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.glyph.fallback",
+   "claim": "An unknown code draws the glyph of 'A' + code % 26 (then the map's first); 0x0D draws nothing.",
+   "level": "reading",
+   "source": "FUN_0035a3a0 D:L255682-255798",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"every letter A-Z is in both faces, so an unknown code draws the letter 'A' + code % 26 and never the last resort (R111.6)","data":"none"},
+    {"file":"packages/ui/test/text/face.test.ts","name":"its own; none for 0x0D; else the letter A + code % 26; else the map's lowest code","data":"none"},
+    {"file":"packages/ui/test/text/textDisc.test.ts","name":"every caption of every dialog lays out in its face with no code the face lacks","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.text.measure.width",
+   "claim": "A text's width sums int(S x (W - 1) + 0.5) + xspacing per glyph; several lines measure as their SUM; a TEXT's line pitch is 0.",
+   "level": "reading",
+   "source": "FUN_00362b70; FUN_00363c20; vtable+0x88 0x1fe1a0",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"the measure (FUN_00362b70) on the real metrics: each glyph int(S x (W - 1) + 0.5); two lines measure as their SUM (R111.9)","data":"none"},
+    {"file":"packages/ui/test/text/layout.test.ts","name":"sums int(w + S x (W - 1) + 0.5) + xspacing over the glyphs","data":"none"},
+    {"file":"packages/ui/test/text/layout.test.ts","name":"a text of several lines measures as the SUM of its lines; a space opening a later line is skipped","data":"none"},
+    {"file":"packages/ui/test/text/layout.test.ts","name":"a break returns the pen to the node's x and moves it down int(pitch); a TEXT's pitch is 0","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.frame.640x448",
+   "claim": "The text's frame is 640 x 448, unscaled (the y factor 1.0 in the front end's video mode).",
+   "level": "reading",
+   "source": "FUN_00364f30; FUN_003b1200(0) D:L249656",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"is 640 x 448 (FUN_003b1200(0) D:L305271-305395)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.glow.pulse",
+   "claim": "TEXT_GLOW pulses the caption's own alpha: phase += dt / 2, alpha = (RANGE[0] + sin(phase / TIME x 3.14) x (RANGE[1] - RANGE[0])) x 128.",
+   "level": "reading",
+   "source": "FUN_00363b30 D:L261297-261315",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/text/states.test.ts","name":"phase += dt / 2; alpha = (bottom + sin(phase / period x 3.14) x (top - bottom)) x 128","data":"none"},
+    {"file":"packages/ui/test/text/states.test.ts","name":"the literal is 3.14, not pi: at phase = period the alpha stays above the bottom by sin(3.14) x 0.7 x 128","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.states.buttons",
+   "claim": "Entering a button state sets the caption's alpha to 100, its TEXT_COLOR and SCALE, and the glow only where the state has one; PRESSED lasts 0.2 s; on the disc 299 ACTIVE states glow, 293 at 0.5-1 over 0.5 s and dlgMenu's 6 at 0.3-1 over 0.8 s.",
+   "level": "reading",
+   "source": "FUN_0036e790 D:L267223-267240; disc RUN/UI/READERC.ZAR",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/text/states.test.ts","name":"a state sets the caption's TEXT_COLOR, its SCALE and the alpha 100; the glow only where the state has one","data":"none"},
+    {"file":"packages/ui/test/text/states.test.ts","name":"PRESSED holds 0.2 s, then ACTIVE when enabled; the glow's phase carries over","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgMenu: the six row buttons carry CAPTION \" \" (the labels are the roller's textures) and glow ACTIVE 0.3-1 over 0.8 s","data":"none"},
+    {"file":"packages/ui/test/text/textDisc.test.ts","name":"the dialogs' button glows: every TEXT_GLOW has a TIME (none divides by zero)","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.text.wrapped.lines",
+   "claim": "WRAPPEDTEXT's lines sit 3 rows above their row, a word wider than WIDTH overflows, #Crgb colours the next line.",
+   "level": "reading",
+   "source": "D:L273138; D:L273510",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/text/wrapped.test.ts","name":"line k at (x, int(y + k x SPACING - 3)); the scissor from (x, -4 + y - SPACING) to (x + WIDTH, -4 + y + HEIGHT - SPACING)","data":"none"},
+    {"file":"packages/ui/test/text/wrapped.test.ts","name":"a word wider than WIDTH overflows: the line ends at the first space after it","data":"none"},
+    {"file":"packages/ui/test/text/wrapped.test.ts","name":"#Crgb sets the NEXT line's colour (signed bytes) and ends this one","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.teletype.typing",
+   "claim": "A TELETYPE types while the typed width is under a distance growing by dt x INTERVAL x SCALE; a word past MAXLENGTH starts a new line.",
+   "level": "reading",
+   "source": "research 111 §6 (FUN_00378c00 family)",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/text/teletype.test.ts","name":"the distance grows by dt x INTERVAL x SCALE; a character is appended while the typed width is under it","data":"none"},
+    {"file":"packages/ui/test/text/teletype.test.ts","name":"a word that would carry the line past MAXLENGTH starts a new line; the line keeps its space","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.text.tickertape.absent",
+   "claim": "TICKERTAPETEXT is SOCOM 1's: neither SOCOM II factory makes it and the ELF has no such string.",
+   "level": "reading",
+   "source": "FUN_00382070; FUN_00382890; disc socom2_game.elf strings",
+   "note": "docs/research/111-ui-text.md",
+   "tests": [
+    {"file":"packages/ui/test/text/captions.test.ts","name":"neither of SOCOM II's factories makes it (FUN_00382070, FUN_00382890; reCOM zui_spec.cpp:99 is SOCOM 1's)","data":"none"},
+    {"file":"packages/ui/test/text/textDisc.test.ts","name":"the ELF names no TICKERTAPETEXT (reCOM's, SOCOM 1); it names TEXT_GLOW","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.order.tree",
+   "claim": "The draw order is the tree's order (depth first, children in their vector's order), not a z field; two planes: the backplane (background, controls with subordinates, objects), the models' 3D pass, then the foreplane (MENUFADER, POPUP).",
+   "level": "reading",
+   "source": "FUN_00336a60 D:L235063-235110; FUN_00369170 D:L264251-264259; D:L264467-264468",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"puts the background, the controls and the objects on the backplane, MENUFADER and POPUP on the foreplane","data":"none"},
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"runs: clear, the movie, the backplane walk, the models, the foreplane walk","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgMenu builds into two planes: the controls with their CHILDOF children on the backplane, MENUFADER and POPUP on the foreplane","data":"none"},
+    {"file":"packages/ui/test/compositor/compositorDisc.test.ts","name":"dlgMenu: the movie under the controls, the objects after them, CHILDOF children under their parents","data":"disc"},
+    {"file":"packages/ui/test/compositor/compositorDisc.test.ts","name":"builds and composes all 114, nothing thrown; nine movie layers, 94 background images","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.childof.parent",
+   "claim": "A CHILDOF is parented among the nodes made so far, else the backplane: dlgOptions_Menu's HDDOnOff, its own CHILDOF, stays on the backplane with its checkboxes under it.",
+   "level": "reading",
+   "source": "FUN_003696d0 D:L264427-264492",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"parents a CHILDOF among the nodes made so far, else the backplane (FUN_003696d0 D:L264427-264492)","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgOptions_Menu: 15 nodes; HDDOnOff takes its first subordinate's CHILDOF -- itself; its VALVE key is read by no widget reader","data":"none"},
+    {"file":"packages/ui/test/compositor/compositorDisc.test.ts","name":"dlgOptions_Menu: its background first; HDDOnOff's own CHILDOF finds nothing yet (backplane), its checkboxes under it","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.opacity.inherit",
+   "claim": "Opacity is inherited multiplied: a node under 127/128 pushes its opacity times the parent's, and the adaptor sets alpha f x 128 when f < 1 (0.99 drawn as 128) and leaves it when f >= 1.",
+   "level": "reading",
+   "source": "FUN_00336a10 D:L235048-235058; FUN_0036d8b0 D:L266729-266747",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"draws alpha f x 128 for f under 1 and keeps it; 0.99 draws as 128; f >= 1 leaves the held alpha","data":"none"},
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"pushes only below 127/128, the product with the parent's","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.uv.inset",
+   "claim": "Every 2D quad samples S 0.01 .. 0.99 across and T -0.01 .. -0.99 down: a bottom-row-first bitmap stands upright.",
+   "level": "reading",
+   "source": "FUN_00364c50 D:L262025-262030; FUN_00364830 D:L261813-261816",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"samples ST 0.01 .. 0.99 across and -0.01 .. -0.99 down, the t negated (D:L262025-262030, the setter D:L261813-261816)","data":"none"},
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"stands a bottom-row-first bitmap upright: t -0.01 wraps to the stored 0.99, the image's top 0.01","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.fader.input",
+   "claim": "The fader is a black 640 x 448 quad whose alpha is MENUFADER's opacity; a dialog opens with it clear only when nothing set DAT_0049eaa0 (no bindings, no widget animations).",
+   "level": "reading",
+   "source": "D:L263580-263611; D:L263689-263691; D:L264444",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"draws the fader as a black full-frame quad whose alpha is the MENUFADER opacity, the input","data":"none"},
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"keeps the fader opaque when the dialog has bindings, else clear (D:L263580-263611, D:L263689-263691)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.movie.bottom",
+   "claim": "The movie layer is the bottom of the frame, under the backplane; it holds the last picture presented and is black before one (MOVIE_HOLD_READING).",
+   "level": "reading",
+   "source": "FUN_0030b740 D:L208733-208746",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"gives a movie background a movie layer and no background node","data":"none"},
+    {"file":"packages/ui/test/compositor/compositor.test.ts","name":"draws the movie layer black until a picture is presented, then the last one (MOVIE_HOLD_READING)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.compositor.score.dlgmenu",
+   "claim": "dlgMenu as built (no script run, the movie black) scores 95.8 against main_menu.png and dlgCreateGame's title band 98.0 against PCSX2's with the 4:3 correction.",
+   "level": "reading",
+   "source": "capture SOCOM_PC_ROOT/scripts/parity/refs main_menu.png; PCSX2 frames",
+   "note": "docs/research/112-the-2d-compositor.md",
+   "tests": [
+    {"file":"tools/test/uiCompositorScore.test.ts","name":"dlgMenu as built against main_menu.png: the whole frame, and the logo with the rest masked","data":"capture"},
+    {"file":"tools/test/uiCompositorScore.test.ts","name":"dlgMenu as built against PCSX2's full main-menu frame (640x448 window: the 4:3 correction) -- the block's bar","data":"capture"},
+    {"file":"tools/test/uiCompositorScore.test.ts","name":"dlgCreateGame's title band against PCSX2's (640x448 window: the 4:3 correction) and the recompiled game's","data":"capture"}
+   ],
+   "owed": "Every test needs the captures (TA.R2: the captures are the fixtures stream's); a scored frame is a measurement of the port, so the level stays reading until a capture-scored spec runs in CI."
+  },
+  {
+   "id": "frontend.pss.shape.packs",
+   "claim": "Every disc PSS is 16,384-byte packs then the 4-byte program end: one system header, video 0xE0, audio in private stream 1, a few padding packets; 69 files, 3,254,108,436 bytes, 198,615 packs, 619,594 video, 174,743 audio, 191 padding packets; nothing between units.",
+   "level": "reading",
+   "source": "disc RUN/MOVIES/**/*.PSS",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"69 files: 3,254,108,436 bytes, 198,615 packs, 619,594 video, 174,743 audio and 191 padding packets (R109.2)","data":"none"},
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"every file is the same shape: 16,384-byte packs (the game's 0x4000 read) then the 4-byte end code; one system header; nothing skipped","data":"none"},
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"the 69 files and their sizes are the pin's","data":"disc"},
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"the boot's three movies (all 69 with PSS_ALL=1) demux to their pinned rows, whole","data":"disc"},
+    {"file":"packages/fmv/test/pssDisc.test.ts","name":"finds 69 PSS files","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.pss.audio.substream",
+   "claim": "Each audio payload opens on FF A0 00 00, which the game's callback skips; the track is SShd type 1, 48000 Hz, 2 channels, interleave 0x200 (PCM, no ADPCM), the PCM exactly SSbd's size, on all 69.",
+   "level": "reading",
+   "source": "FUN_0030aca0 D:L208533-208534; disc RUN/MOVIES/**/*.PSS",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"every track: FF A0 00 00 before each payload, then SShd type 1, 48000 Hz, 2 channels, 0x200 -- PCM, exactly SSbd's size (R109.3, R109.4)","data":"none"},
+    {"file":"packages/fmv/test/pss.test.ts","name":"strips the 4-byte substream header from private stream 1 and keeps its bytes","data":"none"},
+    {"file":"packages/fmv/test/pssDisc.test.ts","name":"every track: SShd type 1, 48000 Hz, 2 channels, 0x200 (PCM, no ADPCM), PCM exactly SSbd's size, FF A0 00 00 before each payload","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.pss.header.dropped",
+   "claim": "The game reads none of the header's fields: it counts the track's first 0x28 bytes as header and drops them.",
+   "level": "reading",
+   "source": "FUN_0030a590 D:L208242-208248",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"the splitter takes the pinned header as the game counts it (FUN_0030a590: the first 0x28 bytes) and passes the PCM behind it","data":"none"},
+    {"file":"packages/fmv/test/pss.test.ts","name":"takes the first 40 bytes of the track as the header, however the packets cut it, and passes the rest","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.pss.video.ffmpeg",
+   "claim": "The demuxed video of all 69 PSS files is byte-equal to ffmpeg's -map 0:v:0 -c copy -f mpeg2video stream (length, SHA-256, picture start codes).",
+   "level": "reading",
+   "source": "disc RUN/MOVIES/**/*.PSS; ffmpeg 8.1 stream copy",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"the boot's three movies (all 69 with PSS_ALL=1) demux to their pinned rows, whole","data":"disc"},
+    {"file":"packages/fmv/test/pssDisc.test.ts","name":"the video is byte-equal to ffmpeg's stream copy (-map 0:v:0 -c copy -f mpeg2video)","data":"disc"}
+   ],
+   "owed": "In CI only the pinned SHA-256s stand for it; the ffmpeg comparison itself needs the disc and ffmpeg."
+  },
+  {
+   "id": "frontend.pss.menuloop.pictures",
+   "claim": "MENULOOP has 3,732 pictures, not 3,790; SONY448 310, INTRO_2 3,836.",
+   "level": "reading",
+   "source": "disc RUN/MOVIES/COMMON/MENULOOP.PSS; ffprobe -count_frames",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"the boot's movies: SONY448 310 pictures, INTRO_2 3,836, MENULOOP 3,732 -- not PC research 09's 3,790 (R109.7)","data":"none"},
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"the boot's three movies (all 69 with PSS_ALL=1) demux to their pinned rows, whole","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.pss.title-audio",
+   "claim": "title_disc_audio.bin is SONY448's whole track (2,114,600 bytes) followed by the first 2,417,318 bytes of INTRO_2's.",
+   "level": "reading",
+   "source": "capture SOCOM_PC_ROOT/logs/title_disc_audio.bin",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pssStreamMap.parity.test.ts","name":"title_disc_audio.bin's length is SONY448's whole track and the head of INTRO_2's: 2,114,600 + 2,417,318 bytes (R109.6)","data":"none"},
+    {"file":"packages/fmv/test/pssDisc.test.ts","name":"title_disc_audio.bin is SONY448's whole track, then the head of INTRO_2's (PC research 32 §7.1)","data":"capture"}
+   ]
+  },
+  {
+   "id": "frontend.pss.demux.resync",
+   "claim": "The demuxer is general: it resynchronises on stray bytes, carries a unit across chunks and gives the same packets for any chunking.",
+   "level": "reading",
+   "source": "ISO/IEC 13818-1 (the PES syntax); research 109 §1",
+   "note": "docs/research/109-the-pss-demuxer.md",
+   "tests": [
+    {"file":"packages/fmv/test/pss.test.ts","name":"gives the same packets for every chunk size from 1 byte up","data":"none"},
+    {"file":"packages/fmv/test/pss.test.ts","name":"resynchronises on bytes between units and counts them","data":"none"},
+    {"file":"packages/fmv/test/pss.test.ts","name":"reads PTS and DTS (MPEG-2 and MPEG-1 headers, all 33 bits), and none where a packet has none","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.background.machine",
+   "claim": "The background player presents one picture a tick, then (the stream ended) fires event 3 once and restarts on MPEG_LOOPING, else closes.",
+   "level": "reading",
+   "source": "FUN_00366940 D:L262877-262897",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/fmv/test/player.test.ts","name":"rows 4-8: N pictures on ticks 1..N, none on N+1 (NODATA), event 3 exactly once on N+2, then nothing ever","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"row 8 fires the event before the close (FUN_00367810 at D:L262888, FUN_003096f0 at D:L262892)","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"row 9: with the loop flag (TYPE MPEG_LOOPING) the end restarts -- no picture that tick, picture 0 on the next, event 3 again N+2 ticks later","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.event.onmpegend",
+   "claim": "ONMPEGEND is event 3 and starts every EVENT binding of the current dialog whose event is 3, in record order.",
+   "level": "reading",
+   "source": "FUN_001f3bf0 D:L54435-54444; FUN_00367810 D:L263357-263396",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/ui/test/movie/movieCommands.test.ts","name":"starts every event-3 binding of the dialog in record order, with its argument; buttons and other events are not touched","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgIntroCinematic: SONY448 as an MPEG background (type 1, not looping); no BUTTON binding, so nothing skips it; ONMPEGEND (3) switches to dlgSecondCinematic","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.open.failed",
+   "claim": "A movie that fails to open ends at once: the dialog build fires event 3 in the same build; BackgroundMPEG ON that fails fires nothing.",
+   "level": "reading",
+   "source": "D:L263762-263764; FUN_00366a00 D:L262903-262943",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/fmv/test/player.test.ts","name":"row 4, a failed open: event 3 during the build, after ONSTART; stopped; no further event","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"row 13: ON reopens the stored name from picture 0 (closing a playing one first); a failed ON fires no event","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.no-loop",
+   "claim": "No retail dialog loops: the nine MPEG backgrounds, dlgMenu's menuloop.pss among them, are all type 1.",
+   "level": "reading",
+   "source": "D:L277326-277343; disc RUN/UI/READERC.ZAR",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgMenu: the 17 records in the engine's node order, new_game_button at (256, 330) and SplashLogo at (70, 45); MENULOOP not looping","data":"none"},
+    {"file":"tools/test/dialogInventory.parity.test.ts","name":"the per-dialog tallies sum to the totals: IMAGE 2,057, TEXT 1,291, BUTTON 298 ... CHECKBOX 42, elements 72 + 72, backgrounds 90 + 9 (R105.4)","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.state.skip",
+   "claim": "The movie state skips on CROSS released: a 1.1 s timer, with FADE the alpha falling over 1.0 s, held 0.1 s, then close and pop; without FADE on the same tick; a natural end pops at once.",
+   "level": "reading",
+   "source": "0x1ed044-0x1ed174; FUN_002d9ff0 D:L179128-179186",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/fmv/test/player.test.ts","name":"skip with FADE: CROSS released starts a 1.1 s timer; alpha (t - 0.1) while t >= 0.1, 0 below, the movie decoding on; pop when t < 0","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"skip without FADE (PlayMPEGNoFade): alpha 0 and close and pop on the release's own tick","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"only the release skips (state 3); a press or a hold does not; a second release does not restart the timer","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.loop.restart-seeks",
+   "claim": "The loop restart (FUN_00309560) stops and resets the decoder, seeks the open file (or the CD stream) to its start (FUN_0030baf0) and creates the decoder again; it does not reopen the file, presents no picture on the end tick and picture 0 on the next.",
+   "level": "reading",
+   "source": "FUN_00309560 D:L207664-207698; FUN_0030baf0 D:L208953-208971",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/fmv/test/player.test.ts","name":"row 9: with the loop flag (TYPE MPEG_LOOPING) the end restarts -- no picture that tick, picture 0 on the next, event 3 again N+2 ticks later","data":"none"}
+   ],
+   "owed": "Unreached on the disc (no dialog says MPEG_LOOPING, R121.5). R121.6's frame-buffer arguments shifted by 5 (D:L207694 against D:L207812, a believed defect) and the unhandled failed seek are not modelled (the note asks for the clean seek): a test of either is owed only with PLAT-36's proven level."
+  },
+  {
+   "id": "frontend.movie.reenter.restart",
+   "claim": "Leaving and re-entering a BACKGROUND MPEG dialog starts its movie from picture 0; so does a state pop.",
+   "level": "reading",
+   "source": "FUN_00369210 D:L264407-264422; FUN_001f45e0 D:L54766-54776",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/fmv/test/player.test.ts","name":"row 2 and §8: a dialog left and re-entered starts its movie over from picture 0; the old end is never delivered to the new dialog","data":"none"},
+    {"file":"packages/fmv/test/player.test.ts","name":"row 16: a state pop restarts the background from picture 0 (FUN_001f45e0 -> FUN_00366a00(shell, 0))","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.movie.commands.rows",
+   "claim": "BackgroundMPEG (row 135, id 136), PlayMPEG (row 22, id 23) and PlayMPEGNoFade (row 133, id 134) are the movie rows; PlayMovie is an animation name, not a row.",
+   "level": "reading",
+   "source": "disc socom2_game.elf binding table 0x3dd4d0",
+   "note": "docs/research/121-the-movie-player.md",
+   "tests": [
+    {"file":"packages/ui/test/movie/movieCommands.test.ts","name":"names the three rows, their ids and functions; PlayMovie is not one","data":"none"},
+    {"file":"tools/test/uiCommandTable.parity.test.ts","name":"UI_COMMAND_TABLE is the pinned ELF table row for row: index, id, name, fn, fn2 of 207 rows; the terminator row 207 all zero","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.unplaced.exit-state",
+   "claim": "dlgExitState is the single-player mission's end screen: CExitMenu's dialog getter returns it, made by the game state CExitState on entry.",
+   "level": "reading",
+   "source": "FUN_001f1bb0 D:L53451-53503; disc socom2_game.elf 0x3e2c98, 0x1f3b00",
+   "note": "docs/research/114-unplaced-dialogs.md",
+   "tests": [
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"dlgExitState is in READERC and READERX; dlgHype in READERC only; dlgStickSetup in neither","data":"none"},
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"the vtable FUN_001f1ae0 and FUN_001f1bb0 install is CExitMenu's, and its dialog getter returns dlgExitState.rdr","data":"disc"},
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"the state FUN_001f1d70 builds is CExitState (\"ExitState\"), and its slot +0x10 is FUN_001f1bb0","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.unplaced.hype",
+   "claim": "dlgHype has no caller: the one reference is the switch handler's strstr, and its script set and asset library are on no archive.",
+   "level": "reading",
+   "source": "FUN_00365a00 D:L262431-262433",
+   "note": "docs/research/114-unplaced-dialogs.md",
+   "tests": [
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"no dialog edge reaches dlgExitState or dlgHype; dlgStickSetup only from GoToStickSetup, a script no binding runs","data":"none"},
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"no ELF string holds \"StickSetup\"; the one holding \"hype\" is dlgHype at 0x3f8c88, its strstr followed by printf(\"\")","data":"disc"},
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"dlgHype's one script library is a set no archive holds, so its three bindings resolve to nothing","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.unplaced.sticksetup",
+   "claim": "dlgStickSetup is not on the disc; only dlgOptions_Menu's animation GoToStickSetup names it, and nothing starts that animation.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERC.ZAR; RUN/UIZANIM.ZAR dlgOptions_Menu.rdr",
+   "note": "docs/research/114-unplaced-dialogs.md",
+   "tests": [
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"no dialog edge reaches dlgExitState or dlgHype; dlgStickSetup only from GoToStickSetup, a script no binding runs","data":"none"},
+    {"file":"tools/test/unplacedDialogs.test.ts","name":"GoToStickSetup is defined once, in dlgOptions_Menu.rdr's set, and no binding and no CALL_ANIMATION starts it","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.loading.dialog.dlgload",
+   "claim": "dlgLoad.rdr gives nine objects, background LittleBlack.tif, LIBRARY common/assetlib/loading, FONT font_text_01.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERC.ZAR dlgLoad.rdr",
+   "note": "docs/research/125-the-loading-screen.md",
+   "tests": [
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"dlgLoad: nine objects, background LittleBlack.tif, LIBRARY common/assetlib/loading, FONT font_text_01 (research 125 R125.1)","data":"none"},
+    {"file":"packages/ui/test/dialogBoot.parity.test.ts","name":"each pinned tree is parseRdr of its READERC member, whole","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.loading.binding.library",
+   "claim": "The picture's library is mission.rdr's LoadingScreenAssets: OMnn on MP1-MP12, LPnn on MP51-MP83 (all 22), the picture ld_mp<n>_prog.tif; the description \" \" on 21 maps, empty on MP64.",
+   "level": "reading",
+   "source": "FUN_002acc10 D:L152347-152354; FUN_001f6660 D:L55800-55814; disc RUN/MP*.ZDB mission.rdr",
+   "note": "docs/research/125-the-loading-screen.md",
+   "tests": [
+    {"file":"packages/ui/test/loading.parity.test.ts","name":"22 multiplayer maps; each binds ld_mp<n>_prog.tif in the library LoadingScreenAssets names: OMnn on MP1-MP12, LPnn on MP51-MP83 (R125.2)","data":"none"},
+    {"file":"packages/ui/test/loading.test.ts","name":"reads the UiVars and the LoadingScreenAssets library, wherever it sits (a depth-first lookup), to its file stem","data":"none"},
+    {"file":"packages/ui/test/loading.parity.test.ts","name":"every map's row, and MP2's two animations, equal the pin whole","data":"disc"},
+    {"file":"packages/ui/test/loading.test.ts","name":"binds ld_mp<n>_prog.tif in the library LoadingScreenAssets names: OMnn on MP1-MP12, LPnn on 51-83; a title on each","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.loading.spin.cd",
+   "claim": "SpinLoadingCD lives in each map's own LDZANIM.ZAR (set dlgLoad.rdr, 6 animations, on all 22) and in no UI archive: two 0.75 s scale motions on load_CD_Parent, (1.1, 1.1) -> (0, 1) -> (1.1, 1.1), looped, linear at the stored rate (-1.4667 a second in x).",
+   "level": "reading",
+   "source": "FUN_0025f9b0 D:L108850-109034; disc RUN/MP*.ZDB LDZANIM.ZAR",
+   "note": "docs/research/125-the-loading-screen.md",
+   "tests": [
+    {"file":"packages/ui/test/loading.parity.test.ts","name":"every map carries the same SpinLoadingCD and OnMenuStart as MP2's (R125.3: the set lives in each map's LDZANIM.ZAR)","data":"none"},
+    {"file":"packages/ui/test/loading.parity.test.ts","name":"SpinLoadingCD: two 0.75 s scale motions on load_CD_Parent, (1.1, 1.1) -> (0, 1) -> (1.1, 1.1), looped: a 1.5 s turn (R125.3)","data":"none"},
+    {"file":"packages/ui/test/loading.parity.test.ts","name":"the spin is linear at the stored rate, -1.4667 a second in x, and snaps to \"to\" at each end (R125.4, FUN_0025f9b0)","data":"none"},
+    {"file":"packages/ui/test/loading.test.ts","name":"SpinLoadingCD is in each map's LDZANIM.ZAR set dlgLoad.rdr: two 0.75 s scale segments on load_CD_Parent, looped","data":"disc"},
+    {"file":"packages/ui/test/loading.test.ts","name":"the disc's three zAnim archives hold no SpinLoadingCD: the name lives only in the maps (research 96's open question)","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.loading.fade.onmenustart",
+   "claim": "OnMenuStart in the same set fades MENUFADER 1 -> 0 in 1.5 s on every map; the drawn fader is its opacity x 128.",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB LDZANIM.ZAR dlgLoad.rdr OnMenuStart; FUN_001f5e70",
+   "note": "docs/research/125-the-loading-screen.md",
+   "tests": [
+    {"file":"packages/ui/test/loading.parity.test.ts","name":"OnMenuStart fades MENUFADER 1 -> 0 in 1.5 s; the drawn fader is its opacity x 128, 0 at 1.5 s (research 125 §3, R112.3)","data":"none"},
+    {"file":"packages/ui/test/loading.test.ts","name":"OnMenuStart in the same set fades MENUFADER 1 -> 0 in 1.5 s on every map (research 125 §3)","data":"disc"}
+   ]
+  },
+  {
+   "id": "frontend.loading.bar.absent",
+   "claim": "The progress bar's load_back.tif and load_line.tif are on no texture bank of the disc: the original draws no bar.",
+   "level": "reading",
+   "source": "disc every *_TXR.ZED, loose and in the maps",
+   "note": "docs/research/125-the-loading-screen.md",
+   "tests": [
+    {"file":"packages/viewer/test/loadingAssets.test.ts","name":"resolves the picture the map binds, the disc, the background and the font on all 22, nothing missing","data":"disc"}
+   ],
+   "owed": "Held over the loading screen's libraries on all 22 maps (both bitmaps unheld); a disc test over every texture bank's names (none holds load_back.tif or load_line.tif) is owed: research 125 §4 records a probe."
+  },
+  {
+   "id": "frontend.card.scramble.passes",
+   "claim": "The card scrambler is two byte passes, 0x96 forward then the last byte backward; FUN_0033de00 inverts it.",
+   "level": "reading",
+   "source": "FUN_0033de00; PC research 80 step 3",
+   "note": "docs/research/102-the-card-file-codec.md",
+   "tests": [
+    {"file":"tools/test/cardFile.test.ts","name":"matches the vectors worked by hand, both ways","data":"none"},
+    {"file":"tools/test/cardFile.test.ts","name":"inverts the forward pass at every length around the 8-byte unrolled loop, and leaves its input alone","data":"none"}
+   ]
+  },
+  {
+   "id": "frontend.card.zar.layout",
+   "claim": "The game's save archive layout: a heap stable_ofs, no leading empty name, 0xAF in every alignment gap; the PC launcher's: a leading empty name, stable_ofs 0, zero gaps; the loader reads both.",
+   "level": "reading",
+   "source": "FUN_00257590 L104078",
+   "note": "docs/research/102-the-card-file-codec.md",
+   "tests": [
+    {"file":"tools/test/cardFile.test.ts","name":"reads the game's layout: the tree with each key's bytes, a heap stable_ofs, no empty name, 0xAF gaps","data":"none"},
+    {"file":"tools/test/cardFile.test.ts","name":"reads the launcher's layout: a leading empty name, stable_ofs 0, zero gaps","data":"none"},
+    {"file":"tools/test/cardFile.test.ts","name":"accounts for every byte of both: head, names, keys, each key's data, and gaps of the layout's fill","data":"none"},
+    {"file":"tools/test/cardFileDev.test.ts","name":"account for every byte: each archive and each rdr key tiles with nothing unreferenced, unreached or past the end","data":"fixture"}
+   ]
+  },
+  {
+   "id": "frontend.card.rdr.flatten",
+   "claim": "The flattened rdr is fully determined by the typed tree with its flags bytes (a list's children one block, depth-first; strings interned; flags 4 points at an earlier equal block); no save holds a float node.",
+   "level": "reading",
+   "source": "PC research 80 step 5; the 76 game-written files",
+   "note": "docs/research/102-the-card-file-codec.md",
+   "tests": [
+    {"file":"tools/test/cardFile.test.ts","name":"reads every node with its type and flags; the float is type 2","data":"none"},
+    {"file":"tools/test/cardFile.test.ts","name":"accounts for every byte: the head, each string once and referenced, zero padding, each node reached","data":"none"},
+    {"file":"tools/test/cardFileDev.test.ts","name":"read without error, to the pinned counts: 469 keys holding 170,984 B, 139 rdr keys, appversion 14 x13 and 12 x63","data":"fixture"}
+   ]
+  },
+  {
+   "id": "frontend.card.header.appversion",
+   "claim": "zSaveHeader's second word equals the archive's appversion in all 76 files: 14 in BASCUS-97275SOCOMII, 12 in SaveGame<n>.",
+   "level": "reading",
+   "source": "the 76 game-written files under SOCOM_PC_ROOT",
+   "note": "docs/research/102-the-card-file-codec.md",
+   "tests": [
+    {"file":"tools/test/cardFile.test.ts","name":"unscrambles and reads a card: the header, the modules, the keys by path, the persona","data":"none"},
+    {"file":"tools/test/cardFileDev.test.ts","name":"read without error, to the pinned counts: 469 keys holding 170,984 B, 139 rdr keys, appversion 14 x13 and 12 x63","data":"fixture"}
+   ]
+  },
+  {
+   "id": "frontend.card.personas.decode",
+   "claim": "The personas decode exactly as card_save.py decodes them on all 76 files; the four fixtures hold none, s27pa, s16pc then s16pd, and created.bin's s17pc; two.bin's second record shares its equal value lists (flags 4).",
+   "level": "reading",
+   "source": "PC research 80 steps 4-5; card fixtures",
+   "note": "docs/research/102-the-card-file-codec.md",
+   "tests": [
+    {"file":"tools/test/cardFileDev.test.ts","name":"decode to the personas PC research 80 lists: none, s27pa, s16pc then s16pd, and created.bin's s17pc","data":"fixture"},
+    {"file":"tools/test/cardFileDev.test.ts","name":"two.bin holds the keys and the header PC research 80 lists","data":"fixture"}
+   ],
+   "owed": "The persona fields and the four fixtures' decoded values are not pinned in git (the card bytes are TA.R2's; the decoded fields could be, but carry player names and passwords' presence): a unit pin of the decoded field shapes is owed if the owner allows it."
+  },
+  {
+   "id": "frontend.card.size.not-count",
+   "claim": "The card's size is not a persona count: virgin / one / two are 4,784 / 6,208 / 6,400 B; one and two also hold the ten UI-variable keys MPLOCALSOP1-5, MPTAUNTMSG1-5.",
+   "level": "reading",
+   "source": "card fixtures virgin.bin, one.bin, two.bin",
+   "note": "docs/research/102-the-card-file-codec.md",
+   "tests": [],
+   "owed": "Held by no test since the writers went (R7): a fixture test on the three cards' sizes and key lists is owed."
+  },
+  {
+   "id": "frontend.match.actions-part",
+   "claim": "The original's match is one match wherever it is launched from: the menu-launched match carries the action button with the doors, the traversal, the switches, DEMOLITION's bomb and the turrets as /testroom does -- the front end's switch turns doors, actions and traversal on together (ACT.R1) and its page mounts the one action part (mountActions) with main.ts's deps, follows the lobby's client from the join, and runs main.ts's frame lines in main.ts's order.",
+   "level": "reading",
+   "source": "research 166 s8 (the original's match in the front end's page); FUN_0021d9d0 (the action context's order, research 214 s4); research 222 s2.5 (the part as built)",
+   "note": "docs/research/250-the-actions-on-the-menu-launched-match.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchCore.test.ts","name":"the front end mounts the firearm, the sound (MATCH-SOUND), the throwables, the launcher and the R2 inventory (MATCH-THROW), the doors, the action part and the traversal (ACT-1), the world drops (PAR-4), the seat ARMORY (PAR-2), the touch layer (PAR-5): no tactical map ... (pinned: a change here is deliberate)","data":"none"},
+    {"file":"packages/viewer/test/matchActions.test.ts","name":"matchMount.ts calls mountActions with the same deps shape main.ts does -- doors, traversal, grenade, remote, bombView's seven (PB-1: the own body and the sound lent), win -- and makes no RoomEvents, ActionPage, TurretPage, BombPage or ActionWiring of its own","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the switches and the bomb follow the lobby client from the join: RoomEvents.following() is the adopted client; a reconnect's client is followed on the next frame (followNet); the teardown lets it go and the window's blur listener with it","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the follow lines: acts.follow(net.client) after new NetPage in join(), acts.followNet() after net.frame(), acts.follow(null) in the teardown -- main.ts's three","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the frame order mirrors main.ts: traversal.input before walk.frame; doors.frame and turrets.frame after followNet and before the world's step; turretFrame after fireFrame; net.frame's trigger is the firearm's OR the turret's","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the traversal: the clips reach it with the body's (setClips beside play.setClips), its input before the walk's frame and effectsFrame each frame on the firearm's effects, as /testroom's (PAR-10, research 257 s3); the HUD's climb and slide are ACT-4's","data":"none"}
+   ],
+   "owed": "The browser run from the lobby on the three first-release maps (ACT-6). The water's splash on the menu path (research 250 s9) landed at PARITY-1 wave 4 (PAR-10, research 257 s4.3)."
+  },
+  {
+   "id": "frontend.match.action-prompts",
+   "claim": "The original's HUD shows the action context's prompt in the action slot wherever the match was launched from: on the menu-launched match the door, the ladder slide, the climb, the bomb's plant and the defuse's prompt, the bomb's compass marks and the fuse in the timer's place reach the shared Hud through main.ts's five HUD lines in main.ts's order (ACT.R4), none off the walk or dead; the development hook reports /testroom's reads for the menu-path specs and is folded out of every build.",
+   "level": "reading",
+   "source": "FUN_0021d9d0 (the action context's order, research 214 s4); research 87 s5 (ACTION_ICONS); DEFUSE_PROMPT_ICON_READING, DEFUSE_TIMER_LAYOUT_READING (research 214); research 86 (the ladder slide's icon)",
+   "note": "docs/research/250-the-actions-on-the-menu-launched-match.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"a door under the reticle puts door in the HUD's action slot; on a ladder ladder_slide; at a plant site with the bomb carried bomb; the defuse's prompt is DEFUSE_PROMPT_ICON_READING; none off the walk or dead","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the bomb's marks and fuse reach the HUD through bomb.hudFrame once a frame: ret_bomb/ret_base in extraMarks, the fuse in defuseTimer while planted","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the hook (a development build): hud, feet, setCamera, pose, floorUnder, doors, traversal, worldStates, worldActive, alive, waiting -- present under DEV, gone at the teardown; the production build folds it away (build_keyboard.test.ts's scan covers MATCH_WINDOW_HOOK)","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the four HUD lines are main.ts's: traversal.hudFrame(hud), acts.bomb.hudFrame(), traversal.effectsFrame(), feedHud's climb and nearby","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the HUD lines' order is main.ts's: traversal.hudFrame(hud), acts.bomb.hudFrame(), hostages.frame(), traversal.effectsFrame(), firearm.feedHud(...), after hud.setVisible","data":"none"}
+   ],
+   "owed": "The browser run from the lobby reading these through the hook (ACT-6's specs, the controller's green run); the hook's bomb() read, which /testroom's hook has no line for (research 250 s5: the controller's call); the turret's box on a placement (ACT-2)."
+  },
+  {
+   "id": "frontend.match.action-lane",
+   "claim": "The original's action button is one button wherever the match is launched from: on the menu-launched match Cross is read as the player update reads it -- its edges in the game lanes' order (the Action between the jump and the shoulders), the press holding the context in reach, a held press at a plant site running the room's hold (the commands' ActionHeld), the release firing the one-shot context picked then -- with /testroom's lines and order (ACT.R3), and a cancel never a release: the R2 inventory's or the Chat menu's opening, the loading hold, a lost pad, the own death, the window's blur.",
+   "level": "reading",
+   "source": "FUN_00594cf0 D:L453194-453243 (the Action's edges between the jump and the shoulders; research 222, matchLanes.ts); research 214 s4 (the lifecycle and the cancel rule: blur, menu, armory, pad lost, death, touch)",
+   "note": "docs/research/250-the-actions-on-the-menu-launched-match.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"a Cross held into a plant site (the carrier at the site): the commands sent carry Button.ActionHeld, the lifecycle holds bombPlant, the release fires nothing and sends no door/action event","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"Cross released on a door under the reticle fires the door's send once; the walk's filter is told a page took it (no Button.Action on the command, no climb)","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"Cross released with no page context runs the walk's own action through the filter (walk.setActionFilter, set by mountActions): the climb, as /testroom's; a release with a page context runs the page's and not the walk's","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the R2 inventory's open is a cancel ('menu'): a Cross held as R2 opens fires nothing at its release; the inventory keeps Cross while open (INVENTORY_LANES), and the next press after the close is a press","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the Chat menu's open is a cancel ('menu') too: a Cross held at a plant site as Circle opens the menu ends the hold -- no ActionHeld after it, nothing fired at its release (playerLanes skips the action lane while the menu owns the pad)","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the loading hold (LobbyMatch.blocked) cancels a hold ('loading'); a pad pulled mid-hold is a cancel ('padLost', PadWatch), never the release its vanished lanes read as; the own death cancels ('death', MatchNetHooks.died)","data":"none"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"the lane order: triggerLane, the inventory's frame, then playerLanes' action lane (acts.lanes: press/hold/release, elapse, traversal.padLanes), then endFrame -- main.ts's order, pinned by text","data":"none"},
+    {"file":"packages/viewer/test/matchLanes.test.ts","name":"the front end: the action lanes since ACT-3 (acts.lanes through LaneParts.action), the same line main.ts has","data":"none"}
+   ],
+   "owed": "The touch layer is off on the front end, so no 'touch' cancel path there; no ARMORY, so no 'armory' cancel. The pad-driven hold in a browser from the lobby is ACT-6's run."
+  },
+  {
+   "id": "frontend.match.exchange-gate",
+   "claim": "The original's WEAPON EXCHANGE opens on the Inventory button (R2) only in the match, dead or a ghost, the camera on oneself, not a spectator, and the dead's prompt lines (S1 / S1g) are drawn meanwhile on foot: written once as the part both pages are to mount (mountExchange), /testroom's gate and prompt line for line.",
+   "level": "reading",
+   "source": "FUN_001f7ff0 D:L56648-56661 (the menus' gate); FUN_001f97b0 D:L56980 (the dead's prompt; its lines D:L57000-57007, research 91); research 94 s B2",
+   "note": "docs/research/253-weapon-exchange-as-one-part.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"R2 opens the menu through the page's gate: %s","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"no match: the gate is main.ts's \"no match, alive\" and nothing opens; no prompt","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"the prompt: the room's dead or ghost lines on foot in the game, on the page's device; none off the walk or with no lines","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"a death on the lobby's client: the prompt and R2's menu; Cross's pick a loadout request on the socket; the room's answer shown; the spawn closes it","data":"none"}
+   ],
+   "owed": "The front end's mount landed at PARITY-1 wave 4 (research 253 s3's hunks with FRONT_END_CAPABILITIES.exchange on; PART_HOOKS.exchange owes answered from both pages): both pages mount the part. Owed: the browser run from the lobby on MP2, MP51 and MP72 (PAR-27, ACT.R7) and the touch half (PAR-5, PARITY-2)."
+  },
+  {
+   "id": "frontend.match.exchange-confirm",
+   "claim": "A confirm in WEAPON EXCHANGE writes the pick to the type's next kit, which the menu then shows as the room answers it, and the round's reset closes the menu over the kit the spawn took, an unconfirmed pick lost, and Triangle or Start backs out (R2 closing the list) with nothing written: one part, its confirm sent through the page's match (protocol 7) and its answer and reset the page's hooks.",
+   "level": "reading",
+   "source": "FUN_0023e5e0 D:L88379 (the confirm); FUN_0023e370 D:L88306 (the lists open on the type's kit); FUN_002a7d40 D:L149757 -> FUN_00240d50 (the round's reset, S8); research 94 s B6",
+   "note": "docs/research/253-weapon-exchange-as-one-part.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"Cross confirms a pick: the side's list sent as the loadout request; the menu shows the kit with it","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"opens on the type's next kit -- the pick held, else its own -- asked at each opening","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"answered (the part's MatchNetHooks addition): the room's kit on the menu's rows; answer() the same for the ARMORY's","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"S8: the reset closes the menu over the kit the spawn took (PlayerLoadout.loadout); an unconfirmed pick is lost","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"Triangle backs the picker out to the list, Start closes the list, R2 closes it too: nothing sent, the kit as it was","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"a death on the lobby's client: the prompt and R2's menu; Cross's pick a loadout request on the socket; the room's answer shown; the spawn closes it","data":"none"}
+   ],
+   "owed": "The front end's mount landed at PARITY-1 wave 4 (research 253 s3's hunks with FRONT_END_CAPABILITIES.exchange on; PART_HOOKS.exchange owes answered from both pages): both pages mount the part. Owed: the browser run from the lobby on MP2, MP51 and MP72 (PAR-27, ACT.R7) and the touch half (PAR-5, PARITY-2)."
+  },
+  {
+   "id": "frontend.match.exchange-input",
+   "claim": "While WEAPON EXCHANGE is open the controller's HUD mode is 1 and the game takes no button, the menu stepping on just-pressed edges with no repeat: on both pages the part's step and its ownership come before the trigger lane, the R2 inventory and the player lanes (the ownership held past a close until a button is let go is research 300 s3's browser safeguard, not the original's).",
+   "level": "reading",
+   "source": "FUN_00597740(ctrl, 1, 0) D:L88370 (HUD mode 1); FUN_00592560 D:L451673-451675; FUN_002d9ff0 D:L179130 (the pad's just-pressed state); research 94 s B3",
+   "note": "docs/research/253-weapon-exchange-as-one-part.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"edges: a button pressed this frame, not one held; the loading hold's baseline makes a held one no press at the release","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"dead, R2 opens the menu: no inventory, no trigger, no lane sees R2, Cross, R1 or the d-pad while it is open","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"a Cross and an R1 held through the round's reset stay the menu's until let go: no action press, no shot; the next press is one","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"open, the part holds the pad on a frame with no press (its step answers the menu, not the edges); closed, it does not","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"a Triangle held through the menu's own close reaches no lane until let go: no stance step, no prone; the next tap is one","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"an R2 held through the list's close reaches neither the R2 inventory nor a reopening until let go; then R2 is a press again","data":"none"},
+    {"file":"packages/viewer/test/matchExchange.test.ts","name":"/testroom's ownership comes before the trigger lane, the R2 inventory and playerLanes (holds before and after wave 4)","data":"none"}
+   ],
+   "owed": "The front end's mount landed at PARITY-1 wave 4 (research 253 s3's hunks with FRONT_END_CAPABILITIES.exchange on; PART_HOOKS.exchange owes answered from both pages): both pages mount the part. Owed: the browser run from the lobby on MP2, MP51 and MP72 (PAR-27, ACT.R7) and the touch half (PAR-5, PARITY-2)."
+  },
+  {
+   "id": "frontend.match.fire-mode-default",
+   "claim": "At the DEFAULT fire-mode setting (DAT_0044d500 0, the global never stored) the original switches the fire mode on a double tap -- a second first press while the .25 s marker a first press sets is live (FIRE_MODE_DOUBLE_TAP_S_READING) -- or each time the button's held time passes .4 s (FIRE_MODE_HOLD_REPEAT_S_READING), zeroed at the switch; a short tap switches nothing. The take is the consumer's: a frame the player update does not reach it takes nothing, while a switch the weapon refuses has still consumed the tap. At ALTERNATE (FIREMODESWAP_CONTROLLER 1) it switches at the first press. A game state's start flushes the button (FUN_002dba60): its state read afresh, every tap marker -3, so a button held through it is no press and no double tap spans it. Both pages take it through the one lane (matchLanes.ts playerLanes: fireModeInputFor(l).step, research 254 s4; PAR-22's wave-4 hunk), the menu match reading the setting off its OPTIONS and /testroom DEFAULT, each page flushing the button with its lanes' read; research 230's inputTiming.test.ts single tap, double tap and held for 31 original ticks are ordinary tests.",
+   "level": "reading",
+   "source": "FUN_002d9ff0 D:L179137-179184; FUN_002da1c0 D:L179217-179227; FUN_00594b70 D:L452972-452993; ELF 0x650670 = 0x3ecccccd; FUN_00594cf0 D:L453465-453472; FUN_00592050 D:L451456-451467; D:L125173-125183; FUN_002dba60 D:L179891-179936",
+   "note": "docs/research/254-default-fire-mode-as-the-original-reads-it.md",
+   "tests": [
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"single tap: no switch (the port's edge switched once)","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"double tap, the second press three frames after the first: one switch, at the second press (the port's edge switched twice)","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"held for 31 original ticks: two switches, at frames 12 and 24 -- the held time past .4 s, reset at each switch (the port's edge switched once, at frame 0)","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"the double tap's window: a second press 8 frames after the first switches, 9 frames after does not (.25 s less 7 frames is live, less 8 spent)","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"the readings are the original's floats: .25 the literal 0x3e800000, .4 the ELF's word at 0x650670 (0x3ecccccd, .4000000059604645)","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"ALTERNATE keeps the first press: the same three sequences switch at every first press -- once, twice, once at frame 0","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"the setting is DEFAULT at zero (the global never stored: the original's .bss zero) and ALTERNATE at FIREMODESWAP_CONTROLLER 1, read off the options StoreOptions left","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"the consumer not run (the player update's gate shut: off the walk, a menu over the game) takes nothing: a double tap's marker waits and switches the first frame the gate opens","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"a switch the weapon itself refuses (FUN_005c4600's own tests, after the take) still consumes the tap and resets the held time","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"ALTERNATE: a button pressed under the loading hold and held through its release is held, not a first press -- no switch at the release (the lane's flushed edge agrees)","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"the menu match's first frame (its flush, then the lanes the same frame) with the button held: no switch","data":"none"},
+    {"file":"packages/viewer/test/fireModeInput.test.ts","name":"DEFAULT: a press before the hold and one after it are no double tap -- the flush sets every tap marker to -3","data":"none"},
+    {"file":"packages/viewer/test/matchLanes.test.ts","name":"DEFAULT (no setting stored): a first press switches nothing, a second inside .25 s switches once, and off the walk nothing is taken (research 254)","data":"none"}
+   ],
+   "owed": "Captures of the original for the window and the repeat running (latency and feel, gate D17); /testroom reads no OPTIONS (DEFAULT only)."
+  },
+  {
+   "id": "frontend.match.char-shadow",
+   "claim": "The original draws the local player's shadow in a match as a 256x256 render map of the actor's silhouette, its camera placed each frame down the world root's ShadowVector before the world is drawn: written once as the part both pages are to mount (mountCharShadow: the map's vector at the show, the warm-up, the per-frame map before the world's render on a renderer with render targets, freed at the teardown), /testroom's lines.",
+   "level": "reading",
+   "source": "FUN_00599f00 (the caster's +0xa1 bit 5); FUN_0031f240, FUN_0031a9a0 (the CRenderMap); FUN_0031a180 (its camera each frame); FUN_003553a0 (ShadowX_%d, 256x256); research 82 round 4",
+   "note": "docs/research/255-the-page-gaps-of-wave-2-as-built.md",
+   "tests": [
+    {"file":"packages/viewer/test/charShadowMount.test.ts","name":"shadowRendererOf: the three.js renderer when it has render targets; null for a renderer without (the tests' fakes)","data":"none"},
+    {"file":"packages/viewer/test/charShadowMount.test.ts","name":"each frame the visible actor is drawn as a silhouette into the 256x256 map on its layer, before the world; the target, clear colour and scene put back","data":"none"},
+    {"file":"packages/viewer/test/charShadowMount.test.ts","name":"no draw while the actor is hidden or absent, or on a renderer without render targets","data":"none"},
+    {"file":"packages/viewer/test/charShadowMount.test.ts","name":"the warm-up compiles the actor for the map: its camera, the map as the target, the silhouette as the override (main.ts's warmWalk)","data":"none"},
+    {"file":"packages/viewer/test/charShadowMount.test.ts","name":"teardown frees the shadow: the silhouette and the map's target disposed; no draw after","data":"none"}
+   ],
+   "owed": "The front end's mount landed at PARITY-1 wave 4 (research 255 s5.1: matchMount.ts re-pointed to ./matchRenderer and the part mounted, FRONT_END_CAPABILITIES.shadow on, main.ts on the part). Owed: the browser run from the lobby on MP2, MP51 and MP72 (PAR-27, ACT.R7) and a capture of the original's shadow."
+  },
+  {
+   "id": "frontend.match.round-screen-bitmaps",
+   "claim": "The original's round end screens draw multplay_back.tif (512x512) as their background and backsolid.tif (16x16) under their panels: handed to the HUD by one hand-off both pages are to call (handRoundScreenBitmaps), the front end's out of the lobby's ARMORY read of the mission, kept for it (keepMissionRead: one decode), so its screens draw the two as quads rather than the fallback shapes.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERX.ZAR dlgMultiplayerRound.rdr, dlgMultiplayerFinal.rdr, dlgMultiplayerFinalReally.rdr (BACKGROUND, the panels' IMAGE); RUN/UI/UIMP_TXR.ZED and UIMP_PAL.ZED (the two bitmaps); research 216, 179 s10 s3",
+   "note": "docs/research/255-the-page-gaps-of-wave-2-as-built.md",
+   "tests": [
+    {"file":"packages/viewer/test/roundScreenHandoff.test.ts","name":"the lobby's read, kept for its mission, hands the match's HUD the two decoded bitmaps -- one decode -- and the end screen draws them as quads","data":"none"},
+    {"file":"packages/viewer/test/roundScreenHandoff.test.ts","name":"another mission is read afresh and kept in its place; a read that found nothing hands nothing and the screens keep their shapes","data":"none"},
+    {"file":"packages/viewer/test/roundScreenHandoff.test.ts","name":"the lobby's own read (armoryFromDisc with the world, as frontEnd.ts reads it) holds UIMP's two bitmaps; through the hand-off the end screen draws them","data":"fixture"},
+    {"file":"packages/viewer/test/matchMount.test.ts","name":"PAR-3: the page's ARMORY read (MatchMountOptions.armory) hands the HUD the round screens' two bitmaps once it resolves; none after the match is let go","data":"none"}
+   ],
+   "owed": "The front end's mount landed at PARITY-1 wave 4 (research 255 s5.3: frontEnd.ts keeps its ARMORY read and hands it to the mount, matchMount.ts hands it on, main.ts on the hand-off). Owed: the browser run from the lobby to a round's end (PAR-27, ACT.R7)."
+  },
+  {
+   "id": "frontend.match.effects-brighten",
+   "claim": "A multiplayer round runs no brighten pass, so the original's effects draw at x1 (FIX 0): the menu-launched match's effects are at x1 with no hand-off -- brightenOf reads the FIX alone and no light rig moves it, the menu's lighting is DEFAULT_LIGHTING's FIX 0, and the effects' brighten starts at 1 with /testroom's main.ts its only writer -- so the audit's setBrighten hand-off is a demonstrated no-op and none is added.",
+   "level": "reading",
+   "source": "RDRAM frostA_probe600.rdram, frostB_probe600.rdram (the state block 0x488e48 +0x31 = 0, the pass count 0x488e90 = 0); FUN_003b24c0, FUN_0033cd50 (the auto-exposure); research 82 D1",
+   "note": "docs/research/255-the-page-gaps-of-wave-2-as-built.md",
+   "tests": [
+    {"file":"packages/viewer/test/effectsBrighten.test.ts","name":"brightenOf reads the FIX alone, never the rig: under DEFAULT_LIGHTING (FIX 0, the multiplayer frame unbrightened) every rig is x1","data":"none"},
+    {"file":"packages/viewer/test/effectsBrighten.test.ts","name":"the effects start at x1 and only main.ts writes them: no module of the menu path calls setBrighten or writes a FIX","data":"none"}
+   ],
+   "owed": "No page hunk (research 255 s4, s5.4). The first test is also the viewer unit test of the default that decoders.render.postprocess.mp-off owes; cross-listing it in decoders.json is that area's."
+  },
+  {
+   "id": "frontend.match.footprints",
+   "claim": "The original prints decals.rdr's FOOTSTEP_DECALS (SAND, SNOW) at each footfall, none prone, beside the step's sound for every actor whose footfalls are heard (the own and the three nearest others): written once as the part both pages are to mount (mountEffects: main.ts's own-body print, and the others' print beside sound.remoteStep along the body's facing the step hook now carries); the round's clear already wipes them on both pages.",
+   "level": "reading",
+   "source": "FUN_005a3570 D:L460268-460378 (FUN_005a39b0 and FUN_005a3280 side by side, D:L460343-460346, L460372-460375; the +0xe0 bit 2 gate D:L460295); FUN_005a3280 D:L460188-460212; research 89 (footfalls)",
+   "note": "docs/research/257-the-shared-effects-on-the-menu-path.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"the own body's footfall prints once at the floor under the foot, along the SEAL's forward, with the floor's material and its upward normal (main.ts:893-904)","data":"none"},
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"the foot's own point, else the feet; prone passed on (the effects print none prone); not walking, no grid or no floor: no print","data":"none"},
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"another body's footfall: its step heard once, then its print at the foot with the body's facing -- the sound and the print side by side (FUN_005a3570 D:L460344-460345, L460372-460374)","data":"none"},
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"a footfall on sand leaves a decal through the firearm's Effects, on metal none; the round's clear wipes them (clearFootprints)","data":"fixture"},
+    {"file":"packages/viewer/test/remoteFootsteps.test.ts","name":"PAR-8 (research 257 s1): the hook gets the body's facing beside its step -- the yaw its footprint runs along (FUN_005a3280 D:L460188-460212, from FUN_005a3570 beside the step's sound)","data":"none"}
+   ],
+   "owed": "The pages' mount landed at PARITY-1 wave 4 (research 257 s4.1: main.ts and matchMount.ts on mountEffects). Owed: the browser run on sand from both paths (PAR-27, ACT.R7) and a capture of the original's prints."
+  },
+  {
+   "id": "frontend.match.fall-death-message",
+   "claim": "The original posts \"%s falls to their death\" (0x65c440) once, as the fall death's kill line (cause 0xfd): in a match the room decides the death and NetPage posts the line on both pages; /testroom's own landing line of the death class (main.ts:892) is posted only with no room live -- the match client not open (fallDeathLine) -- so a fall death in a match shows one line on each page, and a free walk (no match, or one whose socket closed) its own.",
+   "level": "reading",
+   "source": "FUN_00547860 D:L412879-412880 (0xfd -> 0x65c440); FUN_005ac1f0 D:L464955-464959 (the fall's death, cause 0xfd); research 91 s10, 87 s14",
+   "note": "docs/research/257-the-shared-effects-on-the-menu-path.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"a fall death in a match posts its line once: the room's kill line, and no landing line beside it (/testroom posted two)","data":"none"},
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"the menu match's line is the room's (NetPage, both pages'): once for its own fall and once for another's","data":"none"},
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"no room (/testroom's free walk): the landing of the death class posts the line once, the player's name or the default; any other landing nothing","data":"none"},
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"a room that was live and then closed (the server down, the connection lost; the NetPage kept, retrying, the walk unlocked) is no room: the landing of the death class posts the line once (the PAR-9 review's finding)","data":"none"}
+   ],
+   "owed": "/testroom's line landed at PARITY-1 wave 4 (research 257 s4.2: main.ts on fallDeathLine({ hud, net: () => net })): one line on both paths. Owed: the browser run on both paths (PAR-27, ACT.R7)."
+  },
+  {
+   "id": "frontend.match.water",
+   "claim": "The original plays the SEAL's fall into water once (seal_fall_in_water at the water's point) and keeps one wading ripple a size by the water line against the body and the speed class, a new one only when the last has ended, looping until stopped: on both pages through the traversal's own keeper on the firearm's effects (traversal.setEffects), /testroom's second keeper retired; the ripples stopped at a round's clear (RIPPLES_AT_ROUND_CLEAR_READING) and when other effects are handed over; the effects' stats report the runs whoever keeps them.",
+   "level": "reading",
+   "source": "FUN_005b52b0 D:L469808-469921 (the bands, the keeper, the splash D:L469898-469901, the +0xe1 stop D:L469904-469913); research 86 s5.4, 89 (Water), 250 s9",
+   "note": "docs/research/257-the-shared-effects-on-the-menu-path.md",
+   "tests": [
+    {"file":"packages/viewer/test/matchEffects.test.ts","name":"the firearm's Effects handed to the traversal: a fall into the pool splashes once, the wading ripple runs, both in the effects' stats; the round's clear stops it","data":"fixture"},
+    {"file":"packages/viewer/test/traversalPage.test.ts","name":"a new effects object handed over (the next map's) stops the ripple the old one ran; none runs on unowned","data":"none"},
+    {"file":"packages/viewer/test/traversalPage.test.ts","name":"a round's clear stops the ripples running and forgets them; the next frame in the water starts one afresh (RIPPLES_AT_ROUND_CLEAR_READING)","data":"none"},
+    {"file":"packages/viewer/test/traversalPage.test.ts","name":"keeps one ripple running, following the SEAL, a new one only when it ends; a fall into the pool splashes","data":"none"}
+   ],
+   "owed": "The pages' line landed at PARITY-1 wave 4 (research 257 s4.3: traversal.setEffects and clearRipples on both pages, /testroom's s2u:traversal listener and waterFrame block retired; matchMount.test.ts's traversal case and e2e/effects.spec.ts's Enowapi case with it, the e2e typechecked only). Owed: the browser run on Enowapi from both paths with a real fall (PAR-27, ACT.R7); Effects.waterFrame and splash retired; RIPPLES_AT_ROUND_CLEAR_READING; the death's stop."
+  },
+  {
+   "id": "frontend.match.graded-alpha",
+   "claim": "The original draws a texture whose alpha is a ramp (a texture ramp, or a packet's vertex alpha below unity) blended by the ALPHA_1 equation its bind packet sets, with TEST.ATE clear, not punched out: a world built with no toggle call (the menu-launched match, matchMount.ts) does so, as /testroom does with its graded-alpha box checked; setBlendGraded(false) is the browser's cutout escape hatch.",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB MP*_TXR.ZED bind packets (ALPHA_1, TEST_1) through @s2u/gs gsState.ts decodeAlpha, decodeTest (decoders.gs.texture.alpha-test); materialSpec.ts discSpec; research 82 round 5 (the vertex ramp)",
+   "note": "docs/research/255-the-page-gaps-of-wave-2-as-built.md",
+   "tests": [
+    {"file":"packages/viewer/test/worldBlendGraded.test.ts","name":"a world built as the menu match builds it, no toggle called, blends a ramp-alpha texture with its bind packet's equation, not the cutout","data":"none"},
+    {"file":"packages/viewer/test/worldBlendGraded.test.ts","name":"setBlendGraded(false) still gives the cutout at half for every ramp; true again restores the bind packet's blend","data":"none"}
+   ],
+   "owed": "PAR-35 (research 255 s8): the browser look on the menu-launched match beside /testroom's -- Frostfire's lamps, Vigilance's grass -- at PARITY-1's gate (PAR-27), and Craig's check on main; no capture of the original's lamp scored."
+  }
+ ]
+}

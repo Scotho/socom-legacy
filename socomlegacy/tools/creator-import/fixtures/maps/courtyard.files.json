@@ -1,0 +1,21 @@
+{
+  "fixtureFormat": "neutral-fixture-file-hashes-1",
+  "algorithm": "sha256",
+  "files": [
+    {
+      "file": "courtyard.source.json",
+      "bytes": 22444,
+      "sha256": "a34cee8353e272c300a3ed70590a1b0afcde30d4112243e6fe223080f5df0697"
+    },
+    {
+      "file": "courtyard.variants.json",
+      "bytes": 1126,
+      "sha256": "6f656900338dc8c3731461f239806c486881d81ff0c2cc3cd2781e419d69b752"
+    },
+    {
+      "file": "courtyard.glb",
+      "bytes": 12276,
+      "sha256": "1e924afdb01352dfd3221d405ecab80e40df807930d18c950f0cd72bc21074cc"
+    }
+  ]
+}

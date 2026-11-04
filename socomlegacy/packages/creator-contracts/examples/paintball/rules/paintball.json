@@ -1,0 +1,77 @@
+{
+  "schema": "s2u-rules",
+  "vocabulary": 0,
+  "id": "paintball",
+  "name": "Paintball",
+  "description": "One mark and you are out: hits do no damage, a marker's hit eliminates, the side with none left loses the round.",
+  "config": [
+    { "id": "hits", "type": "int", "default": 1, "min": 1, "max": 10, "label": "Hits to eliminate" },
+    { "id": "points", "type": "int", "default": 1, "min": 0, "max": 100, "label": "Points per elimination" },
+    { "id": "loadout", "type": "enum", "values": ["sidearms", "any"], "default": "sidearms", "label": "Markers" }
+  ],
+  "variables": [
+    { "id": "marks", "scope": "player", "type": "int", "start": 0, "min": 0, "max": 10, "reset": "round" },
+    { "id": "eliminated", "scope": "player", "type": "bool", "start": false, "reset": "round" }
+  ],
+  "rules": [
+    {
+      "id": "start",
+      "when": "round.start",
+      "then": [{ "do": "message.show", "text": "Paintball: one mark and you are out" }]
+    },
+    {
+      "id": "sidearms-only",
+      "when": "round.start",
+      "if": [{ "test": "compare", "left": { "param": "loadout" }, "op": "=", "right": "sidearms" }],
+      "then": [{ "do": "loadout.restrict", "allow": ["pistol"] }]
+    },
+    {
+      "id": "no-damage",
+      "when": "player.hit",
+      "then": [{ "do": "hit.scale", "factor": 0 }]
+    },
+    {
+      "id": "mark",
+      "when": "player.hit",
+      "if": [
+        { "test": "not", "of": { "test": "team", "who": "attacker", "same": "victim" } },
+        { "test": "compare", "left": { "var": "eliminated", "who": "attacker" }, "op": "=", "right": false },
+        { "test": "compare", "left": { "var": "eliminated", "who": "victim" }, "op": "=", "right": false },
+        {
+          "test": "any",
+          "of": [
+            { "test": "compare", "left": { "param": "loadout" }, "op": "=", "right": "any" },
+            { "test": "compare", "left": { "field": "weaponClass" }, "op": "=", "right": "pistol" }
+          ]
+        }
+      ],
+      "then": [{ "do": "variable.add", "var": "marks", "who": "victim", "amount": 1 }]
+    },
+    {
+      "id": "out",
+      "when": "player.hit",
+      "if": [
+        { "test": "compare", "left": { "var": "eliminated", "who": "victim" }, "op": "=", "right": false },
+        { "test": "compare", "left": { "var": "marks", "who": "victim" }, "op": ">=", "right": { "param": "hits" } }
+      ],
+      "then": [
+        { "do": "variable.set", "var": "eliminated", "who": "victim", "value": true },
+        { "do": "player.eliminate", "who": "victim" },
+        { "do": "score.award", "team": { "of": "attacker" }, "points": { "param": "points" } },
+        { "do": "message.show", "text": "Marked: out of the round", "who": "victim" }
+      ]
+    },
+    {
+      "id": "seal-wins",
+      "when": "player.eliminated",
+      "if": [{ "test": "alive", "team": "terrorist", "op": "=", "count": 0 }],
+      "then": [{ "do": "round.end", "winner": "seal" }]
+    },
+    {
+      "id": "terrorist-wins",
+      "when": "player.eliminated",
+      "if": [{ "test": "alive", "team": "seal", "op": "=", "count": 0 }],
+      "then": [{ "do": "round.end", "winner": "terrorist" }]
+    }
+  ]
+}

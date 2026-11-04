@@ -1,0 +1,60 @@
+{
+  "generated": [
+    {
+      "bytes": 2497,
+      "file": "degenerate-hull.collision-source.json",
+      "sha256": "c4750068fe200ede46a77850854cf13028001fc258e944cc1d0daa4229568c39"
+    },
+    {
+      "bytes": 3368,
+      "file": "degenerate-hull.glb",
+      "sha256": "3fb6a5d500e7c391698d40180ae550bb9e1f19b5f150cf58c9650fea5f2b8950"
+    },
+    {
+      "bytes": 2494,
+      "file": "external-uri.collision-source.json",
+      "sha256": "54c03652be43c41b0612f1ac800336998ab1db24c31ac8fd1749b97044f358ba"
+    },
+    {
+      "bytes": 3500,
+      "file": "external-uri.glb",
+      "sha256": "09e84b62363d35a765da45776e1734fc8a0ab1c283bf5d80461c059a8e71923b"
+    },
+    {
+      "bytes": 2508,
+      "file": "mirrored-transform.collision-source.json",
+      "sha256": "ecc396c2cbb3d1ac277b4d637af91e28d16b89653aeebfc088d91f3b53e62471"
+    },
+    {
+      "bytes": 3388,
+      "file": "mirrored-transform.glb",
+      "sha256": "e033697bddd49bfb32977229728d0ff0791dcf4c62cf92e9c65610a708068472"
+    },
+    {
+      "bytes": 2480,
+      "file": "solid.collision-source.json",
+      "sha256": "e79e12bb75915eeb9be58e2257eb43f2fec5ff2899a884b31c94e07e48344887"
+    },
+    {
+      "bytes": 3356,
+      "file": "solid.glb",
+      "sha256": "4c29025d3ccca061ed4b6f9d9b833d89c1326da78f2214e6da20df525b9bea4c"
+    },
+    {
+      "bytes": 1057,
+      "file": "visual-only.collision-source.json",
+      "sha256": "89948e9d1c3b9a5c388ef0c5f80ca8fee6137a0c4928ceba97738fbb5d2b0970"
+    },
+    {
+      "bytes": 3364,
+      "file": "visual-only.glb",
+      "sha256": "213f25a287706487b40588cca3891aa66403ba16128e0482e69de50db9c650f2"
+    }
+  ],
+  "purpose": "fixture byte inventory, not an import manifest",
+  "source": {
+    "bytes": 1763,
+    "file": "source.json",
+    "sha256": "c8cd53ab53c3c5f125cda36695967c2359785f922d978c1555275fb1688c4901"
+  }
+}

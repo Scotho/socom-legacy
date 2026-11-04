@@ -1,0 +1,17 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-sweep-cw (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: standing, a clockwise eight-way stick sweep while moving: back, back-left, left, forward-left, forward, forward-right, right, back-right, back, 200 ms each, then released.
+# Look: heading and speed per step on each side (each step is its own segment): how fast each follows a 45-degree change, a speed dip at each, the strafe / backpedal / run body per step (topActionId); the pairs in this order are S+A (kept), A then W (lost at 1.0 s in round 4; here 200 ms), W then D, D then S: a lost axis shows as a step with the wrong heading.
+# The sweep is the eight key directions, 200 ms each: a keyboard stick has no in-between angles, so this is the eight-way sweep, not an analog rotation.
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: the loop starts -z (back 37 u/s, sides and forward 65) and closes near the start: about z 825-858, x 925-950, on the flat strip x 920-950, z 810-855 (y -145 to -147; pop-stick's header); the bank's foot from x 910 (-x), the dip at x 950-980 (+x), water +z of z about 871 (flags105e +0x80, the 2026-10-31 runs), the forward step brushing the slope +z of the start.
+500 ldown 1
+700 lleft 1
+900 ldown 0
+1100 lup 1
+1300 lleft 0
+1500 lright 1
+1700 lup 0
+1900 ldown 1
+2100 lright 0
+2300 ldown 0

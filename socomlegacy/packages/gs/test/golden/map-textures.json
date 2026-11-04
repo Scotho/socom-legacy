@@ -1,0 +1,476 @@
+{
+  "_source": "SOCOM_DISC RUN/MP*.ZDB: each map's own <stem>_TXR.ZED / <stem>_PAL.ZED through Zar.parse, parseTextureRecord (gs/src/texture.ts) and parsePaletteRecord (palette.ts); header and PALETTE_PARAMS words as stored. Pinned 2026-10-02.",
+  "frostfire": {
+    "textures": [
+      {
+        "name": "a_floor.tif",
+        "header": [64,64,4096,1,301991432],
+        "tex0": {"tbp0":1,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":311,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "flooroil_detail.tif",
+        "header": [128,128,65536,2,285214496],
+        "tex0": {"tbp0":2,"tbw":2,"psm":0,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":true,"levels":1,"lodK":-9,"lodL":0,"mipTbp":[3],"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "flooroil_detail64.tif",
+        "header": [64,64,16384,3,352323104],
+        "tex0": {"tbp0":3,"tbw":1,"psm":0,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "floor_oilgrime.tif",
+        "header": [256,256,65536,4,301991432],
+        "tex0": {"tbp0":4,"tbw":4,"psm":19,"tw":8,"th":8,"tcc":1,"tfx":0,"cbp":101,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "container_door1.tif",
+        "header": [128,128,16384,5,301991432],
+        "tex0": {"tbp0":5,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":115,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_dumpster.tif",
+        "header": [128,128,16384,6,301991432],
+        "tex0": {"tbp0":6,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":106,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "crane1.tif",
+        "header": [64,64,4096,7,301991432],
+        "tex0": {"tbp0":7,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":97,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_window.tif",
+        "header": [32,32,4096,8,285214240],
+        "tex0": {"tbp0":8,"tbw":1,"psm":0,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "crane4.tif",
+        "header": [64,64,8192,9,268437008],
+        "tex0": {"tbp0":9,"tbw":1,"psm":2,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "crane5.tif",
+        "header": [64,64,8192,10,268437008],
+        "tex0": {"tbp0":10,"tbw":1,"psm":2,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel20.tif",
+        "header": [64,64,4096,11,855639560],
+        "tex0": {"tbp0":11,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":98,"cpsm":0,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"none","alphaTest":0.5,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "sign04.tif",
+        "header": [64,64,4096,12,855639560],
+        "tex0": {"tbp0":12,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":109,"cpsm":0,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"none","alphaTest":0.5,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel06.tif",
+        "header": [32,32,1024,13,301991432],
+        "tex0": {"tbp0":13,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":312,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_brushed_metal02.tif",
+        "header": [32,32,1024,14,301991432],
+        "tex0": {"tbp0":14,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":99,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel07.tif",
+        "header": [32,32,1024,15,301991432],
+        "tex0": {"tbp0":15,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":313,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel23.tif",
+        "header": [32,32,1024,16,301991432],
+        "tex0": {"tbp0":16,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":121,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_brushed_metal.tif",
+        "header": [32,32,1024,17,301991432],
+        "tex0": {"tbp0":17,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":94,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel08.tif",
+        "header": [32,32,1024,18,301991432],
+        "tex0": {"tbp0":18,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":314,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel05b.tif",
+        "header": [32,32,1024,19,301991432],
+        "tex0": {"tbp0":19,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":315,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "h-grate.tif",
+        "header": [128,128,16384,20,855639560],
+        "tex0": {"tbp0":20,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":95,"cpsm":0,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"none","alphaTest":0.5,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_iron.tif",
+        "header": [16,16,512,21,268437008],
+        "tex0": {"tbp0":21,"tbw":1,"psm":2,"tw":4,"th":4,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "lightpole01.tif",
+        "header": [32,32,1024,22,301991432],
+        "tex0": {"tbp0":22,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":108,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_ball_pipe.tif",
+        "header": [32,32,2048,23,268437008],
+        "tex0": {"tbp0":23,"tbw":1,"psm":2,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "lightglow01.tif",
+        "header": [32,32,4096,24,285214240],
+        "tex0": {"tbp0":24,"tbw":1,"psm":0,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "lightglow02.tif",
+        "header": [64,64,16384,25,285214240],
+        "tex0": {"tbp0":25,"tbw":1,"psm":0,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "lightrays.tif",
+        "header": [32,32,4096,26,285214240],
+        "tex0": {"tbp0":26,"tbw":1,"psm":0,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "grate01.tif",
+        "header": [32,32,1024,27,301991432],
+        "tex0": {"tbp0":27,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":316,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "h-grate_low.tif",
+        "header": [64,64,4096,28,301991432],
+        "tex0": {"tbp0":28,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":96,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "red_white.tif",
+        "header": [32,32,1024,29,301991432],
+        "tex0": {"tbp0":29,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":112,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel04.tif",
+        "header": [32,32,1024,30,301991432],
+        "tex0": {"tbp0":30,"tbw":1,"psm":19,"tw":5,"th":5,"tcc":1,"tfx":0,"cbp":317,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "lightDark.tif",
+        "header": [16,16,512,31,268437008],
+        "tex0": {"tbp0":31,"tbw":1,"psm":2,"tw":4,"th":4,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_shadow.tif",
+        "header": [16,16,1024,32,285214240],
+        "tex0": {"tbp0":32,"tbw":1,"psm":0,"tw":4,"th":4,"tcc":1,"tfx":0,"cbp":0,"cpsm":0,"csm":0,"csa":0,"cld":0},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "door.tif",
+        "header": [64,64,4096,33,301991432],
+        "tex0": {"tbp0":33,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":105,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "cuba1a_sky01.tif",
+        "header": [256,256,65536,34,301991432],
+        "tex0": {"tbp0":34,"tbw":4,"psm":19,"tw":8,"th":8,"tcc":1,"tfx":0,"cbp":103,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_water.tif",
+        "header": [128,128,16384,35,301991432],
+        "tex0": {"tbp0":35,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":104,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "barrel.tif",
+        "header": [128,128,16384,36,301991432],
+        "tex0": {"tbp0":36,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":117,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "barrel_top.tif",
+        "header": [64,64,4096,37,301991432],
+        "tex0": {"tbp0":37,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":116,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "steeldeckstructure.tif",
+        "header": [128,128,16384,38,301991432],
+        "tex0": {"tbp0":38,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":102,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "interiorwall.tif",
+        "header": [128,128,16384,39,301991432],
+        "tex0": {"tbp0":39,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":122,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "floortile.tif",
+        "header": [64,64,4096,40,301991432],
+        "tex0": {"tbp0":40,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":129,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_ceiling.tif",
+        "header": [64,64,4096,41,301991432],
+        "tex0": {"tbp0":41,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":123,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "monitor_01.tif",
+        "header": [64,64,4096,42,301991432],
+        "tex0": {"tbp0":42,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":126,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "monitor_02.tif",
+        "header": [64,64,4096,43,301991432],
+        "tex0": {"tbp0":43,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":124,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "monitor_03.tif",
+        "header": [64,64,4096,44,301991432],
+        "tex0": {"tbp0":44,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":127,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "monitor_04.tif",
+        "header": [64,32,2048,45,301991432],
+        "tex0": {"tbp0":45,"tbw":1,"psm":19,"tw":6,"th":5,"tcc":1,"tfx":0,"cbp":128,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "wall_metal01.tif",
+        "header": [128,128,16384,46,301991432],
+        "tex0": {"tbp0":46,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":130,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_concrete01.tif",
+        "header": [128,128,16384,47,301991432],
+        "tex0": {"tbp0":47,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":114,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "trestlegirder.tif",
+        "header": [64,64,4096,48,855639560],
+        "tex0": {"tbp0":48,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":134,"cpsm":0,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"none","alphaTest":0.5,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "wallsidingdull.tif",
+        "header": [128,128,16384,49,301991432],
+        "tex0": {"tbp0":49,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":113,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_steel26.tif",
+        "header": [64,64,4096,50,301991432],
+        "tex0": {"tbp0":50,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":125,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "pipe_swirl_rusty.tif",
+        "header": [128,128,16384,51,301991432],
+        "tex0": {"tbp0":51,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":110,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "valve_cover1.tif",
+        "header": [64,64,4096,52,301991432],
+        "tex0": {"tbp0":52,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":132,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "vent1.tif",
+        "header": [64,64,4096,53,301991432],
+        "tex0": {"tbp0":53,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":118,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "tunnel_top.tif",
+        "header": [128,128,16384,54,301991432],
+        "tex0": {"tbp0":54,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":135,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "tunnel_botm.tif",
+        "header": [128,128,16384,55,301991432],
+        "tex0": {"tbp0":55,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":131,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "tunnel_top_red.tif",
+        "header": [128,128,16384,56,301991432],
+        "tex0": {"tbp0":56,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":137,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "tunnel_botm_red.tif",
+        "header": [128,128,16384,57,301991432],
+        "tex0": {"tbp0":57,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":136,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "pipe_bolts.tif",
+        "header": [64,64,4096,58,301991432],
+        "tex0": {"tbp0":58,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":138,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "metal_siding1.tif",
+        "header": [128,128,16384,59,301991432],
+        "tex0": {"tbp0":59,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":133,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "tank_green.tif",
+        "header": [128,128,16384,60,301991432],
+        "tex0": {"tbp0":60,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":100,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "sign_25.tif",
+        "header": [64,64,4096,61,855639560],
+        "tex0": {"tbp0":61,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":119,"cpsm":0,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"none","alphaTest":0.5,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "wall_galvanized.tif",
+        "header": [128,128,16384,62,301991432],
+        "tex0": {"tbp0":62,"tbw":2,"psm":19,"tw":7,"th":7,"tcc":1,"tfx":0,"cbp":120,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "a_cieling_light.tif",
+        "header": [64,64,4096,63,301991432],
+        "tex0": {"tbp0":63,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":107,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "light_tunnel.tif",
+        "header": [64,64,4096,64,301991432],
+        "tex0": {"tbp0":64,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":111,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      },
+      {
+        "name": "steel_door_vents.tif",
+        "header": [64,64,4096,65,301991432],
+        "tex0": {"tbp0":65,"tbw":1,"psm":19,"tw":6,"th":6,"tcc":1,"tfx":0,"cbp":318,"cpsm":2,"csm":0,"csa":0,"cld":1},
+        "gs": {"blend":"source","alphaTest":null,"depthTest":true,"bilinear":true,"mipmaps":false,"levels":0,"lodK":0,"lodL":0,"wrapS":"repeat","wrapT":"repeat"}
+      }
+    ],
+    "palettes": [
+      ["texpal_94",94,131584,512],
+      ["texpal_95",95,1024,1024],
+      ["texpal_96",96,131584,512],
+      ["texpal_97",97,131584,512],
+      ["texpal_98",98,1024,1024],
+      ["texpal_99",99,131584,512],
+      ["texpal_100",100,131584,512],
+      ["texpal_101",101,131584,512],
+      ["texpal_102",102,131584,512],
+      ["texpal_103",103,131584,512],
+      ["texpal_104",104,131584,512],
+      ["texpal_105",105,131584,512],
+      ["texpal_106",106,131584,512],
+      ["texpal_107",107,131584,512],
+      ["texpal_108",108,131584,512],
+      ["texpal_109",109,1024,1024],
+      ["texpal_110",110,131584,512],
+      ["texpal_111",111,131584,512],
+      ["texpal_112",112,131584,512],
+      ["texpal_113",113,131584,512],
+      ["texpal_114",114,131584,512],
+      ["texpal_115",115,131584,512],
+      ["texpal_116",116,131584,512],
+      ["texpal_117",117,131584,512],
+      ["texpal_118",118,131584,512],
+      ["texpal_119",119,1024,1024],
+      ["texpal_120",120,131584,512],
+      ["texpal_121",121,131584,512],
+      ["texpal_122",122,131584,512],
+      ["texpal_123",123,131584,512],
+      ["texpal_124",124,131584,512],
+      ["texpal_125",125,131584,512],
+      ["texpal_126",126,131584,512],
+      ["texpal_127",127,131584,512],
+      ["texpal_128",128,131584,512],
+      ["texpal_129",129,131584,512],
+      ["texpal_130",130,131584,512],
+      ["texpal_131",131,131584,512],
+      ["texpal_132",132,131584,512],
+      ["texpal_133",133,131584,512],
+      ["texpal_134",134,1024,1024],
+      ["texpal_135",135,131584,512],
+      ["texpal_136",136,131584,512],
+      ["texpal_137",137,131584,512],
+      ["texpal_138",138,131584,512],
+      ["texpal_311",311,131584,512],
+      ["texpal_312",312,131584,512],
+      ["texpal_313",313,131584,512],
+      ["texpal_314",314,131584,512],
+      ["texpal_315",315,131584,512],
+      ["texpal_316",316,131584,512],
+      ["texpal_317",317,131584,512],
+      ["texpal_318",318,131584,512]
+    ]
+  },
+  "maps": [
+    {"stem":"MP1","textures":90,"bpp":{"8":83,"16":2,"32":5},"palettes":81,"ids":[94,346],"ct16":68,"ct32":13,"texdatBytes":703840,"prefixed":90},
+    {"stem":"MP2","textures":65,"bpp":{"8":53,"16":5,"32":7},"palettes":53,"ids":[94,318],"ct16":48,"ct32":5,"texdatBytes":666800,"prefixed":65},
+    {"stem":"MP5","textures":45,"bpp":{"8":37,"16":2,"32":6},"palettes":38,"ids":[98,307],"ct16":22,"ct32":16,"texdatBytes":629584,"prefixed":45},
+    {"stem":"MP6","textures":69,"bpp":{"8":65,"32":4},"palettes":65,"ids":[94,330],"ct16":56,"ct32":9,"texdatBytes":713008,"prefixed":69},
+    {"stem":"MP7","textures":48,"bpp":{"8":39,"32":9},"palettes":38,"ids":[94,303],"ct16":32,"ct32":6,"texdatBytes":699424,"prefixed":48},
+    {"stem":"MP8","textures":50,"bpp":{"8":45,"32":5},"palettes":44,"ids":[94,309],"ct16":37,"ct32":7,"texdatBytes":663664,"prefixed":50},
+    {"stem":"MP9","textures":59,"bpp":{"8":51,"16":2,"32":6},"palettes":50,"ids":[98,319],"ct16":34,"ct32":16,"texdatBytes":809712,"prefixed":59},
+    {"stem":"MP10","textures":36,"bpp":{"8":32,"16":2,"32":2},"palettes":31,"ids":[102,304],"ct16":13,"ct32":18,"texdatBytes":528800,"prefixed":36},
+    {"stem":"MP11","textures":34,"bpp":{"8":28,"16":2,"32":4},"palettes":28,"ids":[101,300],"ct16":18,"ct32":10,"texdatBytes":682336,"prefixed":34},
+    {"stem":"MP12","textures":43,"bpp":{"8":37,"16":4,"32":2},"palettes":35,"ids":[94,300],"ct16":24,"ct32":11,"texdatBytes":610304,"prefixed":43},
+    {"stem":"MP51","textures":66,"bpp":{"8":64,"32":2},"palettes":58,"ids":[102,331],"ct16":39,"ct32":19,"texdatBytes":755648,"prefixed":66},
+    {"stem":"MP52","textures":57,"bpp":{"8":57},"palettes":57,"ids":[110,361],"ct16":31,"ct32":26,"texdatBytes":789776,"prefixed":57},
+    {"stem":"MP53","textures":52,"bpp":{"8":49,"32":3},"palettes":47,"ids":[102,322],"ct16":28,"ct32":19,"texdatBytes":661808,"prefixed":52},
+    {"stem":"MP61","textures":89,"bpp":{"8":81,"32":8},"palettes":81,"ids":[116,392],"ct16":62,"ct32":19,"texdatBytes":806080,"prefixed":89},
+    {"stem":"MP62","textures":55,"bpp":{"8":45,"16":6,"32":4},"palettes":45,"ids":[101,317],"ct16":27,"ct32":18,"texdatBytes":778928,"prefixed":55},
+    {"stem":"MP64","textures":31,"bpp":{"8":31},"palettes":31,"ids":[98,301],"ct16":11,"ct32":20,"texdatBytes":799344,"prefixed":31},
+    {"stem":"MP71","textures":56,"bpp":{"8":44,"16":1,"32":11},"palettes":44,"ids":[102,317],"ct16":35,"ct32":9,"texdatBytes":768032,"prefixed":56},
+    {"stem":"MP72","textures":106,"bpp":{"8":106},"palettes":105,"ids":[103,383],"ct16":78,"ct32":27,"texdatBytes":802224,"prefixed":106},
+    {"stem":"MP73","textures":103,"bpp":{"8":103},"palettes":103,"ids":[106,380],"ct16":79,"ct32":24,"texdatBytes":765376,"prefixed":103},
+    {"stem":"MP81","textures":34,"bpp":{"8":33,"32":1},"palettes":33,"ids":[94,326],"ct16":24,"ct32":9,"texdatBytes":654688,"prefixed":34},
+    {"stem":"MP82","textures":54,"bpp":{"8":54},"palettes":49,"ids":[101,326],"ct16":37,"ct32":12,"texdatBytes":432096,"prefixed":54},
+    {"stem":"MP83","textures":95,"bpp":{"8":87,"16":4,"32":4},"palettes":85,"ids":[101,357],"ct16":66,"ct32":19,"texdatBytes":747376,"prefixed":95}
+  ]
+}

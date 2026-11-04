@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-wa-release-w (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: W alone 1.0 s, then A added 0.5 s (round 4's lost pair), then W released with A held 0.5 s, then A released: once the lateral is dropped, does it come back when W goes.
+# Look: stickLateral / ctlLateral in the pair (0 on PCSX2 if the drop repeats) and in the A-alone segment after W's release: back to -1 at once, after a delay, or still 0 (a latched state, not a running suppression); padRaw0 throughout (pushed); the heading of the A-alone strafe.
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: W runs +z into the water from about z 871 after about 0.25 s, as the round-4 W runs (the drop came with top action 3 or 67 in water); the A-alone strafe then runs +x in it.
+500 lup 1
+1500 lleft 1
+2000 lup 0
+2500 lleft 0

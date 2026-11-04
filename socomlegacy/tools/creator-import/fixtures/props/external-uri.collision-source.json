@@ -1,0 +1,142 @@
+{
+  "coordinates": {
+    "faceWinding": "counterclockwise viewed from outside",
+    "handedness": "right",
+    "markerFace": "+Z",
+    "origin": "bottom centre",
+    "placement": "translation and yaw about +Y only; unit positive scale",
+    "unit": "metre",
+    "up": "+Y",
+    "validVariantTransforms": "identity; all dimensions baked into vertices"
+  },
+  "hulls": [
+    {
+      "faces": [
+        {
+          "indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "name": "bottom"
+        },
+        {
+          "indices": [
+            4,
+            7,
+            6,
+            5
+          ],
+          "name": "orange-top"
+        },
+        {
+          "indices": [
+            3,
+            2,
+            6,
+            7
+          ],
+          "name": "cyan-marker"
+        },
+        {
+          "indices": [
+            0,
+            4,
+            5,
+            1
+          ],
+          "name": "back"
+        },
+        {
+          "indices": [
+            0,
+            3,
+            7,
+            4
+          ],
+          "name": "left"
+        },
+        {
+          "indices": [
+            1,
+            5,
+            6,
+            2
+          ],
+          "name": "right"
+        }
+      ],
+      "vertices": [
+        [
+          -1,
+          0,
+          -0.5
+        ],
+        [
+          1,
+          0,
+          -0.5
+        ],
+        [
+          1,
+          0,
+          0.5
+        ],
+        [
+          -1,
+          0,
+          0.5
+        ],
+        [
+          -1,
+          1.5,
+          -0.5
+        ],
+        [
+          1,
+          1.5,
+          -0.5
+        ],
+        [
+          1,
+          1.5,
+          0.5
+        ],
+        [
+          -1,
+          1.5,
+          0.5
+        ]
+      ]
+    }
+  ],
+  "intendedCollision": "convex",
+  "license": "GPL-3.0-only",
+  "nodeMatrixColumnMajor": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1
+  ],
+  "provenance": "Original geometry and colors authored for redotcom FCW-09; no disc or third-party payload",
+  "purpose": "neutral authored fixture source; runtime/pack adaptation owed",
+  "renderFile": "external-uri.glb",
+  "renderSha256": "09e84b62363d35a765da45776e1734fc8a0ab1c283bf5d80461c059a8e71923b",
+  "sourceFile": "source.json",
+  "sourceSha256": "c8cd53ab53c3c5f125cda36695967c2359785f922d978c1555275fb1688c4901",
+  "transformsBaked": true,
+  "variant": "external-uri"
+}

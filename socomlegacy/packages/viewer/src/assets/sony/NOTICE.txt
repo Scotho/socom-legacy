@@ -1,0 +1,16 @@
+DUALSHOCK 4 front / key-assignment line art
+Copyright Sony Interactive Entertainment Inc.
+
+Source: https://controller.dl.playstation.net/controller/lang/en/2100001.html
+Download: https://controller.dl.playstation.net/controller/data/DUALSHOCK4_LineArt.zip
+Archive member: DUALSHOCK4/DUALSHOCK4_forKeyAssign.ai
+Retrieved: 2026-10-03
+
+Sony provides this line art for game and app developers. Its usage instructions permit
+extracting parts to explain controls and require accurate depiction. The light front
+view was extracted from the key-assignment sheet and converted from PDF-compatible
+Illustrator vectors to SVG. The page background and alternate dark view were omitted.
+The retained artwork paths are unchanged. Live input indicators are a separate UI layer.
+
+This artwork remains Sony's and is not relicensed under the application's GPL license.
+DUALSHOCK and PlayStation are trademarks of Sony Interactive Entertainment Inc.

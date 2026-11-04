@@ -1,0 +1,1902 @@
+{
+ "area": "combatfx",
+ "notes": [
+  "docs/research/85-grenades.md",
+  "docs/research/87-hud.md",
+  "docs/research/89-effects.md",
+  "docs/research/92-doors.md",
+  "docs/research/149-the-muzzle-fire-follows-the-gun.md",
+  "docs/research/202-r2-c3-combat.md",
+  "docs/research/217-the-body-as-built.md",
+  "docs/research/181-c3-combat-hud-effects.md",
+  "docs/research/219-the-bullet-as-built.md",
+  "docs/research/256-the-explosives-commit-rules-as-the-originals.md"
+ ],
+ "entries": [
+  {
+   "id": "combatfx.grenade.record.throwables",
+   "claim": "zweapon.rdr's M67 (ID 121) has Timer1 3, Timer2 3.1, Muzzle_Velocity 0.1 (x10 = 1), no Gravity_Acceleration (98), ImpactRadius 45, Explosion_Damage 10 in Explosion_Radius 15 (150 units); the HE (126) 11 in 10 m, the AN-M8 (122) 3/40 s with no blast, the Mark141 (123) 1.5/1.6 s, the Claymore (153) 16 in 25 m with no Timer1; the Detonator is ID 193",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON + ZAMMO (the weapon loader, decomp 322395-322700)",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the M67, HE, AN-M8, Mark141 and Claymore the code carries are zweapon.rdr's records, and the Detonator is ID 193",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "throwables.json is zweapon.rdr's records, re-read through throwableRecord",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "M67 is zweapon.rdr's M67 and its M67 Ammo",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.fuse.timer1",
+   "claim": "the fuse is Timer1 counted from the release (no cooking) and detonates wherever the grenade is, in the air or at rest; Timer2 removes it: 3/3.1 s for the M67 and HE, 3/40 s for the smoke, 1.5/1.6 s for the flashbang",
+   "level": "reading",
+   "source": "FUN_003c99a0 D:L319880",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "every hand grenade goes off at its Timer1 from the release and is removed at its Timer2, at rest or in the air",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "an arc from the standing hand lands where ComputeTimeToImpact says, bounces, rests on the floor and goes off at 3 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the smoke detonates at 3 s with nothing to hurt and stays 40 s; the flashbang goes at 1.5 s",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.fuse.claymore-held",
+   "claim": "a claymore (type 0x99) never goes off by its Timer1: the placed-explosive tick sets go-off only with +0xc5 and +0xc6 clear; the Detonator's +0xc4 sets it off the next tick",
+   "level": "reading",
+   "source": "FUN_003c5310 D:L316893-316905",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the claymore never goes off by its fuse: it waits for the Detonator (no Timer1, ID 0x99)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/equipment.test.ts",
+     "name": "the C4 goes off at its Timer1, 6 s from placing; a claymore only on its trigger",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.power.chase",
+   "claim": "the throw's power chases the fire button's pressure (x 1/255) at 3/s rising and 1.5/s falling, and the throw goes when the pressure falls to 0.15 of the power",
+   "level": "reading",
+   "source": "FUN_00594cf0 D:L453025 (0x595ea0-0x595f28)",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "chases the pressure at 3/s up and 1.5/s down, and releases when the pressure falls under 0.15 of it",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.power.held",
+   "claim": "a held digital button's power is 1 - 0.95^n at 60 Hz: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s",
+   "level": "reading",
+   "source": "FUN_00594cf0 D:L453025",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "a held digital button's power: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "a digital button held: 1 - 0.95^n at 60 Hz -- how long it was held is how hard it goes",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.throw.abort-threshold",
+   "claim": "The hand-grenade release request refuses a power under the dynamics block's abort_threshold (FUN_002ce1a0's float32 0x3e19999a, .15; exactly it clears) before any throw is pushed: the power zeroed, no clip, nothing spent, the grenade still up; the port model's 0-, 1- and 3-tick taps (0, .05, .142625) throw nothing and four ticks (.185494) throw.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475490-475511 (the test D:L475496-475497, the refusal D:L475498); FUN_002ce1a0 D:L171500-171513; FUN_00592d40 D:L451964; FUN_005c1970 D:L477039-477042 (the spend at hand-open)",
+   "note": "docs/research/256-the-explosives-commit-rules-as-the-originals.md",
+   "tests": [
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the threshold is FUN_002ce1a0's float32 0x3e19999a: a power of exactly it clears, the next float32 under it does not (FUN_005be9a0 D:L475497)", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "a tap under the threshold starts no throw and spends nothing: no throwStart, no throw, the grenade still up, the power zeroed; the next hold throws", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the hook's throw obeys it too: throwNow(0) is refused and spends nothing; four ticks' hold throws", "data": "none" },
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "rejects a 0-tick under-threshold tap", "data": "fixture" },
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "a refused tap starts no throw and spends nothing: no throwStart, no body owner, the grenade still up; four ticks throw and spend one (PAR-20 D10)", "data": "fixture" }
+   ],
+   "owed": "What a retail tap gives: the frames a real short press holds the pressure and the pressure byte on its way down (the tick counts are the port model's samples); a pad-input capture of the original (research 256 s6)."
+  },
+  {
+   "id": "combatfx.grenade.throw.hand-open-current",
+   "claim": "The hand-open launches with the body as it is then: the aim's sine +0x1450 through asinf, clamped to 0..55 degrees, plus the power's 10..12 degrees, and the range of the state then (standing 600, else 300); the clip stays the release request's GetThrowAnim pick.",
+   "level": "reading",
+   "source": "FUN_005c1970 D:L477060-477067 (the hand), D:L477069-477075 (the range), D:L477105-477109 (the elevation); FUN_0057fce0 D:L441722-441726 (the clip's pick at the release request)",
+   "note": "docs/research/256-the-explosives-commit-rules-as-the-originals.md",
+   "tests": [
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the aim is the elevation when the hand opens: 0 at the release, 45 at the hand-open launches at 45 degrees plus the power's 10..12; the clip stays the release's (D:L477105-477109)", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the current aim is clamped as the release clamps it: over 55 degrees is 55, under 0 is 0 (FUN_00539b70, 0x65e630/0x65e638, D:L477107)", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the range is the stance's when the hand opens: standing 600, else 300, the hand point the clip's (D:L477069-477075)", "data": "none" },
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "uses current elevation when the hand opens", "data": "fixture" }
+   ],
+   "owed": "What writes +0x1450 and whether the port's view pitch is it frame for frame (DROP_AIM_READING's question); the read's effect on the trajectory is unmeasured: a capture of a throw whose aim moves between the release and the hand-open (research 256 s6)."
+  },
+  {
+   "id": "combatfx.grenade.c4.callback-deadline",
+   "claim": "C4's Put on wall arms the kit's timer at 99 s and plants at the clip's phase .45 (1.098214 s) only through its clip callback, which zeroes the timer; a forced pop (the knock) before that phase removes the callback unrun, so no charge is placed at the normal deadline; the claymore's and the PMN's 1.3 s timers have no callback and a pop does not stop them.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475441-475451 (the callback, the 99 s timer), D:L475323-475327 and D:L475355-475359 (the 1.3 s timers); FUN_005c1970 D:L476883-476999 (the commit); FUN_0057e770 D:L440992-440998 -> D:L446515 -> FUN_0028da00 D:L135092-135104 (the pop)",
+   "note": "docs/research/256-the-explosives-commit-rules-as-the-originals.md",
+   "tests": [
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "a knock before the callback's phase: no charge at the normal deadline, nothing spent (D:L475443-475451, D:L135092-135104)", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the controls: uncut, C4 is down at the callback's 1.098 s; a claymore's 1.3 s placing timer has no callback and a pop does not stop it", "data": "none" },
+    { "file": "packages/viewer/test/parity/explosives.test.ts", "name": "does not commit C4 at the normal deadline after its source callback was removed", "data": "fixture" }
+   ],
+   "owed": "What the 99 s timer of a knocked plant comes to is not decided (C4_FALLBACK_PLACEHOLDER, the owner's row): the source investigation and a capture of a plant knocked before 1.098 s (research 256 s6). The interim's own test (C4_FALLBACK_PLACEHOLDER ... the commit's checks) is a port contract, not listed here."
+  },
+  {
+   "id": "combatfx.grenade.throw.clearance",
+   "claim": "Before the commit the hand-grenade release request asks a segment from GetThrowAnim's hand point (its z forward of the feet taken to 0) to an end point by the state -- standing toss (3.457, 12.454, -10) or throw (1.155, 13.354, -15.75), crouched (0.924, 10.631, -12.1), prone toss (1.820, 5.580, -10.6) or throw (0.594, 9.082, -6.75), actor frame -- of the world; a hit refuses the throw as a short tap is, nothing spent; the lean (state 3) asks no segment and is never refused by it.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475491-475498; FUN_005499e0 D:L413977-414063; FUN_0031e250 D:L220150-220175",
+   "note": "docs/research/256-the-explosives-commit-rules-as-the-originals.md",
+   "tests": [
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the five end points are FUN_005499e0's float32 words, in the actor frame (D:L414004-414006, D:L414025-414047)", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the exact segment: from GetThrowAnim's hand point (z forward of the feet taken to 0) to the state's end point, turned by the yaw; the lean has none", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "a wall across the standing throw's segment refuses it before the commit, nothing spent; the same wall clears the prone throw (whose end stops short) and the lean (no query)", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "yaw 90: the standing throw's segment meets container_blue01's side 12 units west of A -- a movement surface of a static world node -- and the clearance refuses", "data": "fixture" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "through the thrower, as the hook's throwGrenade(1) asks it: at yaw 90 refused -- nothing thrown, nothing spent, the grenade still up, the power zeroed; at yaw 210 thrown", "data": "fixture" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "yaws 210 and 240 (the spec's throws from A) are clear; yaw 90's lean asks no query", "data": "fixture" }
+   ],
+   "owed": "The query's class (THROW_CLEARANCE_QUERY_PLACEHOLDER: DAT_0044d758 at the call, the owners +0xa1 mask 4 (bit 2) skips, the record's +0x3c) is unread; FUN_0059d830's other refusals are not ported; map prevalence and feel need a capture (research 256 s6)."
+  },
+  {
+   "id": "combatfx.grenade.throw.clip-choice",
+   "claim": "GetThrowAnim picks the toss under power 0.6 with the aim's sine under 0.3; crouched, the crouch throw unless moving faster than 15 u/s (225 squared), then the standing throw; prone a throw or a toss; the leans their tosses",
+   "level": "reading",
+   "source": "FUN_0057fce0 D:L441723-441726",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "tosses under power 0.6 with the aim's sine under 0.3, else throws; crouched it throws, moving it stands",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "while the lean holds, the throw is the lean toss, the left one from the left hand",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.throw.lean-toss",
+   "claim": "GetThrowAnim throws the lean's toss from state 3 by the lean clip playing, never a magnitude: 0x1e / 0x20 (Peek right, Crouch peek right) the right toss released at 0.55, 0x1d / 0x1f the left at 0.87; with neither playing (a prone lean among them) there is no throw",
+   "level": "reading",
+   "source": "GetThrowAnim D:L441773-441796 (0x3f0ccccd, 0x3f5eb852; research 181 s2.10)",
+   "note": "docs/research/217-the-body-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the lean toss is thrown when the body is in state 3 with its lean clip playing -- right at release 0.55, left at 0.87 -- and never from the camera's eased peek value (GetThrowAnim D:L441773-441796)",
+     "data": "none"
+    }
+   ],
+   "owed": "where +0x174 becomes 3 (no static store with that immediate; research 181 s2.10): a dump during a lean"
+  },
+  {
+   "id": "combatfx.grenade.throw.release-time",
+   "claim": "the hand lets go when the one-shot phase reaches the release fraction, release x playback x (n-1)/n: 0.71 s standing (0.46 x 1.6 x 27/28), 1.07 s the toss, 0.73 s crouched; the standing clip plays 1.49 s; playback and keys are motion.rdr's and MOTION_P.ZAR's",
+   "level": "reading",
+   "source": "FUN_005802b0 (research 85 section 3); disc RUN/READERC.ZAR motion.rdr playback, RUN/MOTION_P.ZAR keys",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the release and the clip's length from motion.rdr's playback and the clip's keys: 0.71 s standing, 1.07 s the toss, 0.73 s crouched; 1.49 s the whole standing clip",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "throwClips.json is motion.rdr's playback and MOTION_P.ZAR's keys, re-read",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "releases when the one-shot phase reaches the fraction: the standing throw 0.46 x 1.6 x 27/28 s in (FUN_005802b0)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the clips are MOTION_P.ZAR's, their lengths to the frame",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.throw.maxvel",
+   "claim": "ComputeMaxVel is the speed of a 45-degree throw landing max_distance away from the hand's height: 238.66 u/s standing (600), 167.2 crouched (300)",
+   "level": "reading",
+   "source": "FUN_005976e0 D:L454322",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "ComputeMaxVel: 238.66 u/s from the standing hand (600 units), 167.2 crouched (300)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "ComputeMaxVel: the 45-degree speed that lands `distance` away from `height`",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.throw.elevation",
+   "claim": "the launch pitch is the aim clamped to 0..55 degrees plus ComputeElevOfs, 10 degrees at power 0 to 12 at power 1; the slowest throw is 0.05 of the max",
+   "level": "reading",
+   "source": "FUN_005976a0 D:L454313; FUN_005c1970 D:L476815",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the elevation runs 10 to 12 degrees by power, and the aim is clamped to 0..55 degrees before it",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "full power from the standing hand: the speed is the max, the direction ahead (-z) and up",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.throw.landing",
+   "claim": "a standing throw lands, over the ground from the hand: 7.7 (a tap), 43.4 (0.1 s), 116.0 (0.25 s), 252.2 (0.5 s), 305.3 (1 s) level; 598.7 (1 s) and 598.8 (2 s) aimed 30 degrees up -- the aimed correction makes the speed the hand's distance to the power's landing point",
+   "level": "reading",
+   "source": "FUN_005c1970 D:L476815 (0x5c21f4-0x5c2230); FUN_005975d0 D:L454266",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "where a standing throw lands, over the ground from the hand: research 85 section 4's table, held 0 to 2 s, aimed 0 and 30 degrees",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "a weak throw: the speed becomes the hand's ground distance to the power's landing point ahead of the feet",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.throw.release-point",
+   "claim": "the throw leaves from the posed right hand's (2, 0, 0) (the left hand's for the left lean); GetThrowAnim's table point stands in without a posed body",
+   "level": "reading",
+   "source": "FUN_005c1970 D:L476815 (FUN_002869d0 at 0x5c20f8)",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "takes the right hand's (2, 0, 0) when the body offers it, and the table's point when not",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "hangs the grenade on the held node while it is up, and lets go of it at the release",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.flight.euler",
+   "claim": "the flight is a point under gravity 98 u/s^2, one segment a frame, symplectic Euler (vel.y -= g dt, then end = start + vel dt)",
+   "level": "reading",
+   "source": "FUN_003ca5a0 D:L320218",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/throwArc.test.ts",
+     "name": "is the flight's own path: every simulated frame lies on it, but the integration's g t dt / 2",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "an arc from the standing hand lands where ComputeTimeToImpact says, bounces, rests on the floor and goes off at 3 s",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.tumble",
+   "claim": "a hand grenade (category 0x79) tumbles on every free-flight step by the step's distance d: 10, 2.5 and 50 half-turns a second past d 15, falling as 10 - 9.5t, 2.5 - 2t, 50 - 49.5t (t = (d - 0.5) / 15) from d 0.5, a (1 - y) x (0.1, 0.4, 0.02) wobble under 0.5 while the model's Euler |y| > 0.2; the angles advance by rate x pi x dt, wrap at 2 pi and are built into the model's quaternion from half-angles; a bounce and the rest do not turn it",
+   "level": "reading",
+   "source": "FUN_003c9530 D:L319776-319845; FUN_00307360 D:L206242-206268; FUN_00308020 D:L206690",
+   "note": "docs/research/202-r2-c3-combat.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenadeTumble.test.ts",
+     "name": "from half a unit to 15 the rates fall linearly by t = (d - 0.5) / 15: 10 - 9.5t, 2.5 - 2t, 50 - 49.5t",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenadeTumble.test.ts",
+     "name": "composes the three as FUN_00307360 writes them, a unit quaternion",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenadeTumble.test.ts",
+     "name": "starts at the placeholder's angles and advances each by rate x pi x dt for the step's own distance",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "a thrown and a remote hand grenade are drawn turned by tumbleQuaternion of their own angles",
+     "data": "none"
+    }
+   ],
+   "owed": "an RDRAM series of a thrown M67 over about 10 frames (the projectile's +0x9c..+0xa4 and +0x48/+0x54) to move the reading to proven (research 202 section 2.6)"
+  },
+  {
+   "id": "combatfx.grenade.bounce.elasticity",
+   "claim": "a bounce reflects the velocity about the normal and scales it by the material's ELASTICITY_COEFF, x0.75 more on the first bounce -- STONE, METAL_THICK, PLASTER, CARPET, BARREL 0.5; ASPHALT 0.45; DIRT, WOOD 0.3; GRASS 0.2; SAND, MUD 0.1; SNOW, ICE, GRAVEL, LEAVES 0.15; GLASS_THICK, GLASS_OPAQUE 0.8 -- and lifts the point 0.1 off the surface",
+   "level": "reading",
+   "source": "FUN_003c8f50 D:L319530",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "each bounce keeps ELASTICITY_COEFF of the reflected speed, x0.75 on the first: research 85 section 5.3's values",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the first bounce damps by ELASTICITY x 0.75, later ones by ELASTICITY: stone 0.5, sand 0.1",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "bounces off a wall back toward the thrower, pushed 0.1 off it",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.bounce.rest",
+   "claim": "slower than 5 after a bounce that turned a fall upward, the grenade stops dead (state 2); there is no friction and no rolling",
+   "level": "reading",
+   "source": "FUN_003c8f50 D:L319530",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "comes to rest: under 5 units/s after a bounce that turned the fall upward, it stops dead",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.materials.soils",
+   "claim": "the material table is UNKNOWN (elasticity 0.3) and PARTICLE_SYSTEM (penetration 1, volumetric), then materials.rdr's 44 SOILS in file order: 46 entries, a polygon's byte i >= 2 is SOILS entry i - 2",
+   "level": "reading",
+   "source": "FUN_002dde40 D:L181255; disc RUN/READERC.ZAR materials.rdr SOILS",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the materials are materials.rdr's SOILS as pinned, after UNKNOWN and PARTICLE_SYSTEM: 46 in all",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "soils.json and decals.json are materials.rdr's SOILS and decals.rdr's sets, re-read",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "SOILS is materials.rdr's, and the clips' playback is motion.rdr's",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.materials.pass-through",
+   "claim": "a grenade passes through only WATER (LIQUID, x0.25) and GLASS (PENETRATION 0.99, x0.8), never sees the PENETRATION-1 materials (ACTION, INVISIBLE_DI, ITEM, the *_VOL vegetation, PARTICLE_SYSTEM) and bounces off every other",
+   "level": "reading",
+   "source": "FUN_003c9b70 D:L319922; FUN_003c8f50 D:L319530",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "a grenade passes through only WATER and GLASS, never sees the PENETRATION-1 materials, and bounces off every other",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "passes through water (LIQUID) at a quarter of its speed, and through glass (PENETRATION 0.99) at 0.8",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "never sees a PENETRATION 1 surface (ACTION, the vegetation volumes)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.materials.default",
+   "claim": "byte 0 is the map's DefaultMaterial, looked up by an exact byte compare: a name the table lacks (MP11's 'none', MP64's lower-case 'stone') leaves UNKNOWN, elasticity 0.3",
+   "level": "reading",
+   "source": "FUN_002dc1d0 D:L180305; FUN_002de9e0 (research 85 section 9.9)",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "a default material the table lacks is UNKNOWN, ELASTICITY 0.3: MP11's \"none\" and MP64's lower-case \"stone\"",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "a material byte 0 is the map's DefaultMaterial, past the table UNKNOWN",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.category.bounce",
+   "claim": "HandleIntersections sends a weapon's category, not its ID, to HandleBounce: 121-140 (0x79, every hand grenade) and 151-170 (0x97, the charges) bounce; the launched rounds take HandleImpact",
+   "level": "reading",
+   "source": "FUN_003c9b70 D:L319922; FUN_003d1a60",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "every hand grenade bounces: the M67, the HE, the AN-M8 and the Mark141 share the category 0x79 (FUN_003d1a60)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.damage",
+   "claim": "the blast's damage is Explosion_Damage in full to half Explosion_Radius, falling linearly to 0 at it: the M67 10 to 75 units, 5 at 112.5, 0 at 150; the HE 11 in 100; the claymore 16 in 250",
+   "level": "reading",
+   "source": "FUN_003c7600 D:L318646",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the blast: Explosion_Damage in full to half of Explosion_Radius, falling linearly to 0 at it (M67 10/150, HE 11/100, claymore 16/250)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the explosion: Explosion_Damage to half the radius, to nothing at Explosion_Radius (150 units)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.reach",
+   "claim": "a blast reaches every actor whose line from the blast to its head is clear, the thrower included, by f = 1 - d^2 / r^2 from the feet; each fragment is GetDamage at the feet x 14",
+   "level": "reading",
+   "source": "FUN_005ac070 D:L464808; FUN_005a0e70 D:L459070",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "reaches inside the radius only: factor 1 - d^2 / r^2 at the feet, nothing at or past 150 for the M67",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "a wall between the blast and the head: nothing at all (FUN_005ac070 queues the blast only with the line)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "the thrower is not spared: nothing in the blast asks who threw it (FUN_005ac070)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "an M67 100 units off: each fragment 140 x (1 - 25/75) = 93.3, and 900/d^2 of the count (at most 2)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.parts",
+   "claim": "a fragment strikes the head 30 %, the body 30 %, each arm and leg 10 % (DAT_006508e0 / DAT_006508d0)",
+   "level": "reading",
+   "source": "FUN_005a0e70 D:L459240-459252",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netDamage.test.ts",
+     "name": "reads the tables in the ELF: head 30 %, body 30 %, left arm, right arm, left leg, right leg 10 % each",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.knock",
+   "claim": "the push is min(100, f x (dmg/14) x 120 / 90) along the line from the root, its y at least 50 f; prone, no push (alive, Prone cover in place: PF-19); Fall forward or Fall backwards by the side",
+   "level": "reading",
+   "source": "FUN_0057e770 D:L440932",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "pushes a standing SEAL from the blast: min(100, f x (dmg/14) x 120 / 90) along the line, up at least 50 f",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "crouched: from the crouch's root (5.5 over the feet); prone: no push (the game plays `Prone cover`)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "falls backwards from a blast in front, forwards from one behind (KNOCK_SIDE_READING)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/knock.test.ts",
+     "name": "leaves the ground at the push in `Fall forward`, lands in `Land forward`, then gets up forward",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.knock-ends-move",
+   "claim": "a nonlethal knock lands on a SEAL whatever it is doing: on a ladder, a hang or mid-climb the move is released into a fall from where the SEAL is, then the knock is laid (no state gate); a mounted SEAL leaves its turret first; a lethal one in a move is released by the kill (KNOCK_LADDER_STATE_READING, KNOCK_LETHAL_IN_MOVE_READING)",
+   "level": "reading",
+   "source": "FUN_0057e770 D:L440981-441027; FUN_00545ee0 D:L411941-412032",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "applyKnock on a SEAL on a ladder, a hang or mid-climb releases the move into a fall and lays the knock (FUN_0057e770 D:L440981-441027; KNOCK_LADDER_STATE_READING)",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomKnock.test.ts",
+     "name": "an M67 beside a climber: the blast event carries the knock, the room's mover is off the ladder and airborne, the page's prediction the same; the climber lands and gets up alive",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomKnock.test.ts",
+     "name": "a mounted victim is dismounted by the knock (a turret event, the occupant freed) before it falls",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomKnock.test.ts",
+     "name": "a blast that kills a laddered SEAL: unchanged -- the corpse falls from the rungs (kill releases it)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/bodyGates.test.ts",
+     "name": "knock on a ladder: the page and the room agree (released, airborne)",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomGates.test.ts",
+     "name": "knock on a ladder: the page and the room agree (released, airborne)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.prone-cover",
+   "claim": "a blast that reaches a living prone SEAL does not push it: Prone cover (guard_prone_cover, motion.rdr playback 4.3, 16 keys: 3.78 s, NoInterrupt and NoFire bare) plays in place, sent to the others as an action code; no round inside it, and no reload (KNOCK_COVER_RELOAD_READING); the dead prone play the BODY list's prone clip",
+   "level": "reading",
+   "source": "FUN_0057e770 D:L441013-441027; motion.rdr guard_prone_cover",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "a living prone SEAL inside the radius is not pushed and plays Prone cover: guard_prone_cover, 3.78 s, held still, never cut (FUN_0057e770 D:L441018-441020; motion.rdr playback 4.3, 16 frames)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "guard_prone_cover in the fixture: motion.rdr playback 4.3, NoInterrupt and NoFire bare (research 179 s11.9); MOTION_P.ZAR 16 keys",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/central/test/roomKnock.test.ts",
+     "name": "an M67 beside a living prone SEAL: the blast event's fall is proneCover, the snapshot's action code names guard_prone_cover for 3.78 s, no push, no fire or reload inside it (NoFire bare, PF-17)",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomKnock.test.ts",
+     "name": "the dead prone: unchanged -- the BODY list's prone death clip, no cover",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netCodec.test.ts",
+     "name": "appends Prone cover after every earlier code: proneCover is code 20, the knock's and the earlier codes keep their bytes (PF-19, PF.R38: protocol 10)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/bodyGates.test.ts",
+     "name": "knock prone alive: the page and the room agree (proneCover)",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomGates.test.ts",
+     "name": "knock prone alive: the page and the room agree (proneCover)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.knock-completes-swap",
+   "claim": "a knock during a rifle <-> pistol swap completes the swap first (the target weapon in hand), then the fall (KNOCK_SWAP_COMPLETE_READING)",
+   "level": "reading",
+   "source": "FUN_0057e770 D:L440981-441027; FUN_005a5da0 D:L461653-461756",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "a knock during a swap completes the swap first (FUN_005a5da0 L461653-461756): the target weapon in hand, then the fall",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.blast.ears",
+   "claim": "a blast that reaches the player rings .RINGING_EARS and holds the mix at 0.35 for 5 s, then returns it linearly over 5 s",
+   "level": "reading",
+   "source": "FUN_003412f0 D:L241197; FUN_003410d0 D:L241137-241172",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/netBlast.test.ts",
+     "name": "rings the ears for 5 s at 0.35 whenever it reaches, fragments or none (L459229-459235, FUN_003412f0)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/ringingEars.test.ts",
+     "name": "holds selected masters at 0.35 for 5 s, then restores them linearly over RING_FADE_SECONDS",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.anims.names",
+   "claim": "the bounce's zAnim is grenade_hit_<material> and the explosion's frag_grenade_<material> ('%s_%s', the material lower-cased): every grenade_hit_* of the archive is a name the code builds but grenade_hit_grating; none for the glass, MUD, GASTANK, SNOWY_TREE, METAL_RAILING, METAL_GRATE_THIN, CHAINLINK_FENCE",
+   "level": "reading",
+   "source": "FUN_003c4700 D:L316257; disc RUN/MP2.ZDB CZANIM.ZAR",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the bounce's and the explosion's zAnims are the names materialAnim builds: every grenade_hit_* of Frostfire's archive but grenade_hit_grating, every frag_grenade_*",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "effectsFrostfire.json is MP2's CZANIM.ZAR and MZANIM.ZAR, re-decoded",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "MP2: every hull material resolves, and the names the grenade asks for are the archive's",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.scorch.sizes",
+   "claim": "the scorch is decals.rdr GRENADE_BLAST's grenade_mark.tif: SAND 30-50; DIRT, STONE 20.2-30.9; SNOW, METAL_THICK, METAL_THIN, WOOD_THICK 10.2-20.9; WOOD_THIN, ASPHALT 10.2-16; GLASS 10-13",
+   "level": "reading",
+   "source": "disc RUN/READERC.ZAR decals.rdr DECAL_SETS GRENADE_BLAST",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the scorch is GRENADE_BLAST's grenade_mark.tif, its size per material as decals.rdr gives it",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "soils.json and decals.json are materials.rdr's SOILS and decals.rdr's sets, re-read",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "SOILS is materials.rdr's, and the clips' playback is motion.rdr's",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.scorch.pool",
+   "claim": "the scorch goes to the permanent decal pool, base 30 + overflow 0 world triangles a round, refused when full, nothing recycled, emptied at a round's end",
+   "level": "reading",
+   "source": "FUN_003bf1a0 D:L313254-313262; FUN_003bf050 (research 89 section 5)",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/grenadeScorchPool.test.ts",
+     "name": "PERM_DECAL_TRIANGLES is decals.rdr's base + overflow",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenadeScorchPool.test.ts",
+     "name": "keeps the first 30 triangles of a map, the last scorch partly, and refuses the rest -- none recycled",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenadeScorchPool.test.ts",
+     "name": "a round's end empties the pool (CMPExitState FUN_00223970 L76084 -> FUN_0031c880 -> FUN_003bf050, both pools)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.scorch.placement",
+   "claim": "the scorch lies on the highest surface no more than 10 over the blast, framed along that surface's normal negated",
+   "level": "reading",
+   "source": "FUN_003c7af0 D:L318857; FUN_003d0ba0 D:L323791",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/grenadeScorchSlope.test.ts",
+     "name": "MP6 g157 (about 39 degrees): a claymore's blast there clips to the drawn ground and takes its colour",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/markClip.test.ts",
+     "name": "a grenade's scorch over a step's edge stops at the edge, each vertex the ground's colour there",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.claymore.cone",
+   "claim": "the claymore's blast is full inside its cone (ahead, within along x tan 1.47261 -- 84.4 degrees -- to the radius) and a 32nd outside it",
+   "level": "reading",
+   "source": "FUN_003c7280 D:L318523-318560; FUN_003c7600 D:L318646",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the claymore cone: ahead within 84.4 degrees and 250 units (FUN_003c7280)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/equipment.test.ts",
+     "name": "the claymore's 84 degrees",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.claymore.rules",
+   "claim": "the claymore is placed in seal_place_claymore (2.60 s), down at 1.3 s (phase 0.49) under the right hand, four at most ('Unable To Deploy: Max Equipment Items Placed (4)' for 2 s), not while wading deeper than 3.2 u (never for moving: PF-13, research 181 s6.2), the ground no more than 10 under the feet; the Detonator sets off the SEAL's claymores within 500 units",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475213; FUN_005c0130 D:L476010",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "the claymore's placing: seal_place_claymore plays 2.60 s and the charge is down at 1.3 s, phase 0.49",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the claymore: four down at most, set down on the move, none wading past 3.2 u or off the ground, and the Detonator reaches 500 units",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the claymore: the placing clip, down under the hand at 1.3 s, the Detonator up, and off only when it is fired",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the claymore: a fifth is refused with the game's message",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.flash.level",
+   "claim": "the flashbang reaches 150 units, full to 80 and 1 - (d^2 - 6400) x 6.2e-5 past; s = 1 - facing x falloff: level 3 under 0.3, 2 under 0.6, else 1 (facing away 1); the blind keys hold 25 or 60 and clear by 2, 4 or 10 s",
+   "level": "reading",
+   "source": "FUN_00597c00 D:L454530",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the flash: 150 units' reach, full to 80, facing it hardest (0x597c00), and the blind keys' strength",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the flash whites out by the game's rule: facing it close is level 3, turned away level 1",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.flash.gate",
+   "claim": "the white-out is reached only inside the queued blast: FUN_005a5250's slot 0 (the flashbang '{') is called from FUN_005a0e70 alone, after the line to the head and the reach factor, so a flash behind a wall whites out no one; the queue is filled only through OnWeaponHit's friendly-fire gate (FLASH_FRIENDLY_FIRE_READING: a teammate's flash with friendly fire off spares him); the room sends the level it resolved on the blast event, and the page and the bots follow it",
+   "level": "reading",
+   "source": "FUN_005a0e70 D:L459113-459115, D:L459192-459193, D:L459228; FUN_005a5250 D:L461250-461292 (callers D:L458970, D:L458981, D:L459228); FUN_005ac070 D:L464808-464861 via FUN_005ab850 D:L464620; FUN_003c7dd0 D:L318991-318993",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/match/test/roomBlast.test.ts",
+     "name": "P2: a Mark141 in the open, faced close, sends the victim blast.flash 3; turned away, 1",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomBlast.test.ts",
+     "name": "P2: a Mark141 behind the wall sends the SEAL nothing -- no blast, so no white-out (FUN_005a0e70 D:L459192-459193)",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomBlast.test.ts",
+     "name": "P2: friendly fire off, a teammate's Mark141 in the open sends nothing (the PF-22 gate; FLASH_FRIENDLY_FIRE_READING)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/netPageGame.test.ts",
+     "name": "P2: the own blast's flash starts the white-out at its level; a blast with none, or null, starts nothing",
+     "data": "none"
+    }
+   ],
+   "owed": "a two-console capture of a teammate's Mark141 with friendly fire off (the friendly-fire half rests on research 179 section 8.2's disassembly and call graph, FUN_005ac670 not being in the decompilation)"
+  },
+  {
+   "id": "combatfx.grenade.flash.blind",
+   "claim": "the blind is no white overlay: TRUE_COLOR_SCALE washes every lit colour (and the fog) to c x grey + strength + 0.5 -- (0.75, 60.5) held to 1.5 s / 8 s and neutral by 4 s / 10 s, (0.9, 25.5) neutral by 2 s -- under a BLUR3D glow of 2 (level 1) or 3 additive half-size passes, Cs x FIX / 128 + Cd, FIX 0 -> 255 over 0.2 s, then fadeout_normal from 0.2 s: level 3 full to 8.2 s, 128 at 9.2 s, clear at 10.2 s; level 2 full to 1.7 s, clear at 4.2 s; level 1 64 at 1.2 s, clear at 2.2 s",
+   "level": "reading",
+   "source": "FUN_00264a40 D:L111838-111903; FUN_002642f0 D:L111608-111705; FUN_003b59a0 D:L307585; the combine D:L308514-308527",
+   "note": "docs/research/202-r2-c3-combat.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/flash.test.ts",
+     "name": "level 3: FIX rises 0 -> 255 over the first 0.2 s, holds to 8.2 s, 128 at 9.2 s, clear at 10.2 s; 3 passes",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/flash.test.ts",
+     "name": "level 2: 3 passes, full from 0.2 to 1.7 s, clear at 4.2 s; level 1: 2 passes, 64 at 1.2 s, clear at 2.2 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/flash.test.ts",
+     "name": "level 3 holds (0.75, 0.75, 0.75, 60 + 0.5) to 8 s and is neutral at 10 s; level 1 (0.9, 25 + 0.5) eases out by 2 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/flash.test.ts",
+     "name": "lifts a lit colour (1 = the GS's 128) by c x grey + w / 128 and the fog colour (0..255) by c x grey + w, alpha kept",
+     "data": "none"
+    }
+   ],
+   "owed": "a PCSX2 frame 1 s into a level-3 flash on Frostfire and RDRAM 0x488ea0..0x488eaf (passes 3, ALPHA FIX 0xff) and 0x4b4d30..0x4b4d3c (0.75, 0.75, 0.75, 60.5), to move the look to proven (research 202 section 3.9, 181 section 3.7); the GPU passes themselves are held by no unit test (no browser run in this change)"
+  },
+  {
+   "id": "combatfx.grenade.arc",
+   "claim": "while the throw is held (press to let-go, a hand grenade with one left, view mode under 4) the arc is the release's parabola from GetThrowAnim's table point: 100 steps from 1 s before the hand to twice the fall, (0.78, 0.78, 0) at alpha 0.75 -> 0.1, (1, 1, 0.8) in the night vision",
+   "level": "reading",
+   "source": "FUN_005970b0 D:L454036; FUN_00598860 D:L454849",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/throwArc.test.ts",
+     "name": "100 segments from a second before the hand to twice the fall to the feet, 0.75 -> 0.1, yellow",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/throwArc.test.ts",
+     "name": "its float step runs 100 inside the loop and one closing segment: 101 segments, alpha by the step",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "shows from the press, grows with the power, and is gone at the let-go",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "pale in the night vision (view mode 3), none in the 9x view or a scope (4 and up), none for the claymore",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.smoke",
+   "claim": "the AN-M8 goes off at 3 s with nothing to hurt and stays until its Timer2, 40 s, its smoke_grenade zAnim on the canister",
+   "level": "reading",
+   "source": "FUN_003c8330 D:L319168",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the smoke detonates at 3 s with nothing to hurt and stays 40 s; the flashbang goes at 1.5 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the smoke detonates with nothing to hurt, keeps its canister, and hands the effects smoke_grenade first",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.grenade.model",
+   "claim": "the M67 is WEAP_GEO's grenade: 81 vertices, 82 triangles, G11b.tif and m79.tif",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB WEAP_GEO.ZED grenade",
+   "note": "docs/research/85-grenades.md",
+   "tests": [],
+   "owed": "a fixture-tier pin of WEAP_GEO's grenade (its vertex and triangle counts) with a unit half: not written -- a mesh decode golden is the weapons/mesh area's, and this stream pinned no mesh data"
+  },
+  {
+   "id": "combatfx.grenade.bounce.sound",
+   "claim": "a bounce plays the material's grenade_hit_<material> zAnim only when the speed after it is over 10 u/s and the material is not UNDERWATER",
+   "level": "reading",
+   "source": "FUN_003c8f50 D:L319530",
+   "note": "docs/research/85-grenades.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "plays the bounce sound only over 10 u/s after the bounce, never on an UNDERWATER material",
+     "data": "none"
+    }
+   ],
+   "owed": "None for the unit test: projectile.test.ts pins the gate (BOUNCE_SOUND_SPEED) on a synthetic hull -- 9.9 and 10 u/s after the bounce silent, 10.1 sounded, an UNDERWATER material silent, the speed after the elasticity (2026-10-10)"
+  },
+  {
+   "id": "combatfx.effects.zanim.numbering",
+   "claim": "a zAnim command's number is its registration order in FUN_0025bc20, from 1: IF 2 ... OBJECT_MOTION 21, PARTICLE_SOURCE 27, SOUND 30, LIGHT 32, CALL_ANIMATION 45, VALVE 61",
+   "level": "reading",
+   "source": "FUN_0025bc20 D:L106862",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "is FUN_0025bc20's registration order, from 1",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.muzzle.calls",
+   "claim": "muzzle_m4SD calls shell_eject and shell_smoke_med (no flash); muzzle_m4 adds flash_fire_hider; the _zoom variants call zoom_fire_silent or zoom_flash_fire with shell_smoke_med",
+   "level": "reading",
+   "source": "FUN_005c5340 D:L479059; disc RUN/MP2.ZDB CZANIM.ZAR",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "muzzle_m4SD runs shell_eject and shell_smoke_med and no flash; muzzle_m4 adds flash_fire_hider; the _zoom variants show a light or nothing",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "effectsFrostfire.json is MP2's CZANIM.ZAR and MZANIM.ZAR, re-decoded",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "muzzle_m4SD calls shell_eject and shell_smoke_med; muzzle_m4 adds flash_fire_hider; the _zoom variants",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.muzzle.smoke-off",
+   "claim": "shell_smoke_med's particle source carries flags A 0x37ffbfd1 (bit 1 set, bit 2 clear): it switches itself off and never emits; shell_smoke_big's is on",
+   "level": "reading",
+   "source": "FUN_00266830 D:L112761 (112833-112838)",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "the muzzle smoke is switched off in the data: shell_smoke_med's source sets itself inactive (flags A bit 1 set, bit 2 clear); shell_smoke_big's is on",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "shell_smoke_med's source is switched off in the data (flags A 0x37ffbfd1: bit 1 set, bit 2 clear)",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.muzzle.zoom-light",
+   "claim": "zoom_flash_fire is a light at the caller, (204, 173, 120), blend 0x44, ranges 5/12 -> 15/60 -> 0 over 0.1 s",
+   "level": "reading",
+   "source": "FUN_00264cb0 D:L111908",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "zoom_flash_fire is a light at the caller, (204, 173, 120) lerped (0x44), 5/12 -> 15/60 -> 0 in 0.1 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "the lights: light_flash_large adds a 100-190 spot shrinking to nothing by 0.5 s; zoom_flash_fire is at the caller",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.casing.limit",
+   "claim": "shell_eject counts bullet_ejecting up, takes the full (bouncing) flight while it is under 5 and the cheap flight past it: at most four bouncing casings",
+   "level": "reading",
+   "source": "FUN_00353fd0 D:L252130; disc RUN/MP2.ZDB CZANIM.ZAR shell_eject",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "the full flight under the bullet_ejecting valve below 5, the cheap one past it: at most four casings bounce at once",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/effects.test.ts",
+     "name": "the valves: shell_eject counts its casings up and down and tests fewer than five",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.casing.launch",
+   "claim": "the casing flies out at azimuth 170-190, zenith 30, 25-35 u/s along an unnormalised direction (18.6-26.1 u/s), under -98",
+   "level": "reading",
+   "source": "FUN_00262690 D:L110465; FUN_0025cb00 D:L107099",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "flies out at 18.6-26.1 units a second (25-35 along an unnormalised 30-degree zenith), up, under -98",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "launches the casing at 25-35 units a second into its frame, at the -98 gravity",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "shell_eject: 170-190 degrees, 30 up, 25-35 a second, -98 x 1, bounce 0.3, 1.2 s, the per-material table",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.casing.materials",
+   "claim": "the casing bounces by its material's coefficient with its sound: metal 0.35 (.BUL_CASE_METAL), stone and asphalt 0.25 (.BUL_CAS_STONE), wood 0.27 (.BUL_CAS_WOOD), dirt 0.15 and grass 0.10 (.BUL_CAS_DIRT), sand 0.15 (.BUL_CAS_SAND); 0.30 and no sound elsewhere",
+   "level": "reading",
+   "source": "FUN_00261370 D:L109822; disc RUN/MP2.ZDB CZANIM.ZAR shell_eject",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "bounces by its material's coefficient with its material's sound: metal 0.35, stone and asphalt 0.25, wood 0.27, dirt and sand 0.15, grass 0.10, else 0.30 and no sound",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "shell_eject: 170-190 degrees, 30 up, 25-35 a second, -98 x 1, bounce 0.3, 1.2 s, the per-material table",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.casing.lifetime",
+   "claim": "the casing is gone at rest or at 1.2 s; the cheap flight lives 0.7 s and passes through everything",
+   "level": "reading",
+   "source": "FUN_00261370 D:L109822",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "is gone at rest or at 1.2 s, the cheap flight at 0.7 s through everything",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "falls, bounces on the metal with its coefficient and its sound, and is done at rest or at 1.2 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "without a world it flies through, its lifetime its end",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.sound.unfound-names",
+   "claim": "the console resolves an effect's sound only by its exact name among the loaded banks, with no other name and no fallback: shell_eject's .BUL_CASE_METAL (no bank holds it), grenade_hit_asphalt's .GREN_ASPHALT (named by command 45, start-animation, not the play-sound 30, and in no bank), and .BUL_CAS_DIRT on a map whose banks lack it play nothing -- the port mends all three (SOUND_NAME_FIXES, SOUND_FALLBACKS in @s2u/sound): a known departure already ruled by the owner (catalog.ts: the owner's playtest 2026-09-29; research 90 item 12), held here so it stays visible; the tests drive soundFor's name mapping, not the runtime path",
+   "level": "drift",
+   "source": "FUN_00344f30 D:L243197",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "the casing's metal bounce asks for .BUL_CASE_METAL, which no bank holds: silent on the console (research 89 section 11)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "a grenade bouncing on asphalt names .GREN_ASPHALT by command 45, not a sound command, and no bank holds it: silent in the game (research 85 section 9.9)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "a casing on dirt asks for .BUL_CAS_DIRT; a map whose banks lack it plays nothing, with no stand-in (research 89 section 11)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.tracer",
+   "claim": "a tracer is every fourth round of the SMGs, rifles, MGs, heavy weapons and turrets, never the suppressed ids 16, 33, 62, 67, 105",
+   "level": "reading",
+   "source": "FUN_003cabe0 D:L320446; FUN_003c5ac0 D:L317149",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "every fourth round of a tracer weapon, never the suppressed ones",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.impact.selection",
+   "claim": "a round's impact is <HitAnimName>_<material> (bullet_hit_stone ...) found without regard to case; Frostfire holds one for every material but UNDERWATER, BROKEN GLASS, SNOWY_TREE, METAL_RAILING, METAL_GRATE(_THIN), CAMO_NET, CHAINLINK_FENCE and the PENETRATION-1 ones, each with its sound (.BUL_METAL, .BUL_STONE ...; asphalt, plaster and carpet through bullet_hit_stone)",
+   "level": "reading",
+   "source": "FUN_003c4700 D:L316257; FUN_003c8920 (D:L319339)",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "is bullet_hit_<material> of the map's archives, with research 89 section 5's sound; nothing where the archive has none",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "Frostfire holds bullet_hit_<material> for every material research 89 section 5 lists, and none where it says nothing plays (nor the PENETRATION-1 ones)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/effects.test.ts",
+     "name": "the weapon's FireAnimName, its _zoom variant in the aim view, and <HitAnimName>_<material> in lower case",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/effects.test.ts",
+     "name": "plays the surface's impact at the hit: sparks off METAL_THICK, the stone's dust and chunks off STONE",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.impact.blood",
+   "claim": "a round into a body (PERSON) plays bullet_hit_person with .BUL_INTO_BODY and leaves bullet_mark_blood.tif 2-3 across",
+   "level": "reading",
+   "source": "FUN_003c8920 D:L319418-319500; disc RUN/READERC.ZAR decals.rdr BULLET_MARK_SMALL PERSON",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "the blood: a round into a body (PERSON) plays bullet_hit_person, .BUL_INTO_BODY, and leaves bullet_mark_blood.tif 2-3 across",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/confirmedBlood.test.ts",
+     "name": "another player's round into a body: its whole round, the impact on the PERSON material, once per shot",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/confirmedBlood.test.ts",
+     "name": "a body hit plays bullet_hit_person and its .BUL_INTO_BODY once; a hull hit and a miss play no person impact",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.mark.rows",
+   "claim": "a mark is the weapon DecalSet's (BULLET_MARK_SMALL) row for the polygon's material, no default: sand 1-1.5 on grass, sand and dirt; stone 1-1.8; metal 0.75-1.8; wood 2-3.4; glass 1.1-1.3; ice 1.8-3.3; asphalt stone 0.75-1.5; none on MUD, WATER, LEAVES, GRAVEL, RUBBER, LEAFY_TREE, THATCH, METAL_GRATE",
+   "level": "reading",
+   "source": "FUN_003d0ba0 D:L323791; disc RUN/READERC.ZAR decals.rdr BULLET_MARK_SMALL",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "takes BULLET_MARK_SMALL's row for the hit polygon's material, research 89 section 5's sizes; none without a row",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/effects.test.ts",
+     "name": "the mark table: the polygon byte to its SOILS name to its row, byte 0 the map's DefaultMaterial, no row no mark",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/grenade.parity.test.ts",
+     "name": "soils.json and decals.json are materials.rdr's SOILS and decals.rdr's sets, re-read",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.mark.default",
+   "claim": "a polygon whose material byte is 0 takes the map's DefaultMaterial (Frostfire's METAL_THICK: metal marks)",
+   "level": "reading",
+   "source": "FUN_002dc1d0 D:L180305",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/impacts.parity.test.ts",
+     "name": "a polygon whose material byte is 0 takes the map's DefaultMaterial: Frostfire's METAL_THICK marks metal",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/effects.test.ts",
+     "name": "the mark table: the polygon byte to its SOILS name to its row, byte 0 the map's DefaultMaterial, no row no mark",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.mark.pool",
+   "claim": "marks go to the temporary pool, 150 world triangles (TEMP_DECAL_POOL base 150) trimmed oldest first; a round's end empties it",
+   "level": "reading",
+   "source": "FUN_003b3800 D:L306384; FUN_003bf110 D:L313233",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/markClip.test.ts",
+     "name": "the temporary pool counts triangles, as the game's (one entry a world triangle, TEMP_DECAL_POOL BASE 150)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a round's end drops the marks and keeps the kit (CMPExitState FUN_00223970 L76084 -> FUN_0031c880 -> FUN_003bf050)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.mark.shade",
+   "claim": "a mark is drawn with the world vertices' own colours (the GS modulates its texel by the wall's baked light), on triangles facing the hit within 4.8 units of its plane",
+   "level": "reading",
+   "source": "FUN_003b3ab0 (D:L306491-306670); FUN_003beca0",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/markShade.test.ts",
+     "name": "modulates the texel by the vertex colour, blended source alpha over, no depth write",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/markClip.test.ts",
+     "name": "keeps only triangles facing the round, within 4.8 units of the mark's plane (decomp 306534, 306632)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.explosion.frag",
+   "claim": "frag_grenade calls FRAG_sparks, dust_explode_long, light_flash_large, bsmoke_explode_large, dust_ground_roll and plays .GREN_MED; frag_grenade_<material> runs its own puff, then calls frag_grenade",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CZANIM.ZAR frag_grenade, frag_grenade_stone",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "frag_grenade fires FRAG_sparks, dust_explode_long, light_flash_large, bsmoke_explode_large, dust_ground_roll and plays .GREN_MED; frag_grenade_stone runs its puff then frag_grenade",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/effects.test.ts",
+     "name": "runs a frag grenade explosion: the material puff, then frag_grenade sparks on a thrown node, smoke, dust",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.explosion.he",
+   "claim": "the HE's he_grenade calls he_sparks_quick twice, dust_explode_long, dust_explode_plume, bsmoke_explode_large, HE_light_flash_large and fire_explode_small, and plays .GREN_MED",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB CZANIM.ZAR he_grenade",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "the HE's he_grenade: its sparks, dust, plume, smoke, its own light and fire, .GREN_MED",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.explosion.light",
+   "claim": "light_flash_large is (214, 242, 217) added (0x48) at the blast, a 100/190 spot shrinking to nothing by 0.5 s; HE_light_flash_large (230, 217, 166) by 0.7 s",
+   "level": "reading",
+   "source": "FUN_00264cb0 D:L111908; disc RUN/MP2.ZDB CZANIM.ZAR",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "the frag's light: (214, 242, 217) added (0x48) at the blast, a 100/190 spot shrinking to nothing by 0.5 s; the HE's (230, 217, 166) by 0.7 s",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "the lights: light_flash_large adds a 100-190 spot shrinking to nothing by 0.5 s; zoom_flash_fire is at the caller",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.explosion.sparks",
+   "claim": "FRAG_sparks throws its spark node by a fixed launch: speed 0, pulled at -200 along (0, 0.556, -0.444) and by gravity",
+   "level": "reading",
+   "source": "FUN_00262690 D:L110465 (110654-110911)",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.parity.test.ts",
+     "name": "FRAG_sparks throws its spark node by a fixed launch: still at first, pulled at -200 along (0, 0.556, -0.444) and by gravity",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "FRAG_sparks throws its spark node by a fixed launch: +0x54 is the direction, block A the speed and the pull",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.particles",
+   "claim": "a particle's colour and scale keys interpolate linearly, clamped; the far fade is linear in d^2; the friction is 1/P(k dt), about exp(-k dt / 2)",
+   "level": "reading",
+   "source": "FUN_003282b0; FUN_00266830 D:L112761",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "interpolates the keys linearly, clamped at both ends; no colour keys is white fading with its life",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "fades on squared distance across the far pair",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "the friction factor is FUN_003282b0's 1/P(k dt), about exp(-k dt / 2) when small",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.light.pass",
+   "claim": "a light's pass falls off with the light's height over the surface, 0.5 clamp((max - h)/(max - min)), gated by the side it faces",
+   "level": "reading",
+   "source": "the VU1 handler at 0x23d8 (research 89 section 10)",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effects.test.ts",
+     "name": "falls off with the light height over the surface and is gated by the side it faces",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.effects.models",
+   "claim": "EFFE_GEO's casing bullet_shell_9m is 0.45 units long, gold; muzzle_flash_hider is five additive quads 6.16 units along +x",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB EFFE_GEO.ZED, EFFE_MDL.ZED",
+   "note": "docs/research/89-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/effectModels.test.ts",
+     "name": "decodes the rifle casing in the weapon form: 0.45 units long, gold, inside its box",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/effectModels.test.ts",
+     "name": "decodes the flash hider in the world form: five additive quads under scale/rotate, 6.16 units along +x",
+     "data": "fixture"
+    }
+   ],
+   "owed": "the effect models are held only by fixture-tier tests; a golden of the decoded models (vertex counts, boxes) with a unit half is owed"
+  },
+  {
+   "id": "combatfx.doors.actions",
+   "claim": "Frostfire's actions.rdr names three DOOR actions, bdoor_4, wdoor_1 and wdoor_2, each its own valve, range 30, no elevation, swung by MZANIM's singleDoor_right; Desert Glory's one, cdoor1",
+   "level": "reading",
+   "source": "FUN_002b4230 (registered by FUN_002b4190); disc RUN/MP2.ZDB and RUN/MP6.ZDB READERM.ZAR actions.rdr",
+   "note": "docs/research/92-doors.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "are bdoor_4, wdoor_1 and wdoor_2, each its own valve, range 30, no elevation, swung by singleDoor_right",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "doors.json's MP2 is MP2.ZDB's DOOR actions, re-read through simMapFromBytes",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/doors.test.ts",
+     "name": "are its three DOOR actions, each on its node with the leaf's polygons, a valve and its swing",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.doors.open",
+   "claim": "the action on a shut door pushes Open door on the presser and waits the ANIMATE's 0.25 s (0.300 s on the game frame), then sets its valve to 1, plays .DOOR_WOOD_OPEN and slerps the node 100 degrees about -y over 0.7 s (OBJECT_MOTION_FROM_TO, flags 0x61); refused while its animation runs",
+   "level": "reading",
+   "source": "FUN_002b44e0 D:L156787; FUN_005d2f30 D:L487009-487284; FUN_0025fe70 D:L109040; FUN_0025f9b0 D:L108852",
+   "note": "docs/research/92-doors.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "the action opens a shut door: the ANIMATE's 0.25 s, then the valve set, .DOOR_WOOD_OPEN, a 100-degree swing in 0.7 s; refused while it runs",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doors.test.ts",
+     "name": "bdoor_4 stops the SEAL shut; used, it swings open and lets it through; used again it shuts, and stops it again",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.doors.close",
+   "claim": "the action on an open door waits the ANIMATE's 0.25 s (0.300 s on the game frame), then sets the valve to 0, swings back to the disc's rotation in 0.7 s, and only then plays .DOOR_WOOD_CLS",
+   "level": "reading",
+   "source": "FUN_002b44e0 D:L156787; FUN_005d2f30 D:L487009-487284; disc RUN/MP2.ZDB MZANIM.ZAR singleDoor_right close",
+   "note": "docs/research/92-doors.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "the action again shuts it: the ANIMATE's 0.25 s, the valve 0, back to the disc's rotation in 0.7 s, and only then .DOOR_WOOD_CLS",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doors.test.ts",
+     "name": "the swing plays the door's sound and moves the drawn leaf with the hull, back to where it was when shut",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.doors.no-autoclose",
+   "claim": "nothing shuts a door by itself within a round: no timer or valve watch touches its valve outside its own animation (the round's start shuts every door: combatfx.doors.round-reset)",
+   "level": "reading",
+   "source": "FUN_002b44e0 D:L156787 (research 92 section 1)",
+   "note": "docs/research/92-doors.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "nothing shuts a door by itself within a round: open, it stays open",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.doors.round-reset",
+   "claim": "at the round's start every door is shut and at rest at once and silently: each valve 0, each leaf at the disc's rotation, a running swing cut off (ruling PF.R10; DOOR_ROUND_RESET_READING)",
+   "level": "reading",
+   "source": "FUN_002ac0e0 D:L151976-151991 -> FUN_002b5510 D:L157445-157456 (valves, running animations); FUN_0026b430 D:L115690-115721 (the saved rotation: Frostfire's action_reset names the doors with bit 27, research 209 s4)",
+   "note": "docs/research/209-the-mutable-world.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "the round's reset shuts every door at once and silently: each valve 0, each leaf at the disc's rotation and at rest, a swing cut off (PF.R10)",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/room.test.ts",
+     "name": "a round's start restores the world before the spawn: a subtree turned off in the last round is back, the doors shut and at rest, the revision bumped",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.doors.desert-glory",
+   "claim": "Desert Glory's cdoor1 swings 170 degrees in 1.0 s with .DOOR_METAL_OPN and shuts with .DOOR_METAL_CLS",
+   "level": "reading",
+   "source": "disc RUN/MP6.ZDB MZANIM.ZAR singleDoor_right",
+   "note": "docs/research/92-doors.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "cdoor1 swings 170 degrees in 1.0 s with the metal door's .DOOR_METAL_OPN, and shuts with .DOOR_METAL_CLS",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doors.test.ts",
+     "name": "cdoor1 swings open with the metal door's sound and shuts again",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/doors.parity.test.ts",
+     "name": "doors.json's MP6 is MP6.ZDB's DOOR actions, re-read through simMapFromBytes",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.doors.pick",
+   "claim": "the door is the node under the reticle (or a parent), the SEAL's feet within range on the ground plane and inside elevation in height, not while it swings or locked (99)",
+   "level": "reading",
+   "source": "FUN_005aa240 D:L463832; FUN_002b46f0",
+   "note": "docs/research/92-doors.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/doors.test.ts",
+     "name": "is picked as the game picks it: the reticle on the leaf, the SEAL within its range",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/doorPick.test.ts",
+     "name": "picks the door under the reticle with the feet inside its range on the ground plane, none at or past the range",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doorPick.test.ts",
+     "name": "with an elevation, picks only with the feet inside it in height (elevation^2 <= dy^2 refuses)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doorPick.test.ts",
+     "name": "offers no door while its animation runs, nor one whose valve is VALVE_LOCKED",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/doorPick.test.ts",
+     "name": "a world wall nearer the eye within PICK_TIE_READING of the leaf ties to the door; 0.06 nearer, the wall takes the pick",
+     "data": "none"
+    }
+   ],
+   "owed": "the reticle pick's own surface test and tie rule are not traced (research 92 section 7: PICK_TIE_READING); the elevation case is held on a synthetic elevation, Frostfire's and Desert Glory's doors all reading -1"
+  },
+  {
+   "id": "combatfx.doors.kick",
+   "claim": "a door with two animations may run the second (kick_door) under FUN_005ec4e0's conditions",
+   "level": "reading",
+   "source": "FUN_005ec4e0 D:L500519",
+   "note": "docs/research/92-doors.md",
+   "tests": [],
+   "owed": "not modelled by the port (research 92 section 6): the kick's conditions are not traced far enough to model or to test"
+  },
+  {
+   "id": "combatfx.hud.bitmaps",
+   "claim": "the HUD's bitmaps are its four libraries' (HUD_TXR, HUD2_TXR, HUDW_TXR, FONT_TXR, each on its own _PAL), stored bottom row first: newweapnbkrnd 128x64, compass_lo 128x128, firemode 32x16, m4carbine_icon 128x32, the action icons 64x64 (action_x 32x32), font_text_01 512x128",
+   "level": "reading",
+   "source": "disc RUN/MP2.ZDB HUD_TXR/HUD2_TXR/HUDW_TXR/FONT_TXR.ZED",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.parity.test.ts",
+     "name": "the pin holds every bitmap the HUD reads, from its four libraries",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.parity.test.ts",
+     "name": "hudBitmaps.json is readHud's decode of MP2's HUD, HUD2, HUDW and FONT libraries: sizes and pixels",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "reads every bitmap the HUD names, at its size, with no diagnostic",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "turns them top row first: the font's \"A\" (fonts.rdr UL 2,0 - LR 13,25) is inked in rows 0-25",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.ammo-box",
+   "claim": "the ammo box: newweapnbkrnd stretched over -10..160 x 364..439, the weapon's HUDW icon top-left (20, 389) at its own size, '%d/%d' and '%d MAG%c' at pens 15 and 95 on baseline 382, scale 0.9",
+   "level": "reading",
+   "source": "FUN_00237fc0 D:L85392; DAT_003dcb90..a8",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.parity.test.ts",
+     "name": "the ammo box's weapon icon is the held item's HUDW bitmap at its own size, top-left (20, 389): the M4 128x32, the Mark 23 64x32, the M67 32x32, the claymore 64x32",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "puts the panel, the icon and the rounds where CHUD does (the console frame's pixels, research 87 §1)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "draws the two lines at scale 0.9 from pens 15 and 95 on the baseline 382",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.firemode",
+   "claim": "the fire mode is firemode.tif x 1, 3 or 4 at x = 15 + 36i (the first at 10), y 422",
+   "level": "reading",
+   "source": "FUN_00237b40 D:L85256",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.parity.test.ts",
+     "name": "the fire mode is firemode.tif's 32x16 rounds at x 10, 51, 87 and 123, y 422: one, three or four",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "shows one, three or four rounds by fire mode (FUN_00237b40)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.compass",
+   "claim": "the compass is compass_lo at 0.75 (96x96) centred on (565, 90), alpha 100, turned by the heading",
+   "level": "reading",
+   "source": "FUN_00211510 D:L67954",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.parity.test.ts",
+     "name": "the compass is compass_lo (128x128 on the disc) at 0.75: a 96-pixel ring centred on (565, 90)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "is compass_lo at 0.75 (96x96) centred on (565, 90), turned clockwise by the heading",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.info-box",
+   "claim": "the health bar is (488, 396) 134x18, (0, 128, 64) at alpha 80; the timer and the range on baseline 433",
+   "level": "reading",
+   "source": "FUN_002388a0 D:L85628",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "the health bar is (488, 396) 134x18, green (0, 128, 64) at alpha 80; the timer and range on 433",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.stance",
+   "claim": "the stance word is right-aligned to x 480 on baseline 431 at 0.765 (multiplayer), alpha 127 on a change, falling 64 a second",
+   "level": "reading",
+   "source": "FUN_00222010 D:L75151; FUN_00221d90",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "the stance word is right-aligned to x 480 and only while its alpha lasts",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "fades in over 1-1.5 s, flashes the stance word on a change and lets it go in 2 s",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.action-prompt",
+   "claim": "the action prompt is a 50x50 icon centred on x 306, y 365..415, base + pulse x delta in its record's colour entry (the climb's green, D:L73613: 24, 80, 24 + 24, 80, 24), pulsing at 5/s; a door's is the map's action_door_open.tif; a missing icon is action_x",
+   "level": "reading",
+   "source": "FUN_0021f210 D:L73870; FUN_0021ded0 D:L73439",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.parity.test.ts",
+     "name": "a door's prompt is the map's action_door_open.tif (64x64 on the disc) drawn 50x50 centred on x 306, y 365..415; an icon the libraries lack is action_x",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "the climb prompt is action_climb, 50x50 centred on x 306, y 365..415, green pulsing",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.round-start",
+   "claim": "the round start posts STARTING ROUND at 0.36 s and the objective at 5.36 s in the message window, each fading in over 0.357 s and out from 7 s",
+   "level": "reading",
+   "source": "FUN_001fb420; FUN_002b77a0 (research 87 section 8)",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "fades up from black; STARTING ROUND at 0.36 s, the objective at 5.36 s, each 0.357 s in, out from 7 s on",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.zoom",
+   "claim": "over 1.01 magnification 'ZOOM: %2.1fx' at (20, 420), and 'RANGE(m): %.0f' at (415, 215) in a scope and (515, 40) in the binoculars, scale 0.9",
+   "level": "reading",
+   "source": "FUN_001f6ce0 D:L56027; FUN_00216770",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "writes \"ZOOM: %2.1fx\" at (20, 420) and \"RANGE(m): %.0f\" at (415, 215), scale 0.9, only over 1.01",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hud.test.ts",
+     "name": "in the binoculars: \"ZOOM: 9.0x\" (FUN_001f6ce0 case 4) and the RANGE line at (515, 40) (ChangeReticule type 7)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.font",
+   "claim": "the HUD's text is fonts.rdr's font_text_01: the pen moves int((width + DispPos.x - 1) x S + 0.5), the glyph (width - 1) x S + 0.5 wide",
+   "level": "reading",
+   "source": "FUN_00363c20; FUN_003635c0",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/hudFont.test.ts",
+     "name": "moves the pen by int((width + DispPos - 1) x scale + 0.5), as FUN_00363c20 does",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hudFont.test.ts",
+     "name": "every transcribed glyph is the archive's, and the header too",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.scoreboard",
+   "claim": "SELECT held shows the scoreboard: newweapnbkrnd nine-sliced over 153..630 x 104..430, the team bars SEALs (32, 32, 64) at 104 and TERRORISTS (64, 32, 32) at 267",
+   "level": "reading",
+   "source": "FUN_0022a8b0; FUN_0022ae90 (research 87 section 12)",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/scoreboard.test.ts",
+     "name": "nine-slices the panel over x 153..630, y 104..430, 20-pixel corners, alpha 100",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/scoreboard.test.ts",
+     "name": "puts the team bars under it: SEALs (32, 32, 64) at 104, TERRORISTS (64, 32, 32) at 267, 25 high, alpha 80",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.hud.nav-marks",
+   "claim": "a nav point's compass mark is ret_nav_01..24 by its first letter, (32, 62, 32); within 200 units at distance x 0.005 x 65 pixels, else pinned at radius 64",
+   "level": "reading",
+   "source": "FUN_002acad0; FUN_00211510 D:L67954",
+   "note": "docs/research/87-hud.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/tacMap.test.ts",
+     "name": "names the bitmap by the first letter: Charlie is ret_nav_01, Juliet ret_nav_08, Zulu ret_nav_24",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/tacMap.test.ts",
+     "name": "draws a nav point within 200 units at 0.005 x 65 pixels a unit, at its own size",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.muzzle.flash-follows-the-gun",
+   "claim": "a muzzle animation is handed the weapon's node by pointer and the firepoint's translation by value; OBJECT_TRANSLATE_STATE's and OBJECT_ROTATE_STATE's ticks re-resolve the caller node every tick and carry the position through its matrix as it is then, so flash_fire_hider's fire_fix LOOP re-places the flash at the muzzle on every frame it lives, and the LIGHT tick recomputes its place the same way (light_at_muzzle: the context position through the caller, flags 0x4ea)",
+   "level": "reading",
+   "source": "FUN_005c5340 D:L479478; FUN_00272c30 D:L120469-120478, D:L120520-120531; FUN_0026f4e0 D:L118164-118168; FUN_00272390 D:L119952-119970; FUN_00263890 D:L111288-111346; FUN_00264cb0 D:L111995-112031",
+   "note": "docs/research/149-the-muzzle-fire-follows-the-gun.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/muzzleTrack.test.ts",
+     "name": "a flash played with the weapon's node is drawn at the node's muzzle on every frame it lives, as the node moves and turns",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/muzzleTrack.test.ts",
+     "name": "a muzzle light is re-placed at the context's position through the node each tick (FUN_00264cb0 D:L111995-112031)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/muzzleTrack.test.ts",
+     "name": "a round's muzzle animation takes the weapon's node itself, so the flash follows it (FUN_005c5340 D:L479478)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/muzzleTrack.test.ts",
+     "name": "the muzzle_flash_hider model moves with the node between frames; the casing flies on from where the gun was",
+     "data": "fixture"
+    }
+   ],
+   "owed": "a capture of the original running and firing (PCSX2 or the recomp) scored frame by frame for the flash's place against the gun, to move the reading to proven; the browser spec in e2e/effects.spec.ts holds the port's own frames only"
+  },
+  {
+   "id": "combatfx.muzzle.casing-world-launch",
+   "claim": "OBJECT_MOTION reads its launch frame (the caller node) once at its begin and its tick moves only the thrown node, so a casing flies on in the world from where the gun was at the shot and does not follow the gun",
+   "level": "reading",
+   "source": "FUN_00262690 D:L110635-110741; FUN_00261370 D:L109963",
+   "note": "docs/research/149-the-muzzle-fire-follows-the-gun.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/muzzleTrack.test.ts",
+     "name": "a casing launched from the node keeps its own world path once the node has moved on (FUN_00262690 D:L110660; FUN_00261370 D:L109963)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/muzzleTrack.test.ts",
+     "name": "the muzzle_flash_hider model moves with the node between frames; the casing flies on from where the gun was",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "combatfx.backblast.axis",
+   "claim": "The backblast's 45-degree damage cone is about the firer's body's +z, behind the body, following its facing (no aim pitch if the body node carries yaw only), not the launcher's aim reversed.",
+   "level": "reading",
+   "source": "FUN_003cb1a0 0x3cb308-0x3cb35c; D:L479492-479494 (body+0x28); GetDamage 0x9f D:L318784-318826; DAT_003f6500",
+   "note": "docs/research/181-c3-combat-hud-effects.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the backblast's cone axis is the body's +z, behind the body (FUN_003cb1a0 0x3cb308-0x3cb35c, GetDamage 0x9f D:L318784-318826): a target 50 units behind at the shooter's feet is inside the cone when he aims 30 degrees down; the aim reversed would miss it",
+     "data": "none"
+    }
+   ],
+   "owed": "whether body+0x28's matrix carries pitch: an RDRAM read of the node's rows aiming a launcher up (BACKBLAST_CONE_AXIS_READING; research 181 s2.3)"
+  }
+ ]
+}

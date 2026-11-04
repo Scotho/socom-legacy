@@ -1,0 +1,245 @@
+{
+ "_source": "disc RUN/READERC.ZAR decals.rdr DECAL_SETS through decalSetRows (packages/scene/src/effects.ts); read 2026-10-02",
+ "GRENADE_BLAST": [
+  {
+   "set": "GRENADE_BLAST",
+   "material": "SAND",
+   "texture": "grenade_mark.tif",
+   "minSize": 30,
+   "maxSize": 50
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "DIRT",
+   "texture": "grenade_mark.tif",
+   "minSize": 20.2,
+   "maxSize": 30.9
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "STONE",
+   "texture": "grenade_mark.tif",
+   "minSize": 20.2,
+   "maxSize": 30.9
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "SNOW",
+   "texture": "grenade_mark.tif",
+   "minSize": 10.2,
+   "maxSize": 20.9
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "METAL_THICK",
+   "texture": "grenade_mark.tif",
+   "minSize": 10.2,
+   "maxSize": 20.9
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "METAL_THIN",
+   "texture": "grenade_mark.tif",
+   "minSize": 10.2,
+   "maxSize": 20.9
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "WOOD_THICK",
+   "texture": "grenade_mark.tif",
+   "minSize": 10.2,
+   "maxSize": 20.9
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "WOOD_THIN",
+   "texture": "grenade_mark.tif",
+   "minSize": 10.2,
+   "maxSize": 16
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "ASPHALT",
+   "texture": "grenade_mark.tif",
+   "minSize": 10.2,
+   "maxSize": 16
+  },
+  {
+   "set": "GRENADE_BLAST",
+   "material": "GLASS",
+   "texture": "grenade_mark.tif",
+   "minSize": 10,
+   "maxSize": 13
+  }
+ ],
+ "BULLET_MARK_SMALL": [
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "SAND",
+   "texture": "bullet_mark_sand.tif",
+   "minSize": 1,
+   "maxSize": 1.5
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "GRASS",
+   "texture": "bullet_mark_sand.tif",
+   "minSize": 1,
+   "maxSize": 1.5
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "DIRT",
+   "texture": "bullet_mark_sand.tif",
+   "minSize": 1,
+   "maxSize": 1.5
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "STONE",
+   "texture": "bullet_mark_stone.tif",
+   "minSize": 1,
+   "maxSize": 1.8
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "SNOW",
+   "texture": "bullet_mark_sand.tif",
+   "minSize": 1,
+   "maxSize": 1.8
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "PERSON",
+   "texture": "bullet_mark_blood.tif",
+   "minSize": 2,
+   "maxSize": 3
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "METAL_THICK",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 0.75,
+   "maxSize": 1.8
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "METAL_THIN",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 0.75,
+   "maxSize": 1.8
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "WOOD_THICK",
+   "texture": "bullet_mark_wood.tif",
+   "minSize": 2,
+   "maxSize": 3.4
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "WOOD_THIN",
+   "texture": "bullet_mark_wood.tif",
+   "minSize": 2,
+   "maxSize": 3.4
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "ASPHALT",
+   "texture": "bullet_mark_stone.tif",
+   "minSize": 0.75,
+   "maxSize": 1.5
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "GLASS",
+   "texture": "bullet_mark_glass.tif",
+   "minSize": 1.1,
+   "maxSize": 1.3
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "GLASS_THICK",
+   "texture": "bullet_mark_glass.tif",
+   "minSize": 1.1,
+   "maxSize": 1.3
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "GASTANK",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 1.2,
+   "maxSize": 1.7
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "PIPE_STEAM",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 1.2,
+   "maxSize": 1.7
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "FABRIC_CLOTH",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 0.75,
+   "maxSize": 1.2
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "FABRIC_HEAVY",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 0.75,
+   "maxSize": 1.2
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "LEATHER",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 0.75,
+   "maxSize": 1.2
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "PLASTER",
+   "texture": "bullet_mark_wood.tif",
+   "minSize": 1.2,
+   "maxSize": 2.2
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "ICE",
+   "texture": "bullet_mark_glass.tif",
+   "minSize": 1.8,
+   "maxSize": 3.3
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "CARPET",
+   "texture": "bullet_mark_sand.tif",
+   "minSize": 1,
+   "maxSize": 1.8
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "BARREL",
+   "texture": "bullet_mark_metal.tif",
+   "minSize": 0.75,
+   "maxSize": 1.8
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "GLASS_OPAQUE",
+   "texture": "bullet_mark_glass.tif",
+   "minSize": 1.1,
+   "maxSize": 1.3
+  },
+  {
+   "set": "BULLET_MARK_SMALL",
+   "material": "GLASS_MEDIUM",
+   "texture": "bullet_mark_glass.tif",
+   "minSize": 1.1,
+   "maxSize": 1.3
+  }
+ ]
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-input="pointer" data-console>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#000e11" />
+    <title>SOCOM II Legacy Launcher</title>
+    <link rel="icon" href="data:," />
+    <!-- The s2u design system, read in place from shared/ds (vite.config.ts aliases /src/ds/ there); its components.css
+         carries the console launcher's cx-* layer. The page links nothing else of the viewer's (no styles.css, no startup.css). -->
+    <link rel="stylesheet" href="/src/ds/index.css" />
+    <!-- The page's own rules (the prototype's html / body / button / .cx-ico drawing), after the system's. -->
+    <link rel="stylesheet" href="/src/console/console.css" />
+  </head>
+  <body>
+    <!--
+      The console launcher (the S2U Briefing design system's "Console launcher", slice 1): a 1920x1080 console stage in
+      rem, scaled by the root font-size (src/console/fit.ts). Three regions -- the header, the stage, the legend -- then the
+      overlay (dialogs and the launch screen), the toast and the live region, as the prototype has them. Every region is
+      drawn from the state and patched in place (src/console/morph.ts). A browser adaptation with no original (OT.R28).
+    -->
+    <div class="cx-backdrop" id="backdrop" aria-hidden="true"><img alt="" /><i class="cx-roll"></i></div>
+    <div class="cx-app">
+      <header class="cx-header" id="header"></header>
+      <main class="cx-stage" id="stage"></main>
+      <footer class="cx-legend" id="legend"></footer>
+    </div>
+    <div id="overlay"></div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <p class="s2u-visually-hidden" id="live" aria-live="polite"></p>
+    <script type="module" src="/src/console/main.ts"></script>
+  </body>
+</html>

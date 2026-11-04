@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "8181ebab7",
+  "sourceFile": "socomlegacy/packages/viewer/src/uiCompositorView.ts",
+  "fixture": "experimentalMenuFixture.ts",
+  "frame": {
+    "width": 640,
+    "height": 448,
+    "undrawn": [
+      "missing: no bitmap missing"
+    ],
+    "sha256": "f27e23f4c675d1c13360b9a66a2c6180b20f16987da7e0b1979b3b432a4f83b8"
+  }
+}

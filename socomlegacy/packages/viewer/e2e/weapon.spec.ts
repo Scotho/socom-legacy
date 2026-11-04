@@ -1,0 +1,261 @@
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, test, type Page } from '@playwright/test';
+// `src/hook.ts` is types only; its `declare global` is what makes `window.__viewer` exist inside `page.evaluate`.
+import type {} from '../src/hook';
+import { TEST_ROOM } from './urls';
+import { holdReleased } from './loadHold';
+
+/**
+ * The WEAPON workstream on Frostfire: the M4A1 SD in the SEAL's right hand at the low ready, raised to the shoulder
+ * while the trigger is held (the Fire set, `seal_fp_stand`), a round from the muzzle, the aim kicked up and let back,
+ * a reload playing its clip, and no satchel on the back (the game hides it until the bomb is picked up).
+ */
+
+const SCREENS = fileURLToPath(new URL('../../../test-fixtures/screens/weapon', import.meta.url));
+const SPAWN_A: [number, number, number] = [796, 100, 614];
+const EYE = 15.4;
+const REST_PITCH = -9.167;
+
+const settle = (page: Page): Promise<void> => page.evaluate(
+  () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+);
+
+/**
+ * Frames enough for the walk's next ticks after a zoom step. A shoulder or number-key press is weighed against the view
+ * the last tick left (`WalkMode.swapGate`): `FUN_00594cf0` asks `FUN_005c4fd0` at the shoulder presses (D:L453288-453310;
+ * D:L453294, D:L453306) before its zoom presses (D:L453313-453324), and `FUN_005c4fd0` refuses view state 4 and up
+ * (D:L478947-478949). So a press in the frame of a step down from the scope or the binoculars is refused, as the room
+ * refuses it (`test/netSwap.test.ts`, "out of the scope and a swap before the tick"); `binoculars.spec.ts` waits the same.
+ */
+const pastTick = (page: Page, frames = 10): Promise<void> => page.evaluate((n) => new Promise<void>((done) => {
+  let left = n;
+  const step = (): void => { if (--left <= 0) done(); else requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}), frames);
+
+test('the rifle in the hands, raised to fire, from the muzzle, kicked, reloaded; no satchel', async ({ page }) => {
+  mkdirSync(SCREENS, { recursive: true });
+  const problems: string[] = [];
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+
+  // The kit these pins were measured on: the M4A1 SD, the Mark 23, the M67 and the HE, no 2X (W2.R4's), by the
+  // developer's `&kit=` (README; the default spawn is the map's type's kit since web sprint 4).
+  await page.goto(`${TEST_ROOM}?mode=play&fly&devmode&kit=62,15,121,126,255`);
+  const status = page.locator('#status');
+  await expect(status).toContainText('triangles');
+  await page.locator('#maps').selectOption('RUN/MP2.ZDB');
+  await expect(status).toContainText('FROSTFIRE (MP2)');
+  await expect(status).toContainText('triangles');
+  await holdReleased(page);                                   // the loading screen's hold (`./loadHold`)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+  expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
+  await page.evaluate(([x, y, z, eye, pitch]) => window.__viewer.setCamera({ x, y: y + eye, z, yaw: 90, pitch }), [...SPAWN_A, EYE, REST_PITCH] as const);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.stats())).anim?.clip ?? null).toBe('seal_stand');
+  await page.waitForTimeout(1500);                             // the props stream in
+  await settle(page);
+
+  // In hand, down; the satchel built and hidden.
+  const low = await page.evaluate(() => window.__viewer.weapon());
+  expect(low).toMatchObject({ held: true, raise: { state: 'down', weight: 0 }, pose: { fire: null } });
+  expect(low.muzzle).not.toBeNull();
+  const body = (await page.evaluate(() => window.__viewer.stats())).body!;
+  expect(body.fittingNames).toContain('Satchel');
+  expect(body.hiddenGear).toEqual(['Satchel']);
+  await page.screenshot({ path: join(SCREENS, 'frostfire-a-low-ready.png') });
+
+  // The trigger held: raised in 0.1 s, the Fire version at full weight, rounds from the muzzle, the aim kicked up.
+  const pitch0 = (await page.evaluate(() => window.__viewer.camera()))!.pitch;
+  await page.evaluate(() => window.__viewer.trigger(true));
+  await page.waitForTimeout(300);
+  const up = await page.evaluate(() => window.__viewer.weapon());
+  expect(up).toMatchObject({ raise: { state: 'up', weight: 1 }, pose: { fire: 'seal_fp_stand', fireWeight: 1 } });
+  // At the shoulder, over the low ready -- by less than a unit since the raise weight also turns the aim's twist on
+  // (FUN_0057a330 439192, motion round 4): the spawn's -9.2 degree pitch dips the raised rifle's muzzle by about 0.3.
+  expect(up.muzzle![1]).toBeGreaterThan(low.muzzle![1] + 0.5);
+  await page.screenshot({ path: join(SCREENS, 'frostfire-a-fire-pose.png') });
+  await page.evaluate(() => window.__viewer.trigger(false));
+  const fired = await page.evaluate(() => window.__viewer.fire());
+  expect(fired.shots).toBeGreaterThan(0);
+  // Out of the scope the view does not kick: the recoil is the reticle's knock (research 84, FUN_005c5340).
+  expect((await page.evaluate(() => window.__viewer.camera()))!.pitch).toBeCloseTo(pitch0, 3);
+
+  // Still up after the release (the controller's 5 s), and the reload plays its clip.
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(400);
+  const reloading = await page.evaluate(() => window.__viewer.weapon());
+  expect(reloading).toMatchObject({ raise: { state: 'up' }, pose: { reload: 'seal_reload' } });
+  expect((await page.evaluate(() => window.__viewer.fire())).magazine.reloading).toBe(true);
+  await page.screenshot({ path: join(SCREENS, 'frostfire-a-reload.png') });
+
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.fire())).magazine.reloading, { timeout: 5000 }).toBe(false);
+
+  // RELOAD-RUN (research 150; the owner, 2026-10-03): a reload started running is the moving overlay `seal_mv_reload`
+  // (FUN_005a82e0 462821: |v|^2 > 400 at the start), and it stays that clip when the stick is let go and the mover stops
+  // -- the game never goes back to a still clip. Facing waypoint 1's open floor, as walk.spec.ts does.
+  await page.evaluate(([x, z]) => window.__viewer.setCamera({ yaw: Math.atan2(-(x - 796), -(z - 614)) * 180 / Math.PI }), [806, 665] as const);
+  await page.evaluate(() => window.__viewer.trigger(false));
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(500);                             // up to the run's speed (research 25's ramp)
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(250);
+  const moving = await page.evaluate(() => window.__viewer.weapon());
+  expect(moving.pose).toMatchObject({ reload: 'seal_mv_reload', reloadOverlay: true });
+  await page.keyboard.up('KeyW');
+  await page.waitForTimeout(450);                             // stopped (FUN_00586c10's snap), the clip still playing
+  const stopped = await page.evaluate(() => window.__viewer.weapon());
+  expect(stopped.pose).toMatchObject({ reload: 'seal_mv_reload', reloadOverlay: true });
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.fire())).magazine.reloading, { timeout: 5000 }).toBe(false);
+  // A reload started still is the whole-body `seal_reload`; the first push of the stick cuts it (no NoInterrupt) and
+  // `seal_mv_reload` carries on at the phase reached (FUN_00550ef0 418185, 418205-418214).
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(250);
+  expect((await page.evaluate(() => window.__viewer.weapon())).pose).toMatchObject({ reload: 'seal_reload', reloadOverlay: false });
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(150);
+  expect((await page.evaluate(() => window.__viewer.weapon())).pose).toMatchObject({ reload: 'seal_mv_reload', reloadOverlay: true });
+  await page.keyboard.up('KeyW');
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.fire())).magazine.reloading, { timeout: 5000 }).toBe(false);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.weapon())).pose?.reload ?? null, { timeout: 2000 }).toBeNull();
+
+  // WEAPON round 2: L2's sidearm. The swap's clip, the pistol to the hand at its hand-off, the rifle slung on the back;
+  // the Mark 23's record, reticle set 0 and icon; its rounds from its own muzzle.
+  expect(await page.evaluate(() => window.__viewer.selectWeapon('pistol'))).toBe(true);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.kit())).swap).toBeNull();
+  const drawn = await page.evaluate(() => window.__viewer.weapon());
+  expect(drawn).toMatchObject({ item: 'pistol', mounts: { rifle: 'carry', pistol: 'hand' } });
+  expect(drawn.muzzle).not.toBeNull();
+  expect((await page.evaluate(() => window.__viewer.fire())).magazine).toMatchObject({ rounds: 12, capacity: 12, spare: 2 });
+  expect((await page.evaluate(() => window.__viewer.reticle())).type).toBe(0);
+  const shot = await page.evaluate(() => window.__viewer.shoot());
+  expect(shot).not.toBeNull();
+  expect(Math.hypot(shot!.from[0] - drawn.muzzle![0], shot!.from[1] - drawn.muzzle![1], shot!.from[2] - drawn.muzzle![2])).toBeLessThan(2);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: join(SCREENS, 'frostfire-a-mark23.png') });
+  // L1: back to the rifle, the pistol holstered on the thigh.
+  expect(await page.evaluate(() => window.__viewer.selectWeapon('rifle'))).toBe(true);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.kit())).swap).toBeNull();
+  expect(await page.evaluate(() => window.__viewer.weapon())).toMatchObject({ item: 'rifle', mounts: { rifle: 'hand', pistol: 'holster' } });
+  expect((await page.evaluate(() => window.__viewer.fire())).magazine.capacity).toBe(30);
+  expect(problems).toEqual([]);
+});
+
+/** The frame's luma at points (x, y) of the drawing buffer, read in the frame it was drawn. */
+const lumaAt = (page: Page, points: [number, number][]): Promise<{ width: number; height: number; luma: number[] }> => page.evaluate(
+  (pts) => new Promise((done) => requestAnimationFrame(async () => {
+    const canvas = document.querySelector('#view') as HTMLCanvasElement;
+    const img = new Image();
+    img.src = canvas.toDataURL('image/png');
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d')!;
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, img.width, img.height);
+    const luma = pts.map(([fx, fy]) => {
+      const x = Math.round(fx * (img.width - 1)), y = Math.round(fy * (img.height - 1)), i = (y * img.width + x) * 4;
+      return (d.data[i]! + d.data[i + 1]! + d.data[i + 2]!) / 3;
+    });
+    done({ width: img.width, height: img.height, luma });
+  })), points);
+
+test('the owner\'s rulings of 2026-09-29: keys 1-4, no scope on the Mark 23, the scope\'s black to the frame\'s sides', async ({ page }) => {
+  mkdirSync(SCREENS, { recursive: true });
+  const problems: string[] = [];
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+  await page.setViewportSize({ width: 1280, height: 720 });     // the modern presentation at 16:9
+  // The kit these pins were measured on: the M4A1 SD, the Mark 23, the M67 and the HE, no 2X (W2.R4's), by the
+  // developer's `&kit=` (README; the default spawn is the map's type's kit since web sprint 4).
+  await page.goto(`${TEST_ROOM}?map=MP2&mode=play&fly&devmode&kit=62,15,121,126,255`);
+  const status = page.locator('#status');
+  await expect(status).toContainText('FROSTFIRE (MP2)');
+  await expect(status).toContainText('triangles');
+  await holdReleased(page);                                   // the loading screen's hold (`./loadHold`)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
+  await page.evaluate(([x, y, z, eye, pitch]) => window.__viewer.setCamera({ x, y: y + eye, z, yaw: 90, pitch }), [...SPAWN_A, EYE, REST_PITCH] as const);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.stats())).anim?.clip ?? null).toBe('seal_stand');
+  await page.waitForTimeout(1500);
+
+  // The rifle's scope on a 16:9 frame (past first person, owner 2026-10-01): its black reaches the frame's left and
+  // right edges (the bars were culled).
+  expect(await page.evaluate(() => window.__viewer.zoomIn())).toBe(1);
+  expect(await page.evaluate(() => window.__viewer.zoomIn())).toBe(5);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.zoom())).magnification).toBe(3);
+  expect((await page.evaluate(() => window.__viewer.reticle())).mode).toBe('scope');
+  const edges: [number, number][] = [[0.002, 0.2], [0.002, 0.5], [0.002, 0.8], [0.998, 0.2], [0.998, 0.5], [0.998, 0.8], [0.1, 0.5], [0.9, 0.5]];
+  const wide = await lumaAt(page, [...edges, [0.5, 0.35]]);
+  expect(wide.width / wide.height).toBeGreaterThan(1.7);
+  for (const [i, l] of wide.luma.slice(0, edges.length).entries()) expect(l, `edge ${edges[i]}`).toBeLessThan(4);
+  expect(wide.luma[edges.length]!).toBeGreaterThan(20);           // the world inside the tube
+  await page.screenshot({ path: join(SCREENS, 'frostfire-a-scope-16x9.png') });
+  expect(await page.evaluate(() => window.__viewer.zoomOut())).toBe(1);
+  expect(await page.evaluate(() => window.__viewer.zoomOut())).toBe(0);
+  await pastTick(page);                                       // the press weighs the view the last tick left (`pastTick`)
+
+  // 2: the Mark 23 (L2's swap), and no scope on it: first person with the sidearm's reticle, then the binoculars
+  // (FUN_005445b0 0x54480c: fewer than two ZoomModes -> 4; the owner's yes of 2026-10-01, READERC M62_BINOC).
+  await page.keyboard.press('Digit2');
+  expect((await page.evaluate(() => window.__viewer.kit())).swap).not.toBeNull();
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.kit())).swap).toBeNull();
+  expect(await page.evaluate(() => window.__viewer.weapon())).toMatchObject({ item: 'pistol', mounts: { rifle: 'carry', pistol: 'hand' } });
+  expect(await page.evaluate(() => window.__viewer.zoomIn())).toBe(1);
+  await page.waitForTimeout(300);
+  const pistolView = await page.evaluate(() => ({ z: window.__viewer.zoom(), r: window.__viewer.reticle() }));
+  expect(pistolView.z).toMatchObject({ state: 1, view: 'first', magnification: 1.01 });
+  expect(pistolView.r).toMatchObject({ mode: 'reticle', type: 0 });   // the sidearm's set in first person
+  expect(await page.evaluate(() => window.__viewer.zoomIn())).toBe(4);
+  await page.waitForTimeout(500);
+  const binocs = await page.evaluate(() => ({ z: window.__viewer.zoom(), r: window.__viewer.reticle() }));
+  expect(binocs.z).toMatchObject({ state: 4, view: 'binoculars', magnification: 9 });
+  expect(binocs.r.mode).toBe('binoculars');                         // ChangeReticule type 7: the mask, no reticle
+  expect(await page.evaluate(() => window.__viewer.zoomOut())).toBe(1);
+  expect(await page.evaluate(() => window.__viewer.zoomOut())).toBe(0);
+  await pastTick(page);                                       // out of the binoculars a tick before the press (`pastTick`)
+
+  // 3 and 4: the kit's equipment slots 1 and 2 (the M67, the HE); 1 the rifle back.
+  await page.keyboard.press('Digit3');
+  expect(await page.evaluate(() => window.__viewer.grenade())).toMatchObject({ equipped: true, item: 'M67' });
+  await page.keyboard.press('Digit4');
+  expect(await page.evaluate(() => window.__viewer.grenade())).toMatchObject({ equipped: true, item: 'HE' });
+  // 5 the third equipment slot (W4.R5), empty in this kit: nothing taken up; no per-type keys any more.
+  for (const code of ['Digit5', 'Digit6', 'Digit9']) await page.keyboard.press(code);
+  expect(await page.evaluate(() => window.__viewer.grenade())).toMatchObject({ equipped: true, item: 'HE' });
+  await page.keyboard.press('Digit1');
+  expect((await page.evaluate(() => window.__viewer.grenade())).equipped).toBe(false);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.kit())).swap).toBeNull();
+  expect(await page.evaluate(() => window.__viewer.weapon())).toMatchObject({ item: 'rifle', mounts: { rifle: 'hand', pistol: 'holster' } });
+  expect(problems).toEqual([]);
+});
+
+test('web sprint 4: the default spawn carries the type\'s kit -- mp2_seal1\'s M4A1 and Mark 23 with 2X -- each its own model and icon', async ({ page }) => {
+  const problems: string[] = [];
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  await page.goto(`${TEST_ROOM}?map=MP2&mode=play&fly&devmode`);
+  const status = page.locator('#status');
+  await expect(status).toContainText('FROSTFIRE (MP2)');
+  await expect(status).toContainText('triangles');
+  expect((await page.evaluate(() => window.__viewer.stats())).diagnostics).toEqual([]);
+  // Research 91 §14 / 94 §A4: Frostfire's first SEAL type, `mp2_seal1`: M4A1, Mark 23, M67, HE, Double Ammo Load. Web
+  // sprint 5 S2 (protocol 9) added the type to the hook: SEAL 1 (index 0, R95.5) for the next spawn and on the body, its
+  // own body model (character.rdr's `seal_A_scuba` for mp2_seal1).
+  expect(await page.evaluate(() => window.__viewer.loadout())).toEqual({
+    loadout: [54, 15, 121, 126, 194], records: ['M4A1', 'Mark 23'], models: ['m4Acarbine', 'a_mark23'], pending: null,
+    type: 0, bodyType: 0, model: 'seal_A_scuba',
+  });
+  expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
+  await page.evaluate(([x, y, z, eye, pitch]) => window.__viewer.setCamera({ x, y: y + eye, z, yaw: 90, pitch }), [...SPAWN_A, EYE, REST_PITCH] as const);
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.stats())).anim?.clip ?? null).toBe('seal_stand');
+  // 2X doubles the M4A1's three magazines (research 94 §A7): 30 in the rifle, five more; its own HUD icon.
+  expect((await page.evaluate(() => window.__viewer.fire())).magazine).toMatchObject({ rounds: 30, capacity: 30, spare: 5 });
+  await expect.poll(() => page.evaluate(() => window.__viewer.hud().model.weaponIcon)).toBe('m4carbine_icon.tif');
+  expect(await page.evaluate(() => window.__viewer.weapon())).toMatchObject({ held: true, item: 'rifle' });
+  // A pick waits for the next spawn (R94.3): the 552 and the M9 pending, the body's kit unchanged.
+  expect(await page.evaluate(() => window.__viewer.setLoadout([57, 5, 121, 126, 255]))).toEqual([57, 5, 121, 126, 255]);
+  expect((await page.evaluate(() => window.__viewer.loadout())).records).toEqual(['M4A1', 'Mark 23']);
+  expect(problems).toEqual([]);
+});

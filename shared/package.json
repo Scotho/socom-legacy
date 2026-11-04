@@ -1,0 +1,23 @@
+{
+  "name": "@s2u/shared",
+  "version": "2.3.0",
+  "private": true,
+  "description": "The design system (tokens, base, components, fonts) shared by the SOCOM 2 Legacy launcher, game and project pages",
+  "license": "GPL-3.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "tokens": "node tools/gen-tokens.mjs",
+    "fonts": "node tools/fetch-fonts.mjs",
+    "fonts:metrics": "node tools/font-metrics.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "fontkit": "^2.0.4",
+    "jsdom": "^29.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
+  }
+}

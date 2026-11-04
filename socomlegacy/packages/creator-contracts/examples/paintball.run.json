@@ -1,0 +1,59 @@
+{
+  "about": "FCW-13's acceptance runs for the paintball example (not a pack member): scripted runs for forge.rules.test and the rule traces they must give. The recording room records the room's actions and applies none, so a run tells the room's own outcomes itself (the room's player.eliminated after a rule's elimination). Authored test values (seats, points, weapon classes from the published ItemClass names, an authored weapon label), no game value.",
+  "script": {
+    "seed": 13,
+    "players": [
+      { "id": 1, "team": "seal", "at": [-300, 0, 0] },
+      { "id": 2, "team": "terrorist", "at": [300, 0, 0] }
+    ],
+    "ticks": [
+      { "events": [{ "name": "player.hit", "attacker": 1, "victim": 2, "fields": { "weapon": "authored test weapon", "weaponClass": "pistol", "amount": 30 } }] },
+      { "events": [{ "name": "player.eliminated", "player": 2 }] }
+    ]
+  },
+  "expect": {
+    "fired": ["start", "sidearms-only", "no-damage", "mark", "out", "seal-wins"]
+  },
+  "duplicate": {
+    "script": {
+      "seed": 13,
+      "players": [
+        { "id": 1, "team": "seal", "at": [-300, 0, 0] },
+        { "id": 2, "team": "terrorist", "at": [300, 0, 0] },
+        { "id": 3, "team": "seal", "at": [-300, 0, 200] }
+      ],
+      "ticks": [
+        { "events": [{ "name": "player.hit", "attacker": 1, "victim": 2, "fields": { "weapon": "authored test weapon", "weaponClass": "pistol", "amount": 30 } }] },
+        {
+          "events": [
+            { "name": "player.hit", "attacker": 1, "victim": 2, "fields": { "weapon": "authored test weapon", "weaponClass": "pistol", "amount": 30 } },
+            { "name": "player.hit", "attacker": 2, "victim": 1, "fields": { "weapon": "authored test weapon", "weaponClass": "pistol", "amount": 30 } },
+            { "name": "player.hit", "attacker": 3, "victim": 1, "fields": { "weapon": "authored test weapon", "weaponClass": "pistol", "amount": 30 } },
+            { "name": "player.kill", "attacker": 1, "victim": 2 }
+          ]
+        }
+      ]
+    },
+    "expect": {
+      "fired": ["start", "sidearms-only", "no-damage", "mark", "out", "no-damage", "no-damage", "no-damage"]
+    }
+  },
+  "disallowed": {
+    "script": {
+      "seed": 13,
+      "players": [
+        { "id": 1, "team": "seal", "at": [-300, 0, 0] },
+        { "id": 2, "team": "terrorist", "at": [300, 0, 0] }
+      ],
+      "ticks": [
+        { "events": [{ "name": "player.hit", "attacker": 1, "victim": 2, "fields": { "weapon": "authored test weapon", "weaponClass": "rifle", "amount": 36 } }] }
+      ]
+    },
+    "expect": {
+      "fired": ["start", "sidearms-only", "no-damage"]
+    },
+    "any": {
+      "fired": ["start", "no-damage", "mark", "out"]
+    }
+  }
+}

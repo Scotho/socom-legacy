@@ -1,0 +1,14 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Parity matrix, case mx-turn-place-right-short (tools/eph/scripts/movement-campaign.sh matrix; measured by tools/eph/analyze.ts).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: the campaign runs it three times.
+# Tests: standing: walk forward 1 s, stop, the right stick full right for 300 ms, stop, walk forward 1 s.
+# Look: a short turn: the look ramp, if either side has one.
+# Measures: walkTurnRate (the heading of travel after the turn against before it, over the turn: PCSX2 reads no yaw), yawRate (the page)
+# Owner (2026-10-31): "i noticed the speed was off between the clients. we need many creative tests between the clients with notable differences mapped cleanly."
+# Reference: the dead zone 0.3 per axis (pad +0x288, FUN_002da930 D:L179566-179592), the standing run full from 0.795 (0.3 + 0.7 / sqrt 2, viewer moveStick.ts), the crouch walk under 0.838 (FUN_00584c60); the desktop fit expects stand 65 fwd / 37 back / 65 sides, crouch walk 14.0 fwd / 12.8 back / 14.2 sides, prone 11.0 fwd (desktop@be5578311:tools_py/parity/seal_speed_fit.py:67-71) -- evidence to read against, not a target.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). Square is the jump.
+500 lup 1
+1500 lup 0
+1800 rright 1
+2100 rright 0
+2400 lup 1
+3400 lup 0

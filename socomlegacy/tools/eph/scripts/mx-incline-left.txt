@@ -1,0 +1,84 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Parity matrix, case mx-incline-left (tools/eph/scripts/movement-campaign.sh matrix; measured by tools/eph/analyze.ts).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: the campaign runs it three times.
+# Tests: the owner's live session walk replayed (EPH run 20261031T014055Z, as incline-prone up to the end of its walk, 28532 ms; its lright segment climbs), then the left stick full left for 1.5 s.
+# Look: the climb and the speed on the slope: climbGrade says which push goes up, down or across; the replayed walk itself carries the owner's climb.
+# Measures: climbGrade, dy, steadySpeed per segment (the replay included)
+# Owner (2026-10-31): "i noticed the speed was off between the clients. we need many creative tests between the clients with notable differences mapped cleanly."
+# Reference: the dead zone 0.3 per axis (pad +0x288, FUN_002da930 D:L179566-179592), the standing run full from 0.795 (0.3 + 0.7 / sqrt 2, viewer moveStick.ts), the crouch walk under 0.838 (FUN_00584c60); the desktop fit expects stand 65 fwd / 37 back / 65 sides, crouch walk 14.0 fwd / 12.8 back / 14.2 sides, prone 11.0 fwd (desktop@be5578311:tools_py/parity/seal_speed_fit.py:67-71) -- evidence to read against, not a target.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). Square is the jump.
+500 square 1
+627 square 0
+1478 ldown 1
+1901 ldown 0
+2007 triangle 1
+2767 triangle 0
+3181 triangle 1
+3641 lright 1
+3713 triangle 0
+3918 triangle 1
+4027 triangle 0
+4069 lright 0
+4620 triangle 1
+4768 triangle 0
+5799 square 1
+5973 square 0
+6198 square 1
+6335 square 0
+6335 lleft 1
+6416 square 1
+6494 square 0
+6592 square 1
+6592 lleft 0
+6772 square 0
+6989 r1 1
+8193 r1 0
+8238 r1 1
+8664 l1 1
+8708 r1 0
+8833 l1 0
+8833 r1 1
+9966 r1 0
+11507 triangle 0.2
+11638 triangle 0
+13217 triangle 1
+13731 triangle 0
+16062 lright 1
+16198 triangle 0.2
+16328 square 1
+16385 triangle 0
+16467 cross 1
+16592 cross 0
+16661 square 0
+16712 triangle 0.2
+16795 triangle 0
+16872 square 1
+17023 square 0
+18219 lright 0
+18997 lright 1
+19051 square 1
+19119 square 0
+19213 square 1
+19284 square 0
+19349 square 1
+19447 square 0
+19567 lright 0
+20848 lleft 1
+21237 lleft 0
+21419 lright 1
+21470 square 1
+21571 square 0
+22322 lright 0
+22580 lleft 1
+23149 lleft 0
+23284 lright 1
+23429 square 1
+23556 square 0
+26285 lright 0
+27077 lright 1
+27576 lup 1
+27655 lright 0
+27909 lleft 1
+28209 lleft 0
+28532 lup 0
+29032 lleft 1
+30532 lleft 0

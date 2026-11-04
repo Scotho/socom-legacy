@@ -1,0 +1,11 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-deadzone-back-lat020 (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: standing, back full with left at 0.2 (inside the per-axis dead zone 0.3, pad +0x288, FUN_002da930 D:L179566-179592) on the same frame for 1.2 s, then released; S+A is a pair round 4 found kept, so the W+A drop does not cloud it.
+# Look: headingDeg -- a per-axis dead zone leaves a pure back run (0 off the -z line); a radial dead zone or a leak tilts it toward +x; steadySpeed against mx-stand-back-100 (the 0.2 must not change the back speed); padRaw0 shows the 0.2 reached the pad.
+# Pressures: only the prepared ones reach PCSX2 (tools/eph/padIni.ts PREPARED: lup 0.35/0.5/0.65/0.8, lleft 0.2/0.5, ldown 0.5, lright 0.5, triangle 0.2; else 0 or 1); a pressure change on one input releases its key and presses the next in the same ms (keyActions).
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: -z along the flat strip x 920-950, z 810-855 (y -145 to -147; pop-stick's header); the bank's foot from x 910 (-x), the dip at x 950-980 (+x), water +z of z about 871 (flags105e +0x80, the 2026-10-31 runs): about 44 u at 37 u/s (the desktop fit's back speed), to about z 811.
+500 ldown 1
+500 lleft 0.2
+1700 ldown 0
+1700 lleft 0

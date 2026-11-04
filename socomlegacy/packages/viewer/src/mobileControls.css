@@ -1,0 +1,118 @@
+/* Browser adaptation: a compact pad along the lower edge, shared by menus, matches and the layout editor.
+   Controls overlay the picture; their bottom band does not reserve canvas space. Saved placements still win. */
+:root { --mobile-controls-height: 160px; }
+.mobile-game-frame, .touch.is-walking:not(.pad-on) {
+  --mobile-picture-height: calc(100dvh - var(--tw-b, 0px) - var(--tw-t, 0px));
+}
+canvas.mobile-game-frame, .touch.is-walking:not(.pad-on) > canvas {
+  top: env(safe-area-inset-top, 0px);
+}
+body.touch.is-walking:not(.pad-on) #view {
+  position: fixed; top: var(--tw-t, 0px); left: var(--tw-l, 0px);
+  width: calc(100vw - var(--tw-l, 0px) - var(--tw-r, 0px)); height: var(--mobile-picture-height);
+}
+body.touch.is-walking.ps2-look:not(.pad-on) #view {
+  left: calc(var(--tw-l, 0px) + (100vw - var(--tw-l, 0px) - var(--tw-r, 0px)) / 2);
+  top: calc(var(--tw-t, 0px) + var(--mobile-picture-height) / 2);
+  width: min(calc(100vw - var(--tw-l, 0px) - var(--tw-r, 0px)), calc(var(--mobile-picture-height) * 4 / 3));
+  height: min(var(--mobile-picture-height), calc((100vw - var(--tw-l, 0px) - var(--tw-r, 0px)) * 3 / 4));
+}
+.touch.is-walking {
+  --tw-u: clamp(36px, 6vmin, 44px);
+  --tw-f: clamp(40px, 7vmin, 44px);
+  --tw-stick: clamp(72px, 20vmin, 88px);
+  --tw-d: calc(var(--tw-f) + 4px);
+  --tw-s: calc(var(--tw-u) + 2px);
+  --tw-low: 12px;
+  --tw-stick-floor: 12px;
+  --tw-dpad-floor: 12px;
+  --tw-face-floor: 12px;
+  --tw-dpad-x: calc(24px + var(--tw-stick) + var(--tw-l));
+}
+.touch.is-walking #stick-zone, .touch.is-walking #aim-zone {
+  top: auto; bottom: calc(var(--tw-stick-floor) + var(--tw-b));
+  width: var(--tw-stick); height: var(--tw-stick);
+}
+.touch.is-walking #stick-zone { left: calc(12px + var(--tw-l)); right: auto; }
+.touch.is-walking #aim-zone { right: calc(12px + var(--tw-r)); left: auto; }
+.touch.is-walking #aim-rest { top: auto; right: calc(12px + var(--tw-r)); bottom: calc(var(--tw-stick-floor) + var(--tw-b)); }
+.touch.is-walking #tw-l1, .touch.is-walking #tw-l2,
+.touch.is-walking #tw-r1, .touch.is-walking #tw-r2 {
+  top: auto; bottom: calc(24px + var(--tw-stick) + var(--tw-b)); width: var(--tw-u);
+}
+.touch.is-walking #tw-l1 { left: calc(18px + var(--tw-u) + var(--tw-l)); }
+.touch.is-walking #tw-r1 { right: calc(18px + var(--tw-u) + var(--tw-r)); }
+.touch.is-walking #tw-cross, .touch.is-walking #tw-triangle { right: calc(24px + var(--tw-stick) + var(--tw-d) + var(--tw-r)); }
+.touch.is-walking #tw-circle { right: calc(24px + var(--tw-stick) + var(--tw-r)); }
+.touch.is-walking #tw-square { right: calc(24px + var(--tw-stick) + 2 * var(--tw-d) + var(--tw-r)); }
+.touch.is-walking #stick-base, .touch.is-walking #aim-base { width: var(--tw-stick); height: var(--tw-stick); margin: calc(var(--tw-stick) / -2) 0 0 calc(var(--tw-stick) / -2); }
+.touch.is-walking #stick-knob, .touch.is-walking #aim-knob { width: 62%; height: 62%; }
+/* The menu screen keeps its centered shortcut; match placement is separate below. */
+body:has(#menu-touch.touch.is-walking:not([hidden])) > .mu-touch-menu {
+  top: auto; bottom: calc(var(--tw-b, 0px) + var(--mobile-controls-height) - 60px);
+  left: 50%; transform: translateX(-50%);
+}
+/* Restored from the earlier mobile-layout follow-up (2d85f2d63): matches keep Menu beneath
+   the compass. Menu screens retain the centered shortcut above their bottom controls. */
+.touch.is-walking {
+  --mobile-hud-height: calc(100dvh - var(--tw-t, 0px) - var(--tw-b, 0px));
+  /* HUD_LAYOUT.compass: centre (565, 90), size 96 in the 640x448 HUD frame.
+     Clear its rotated square through y=158, then leave a six-pixel gap. */
+  --mobile-menu-top: calc(var(--tw-t, 0px) + var(--mobile-hud-height) * 158 / 448 + 6px);
+  --mobile-menu-right: calc(var(--tw-r, 0px) + var(--mobile-hud-height) * 75 / 448);
+}
+body.touch.is-walking .mu-touch-menu {
+  top: var(--mobile-menu-top); bottom: auto;
+  left: auto; right: var(--mobile-menu-right); transform: translateX(50%);
+}
+.touch.is-walking #fullscreen {
+  top: calc(var(--mobile-menu-top) + 48px); bottom: auto;
+  left: auto; right: var(--mobile-menu-right); transform: translateX(50%);
+}
+/* A page with no test-room chrome gets the same movable fullscreen target. */
+.mobile-fullscreen { display: none; touch-action: manipulation; }
+.touch.is-walking:not(.pad-on):not(.armory-open):not(.is-taunts-open) #fullscreen.mobile-fullscreen {
+  display: grid; width: 36px; height: 36px; z-index: 1002;
+}
+.mobile-fullscreen-status {
+  position: fixed; top: calc(64px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+  max-width: calc(100vw - 32px); padding: 8px 12px; border-radius: 6px; z-index: 1003;
+  background: #102528; color: white; font: 14px sans-serif; pointer-events: none;
+}
+.mobile-fullscreen-status[hidden] { display: none; }
+/* LATER 198 (the merge controller's product-track call, 2026-10-21): on a short sideways phone the test room's flying
+   touch Menu docks as it does walking. Pushed below #site-links (SITE-LINKS-MENU F2, `modern/overlay`), it left the
+   opened panel 92 px between its clear line and the touch layer's row (55vh); docked, the panel keeps the bar's foot. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  /* Just right of the centre (the review's F1): the fly stick zone is the left half's bottom 45vh (`./styles.css`), and
+     flying the right half has no zone (the aim zone is the walk's). */
+  body.test-room.touch:not(.is-walking):not(.pad-on) > .mu-touch-menu {
+    top: auto; bottom: calc(var(--tw-b, 0px) + var(--mobile-controls-height) - 60px);
+    left: calc(50% + 8px);
+    transform: none;
+  }
+}
+@media (orientation: portrait) {
+  :root { --mobile-controls-height: 300px; }
+  .touch.is-walking { --tw-stick-floor: 62px; --tw-dpad-floor: 150px; --tw-face-floor: 150px; --tw-dpad-x: calc(12px + var(--tw-l)); }
+  .touch.is-walking #tw-l1, .touch.is-walking #tw-l2 { left: calc(24px + var(--tw-stick) + var(--tw-l)); }
+  .touch.is-walking #tw-r1, .touch.is-walking #tw-r2 { right: calc(24px + var(--tw-stick) + var(--tw-r)); }
+  .touch.is-walking #tw-l1, .touch.is-walking #tw-r1 { bottom: calc(62px + var(--tw-b)); }
+  .touch.is-walking #tw-l2, .touch.is-walking #tw-r2 { bottom: calc(106px + var(--tw-b)); }
+  .touch.is-walking #tw-cross, .touch.is-walking #tw-triangle { right: calc(12px + var(--tw-d) + var(--tw-r)); }
+  .touch.is-walking #tw-circle { right: calc(12px + var(--tw-r)); }
+  .touch.is-walking #tw-square { right: calc(12px + 2 * var(--tw-d) + var(--tw-r)); }
+}
+/* A phone browser's toolbar changes the visible height without changing its large viewport (vh).
+   Keep loading screens and the test room's letterbox inside the same dynamic viewport as the menus/match. */
+html body #original-loading { bottom: auto; height: 100dvh; }
+html body #original-loading canvas { height: min(100dvh, calc(100vw * 448 / 640)); }
+html body.ps2-look #view { top: 50dvh; }
+/* Keep the shoulders clear of Menu and fullscreen when browser bars leave a short view. */
+@media (orientation: landscape) and (max-height: 340px) {
+  .touch.is-walking #tw-r1, .touch.is-walking #tw-r2 {
+    bottom: calc(var(--tw-face-floor) + 2 * var(--tw-d) + var(--tw-f) + 6px + var(--tw-b));
+  }
+  .touch.is-walking #tw-r2 { right: calc(24px + var(--tw-stick) + var(--tw-r)); }
+  .touch.is-walking #tw-r1 { right: calc(30px + var(--tw-stick) + var(--tw-u) + var(--tw-r)); }
+}

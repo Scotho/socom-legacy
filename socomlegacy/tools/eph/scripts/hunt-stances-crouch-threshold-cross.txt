@@ -1,0 +1,18 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Hunt case, case hunt-stances-crouch-threshold-cross (eph-hunt-2026-11-01, seat ac: stances, dives and pops; measured by tools/eph/analyze.ts).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: run it three times.
+# Tests: crouched, the stick crossing the crouch walk's 0.838 and back while walking: lup 0.65 (0.707, the walk) 1 s, 0.8 (1.000, the stand-up run of FUN_00584c60) 500 ms, 0.65 again 1 s. The rise into the run and the drop back into the crouch walk without a Triangle (the stance word stays crouch).
+# Look: steadySpeed per segment (0.707 x 14.0 is not the speed: the walk runs 0.946 of its band whatever the push, so about 14.0, then the standing band, then 14.0 again); the rootY (PCSX2) and the page's posture through each crossing, and how long each crossing takes; mx-crouch-fwd-050 and -080 hold one push each.
+# The 0.65 -> 0.8 change is one input's pressure: PCSX2 releases key 6 and presses key U on the same event (tools/eph/padIni.ts keyActions), so it may read one frame of no push there.
+# Ground: facing +x, lup runs where turn-fwd-then-left's W ran, x 937 -> 1027 at z 855-859, dry, both sides together for its first 0.5 s (2026-10-31 flags105e); the ditch at x 982, y -150 (eph-divergence-2026-10-31 (b)) lies at z 834-843, off this line; the water lies +z of z 871. About 14 + 32 + 14 u: x about 997 at the release.
+# The turn: the right stick full left 880 ms, as turn-fwd-then-left (to yaw about 270, facing +x; the yaw90-tilt runs turned both sides within 4 degrees of each other); facing +x, lup runs +x and lleft runs -z.
+# Stick (viewer moveStick.ts, FUN_002da930 D:L179566-179634): one axis at p runs (p - 0.3) / 0.7 x sqrt 2 of the band, clamped to 1: 0.35 -> 0.101, 0.5 -> 0.404, 0.65 -> 0.707, 0.8 -> 1.000; the crouch walk stands into the run at 0.838 of a stick (FUN_00584c60), one axis at about 0.715.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 (tools/eph/pageSeed.ts); PCSX2: the plain keys and the prepared macros (tools/eph/padIni.ts PREPARED).
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+500 rleft 1
+1380 rleft 0
+2000 triangle 0.2
+2100 triangle 0  # light Triangle: stand -> crouch
+3000 lup 0.65  # the crouch walk, under 0.838
+4000 lup 0.8  # past 0.838: the stand-up run
+4500 lup 0.65  # back under: the crouch walk again
+5500 lup 0

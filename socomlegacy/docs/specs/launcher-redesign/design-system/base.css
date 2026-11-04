@@ -1,0 +1,222 @@
+/* The s2u design system, layer 2 of 3: the base. The engineering tokens the artifact does not define, the reset,
+   the body, links, code, focus, selection, the CRT opt-in, reduced motion and forced colours. Spec 4.2 and 6. */
+@layer s2u.base {
+  :root {
+    --s2u-gutter: clamp(16px, 4vw, 40px);
+    --s2u-max: 1080px;
+    --s2u-measure: 66ch;
+    --s2u-dur-fast: 120ms;
+    --s2u-dur-base: 200ms;
+    --s2u-dur-slow: 600ms;
+    --s2u-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    /* 2.2.0 (CX-54, the owner's "sony / socom feel"): a settle -- quick out, a slight overshoot (y 1.12), then rest */
+    --s2u-ease-settle: cubic-bezier(0.22, 1.12, 0.36, 1);
+    --s2u-z-overlay: 30;
+    --s2u-z-scan: 40;
+    --s2u-z-bar: 50;
+    --s2u-z-progress: 60;
+    --s2u-z-skip: 100;
+    /* 1.1.0, the launcher (MU.R19, MU.R20; socomlegacy/docs/plans/briefs/modern-ui-launcher-layout.md 2.3, 2.4, 4).
+       Engineering tokens like the ones above, so tokens.json stays the artifact's file. Each is built on an
+       existing token where one carries it; none of the spacing tokens they use is touched by the density switch.
+       The frame's regions at 1440x900: bar 56, hero 340 (home only), shelf 128 (48 opened), action bar 64 --
+       opened, the content region is 900 - 56 - 48 - 64 = 732px. At <= 720px: bar 48, shelf 64, action bar 88. */
+    --s2u-bar-h: calc(var(--s2u-space-12) + var(--s2u-space-2));
+    --s2u-shelf-h: calc(2 * var(--s2u-space-12) + var(--s2u-space-8));
+    --s2u-shelf-h-compact: var(--s2u-space-12);
+    --s2u-action-h: calc(2 * var(--s2u-space-8));
+    --s2u-hero-h: clamp(200px, 38vh, 360px);
+    --s2u-bar-h-narrow: var(--s2u-space-12);
+    --s2u-shelf-h-narrow: calc(2 * var(--s2u-space-8));
+    --s2u-action-h-narrow: calc(var(--s2u-space-12) + var(--s2u-space-8) + var(--s2u-space-2));
+    /* icons: one size per context (the inspiration brief): 16 inline, 20 in a control, 24 the authored grid, 40 a tile */
+    --s2u-icon-16: 16px;
+    --s2u-icon-20: 20px;
+    --s2u-icon-24: 24px;
+    --s2u-icon-40: 40px;
+    /* focus: the ring's width and offset; its colour is --s2u-focus */
+    --s2u-focus-w: 2px;
+    --s2u-focus-offset: 2px;
+    /* motion: the one signature step (MU.R13 F6: START's arming), beside the fast and base durations above */
+    --s2u-dur-signature: 360ms;
+    /* 1.7.0, the ○ glyph's colour: the owner's word, 2026-10-16 (FI, MP-1: "red, like the reference"), naming the Circle
+       colour MU.R20 waited for. Red, brightened as the other glyphs are to read on the panels (4.6:1 on panel); a mark,
+       3:1 on every ground (tokens.test.ts). The touch pad's ○ wears it; the hint bar and the prompts keep MU.R20's
+       text colour until they are moved to it. */
+    --s2u-glyph-circle: #ee5a52;
+    /* states: live, ready, waiting, attention -- aliases, never a new colour */
+    --s2u-state-live: var(--s2u-cyan-boot);
+    --s2u-state-ready: var(--s2u-glyph-triangle);
+    --s2u-state-wait: var(--s2u-text-dim);
+    --s2u-state-alert: var(--s2u-warn);
+    /* surfaces, darkest to lit -- aliases; only text-strong reads on active (highlight), as before */
+    --s2u-surface-raised: var(--s2u-panel-edge);
+    --s2u-surface-card: var(--s2u-tab);
+    --s2u-surface-hover: var(--s2u-tab-lit);
+    --s2u-surface-active: var(--s2u-highlight);
+    /* the scrim behind a dialog and the hero's text: ground at 88% (the modern UI's --mu-surface, MU-1); every text
+       colour clears 4.5:1 on it over any backdrop, white included (tokens.test.ts) */
+    --s2u-scrim: color-mix(in srgb, var(--s2u-ground) 88%, transparent);
+    /* the on-screen keyboard sits over a dialog (it types into the dialog's fields) and under the scanlines */
+    --s2u-z-osk: 34;
+    /* 1.2.0, adopted from the public site's design guide (MU.R21; README, "From the public site"). Minimum hit areas:
+       44px for an action, 48px (space-12) for a primary launcher button; the reading measure; the 2px rule of a
+       selected action and a callout (a gradient, not an edge); the shade over a backdrop image (the scrim: 88%, inside
+       the guide's 82-92%) and the image's default, none -- a page sets --s2u-backdrop-image on the element. */
+    --s2u-hit-min: 44px;
+    --s2u-hit-primary: var(--s2u-space-12);
+    --s2u-measure-reading: 1040px;
+    --s2u-rule-w: 2px;
+    --s2u-backdrop-shade: var(--s2u-scrim);
+    --s2u-backdrop-image: none;
+    /* 1.3.0, the live site's launcher patterns (MU.R23, MU.R24; README, "From the live site"; read at
+       the lobby-armory build @803f2671, socomlegacy/packages/viewer/src/startup.css). START large's minimum widths (l.113, 263);
+       the action bar's growth for an error, space-12 as the live bar grows (80 -> 128, 160 -> 208; l.117, 248); the
+       memory-card slot's 4px edge, gold by default, and its ready fill (l.21, 24); the tip's arrow position (a page sets
+       --s2u-tip-arrow; the live --tip-arrow, l.206) and its z: over the OSK, under the scanlines. */
+    --s2u-start-min-w: 180px;
+    --s2u-start-min-w-narrow: 124px;
+    --s2u-action-h-error: calc(var(--s2u-action-h) + var(--s2u-space-12));
+    --s2u-action-h-error-narrow: calc(var(--s2u-action-h-narrow) + var(--s2u-space-12));
+    /* a launcher top bar holding the navlinks at <= 640px: the narrow bar plus their own 44px row (92px; the live
+       header's second row, 60 -> 108, startup.css l.236, patterns.css l.126) */
+    --s2u-bar-h-narrow-nav: calc(var(--s2u-bar-h-narrow) + var(--s2u-hit-min));
+    --s2u-slot-edge-w: 4px;
+    --s2u-slot-edge: var(--s2u-gold);
+    --s2u-slot-ready-fill: color-mix(in srgb, var(--s2u-highlight-pressed) 85%, var(--s2u-ground));
+    --s2u-tip-arrow: 50%;
+    --s2u-z-tip: 36;
+    /* 1.5.0, the Console launcher (cx-*; README, "The Console launcher (1.5.0)"): the tokens the owner's design export of
+       2026-10-11 adds in its tokens.json 1.5.0, here because tokens.json stays the artifact's v1 file; names prefixed
+       like every other, values exactly the export's. The veils over the authored backdrop are ground, tab and panel at
+       an alpha (tokens.test.ts holds each to its token's rgb), written as the export's hex. */
+    /* the backdrop veil's stops: ground at 95% (the art's darkest edge, the list side and the foot; text over it
+       clears every pair in the table), 80% (the list column and the top fade), 40% (past the readout, where the art
+       shows; never text straight on it), 25% (the far edge; decoration only) and the transparent stop */
+    --s2u-veil-strong: #000e11f2;
+    --s2u-veil: #000e11cc;
+    --s2u-veil-soft: #000e1166;
+    --s2u-veil-faint: #000e1140;
+    --s2u-veil-clear: #000e1100;
+    /* a row, card or hovered item over the art: tab at 95% (text-dim 4.9:1, gold 5.5:1 even over white art) */
+    --s2u-row-veil: #032326f2;
+    /* a readout or aside over the art: panel at 95% (text-dim 4.5:1 even over white art) */
+    --s2u-panel-veil: #002933f2;
+    /* the console stage: 1920x1080 drawn in rem (1rem = 16 design px); the page scales it by the root font-size.
+       Safe areas 5% of the stage (only the backdrop bleeds past; the foot takes 70% of the top's); the header row
+       (brand left, lamps and the player card right); the legend row (prompts left, disc chip and START right;
+       toasts and the legend error sit above it); one crossbar category slot (the track slides by it); a room row
+       or an option roller (72 design px); an on-screen key (60); the action list (680) */
+    --s2u-cx-safe-x: 6rem;
+    --s2u-cx-safe-y: 3.375rem;
+    --s2u-cx-header-h: 3.5rem;
+    --s2u-cx-legend-h: 4.5rem;
+    --s2u-cx-cat-pitch: 10.5rem;
+    --s2u-cx-row-h: 4.5rem;
+    --s2u-cx-key-h: 3.75rem;
+    --s2u-cx-list-w: 42.5rem;
+    /* the Console type roles (tokens.json 1.5.0, type group "Console"), in the generator's three tokens: font
+       shorthand, italic, tracking. Part G writes its fonts out; css.test.ts holds these equal to its rules. */
+    /* a pushed screen's title, uppercase, gold-display with title-glow, one per screen */
+    --s2u-type-cx-title: 800 4.5rem/0.95 var(--s2u-font-display);
+    --s2u-tracking-cx-title: 0.02em;
+    --s2u-italic-cx-title: italic;
+    /* the launch screen only, gold-display with title-glow */
+    --s2u-type-cx-launch-title: 800 7.5rem/0.9 var(--s2u-font-display);
+    --s2u-tracking-cx-launch-title: 0.02em;
+    --s2u-italic-cx-launch-title: italic;
+    /* a crossbar category at rest, uppercase, text-dim */
+    --s2u-type-cx-cat: 500 1rem/1.2 var(--s2u-font-label);
+    --s2u-tracking-cx-cat: 0.18em;
+    --s2u-italic-cx-cat: normal;
+    /* the current crossbar category, uppercase, gold-display with title-glow */
+    --s2u-type-cx-cat-current: 600 1.375rem/1.2 var(--s2u-font-label);
+    --s2u-tracking-cx-cat-current: 0.12em;
+    --s2u-italic-cx-cat-current: normal;
+    /* an action-list item at rest, uppercase, text */
+    --s2u-type-cx-item-title: 500 1.5rem/1.2 var(--s2u-font-label);
+    --s2u-tracking-cx-item-title: 0.06em;
+    --s2u-italic-cx-item-title: normal;
+    /* the focused action-list item, uppercase, text-strong */
+    --s2u-type-cx-item-title-focused: 600 1.875rem/1.2 var(--s2u-font-label);
+    --s2u-tracking-cx-item-title-focused: 0.06em;
+    --s2u-italic-cx-item-title-focused: normal;
+    /* console body copy and room rows, sentence case, text or text-strong */
+    --s2u-type-cx-body: 400 1.375rem/1.4 var(--s2u-font-body);
+    --s2u-tracking-cx-body: 0;
+    --s2u-italic-cx-body: normal;
+    /* an item's second line or a readout line: text-dim at rest, text when focused */
+    --s2u-type-cx-sub: 400 1.125rem/1.35 var(--s2u-font-body);
+    --s2u-tracking-cx-sub: 0;
+    --s2u-italic-cx-sub: normal;
+    /* a legend verb after its glyph, uppercase, text-strong */
+    --s2u-type-cx-prompt: 600 1.125rem/1 var(--s2u-font-label);
+    --s2u-tracking-cx-prompt: 0.1em;
+    --s2u-italic-cx-prompt: normal;
+    /* column heads, figure captions, key words (L1, OPTIONS); the smallest console size, 13 CSS px at the 0.8 scale floor */
+    --s2u-type-cx-caption: 500 1rem/1.2 var(--s2u-font-label);
+    --s2u-tracking-cx-caption: 0.18em;
+    --s2u-italic-cx-caption: normal;
+    /* a readout figure, text-strong, tabular */
+    --s2u-type-cx-figure: 500 4.5rem/1 var(--s2u-font-mono);
+    --s2u-tracking-cx-figure: 0;
+    --s2u-italic-cx-figure: normal;
+  }
+  /* the one density switch (spec 4.2): the viewer's panel and any dense table */
+  [data-density="compact"] {
+    --s2u-type-body: var(--s2u-type-readout);
+    --s2u-type-tab: 600 13px/18px var(--s2u-font-label);
+    --s2u-space-3: 6px;
+    --s2u-space-4: 8px;
+    --s2u-space-6: 12px;
+  }
+  *, ::before, ::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 64px; overflow-x: clip; color-scheme: dark; }
+  body {
+    margin: 0;
+    background: var(--s2u-ground);
+    color: var(--s2u-text);
+    font: var(--s2u-type-body);
+    letter-spacing: var(--s2u-tracking-body);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+  a { color: var(--s2u-glyph-cross); }
+  b, strong { font-weight: 600; }
+  code { font: var(--s2u-type-readout); font-size: 0.85em; color: var(--s2u-text-strong); background: var(--s2u-tab); padding: 1px 5px; }
+  ::selection { background: var(--s2u-gold); color: var(--s2u-ground); }
+  :focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: var(--s2u-focus-offset); }
+
+  /* the CRT, opt-in: scanlines at the scanline alpha over ground and panels; never over the viewer (spec rule 6) */
+  .s2u-scan { display: none; }
+  body.s2u-crt .s2u-scan {
+    display: block; position: fixed; inset: 0; z-index: var(--s2u-z-scan); pointer-events: none;
+    opacity: var(--s2u-scanline);
+    background: repeating-linear-gradient(to bottom, transparent 0 2px, var(--s2u-ground-deep) 2px 3px);
+  }
+  body.s2u-crt .s2u-crt-text { filter: blur(0.45px); }
+
+  .s2u-skip {
+    position: absolute; left: -999px; top: 8px; z-index: var(--s2u-z-skip);
+    padding: var(--s2u-space-2) var(--s2u-space-3);
+    background: var(--s2u-gold); color: var(--s2u-ground);
+    font: var(--s2u-type-nav); letter-spacing: var(--s2u-tracking-nav); text-transform: uppercase;
+  }
+  .s2u-skip:focus { left: 8px; }
+
+  /* the reading-progress line: a page sets --s2u-progress (0..1) on the element */
+  .s2u-progress { position: fixed; left: 0; top: 0; width: 100%; height: 2px; z-index: var(--s2u-z-progress); padding-top: env(safe-area-inset-top, 0px); pointer-events: none; background: var(--s2u-panel-edge); }
+  .s2u-progress::before { content: ''; display: block; height: 2px; width: calc(100% * var(--s2u-progress, 0)); background: var(--s2u-gold); }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* the durations themselves are 0s too (1.1.0), so a script that times itself by a token, and a transition
+       delayed by one (the hero's fold), take no time either */
+    :root { --s2u-dur-fast: 0s; --s2u-dur-base: 0s; --s2u-dur-slow: 0s; --s2u-dur-signature: 0s; }
+    html { scroll-behavior: auto; }
+    *, ::before, ::after { transition: none !important; animation: none !important; }
+  }
+  /* forced colours drop the shadows and glows themselves; only the lit state needs help */
+  @media (forced-colors: active) {
+    .is-on, [aria-pressed="true"], [aria-current] { outline: 2px solid CanvasText; outline-offset: -2px; }
+  }
+}

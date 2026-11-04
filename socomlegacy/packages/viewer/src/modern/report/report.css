@@ -1,0 +1,20 @@
+/* FB-1: "Report a problem" (`./index`), in the shell's tokens. A fixed scrim over the launcher or the game. */
+.mu-report { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: var(--mu-gap-4); background: var(--s2u-scrim, #000c); }
+.mu-report[hidden] { display: none; }
+.mu-report__box { display: grid; gap: var(--mu-gap-3); width: min(560px, 100%); max-height: 100%; overflow: auto; padding: var(--mu-gap-4);
+  border: 1px solid var(--mu-line-strong); border-radius: var(--mu-radius); background: var(--mu-surface-raised); color: var(--mu-text-strong); }
+.mu-report__title { margin: 0; font: var(--mu-type-title); }
+.mu-report__note { margin: 0; font: var(--mu-type-body); color: var(--mu-text-dim); }
+.mu-report__label { font: var(--mu-type-label); letter-spacing: var(--mu-tracking-label); text-transform: uppercase; }
+.mu-report__text { box-sizing: border-box; width: 100%; min-height: 8em; resize: vertical; padding: var(--mu-gap-2); font: var(--mu-type-body);
+  color: var(--mu-text-strong); background: var(--mu-surface-card); border: 1px solid var(--mu-line-strong); border-radius: var(--mu-radius); }
+.mu-report__shot { display: flex; align-items: center; gap: var(--mu-gap-2); font: var(--mu-type-body); }
+.mu-report__context { margin: 0; padding: var(--mu-gap-2); font: var(--mu-type-mono); color: var(--mu-text-dim); white-space: pre-wrap;
+  border: 1px solid var(--mu-line); border-radius: var(--mu-radius); }
+.mu-report__buttons { display: inline-flex; gap: var(--mu-gap-2); justify-content: flex-end; }
+.mu-report__buttons .mu-button { min-height: 44px; }
+/* MU-P1a (the design review r1, item 24): the glyph before the word; the file list (the context) is the readout type.
+   On the gold Save the Cross takes the label's colour: its glyph blue on gold is under the 3:1 a graphic needs (WCAG 1.4.11). */
+.mu-report__buttons .s2u-prompt__glyph { flex: none; }
+.mu-report__buttons .mu-button--primary .s2u-prompt__glyph--cross { stroke: currentColor; }
+.mu-report__text:focus-visible, .mu-report__shot input:focus-visible { outline: var(--mu-focus-ring); outline-offset: var(--mu-focus-offset); }

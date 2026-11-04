@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Two-axis case, case back-then-strafe (EPH-TILT follow-up: fwd-then-strafe's test on sampled flat ground).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: whether the lateral axis reaches the game while the forward axis is already held (here pulled back): ldown alone 0.5 s, then lright added 0.5 s, then both released.
+# Look: stickForward and stickLateral of the ldown=1+lright=1 segment on each side (PCSX2 actor+0x240 / +0x244, FUN_00586570 D:L444830-444832; the page Walker.cutStick), and headingDeg; analyze.ts notes an axis PCSX2 reads at 0 while the page reads it pushed (a harness issue, not parity).
+# Route: ldown runs -z and lright -x at yaw 180, onto the flat strip x 920-950, z 810-855 (y -145 to -147, the lowest y per 10 u cell over the 2026-10-31 runs' pcsx2.csv). Both sides backed -z there together in the replays (incline-prone segment 3, ldown 1478-1901 ms: 37.0 vs 36.7 u/s, z 855 -> 842). Half-second holds keep the body on it: about 18 u back to z 837, then at most about 32 u back and right, short of z 810 and of the bank's foot at x 910.
+# Not lup and lleft: those run +z (unsampled) and +x (into the dip at x 950-980) from this start; fwd-then-strafe keeps them, as asked.
+500 ldown 1     # back alone
+1000 lright 1   # lateral added, back held
+1500 ldown 0
+1500 lright 0

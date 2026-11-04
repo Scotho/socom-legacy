@@ -1,0 +1,445 @@
+{
+ "_source": "disc RUN/READERC.ZAR materials.rdr SOILS through soilsTable (packages/scene/src/projectile.ts), in file order; read 2026-10-02, the PICKUP key (pickup) added 2026-10-10",
+ "soils": [
+  {
+   "name": "ACTION",
+   "penetration": 1,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "INVISIBLE_DI",
+   "penetration": 1,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GRASS",
+   "penetration": 0,
+   "elasticity": 0.2,
+   "impactRadiusMod": 0.7,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "SAND",
+   "penetration": 0,
+   "elasticity": 0.1,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "MUD",
+   "penetration": 0,
+   "elasticity": 0.1,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "STONE",
+   "penetration": 0,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "DIRT",
+   "penetration": 0,
+   "elasticity": 0.3,
+   "impactRadiusMod": 0.7,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GLASS",
+   "penetration": 0.99,
+   "elasticity": 0.8,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GLASS_THICK",
+   "penetration": 0,
+   "elasticity": 0.8,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "WATER",
+   "penetration": 0.6,
+   "elasticity": 0.25,
+   "impactRadiusMod": 0.3,
+   "volumetric": false,
+   "liquid": true,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "UNDERWATER",
+   "penetration": 0,
+   "elasticity": 0.3,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": true,
+   "pickup": false
+  },
+  {
+   "name": "PERSON",
+   "penetration": 0.97,
+   "elasticity": 0.3,
+   "impactRadiusMod": 0,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "BROKEN GLASS",
+   "penetration": 0,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "LEAVES",
+   "penetration": 0,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "ICE",
+   "penetration": 0,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "SNOW",
+   "penetration": 0,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.25,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GRAVEL",
+   "penetration": 0,
+   "elasticity": 0.15,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "WOOD_THICK",
+   "penetration": 0,
+   "elasticity": 0.3,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "WOOD_THIN",
+   "penetration": 0.25,
+   "elasticity": 0.3,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "RUBBER",
+   "penetration": 0.8,
+   "elasticity": 0.6,
+   "impactRadiusMod": 0.5,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "ASPHALT",
+   "penetration": 0,
+   "elasticity": 0.45,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "LEAFY_TREE",
+   "penetration": 0.8,
+   "elasticity": 0.2,
+   "impactRadiusMod": 1,
+   "volumetric": true,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "SNOWY_TREE",
+   "penetration": 0.7,
+   "elasticity": 0.1,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "METAL_THICK",
+   "penetration": 0,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "METAL_THIN",
+   "penetration": 0.35,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "METAL_RAILING",
+   "penetration": 0.95,
+   "elasticity": 0.1,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "METAL_GRATE",
+   "penetration": 0.4,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "METAL_GRATE_THIN",
+   "penetration": 0.985,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "FABRIC_HEAVY",
+   "penetration": 0.85,
+   "elasticity": 0.25,
+   "impactRadiusMod": 0.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "PIPE_STEAM",
+   "penetration": 0.35,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GASTANK",
+   "penetration": 0,
+   "elasticity": 0.15,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "ITEM",
+   "penetration": 1,
+   "elasticity": 0.15,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": true
+  },
+  {
+   "name": "CAMO_NET",
+   "penetration": 0.98,
+   "elasticity": 0.25,
+   "impactRadiusMod": 0.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "THATCH",
+   "penetration": 0.8,
+   "elasticity": 0.1,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "CHAINLINK_FENCE",
+   "penetration": 0.98,
+   "elasticity": 0.1,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "LEATHER",
+   "penetration": 0.9,
+   "elasticity": 0.5,
+   "impactRadiusMod": 0.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "BARREL",
+   "penetration": 0.5,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "PLASTER",
+   "penetration": 0,
+   "elasticity": 0.5,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "CARPET",
+   "penetration": 0,
+   "elasticity": 0.5,
+   "impactRadiusMod": 0.2,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GRASS_VOL",
+   "penetration": 1,
+   "elasticity": 0,
+   "impactRadiusMod": 1,
+   "volumetric": true,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "BUSH_VOL",
+   "penetration": 1,
+   "elasticity": 0,
+   "impactRadiusMod": 1,
+   "volumetric": true,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "SNOWY_GRASS_VOL",
+   "penetration": 1,
+   "elasticity": 0,
+   "impactRadiusMod": 1,
+   "volumetric": true,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GLASS_OPAQUE",
+   "penetration": 0,
+   "elasticity": 0.8,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  },
+  {
+   "name": "GLASS_MEDIUM",
+   "penetration": 0.985,
+   "elasticity": 0.8,
+   "impactRadiusMod": 1,
+   "volumetric": false,
+   "liquid": false,
+   "underwater": false,
+   "pickup": false
+  }
+ ]
+}

@@ -1,0 +1,18 @@
+/* The test room's settings tooltips (`./panelTips.ts`, TRS-CONDENSE): a small round info button beside a heading or a
+   switch, and the note it reveals. A browser adaptation of the settings panel; nothing of the game's own drawing. */
+.panel-info {
+  flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; margin: 0 0 0 var(--s2u-space-1); padding: 0;
+  border: 1px solid var(--s2u-panel-edge); border-radius: 50%; background: transparent; color: var(--s2u-text-dim);
+  font: var(--s2u-type-readout-caption); line-height: 1; cursor: help; vertical-align: middle;
+}
+.panel-info:hover, .panel-info[aria-expanded="true"] { color: var(--s2u-gold); border-color: var(--s2u-gold); }
+.panel-info:focus-visible { outline: 2px solid var(--s2u-focus); outline-offset: 2px; }
+/* a thumb's target stays 44 px; the drawn ring does not grow */
+@media (pointer: coarse) { .panel-info { width: 44px; height: 44px; margin: -13px -13px -13px calc(var(--s2u-space-1) - 13px); border-color: transparent; background: radial-gradient(circle, transparent 8px, var(--s2u-panel-edge) 8px 9px, transparent 9px); } }
+.panel-info__tip { padding: var(--s2u-space-1) var(--s2u-space-2); border-left: 2px solid var(--s2u-gold); }
+/* the heading row a section's info button sits in, and an Experimental group's switch row */
+.panel-info-row { display: flex; align-items: center; gap: var(--s2u-space-1); min-width: 0; }
+.panel-info-row > .s2u-field__label { margin: 0; }
+#experimental-settings .exp-cat { margin-top: var(--s2u-space-2); }
+#experimental-settings .exp-cat > .section { padding-top: var(--s2u-space-2); }
+#experimental-settings .exp-group { display: grid; gap: var(--s2u-space-1); min-width: 0; }

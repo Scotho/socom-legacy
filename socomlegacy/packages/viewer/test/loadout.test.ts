@@ -1,0 +1,309 @@
+import { describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { RdrNode } from '@s2u/archive';
+import { FsAssetSource } from '@s2u/archive/node';
+import {
+  arsenalOf, DEFAULT_RIFLE, DEFAULT_SIDEARM, DEFAULT_WEAPON, EMPTY_ITEM, HE, HELD_RIFLE, HELD_SIDEARM, M67,
+  type KitTable, type Loadout, type MapArsenal, type WeaponRecord,
+} from '@s2u/scene';
+import {
+  BAKED_ICONS, BAKED_LOADOUT, initialFirearmSlot, itemIcon, kitParam, kitRecords, loadKitSource, PlayerLoadout, simKitsFromBytes, slotIcon, slotModel, slotRecord,
+  typeLoadout,
+} from '../src/loadout';
+import { MAX_LOADOUT_PICKS } from '../src/net/protocol';
+
+/**
+ * The runtime kit (web sprint 4, M3/M4): a `Loadout` of five ids is the kit's state; the two firearm slots' records,
+ * held models and HUD icons follow it, 2X doubles the firearms' magazines (research 94 §A7), and a pick waits for the
+ * next spawn (R94.3). The synthetic twin runs always; the disc half reads Frostfire's kits.
+ */
+
+const rec = (...pairs: [string, RdrNode][]): RdrNode[] => pairs.flatMap(([k, v]) => [k, Array.isArray(v) ? v : [v]]);
+const item = (name: string, id: number, model: string | null, icon: string | null): RdrNode[] => rec(
+  ['InternalName', name], ['ID', String(id)], ['NumMags', '3'], ['Ammo_Capacity', '30'], ['AMMO_TYPES', []],
+  ...(model ? [['ModelName', model] as [string, RdrNode]] : []), ...(icon ? [['IconTextureName', icon] as [string, RdrNode]] : []),
+);
+const arsenal = arsenalOf(['ZAMMO', [], 'ZWEAPON', [
+  item('M4A1', 54, 'm4Acarbine', 'm4carbine_icon.tif'), item('M4A1 SD', 62, 'm4Acarbine_sd', 'm4carbineSD_icon.tif'),
+  item('Mark 23', 15, 'a_mark23', 'mark23_icon.tif'), item('MP5K', 38, 'hk5k', 'hk5k_icon.tif'), item('M9', 5, 'baretta_m9', 'gun_baretta_9mm_icon.tif'),
+  item('552', 57, 'sig_commando', 'sigcommando_icon.tif'), item('MGL', 142, 'mglmk1', 'mglmk1_icon.tif'), item('M67', 121, 'grenade', 'grenade_frag_icon.tif'),
+  item('HE', 126, 'HEgrenade', 'grenade_he_icon.tif'), item('Double Ammo Load', 194, null, 'double_ammo_icon.tif'),
+]]);
+const mp5k: WeaponRecord = { ...DEFAULT_RIFLE, name: 'MP5K', id: 38, mags: 6 };
+const m9: WeaponRecord = { ...HELD_SIDEARM, name: 'M9', id: 5 };
+const r552: WeaponRecord = { ...DEFAULT_RIFLE, name: '552', id: 57 };
+const table: KitTable = { arsenal, records: new Map([[54, DEFAULT_RIFLE], [62, HELD_RIFLE], [15, HELD_SIDEARM], [38, mp5k], [5, m9], [57, r552]]), rounds: new Map() };
+const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
+const map: MapArsenal = {
+  valves: new Map(), selectable: { seal: [], terrorist: [] },
+  kits: {
+    seal: [{ type: 'Seal1', character: 'mp2_seal1', loadout: kit(54, 15, 121, 126, 194) }, { type: 'Seal2', character: 'mp2_seal2', loadout: kit(38, 15, 121, 126, 255) }],
+    terrorist: [{ type: 'Terrorist1', character: 'mp2_terror1', loadout: kit(57, 5, 121, 126, 194) }],
+  },
+};
+
+describe('the kit\'s two firearm slots follow the loadout', () => {
+  it('initial selection follows FULL_SLOT/absent-primary only; a real EQUIP_NONE record is not an absent pointer', () => {
+    const withNone = { ...table, arsenal: { ...arsenal, items: new Map([...arsenal.items, [255, { ...arsenal.items.get(15)!, id: 255 }]]) } };
+    expect(initialFirearmSlot(table, kit(254, 15, 121, 126, 255))).toBe(1);
+    expect(initialFirearmSlot(table, kit(249, 15, 121, 126, 255))).toBe(1);
+    expect(initialFirearmSlot(withNone, kit(255, 15, 121, 126, 255))).toBe(0);
+    expect(initialFirearmSlot(table, kit(254, 254, 121, 126, 255))).toBe(0);
+    expect(initialFirearmSlot(null, BAKED_LOADOUT)).toBe(0);
+    expect(slotModel(table, kit(254, 15, 121, 126, 255), 0)).toBeNull();
+  });
+
+  it.each([
+    // [what, table, loadout, slot 0's name and mags, slot 1's name and mags]
+    ['no ZWEAPON.ZAR: the baked pair', null, BAKED_LOADOUT, ['M4A1 SD', 3], ['Mark 23', 3]],
+    ['the type\'s kit with 2X: both firearms doubled (FUN_005c75f0)', table, kit(54, 15, 121, 126, 194), ['M4A1', 6], ['Mark 23', 6]],
+    ['without 2X: NumMags as read', table, kit(54, 15, 121, 126, EMPTY_ITEM), ['M4A1', 3], ['Mark 23', 3]],
+    ['2X in any equipment slot', table, kit(62, 5, 194, 121, 126), ['M4A1 SD', 6], ['M9', 6]],
+    ['2X caps at the ring\'s ten magazines', table, kit(38, 15, 194, EMPTY_ITEM, EMPTY_ITEM), ['MP5K', 10], ['Mark 23', 6]],
+    ['a slot with no firearm record keeps the baked one', table, kit(142, EMPTY_ITEM, 121, 126, EMPTY_ITEM), ['M4A1 SD', 3], ['Mark 23', 3]],
+  ] as const)('%s', (_what, t, loadout, primary, secondary) => {
+    const [rifle, pistol] = kitRecords(t, loadout);
+    expect([rifle.name, rifle.mags]).toEqual(primary);
+    expect([pistol.name, pistol.mags]).toEqual(secondary);
+    expect(slotRecord(t, loadout, 0)).toEqual(rifle);
+  });
+
+  it('keeps the record\'s own numbers but the magazines, and never touches the table\'s copy', () => {
+    const [rifle] = kitRecords(table, kit(54, 15, 121, 126, 194));
+    expect({ ...rifle, mags: 3 }).toEqual(DEFAULT_RIFLE);
+    expect(DEFAULT_RIFLE.mags).toBe(3);
+  });
+
+  it.each([
+    // [what, table, loadout, slot 0's model and icon, slot 1's model and icon]
+    ['the baked pair', null, BAKED_LOADOUT, [DEFAULT_WEAPON, BAKED_ICONS[0]], [DEFAULT_SIDEARM, BAKED_ICONS[1]]],
+    ['the records\' ModelName and IconTextureName', table, kit(57, 5, 121, 126, 194), ['sig_commando', 'sigcommando_icon.tif'], ['baretta_m9', 'gun_baretta_9mm_icon.tif']],
+    ['a launcher holds its own model; an empty slot holds nothing', table, kit(142, EMPTY_ITEM, 121, 126, 194), ['mglmk1', 'mglmk1_icon.tif'], [null, null]],
+  ] as const)('models and icons: %s', (_what, t, loadout, primary, secondary) => {
+    expect([slotModel(t, loadout, 0), slotIcon(t, loadout, 0)]).toEqual(primary);
+    expect([slotModel(t, loadout, 1), slotIcon(t, loadout, 1)]).toEqual(secondary);
+  });
+
+  it("LATER 117: an item's weapon-box icon by id (`IconTextureName`, research 94 §C9) -- the watched teammate's held item (research 282 §9)", () => {
+    expect(itemIcon(table, 57)).toBe('sigcommando_icon.tif');
+    expect(itemIcon(table, 121)).toBe('grenade_frag_icon.tif');          // a throwable in the hand: its own icon
+    expect(itemIcon(table, EMPTY_ITEM)).toBeNull();                       // 255: no item (`BodyState.weapon`)
+    expect(itemIcon(table, 200)).toBeNull();                              // an id the arsenal does not hold
+    expect(itemIcon(null, 54)).toBeNull();                                // no tables: none
+  });
+
+  it('the baked loadout is the baked records\' and the throwables\' own ids', () => {
+    expect(BAKED_LOADOUT).toEqual([HELD_RIFLE.id, HELD_SIDEARM.id, M67.id, HE.id, EMPTY_ITEM]);
+  });
+});
+
+describe('the spawn kit: the character type\'s default_weapons, a pick at the next spawn', () => {
+  it('uses the trusted equipment limit for both sides/types and drops incompatible picks when a new room supplies a different mode', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.setLoadout(kit(62, 15, 121, 126, 194), 'seal');
+    l.setPicks('seal', [{ slot: 0, id: 62 }]);
+    l.setEquipmentLimit(1);
+    expect(l.equipmentLimit()).toBe(1);
+    expect(l.picks('seal')).toEqual([]);
+    expect(l.pending('seal')).toBeNull();
+    expect(l.base('seal')).toEqual([254, 16, 123, 122, 254]);
+    expect(l.base('terrorist')).toEqual([254, 4, 123, 122, 254]);
+    expect(l.setType('seal', 1)).toBe(true);
+    expect(l.base('seal')).toEqual([254, 16, 123, 122, 254]);
+    l.setEquipmentLimit(2);
+    expect(l.base('seal')).toEqual([81, 254, 194, 122, 254]);
+    expect(l.spawn('terrorist')).toEqual([83, 254, 194, 122, 254]);
+    l.setMap(table, map);
+    expect(l.equipmentLimit()).toBe(0);
+    expect(l.base('seal')).toEqual(map.kits.seal[0]!.loadout);
+  });
+
+  it('spawns each side with SEAL 1\'s / TERRORIST 1\'s kit by default (R95.5), or the baked one', () => {
+    expect(typeLoadout(map, 'seal')).toEqual([54, 15, 121, 126, 194]);
+    expect(typeLoadout(map, 'terrorist')).toEqual([57, 5, 121, 126, 194]);
+    expect(typeLoadout(null, 'seal')).toBeNull();
+    const l = new PlayerLoadout();
+    expect(l.spawn('seal')).toEqual(BAKED_LOADOUT);
+    l.setMap(table, map);
+    expect(l.spawn('seal')).toEqual([54, 15, 121, 126, 194]);
+    expect(l.spawn('terrorist')).toEqual([57, 5, 121, 126, 194]);
+    expect(l.records().map((r) => r.name)).toEqual(['552', 'M9']);
+  });
+
+  it('web sprint 5 S2: each type its own kit; a type chosen waits for the next spawn and drops the side\'s picks', () => {
+    expect(typeLoadout(map, 'seal', 1)).toEqual([38, 15, 121, 126, 255]);
+    expect(typeLoadout(map, 'seal', 3)).toEqual([54, 15, 121, 126, 194]);          // not on the map: the side's first
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    expect([l.type('seal'), l.type('terrorist')]).toEqual([0, 0]);
+    l.spawn('seal');
+    l.setLoadout(kit(62, 15, 121, 126, 255), 'seal');
+    expect(l.setType('seal', 1)).toBe(true);
+    expect(l.loadout()).toEqual([54, 15, 121, 126, 194]);                     // not before the spawn
+    expect(l.bodyType('seal')).toBe(0);
+    expect(l.pending('seal')).toBeNull();                                   // the old type's pick went with it
+    expect(l.base('seal')).toEqual([38, 15, 121, 126, 255]);                 // the picks replay from the new type
+    expect(l.spawn('seal')).toEqual([38, 15, 121, 126, 255]);
+    expect([l.type('seal'), l.bodyType('seal'), l.bodyType('terrorist')]).toEqual([1, 1, 0]);
+    expect(l.setType('seal', 2)).toBe(false);                               // the map lists two SEALs
+    expect(l.setType('terrorist', 1)).toBe(false);
+    expect(l.type('seal')).toBe(1);
+    l.setMap(table, map);                                                   // a new map: the default types again
+    expect([l.type('seal'), l.bodyType('seal')]).toEqual([0, 0]);
+  });
+
+  it('protocol 9: a match\'s spawn names the type the room rebuilt the body as', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    expect(l.spawn('seal', { network: true, type: 1 })).toEqual([38, 15, 121, 126, 255]);
+    expect(l.bodyType('seal')).toBe(1);
+    expect(l.spawn('seal', { network: true, type: 7 })).toEqual([54, 15, 121, 126, 194]);   // not the map's: the side's own next
+    expect(l.bodyType('seal')).toBe(0);
+  });
+
+  it('a pick waits for the next spawn, is the side\'s own, and stays until changed (R94.3)', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.spawn('seal');
+    l.setLoadout(kit(38, 15, 121, 126, 255), 'seal');
+    expect(l.loadout()).toEqual([54, 15, 121, 126, 194]);                 // not before the spawn
+    expect(l.pending('seal')).toEqual([38, 15, 121, 126, 255]);
+    expect(l.spawn('seal')).toEqual([38, 15, 121, 126, 255]);
+    expect(l.spawn('seal')).toEqual([38, 15, 121, 126, 255]);             // kept on the type
+    expect(l.spawn('terrorist')).toEqual([57, 5, 121, 126, 194]);         // the other side's type has its own
+    l.setMap(table, map);                                                // a new map: a new match, the types' own kits
+    expect(l.spawn('seal')).toEqual([54, 15, 121, 126, 194]);
+  });
+
+  it('the developer\'s kit (&kit=) is every side\'s pick on every map until a pick replaces it', () => {
+    const l = new PlayerLoadout();
+    l.setDevKit(kit(62, 15, 121, 126, 255));
+    l.setMap(table, map);
+    expect(l.spawn('seal')).toEqual([62, 15, 121, 126, 255]);
+    expect(l.spawn('terrorist')).toEqual([62, 15, 121, 126, 255]);
+    expect(l.pending('seal')).toEqual([62, 15, 121, 126, 255]);
+    l.setLoadout(kit(54, 15, 121, 126, 255), 'seal');
+    expect(l.spawn('seal')).toEqual([54, 15, 121, 126, 255]);
+    l.setMap(table, map);
+    expect(l.spawn('seal')).toEqual([62, 15, 121, 126, 255]);
+  });
+
+  it('against a network server the pick waits: the type\'s kit, as the room gives it, until M9 carries a request', () => {
+    const l = new PlayerLoadout();
+    l.setDevKit(kit(62, 15, 121, 126, 255));
+    l.setMap(table, map);
+    l.setLoadout(kit(38, 15, 121, 126, 255), 'seal');
+    expect(l.spawn('seal', { network: true })).toEqual([54, 15, 121, 126, 194]);
+    expect(l.spawn('terrorist', { network: true })).toEqual([57, 5, 121, 126, 194]);
+    expect(l.pending('seal')).toEqual([38, 15, 121, 126, 255]);          // kept for the page's own match
+    expect(l.spawn('seal')).toEqual([38, 15, 121, 126, 255]);
+  });
+
+  it('protocol 7: a match\'s spawn carries the room\'s kit, which the page takes whatever it holds', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.setLoadout(kit(38, 15, 121, 126, 255), 'seal');
+    expect(l.spawn('seal', { network: true, kit: [62, 5, 121, 126, 194] })).toEqual([62, 5, 121, 126, 194]);
+    expect(l.records().map((r) => [r.name, r.mags])).toEqual([['M4A1 SD', 6], ['M9', 6]]);
+    expect(l.spawn('seal', { network: true, kit: [1, 2, 3] })).toEqual([54, 15, 121, 126, 194]);   // not five ids: the type's own
+  });
+
+  it.each([
+    ['?kit=62,15,121,126,255', [62, 15, 121, 126, 255]],
+    ['?map=MP2&kit=62,15&devmode', [62, 15, EMPTY_ITEM, EMPTY_ITEM, EMPTY_ITEM]],
+    ['?kit=', null], ['?kit=62,x', null], ['?kit=62,300', null], ['?kit=1,2,3,4,5,6', null], ['?map=MP2', null], ['?kit=-1', null],
+  ] as const)('reads the developer\'s &kit= %s', (search, want) => {
+    expect(kitParam(search)).toEqual(want);
+  });
+});
+
+// The disc: the served copies (tools/extract-maps.ts), else SOCOM_DISC.
+const web = resolve(import.meta.dirname, '../../..');
+const onDisc = (name: string): string | undefined => [
+  resolve(web, `public/maps/RUN/${name}`),
+  ...(process.env.SOCOM_DISC ? [resolve(process.env.SOCOM_DISC, `RUN/${name}`)] : []),
+].find((p) => existsSync(p));
+const root = onDisc('ZWEAPON.ZAR') && onDisc('READERC.ZAR') && onDisc('MP2.ZDB') ? resolve(onDisc('ZWEAPON.ZAR')!, '../..') : undefined;
+
+describe.skipIf(!root)('the runtime kit off the disc: Frostfire', () => {
+  it('reads the tables once a source, and each side spawns with its type\'s kit, 2X doubling the firearms', async () => {
+    const source = new FsAssetSource(root!);
+    const kits = await loadKitSource(source);
+    expect(kits).not.toBeNull();
+    expect(await loadKitSource(source)).toBe(kits);                        // one read a source
+    const sim = simKitsFromBytes(kits!, new Uint8Array(readFileSync(onDisc('MP2.ZDB')!)));
+    const seal = typeLoadout(sim.map, 'seal')!, terrorist = typeLoadout(sim.map, 'terrorist')!;
+    expect(kitRecords(sim.table, seal).map((r) => [r.name, r.mags])).toEqual([['M4A1', 6], ['Mark 23', 6]]);
+    expect(kitRecords(sim.table, terrorist).map((r) => [r.name, r.mags])).toEqual([['552', 6], ['M9', 6]]);
+    expect([slotModel(sim.table, seal, 0), slotIcon(sim.table, seal, 0)]).toEqual(['m4Acarbine', 'm4carbine_icon.tif']);
+    expect([slotModel(sim.table, terrorist, 1), slotIcon(sim.table, terrorist, 1)]).toEqual(['baretta_m9', 'gun_baretta_9mm_icon.tif']);
+  });
+});
+
+describe('protocol 7: the side\'s confirmed picks, the list the room replays (M9)', () => {
+  it('keeps each side\'s picks since the map, in order, from the type\'s kit (or the developer\'s); a new map clears them', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    expect(l.base('seal')).toEqual([54, 15, 121, 126, 194]);
+    expect(l.picks('seal')).toEqual([]);
+    expect(l.confirm('seal', { slot: 0, id: 38 })).toEqual([{ slot: 0, id: 38 }]);
+    expect(l.confirm('seal', { slot: 1, id: 5 })).toEqual([{ slot: 0, id: 38 }, { slot: 1, id: 5 }]);
+    expect(l.picks('terrorist')).toEqual([]);
+    l.setDevKit(kit(62, 15, 121, 126, 255));
+    expect(l.base('terrorist')).toEqual([62, 15, 121, 126, 255]);
+    expect(l.devKit()).toEqual([62, 15, 121, 126, 255]);
+    l.setMap(table, map);
+    expect(l.picks('seal')).toEqual([]);
+  });
+
+  it('the room\'s answer is the side\'s next kit (pending), shown by the menu, taken at the next spawn', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.answer('seal', [38, 15, 121, 126, 194]);
+    expect(l.pending('seal')).toEqual([38, 15, 121, 126, 194]);
+    expect(l.spawn('seal')).toEqual([38, 15, 121, 126, 194]);
+    l.answer('seal', [1, 2]);                                             // not a kit: nothing changes
+    expect(l.pending('seal')).toEqual([38, 15, 121, 126, 194]);
+  });
+
+  it('a refusal restores the last list the room accepted, not an empty one (a reconnect re-sends that)', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.accepted('seal', l.confirm('seal', { slot: 0, id: 38 })!);
+    l.confirm('seal', { slot: 1, id: 5 });
+    l.confirm('seal', { slot: 2, id: 126 });
+    l.refusedList('seal');
+    expect(l.picks('seal')).toEqual([{ slot: 0, id: 38 }]);
+    l.refusedList('terrorist');                                           // nothing accepted: the type's own
+    expect(l.picks('terrorist')).toEqual([]);
+  });
+
+  it('the list never grows past MAX_LOADOUT_PICKS: a confirm that would is not taken', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    for (let i = 0; i < MAX_LOADOUT_PICKS; i++) expect(l.confirm('seal', { slot: 0, id: i % 2 ? 38 : 54 }, (x) => [...x])).not.toBeNull();
+    expect(l.confirm('seal', { slot: 0, id: 38 }, (x) => [...x])).toBeNull();
+    expect(l.picks('seal')).toHaveLength(MAX_LOADOUT_PICKS);
+  });
+});
+
+describe('PF-34: a pickup changes the live kit, never the pick (research 234 s3)', () => {
+  it('take sets the kit on the body (records, model, icon follow) and leaves the side\'s pick, its type and the next spawn untouched (FUN_005bc410 D:L473823-473868)', () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.spawn('seal');
+    l.setLoadout(kit(38, 15, 121, 126, 255), 'seal');            // a pick waiting for the next spawn
+    l.take(kit(62, 15, 121, 126, 194));                          // the M4A1 SD taken from the ground
+    expect(l.loadout()).toEqual([62, 15, 121, 126, 194]);
+    expect(l.records()[0]).toMatchObject({ name: 'M4A1 SD', id: 62, mags: HELD_RIFLE.mags * 2 });   // 2X in the kit
+    expect(l.model(0)).toBe('m4Acarbine_sd');
+    expect(l.pending('seal')).toEqual([38, 15, 121, 126, 255]);
+    expect(l.type('seal')).toBe(0);
+    expect(l.spawn('seal')).toEqual([38, 15, 121, 126, 255]);    // the next spawn is the pick's, not the pickup's
+    // A malformed kit from the wire changes nothing.
+    l.take([1, 2] as unknown as Loadout);
+    expect(l.loadout()).toEqual([38, 15, 121, 126, 255]);
+  });
+});

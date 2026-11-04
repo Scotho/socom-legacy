@@ -1,0 +1,20 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Momentum and timing hunt, case hunt-momentum-reverse-from-065 (EPH hunt 2026-11-01, seat ac; measured by tools/eph/analyze.ts; one trial per run, three trials a case).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: facing +x, a run at 0.65 (axis about 0.707) 0.8 s, then the stick thrown straight back (lup off and ldown full in the same ms) for 0.7 s.
+# Look: the reversal the reading does NOT snap (|prev| 0.707 < 0.9): the axis ramps 0.707 -> -1 at about 5 a second, through zero at about 0.14 s and to the full backpedal at about 0.34 s -- a forward glide, a stop, then a slow back. Against hunt-momentum-reverse-from-100, the momentum a part push carries; the page's throttleStep holds the same rule, so a difference is the tick or the clip blend.
+# Measures: dist, steadySpeed, headingDeg, stickForward per 100 ms slice after the reversal; t90Ms of the backpedal; stopDist after the release
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+# Reading to test against (viewer mover.ts header, the decompilation as transcribed there, not re-read for this script): FUN_00586c10 ramps each move axis toward the pad at lo + (hi - lo)(1 - (1 - |target|)^8) a second (dynamics.rdr 2 and 5), and snaps to the pad when |prev| > 0.9 and the change beats 9 a second (the lateral axis: 0.78 and 7.8), restarting a 0.2 s clip blend (decomp 445053-445054); FUN_00586f00 stops at once when the stick is within 0.03 of rest; FUN_005b56c0's slope and water slow-down is not modelled on the page. The stick levels after the pad reader (viewer moveStick.ts, D:L179566-179634): 0.35 -> 0.101, 0.5 -> 0.404, 0.65 -> 0.707, 0.8 and 1 -> 1.
+# The turn: the right stick full left 880 ms, to yaw about 270 (facing +x), as turn-fwd-then-left (yaw90-tilt 20261031T165500Z..165635Z: 700 ms gave about 66 degrees with the stick's ramp; 128.1 deg/s at full push, viewer look.ts MAX_YAW_RATE). PCSX2's yaw is not sampled: read the heading of travel; a side whose turn ends more than about 5 degrees off the other reads its path along another line.
+# Ground: facing +x, lup runs x 937 -> 1027 at z 855-859, dry (flags105e 0), both sides together (strafe-then-fwd 20261031T162728Z, turn-fwd-then-left); sampled dry to x 1011 and z 832-890 there; the dip x 950-980 (y -148 to -150) is gentle; the water lies +z of z about 871 at x 917-937. At 65 u/s the strip holds about 1.2 s of full run. Here: +x to about x 974, then back.
+# Lines marked "slice" repeat the held pressure: no key traffic (padIni keyActions and run.ts KeyTranslator skip an unchanged pressure; the page's __ephPadSet sets the same value), but analyze.ts cuts a segment there, so each slice has its own steadySpeed and stickForward / ctlForward median.
+500 rleft 1    # turn left: yaw 180 -> about 270 (facing +x)
+1380 rleft 0
+2380 lup 0.65  # walk +x at 0.65
+3180 lup 0
+3180 ldown 1   # thrown back, the same ms
+3280 ldown 1   # slice
+3380 ldown 1   # slice
+3480 ldown 1   # slice
+3580 ldown 1   # slice
+3880 ldown 0

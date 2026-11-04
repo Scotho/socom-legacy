@@ -1,0 +1,23 @@
+/* Forge browser adaptation: the existing design system's isolated prototype preview and placement affordances.
+   FUI-22 (D1): the preview is the asset list's one tooltip (`./assetTooltip`), beside the tile it describes, over the
+   viewport and under the menus; it takes no pointer (a tooltip is not an input). */
+.fx-asset-tip { position: fixed; z-index: var(--fx-z-menu); width: 220px; box-sizing: border-box; padding: var(--s2u-space-2); background: var(--fx-panel-2); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift); pointer-events: none; }
+.fx-asset-tip[hidden] { display: none; }
+.fx-asset-preview { min-width: 0; }
+.fx-asset-preview canvas { display: block; width: 100%; height: 150px; border: 1px solid var(--fx-edge); background: var(--fx-deep); border-radius: var(--fx-radius); }
+.fx-asset-preview [hidden] { display: none !important; }
+.fx-preview-name { margin: 6px 0 2px; overflow-wrap: anywhere; font: var(--fx-type-mono); color: var(--fx-text); }
+.fx-preview-detail, .fx-preview-status { margin: 4px 0 0; color: var(--fx-dim); font: var(--fx-type-body); overflow-wrap: anywhere; }
+.fx-preview-status:empty { display: none; }
+.fx-assets [draggable="true"] { cursor: grab; }
+.fx-assets [draggable="true"]:active { cursor: grabbing; }
+.fx-asset-drop-hint { position: absolute; z-index: 15; left: 12px; right: 12px; bottom: 16px; margin: 0; padding: 10px 12px; background: #11252df2; color: var(--fx-text); border: 1px solid var(--fx-gold); border-radius: 4px; pointer-events: none; font: 13px/1.4 var(--s2u-font-body, sans-serif); }
+.fx-asset-drop-hint[hidden] { display: none; }
+.fx-viewport[data-asset-drop="valid"] { outline: 3px solid #69c7a5; outline-offset: -3px; }
+.fx-viewport[data-asset-drop="blocked"] { outline: 3px dashed #ed9b8d; outline-offset: -3px; }
+@media (max-height: 700px) { .fx-asset-preview canvas { height: 110px; } }
+.agent-file-dropzone { padding: 10px; border: 1px dashed var(--fx-edge-hi, #71868b); border-radius: 4px; }
+.agent-file-dropzone[data-state="hover"] { border-style: solid; outline: 2px solid var(--fx-gold, #d8a640); }
+.agent-file-dropzone[data-state="blocked"] { opacity: .65; }
+.agent-file-dropzone[data-state="reading"] { cursor: progress; }
+.agent-file-dropzone[data-state="error"] [role="status"] { color: #ed9b8d; }

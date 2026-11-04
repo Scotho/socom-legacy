@@ -1,0 +1,39 @@
+name: Bug report
+description: Something the port does differently from the original, or something broken
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The original game is the specification: if the port behaves differently from SOCOM II on a
+        PS2 (or an emulator), that's a bug even if the port's version feels better.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you saw, and what the original does instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Map and mode (e.g. Frostfire, Suppression)
+        2. What you pressed
+        3. What happened
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The launcher shows it top-left (e.g. v0.4.6), or the commit if you built it yourself.
+  - type: input
+    id: browser
+    attributes:
+      label: Browser, OS and GPU
+      placeholder: Chrome 131 on Windows 11, RTX 3060
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence from the original (if you have it)
+      description: A video, a capture or a screenshot of the original doing it right helps a lot.

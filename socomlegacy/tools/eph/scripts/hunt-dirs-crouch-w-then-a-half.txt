@@ -1,0 +1,13 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-crouch-w-then-a-half (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: crouched (light Triangle), forward 0.5 alone 1.0 s, then left 0.5 added for 1.0 s, then both released: round 4's lost W-then-A gap (1.0 s) on dry ground, at a crouch walk that does not reach the water.
+# Look: stickLateral / ctlLateral of the pair against padRaw0 -- a kept lateral here and a lost one in fwd-then-strafe points at the water or the run body (top action 3 / 67), a lost one here at the gap or the order; the crouched diagonal's heading and speed on each side.
+# Pressures: only the prepared ones reach PCSX2 (tools/eph/padIni.ts PREPARED: lup 0.35/0.5/0.65/0.8, lleft 0.2/0.5, ldown 0.5, lright 0.5, triangle 0.2; else 0 or 1); a pressure change on one input releases its key and presses the next in the same ms (keyActions).
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: at a crouch walk (desktop fit 14.0 fwd, less at 0.5) the forward second reaches about z 869, short of the water at z 871; the pair then adds +x toward the dip, dry (incline-prone sampled x 937-1011, z 832-890 dry).
+500 triangle 0.2
+600 triangle 0     # light Triangle: stand -> crouch (acts at its release, FUN_00594cf0 D:L453336-453351)
+2000 lup 0.5
+3000 lleft 0.5
+4000 lup 0
+4000 lleft 0

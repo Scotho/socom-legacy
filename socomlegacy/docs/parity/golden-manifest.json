@@ -1,0 +1,3715 @@
+{
+ "schema": 1,
+ "about": "PLAT-31 (web research 113): screen or state -> capture path -> method for the front end. Paths are relative to a named root; no frame, crop or hash is stored here. Rows: what a capture shows; screensWithoutFrame: every dialog of PLAT-06's inventory with no capture, the task that owes it and its method (a key of owedMethods, the runs not yet taken); statesWithoutFrame: popups and states (not dialogs) owed, each with its method.",
+ "roots": {
+  "SOCOM_PC_ROOT": "the PC project's checkout (its logs/parity/ runs, git-ignored there, and scripts/parity/ references, tracked there); environment variable SOCOM_PC_ROOT",
+  "SOCOM_PARITY_ARCHIVE": "the parity archive: logs/parity/ runs moved off the PC project's tree (golden, s8_save_yes, s10_audio_options); environment variable SOCOM_PARITY_ARCHIVE"
+ },
+ "methods": {
+  "golden-launch-to-mission": {
+   "how": "PCSX2 2.8.1 driven by tools_py/parity/drive.py --target pcsx2 with the shared step script scripts/parity/launch_to_mission.txt (s00..s19, a capture before each press); the run logs/parity/golden, archived",
+   "cites": [
+    "PC docs/parity/REPORT.md (Golden: PCSX2 2.8.1; the screen table)",
+    "golden/manifest.json (steps, times)",
+    "web roadmap 02-boot B12"
+   ]
+  },
+  "pcsx2-mission-a": {
+   "how": "PCSX2, tools_py/parity/drive.py --target pcsx2 with scripts/parity/launch_to_mission.txt; the run logs/parity/runs/pcsx2_mission_a",
+   "cites": [
+    "web research 98 §1-2 (s02-s04 matched to SONY448 pictures)",
+    "web roadmap 02-boot B12"
+   ]
+  },
+  "virgin-card": {
+   "how": "our recomp, tools_py/parity/drive.py --target ours on an empty card folder; the step labels s00..s24 are scripts/parity/launch_to_mission.txt's; drive.txt and manifest.json beside the frames",
+   "cites": [
+    "web roadmap 02-boot B13",
+    "PC docs/research/80-persona-card-format.md (the virgin_card fixture)"
+   ]
+  },
+  "title-gate-x51": {
+   "how": "the title gate's title stage on our recomp: tools_py/parity/gate.py with scripts/parity/title_menu.txt (w00_* the boot waits, s00..s22 a frame every 6 s); the stamp x51_gate_iop",
+   "cites": [
+    "web roadmap 02-boot B14, B17, B18",
+    "tools_py/parity/gate.py L80-107, L200-219",
+    "PC docs/research/64-the-four-menu-captures.md"
+   ]
+  },
+  "s4-pcsx2-local-horizon": {
+   "how": "two PCSX2 instances (A, B) against our local Horizon stack, driven one command at a time by logs/s4_ctl.py, captured by logs/s4_watch2.py, chained by logs/s4_pcsx2_match.sh (the click path written out in the note)",
+   "cites": [
+    "PC docs/research/18-online-round-start.md §1 (S0, 2026-09-12)",
+    "web roadmap 05-online-front-end N4-N15"
+   ]
+  },
+  "options-explore": {
+   "how": "tools_py/parity/drive.py with scripts/parity/options_explore.txt (main menu -> OPTIONS, the options list walked); target inferred as our recomp (research 113 §2.3)",
+   "cites": [
+    "PC docs/archive/sprints-7-12/2026-09-20-sprint-10-music-round-four.md L76 (proven in options_explore.txt)"
+   ]
+  },
+  "menu-explore": {
+   "how": "tools_py/parity/drive.py with scripts/parity/menu_explore.txt (the main menu's roller walked DOWN seven times, 1.5 s a step, a capture before each press; the run logs/parity/runs/menu_explore, 2026-09-10); target inferred as our recomp, as options_explore's (research 113 §2.3)",
+   "cites": [
+    "web research 140 §3",
+    "web roadmap 03-menus MENU-02a (M3: the walk per step)"
+   ]
+  },
+  "presets-explore": {
+   "how": "tools_py/parity/drive.py with scripts/parity/presets_explore.txt (OPTIONS -> CONTROLLER PRESETS, then the preset pages); target inferred as our recomp (research 113 §2.3)",
+   "cites": [
+    "PC docs/archive/STATUS-log-to-2026-09-26.md L1319 (the presets_explore sheet)"
+   ]
+  },
+  "audio-options-explore": {
+   "how": "tools_py/parity/drive.py with scripts/parity/audio_options_explore.txt (the AUDIO OPTIONS page, its rows and sliders); the run logs/parity/s10_audio_options, archived; target inferred as our recomp (research 113 §2.3)",
+   "cites": [
+    "PC docs/archive/sprints-7-12/2026-09-20-sprint-10-music-round-four.md task 1"
+   ]
+  },
+  "save-empty-card": {
+   "how": "logs/s8_save_yes.sh: tools_py/parity/drive.py --target ours --script scripts/parity/save_empty_card.txt on a fresh empty PS2X_MC_DIR with PS2X_MC_TRACE=1; the run logs/parity/s8_save_yes, archived",
+   "cites": [
+    "PC docs/KNOWN.md (An empty or missing card folder is an inserted, formatted, empty PS2 card; s8_save_yes)",
+    "web roadmap 04-options-memory-card O20"
+   ]
+  },
+  "logoff-q2": {
+   "how": "online_login_ours --prefilled --existing --then triangle:5,triangle:5,left:2,cross:8 on our hosted server (logs/s17_controller/q2_logoff_run.sh), our recomp; the run logs/parity/s17_q2_logoff/online1",
+   "cites": [
+    "PC docs/KNOWN.md (The online logoff restarts the game in-process, 2026-09-29)",
+    "PC docs/archive/2026-09-27-sprint-17-log-to-2026-09-29.md L17",
+    "web roadmap 05-online-front-end N5, N17"
+   ]
+  },
+  "chat-s11": {
+   "how": "tools_py/parity/online_login_ours.py's staged login to the game lobby on our local stack, our recomp; the run logs/parity/s11_chat_A",
+   "cites": [
+    "PC docs/research/66-chat-step-rounds.md L10-14"
+   ]
+  },
+  "harness-refs": {
+   "how": "the online harness's references (tools_py/parity/online_login_ours.py; boxes and thresholds in scripts/parity/refs/refs.json), tracked in the PC project; a .pcsx2.png sibling is the console's (tools_py/parity/drive.py ref_for_target)",
+   "cites": [
+    "PC docs/research/80-online-menus-harness-scope.md §3-4",
+    "scripts/parity/refs/refs.json"
+   ]
+  },
+  "step-script-refs": {
+   "how": "the step scripts' untilref references beside scripts/parity/*.txt (ref_main_menu_ours.png and its .pcsx2 sibling; the save and briefing references), tracked in the PC project",
+   "cites": [
+    "tools_py/parity/drive.py ref_for_target (L310-321)",
+    "web roadmap 04-options-memory-card O20"
+   ]
+  },
+  "gate-heldout": {
+   "how": "the gate's held-out references, captured once by gate --capture-heldout (stamp s14_chain1) and pinned by sha256 in scripts/parity/refs/heldout/pins.json (the pins stay there; none is copied here)",
+   "cites": [
+    "scripts/parity/refs/heldout/pins.json (_about, accepted 2026-09-26)"
+   ]
+  },
+  "pcsx2-online-login": {
+   "how": "PCSX2 from savestate 9 (LOGIN TO SOCOM II ONLINE) against our local Horizon stack, driven by tools_py/parity/online_login.py (universe, persona, name and password on the keyboard, CONNECT, the new-persona prompts 07_save_card, 07_card_slot, 07_overwrite, the EULA, the lobby); the run logs/parity/online/login, archived",
+   "cites": [
+    "PC tools_py/parity/online_login.py L110-131",
+    "PC docs/archive/STATUS-log-to-2026-09-26.md L2096-2100 (2026-09-07: a PCSX2 client reaches the SOCOM II ONLINE lobby; screens logs/parity/online/login/)"
+   ]
+  },
+  "persona-card-proof": {
+   "how": "tools_py/parity/online_login_ours.py's staged login on our recomp with a persona the launcher's headless creator wrote into a fresh card folder (the persona plan's Task 5); the run logs/parity/persona_card_proof2/login",
+   "cites": [
+    "PC docs/KNOWN.md (The game reads a persona the launcher's headless creator wrote into a fresh home, 2026-09-29)",
+    "web research 157 section 8 (the archive searched for a frame of dlgNetConnect)"
+   ]
+  },
+  "l1b-step0": {
+   "how": "tools_py/parity/online_login_ours.py's staged login on our recomp, three launches on one card folder (the persona typed on the first, saved and prefilled on the next two); the run logs/parity/s16_l1b_step0",
+   "cites": [
+    "PC logs/parity/s16_l1b_step0 (launch1..3, persona_lines.txt, card_before.txt / card_after*.txt)",
+    "web research 157 section 8"
+   ]
+  },
+  "w10-virgin": {
+   "how": "tools_py/parity/online_login_ours.py's staged login on our recomp from an empty card folder, two clients (a, b); the run logs/parity/w10_virgin_b",
+   "cites": [
+    "PC docs/KNOWN.md [persona-headless] (W10)",
+    "web research 157 section 8"
+   ]
+  }
+ },
+ "owedMethods": {
+  "pcsx2-boot-timed": {
+   "how": "PCSX2 from power-on with no presses, captured at 2 Hz or more to 30 s past the attract start, once per card state (none, virgin formatted, unformatted, an existing save, both slots) and once with CROSS mashed: tools_py/parity/drive.py --target pcsx2 with a wait-only step script in the style of scripts/parity/title_menu.txt, a fresh card dir per state; the same script on the recomp for the scores",
+   "cites": [
+    "web roadmap 02-boot BOOT-01 (Acceptance, Unknowns)",
+    "the method golden-launch-to-mission"
+   ]
+  },
+  "recomp-relaunch": {
+   "how": "our recomp started on the relaunch path (REBOOT in the switch handler, FUN_0022ed10, with the start dialog as its argument), driven from there to the main menu with a frame per step: dlgAfterErrorReboot along the logoff run's path, dlgAfterReboot by the network-error relaunch",
+   "cites": [
+    "web roadmap 02-boot BOOT-10 (What the original does, Acceptance)",
+    "the method logoff-q2"
+   ]
+  },
+  "recomp-driven-offline": {
+   "how": "our recomp, tools_py/parity/drive.py --target ours with a step script per screen in the style of scripts/parity/*_explore.txt (main menu to the screen, a frame per step), on an empty card and on a card with saves; the card faults by the card folder given to PS2X_MC_DIR",
+   "cites": [
+    "web roadmap 04-options-memory-card OPT-19 (Gap)",
+    "the methods options-explore, presets-explore, save-empty-card"
+   ]
+  },
+  "pcsx2-driven-offline": {
+   "how": "PCSX2, tools_py/parity/drive.py --target pcsx2 with the same step scripts, only for a state the recomp cannot present (an unformatted card: its format prompts and progress)",
+   "cites": [
+    "web roadmap 04-options-memory-card OPT-19 (Gap)",
+    "the method pcsx2-mission-a"
+   ]
+  },
+  "recomp-local-stack-walk": {
+   "how": "our recomp logged in to OUR local Horizon stack (R293: never another server) with a throwaway simulated.db and two personas, by tools_py/parity/online_login_ours.py's staged login, then one walk per row of the SOCOM II ONLINE menu and each page under it (and a round with START pressed and ABORT confirmed): a frame per step, the Medius pair from Horizon's MLS log, seed-simulated-db.ps1 -Show before and after",
+   "cites": [
+    "web roadmap 05-online-front-end ONL-32 (Gap)",
+    "the methods logoff-q2, chat-s11"
+   ]
+  },
+  "recomp-lan-pair": {
+   "how": "two instances on one host driven one command at a time, as the s4 A/B pair was, into LAN from the main menu (and back from SCUSNGUI.ELF on the LAN path); whether one instance with no peer reaches each LAN screen is the entry's unknown",
+   "cites": [
+    "web roadmap 04-options-memory-card OPT-19 (the LAN screens if implemented, MENU-08)",
+    "the method s4-pcsx2-local-horizon"
+   ]
+  },
+  "login-to-universe-1fps": {
+   "how": "the owner's window H70 (OT.R4): a capture at 1 frame/s (or faster) from LOGIN TO SOCOM II ONLINE through CROSS on LOGIN to SELECT UNIVERSE, on PCSX2 with the r0001 bypass pnach against our local Horizon stack (R293) and on the desktop recompilation (tools_py/parity/drive.py --target pcsx2 | ours, a step script in the style of scripts/parity/launch_to_online_ours.txt with a frame every second over the DNAS screen): the captions, their order and their stands, the logo's fade, the progress strip",
+   "cites": [
+    "web roadmap 05-online-front-end ONL-03 (OT.R4; Unknowns: A_32/A_33 skipped)",
+    "web docs/HUMAN_TASKS.md H70",
+    "web research 128 R128.7-R128.9; web research 146 §3, §5"
+   ]
+  },
+  "call-trace": {
+   "how": "our recomp with PS2X_CALL_TRACE on the menu switch path PLAT-36 lists (FUN_0027e720, 0x27eb10, 0x27d190, the binding dispatcher FUN_002745a0) over the flow that would enter the dialog: the trace says whether and when it is entered; a dialog that then draws is captured by its segment's driven run",
+   "cites": [
+    "web roadmap 01-platform PLAT-36 (Gap: CALL_TRACE)",
+    "PC research 09, 78 §1"
+   ]
+  }
+ },
+ "rows": [
+  {
+   "id": "boot.loading-logo",
+   "segment": "boot",
+   "screen": "the loader's LOADING.RAW: the SOCOM II logo with LOADING... (no dialog draws it)",
+   "dialogs": [],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s00_CROSS.png",
+     "bytes": 129990,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/gate/x51_gate_iop/title/w00_000.png",
+     "bytes": 124770,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "title-gate-x51",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_00_boot.png",
+     "bytes": 129990,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": false,
+     "note": "the same byte count as golden s00"
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B5, B12, B14"
+   ]
+  },
+  {
+   "id": "boot.card-slot-select",
+   "segment": "boot",
+   "screen": "the boot card check with two cards: \"Select MEMORY CARD slot:\" slot 1 / slot 2 over black",
+   "dialogs": [
+    "dlgIntroScreen.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s01_CROSS.png",
+     "bytes": 9892,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_01.png",
+     "bytes": 10038,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B12, B15 (the memcard checks are dlgIntroScreen's intro_onstart, UIMemCardAnim.rdr)",
+    "web research 103 (card_slot, id 828)"
+   ]
+  },
+  {
+   "id": "boot.card-searching",
+   "segment": "card",
+   "screen": "the boot card check, one card: \"Searching MEMORY CARD slots for saved SOCOM II data...\"",
+   "dialogs": [
+    "dlgIntroScreen.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s00_CROSS.png",
+     "bytes": 19953,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B13"
+   ]
+  },
+  {
+   "id": "boot.card-no-data",
+   "segment": "card",
+   "screen": "the boot card check: \"No SOCOM II: U.S. NAVY SEALs data on memory card ... slot 1. X CONTINUE.\"",
+   "dialogs": [
+    "dlgIntroScreen.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s02_CROSS.png",
+     "bytes": 23778,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s01_CROSS.png",
+     "bytes": 20226,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B11, B13"
+   ]
+  },
+  {
+   "id": "boot.sony-card-typing",
+   "segment": "boot",
+   "screen": "SONY448.PSS: \"SONY COMPUTER ENTERTAINMENT AMERICA\" being typed with the block cursor",
+   "dialogs": [
+    "dlgIntroCinematic.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s03_CROSS.png",
+     "bytes": 17308,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/pcsx2_mission_a/s02_CROSS.png",
+     "bytes": 14358,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "pcsx2-mission-a",
+     "looked": true,
+     "note": "SONY448 pictures 38-39 (web research 98 §1)"
+    }
+   ],
+   "cites": [
+    "web research 98 §1, §3"
+   ]
+  },
+  {
+   "id": "boot.sony-card-fade",
+   "segment": "boot",
+   "screen": "SONY448.PSS: the Sony card, PRESENTS typed, fading",
+   "dialogs": [
+    "dlgIntroCinematic.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s04_CROSS.png",
+     "bytes": 16997,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/pcsx2_mission_a/s03_CROSS.png",
+     "bytes": 20467,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "pcsx2-mission-a",
+     "looked": true,
+     "note": "SONY448 picture 137 (web research 98 §1)"
+    }
+   ],
+   "cites": [
+    "web research 98 §1; W7.R8 (dark: the whole-frame score cannot separate it from black)"
+   ]
+  },
+  {
+   "id": "boot.zipper-card",
+   "segment": "boot",
+   "screen": "SONY448.PSS: \"DEVELOPED BY / ZIPPER INTERACTIVE, INC.\" typed",
+   "dialogs": [
+    "dlgIntroCinematic.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s05_CROSS.png",
+     "bytes": 29063,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/pcsx2_mission_a/s04_CROSS.png",
+     "bytes": 27064,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "pcsx2-mission-a",
+     "looked": true,
+     "note": "ties SONY448 pictures 229-235, 244-250, 259-265 (web research 98 §1)"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/gate/x51_gate_iop/title/w00_006.png",
+     "bytes": 24522,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "title-gate-x51",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_b03.png",
+     "bytes": 27064,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web research 98 §1"
+   ]
+  },
+  {
+   "id": "boot.intro2-opening",
+   "segment": "boot",
+   "screen": "INTRO_2.PSS after the cards: the dark opening flyover, then the flyover with typed captions",
+   "dialogs": [
+    "dlgSecondCinematic.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s06_CROSS.png",
+     "bytes": 30951,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/pcsx2_mission_a/s05_CROSS.png",
+     "bytes": 8640,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "pcsx2-mission-a",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s02_CROSS.png",
+     "bytes": 135301,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_02.png",
+     "bytes": 191961,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_b04.png",
+     "bytes": 380668,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web research 98 §4.1 (s05 believed INTRO_2's opening fade)",
+    "web roadmap 02-boot B15",
+    "W7.R8 (dark frames)"
+   ],
+   "note": "boot, not the attract: each frame stands between the Zipper card and the first main menu in its run"
+  },
+  {
+   "id": "menu.main",
+   "segment": "menu",
+   "screen": "the main menu over MENULOOP, NEW GAME lit (LOAD GAME above, ONLINE below)",
+   "dialogs": [
+    "dlgMenu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s07_CROSS.png",
+     "bytes": 248626,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/pcsx2_mission_a/s06_CROSS.png",
+     "bytes": 261242,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "pcsx2-mission-a",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s03_CROSS.png",
+     "bytes": 248457,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/gate/x51_gate_iop/title/s00_none.png",
+     "bytes": 222741,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "title-gate-x51",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_04.png",
+     "bytes": 262864,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/30_hold_00.png",
+     "bytes": 249984,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true,
+     "note": "after the logoff relaunch (--menu_state dlgAfterErrorReboot.rdr)"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/ref_main_menu_ours.png",
+     "bytes": 85688,
+     "width": 320,
+     "height": 224,
+     "source": "recomp",
+     "method": "step-script-refs",
+     "looked": false,
+     "note": "the same byte count as refs/main_menu.png"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/ref_main_menu_ours.pcsx2.png",
+     "bytes": 243696,
+     "width": 640,
+     "height": 448,
+     "source": "pcsx2",
+     "method": "step-script-refs",
+     "looked": true,
+     "note": "640x448 window: the picture narrower, bars each side (W7.R7)"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/main_menu.png",
+     "bytes": 85688,
+     "width": 320,
+     "height": 224,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true,
+     "note": "320x224 with a \"Runtime Debug\" overlay bottom right"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/heldout/title_s03.png",
+     "bytes": 249699,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "gate-heldout",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/heldout/title_s09.png",
+     "bytes": 258367,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "gate-heldout",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/heldout/title_s15.png",
+     "bytes": 270027,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "gate-heldout",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B18, B19",
+    "PC docs/research/64-the-four-menu-captures.md"
+   ]
+  },
+  {
+   "id": "menu.main.options-lit",
+   "segment": "menu",
+   "screen": "the main menu walked down to OPTIONS (LAN above, EXTRAS below)",
+   "dialogs": [
+    "dlgMenu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/options_explore/s04_CROSS.png",
+     "bytes": 245859,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "options-explore",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web research 96 §3.3"
+   ]
+  },
+  {
+   "id": "menu.main.down-walk",
+   "segment": "menu",
+   "screen": "the main menu walked DOWN from NEW GAME on the empty card: NEW GAME, ONLINE, LAN, OPTIONS, EXTRAS, LOAD GAME, NEW GAME, ONLINE lit (s01..s08, one per step)",
+   "dialogs": [
+    "dlgMenu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s01_DOWN.png",
+     "bytes": 251152,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s02_DOWN.png",
+     "bytes": 239142,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s03_DOWN.png",
+     "bytes": 209611,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s04_DOWN.png",
+     "bytes": 247293,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s05_DOWN.png",
+     "bytes": 269016,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s06_DOWN.png",
+     "bytes": 272742,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s07_DOWN.png",
+     "bytes": 273287,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/menu_explore/s08_none.png",
+     "bytes": 261079,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "menu-explore",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web research 140 §3, §5 (the per-step scores)",
+    "web roadmap 03-menus MENU-02 M3"
+   ],
+   "note": "s00_none is the menu before the script's CROSS, the same state as s01; the walk's order is M3's empty-card order with the wrap (LOAD GAME -> NEW GAME -> ONLINE)"
+  },
+  {
+   "id": "menu.attract-fade",
+   "segment": "menu",
+   "screen": "the main menu fading to the attract (gate s19, 83-90 against the menu)",
+   "dialogs": [
+    "dlgMenu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/gate/x51_gate_iop/title/s19_none.png",
+     "bytes": 164494,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "title-gate-x51",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B17, B18"
+   ],
+   "note": "the darkening is MENULOOP's own (web research 141 §4): its pictures fade from ~3,400 and are black from ~3,500 to the last (3,731) under the whole menu, and s19 lands there (the page's s19 at picture 3,535 scores 82.9 whole); UiAttractMode's own MENUFADER fade (0.5 s) comes ~120 s after dlgMenu's ONSTART, at or after the gate's s20"
+  },
+  {
+   "id": "menu.attract",
+   "segment": "menu",
+   "screen": "the attract: INTRO_2.PSS flyovers with typed captions, letterboxed",
+   "dialogs": [
+    "dlgAttractCinematic.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/gate/x51_gate_iop/title/s21_none.png",
+     "bytes": 194709,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "title-gate-x51",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/gate/x51_gate_iop/title/s22_none.png",
+     "bytes": 230419,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "title-gate-x51",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 02-boot B17 (gate s21)",
+    "PC docs/research/64-the-four-menu-captures.md"
+   ]
+  },
+  {
+   "id": "campaign.select-rank",
+   "segment": "campaign",
+   "screen": "SELECT RANK, LIEUTENANT lit",
+   "dialogs": [
+    "dlgSelectRank.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s08_CROSS.png",
+     "bytes": 165076,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_03.png",
+     "bytes": 165027,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s04_CROSS.png",
+     "bytes": 155860,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "PC docs/parity/REPORT.md s08"
+   ]
+  },
+  {
+   "id": "campaign.controller-config-select",
+   "segment": "campaign",
+   "screen": "SELECT A CONTROLLER CONFIGURATION: SURE SHOT / PRECISION SHOOTER (_173_SelectConfig)",
+   "dialogs": [
+    "dlgControllerPresetsNewGame.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s09_CROSS.png",
+     "bytes": 221508,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s05_CROSS.png",
+     "bytes": 207170,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgControllerPresetsNewGame.rdr"
+   ]
+  },
+  {
+   "id": "campaign.precision-config",
+   "segment": "campaign",
+   "screen": "PRECISION SHOOTER CONFIGURATION (_181_PrecisionConfig), before and after the save",
+   "dialogs": [
+    "dlgControllerPresetsRG.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s10_CROSS.png",
+     "bytes": 226320,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s14_DOWN.png",
+     "bytes": 162915,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true,
+     "note": "after the save"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s06_CROSS.png",
+     "bytes": 214738,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgControllerPresetsRG.rdr"
+   ]
+  },
+  {
+   "id": "card.save-prompt",
+   "segment": "card",
+   "screen": "\"Would you like to save to the memory card (8MB)...?\" YES / NO over PRECISION SHOOTER CONFIGURATION",
+   "dialogs": [
+    "dlgControllerPresetsRG.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s11_CROSS.png",
+     "bytes": 133410,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s07_CROSS.png",
+     "bytes": 128856,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s00_none.png",
+     "bytes": 128938,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s01_CROSS.png",
+     "bytes": 128840,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/ref_save_prompt_ours.png",
+     "bytes": 128837,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "step-script-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/save_card.png",
+     "bytes": 756,
+     "width": 120,
+     "height": 8,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 04-options-memory-card O19, O20"
+   ]
+  },
+  {
+   "id": "card.save-slot-select",
+   "segment": "card",
+   "screen": "\"Select MEMORY CARD slot: (triangle) Abort.\" slot 1 / slot 2 over the configuration",
+   "dialogs": [
+    "dlgControllerPresetsRG.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s12_CROSS.png",
+     "bytes": 131100,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s08_CROSS.png",
+     "bytes": 127682,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s02_CROSS.png",
+     "bytes": 127616,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/ref_save_slot_ours.png",
+     "bytes": 127678,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 04-options-memory-card O20"
+   ]
+  },
+  {
+   "id": "card.saving",
+   "segment": "card",
+   "screen": "\"Saving to the memory card (8MB) ... slot 1. Do not remove...\"",
+   "dialogs": [
+    "dlgControllerPresetsRG.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s13_DOWN.png",
+     "bytes": 146968,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true,
+     "note": "PCSX2's own notice \"Memory Card 'Mcd001.ps2' was saved to storage.\" overlays the top left"
+    }
+   ],
+   "cites": [
+    "web roadmap 04-options-memory-card O19"
+   ]
+  },
+  {
+   "id": "card.overwrite-warning",
+   "segment": "card",
+   "screen": "\"Overwritten data will be lost. Are you sure you wish to save?\" YES / NO (NO lit)",
+   "dialogs": [
+    "dlgControllerPresetsRG.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/ref_save_overwrite_ours.png",
+     "bytes": 127767,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 04-options-memory-card O20"
+   ]
+  },
+  {
+   "id": "campaign.albania-aop",
+   "segment": "campaign",
+   "screen": "ALB_AOP.PSS: black, the typed caption, the movie with subtitles",
+   "dialogs": [
+    "dlgAlbaniaCinematic.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s15_DOWN.png",
+     "bytes": 973,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s16_DOWN.png",
+     "bytes": 973,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s17_DOWN.png",
+     "bytes": 2300,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s18_CROSS.png",
+     "bytes": 10198,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s09_CROSS.png",
+     "bytes": 2445,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s03_none.png",
+     "bytes": 1765,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s04_none.png",
+     "bytes": 124903,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s05_none.png",
+     "bytes": 157700,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s06_none.png",
+     "bytes": 86220,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s07_none.png",
+     "bytes": 124180,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s08_none.png",
+     "bytes": 203310,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgAlbaniaCinematic.rdr (MPEG background run/movies/alb_aop.pss)",
+    "web research 96 §3.3 (the preset's SWITCHMENU to dlgAlbaniaCinematic)",
+    "W7.R8 (s15-s17 black or near black)"
+   ]
+  },
+  {
+   "id": "campaign.briefing-overview",
+   "segment": "campaign",
+   "screen": "MISSION BRIEFING, OPERATION RAPID KILL: SEEDING CHAOS, OVERVIEW typing",
+   "dialogs": [
+    "dlg_Brief_Alb51.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/s19_none.png",
+     "bytes": 219742,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "golden/final.png",
+     "bytes": 225126,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "golden-launch-to-mission",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s10_CROSS.png",
+     "bytes": 200878,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s13_DOWN.png",
+     "bytes": 212544,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/s12_none.png",
+     "bytes": 209937,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s8_save_yes/final.png",
+     "bytes": 212368,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "save-empty-card",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/ref_briefing_ours.png",
+     "bytes": 206947,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "step-script-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlg_Brief_Alb51.rdr (_944_MissionBriefing; the twelve briefings share their captions)"
+   ],
+   "note": "which briefing is read from the flow (the first Albania mission after ALB_AOP), not from the frame"
+  },
+  {
+   "id": "campaign.briefing-objectives",
+   "segment": "campaign",
+   "screen": "MISSION BRIEFING, OBJECTIVES lit",
+   "dialogs": [
+    "dlg_Brief_Alb51.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s15_DOWN.png",
+     "bytes": 151691,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": []
+  },
+  {
+   "id": "campaign.briefing-maps-intel",
+   "segment": "campaign",
+   "screen": "MISSION BRIEFING, MAPS/INTEL lit",
+   "dialogs": [
+    "dlg_Brief_Alb51.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s16_DOWN.png",
+     "bytes": 213432,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": []
+  },
+  {
+   "id": "campaign.briefing-deploy",
+   "segment": "campaign",
+   "screen": "MISSION BRIEFING, DEPLOY lit (\"ENTER MISSION.\")",
+   "dialogs": [
+    "dlg_Brief_Alb51.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/virgin_card/s18_CROSS.png",
+     "bytes": 235884,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "virgin-card",
+     "looked": true
+    }
+   ],
+   "cites": []
+  },
+  {
+   "id": "options.menu",
+   "segment": "options",
+   "screen": "OPTIONS: AUDIO OPTIONS lit, HDD ENABLED / DISABLED",
+   "dialogs": [
+    "dlgOptions_Menu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/options_explore/s05_DOWN.png",
+     "bytes": 172825,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "options-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/options_explore/final.png",
+     "bytes": 172838,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "options-explore",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgOptions_Menu.rdr (_702_OPTIONS)"
+   ]
+  },
+  {
+   "id": "options.menu.hdd-row",
+   "segment": "options",
+   "screen": "OPTIONS: HDD lit (\"Enable or disable loading from the HDD.\")",
+   "dialogs": [
+    "dlgOptions_Menu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/options_explore/s09_DOWN.png",
+     "bytes": 174594,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "options-explore",
+     "looked": true
+    }
+   ],
+   "cites": []
+  },
+  {
+   "id": "options.menu.video-row",
+   "segment": "options",
+   "screen": "OPTIONS: VIDEO OPTIONS lit",
+   "dialogs": [
+    "dlgOptions_Menu.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/presets_explore/s12_CROSS.png",
+     "bytes": 172786,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "presets-explore",
+     "looked": true
+    }
+   ],
+   "cites": []
+  },
+  {
+   "id": "options.audio",
+   "segment": "options",
+   "screen": "AUDIO OPTIONS: four volume sliders, SOUND stereo / mono / Dolby Pro Logic II, DEFAULT SETTINGS, RETURN",
+   "dialogs": [
+    "dlgOptions_Audio.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s10_audio_options/s06_none.png",
+     "bytes": 179743,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "audio-options-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s10_audio_options/s20_none.png",
+     "bytes": 180570,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "audio-options-explore",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgOptions_Audio.rdr (_688_AudioOptions)"
+   ]
+  },
+  {
+   "id": "options.audio.default-confirm",
+   "segment": "options",
+   "screen": "AUDIO OPTIONS: the DEFAULT SETTINGS confirmation popup, YES / NO (NO lit)",
+   "dialogs": [
+    "dlgOptions_Audio.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "s10_audio_options/final.png",
+     "bytes": 148079,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "audio-options-explore",
+     "looked": true
+    }
+   ],
+   "cites": []
+  },
+  {
+   "id": "options.video",
+   "segment": "options",
+   "screen": "VIDEO OPTIONS: BRIGHTNESS slider and ramp, TEAMMATE NAMES, VIDEO MODE, HELP WINDOWS, HEAD BOB, SCREEN POSITION",
+   "dialogs": [
+    "dlgOptions_Video.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/presets_explore/s13_CROSS.png",
+     "bytes": 177355,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "presets-explore",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgOptions_Video.rdr (_703_VideoOptions)"
+   ]
+  },
+  {
+   "id": "options.controller-presets",
+   "segment": "options",
+   "screen": "CONTROLLER PRESETS: 1 PRECISION SHOOTER PRESET and 2 LEFTY PRESET pages",
+   "dialogs": [
+    "dlgControllerPresets.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/presets_explore/s09_RIGHT.png",
+     "bytes": 230607,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "presets-explore",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/runs/presets_explore/s10_CROSS.png",
+     "bytes": 227845,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "presets-explore",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgControllerPresets.rdr (_154_PrecisionShooter)",
+    "PC STATUS log L1319"
+   ]
+  },
+  {
+   "id": "online.login.no-config-popup",
+   "segment": "online",
+   "screen": "LOGIN TO SOCOM II ONLINE with the \"No NETWORK CONFIGURATION present...\" popup",
+   "dialogs": [
+    "dlgNetLogin.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_05_online.png",
+     "bytes": 123771,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4",
+    "web research 142 section 3a, 157 section 8",
+    "tools/test/popupPlaceScore.test.ts"
+   ],
+   "note": "scored by tools/test/popupPlaceScore.test.ts (POPUP-PLACE, 2026-10-04; web research 142 section 3a): #581 raised by the original's own path on an empty slot 1, its panel at the record's (150, 100) -- 99.8 against A_05 with the 4:3 correction (control 78, matched), the panel band alone 99.6 (control 38.2, matched), every move of the frame lower. Until ONL-07 (2026-10-05; web research 157 section 8) these were 95.2 and 87.4 (not matched): the popup's text was drawn at alpha 128, white, where A_05 shows it at the body text's level (the face's opacity; FUN_00362b20, D:L273492)"
+  },
+  {
+   "id": "online.login.no-config",
+   "segment": "online",
+   "screen": "LOGIN TO SOCOM II ONLINE with an empty configuration list (EDIT NETWORK CONFIGURATIONS or SELECT MEMORY CARD slot lit)",
+   "dialogs": [
+    "dlgNetLogin.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_06_login.png",
+     "bytes": 171461,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/00_login.png",
+     "bytes": 156690,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true,
+     "note": "the recomp draws the empty list (N5)"
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4, N5",
+    "tools/test/netLoginScore.test.ts"
+   ],
+   "note": "A_06 scored by tools/test/netLoginScore.test.ts (sprint 11's close, 2026-10-03; web research 144 section 7): the rig with slot 1's card empty, OpenCardOne's no-configuration popup (#581) continued, EDIT NETWORK CONFIGURATIONS lit -- 98.1 against A_06 with the 4:3 correction (control 67.7, matched), 99.8 its configuration rows; the recomp's 00_login.png is used by the online.login score with the state bands masked"
+  },
+  {
+   "id": "online.login",
+   "segment": "online",
+   "screen": "LOGIN TO SOCOM II ONLINE: \"1 Setting 1\", HARDWARE SCE/Ethernet (Network Adaptor), LOGIN lit",
+   "note": "scored by tools/test/netLoginScore.test.ts (ONL-01, 2026-10-03; web research 144 section 7): the whole frame and the configuration rows against A_31 with the 4:3 correction (99.8 / 99.8); the title against refs/login.png cut as the harness cuts it (grey, 320x224, the box of refs.json; 94.4); the rest of the frame against the online.login.no-config row's recomp frame s17_q2_logoff/online1/00_login.png with the help line, the rows band and the lit rows masked (99.4); netcfg1/01_after_continue.png and netcfg2/01_2_DOWN.png are not references (OT.R4)",
+   "dialogs": [
+    "dlgNetLogin.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_31.png",
+     "bytes": 174649,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/login.png",
+     "bytes": 2950,
+     "width": 245,
+     "height": 24,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4"
+   ]
+  },
+  {
+   "id": "online.netgui",
+   "segment": "online",
+   "screen": "EDIT NETWORK CONFIGURATIONS: SCUSNGUI.ELF loading, then its Network Settings menu (not a dialog of the inventory)",
+   "dialogs": [],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_07_editnet.png",
+     "bytes": 8071,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true,
+     "note": "PCSX2's own notice about patches overlays the top left"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_08_netgui.png",
+     "bytes": 244362,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N18",
+    "PC docs/research/18-online-round-start.md L153-160"
+   ]
+  },
+  {
+   "id": "online.netgui-return",
+   "segment": "online",
+   "screen": "back from SCUSNGUI.ELF through a reboot: the loader's logo with LOADING...",
+   "dialogs": [],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_29_backtogame.png",
+     "bytes": 129990,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N18"
+   ]
+  },
+  {
+   "id": "online.netgui-return.card-slot",
+   "segment": "online",
+   "screen": "back from SCUSNGUI.ELF, before LOGIN: \"Select MEMORY CARD slot:\" slot 1 / slot 2 over black (no Abort)",
+   "dialogs": [
+    "dlgReturnFromNTGUI2.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_30.png",
+     "bytes": 10026,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgReturnFromNTGUI2.rdr (0 objects; an empty background file; scripts include UIMemCardAnim; ONSTART do_onstart: HardDriveOperation(OPEN), HardDriveOperation(GET_MISSION_DATA), SWITCHMENU(dlgNetLogin), and it calls intro_onstart and DisplayHDDError: the dump lists the ops, then the calls, so it shows no call order)",
+    "tools/dump-dialogs.ts --dialog dlgMPswitch.rdr (0 objects; scripts dlgMPswitch, uianim, no UIMemCardAnim; ONSTART StopStreaming: VagStreaming(OFF) SWITCHMENU(dlgNetLogin))",
+    "tools/dump-dialogs.ts --dialog dlgMenu.rdr (its ONSTART has_memcard_changed, of UIMemCardAnim, also calls intro_onstart; its background is the MPEG menuloop.pss)",
+    "web roadmap 05-online-front-end N4, N18",
+    "web research 113 §5"
+   ],
+   "note": "the dialog is inferred, not read off the frame: dlgMPswitch cannot raise a card popup (the dump: no object, no UIMemCardAnim); dlgReturnFromNTGUI2 carries UIMemCardAnim and calls dlgIntroScreen's intro_onstart card check (the dump does not show whether before or after its SWITCHMENU(dlgNetLogin)); dlgMenu calls intro_onstart too, but it draws over the MENULOOP movie and dlgNetLogin over multplay_back.tif, where the frame's popup is over black, as dlgReturnFromNTGUI2's empty background file leaves it; and the s4 file times put A_30 26 s after A_29_backtogame (the reboot back from SCUSNGUI.ELF) and 29 s before A_31 (LOGIN), while A_04 (the main menu) to A_05 (ONLINE) goes straight to LOGIN with no slot popup. A trace of the active dialog at the popup (PLAT-36) settles it"
+  },
+  {
+   "id": "online.locating-universes",
+   "segment": "online",
+   "screen": "LOCATING UNIVERSES: \"LOCATING AVAILABLE SOCOM II UNIVERSES\" with a progress bar",
+   "dialogs": [
+    "dlgNetAuthenticate.rdr"
+   ],
+   "confidence": "seen-flow",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/01_universe.png",
+     "bytes": 118244,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N7 (_536/_537 are dlgNetAuthenticate's set's)"
+   ],
+   "note": "the file name says universe; the frame is the DNAS dialog's LOCATING stage, before SELECT UNIVERSE"
+  },
+  {
+   "id": "online.select-universe",
+   "segment": "online",
+   "screen": "SELECT UNIVERSE: \"SOCOM II Local\", UNIVERSE NEWS",
+   "dialogs": [
+    "dlgNetServerSelect.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_34_universe.png",
+     "bytes": 179262,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/universe.png",
+     "bytes": 2354,
+     "width": 245,
+     "height": 24,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgNetServerSelect.rdr (_609_SelectUniverse)",
+    "web research 147 §5 (ONL-04's score)",
+    "tools/test/universeScore.test.ts"
+   ],
+   "note": "scored by tools/test/universeScore.test.ts (sprint 11's close, 2026-10-03; web research 147 section 5): SELECT UNIVERSE run on the disc (by the deep link and through the DNAS screen's init_socom_online, the same frame) and drawn by the page's drawer with the UIMP bank, the disc's faces and the MP2 captions: 98.9 against A_34 with the 4:3 correction (control 72.9, matched), 99.0 after one DOWN lights the row as A_34 shows it, and 95.3 on the title crop refs/universe.png cut as the harness cuts it (grey, 320x224, the box of refs.json; control 80.0, matched); nothing undrawn but the 3D pass. The one visible difference is the texts: the universe's name, description and news are the placeholder's, not our Horizon's of A_34, until the owner's texts.json (H73). ONL-04's first score (72.9 = the black control, the crop not found) was taken while the page drew no bitmap or glyph (FRONT_END_TEXTURES_PLACEHOLDER, retired at ONL-01's merge). The recomp's archived 01_universe.png frames are all the DNAS screen's LOCATING stage (online.locating-universes), never this state (W9.R8, W9.R12)"
+  },
+  {
+   "id": "online.persona-form",
+   "segment": "online",
+   "screen": "CONNECT TO SOCOM II: PLAYER NAME, PASSWORD, SAVE PASSWORD, HOMETOWN, GENDER, CONNECT",
+   "dialogs": [
+    "dlgNetPlayerName.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_35_persona.png",
+     "bytes": 166420,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_38_named.png",
+     "bytes": 170938,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_39_pw.png",
+     "bytes": 169919,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/persona.png",
+     "bytes": 2645,
+     "width": 245,
+     "height": 24,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/02_persona.png",
+     "bytes": 160233,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgNetPlayerName.rdr (_587_ConnectToSocom)",
+    "web research 153 §4 (ONL-06's score)",
+    "tools/test/personaScore.test.ts"
+   ],
+   "note": "scored by tools/test/personaScore.test.ts (ONL-06, 2026-10-04; web research 153 section 4): the form run on the disc through the front end's machine (the dialog's own set, the pad and the keyboard driven) and drawn by the page's drawer with the UIMP and UISK banks, the disc's faces and the MP2 captions, each frame against its own state's capture: the empty form 99.8 against A_35 with the 4:3 correction (control 76.0); a typed name 99.8 against A_38 (75.8); a typed password, PASSWORD lit, 99.8 against A_39 (76.7); a saved persona with PASSWORD lit and empty 99.6 against the recomp's 02_persona.png (76.0; 55.08 % of its pixels equal: not pixel-exact, PLAT-14's edge readings); the title crop refs/persona.png 96.9 cut as the harness cuts it (grey, 320x224, the box of refs.json; control 75.5; 46.16 % equal); nothing undrawn but the 3D pass. A_38 was added to this row by ONL-06 (the block's acceptance names it)"
+  },
+  {
+   "id": "online.persona-list",
+   "segment": "online",
+   "screen": "CONNECT TO SOCOM II: the persona list popup (<New Persona> x3, SELECT / DELETE / CANCEL)",
+   "dialogs": [
+    "dlgNetPlayerName.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_36_personalist.png",
+     "bytes": 100196,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web research 153 §4 (ONL-06's score)",
+    "tools/test/personaScore.test.ts"
+   ],
+   "note": "scored by tools/test/personaScore.test.ts (ONL-06, 2026-10-04; web research 153 section 4): CROSS on PLAYER NAME on the empty form, the list over the form dimmed to 0.75, its first row lit: 99.9 against A_36 with the 4:3 correction (control 93.2: the dimmed frame is close to black), and 99.7 on the list's panel alone, the rest masked (PersonaList's 200 x 150 at (168, 127); control 42.0); nothing undrawn but the 3D pass"
+  },
+  {
+   "id": "online.name-keyboard",
+   "segment": "online",
+   "screen": "CONNECT TO SOCOM II: \"Enter Player Name\" on-screen keyboard",
+   "dialogs": [
+    "dlgNetPlayerName.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_37_namekbd.png",
+     "bytes": 158541,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/ref_osk_normal.png",
+     "bytes": 3231,
+     "width": 76,
+     "height": 32,
+     "source": "recomp",
+     "method": "step-script-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/ref_osk_accent.png",
+     "bytes": 3069,
+     "width": 76,
+     "height": 32,
+     "source": "recomp",
+     "method": "step-script-refs",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web research 153 §4 (ONL-06's score)",
+    "tools/test/personaScore.test.ts"
+   ],
+   "note": "A_37 scored by tools/test/personaScore.test.ts (ONL-06, 2026-10-04; web research 153 section 4): CROSS on the list's first <New Persona> row, the CREATEPLAYERNAME keyboard open over the form dimmed to 0.5: 99.1 against A_37 with the 4:3 correction (control 79.5); nothing undrawn but the 3D pass. Before ONL-06 the page loaded no UISK bank (the keyboard's twelve bitmaps) and the same frame scored 86.0, the keyboard a title line alone; the menu state loads ui/assetlib/uisk itself (FUN_001f4860). The two step-script crops (ref_osk_normal.png, ref_osk_accent.png) are not scored: PLAT-17's (research 119)"
+  },
+  {
+   "id": "online.write-down-notice",
+   "segment": "online",
+   "screen": "CONNECT TO SOCOM II: \"Be sure to write down your name and password...\" CONTINUE",
+   "dialogs": [
+    "dlgNetPlayerName.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_41_afterconnect.png",
+     "bytes": 104062,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/write_down.png",
+     "bytes": 969,
+     "width": 141,
+     "height": 9,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/07_write_down.png",
+     "bytes": 100200,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/07_after_connect.png",
+     "bytes": 100304,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true,
+     "note": "the harness's shot after CONNECT, before it recognises the prompt: the same notice as 07_write_down.png (the block's Acceptance names both)"
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4",
+    "web research 157 section 8 (ONL-07's score)",
+    "tools/test/connectScore.test.ts"
+   ],
+   "note": "scored by tools/test/connectScore.test.ts (ONL-07, 2026-10-05; web research 157 section 8): the persona form run on the disc to CONNECT's write-down notice #606 and drawn by the page's drawer -- 99.8 against A_41 with the 4:3 correction (control 83.5, matched; socomp, six *), 99.6 against the recomp's 07_after_connect.png and 07_write_down.png (control 83.4, matched; socomc, five *; 51.66 % of their pixels equal). Until ONL-07 the same frames scored 98.2 and 98.6-98.7: the popup's text was drawn at alpha 128, white, where the captures show it at the body text's level (the face's opacity; FUN_00362b20, D:L273492). The notice runs on dlgNetPlayerName, before the switch to dlgNetConnect (research 153 section 7)"
+  },
+  {
+   "id": "online.persona-save-prompt",
+   "segment": "online",
+   "screen": "CONNECT TO SOCOM II: \"Would you like to save to the memory card (8MB)...?\" YES / NO",
+   "dialogs": [
+    "dlgNetPlayerName.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_42.png",
+     "bytes": 101442,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4",
+    "web research 157 section 8 (ONL-07's score)",
+    "tools/test/connectScore.test.ts"
+   ],
+   "note": "scored by tools/test/connectScore.test.ts (ONL-07, 2026-10-05; web research 157 section 8): #831 after the write-down notice's CONTINUE, YES lit -- 99.9 against A_42 with the 4:3 correction (control 90.3, matched); 99.8 before the popup text's alpha was read"
+  },
+  {
+   "id": "online.persona-save-slot",
+   "segment": "online",
+   "screen": "CONNECT TO SOCOM II: \"Select MEMORY CARD slot: (triangle) Abort.\" slot 1 / slot 2, after \"save to the memory card?\" YES",
+   "dialogs": [
+    "dlgNetPlayerName.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PARITY_ARCHIVE",
+     "path": "online/login/07_card_slot.png",
+     "bytes": 97850,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "pcsx2-online-login",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/card_slot.png",
+     "bytes": 826,
+     "width": 103,
+     "height": 8,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true,
+     "note": "the harness crop of this prompt (refs.json card_slot): online_login_ours.py login_prompts answers write_down, save_card, then card_slot between CONNECT and the EULA"
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4",
+    "PC tools_py/parity/online_login_ours.py L1864-1891 (login_prompts)",
+    "PC tools_py/parity/online_login.py L124-128"
+   ]
+  },
+  {
+   "id": "online.connecting",
+   "segment": "online",
+   "screen": "CONNECTING: \"CONNECTING TO SOCOM II ONLINE\", the state line (STATE: LOGGED IN), the progress strip, the persona's name",
+   "dialogs": [
+    "dlgNetConnect.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/persona_card_proof2/login/07_after_connect.png",
+     "bytes": 158247,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "persona-card-proof",
+     "looked": true,
+     "note": "persona s17pc; the harness's shot after CONNECT with no write-down notice to answer"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s16_l1b_step0/launch3/07_after_connect.png",
+     "bytes": 158467,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "l1b-step0",
+     "looked": true,
+     "note": "persona s27pa"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/w10_virgin_b/05_password.png",
+     "bytes": 158558,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "w10-virgin",
+     "looked": true,
+     "note": "persona w2-test; named for the step the harness thought it was on, it shows the connecting screen"
+    }
+   ],
+   "cites": [
+    "web research 128 section 4.5",
+    "web research 157 section 8 (ONL-07's score and the search)",
+    "tools/test/connectScore.test.ts"
+   ],
+   "note": "found 2026-10-05 by comparing a drawn frame of the screen with every 640-wide menu capture under logs/parity and scripts/parity (2,516 frames; web research 157 section 8) -- research 113 had recorded \"no frame of dlgNetConnect was found\". Every frame found is the recomp's, at STATE: LOGGED IN (the 4 s between the login's answer and the agreement: the profile download's 3 s cut-off and WAIT 1); three more show the same state and were not opened (v6_20260925_160634/b/07_after_connect.png, s16_l1b_step0b/launch3/07_after_connect.png, w10_virgin_b/lobby_fail_login_saved-password_empty.png). No PCSX2 frame of it exists (owed to ONL-32, with the other states of the line: SESSION BEGIN, ACCOUNT LOGIN). Scored by tools/test/connectScore.test.ts: 99.8 against each of the first two (control 82.6 and 82.3, matched; 99.8 with the progress strip masked; 62.76 % and 62.71 % of their pixels equal)"
+  },
+  {
+   "id": "online.user-agreement",
+   "segment": "online",
+   "screen": "USER AGREEMENT: ACCEPT / DECLINE",
+   "dialogs": [
+    "dlgUsagePolicy.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_43_eula.png",
+     "bytes": 182118,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/eula.png",
+     "bytes": 2418,
+     "width": 245,
+     "height": 24,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/08_eula.png",
+     "bytes": 171064,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "tools/dump-dialogs.ts --dialog dlgUsagePolicy.rdr (_756_UserAgreement)",
+    "web research 156 section 1.7 (ONL-08's score)",
+    "tools/test/usagePolicyScore.test.ts"
+   ],
+   "note": "scored by tools/test/usagePolicyScore.test.ts (ONL-08, 2026-10-04; web research 156 section 1.7): USER AGREEMENT run on the disc and drawn by the page's drawer with the UIMP bank, the disc's faces and the MP2 captions, the persona each capture shows set in PLAYERNAMEVAR, ACCEPT lit by the set's own ActivateButton(YesAccept) (the captures' arrival focus; the port's ring starts on teletype_plate, research 156 section 1.6, open). The text differs by the owner's ruling (OT.R17: the placeholder agreement until H73), so each frame is scored apart: the chrome with the text region [214, 128, 612, 326] masked 99.5 against 08_eula.png (control 80.2) and 99.7 against A_43 with the 4:3 correction (control 80.1), both matched; the text region alone with the placeholder served 85.6 and 85.2, NOT matched (the ruling's difference, not rounded); the whole frame 94.8 against each; the title crop refs/eula.png 95.9 (control 79.2, matched). With our Horizon's own 'EULA' served the text region scores 99.8 and 99.9 (the WRAPPEDTEXT's drawing measured, not the port's text). All three captures show ACCEPT lit on arrival; the persona names differ (A_43 socomp, 08_eula socomc)"
+  },
+  {
+   "id": "online.server-news",
+   "segment": "online",
+   "screen": "SOCOM II ONLINE with the SERVER NEWS box open",
+   "dialogs": [
+    "dlgWorldOfSOCOM.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_44_lobby.png",
+     "bytes": 67854,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/09_lobby.png",
+     "bytes": 70625,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby_news.png",
+     "bytes": 567,
+     "width": 72,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N4, N6",
+    "tools/dump-online-dialogs.ts --dialog dlgWorldOfSOCOM.rdr (_779_ServerNews, _780_ScrollOrBack; init_screen's PopupNewsOnce)",
+    "web research 158 section 5 (ONL-09's score)",
+    "tools/test/worldOfSocomScore.test.ts"
+   ],
+   "note": "scored by tools/test/worldOfSocomScore.test.ts (ONL-09, 2026-10-03; web research 158 section 5): SOCOM II ONLINE run on the disc and drawn by the page's drawer with the UIMP bank, the disc's faces and the MP2 captions, the persona each capture shows set in PLAYERNAMEVAR, the frame taken 90 ticks after the build with SERVER NEWS up (the focus on popup_motd_button). Two regions differ for reasons that are not the drawing's and are scored apart: the news text [130, 132, 540, 344] (the captures show our Horizon's announcement; the match server serves SVC-04's store's latest, none on a fresh server, H73) and the medal [16, 403, 44, 431] (the captures show Medal_Black, shown on ON_LADDER_REFRESH; the ladder is parked, ONL-34). With the fresh server's empty text: 09_lobby.png whole 97.1, chrome 99.7, text region 91.0 (not met: the three lines are absent; the number is the panel behind them), medal 71.1 (not met); A_44 4:3 corrected whole 98.6, chrome 99.9, text region 94.9 (not met, the same), medal 71.3 (not met). With each capture's own announcement served: 09_lobby.png whole 99.6, text region 99.4; A_44 whole 99.8, text region 99.8; the caption crop lobby_news.png 98.3. Not pixel-exact against the recomp's frame (N20; research 144 section 7 says why)."
+  },
+  {
+   "id": "online.menu",
+   "segment": "online",
+   "screen": "SOCOM II ONLINE: the eleven rows, MESSAGES lit (News of the day, Clan messages)",
+   "dialogs": [
+    "dlgWorldOfSOCOM.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_45_lobby2.png",
+     "bytes": 192596,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/09_lobby_no_news.png",
+     "bytes": 186565,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N6",
+    "tools/dump-online-dialogs.ts --dialog dlgWorldOfSOCOM.rdr (the eleven rows, _781..._791, _794_NoInvitations)",
+    "web research 158 section 5 (ONL-09's score)",
+    "tools/test/worldOfSocomScore.test.ts"
+   ],
+   "note": "scored by tools/test/worldOfSocomScore.test.ts (ONL-09, 2026-10-03; web research 158 section 5): the menu after CROSS on SERVER NEWS, MESSAGES lit, the frame taken 30 ticks after the press; NO INVITATIONS greyed from SVC-09a's answer; the persona each capture shows set in PLAYERNAMEVAR. The news text [196, 96, 600, 198] and the medal [16, 403, 44, 431] are scored apart (as online.server-news). With the fresh server's empty text: 09_lobby_no_news.png whole 96.7, chrome 99.5, text region 83.3 (not met: the three lines are absent, H73), medal 71.1 (not met: the ladder is parked, ONL-34); A_45 4:3 corrected whole 98.6, chrome 99.8, text region 92.0 (not met: the two lines are absent; the number is the pane behind them), medal 71.3 (not met). With each capture's own announcement served: 09_lobby_no_news.png whole 99.4, text region 99.1; A_45 whole 99.8, text region 99.8. This row is MESSAGES lit only: one capture per row of the menu walk (BRIEFING ROOMS, AUTOPLAY, CLAN, the rankings, REFRESH LIST, OPTIONS, FRIENDS, IGNORE, each with its help line and pane) is owed to ONL-32 (PC research 80-online-menus section 4 item 1, not yet run); those nine panes are held at the reading level by packages/ui/test/screens/worldOfSocomScreen.test.ts."
+  },
+  {
+   "id": "online.briefing-rooms-list",
+   "segment": "online",
+   "screen": "SOCOM II ONLINE: BRIEFING ROOMS lit, the room list (Channel 1)",
+   "dialogs": [
+    "dlgWorldOfSOCOM.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_47_rooms.png",
+     "bytes": 192128,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/rooms.png",
+     "bytes": 1325,
+     "width": 210,
+     "height": 14,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N8"
+   ]
+  },
+  {
+   "id": "online.logoff-prompt",
+   "segment": "online",
+   "screen": "SOCOM II ONLINE: \"You will be logging off of SOCOM II Online. Are you sure...?\" NO lit, then YES lit",
+   "dialogs": [
+    "dlgWorldOfSOCOM.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/20_then_00_triangle.png",
+     "bytes": 113870,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s17_q2_logoff/online1/20_then_02_left.png",
+     "bytes": 113669,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "logoff-q2",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N17 (793)"
+   ]
+  },
+  {
+   "id": "online.briefing-room",
+   "segment": "online",
+   "screen": "BRIEFING ROOM Channel 1: CREATE / JOIN / WATCH GAME, PLAYER LIST, REFRESH LIST, chat display, the games list",
+   "dialogs": [
+    "dlgMPBriefingRoom.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_48_briefingroom.png",
+     "bytes": 191744,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/B_43_gameslist.png",
+     "bytes": 199021,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true,
+     "note": "B: the games list with \"test\" and GAME DETAILS"
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/briefing_room.png",
+     "bytes": 2757,
+     "width": 245,
+     "height": 24,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_briefing_room.pcsx2.png",
+     "bytes": 5150,
+     "width": 340,
+     "height": 40,
+     "source": "pcsx2",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_briefing_room.png",
+     "bytes": 4997,
+     "width": 340,
+     "height": 40,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N9"
+   ]
+  },
+  {
+   "id": "online.create-game",
+   "segment": "online",
+   "screen": "CREATE GAME: the rows and defaults, the PLAY LIST panel",
+   "dialogs": [
+    "dlgCreateGame.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_49_creategame.png",
+     "bytes": 208107,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_52_playlist.png",
+     "bytes": 210713,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_create_game.pcsx2.png",
+     "bytes": 4377,
+     "width": 340,
+     "height": 40,
+     "source": "pcsx2",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_create_game.png",
+     "bytes": 4266,
+     "width": 340,
+     "height": 40,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N10"
+   ]
+  },
+  {
+   "id": "online.play-list",
+   "segment": "online",
+   "screen": "CREATE GAME PLAY LIST: AVAILABLE MAPS, the preview, SELECTED MAPS LIST",
+   "dialogs": [
+    "dlgCreateGame.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_51_choosegames.png",
+     "bytes": 197449,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_play_list.png",
+     "bytes": 5610,
+     "width": 340,
+     "height": 40,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_play_list.pcsx2.png",
+     "bytes": 5951,
+     "width": 340,
+     "height": 40,
+     "source": "pcsx2",
+     "method": "harness-refs",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N11"
+   ],
+   "note": "the panel is drawn by dlgCreateGame (_240_PlayList) -- read from its message ids, not settled as a separate state"
+  },
+  {
+   "id": "online.play-list.map-rows",
+   "segment": "online",
+   "screen": "CREATE GAME PLAY LIST: one AVAILABLE MAPS row lit per map (the harness's per-map crops)",
+   "dialogs": [
+    "dlgCreateGame.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_abandoned.png",
+     "bytes": 3224,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_bitter_jungle.png",
+     "bytes": 3187,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_blizzard.png",
+     "bytes": 3107,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_blood_lake.png",
+     "bytes": 3193,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_chain_reaction.png",
+     "bytes": 3349,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_crossroads.png",
+     "bytes": 3456,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_death_trap.png",
+     "bytes": 3065,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_desert_glory.png",
+     "bytes": 3435,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_enowapi.png",
+     "bytes": 3061,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_fish_hook.png",
+     "bytes": 3017,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_foxhunt.png",
+     "bytes": 2901,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_frostfire.png",
+     "bytes": 1177,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_guidance.png",
+     "bytes": 3054,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_medley.png",
+     "bytes": 1120,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_night_stalker.png",
+     "bytes": 3344,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_random.png",
+     "bytes": 2682,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_rats_nest.png",
+     "bytes": 3129,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_requiem.png",
+     "bytes": 2944,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_sandstorm.png",
+     "bytes": 3368,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_shadow_falls.png",
+     "bytes": 3454,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_sujo.png",
+     "bytes": 2680,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_the_mixer.png",
+     "bytes": 3509,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_the_ruins.png",
+     "bytes": 2928,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_vigilance.png",
+     "bytes": 3302,
+     "width": 214,
+     "height": 12,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/map_frostfire.pcsx2.png",
+     "bytes": 1149,
+     "width": 214,
+     "height": 12,
+     "source": "pcsx2",
+     "method": "harness-refs",
+     "looked": false
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N11",
+    "PC docs/research/80-online-menus-harness-scope.md §3 (choose_map verifies the row against map_<name>.png)"
+   ]
+  },
+  {
+   "id": "online.game-lobby.ready-notice",
+   "segment": "online",
+   "screen": "GAME LOBBY with \"The READY button will be available in 30 seconds...\" CONTINUE",
+   "dialogs": [
+    "dlgGameLobby.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_53_gamelobby.png",
+     "bytes": 110394,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N13 (350)"
+   ]
+  },
+  {
+   "id": "online.game-lobby",
+   "segment": "online",
+   "screen": "GAME LOBBY Channel 1 / test / VIGILANCE: ARMORY, SWITCH TEAMS, READY; SPECTATORS, SEALS, TERRORISTS",
+   "dialogs": [
+    "dlgGameLobby.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_54_gamelobby2.png",
+     "bytes": 185071,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_55_readyfocus.png",
+     "bytes": 185917,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/B_44_joined.png",
+     "bytes": 185913,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/game_lobby.png",
+     "bytes": 2795,
+     "width": 245,
+     "height": 24,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_game_lobby.pcsx2.png",
+     "bytes": 5990,
+     "width": 340,
+     "height": 40,
+     "source": "pcsx2",
+     "method": "harness-refs",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "scripts/parity/refs/lobby/title_game_lobby.png",
+     "bytes": 5263,
+     "width": 340,
+     "height": 40,
+     "source": "recomp",
+     "method": "harness-refs",
+     "looked": false
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s11_chat_A/17_game_lobby_ok.png",
+     "bytes": 175042,
+     "width": 640,
+     "height": 448,
+     "source": "recomp",
+     "method": "chat-s11",
+     "looked": false,
+     "note": "the chat panel line (research 66 L14)"
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N13"
+   ]
+  },
+  {
+   "id": "online.loading",
+   "segment": "online",
+   "screen": "the loading screen: VIGILANCE, SUPPRESSION, the map with markers, the spinning disc, \"TO RETURN TO THE LOBBY.\"",
+   "dialogs": [
+    "dlgLoad.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_ready012.png",
+     "bytes": 131740,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_ready018.png",
+     "bytes": 132334,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N15",
+    "tools/dump-dialogs.ts --dialog dlgLoad.rdr (_2000_ToReturn)"
+   ]
+  },
+  {
+   "id": "match.round-complete",
+   "segment": "match",
+   "screen": "ROUND COMPLETE: SEALS / TERRORISTS DRAW, SCORE / KILLS / DEATHS, NEXT ROUND countdown (fading in, then up)",
+   "dialogs": [
+    "dlgMultiplayerRound.rdr"
+   ],
+   "confidence": "seen",
+   "captures": [
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_rend048.png",
+     "bytes": 97524,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    },
+    {
+     "root": "SOCOM_PC_ROOT",
+     "path": "logs/parity/s4_pcsx2/A_rend050.png",
+     "bytes": 162605,
+     "width": 640,
+     "height": 480,
+     "source": "pcsx2",
+     "method": "s4-pcsx2-local-horizon",
+     "looked": true
+    }
+   ],
+   "cites": [
+    "web roadmap 05-online-front-end N16",
+    "tools/dump-dialogs.ts --dialog dlgMultiplayerRound.rdr (_2133_RoundComplete)",
+    "PC docs/research/18-online-round-start.md §1"
+   ]
+  }
+ ],
+ "screensWithoutFrame": [
+  {
+   "dialog": "dlgAfterErrorReboot.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the logoff relaunch (N17): the run on record shows the teardown black (20_then_03_cross) and then the main menu (30_hold_00), not this dialog's own frame",
+   "method": "recomp-relaunch"
+  },
+  {
+   "dialog": "dlgAfterReboot.rdr",
+   "owedBy": "BOOT-01",
+   "pcsx2Offline": "unknown",
+   "why": "the relaunch's network-error popup (BOOT-10, named in BOOT-01's window); its reach on PCSX2 offline is not known",
+   "method": "recomp-relaunch"
+  },
+  {
+   "dialog": "dlgAlgeriaCinematic.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlgArtGal2.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "extras: art gallery",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgBrazilCinematic.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlgCareerStats.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlgClanLadderLobby.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "CLAN RANKING",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgControllerPresetsCS.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlgControllerSelection.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "CONTROLLER OPTIONS (OPT-19: all rows, presets, sliders)",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgCreateClan.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the clan pages (nothing on record)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgCredits.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "extras: credits",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgDebriefing.rdr",
+   "owedBy": "PLAT-36",
+   "pcsx2Offline": "unknown",
+   "why": "reached only from code-named dialogs (R96 §3.4); which path shows it is a trace's question",
+   "method": "call-trace"
+  },
+  {
+   "dialog": "dlgDownloadPatch.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the patch download branch of the persona step; never taken on record",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgExitState.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the match's exit state; ONL-32 takes a recomp online round with START pressed and ABORT confirmed (MATCH-01, MATCH-02)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgFriendList.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "FRIENDS (PC research 80-online-menus §3: nothing on record)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgGameComplete.rdr",
+   "owedBy": "PLAT-36",
+   "pcsx2Offline": "unknown",
+   "why": "reached only from code-named dialogs (R96 §3.4)",
+   "method": "call-trace"
+  },
+  {
+   "dialog": "dlgHype.rdr",
+   "owedBy": "PLAT-36",
+   "pcsx2Offline": "unknown",
+   "why": "on the disc and named by no dialog, only by FUN_00365a00's strstr (R96.8); whether anything shows it is a trace's question",
+   "method": "call-trace"
+  },
+  {
+   "dialog": "dlgIgnoreList.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "IGNORE",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgInvitedPlayers.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "invitations",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgLadderLobby.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "PLAYER RANKING",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgLANBriefingRoom.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "unknown",
+   "why": "LAN; needs a LAN host",
+   "method": "recomp-lan-pair"
+  },
+  {
+   "dialog": "dlgLANConnect.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "unknown",
+   "why": "LAN",
+   "method": "recomp-lan-pair"
+  },
+  {
+   "dialog": "dlgLANPlayerName.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "unknown",
+   "why": "the LAN screens (OPT-19, \"if implemented\", MENU-08); whether PCSX2 reaches LAN play with no peer is not known",
+   "method": "recomp-lan-pair"
+  },
+  {
+   "dialog": "dlgLAN_Options.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "unknown",
+   "why": "LAN OPTIONS (OPT-19)",
+   "method": "recomp-lan-pair"
+  },
+  {
+   "dialog": "dlgMakeMusicMovie.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "extras: music / movie",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgManageRoster.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the clan pages",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgManageRosterLeader.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the clan pages",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgMISSIONSELECTION.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlgMPswitch.rdr",
+   "owedBy": "PLAT-36",
+   "pcsx2Offline": "yes",
+   "why": "draws nothing: tools/dump-dialogs.ts --dialog dlgMPswitch.rdr (0 objects; scripts dlgMPswitch, uianim, no UIMemCardAnim; ONSTART StopStreaming: VagStreaming(OFF) SWITCHMENU(dlgNetLogin)); MULTIPLAYER and LAN pass it on the way to dlgNetLogin (research 96 §3.3); no frame to take: its passage (VagStreaming off, then dlgNetLogin) is a trace's (PLAT-36)",
+   "method": "call-trace"
+  },
+  {
+   "dialog": "dlgMultiplayerFinal.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the match end (N16); the PCSX2 match on record stops in round 2",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgMultiplayerFinalReally.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "GAME COMPLETE / FINAL TOTALS (N16)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgNetAbandoned.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "online errors",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgNetAbort.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "an online abort; errors are ONL-32's",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgNetBanned.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "online errors",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgNetError.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "online errors (and the round screen's 90 s timeout, N16)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgNetUnlockableExtras.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "the EXTRAS hub (MENU-04, MENU-07); reached from the main menu offline",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgOnlineFilters.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the online filters page",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgOnlineOptions.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "no-our-server",
+   "why": "ONLINE OPTIONS (OPT-19 names it; reached from the online menu, so behind a login on our server)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgPlayTutMovies.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "extras: tutorial movies (two of the twelve it names are not on the disc, R96 §3.5)",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgRespondToInvites.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "invitations (the row is greyed on record: NO INVITATIONS)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgReturnFromNTGUI2LAN.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "unknown",
+   "why": "the LAN return from SCUSNGUI.ELF",
+   "method": "recomp-lan-pair"
+  },
+  {
+   "dialog": "dlgRussiaCinematic.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlgScreenAdjust.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "SCREEN ADJUST (OPT-19; OPT-12)",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgSetSOP.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "no-our-server",
+   "why": "SETUP MESSAGING per OPT-19's list, if this is the dialog that draws it (not read); behind a login",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlgSetTaunts.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "no-our-server",
+   "why": "SETUP TAUNTS (OPT-19); behind a login",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlg_areaop_albania.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_areaop_Algeria.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_areaop_brazil.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_areaop_russia.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Alb52.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Alb53.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Alg71.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Alg72.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Alg73.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Brazil61.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Brazil62.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Brazil63.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Russia81.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Russia82.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Brief_Russia83.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_CharUnlock.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "extras: character unlocks",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlg_equipment_main.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_equipment_mp.rdr",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "the online ARMORY: the owner's two PCSX2 captures (orig-armory-select.png, orig-armory-weapon.png; web research 95 §2.8) are under neither root on this host, so they cannot be a row until they are placed there",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "dialog": "dlg_Map51.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map52.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map53.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map61.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map62.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map63.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map71.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map72.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map73.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map81.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map82.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_Map83.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "yes",
+   "why": "a campaign dialog (research 96 §3.4)",
+   "method": "recomp-driven-offline",
+   "outOfScope": "R1: the campaign is future scope; OPT-19 says MENU-10..MENU-16 need no capture (the method is named for an overturn of R1)"
+  },
+  {
+   "dialog": "dlg_WeapUnlock.rdr",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "extras: weapon unlocks",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "dialog": "dlgStickSetup.rdr",
+   "owedBy": null,
+   "pcsx2Offline": "never",
+   "why": "named by dlgOptions_Menu's GoToStickSetup, which nothing starts (R96.7)",
+   "outOfScope": "dangling: on no disc archive"
+  }
+ ],
+ "statesWithoutFrame": [
+  {
+   "id": "state.boot-no-card",
+   "state": "boot with no card inserted",
+   "owedBy": "BOOT-01",
+   "pcsx2Offline": "unknown",
+   "why": "BOOT-01's card states; whether PCSX2 instance A boots with no card needs a fresh card dir (BOOT-01's unknown)",
+   "method": "pcsx2-boot-timed"
+  },
+  {
+   "id": "state.boot-unformatted-card",
+   "state": "boot with an unformatted card: the format prompts and progress",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "unknown",
+   "why": "OPT-19 (OPT-05b..OPT-05h): on PCSX2 only, the recomp cannot present an unformatted card; BOOT-01 takes the boot side",
+   "method": "pcsx2-driven-offline"
+  },
+  {
+   "id": "state.boot-existing-save",
+   "state": "boot on a card with an existing save (timed, no presses)",
+   "owedBy": "BOOT-01",
+   "pcsx2Offline": "yes",
+   "why": "BOOT-01: B12 is per press, not timed per screen",
+   "method": "pcsx2-boot-timed"
+  },
+  {
+   "id": "state.boot-loader-panel",
+   "state": "the loader's PULOADGP.RAW panel (\"Locating saved data...\", 640x128 at y 160 over black) before LOADING.RAW",
+   "owedBy": "BOOT-01",
+   "pcsx2Offline": "yes",
+   "why": "BOOT-02 (web research 130 §4): no capture shows it -- the PCSX2 boots are captured per press, the recompiled game's 0.5 s burst starts on LOADING at 1 s; its placement and hold need BOOT-01's timed boot",
+   "method": "pcsx2-boot-timed"
+  },
+  {
+   "id": "state.boot-controller-popup",
+   "state": "IsControllerConnected's popup at boot",
+   "owedBy": "BOOT-01",
+   "pcsx2Offline": "unknown",
+   "why": "B15 names it; no capture",
+   "method": "pcsx2-boot-timed"
+  },
+  {
+   "id": "state.boot-dtv-verify",
+   "state": "the DTV / progressive verify popup and its 10 s safeguard",
+   "owedBy": "BOOT-01",
+   "pcsx2Offline": "unknown",
+   "why": "BOOT-09: the HDD and video-mode branches",
+   "method": "pcsx2-boot-timed"
+  },
+  {
+   "id": "state.card-faults",
+   "state": "card fault dialogs: no card, insufficient space, error saving, error loading, new card detected, removal",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "the block's \"card fault dialogs (PC research 80 §3)\"; OPT-19's list",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "id": "state.load-game-empty-slot-popup",
+   "state": "LOAD GAME's one-button popup over the main menu: UIMnLOC 517 (\"No saved game in that slot...\"), CONTINUE (dlgMenu.rdr LoadGameOnListBox) -- the record PLAT-28's desktop-recompilation notice takes its chrome from",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "PLAT-28's acceptance (\"the chrome compared with a console popup frame\"; web research 142 §5): no capture shows this record; research 118 §8 measured other records' panels on the recompiled game only. The notice's own text is new (H76), so the frame scores the chrome alone",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "id": "state.options-triangle-popup",
+   "state": "OPTIONS: the triangle popup and the RETURN save flow; the HDD ENABLED popup; the 480p confirmation",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "OPT-19's list",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "id": "state.controller-presets-3-4",
+   "state": "CONTROLLER PRESETS pages 3 and 4",
+   "owedBy": "OPT-19",
+   "pcsx2Offline": "yes",
+   "why": "OPT-19's list (pages 1 and 2 are in options.controller-presets)",
+   "method": "recomp-driven-offline"
+  },
+  {
+   "id": "state.chat-keyboard",
+   "state": "the text chat keyboard and a line crossing between clients",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "PC research 66's rounds (logs/parity/s13_o2_chat_*) are under neither root on this host",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.online-menu-walk",
+   "state": "the SOCOM II ONLINE menu walked row by row: AUTOPLAY, CLAN, rankings, OPTIONS, FRIENDS, IGNORE, PLAYER LIST, spectating",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "PC research 80-online-menus §3-4",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.dnas-connecting-authenticating",
+   "state": "the DNAS screen (dlgNetAuthenticate) before LOCATING: CONNECTING / CONNECTING TO INTERNET (_448/_534) for InitNetwork's time plus the 2-s WAIT, then AUTHENTICATING DNAS DATA (_535) with DNASLogo.tif and the trademark line fading in, the progress strip running",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no archive holds these frames: the s4 PCSX2 run skipped A_32/A_33, and the one DNAS frame on record (online.locating-universes, 01_universe.png) is the recomp's LOCATING stage, the last caption pair before SELECT UNIVERSE -- another state's frame, which never meets this one (W9.R8, W9.R12). ONL-03 built the screen to the reading level from its record and set (research 146); its score is owed to the owner's capture H70 (OT.R4) and is recorded here, not met by the LOCATING frame. Folded in at sprint 11's close (2026-10-03): the older row state.dnas-screen (N7, \"the DNAS screen's CONNECTING / AUTHENTICATING stages and its failure\", method recomp-local-stack-walk) owed the same frames; its failure stage (_538, the error popups) is never shown under OT.R4 (web research 146 section 4), so no frame of it is owed",
+   "method": "login-to-universe-1fps"
+  },
+  {
+   "id": "state.connect-error-543",
+   "state": "the connecting screen under #543 \"The account information you provided is already logged in ...\" (Medius -997, MP_PLAYER_LOGGED_IN)",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no capture on record; the port draws it from the set and the test packages/ui/test/screens/connectScreen.test.ts holds its text and where it returns (web research 157 section 4)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.connect-error-544",
+   "state": "the connecting screen under #544 \"The Player Name you selected could not be registered due to questionable content ...\" (the registration's name filter, MP_FILTER_FAILURE)",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no capture on record; the port draws it from the set and the test packages/ui/test/screens/connectScreen.test.ts holds its text and where it returns (web research 157 section 4); the filter is SVC-23's, so the local service cannot force it until then",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.connect-error-545",
+   "state": "the connecting screen under #545 \"The password supplied does not match the registered password ...\" (Medius -978, MP_INVALID_PASSWORD)",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no capture on record; the port draws it from the set and the test packages/ui/test/screens/connectScreen.test.ts holds its text and where it returns (web research 157 section 4)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.connect-error-547",
+   "state": "the connecting screen under #547 \"A valid link could not be established ...\" after the 90 s watchdog, then #515 LOADING... for 5 s",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no capture on record; the port draws it from the set and the test packages/ui/test/screens/connectScreen.test.ts holds its text and where it returns (web research 157 section 4)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.connect-error-medius",
+   "state": "the connecting screen under MP_MEDIUS_ERROR's own text (\"Login Failure\" for any other status; #450 for a lobby connection that fails), then #515 LOADING... for 5 s",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no capture on record; the port draws it from the set and the test packages/ui/test/screens/connectScreen.test.ts holds its text and where it returns (web research 157 section 4)",
+   "method": "recomp-local-stack-walk"
+  },
+  {
+   "id": "state.connect-register-question",
+   "state": "the connecting screen at STATE: LOGIN FAILURE under the set's question \"Player Name not found. Would you like to register this Player Name?\" YES / NO (Medius -998)",
+   "owedBy": "ONL-32",
+   "pcsx2Offline": "no-our-server",
+   "why": "no capture on record; the port draws it from the set and the test packages/ui/test/screens/connectScreen.test.ts holds its text and where it returns (web research 157 section 4); our Horizon creates the account at the login (CreateAccountOnNotFound), so only a server that answers -998 shows it",
+   "method": "recomp-local-stack-walk"
+  }
+ ]
+}

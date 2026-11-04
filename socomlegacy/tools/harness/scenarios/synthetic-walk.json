@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "name": "synthetic-walk",
+  "map": "synthetic-flat",
+  "revision": "r0001",
+  "spawn": { "x": 0, "y": 0, "z": 0, "yaw": -90, "how": "teleport" },
+  "seed": null,
+  "frameHz": 29.97,
+  "pad": [
+    { "frame": 0, "b": "0x0000", "lx": 128, "ly": 128, "rx": 128, "ry": 128 },
+    { "frame": 15, "b": "0x0000", "ly": 0 }
+  ],
+  "events": {},
+  "stop": { "orFrames": 45 },
+  "fields": "frostfire-box",
+  "cites": {
+    "world": "a flat synthetic floor. No disc. A browser adaptation of the recorder, not a map from the original."
+  }
+}

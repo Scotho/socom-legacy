@@ -1,0 +1,15 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Rerun after SEP-POP on r0004 (seat ac, 2026-11-02; tools/eph/scripts/hunt-*.txt).
+# Starts from the saved standing state (r0004 --state 5 at 938.2,-145.5,858.2; r0001 --state 8), facing +z (yaw 180).
+# Tests: MOVE-6 (the backward dive veer, a contact projection): a backward dive from a spot with nothing behind it. Turn to +x, run 0.9 s to about x 995, turn back to +z, back up 0.5 s (-z) and a full Triangle: the dive runs -z at x about 995.
+# Why clear: the r0004 state lists its three teammates at (950,828), (889,847), (900,818) (actor list, r0004-offsets/live), all 45 u or more -x of this path, while the original veer happened backing from x 938 toward them; the strip x 937-1011 at z 832-890 sampled dry (flags105e 0) in the hunt. Ground below z 832 at x 995 is unsampled: read the contact evidence (--extra: diveVel, near) before calling it clear.
+# Look: the dive velocity (+0x1354 on r0004) stays straight -z for the whole dive (no projection) and no actor within 30 u; the page dives straight as before.
+500 rleft 1
+1380 rleft 0
+2380 lup 1
+3280 lup 0
+3800 rright 1
+4680 rright 0
+5200 ldown 1
+5700 triangle 1.0
+5850 triangle 0
+6200 ldown 0

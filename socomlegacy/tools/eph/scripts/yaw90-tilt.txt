@@ -1,0 +1,12 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Tilt measurement, case yaw90-tilt (EPH-TILT round 4; run alone, with --tail-ms 5000).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: the actor-frame turn's direction (worldToBody's sign, FINDINGS 2026-10-31 Q1): yaw 180 is its own inverse, so the body turns to about yaw 90 (facing -x, up the bank) before it lies down. A wrong sign shows as tiltUpNormalDeg off zero on the side whose turn is wrong, with both sides on one triangle.
+# Look: tiltUpNormalDeg (PCSX2 from the actor quaternion's conjugate; the page from its yaw), tiltFinalDeg and tiltSlopeDeg of act1 -- both sides must read the shared triangle's normal (0.19088, 0.97903, -0.07111); a side that reads another normal left the triangle and its row says nothing of the sign. The actual yaw is read per side (the page's yaw; PCSX2's actor quaternion).
+# Route, from the measured tilt-bank runs (C:/Projects/eph-run/runs/20261031T162022Z, 162058Z; pcsx2.csv floorN, page.csv tiltN): PCSX2 read that one normal along its whole lright path, x 936.9 -> 905.9 at z 855.0, and at its end (905.86, 858.76); the page read it at (907.27, 856.90) and the other triangle (0.18751, 0.96176, 0.19961) at (910.7, 858.8). The points known on the shared triangle bound a region (a triangle is convex): x >= 905.9 between z 855.0 and the line z = 858.76 - 0.1211 (x - 905.86); at the page's z 857.07 that is x <= 919.8.
+# The walk: lright 450 ms (tilt-bank's 600 ms carried PCSX2 31 u to x 905.9), stopping PCSX2 near x 914 and the page about 1.4 u further +x near 915.4. The turn: the right stick full right 700 ms, about 90 degrees at the full-push 128.1 deg/s (viewer look.ts MAX_YAW_RATE, FUN_00550ef0 D:L418340; the stick's ramp makes it a little less; PCSX2's in-place rate is not measured). The prone slide then runs about 3.5 u along the facing, -x: PCSX2 to about 910.5, the page to about 911.9 -- inside the region. A yaw off 90 by more than about 15 degrees would carry the page's slide 0.9 u in z, to the crease; under 90 it moves -z, off PCSX2's sampled line z 855 (the triangle's extent below it is not sampled).
+500 lright 1       # walk -x toward the bank
+950 lright 0       # stop near x 914 (PCSX2)
+1950 rright 1      # turn right: yaw 180 -> about 90 (facing -x)
+2650 rright 0
+3650 triangle 1.0  # full Triangle: stand -> prone, facing up the bank
+3800 triangle 0

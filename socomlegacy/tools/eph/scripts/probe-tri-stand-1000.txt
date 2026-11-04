@@ -1,0 +1,5 @@
+# EPH probe script (tools/eph/probe.ts, PCSX2 alone; grammar <t_ms> <input> <pressure>). Seat ac, 2026-11-01, for 6d before the cancel reruns.
+# Press-length ladder: from standing (the state reloaded), a full Triangle (key I, pressure 1) held 1000 ms.
+# Look: the pad byte/pressure of Triangle (index 7) per frame, the peak (DAT_0066b410 / r0004 0x66ad90), the request +0x374, posture +0x174, action.
+500 triangle 1
+1500 triangle 0

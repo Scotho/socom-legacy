@@ -1,0 +1,1478 @@
+{
+  "area": "decoders",
+  "notes": [
+    "docs/research/72-mp-map-archive-anatomy.md",
+    "docs/research/75-aimaps-mps.md",
+    "docs/research/82-map-fidelity-audit.md",
+    "docs/research/93-data-hardening.md",
+    "docs/research/100-the-load-budget.md"
+  ],
+  "entries": [
+    {
+      "id": "decoders.archive.zdb.layout",
+      "claim": "A ZDB is a 0xA0-byte header with the member count at 0x98 and the entry size 0x5C at 0x9C, then 92-byte entries {u32 0x5C; char name[64]; u32 offset; u32 size}, every member 2048-aligned.",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB header and table of contents",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/zdb.test.ts",
+          "name": "reads the TOC of a synthetic archive",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "parseZdb reads Frostfire's table of contents rebuilt from the 53 pinned rows, 0xA0 + 53 x 0x5C bytes long",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "every Frostfire member is 2048-aligned, in file order, and inside the 7,985,152-byte archive",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "re-derives Frostfire's table of contents and script list from the fixture MP2.ZDB",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.zdb.mp-archives",
+      "claim": "There are 22 MP archives (MP3 and MP4 do not exist); each names itself by its mission.rdr description, with the loading assets and size research 72 section 0 tabulates (MP1 BLIZZARD 9,084,928 B ... MP83 REQUIEM 12,156,928 B).",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB, READERM.ZAR/mission.rdr description and LoadingScreenAssets",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "pins the 22 MP archives of research 72 section 0: name, loading assets and size, MP3 and MP4 absent",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "re-derives the 22 archive rows from SOCOM_DISC through parseZdb, Zar and parseRdr",
+          "data": "disc"
+        },
+        {
+          "file": "packages/archive/test/mapIndex.test.ts",
+          "name": "names all 22 MP archives from their mission.rdr",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.zdb.member-counts",
+      "claim": "The map archives hold 53 (MP2), 53 (MP6), 62 (MP72), 53 (MP1) and 60 (MP5) members.",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB count at 0x98",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "pins the member counts research 72 section 1 gives: MP2 53, MP6 53, MP72 62, MP1 53, MP5 60",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "re-derives the 22 archive rows from SOCOM_DISC through parseZdb, Zar and parseRdr",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.zdb.member-by-name",
+      "claim": "A member is found by its file name: where one name ends another (M51_TXR.ZED, ZM51_TXR.ZED) the exact file name wins, and a name two folders share (DBUFFER.ZAR) needs its folder; Frostfire MP2.ZED is 4,240 B, MP2_GEO.ZED 445,856, WORL_MDL.ZED 490,800, MP2_MDL.ZED 230,544, AIMAPS.MPS 212,828.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB and RUN/M51.ZDB tables of contents",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/zdb.test.ts",
+          "name": "takes the member named exactly by a whole-file suffix over one whose name only ends with it",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "zdbEntry finds each of Frostfire's members by its file name alone, but for the two DBUFFER.ZAR, which need their folder",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.zar.layout",
+      "claim": "A ZAR/ZED v2 (0x20002) is a 100-byte head, a string table, key_count 16-byte keys in pre-order (each child_count its immediate children), then the data blob aligned to padding; key.offset is relative to the blob.",
+      "level": "reading",
+      "source": "disc every ZAR/ZED member of RUN/MP*.ZDB; research/recom zar_main.cpp:676-790 (agrees)",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/zar.test.ts",
+          "name": "parses a synthetic v2 archive and resolves paths",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/zar.test.ts",
+          "name": "rejects a key tree that does not consume exactly key_count records",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "parseWorldRoot and parseMaterialPalette read each of the 34 pinned roots, packed as a ZAR, to the pinned values",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/zar.test.ts",
+          "name": "Frostfire: MP2_GEO.ZED has 10,433 keys, MP2_TXR.ZED lists 65 textures, WORL_MDL.ZED has worldmodel with 123 chunks",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.zar.root-record",
+      "claim": "The root record carries only its child count; its name pointer is null in retail.",
+      "level": "reading",
+      "source": "disc ZAR key 0; research/recom zar_main.cpp:57-62",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/zar.test.ts",
+          "name": "parses a synthetic v2 archive and resolves paths",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.zar.flags-zero",
+      "claim": "flags == 0 in every retail archive: no securified pass.",
+      "level": "reading",
+      "source": "disc every ZAR/ZED of RUN/MP*.ZDB, head word 0",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/zar.test.ts",
+          "name": "refuses a non-zero flags word (a securified archive; retail writes 0)",
+          "data": "none"
+        }
+      ],
+      "owed": "A disc-tier pass asserting flags 0 over every member of RUN/MP*.ZDB; the unit test above holds only the reader's refusal of a non-zero word."
+    },
+    {
+      "id": "decoders.archive.rdr.layout",
+      "claim": "A compiled .rdr is {u32 version=1; u32 string_table_size; u32 node_array_offset}, the string table at 12, then 8-byte nodes {type:8, isclone:1, packed:1, unused:6, length:16; value}: 1 i32, 2 f32, 3 string (offset from 12), 4 list (offset of the first child).",
+      "level": "reading",
+      "source": "disc READERM.ZAR scripts; tools_py/rdr_tree.py:4-6 (node struct)",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/rdr.test.ts",
+          "name": "decodes a synthetic script: strings, ints, floats and nested lists",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "parseRdr reads each of the twelve pinned trees back from bytes written by the documented layout",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "re-derives the twelve decoded trees from the fixture's READERM.ZAR through parseRdr",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.rdr.frostfire-scripts",
+      "claim": "Frostfire's READERM.ZAR holds twelve scripts (aimaps, vehicles, actions, chartype, dyntex, layers, lod, mission, mp2, mp2_lib, sndjukeboxm, valves); the 22 maps hold 11 to 16 (research 72 section 2 says 13 or 14).",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB READERM.ZAR key list",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "Frostfire's READERM.ZAR holds the twelve compiled scripts research 72 section 2 lists; the 22 maps hold 11 to 16",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapArchives.parity.test.ts",
+          "name": "re-derives the 22 archive rows from SOCOM_DISC through parseZdb, Zar and parseRdr",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.rdr.mission",
+      "claim": "mission.rdr names Frostfire FROSTFIRE, its loading screen ui/assetlib/ld/om02, elevation max 100 min 142.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB READERM.ZAR/mission.rdr",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "mission.rdr names the map FROSTFIRE, its loading screen ui/assetlib/ld/om02, elevation max 100 and min 142",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/rdr.test.ts",
+          "name": "mission.rdr names the map and mp2.rdr carries MetersPerUnit 0.1",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.rdr.world-params",
+      "claim": "mp2.rdr world_params: MetersPerUnit 0.1, ShadowVector (-0.8106, -0.2001, 0.5504), DefaultMaterial METAL_THICK, NightMission 0, the NVG (51 229 51 61) and starlight (76 127 242 61) tints.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB READERM.ZAR/mp2.rdr",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "mp2.rdr world_params: MetersPerUnit 0.1, DefaultMaterial METAL_THICK, NightMission 0, the NVG and starlight tints",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "parseRdr reads each of the twelve pinned trees back from bytes written by the documented layout",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.rdr.player-start",
+      "claim": "vehicles.rdr gives the player start as a named reference -- (name player) (character mp2_seal1) (setup ((playerstart 3))) (team 1 2) -- not coordinates.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB READERM.ZAR/vehicles.rdr",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "vehicles.rdr gives the player start as a named reference, playerstart 3, teams 1 and 2 -- not coordinates",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.rdr.aimaps-list",
+      "claim": "aimaps.rdr's map_list names the AI maps in AIMAPS.MPS order: Frostfire aimap.map, Ramps.map, Tunnels.map.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB READERM.ZAR/aimaps.rdr",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "aimaps.rdr lists the three AI maps of AIMAPS.MPS in file order: aimap.map, Ramps.map, Tunnels.map",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.rdr.visit-budget",
+      "claim": "The most-shared retail script is RUN/UI/READERC.ZAR UiParams.rdr at 8.08 visits a node (map scripts at most 2.19, MP5 clutter.rdr) over 736 scripts; RDR_VISIT_FACTOR 16 is twice it (a hardening bound, not a game value).",
+      "level": "reading",
+      "source": "disc the 736 .rdr keys under RUN/ but RUN/SOUNDS/",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/rdr.test.ts",
+          "name": "allows the shared subtrees retail files carry, up to the measured factor",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/rdr.test.ts",
+          "name": "stops at the node budget instead of allocating without end on a wide shared tree",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/isoAssetSource.test.ts",
+          "name": "holds 736 .rdr scripts under RUN/ but RUN/SOUNDS/, and every one parses inside the visit budget",
+          "data": "disc"
+        }
+      ],
+      "owed": "The 736 count and the per-script ratios are held only by the SOCOM_ISO test: a golden of the script list and the top ratios is owed (it needs the ISO walk; not written in this wave)."
+    },
+    {
+      "id": "decoders.archive.texmanifest.frostfire",
+      "claim": "mp2_lib.rdr names all 65 Frostfire textures; two carry a detail record (a_floor.tif -> a_floordetail.tif uv 8 range 90000, floor_oilgrime.tif -> flooroil_detail.tif uv 8 range 250000, both ADDITIVE); 53 are pal.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB READERM.ZAR/mp2_lib.rdr",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/frostfireScripts.parity.test.ts",
+          "name": "readTexManifest over the pinned mp2_lib.rdr: 65 textures, two detail records, the oil grime at uv 8 and range 250000",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/texManifest.test.ts",
+          "name": "mp2_lib.rdr names every texture of MP2_TXR.ZED, and two of them carry a detail record",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.texmanifest.detail-buff",
+      "claim": "Every one of Frostfire's 61 detail_buff records (28 bytes) carries floor_oilgrime's range 250000, ALPHA 0x48 and scale 8 -- the manifest's uv, not the 4.0 of the mission dumps.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_GEO.ZED detail_buff",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/texManifest.test.ts",
+          "name": "SEMANTICS 11.6: the S,T scale on Frostfire is the manifest's uv, 8 -- not the 4.0 of the mission dumps",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/archive/test/detailBuff.parity.test.ts",
+          "name": "pins 61 records of 28 bytes, each floor_oilgrime's: range 250000, ALPHA 0x48, scale 8 -- the manifest's uv, not 4.0",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/detailBuff.parity.test.ts",
+          "name": "MP2_GEO.ZED's detail_buff records and mp2_lib.rdr's floor_oilgrime detail read as the pin holds them",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.iso.retail-volume",
+      "claim": "The retail US image is one volume of 2,139,040 blocks (the whole 4,380,753,920-byte file), 349 files, RUN/MP2.ZDB at LBN 0x1cff3a, 7,985,152 bytes.",
+      "level": "reading",
+      "source": "disc SOCOM_ISO primary volume descriptor",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/isoAssetSource.test.ts",
+          "name": "lists 349 files, names the 22 maps and puts MP2.ZDB where iso_lbn.py does",
+          "data": "disc"
+        }
+      ],
+      "owed": "Held only with SOCOM_ISO: a unit pin of the PVD values is owed (the ISO reader is held on synthetic images; its retail values are not pinned)."
+    },
+    {
+      "id": "decoders.archive.iso.volume-size",
+      "claim": "An image shorter than its volume space size x 2048 is refused at open, naming a truncated file or the Node 4 GiB size wrap (ECMA-119 8.4.8).",
+      "level": "reading",
+      "source": "ECMA-119 section 8.4.8; disc SOCOM_ISO size",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/isoAssetSource.test.ts",
+          "name": "refuses an image shorter than the volume its descriptor declares, naming the 4 GiB Node wrap",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.iso.dual-layer",
+      "claim": "A path layer 0 lacks is resolved in layer 1, whose PVD sits at layer 0's volume size, its LBNs counted from layer 1's start (PCSX2 FindLayer1Start, OPL cdvdman).",
+      "level": "reading",
+      "source": "PCSX2 CDVDisoReader.cpp FindLayer1Start; OPL searchfile.c",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/isoAssetSource.test.ts",
+          "name": "finds a path layer 0 lacks in layer 1, at an LBN counted from layer 1's start",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.archive.maplist.on-problem",
+      "claim": "listMaps names each RUN/MP*.ZDB in its own try: an archive that will not name itself is offered under its id and its reason reported (a port rule over the disc listing).",
+      "level": "reading",
+      "source": "research 93 section 4 (mapIndex.ts)",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/archive/test/mapIndex.test.ts",
+          "name": "offers an unreadable archive under its id and reports why, instead of failing the listing",
+          "data": "none"
+        },
+        {
+          "file": "packages/archive/test/mapIndex.test.ts",
+          "name": "names the good archives beside a bad one, whole and by range",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.params",
+      "claim": "A texdat key begins with the 16-byte TEXTURE_PARAMS {u16 w; u16 h; u32 size; u32 gsaddr; u32 {texelBitSize:8, selectQwc:8, pal_offset:8, transparent, palettized, is_mip_child, bumpmap, bilinear, transp_1bit, dynamic, context}}; a_floor.tif is 00400040 00001000 00000001 12000608.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_TXR.ZED textures/*/texdat; research/recom ztex.h:20-37",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "reads a_floor.tif's header as research 72 section 5 prints it, 00400040 00001000 00000001 12000608, texels from byte 32",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "parseTextureRecord reads every pinned Frostfire header and TEX0 back from a record built by the documented layout",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "re-derives Frostfire's 65 texture and 53 palette pins from the fixture through parseTextureRecord / parsePaletteRecord",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.pixel-prefix",
+      "claim": "One quadword, 08 00 00 00 00 00 00 00 then AF x 8, sits between TEXTURE_PARAMS and the texels in every texture of every map: the pixels begin at byte 32 and size counts texels alone.",
+      "level": "reading",
+      "source": "disc every texdat of the 22 maps own TXR archives",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "every texture of the 22 maps carries the same 16-byte quadword before its texels (research 72 section 5)",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "reads a_floor.tif's header as research 72 section 5 prints it, 00400040 00001000 00000001 12000608, texels from byte 32",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "re-derives research 72 section 5's table for all 22 maps from SOCOM_DISC",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.size",
+      "claim": "size is exactly w x h x bpp / 8, sides powers of two from 16 to 256; every Frostfire record carries a TEX0 whose TW/TH are its own log2 sides.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_TXR.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "size is w x h x bpp / 8 on every Frostfire texture, each side a power of two from 16 to 256, and each carries a TEX0",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/records.test.ts",
+          "name": "all 65 Frostfire textures parse with size == w*h*bpp/8 and 53 palettes parse",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.bind-tex0",
+      "claim": "The bind packet after the pixels holds the GS TEX0 word (TBP0 = gsaddr, TW/TH = log2 size): a_floor.tif 0x201026E599304001 = TBP0 1, PSMT8, TW 6, TH 6, TBW 1, CBP 311, CPSM PSMCT16; a VU1 parameter word that reads as a TEX0 is not taken.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_TXR.ZED bind packets",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/records.test.ts",
+          "name": "decodes a_floor.tif bind word from 36 §5",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/records.test.ts",
+          "name": "takes the word matching the size this record declares, not an earlier lookalike",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "parseTextureRecord reads every pinned Frostfire header and TEX0 back from a record built by the documented layout",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.cbp-link",
+      "claim": "A palettised texture's TEX0.CBP is its palette's gsaddr, the number in texpal_<n>: a_dumpster.tif 106, crane1.tif 97, a_steel20.tif 98; every one of Frostfire's 53 resolves in MP2_PAL.ZED.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_TXR.ZED TEX0.CBP, MP2_PAL.ZED par",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "every palettised texture cites a pinned palette by TEX0.CBP: a_dumpster.tif 106, crane1.tif 97, a_steel20.tif 98",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/records.test.ts",
+          "name": "every texture that cites a palette cites one MP2_PAL.ZED holds",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.table",
+      "claim": "Research 72 section 5's table: MP2 65 textures (53x8, 5x16, 7x32), 53 palettes ids 94-318, 48 CT16 / 5 CT32, 651 KB; MP6 69 / 65 / 94-330 / 56 / 9; MP72 106 / 105 / 103-383 / 78 / 27; MP1 90 / 81 / 94-346 / 68 / 13; MP5 45 / 38 / 98-307 / 22 / 16; 83 direct 32bpp textures over the 22 maps.",
+      "level": "reading",
+      "source": "disc each map own <stem>_TXR.ZED / <stem>_PAL.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "pins research 72 section 5's table: textures, bpp mix, palettes and their ids, CT16 / CT32, for the five maps it lists",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "re-derives research 72 section 5's table for all 22 maps from SOCOM_DISC",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.palette.params",
+      "claim": "PALETTE_PARAMS is {u32 gsaddr (= the texpal_<n> suffix); u32 {size:16, format:8, combo_pal:1, dynamic:1}}; format 2 is a 512-byte buf of 256 PSMCT16, format 0 a 1,024-byte buf of PSMCT32 with alpha 0..0x80.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_PAL.ZED par/buf; research/recom ztex.h:39-47",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "parsePaletteRecord reads each pinned PALETTE_PARAMS: gsaddr = the key, CT16 a 512-byte buf, CT32 a 1,024-byte one",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/records.test.ts",
+          "name": "scales the CT32 alpha from 0x80 to 255",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/records.test.ts",
+          "name": "expands a CT16 entry as abgr1555",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.palette.csm1",
+      "claim": "8-bit palettes carry the GS csm1 CLUT layout: in each block of 32 the two middle 8-entry groups are swapped (witness cuba1a_sky01.tif).",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB cuba1a_sky01.tif decoded both ways",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/decode.test.ts",
+          "name": "undoes the csm1 CLUT block swap: index 8 reads entry 16 and index 16 entry 8",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/decode.test.ts",
+          "name": "every Frostfire texture decodes and matches the frozen goldens",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.raster",
+      "claim": "Texel bytes are plain raster rows in memory order, not the GS page swizzle (sign04.tif reads DANGER / FLAMMABLE LIQUID).",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_TXR.ZED, 65 textures decoded both ways",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/decode.test.ts",
+          "name": "every Frostfire texture decodes and matches the frozen goldens",
+          "data": "fixture"
+        }
+      ],
+      "owed": "The decoded-image goldens (gs/test/goldens/frostfire-textures.json) are checked only with the fixture: a unit check on real texels needs disc bytes in git, which TA.R2 leaves to the fixtures stream."
+    },
+    {
+      "id": "decoders.gs.texture.alpha-test",
+      "claim": "Frostfire's bind packets: lightrays.tif blends source alpha, no alpha test, bilinear, repeat; only one-bit textures alpha-test, at GREATER 64 (0.5).",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_TXR.ZED bind packets (ALPHA_1, TEST_1, TEX1_1, CLAMP_1)",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/textures.parity.test.ts",
+          "name": "the bind packets: lightrays.tif blends source alpha, untested, bilinear, repeat; only one-bit textures alpha-test",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/gsState.test.ts",
+          "name": "lightrays.tif: source blend, no alpha test, bilinear, repeat",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.gs.texture.mip-lod",
+      "claim": "The GS picks the mip level from depth, LOD = (log2(1/|Q|) << L) + K (TEX1 K signed 7.4, LCM 0); the mip levels are the disc records MIPTBP1 TBP1-3 names (Vigilance rockwall.tif gsaddr 6 -> 7, 8).",
+      "level": "reading",
+      "source": "disc TEX1_1 / MIPTBP1_1 in the bind packets; GS manual TEX1",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/gs/test/gsState.test.ts",
+          "name": "reads L and a positive K",
+          "data": "none"
+        },
+        {
+          "file": "packages/gs/test/gsState.test.ts",
+          "name": "reads TBP1-3 at bits 0, 20 and 40, as many as MXL asks for",
+          "data": "none"
+        }
+      ],
+      "owed": "The disc values (Vigilance rockwall K -12, the corpus K -12 to -6.5, the two odd mip records) have no pin: a 22-map TEX1 / MIPTBP1 golden is owed."
+    },
+    {
+      "id": "decoders.gs.texture.alpha-ceiling",
+      "claim": "No texture or CLUT entry on any of the 22 maps has a raw alpha above 0x80.",
+      "level": "reading",
+      "source": "disc every texture and palette of the 22 maps",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [],
+      "owed": "A disc-tier pass over every palette and 32bpp texel of the 22 maps, the maximum alpha pinned, is owed; not written in this wave."
+    },
+    {
+      "id": "decoders.mesh.dma.tag",
+      "claim": "A chain is a count quadword then that many 16-byte DMA tags: QWC bits 0-15, the relocation type in bits 16-23, the DMA id in 28-30, ADDR a byte offset in the model buffer, words 2-3 the tag-transfer VIF codes.",
+      "level": "reading",
+      "source": "disc WORL_MDL.ZED / *_MDL.ZED chains; research/recom vis_main.cpp:325-392",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/dma.test.ts",
+          "name": "assembles the tag-transfer codes and the quadwords each tag transfers",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/dma.test.ts",
+          "name": "Frostfire worldmodel: 123 chains, 1,450 tags, reloc types {2,3,4,6}, 37 distinct texture names, first chunk cites cuba1a_sky01.tif",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 rows from the fixtures",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.mesh.chains.table",
+      "claim": "Research 72 section 3's table: chains, tags and VIF histogram of MP2 world (123, 1,450, NOP 2953 STCYCL 2389 UNPACK 2389 MSCNT 416 MSCAL 309), MP2_MDL, FLIB_MDL, MP6 world and MDL, MP72 world and MDL, MP1 and MP5 world.",
+      "level": "reading",
+      "source": "disc each map own *_MDL.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "pins research 72 section 3's table: chains, DMA tags and the VIF histogram of nine model sets",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ],
+      "owed": "The unit half checks the pin against the note; it does not drive walkModel (the chains need the model buffers). Holding the walker on a real chain in CI needs a chain in git (TA.R2)."
+    },
+    {
+      "id": "decoders.mesh.vif.commands",
+      "claim": "Only NOP, STCYCL, UNPACK, MSCAL and MSCNT occur in map geometry; every MSCAL is MSCAL 0; no MPG, no DIRECT; every UNPACK is FLG=1.",
+      "level": "reading",
+      "source": "disc every chain of the 22 maps",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "only NOP, STCYCL, UNPACK, MSCAL and MSCNT occur; every MSCAL is entry 0; every unpack is FLG=1 (research 72 section 3)",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/vif.test.ts",
+          "name": "throws on a command outside the five",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 rows from the fixtures",
+          "data": "fixture"
+        }
+      ],
+      "owed": "The mapChains unit test compares the pin with the note's numbers only; it never runs walkModel, vifHistogram, unpackVif or interpretChainParts. The readers on real chains are held only by the fixture and disc halves (skipped in CI); the hand-built chains of dma.test.ts / vif.test.ts / interpret.test.ts hold the reader logic, not these per-map values. Holding them in CI needs a real chain in git (TA.R2, the ta-fixtures stream)."
+    },
+    {
+      "id": "decoders.mesh.vif.formats",
+      "claim": "The unpack formats are V4-32, V4-16, V4-8 unsigned and V3-16; Frostfire's world has 725 V4-32, 416 V4-16, 416 V3-16 and 832 V4-8, two RGBA unpacks per drawn packet (research 72 section 3 said 416 + 309, which left its table 107 short of the 2,389 UNPACKs; corrected 2026-10-02).",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB WORL_MDL.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "the unpack formats are V4-32, V4-16, V4-8 unsigned and V3-16, and nothing else, on every map",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/vif.test.ts",
+          "name": "uses exactly the five unpack formats section 3 lists, every one FLG=1",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 rows from the fixtures",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ],
+      "owed": "The mapChains unit test compares the pin with the note's numbers only; it never runs walkModel, vifHistogram, unpackVif or interpretChainParts. The readers on real chains are held only by the fixture and disc halves (skipped in CI); the hand-built chains of dma.test.ts / vif.test.ts / interpret.test.ts hold the reader logic, not these per-map values. Holding them in CI needs a real chain in git (TA.R2, the ta-fixtures stream)."
+    },
+    {
+      "id": "decoders.mesh.dma.reloc-types",
+      "claim": "Relocation types 2, 3, 4 and 6 everywhere, plus type 1 on Desert Glory (31 tags) and Crossroads (163) among the five maps read.",
+      "level": "reading",
+      "source": "disc *_MDL.ZED tag word bits 16-23",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "relocation types 2, 3, 4 and 6 everywhere; type 1 on Desert Glory (31 tags) and Crossroads (163) among the five",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 rows from the fixtures",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ],
+      "owed": "The mapChains unit test compares the pin with the note's numbers only; it never runs walkModel, vifHistogram, unpackVif or interpretChainParts. The readers on real chains are held only by the fixture and disc halves (skipped in CI); the hand-built chains of dma.test.ts / vif.test.ts / interpret.test.ts hold the reader logic, not these per-map values. Holding them in CI needs a real chain in git (TA.R2, the ta-fixtures stream)."
+    },
+    {
+      "id": "decoders.mesh.interpret.frostfire-world",
+      "claim": "Frostfire's worldmodel draws 416 packets, 15,071 vertices, 8,764 triangles (8,765 stated, one degenerate), 33 packets with FGE clear, 37 textures over 309 citations.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB WORL_MDL.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "Frostfire's world: 416 drawn packets, 15,071 vertices, 8,764 triangles, 33 unfogged, 37 textures over 309 citations, no line",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/interpret.test.ts",
+          "name": "decodes all 416 drawn packets: 15,071 vertices, 8,765 triangles less the one degenerate (§10)",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 rows from the fixtures",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ],
+      "owed": "The mapChains unit test compares the pin with the note's numbers only; it never runs walkModel, vifHistogram, unpackVif or interpretChainParts. The readers on real chains are held only by the fixture and disc halves (skipped in CI); the hand-built chains of dma.test.ts / vif.test.ts / interpret.test.ts hold the reader logic, not these per-map values. Holding them in CI needs a real chain in git (TA.R2, the ta-fixtures stream)."
+    },
+    {
+      "id": "decoders.mesh.interpret.line-strips",
+      "claim": "A relocation type-1 tag is a LINE_STRIP: Desert Glory 31 strips of 221 points, Crossroads 163 of 850; one strip per type-1 tag on every map.",
+      "level": "reading",
+      "source": "disc MP6_MDL.ZED, MP72_MDL.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "the line strips of relocation type 1: Desert Glory 31 strips of 221 points, Crossroads 163 of 850",
+          "data": "none"
+        },
+        {
+          "file": "packages/mesh/test/interpret.test.ts",
+          "name": "Desert Glory: 31 type-1 tags, 31 strips, 221 points, no chunk left undecoded (36 §3)",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 rows from the fixtures",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/mesh/test/mapChains.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ],
+      "owed": "The mapChains unit test compares the pin with the note's numbers only; it never runs walkModel, vifHistogram, unpackVif or interpretChainParts. The readers on real chains are held only by the fixture and disc halves (skipped in CI); the hand-built chains of dma.test.ts / vif.test.ts / interpret.test.ts hold the reader logic, not these per-map values. Holding them in CI needs a real chain in git (TA.R2, the ta-fixtures stream)."
+    },
+    {
+      "id": "decoders.mesh.chunk-naming",
+      "claim": "A model buffer child N%03d_%03d or N%03d_I%03d_V%02d holds the byte offset of that node chain; an _L name marks a dynamically lit node and wins when both exist.",
+      "level": "reading",
+      "source": "disc *_MDL.ZED child keys; research/recom vis_main.cpp:88-105",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/modelLibrary.test.ts",
+          "name": "with both names present the _L one wins, the order the engine fetches in",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/modelLibrary.test.ts",
+          "name": "a key stored only under its _L name resolves to that offset and reports lit",
+          "data": "none"
+        }
+      ],
+      "owed": "The naming rule over a real map (scene.test.ts, \"<stem>: every model chunk keys are what the rule predicts\", fixture only, a templated title) has no unit pin: a pin of each model chunk key list is owed."
+    },
+    {
+      "id": "decoders.scene.worldroot.keys",
+      "claim": "parseWorldRoot reads MetersPerUnit, ShadowVector, NightMission, DefaultMaterial, GlobalLighting, TextureScroll_Object and grid_params of every archive's own <stem>.ZED (22 MP, 12 campaign) to the pinned values.",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB and RUN/M*.ZDB <stem>.ZED; FUN_00318da0; research/recom node_saveload.cpp:236-341",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "parseWorldRoot and parseMaterialPalette read each of the 34 pinned roots, packed as a ZAR, to the pinned values",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "re-derives all 34 roots, 22 MP and 12 campaign, from SOCOM_DISC",
+          "data": "disc"
+        },
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "re-derives the MP2, MP6 and MP72 roots from the fixtures",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.worldroot.meters-per-unit",
+      "claim": "MetersPerUnit is 0.1 on all 22 MP maps.",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB <stem>.ZED MetersPerUnit",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "MetersPerUnit is 0.1 on all 22 MP maps (research 72 section 2)",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.worldroot.frostfire",
+      "claim": "Frostfire's root: DefaultMaterial METAL_THICK, day, ShadowVector (-0.811, -0.2, 0.55), and four scrolling bands of alaska1a_sky (ocean_1 -0.04,-0.04; ocean_2 0.04,0.04; ocean_3 0,0.02; skyhorizon 0,0.02).",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "Frostfire's root: METAL_THICK, day, shadow vector (-0.811, -0.2, 0.55), ocean_1..3 and skyhorizon scrolling",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/scene.test.ts",
+          "name": "reads the world root (36 section 2)",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.worldroot.lighting",
+      "claim": "All 34 roots carry a 112-byte GlobalLighting (dir[3], col[3], ambient as CPnt4D); eleven store dir[2] and col[2] as zero; the VU sees each direction negated and normalised, the colours verbatim (sub_0031EE00).",
+      "level": "reading",
+      "source": "disc <stem>.ZED GlobalLighting; sub_0031EE00",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "all 34 roots carry GlobalLighting, 112 bytes; eleven store dir[2] and col[2] as zero and run on two lights",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.grid.params",
+      "claim": "grid_params is tag_GRID_PARAMS {s32 atoms; s32 posts; f32 cell dimension; s32 cells x; s32 cells z}; every root holds the 8,192-atom pool and 16 posts; Frostfire is 160 a cell, 8 x 9 = 72 cells; the origin is (0, 0).",
+      "level": "reading",
+      "source": "disc <stem>.ZED grid_params; research/recom znode.h:109-120, grid_main.cpp:35-156",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/grid.test.ts",
+          "name": "decodes the 20 bytes in the header's order: atom pool, posts, cell dimension, cells along x, cells along z",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "every grid_params holds the 8,192-atom pool and 16 posts; Frostfire is 160 a cell, 8 x 9; the largest is M52, 35 x 35",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/grid.test.ts",
+          "name": "reads Frostfire's world root as dimension 160, 8 x 9, origin 0 and the 8,192-atom pool (research 24 section 1.1, 23 section 2.1)",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.grid.largest",
+      "claim": "The largest grid on the disc is M52, 35 x 35 = 1,225 cells (M51 36 x 25 = 900; the largest MP grid Foxhunt 24 x 28 = 672); the 65,536 ceiling bounds every map. Research 93 section 2 said at most 900 (corrected 2026-10-02); the GRID_CELLS_MAX comment in scene/src/worldRoot.ts still says 900 (engine source, owed).",
+      "level": "reading",
+      "source": "disc RUN/M52.ZDB M52.ZED grid_params",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "every grid_params holds the 8,192-atom pool and 16 posts; Frostfire is 160 a cell, 8 x 9; the largest is M52, 35 x 35",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "re-derives all 34 roots, 22 MP and 12 campaign, from SOCOM_DISC",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.grid.ceiling",
+      "claim": "CGrid::Create allocates whatever grid_params asks (grid_main.cpp:82-142); the port's GRID_CELLS_MAX 65,536 is a hardening bound above every disc grid, refused by name.",
+      "level": "reading",
+      "source": "research/recom grid_main.cpp:82-142",
+      "note": "docs/research/93-data-hardening.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/grid.test.ts",
+          "name": "refuses a grid above GRID_CELLS_MAX by name rather than building it or falling back to 8 x 8",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.material-palette",
+      "claim": "Material_Palette: every entry on the disc is kind 2 (FUN_003bb2c0); an untextured or unresolved one draws DAT_004b4d90, specular_map.tif: Frostfire's two entries (palEntry_1 rgba 123,123,123,10); Blood Lake's palEntry_3 reflects m19_skycap01.tif (80,80,80,20, rim 130).",
+      "level": "reading",
+      "source": "disc <stem>.ZED Material_Palette; FUN_003bb2c0, FUN_003b5f20",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/worldRoots.parity.test.ts",
+          "name": "Material_Palette: Frostfire's two untextured entries draw specular_map.tif; Blood Lake's palEntry_3 reflects m19_skycap01.tif",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/materialPalette.test.ts",
+          "name": "Frostfire names no texture: its two entries (kind 2, unflagged) draw the default, specular_map.tif",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.nparams",
+      "claim": "A node is nparams 96 B (64-byte matrix, 24-byte bbox, u32 m_type, u32 flags), model_name on instance nodes (m_type 2), an optional regionmask, visuals/vis/vparams, di, children.",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED; research/recom node_io.cpp:251-320, znode.h:73-105",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "parseSceneGraph reads a GEO archive built by the documented layout: nparams 64 + 24 + type + flags, visuals, di, children",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.di",
+      "claim": "A di polygon is a 12-byte params (region, refcount, packed {ditype:2, ptcount:8, material:8, cameratype:2, appflags:3, inside:1, shadow:2}) then ptcount 16-byte CPnt4D points (w unused); ptcount equals points/16 on every polygon.",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED di keys; research/recom int_main.cpp:52-67",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "parseSceneGraph reads a GEO archive built by the documented layout: nparams 64 + 24 + type + flags, visuals, di, children",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "parseSceneGraph refuses an nparams that is not 96 bytes and a di whose ptcount disagrees with its points",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "re-derives the 22 rows from SOCOM_DISC",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.counts",
+      "claim": "Research 72 section 2's table: prototypes / instance nodes / visuals / collision polygons / keys -- MP2 46/206/177/2,756/10,433, MP6 87/167/604/5,442/21,114, MP72 70/196/263/8,168/27,497, MP1 47/160/218/7,773/25,945, MP5 29/23/205/7,319/23,580.",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "pins research 72 section 2's table: prototypes, instance nodes, visuals, collision polygons and keys of five maps",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/scene.test.ts",
+          "name": "yields 46 prototypes, 206 instance nodes and 2,756 collision polygons (36 section 2)",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.shapes",
+      "claim": "Polygon shapes (ditype, points): MP2 (2,4) 1743, (3,4) 736, (2,3) 184, (3,3) 43, (3,6) 22, (3,5) 15; MP6 and MP72 as research 72 section 6 lists; only ditype 2 and 3 occur.",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED di params",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "pins research 72 section 6's commonest polygon shapes (ditype, points) for MP2, MP6 and MP72, and Frostfire's largest of 12 points",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.max-points",
+      "claim": "The largest polygon has 12 points on Frostfire, 14 on Blizzard (MP1) and 16 on The Mixer (MP52), the largest of the 22 maps; research 72 section 6 said 12 for every map read (corrected 2026-10-02).",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED di ptcount",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "pins research 72 section 6's commonest polygon shapes (ditype, points) for MP2, MP6 and MP72, and Frostfire's largest of 12 points",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.refcount",
+      "claim": "m_refcount varies over the polygons (research 72 superseded its \"0x2d in every polygon\").",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED di params word 1",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "m_refcount is not one value: research 72 section 6 superseded its \"0x2d in every polygon\"",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.facade-and-lit",
+      "claim": "41 nodes over the 22 maps set m_facade (flags bits 8-9); no Frostfire placement sets NODE_FLAGS_LIT, so the map draws from its baked colours (FUN_003b6d10); the 2,756 graph polygons realise as 3,318 world polygons.",
+      "level": "reading",
+      "source": "disc <stem>_GEO.ZED nparams flags; FUN_003b6d10",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "41 facade nodes over the 22 maps (sceneGraph.ts m_facade); no Frostfire placement is lit (research 82 D2)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/scene.test.ts",
+          "name": "no Frostfire placement is lit: the whole map is drawn from its baked vertex colours",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.graph.instance-contexts",
+      "claim": "hookupVisuals numbers a model's instance contexts in load order, the prototypes' own copies first: Frostfire tankrailbarshi I000 is the unity material colour, I001-I017 the prelit world rails.",
+      "level": "reading",
+      "source": "disc MP2_MDL.ZED N000_I###_V## vertex colours; research/recom vis_main.cpp:77-111",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/scene.test.ts",
+          "name": "gives each world placement its own instance context, numbered after the prototypes' own",
+          "data": "fixture"
+        }
+      ],
+      "owed": "Held only with the fixture: a unit pin of the per-model context counts (contextsBefore over a pinned graph) is owed."
+    },
+    {
+      "id": "decoders.scene.graph.world-tree-empty",
+      "claim": "world_tree is present but empty and worldmodel, light_list and GriddedTerrain are absent from the MP world roots; placement lives in <stem>_GEO.ZED and CLUTTER.ZAR.",
+      "level": "reading",
+      "source": "disc <stem>.ZED key list",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [],
+      "owed": "A pin of each root key list is owed (the world-roots pin keeps only the keys the readers read)."
+    },
+    {
+      "id": "decoders.scene.clutter.counts",
+      "claim": "CLUTTER.ZAR: Frostfire and Crossroads a 192-byte stub; Desert Glory 6 models, 110 instances; Blizzard 12 models, 211 instances; each instance a 96-byte params and an f32 scale_inverse.",
+      "level": "reading",
+      "source": "disc <stem> CLUTTER.ZAR",
+      "note": "docs/research/72-mp-map-archive-anatomy.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/sceneGraphs.parity.test.ts",
+          "name": "CLUTTER.ZAR: Frostfire and Crossroads a 192-byte stub; Desert Glory 6 models, 110 instances; Blizzard 12, 211",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/clutter.test.ts",
+          "name": "takes the matrix form as it stands, all 16 floats, when bit 1 is clear",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/collisionSpawnsClutter.test.ts",
+          "name": "Desert Glory has 6 models and 110 instances",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.probe.frostfire-spawns",
+      "claim": "The probe puts Frostfire's two measured spawns (KNOWN section 1, the actor's feet) on a floor at residuals 0 and -1, in grid cells (4, 3) and (3, 7).",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_GEO.ZED di; FUN_002d3030, FUN_005b5d40",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/frostfireFloors.parity.test.ts",
+          "name": "puts both of Frostfire's measured spawns on their floor within [-3, +1]: residuals 0 and -1 (research 24 section 3)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/probe.test.ts",
+          "name": "returns Frostfire's two spawns, measured off the actor block, within [-3, +1] of their y (research 24 section 3)",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.probe.walkway",
+      "claim": "The Frostfire walkway column (x 705-735, z 975-1000) has floors at 142 and 100; from y 100 the pick is the lower.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB MP2_GEO.ZED di; FUN_005b5d40",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/frostfireFloors.parity.test.ts",
+          "name": "the walkway column (x 705-735, z 975-1000) holds floors at 142 and 100, and from y 100 the probe takes the lower (research 24 section 4.2)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/probe.test.ts",
+          "name": "Frostfire's walkway column (x 705-735, z 975-1000): 142 and 100, and from y 100 the lower (research 24 section 4.2)",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.probe.surface-order",
+      "claim": "SOCOM II AddDI appends (FUN_00313d60), so a node's di order is the file's and the probe stops at a model's first hit: at the 142 deck's east corner pipeworks' box top at 112 comes first, the engine's own hole.",
+      "level": "reading",
+      "source": "FUN_00313d60; FUN_002d3030; disc RUN/MP2.ZDB pipeworks di #4, #14",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/frostfireFloors.parity.test.ts",
+          "name": "the 142 deck's east corner is the engine's hole: the box top at 112 comes first in surface order (research 90 #2, FUN_00313d60 appends)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/frostfireFloors.parity.test.ts",
+          "name": "re-derives the candidate polygons from the fixture, and the probe answers the same on them as on the whole map",
+          "data": "fixture"
+        },
+        {
+          "file": "packages/scene/test/probe.test.ts",
+          "name": "the 142 deck's east corner (x 674-680, z 720-726) is the engine's hole: pipeworks' box top at 112 is its first hit",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.layout",
+      "claim": "AIMAPS.MPS is a u32 version 2 and sub-map count, 32 zero bytes, the sub-maps (0xA8 header, N 8-byte cells, one 12-byte row per grid row, eight counted tables, N second cell words), then a link block and the spawn list; read to the last byte on all 22.",
+      "level": "reading",
+      "source": "disc RUN/MP*.ZDB AIMAPS.MPS",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "reads the head and each sub-map header (75 §2, §3)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "refuses a wrong version, a short file and a long one",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "re-derives the 22 pins from SOCOM_DISC through parseAiMaps, each file read to its last byte",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.loc",
+      "claim": "A cell is a CAiMapLoc: sub-map index bits 0-5, x bits 6-18, z bits 19-31 (reCOM zai.h:302-307); a cell centre is min + (cell + 0.5) x 10.",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS loc words; research/recom zai.h:302-307",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "takes the map from the low 6 bits, then x, then the grid's second axis",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "placeSpawnSlots and fitSlot: A on side 0's slot #0 and B on side 1's #1 on all 22 maps, each accounted for (75 sections 7, 10, 11)",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.counts",
+      "claim": "22 files, 83 sub-maps (1 to 10 a file), 946,155 stored cells, 206 named points, 4,591 spawn records; flags 0x17 and 10-unit cells on all 83; cells in x 12-729, in z 9-627.",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS of the 22 maps",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "pins research 75's counts: 22 files, 83 sub-maps, 946,155 stored cells, 206 named points, 4,591 spawn records",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "re-derives the 22 pins from SOCOM_DISC through parseAiMaps, each file read to its last byte",
+          "data": "disc"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.slots",
+      "claim": "1,058 slots (records with bit 4 clear): 24 a side, 25 on side 0 of Blood Lake and Vigilance; flags at most 0x37 (facing bits 0-2, twin bit 4, side bit 5).",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS trailer spawn list",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "pins 1,058 slots: 24 a side, 25 on side 0 of Blood Lake (MP10) and Vigilance (MP51) (research 75 section 5.5)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "reads the spawn records -- side bit 5, twin bit 4, facing bits 0-2 -- and the trailer's copy (75 §5.5, §6)",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.frostfire",
+      "claim": "Frostfire: BaseMap 137 x 100 with 10,890 stored cells, Ramps 1,617, Tunnels 3,315 (ids 0, 3, 7), 572 spawn records; PlayerStart one cell at (44, 35), kind 2.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB AIMAPS.MPS",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "Frostfire: BaseMap 137 x 100 of 10,890 stored cells, Ramps 1,617, Tunnels 3,315; PlayerStart one cell at (44, 35), kind 2",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "Frostfire: BaseMap, Ramps and Tunnels, 10,890 + 1,617 + 3,315 cells, 572 spawn records",
+          "data": "fixture"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.start-point",
+      "claim": "The start point (startPlayer / PlayerStart / StartPlayer) is one cell and holds neither measured spawn on any of the 22 maps; its cell per map as research 75 section 7 lists.",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS named points",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "the start point is a cell holding neither measured spawn, on all 22 maps: research 75 section 7's PlayerStart column",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.slot-fit",
+      "claim": "Facing k points along (sin 45k, -cos 45k); each of the 44 measured spawns fits a slot of its own side -- A side 0 slot #0, B side 1 slot #1 in the trailer order, exactly one qualifying -- at the slot, flags, along and perp research 75 section 7 lists.",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS trailer; measured spawns (spawns.ts, research 33, KNOWN section 1)",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "placeSpawnSlots and fitSlot: A on side 0's slot #0 and B on side 1's #1 on all 22 maps, each accounted for (75 sections 7, 10, 11)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "turns facing k by 45 degrees per step from -z toward +x (75 §11: the sweep rows are the camera behind)",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.camera-rows",
+      "claim": "The 40 sweep rows sit 20.1-28.0 units behind their slot along its facing and 1.0-3.2 units to one side; the 4 KNOWN rows (Frostfire, Vigilance) 0.26-0.51 from the slot centre.",
+      "level": "reading",
+      "source": "measured spawns (spawns.ts) against disc AIMAPS.MPS",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "the 40 camera rows sit 20.1-28.0 units behind their slot and 1.0-3.2 to its right; the 4 actor rows within 0.51 of its centre",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.other-side",
+      "claim": "The other side's nearest slot is 586.7 and 589.0 units from Frostfire's A and B and at least 824.6 from the other 42 positions. Research 75 sections 0 and 7 said 824.6 or more for every position, against its own section 7 table (corrected 2026-10-02).",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS slots; spawns.ts",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/spawnSlots.parity.test.ts",
+          "name": "placeSpawnSlots and fitSlot: A on side 0's slot #0 and B on side 1's #1 on all 22 maps, each accounted for (75 sections 7, 10, 11)",
+          "data": "none"
+        }
+      ]
+    },
+    {
+      "id": "decoders.scene.aimaps.zones-links-lines",
+      "claim": "15 Safety zones over 7 maps (the hostage maps), 108 links over 8 maps (each stored at both ends), 553 polylines over Blizzard, Frostfire and Bitter Jungle.",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS tables 5.3, 5.4, 5.6",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "reads the marker, the link, the zone rectangle and the polyline (75 §5.2-5.4, §5.6)",
+          "data": "none"
+        },
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "Desert Glory: nine sub-maps, 16 links, a Safety zone 8 x 15 cells, 96 records, A and B 23-24 units behind a slot",
+          "data": "fixture"
+        }
+      ],
+      "owed": "The 22-map counts of zones, links and polylines are not pinned (the aimaps pin keeps headers, points and slots): extending golden/aimaps-slots.json is owed."
+    },
+    {
+      "id": "decoders.scene.aimaps.slot-floors",
+      "claim": "Every one of the 1,058 slots has a floor under its centre inside its sub-map height range (W1.4b); the 20-unit reject would have refused 34 of them (counted from the measured-spawn estimate before PF-11; the pick now starts from the cell's height, research 179 section 9.14).",
+      "level": "reading",
+      "source": "disc AIMAPS.MPS slots and <stem>_GEO.ZED collision, 22 maps",
+      "note": "docs/research/75-aimaps-mps.md",
+      "tests": [
+        {
+          "file": "packages/scene/test/aimaps.test.ts",
+          "name": "W1.4b: with the ground, the y is the probe's floor at the slot's centre, picked from its cell lifted a unit, and says so",
+          "data": "none"
+        }
+      ],
+      "owed": "The 22-map result needs every map ground: a disc-tier test (tools/spawn-slots.ts as a test) and a pin of the 1,058 floors are owed."
+    },
+    {
+      "id": "decoders.render.postprocess.mp-off",
+      "claim": "A multiplayer round never runs the post-process brighten: enable 0, pass count 0 in the live Frostfire RDRAM dumps (the campaign runs it twice, FIX 89).",
+      "level": "reading",
+      "source": "RDRAM frostA_probe600.rdram, spawn_pcsx2.rdram; FUN_0033cd50",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {"file": "packages/viewer/test/effectsBrighten.test.ts", "name": "brightenOf reads the FIX alone, never the rig: under DEFAULT_LIGHTING (FIX 0, the multiplayer frame unbrightened) every rig is x1", "data": "none"}
+      ],
+      "owed": "None for the default: the viewer's unit test of it is frontend.match.effects-brighten's first test (research 255 s6, cross-listed 2026-10-10)."
+    },
+    {
+      "id": "decoders.render.fog-colour",
+      "claim": "FOGCOL 0x484a4a in the console Seeding Chaos GS dump is the disc (74, 74, 72).",
+      "level": "reading",
+      "source": "capture Seeding Chaos GS dump; disc M51 fog colour",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [],
+      "owed": "Viewer area: a pin of each map fog colour from the disc is owed to the viewer stream."
+    },
+    {
+      "id": "decoders.render.texture-scroll-rate",
+      "claim": "The engine steps a scroll band by du x param once a frame from the frame time (FUN_003c0120 from FUN_00313c60): du is per second.",
+      "level": "reading",
+      "source": "FUN_003c0120, FUN_00313c60",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [
+        {"file": "packages/viewer/test/worldOrder.test.ts", "name": "steps a band's uv offset by du x the frame time, du per second, kept modulo 1", "data": "none"}
+      ],
+      "owed": "None for the unit test (world.ts SCROLL_TICKS_PER_SECOND): worldOrder.test.ts pins a [0.25, 0] band at 0.25 after a 1 s frame, half du after 0.5 s, and the wrap mod 1 (2026-10-10). A capture of the console's scroll rate is still owed for proven."
+    },
+    {
+      "id": "decoders.render.shadow",
+      "claim": "Only the local player casts the 256x256 ShadowX_%d render-map shadow (FUN_00599f00, FUN_0031f240, FUN_0031a180), at ShadowWeight 0.25 (CWorld +0x680; no map names one).",
+      "level": "reading",
+      "source": "FUN_00599f00, FUN_0031f240, FUN_0031a180",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [],
+      "owed": "Viewer area: owed to the viewer stream."
+    },
+    {
+      "id": "decoders.render.night-vision",
+      "claim": "The night vision runs VU1 0x5c with rows (0.33 r, 0.33 g, 0.33 b, 3.03 a): c = row.rgb x (R + G + B + row.a), alpha kept (FUN_003b78d0, FUN_003b6870).",
+      "level": "reading",
+      "source": "FUN_003b78d0, FUN_003b6870, FUN_003b7170",
+      "note": "docs/research/82-map-fidelity-audit.md",
+      "tests": [],
+      "owed": "Viewer area (nightVision.ts): owed to the viewer stream."
+    },
+    {
+      "id": "decoders.load.menu-init",
+      "claim": "At the menu the original init loads READERC, UIZANIM (1.2 MB), LOC, fonts, UI textures and HUDUI (FUN_001f4860).",
+      "level": "reading",
+      "source": "FUN_001f4860",
+      "note": "docs/research/100-the-load-budget.md",
+      "tests": [],
+      "owed": "Front-end area: the boot order is BOOT-01; no decoder test applies. Research 100 table measures the port, not the original."
+    }
+  ]
+}

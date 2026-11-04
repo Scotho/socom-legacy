@@ -1,0 +1,11 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Hunt case, case hunt-stances-tri-ramp (eph-hunt-2026-11-01, seat ac: stances, dives and pops; measured by tools/eph/analyze.ts).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: run it three times.
+# Tests: a slow press: Triangle held light (0.2) for 200 ms, then pressed through to full without a release. The 0.3 split (FUN_00594cf0 D:L453336-453351) says the full act comes as the pressure crosses 0.3 and the light act never comes (no release under 0.3): does the original drop to prone at 700 ms with no crouch first?
+# Look: the act's transitionMs and endStance; whether PCSX2 shows any crouch (rootY band) between 500 and 700 ms; the page plays one full act at 700 (tools/eph/pageMap.ts PageTranslator).
+# The 0.2 -> 1.0 change is one input's pressure: PCSX2 releases key 7 (Macro15) and presses the Triangle key on the same event (tools/eph/padIni.ts keyActions), so the guest may read one frame of 0 there: if PCSX2 crouches, check pcsx2.csv's pad bytes for that gap before calling it the game's.
+# Ground: in place.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 (tools/eph/pageSeed.ts); PCSX2: the plain keys and the prepared macros (tools/eph/padIni.ts PREPARED).
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+500 triangle 0.2  # light, held
+700 triangle 1.0  # pressed through to full
+850 triangle 0

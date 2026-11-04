@@ -1,0 +1,780 @@
+{
+ "area": "sound",
+ "notes": [
+  "docs/research/81-sounds.md",
+  "docs/research/122-the-ui-sounds.md",
+  "docs/research/124-the-round-streams.md",
+  "docs/research/186-c7-audio-movie.md",
+  "docs/research/205-r2-av-audio-card-world.md",
+  "docs/research/233-the-sound-as-built-iii.md"
+ ],
+ "entries": [
+  {
+   "id": "sound.adpcm.filters",
+   "claim": "SPU ADPCM: each sample is nibble << (12 - shift) plus (f0 s1 + f1 s2 + 32) / 64 truncated toward zero, clamped to 16 bits, with the filter pairs (0,0) (60,0) (115,-52) (98,-55) (122,-60); a shift over 12 reads as 9, a filter over 4 as 0.",
+   "level": "reading",
+   "source": "research/32 §3 (ps2_audio_vag.cpp decodeBlocks, KNOWN §1); disc RUN/SOUNDS/BNKSTORE.ZAR VAG chunks",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "decodes filter 0 as the nibble shifted by 12 - shift, and nothing of the samples before", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "predicts with the five filter pairs (60,0) (115,-52) (98,-55) (122,-60): (f0 s1 + f1 s2 + 32) / 64", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "truncates the prediction toward zero, as C divides (not a floor, not a shift)", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "clamps to 16 bits, both ways", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "reads a shift over 12 as 9 and a filter over 4 as 0", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "decodes the filter recurrence and stops at the end flag", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.adpcm.flags",
+   "claim": "A block's flags: bit 2 marks the loop start, bit 0 ends the run, bit 1 with it makes the run repeat; the steps, shots and landings end without repeating.",
+   "level": "reading",
+   "source": "research/32 §3; disc RUN/SOUNDS/BNKSTORE.ZAR MP2_am.bnk, MP2_fx.bnk samples",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "flags: bit 2 marks the loop start, bit 0 ends the run, bit 1 with it repeats; no end flag decodes every block", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "the walk's tones play at the rates research 81 §2 names (16 kHz step, 22.05 kHz crack, 44.1 kHz reload), within 0.2 %", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.adpcm.bank-digests",
+   "claim": "The decoded samples and the renders of .STEP_STONE (ten takes), .STEALTH_STONE, .STONE_JUMP, .JUMP_WHOOSH, .BONE_BRK_1, .STEP_METAL, .M4A1_SIL, .M4A1_SIL_RLD, .M4A1, .DINK, .METAL and .TYPE match the pinned sha256 digests.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/BNKSTORE.ZAR MP2_am.bnk, MP2_fx.bnk, HUDUI.bnk",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "decodes and renders the pinned sounds to the pinned digests (bank-digests.json)", "data": "fixture" }
+   ],
+   "owed": "the digests need the bank bytes, which are not in git (TA.R2); in CI the decode is held by the hand-written blocks of sound.adpcm.filters and sound.adpcm.flags"
+  },
+  {
+   "id": "sound.bank.layout",
+   "claim": "A .bnk is a FileAttributes head (type 3, two chunks) over an SBlk version 3 block -- 12-byte sounds, 8-byte grains, 24-byte tones, the hashed name table -- and the VAG chunk; MP2_AM holds 90 sounds and MP2_FX 187, every one named.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/BNKSTORE.ZAR (989snd iop/types.h:428-449)",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "MP2_AM holds 90 sounds and MP2_FX 187, every one named, each at its index", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "every Frostfire, HUDUI and table name is found by GameAudio, at the pinned bank's index order", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "parseBankFile and soundScriptFromArchive give the pinned rows (walk-sounds.json)", "data": "fixture" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "MP2_fx.bnk: 187 named sounds, the M4A1 SD at 101 and 102", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.pitch.rate",
+   "claim": "A tone's sample rate is its centre note played at note 60 (pitch 0x1000 = 48 kHz): .STEP_STONE (-80, 124) 16 kHz, .BONE_BRK_1 (-74, 66) 22.05 kHz, .M4A1_SIL_RLD (-62, 66) 44.1 kHz; a centre note >= 0 is a PS1 tone scaled by 44100/48000.",
+   "level": "reading",
+   "source": "research/32 §3 (sceSdNote2Pitch); disc RUN/SOUNDS/BNKSTORE.ZAR tones",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "a tone's centre note gives its sample rate: .STEP_STONE 16 kHz, .BONE_BRK_1 22.05 kHz, .M4A1_SIL_RLD 44.1 kHz, within 0.2 %", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "the walk's tones play at the rates research 81 §2 names (16 kHz step, 22.05 kHz crack, 44.1 kHz reload), within 0.2 %", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "pitches: the centre note plays at the output rate, an octave up doubles, a PS1 tone is 44.1/48", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.pitch.note-table",
+   "claim": "sceSdNote2Pitch's note table is LIBSD.IRX's (on the disc at 0x5220): 12 semitone ratios and 128 fine steps, each the FLOOR of 0x8000 x 2^(i/12) or 2^(i/1536) (0x9837, 0x800e ...); the port builds it rounded (0x9838, 0x800f), so 3,088 of 16,384 (centre, fine) pairs, .M4A1 and .DINK among them (4737 for 4736), get a pitch word one off.",
+   "level": "drift",
+   "source": "disc RUN/IRX/LIBSD.IRX 0x5220 (sceSdNote2Pitch NotePitchTable); render.ts NOTE_PITCH",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "is 12 semitone ratios then 128 fine steps, 0x8000 = 1.0, each the floor of 0x8000 x 2^(i/12) or 2^(i/1536)", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "the port's sceSdNote2Pitch equals Sony's with the disc's table for every centre note and fine (drift: rounded table)", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "each pinned tone's pitch word is the port's note2Pitch of its centre note and fine at note 60 (drift: .M4A1, .DINK)", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "every pinned tone but the two the rounded table moves plays at the port's note2Pitch word", "data": "none" },
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "finds the 140-entry table (0x8000 0x879c 0x8fac ...) and it is the pinned one (libsd-note-pitch.json)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.voice.make-volume",
+   "claim": "MakeVolume's pair at the centre is 23168 a side (127 x 258 through the floored quarter-wave pan table, entry 90 = 11584), 90 silences the left, 270 the right, 180 is the centre again; the voice level is the square law v^2 / 0x7ffe halved (half the amplitude, a quarter of the level).",
+   "level": "reading",
+   "source": "research/36 Q6 (snd989_mixer.cpp MakeVolume, snd_AdjustVolToGroup); 989SND.IRX table 1 at 0x1c600 (FUN_00019578 via PTR_DAT_0001c5fc)",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/decode.parity.test.ts", "name": "the stereo pair at the centre is 23168 a side; hard right and hard left silence the other side; behind is the centre", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "makes the stereo pair and the square law", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "pans through 989SND.IRX's table 1 (0x1c600): floor(0x3fff cos), floor(0x3fff sin) -- entry 90 is 11584, not 11585", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.render.rand-play",
+   "claim": ".STEP_STONE is RAND_PB, RAND_PLAY 10,1 and ten TONE grains: one of ten takes a step, never the previous pick.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/BNKSTORE.ZAR MP2_am.bnk .STEP_STONE grains",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "renders .STEP_STONE as one of its ten takes, never the same take twice running", "data": "fixture" }
+   ],
+   "owed": "a unit test needs a synthetic RAND_PLAY bank; the grain types [27,25,1 x 10] are pinned in bank-digests.json (fixture only)"
+  },
+  {
+   "id": "sound.render.reverb-send",
+   "claim": "A voice whose tone carries flags bit 0 feeds the reverb (VMIXEL/VMIXER), bit 4 clears its dry mix; 200 of MP2_am's 281 tones send.",
+   "level": "reading",
+   "source": "989SND.IRX decomp 14189-14203, 14339-14345",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "renders a loop to its length and the reverb send of the voices that ask for it", "data": "fixture" }
+   ],
+   "owed": "a unit render of a synthetic tone with flags 1 and 0x10 (not written this wave)"
+  },
+  {
+   "id": "sound.reverb.mode",
+   "claim": "The game sets libsd reverb mode 3 (Studio B) on core 1; LIBSD.IRX holds nine 0x44-byte presets, mode 3 opening 0xB1, 0x7F.",
+   "level": "reading",
+   "source": "FUN_0033f2a0 D:L55186, D:L243346; disc RUN/IRX/LIBSD.IRX",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "finds the libsd nine presets and rings mode 3 for about a second", "data": "fixture" }
+   ],
+   "owed": "the preset registers are not pinned; a golden of mode 3's 32 registers would hold it in CI"
+  },
+  {
+   "id": "sound.reverb.depth",
+   "claim": "The reverb depth ramps to the zone's IndoorReverb/OutdoorReverb entry as the camera's floor goes in or out, or to 0 over 1 s when the list has none.",
+   "level": "reading",
+   "source": "FUN_00341a60 D:L241509-241560",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.test.ts", "name": "ramps the reverb to the mission zone depth and crosses the beds as the camera goes in", "data": "fixture" }
+   ],
+   "owed": "a unit test of setEnvironment with synthetic reverb lists (not written this wave)"
+  },
+  {
+   "id": "sound.script.crc32",
+   "claim": "A sound name is filed and looked up by the zlib CRC-32 of its bytes, signed: .STEP_STONE 1440126871, .M4A1_SIL -1181866505.",
+   "level": "reading",
+   "source": "FUN_003a2370 D:L296364-296387; FUN_00344f30 D:L243197-243210",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "every name is filed under the CRC-32 of its bytes, signed (FUN_003a2370): .STEP_STONE 1440126871, .M4A1_SIL -1181866505", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "hashes names as the script files them", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.script.range",
+   "claim": "sounds.rdr's RANGE for the walk: .STEP_STONE 30-200, .STEALTH_STONE 30-130, .STONE_JUMP 50-200, .JUMP_WHOOSH 30-130, .M4A1_SIL and .M4A1_SIL_RLD 20-200, .M4A1 / _M / _F 85-1700; MED and FAR are marks the game never reads.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDRDR.ZAR sounds.rdr SETS/MP2_AM, SETS/MP2_FX RANGE (FUN_003435c0 D:L242323-242560)",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "the walk's RANGEs (research 81 §3): steps 30-200, stealth 30-130, landing 50-200, whoosh 30-130, the SD 20-200, the M4A1 85-1700", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "parseBankFile and soundScriptFromArchive give the pinned rows (walk-sounds.json)", "data": "fixture" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "files .STEP_STONE and .M4A1_SIL under their CRC-32 with their RANGE", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.attenuation.range-gain",
+   "claim": "A placed play's volume is 0x400 x the command volume x the RANGE gain -- 1 inside min, 1 - (d - min) / (max - min) to max, silent beyond.",
+   "level": "reading",
+   "source": "FUN_00342670 D:L241912-241955",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "a pinned RANGE falls off as FUN_00342670 does: full inside min, linear to 0 at max, silent beyond", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a placed play: 0x400 x the RANGE gain, panned by azimuth -- ahead 0, right 90, behind 180, left 270; silent past max (FUN_00342670)", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "falls off linearly across RANGE and pans by azimuth", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "pans a source by its azimuth and fades it over its RANGE", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.attenuation.pan",
+   "claim": "A placed play's pan is atan2(x, -z) of the source in the camera's frame in whole degrees, 0..359: 0 ahead, 90 right, 180 behind, 270 left.",
+   "level": "reading",
+   "source": "FUN_00342670 D:L241912-241955",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a placed play: 0x400 x the RANGE gain, panned by azimuth -- ahead 0, right 90, behind 180, left 270; silent past max (FUN_00342670)", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "falls off linearly across RANGE and pans by azimuth", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.script.range-default",
+   "claim": "A sounds.rdr entry without RANGE gets the object's default 160-430 (MP2_AM has five such entries, ~STEAM_BURST_ON among them): at 300 units 0x400 x (1 - 140 / 270), full inside 160. The port takes SOUND_DEFAULT_RANGE (DEFAULT_RANGE_PLACEHOLDER 30-200 retired 2026-10-04, PF-08).",
+   "level": "reading",
+   "source": "FUN_00345620 D:L243411-243425 (0x34567c addiu 0xa0, 0x345688 0x1ae); research 186 §3.2, V4 #25",
+   "note": "docs/research/186-c7-audio-movie.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a listed sound with no RANGE falls off over the object default 160-430 (FUN_00345620)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a listed sound with no RANGE is at full volume inside the default near 160 (SOUND_DEFAULT_RANGE)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.lookup.unlisted-silent",
+   "claim": "The game resolves a name only through sounds.rdr's entries of the loaded blocks, by the CRC-32 of the name as it stands; a name no entry carries has no object and is silent -- 22 of the Frostfire banks' own spellings (MP2_AM's '~OCEAN_SWELL_1 ', ~OUTDR_WND_GST1 and the eight spelt with a trailing blank the script lacks, '.THROW_OBJECT ' ...; MP2_FX's twelve '~' distant variants); the port resolves names in the banks' own name tables and plays them.",
+   "level": "drift",
+   "source": "FUN_00344f30 D:L243197-243210, FUN_00344bf0 D:L243027-243122 (the vector at 0x48dc08)",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "the 22 bank spellings no sounds.rdr entry carries: the drift below plays them all through the bank", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a bank sound sounds.rdr does not list is silent (drift: the port resolves names in the bank, not the script)", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "bank sound n has its block's sounds.rdr entry n (R122.2): 255 spelt as the bank has it, 8 without a trailing blank, 14 by no bank name", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "parseBankFile and soundScriptFromArchive give the pinned rows (walk-sounds.json)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.lookup.ordinal-binding",
+   "claim": "SETS/<block> entry n is bank sound n (the object's +0x12 is the entry's ordinal), so MP2_AM's eight names the script spells without the bank's trailing blank (.THROW_OBJECT entry 1, RANGE 40-160; ~LOW_RUMBLE 43, ~PIPE_FLOW_1/_2 46-47, ~MACHINE_1/_2 48-49, ~PIPE_CONTROL 50, 80-100; ~FAN_ROTATE 64, 80-200) play over their entry's RANGE; the port files the script by the hash of the bank's own name and gives them the default range (SOUND_DEFAULT_RANGE, 160-430).",
+   "level": "drift",
+   "source": "FUN_003435c0 D:L242313-242552 (+0x12 the ordinal), FUN_00344090 D:L242656-242758; disc RUN/SOUNDRDR.ZAR SETS/MP2_AM, RUN/SOUNDS/BNKSTORE.ZAR MP2_am.bnk",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "bank sound n has its block's sounds.rdr entry n (R122.2): 255 spelt as the bank has it, 8 without a trailing blank, 14 by no bank name", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a name the script spells without the bank's trailing blank plays over its entry's RANGE (drift: the default range)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": ".THROW_OBJECT is played over the default range 160-430 today (the drift above, as the port has it)", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "parseBankFile and soundScriptFromArchive give the pinned rows (walk-sounds.json)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.lookup.spelt-as-is",
+   "claim": "A name is hashed as spelt -- sigil, case and whitespace -- so SND_DINK, \".dink\" and the keyboard's \".SLIDE\\t\" find nothing; the port's lookup trims, so \".SLIDE\\t\" plays .SLIDE.",
+   "level": "drift",
+   "source": "FUN_003a2370 D:L296364-296387; FUN_0032ee10 (the untrimmed string)",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a name the banks do not hold plays nothing and is counted, as the lookup finds no object (FUN_00344f30)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "\".SLIDE\\t\" -- the keyboard's scale-down, a trailing tab -- is silent (drift: the lookup trims the name)", "data": "none" },
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "a name is hashed as spelt, so SND_DINK, \" \", \".SLIDE\\t\", SND_NEG and \"\" find nothing: silent, no substitute (R122.10)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.lookup.name-fixes",
+   "claim": "The game plays nothing for the data's slips .BUL_CASE_METAL and .GREN_ASPHALT nor for a casing name the map's banks lack; the port mends them (SOUND_NAME_FIXES, SOUND_FALLBACKS) and lends missing names from other maps' banks (borrowMissing).",
+   "level": "drift",
+   "source": "FUN_00344f30 D:L243197; disc RUN/MP*.ZDB CZANIM.ZAR shell_eject, grenade_hit_asphalt",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "the data's slips .BUL_CASE_METAL and .GREN_ASPHALT play nothing (drift: SOUND_NAME_FIXES mends them)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "the port finds and plays .BUL_CASE_METAL and .GREN_ASPHALT today, through its fixes (the drift above)", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "mends the data's slips and stands in for the casing names a map lacks", "data": "none" }
+   ],
+   "owed": "borrowMissing (a name the map's banks lack lent from another map's bank) has no it.fails: it lives in soundData's load, which needs the banks of two maps (fixture tier); the note calls the departure named, with no owner ruling cited -- the owner to confirm or overturn"
+  },
+  {
+   "id": "sound.materials.table",
+   "claim": "The material table is UNKNOWN (0) and PARTICLE_SYSTEM (1), then materials.rdr's SOILS in file order -- 46 in all, STONE 7, ASPHALT 22 with the stone's sounds, METAL_THICK 25 .STEP_METAL, METAL_THIN 26 .STEP_TIN -- the index a collision polygon's material byte.",
+   "level": "reading",
+   "source": "FUN_002dde40 D:L181253-181468, FUN_002de4b0 D:L181496-181567; disc RUN/READERC.ZAR materials.rdr SOILS",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "is the engine's UNKNOWN and PARTICLE_SYSTEM, then SOILS in file order: 46 in all, the index the polygon's byte", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "STONE steps .STEP_STONE, sneaks .STEALTH_STONE, crawls .CRAWL_STONE and lands .STONE_JUMP; ASPHALT is the stone's; FABRIC_HEAVY the carpet's", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "materialsFromArchive gives the pinned table (materials.json)", "data": "fixture" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "is the engine's two, then SOILS in order: STONE 7, SNOW 17, SAND 5, METAL_THICK 25", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.footstep.selection",
+   "claim": "A footfall plays the material's CRAWLSOUND prone, else STEPSOUND when the stick is past +-0.5, else STEALTH_STEPSOUND.",
+   "level": "reading",
+   "source": "FUN_005a39b0 D:L460385-460434",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "every material's footfall: STEPSOUND past half a stick, STEALTH_STEPSOUND under it, CRAWLSOUND prone (FUN_005a39b0)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a footfall plays the material's step past half a stick, its stealth step under it, its crawl prone; byte 0 is DefaultMaterial", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "picks the step, the stealth step and the crawl", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.footstep.default-material",
+   "claim": "Material byte 0 is heard as the map's DefaultMaterial; a default no SOILS name matches is UNKNOWN, silent.",
+   "level": "reading",
+   "source": "FUN_002dc1d0; FUN_002de9e0 (decomp 152109)",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a footfall plays the material's step past half a stick, its stealth step under it, its crawl prone; byte 0 is DefaultMaterial", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "hears material 0 as the map DefaultMaterial, follows zAnim calls, and hurts on a hard landing", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.footstep.clock",
+   "claim": "A step falls on the locomotion clip's phase: the left foot entering (0, 0.5), the right entering (0.5, 1), once a half, while the speed squared is over 0.25 or the stick's forward axis is at 0.1 or more.",
+   "level": "reading",
+   "source": "FUN_005a3570 D:L460266-460378",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "fires each foot once a cycle, the left entering the first half and the right the second", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.footstep.prone-left-skipped",
+   "claim": "Prone, the left foot's footfall call is skipped: one crawl a cycle, on the right foot; the stick is the larger axis.",
+   "level": "reading",
+   "source": "FUN_005a3570 D:L460266-460378",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "prone, the left foot's call is skipped: one crawl a cycle, on the right foot", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "standing and crouched both feet sound, the stick its larger axis (the step past half, FUN_005a39b0)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.footstep.cap",
+   "claim": "A step sounds only on an actor with +0xe0 bit 2, set per viewer on its own actor always and on at most 3 others (DAT_0064fc78) whose distance squared is under 250000.0 (500 u, strict); the page hears the nearest three living others (FOOTFALL_NEAREST_READING: the list's order is owed) and its own steps uncapped.",
+   "level": "reading",
+   "source": "FUN_005a3570 D:L460295; FUN_00552850 D:L418748-418861 (L418860); research 179 §11.20; the build: research 219 §4 (PF-25, PF.R43)",
+   "note": "docs/research/179-c1-match-server.md",
+   "tests": [
+    {"file": "packages/viewer/test/remoteFootsteps.test.ts", "name": "the page hears at most three other living bodies' footfalls, the nearest by distance squared under 250000 (500 u, strict); the fourth and one at 500.0 are silent (FUN_00552850 D:L418748-418861, DAT_0064fc78 = 3; FOOTFALL_NEAREST_READING)", "data": "none"},
+    {"file": "packages/viewer/test/remoteFootsteps.test.ts", "name": "a dead body among the nearest three does not take a slot; without a listener every living body is heard (the map viewer's watcher)", "data": "none"},
+    {"file": "packages/viewer/test/audio.test.ts", "name": "the page's own footfalls are never capped (L418860)", "data": "none"}
+   ],
+   "owed": "the main.ts wiring (remote.setListener(walk.feet()) beside net.frame) and a browser check that a fourth near player is silent; whether the +0xd8 list is distance-sorted"
+  },
+  {
+   "id": "sound.landing.classes",
+   "claim": "A landing is classed against sqrt(2 g d) over FALLING_DAMAGE_LIGHT/HEAVY/DEATH (170.7, 206.8, 237.5 units a second at g 235): LANDSOUND soft and light, .BONE_BRK_1 alone heavy, both deadly.",
+   "level": "reading",
+   "source": "FUN_005ac1f0 D:L464866-464960",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "every material's landing by class: LANDSOUND soft and light, .BONE_BRK_1 alone heavy, both deadly (FUN_005ac1f0)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a landing plays LANDSOUND soft and light, .BONE_BRK_1 alone heavy, both deadly; the landing itself adds no voice", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "classes a landing by its speed against sqrt(2 g d) and names its sounds", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.landing.hurt-voice",
+   "claim": "A landing that deals damage and leaves the body alive plays its character's CHRSND_DAMAGE through the voice gate, as every survived health drop does (the damage reaction, cause 7); a lethal one plays no hurt voice but the death voice; the landing code plays no voice of its own.",
+   "level": "reading",
+   "source": "FUN_005ac1f0 D:L464954; FUN_005a54d0 L461394-461396; FUN_005477a0 D:L412828-412838; FUN_00597b00; FUN_0053b710 D:L405268-405290",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/match/test/roomFall.test.ts", "name": "a landing that hurts and leaves the faller alive plays one hurt voice on every page (the faller too) and closes the gate", "data": "none" },
+    { "file": "packages/match/test/roomFall.test.ts", "name": "a landing at or over the deadly speed kills as a fall: every part 0, \"%s falls to their death\", a suicide's -2", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a landing plays LANDSOUND soft and light, .BONE_BRK_1 alone heavy, both deadly; the landing itself adds no voice", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "the hurt voice: the side and type's CHRSND_DAMAGE at the body, placed as the death's is (FUN_00597b00, 0x3b at 1.0)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.weapon.table",
+   "claim": "zweapon.rdr: the M4A1 SD fires .M4A1_SIL with no medium or far report and reloads .M4A1_SIL_RLD; the M4A1 .M4A1 / .M4A1_M / .M4A1_F, .M4A1_RLD; the 870 alone has an after-shot .SHOTGUN_COCK; WEAPON_GLOBAL 0, 9, 50 metres.",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON, WEAPON_GLOBAL (FUN_003d0140 D:L322595-322609, FUN_003cd810 D:L322042-322071)",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "WEAPON_GLOBAL: close 0, medium 9 and far 50 metres; the M4A1 SD has no medium or far report; the 870 alone an after-shot sound", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "weaponSounds of every ZWEAPON record and weaponGlobals give the pinned table (weapons.json)", "data": "fixture" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "names the M4A1 SD's round and reload, and the M4A1's three distances", "data": "fixture" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "reads WEAPON_GLOBAL's fire sound distances: close 0, medium 9 and far 50 metres (FUN_003cd810)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.weapon.fire-variant",
+   "claim": "A remote round plays its weapon's close sound within 90 units of the camera, its medium to 500, its far beyond (squared distances, strictly over); an empty slot plays nothing.",
+   "level": "reading",
+   "source": "FUN_003d2c50 D:L325494-325540",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "every weapon's remote round by distance: its close sound to 90 units, medium to 500, far beyond; an empty slot is silent (FUN_003d2c50)", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "the M4A1 is heard close within 90 units, medium to 500, far beyond, each at its RANGE gain; the SD past 90 is silent", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "picks a remote round's fire sound by the squared distance against WEAPON_GLOBAL's (FUN_003d2c50)", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "picks a remote round by WEAPON_GLOBAL distance: close to 90 units, medium to 500, far beyond (FUN_003d2c50)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.weapon.reload",
+   "claim": "The reload sound starts with the reload, at the actor, volume 1.0; the after-shot lock's end plays ReloadAfterShotSound.",
+   "level": "reading",
+   "source": "FUN_005c2a90 D:L477484-477537; FUN_005c3000 L477551-477650",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "the M4A1 is heard close within 90 units, medium to 500, far beyond, each at its RANGE gain; the SD past 90 is silent", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.passing.bullet",
+   "claim": "Another shooter's round whose segment comes within 20 units of the actor plays .BUL_PASSING at the nearest point, only when that point is inside the segment (not at either end: feet behind the muzzle or past the round's end hear nothing); a rocket within 100 .ROCKET_BY; one's own rounds never. The match page tests another's round on its whole path (to the end past a body), tracer or not, against its player's feet (LATER 644).",
+   "level": "reading",
+   "source": "FUN_00598000 D:L454613-454651 (the skip bit D:L454627, set at FUN_005c5340 D:L479363-479364); FUN_00308b00 D:L207298-207316 (0 at either end)",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "hears another shooter round passing within 20 units, never the player own", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "plays .BUL_PASSING at the nearest point of another shooter round within 20 units", "data": "fixture" },
+    { "file": "packages/viewer/test/matchFirearm.test.ts", "name": "LATER 644: another player round whose path comes within 20 of the feet plays .BUL_PASSING once, at its nearest point", "data": "none" },
+    { "file": "packages/viewer/test/matchFirearm.test.ts", "name": "LATER 644: the path runs to tracerTo, the round end past its first body, so a round stopping short of the feet at the body passes them on its way to the wall", "data": "none" },
+    { "file": "packages/viewer/test/matchSound.test.ts", "name": "LATER 644: another player round past the feet goes to GameAudio.onRoundPast, none under a round screen", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "plays nothing when the nearest point is an end of the segment: feet behind the muzzle, past the end, or a segment of no length", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.zanim.command-volume",
+   "claim": "A zAnim SOUND command plays at its f32 volume at +8 under flag 0x10 (else 1.0), multiplying the play's 0x400.",
+   "level": "reading",
+   "source": "FUN_002659c0 D:L112319-112470",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "an unplaced play is the sound's own: volume 0x400, pan -1 (a menu's .METAL, R122.4); a zAnim command's volume multiplies it", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "reads a play-sound command's own volume (flag 0x10, the f32 at +8; FUN_002659c0) onto the callbacks and the emitters", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "plays a zAnim sound at its command volume (flag 0x10, FUN_002659c0): the app volume is 0x400 x volume", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.zanim.jump-whoosh",
+   "claim": "The jump is seal_jump's zanim_callback jump_whoosh at 0.4, whose zAnim plays .JUMP_WHOOSH.",
+   "level": "reading",
+   "source": "disc RUN/MOTION_P.ZAR motion.rdr seal_jump; CZANIM.ZAR jump_whoosh",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "an unplaced play is the sound's own: volume 0x400, pan -1 (a menu's .METAL, R122.4); a zAnim command's volume multiplies it", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "reads the callbacks that play a sound, through the animations they start", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.zanim.mission-set-first",
+   "claim": "A bare zAnim name resolves in the mission set first, then the others in load order, the first of the name within a set.",
+   "level": "reading",
+   "source": "FUN_0026a250 D:L115001-115072, FUN_0026c600 D:L116314-116330",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "resolves a name both sets carry in the mission set first, the first of the name within a set (FUN_0026a250, FUN_0026c600)", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "resolves Desert Glory's indoor bed in the mission set: ~OUTDOOR_AMB at 0.6, not the common ~INDOOR_AMB (FUN_0026a250)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.ambience.camera-scripts",
+   "claim": "The beds and the gusts are the camera-state scripts' layers: the sides on PLAYER_INDOORS / CAMERA_INDOORS, Frostfire's gusts every 5-20 s and 2-16 s at 1.0 out, 0.6 in, after 8 s.",
+   "level": "reading",
+   "source": "FUN_0025bc20 D:L106862-106925; disc RUN/MP2.ZDB MZANIM.ZAR check_camera_inside_state",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "walks the camera-state scripts: the sides a script starts its animations on, their sounds, volumes and waits (81 §10)", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "walks Frostfire's camera-state scripts: the beds on PLAYER_INDOORS, the wind gusts on CAMERA_INDOORS after 8 s (81 s10)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.ambience.bed-stop",
+   "claim": "A bed the camera-state script stops is keyed off, not faded: every MP bed command carries fade offset 0 and a new slot record's +4 is -0.1, so the stop is StopSound and the tail is the tone's ADSR release (a linear release of shift 10 from the held 32760: 2048 samples, 42.7 ms); the side the script starts comes up at once.",
+   "level": "reading",
+   "source": "FUN_0026e7c0 D:L117649-117697 (0x26e86c-0x26e878: +4 = -0.1), FUN_0026fd20 D:L118432-118480; disc RUN/MP*.ZDB 339 flag-0x200 play commands",
+   "note": "docs/research/205-r2-av-audio-card-world.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "a bed going down is keyed off at its tone's release; the other comes up at once", "data": "none" },
+    { "file": "packages/sound/test/release.test.ts", "name": "a linear release of shift 10 takes 32760 / 16 samples from the held level: 2048 at 48 kHz, 42.7 ms", "data": "none" },
+    { "file": "packages/sound/test/release.test.ts", "name": "starts from the sustain level the decay settles on, so a lower sustain ends sooner", "data": "none" }
+   ],
+   "owed": "the attack of the side coming up is not re-rendered (its loop resumes where it runs), and a sound of several tones is released by their mean curve (RELEASE_MIX_READING); a capture of a bed's stop would hold both"
+  },
+  {
+   "id": "sound.ambience.global-register-2",
+   "claim": "Global register 2 is floor(f x 255) - 128 of the listener's height through the mission's elevation (0 below, 1 above): f 0.3 is -52, not trunc's -51; it is sent every frame from the listener's live world y, and every sound played after reads it.",
+   "level": "reading",
+   "source": "FUN_00341a60 D:L241580-241600 (0x341e48-0x341e74: floor 0x1b2de8, then -128.0), FUN_002aca30; research 186 §3.2, V4 #26",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "maps the camera's height through the mission's elevation (max, min) to f x 255 - 128: -128 below, 127 above, linear between", "data": "none" },
+    { "file": "packages/sound/test/walkTables.parity.test.ts", "name": "floors f x 255 before taking 128 off, as the game does (research 186 §3.2, V4 #26): f 0.3 is -52, not -51", "data": "none" },
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "each play renders with register 2 from the listener's live height through the mission's elevation", "data": "none" },
+    { "file": "packages/sound/test/sound.test.ts", "name": "maps the camera height through the mission elevation into global register 2", "data": "fixture" }
+   ],
+   "owed": "the beds' loops are rendered once at spawn A + 25 (BED_CAMERA_ABOVE_FEET_PLACEHOLDER), not again as the register changes; a test of that re-render is owed with it"
+  },
+  {
+   "id": "sound.ambience.emitters",
+   "claim": "Every self-starting zAnim looping a ~ sound at a node is an emitter at the node (or its flag-4 offset); Vigilance's water_drain sounds at the bare world point (0, -60, 30).",
+   "level": "reading",
+   "source": "FUN_002659c0 D:L112317; FUN_0026f4e0",
+   "note": "docs/research/81-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/sound.test.ts", "name": "reads a play-sound command's offset (flag 4, the f32 triple at +0x14) and keeps it on the emitter (90 item 26)", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "takes its offset through its node, or, when the scene has no such node, as a world position", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.ui.hudui-table",
+   "claim": "HUDUI.bnk holds 24 sounds: indexes 0-18 in VolGroup 14, the five countdowns (19-23) in group 2, every Pan 0; Vol .DINK 98, .BACK 83, .THUNK 103, .SLIDE 113, .NEG 90, .TYPE 44, .METAL 115.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/BNKSTORE.ZAR HUDUI.bnk",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "24 sounds, the menus' 19 in group 14 and the five countdowns in group 2, every pan 0 (R122.4)", "data": "none" },
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "a menu play is the sound's own Vol (R122.4): .DINK 98, .BACK 83, .THUNK 103, .SLIDE 113, .NEG 90, .TYPE 44, .METAL 115 ...", "data": "none" },
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "HUDUI.bnk, sounds.rdr SETS/HUDUI, uisounds.rdr and UiParams.rdr give the pinned table (hudui.json)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.ui.script-ordinal",
+   "claim": "sounds.rdr's SETS/HUDUI files its 24 entries in the bank's order (ordinal = bank index), all ONESHOT, .BOMB_BEEP alone with a RANGE (50-100).",
+   "level": "reading",
+   "source": "FUN_003435c0 D:L242313-242552; disc RUN/SOUNDRDR.ZAR SETS/HUDUI",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "sounds.rdr files HUDUI's entries in the bank's order, every one ONESHOT, .BOMB_BEEP alone with a RANGE, 50-100 (R122.2, §2)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.ui.resolve-indexes",
+   "claim": "The menus' names resolve to HUDUI .DINK 0, .BACK 1, .THUNK 2, .SLIDE 3, .NEG 4, .TYPE 7, .METAL 8, .SKB_TYPE 10, .SFX_VOL_SLIDER 11, .TCM_SLIDE 12, .TCM_SELECT 13, .SKB_NAV 16, .COUNTDOWN 19.",
+   "level": "reading",
+   "source": "FUN_00344f30 D:L243197-243210; disc HUDUI.bnk",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "the names the menus play resolve by their CRC-32 to HUDUI's indexes (§7): .DINK 0, .BACK 1, .THUNK 2, .SLIDE 3, .NEG 4, .TYPE 7, .METAL 8 ...", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.ui.widget-names",
+   "claim": "uisounds.rdr: TELETYPE .TYPE, BACK .BACK, SELECTION .METAL; UiParams.rdr's keyboard: ScaleUp .SLIDE, ScaleDown \".SLIDE\\t\" (silent), KeyPress .SKB_TYPE, KeyPressEnter .THUNK, Navigation .SKB_NAV, Negative .NEG.",
+   "level": "reading",
+   "source": "disc RUN/UI/READERC.ZAR uisounds.rdr, UiParams.rdr CommonSoftKeyboardProps (FUN_001f4860 D:L54857-54880, FUN_00397070 D:L289706-289795)",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/uiSounds.parity.test.ts", "name": "the dialog files name the widgets' sounds (R122.5): TELETYPE .TYPE, BACK .BACK, SELECTION .METAL; the keyboard's six", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.ui.unplaced-play",
+   "claim": "A menu sound plays unplaced as a one-shot with volume 1024 and pan -1, the sound's own Vol and Pan.",
+   "level": "reading",
+   "source": "FUN_00343140 D:L242175-242252, FUN_003403b0 D:L240670-240689; recomp logs (research 122 §9)",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.parity.test.ts", "name": "an unplaced play is the sound's own: volume 0x400, pan -1 (a menu's .METAL, R122.4); a zAnim command's volume multiplies it", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.ui.binding-commands",
+   "claim": "SwitchMenu PREVIOUS_SCREEN plays BACK, ActivateButton plays SELECTION when the control is found, PopUpDialog plays .METAL; StopAllSounds stops every voice, FadeAllSounds fades the handle-tracked ones by an AutoVol over 360 ticks (1.5 s asked), silent at tick 254 (1.058 s).",
+   "level": "reading",
+   "source": "FUN_0027e720 D:L126556-126640, FUN_0027c360 D:L125377-125392, FUN_0027eff0 D:L126862-126900, FUN_00346c00, FUN_00346c30 D:L244212-244239",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [],
+   "owed": "no code of the sound area plays them yet (PLAT-23 transcribes the menus' cues); a test is owed with that code"
+  },
+  {
+   "id": "sound.ui.widget-implicit",
+   "claim": "The widgets' own cues: the screen's focus move, CUIListBox, CRadioStrip, CSliderBar and CPopUpDialog play SELECTION; CTeleType, C2DCounter and the timed text TELETYPE; a button's CROSS plays nothing of its own.",
+   "level": "reading",
+   "source": "FUN_00368650 D:L263806-264247, FUN_003745e0, FUN_00370f60, FUN_00371d00, FUN_00370990, FUN_0036a300",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [],
+   "owed": "PLAT-23's widget code; not in packages/sound or the viewer's audio this wave"
+  },
+  {
+   "id": "sound.ui.groups",
+   "claim": "\"UI\" is sounds.rdr's GROUPS/UI (SND_HS_OPDV, SND_VO_OPDV), not a bank; the front end's table is HUDUI 24, SMUS 212, UIVOICE 91 and the 2 groups: 329 objects.",
+   "level": "reading",
+   "source": "FUN_00348130 D:L244929-244986; FUN_001f4860 D:L54850-54853",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [],
+   "owed": "parseSoundScript reads SETS only; a GROUPS reader and its pin are PLAT-23's (UI_GROUP_PICK_READING)"
+  },
+  {
+   "id": "sound.ui.headset-route",
+   "claim": "An ST + HS entry (SND_HST_01..12) is handed to FUN_0034b6c0 instead of streamed while DAT_0045a0c1 is 0.",
+   "level": "reading",
+   "source": "FUN_00342b20 D:L242112-242115, FUN_00343140 D:L242200-242203, FUN_0034b6c0 D:L246909-246944",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [
+    { "file": "packages/sound/test/uiSounds.test.ts", "name": "an ST + HS entry goes to the headset queue while DAT_0045a0c1 is 0, else it streams", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.ui.off-switch",
+   "claim": "The byte DAT_0048dd28 silences the whole sound system (lookup, load, fill, plays) while non-zero.",
+   "level": "reading",
+   "source": "FUN_00344f30 D:L243204 and 91 more tests, D:L241619-245173",
+   "note": "docs/research/122-the-ui-sounds.md",
+   "tests": [],
+   "owed": "SOUND_OFF_SWITCH_READING: its writer is not found; the port does not model it"
+  },
+  {
+   "id": "sound.stream.vpk-header",
+   "claim": "A VPK is VPKFileHead: \" KPV\", one channel's bytes, data_offset 0x800, buff_size 0xb000, 32000 Hz, 2 channels, (127, 0, 270) / (127, 0, 90); its size 0x800 + ceil(size / 0x5800) x 0xb000.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/VAGSTORE.ZAR (210 VPKs; 989snd iop/types.h 498-506)",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "every VPK the cues stream: 0x800, 0xb000, 32 kHz, two channels panned 270 / 90, sized 0x800 + ceil(size / 0x5800) x 0xb000", "data": "none" },
+    { "file": "packages/sound/test/vpk.test.ts", "name": "reads the header as VPKFileHead lays it out", "data": "none" },
+    { "file": "packages/sound/test/streamsDisc.test.ts", "name": "every VPK of VAGSTORE is two channels at 32 kHz in 0xb000 buffers from 0x800, its size exactly that", "data": "disc" }
+   ]
+  },
+  {
+   "id": "sound.stream.vpk-data",
+   "claim": "A VPK's data starts at data_offset (word 2, 0x800), not at buff_size (word 3); each buffer is the left channel's half then the right's, the last partial; no frame ends, so a channel is size / 16 x 28 samples.",
+   "level": "reading",
+   "source": "IRX FUN_00013334 (KNOWN, the stereo-desync row); disc RUN/SOUNDS/VAGSTORE.ZAR",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/sound/test/vpk.test.ts", "name": "starts the data at word 2, the data offset -- not at word 3, the buffer size", "data": "none" },
+    { "file": "packages/sound/test/vpk.test.ts", "name": "de-interleaves each buffer into its channels, each decoded with its own predictor", "data": "none" },
+    { "file": "packages/sound/test/vpk.test.ts", "name": "takes the last, partial buffer: a channel shorter than a whole number of buffers", "data": "none" },
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "the music's lengths (research 124 §1): MUMP0004 37.66 s (688,576 bytes a channel, 1,398,784 the member), MUMP0009 38.15, MUMP0019 18.43, MUMP0020 18.77", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.stream.vagp",
+   "claim": "A VAGp is Sony's 48-byte big-endian header then mono ADPCM to its end flag: PH_0014 22,050 Hz, end flag at 17,264 of 17,296 bytes (1.37 s), PH_0002 13,440 of 13,472 (1.07 s).",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/VAGSTORE.ZAR PH_0014.vag, PH_0002.vag (snd989_mixer.cpp 2249-2255)",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "the result lines (research 124 §2): VAGp version 32 at 22,050 Hz, PH_0014 to its end flag at 17,264 of 17,296 bytes (1.37 s), PH_0002 13,440 of 13,472 (1.07 s)", "data": "none" },
+    { "file": "packages/sound/test/vagStream.test.ts", "name": "reads the big-endian rate and size and decodes the mono line into both channels, one array (PR #631)", "data": "none" },
+    { "file": "packages/sound/test/vagStream.test.ts", "name": "ends on the frame that carries the end flag, as the disc lines do (PH_0014: 17,264 of 17,296 bytes)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.stream.digests",
+   "claim": "The 18 VPKs and 2 VAGps the round's cues stream decode to the pinned headers and sha256 digests.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDS/VAGSTORE.ZAR",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "the members the cues name decode to the pinned headers and digests (stream-digests.json)", "data": "disc" },
+    { "file": "packages/sound/test/streamsDisc.test.ts", "name": "decodes the Frostfire cues whole: each channel size / 16 x 28 samples, and the two result lines to their end flag", "data": "disc" }
+   ],
+   "owed": "VAGSTORE (577 MB) is neither in git nor a fixture; in CI the stream decode is held by vpk.test.ts and vagStream.test.ts's synthetic bytes and the pinned headers"
+  },
+  {
+   "id": "sound.stream.resolve",
+   "claim": "A cue streams its ST entry's N1 as \"%s.VPK\" for the MUS class, else \"%s.VAG\", found by CRC-32 among the blocks a multiplayer map loads (HUDUI, SMUS, TCM_ECHO, its five, MULTI, HOSTAGE): MUS_MP_SEAL_INTRO_4 MUMP0004.VPK, ^PH_0014 PH_0014.VAG.",
+   "level": "reading",
+   "source": "FUN_00342240 D:L241797-241904; FUN_00344450 D:L242783-242818; disc RUN/SOUNDRDR.ZAR",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "every cue the scripts name has an ST entry: the MUS_* in SMUS, a VPK; the result lines in MULTI, a VAGp; none loops", "data": "none" },
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "Frostfire's six (research 124 §3): INTRO_4 MUMP0004 / MUMP0009, WIN_RUS MUMP0019 / MUMP0020, SEAL WIN_ALB MUMP0013, the lines PH_0014 / PH_0002", "data": "none" },
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "the resolver, fed the pinned entries as sounds.rdr spells them, finds each through the blocks a multiplayer map loads", "data": "none" },
+    { "file": "packages/sound/test/streams.test.ts", "name": "names the file by the class: MUS a VPK, anything else a VAG", "data": "none" },
+    { "file": "packages/sound/test/streams.test.ts", "name": "a multiplayer map loads HUDUI, SMUS, TCM_ECHO, its own five and MULTI and HOSTAGE (FUN_00344450)", "data": "none" },
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "parseStreamEntries and streamFor give the pinned rows (round-streams.json)", "data": "fixture" }
+   ]
+  },
+  {
+   "id": "sound.round.cues",
+   "claim": "Each of the 22 maps' objectives script plays its intro by player_team after WAIT 3 (bomb) or 5 (the SEALs 7 on the hostage and VIP maps), the line and the winner's music on an elimination (WAIT 2 between on 13 maps; no line on the breach maps' Terrorist win, no music on the VIP maps' SEAL win), and on the six respawn maps the SEALs' win music at TIME EXPIRED.",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB MZANIM.ZAR objectives (start, start2, mission_timer2)",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "holds the 22 multiplayer maps, each with an intro for every player_team and both sides' elimination for every team", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "the intros as the note lists them: WAIT 3 on the bomb maps, 5 elsewhere, the SEALs 2 s more on the hostage and VIP maps", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "the elimination as the note lists it, the same for the three teams: the line, WAIT 2 on 13 maps, the winner's music", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "TIME EXPIRED on the six respawn maps: the SEALs' win music whoever leads; none elsewhere; start2 only where respawn runs", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "every map's cues are the 20 names the stream table resolves (sound golden/round-streams.json)", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "roundCuesFromArchive over every RUN/MP*.ZDB gives the pinned cues (round-cues.json)", "data": "disc" },
+    { "file": "packages/viewer/test/roundCues.test.ts", "name": "every multiplayer map has an intro for each side and both elimination results; six have TIME EXPIRED music", "data": "disc" }
+   ]
+  },
+  {
+   "id": "sound.round.sequencing",
+   "claim": "The round plays its intro at the script's WAIT from the round's start, the first elimination or time-out decides the round once, and a draw or a points result plays nothing.",
+   "level": "reading",
+   "source": "disc RUN/MP*.ZDB MZANIM.ZAR objectives; research 124 §6",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "the intro at its WAIT from roundStart for the local team, then each side's elimination as the map's branch plays it", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "TIME EXPIRED: mission_timer2's cue on the six respawn maps, in a respawn room the intro from start2; nothing on the others", "data": "none" },
+    { "file": "packages/viewer/test/roundCues.parity.test.ts", "name": "a draw or a points result plays nothing (classic's abort, the respawn room's success2)", "data": "none" },
+    { "file": "packages/viewer/test/roundAudio.test.ts", "name": "invents nothing: a draw (classic's time-out) and a respawn room's result are silent", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.round.music-slot",
+   "claim": "The music cues (SOUND 0x880) take the one-voice slot: a cue while another sounds fades it by 989snd's AutoVol over 480 ticks (silent at tick 381, 1.588 s), its 2.0 s timer stops it, and the cue starts then; a cue while one waits replaces the waiting one; the line (0x80) is a voice of its own.",
+   "level": "reading",
+   "source": "FUN_00348dc0 D:L245383-245446; FUN_00346dd0 D:L244289-244307; FUN_00346ea0 D:L244358-244385; FUN_003492b0 D:L245541-245560; research 186 §3.1",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.test.ts", "name": "plays a cue in the slot once unlocked; a second while one sounds hands over after the slot's 2 s fade", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "WebAudioOut: a replaced pending cue never sounds; a stop also stops the one fading (FUN_00348dc0)", "data": "none" },
+    { "file": "packages/sound/test/musicStream.test.ts", "name": "the slot's FadeOut(2.0) (FUN_00346dd0: 480 ticks) is silent at tick 381 (1.588 s); a fade faster than a step a tick moves by 32nds", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "a cue while another waits for the slot replaces the waiting one: it starts at the same handover end (FUN_00348dc0)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.round.autovol-steps",
+   "claim": "989snd's AutoVol steps a 7-bit volume 1 every trunc(ticks / |dv|) ticks when |dv| < ticks (FadeAllSounds 127 -> 0 over 360: 97 / 67 / 7 at 60 / 120 / 240 ticks, 0 at 254), else (32 cur + trunc(32 dv / ticks)) >> 5 a tick, stopping at the target.",
+   "level": "reading",
+   "source": "IRX FUN_000038b4 (989SND.IRX.decomp L2579-2700); Ziemas iop/autovol.c:10-147, sndhand.c:578-596; FUN_00346c30 D:L244232; research 186 §3.1, V4 #24",
+   "note": "docs/research/186-c7-audio-movie.md",
+   "tests": [
+    { "file": "packages/sound/test/musicStream.test.ts", "name": "FadeAllSounds' AutoVol (360 ticks, FUN_00346c30) steps the 7-bit volume 1 every 2 ticks: 0 at tick 254 (1.058 s)", "data": "none" },
+    { "file": "packages/sound/test/musicStream.test.ts", "name": "the slot's FadeOut(2.0) (FUN_00346dd0: 480 ticks) is silent at tick 381 (1.588 s); a fade faster than a step a tick moves by 32nds", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.round.stream-level",
+   "claim": "The lines and the music carry no VOLUME and play at the command's 1.0, each at its group's master (MUSIC 1, DIALOG 2 and 6): a round line (group 2, mono) 0.24995 a side, the round music (group 1 at MUSIC 0.74, a stereo VPK) 0.27321 a channel, each data channel on its own side; no duck of the music (Chris's -2 dB and 12 dB are a playtest preference, not the original).",
+   "level": "reading",
+   "source": "disc RUN/SOUNDRDR.ZAR SMUS, MULTI entries; RUN/MP*.ZDB objectives SOUND commands; FUN_00342240 D:L241878-241890 (group by class); the tuners' groups and InitSystemTuners FUN_0038a7a0 (research 186 §3.1)",
+   "note": "docs/research/186-c7-audio-movie.md",
+   "tests": [
+    { "file": "packages/viewer/test/audio.test.ts", "name": "plays the result line on a voice of its own, at the disc's level (no gain of its own), and leaves the slot alone", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "plays a stream at its group's level: a line (group 2, mono) 0.24995 a side, the music (group 1, stereo) 0.27321 a channel", "data": "none" },
+    { "file": "packages/sound/test/musicStream.test.ts", "name": "a round stream's level is its group's: a line 0.24995 a side (group 2, DIALOG), the music 0.27321 a channel (group 1, MUSIC 0.74)", "data": "none" }
+   ]
+  },
+  {
+   "id": "sound.round.voice-gate",
+   "claim": "A class-3 stream (the result lines) plays only while DAT_003dffa8 or the online flag DAT_0045a0c1 is set, or it carries PD.",
+   "level": "reading",
+   "source": "FUN_00342240 D:L241822-241824",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [],
+   "owed": "not modelled by the port (both flags hold in an online round, research 124 §3); a test is owed if an offline round plays the lines"
+  },
+  {
+   "id": "sound.round.vpk-loop",
+   "claim": "LOOP under ST on 9 SMUS entries (2 MUS) and beside it on 12; the loop point in a VPK is not read; none of the round's cues loops.",
+   "level": "reading",
+   "source": "disc RUN/SOUNDRDR.ZAR SMUS; FUN_003435c0",
+   "note": "docs/research/124-the-round-streams.md",
+   "tests": [
+    { "file": "packages/sound/test/streams.parity.test.ts", "name": "every cue the scripts name has an ST entry: the MUS_* in SMUS, a VPK; the result lines in MULTI, a VAGp; none loops", "data": "none" }
+   ],
+   "owed": "VPK_LOOP_READING: the looping cues are PLAT-22's"
+  },
+  {
+   "id": "sound.option.group-masters",
+   "claim": "The four audio options are 989snd's group masters: SOUND_VOLUME 0, 3, 4, 5 and 14, MUSIC_VOLUME 1, DIALOG_VOLUME 2 and 6, HEADSET_CONTROLLER 7, each SetMasterVolume(g, trunc(v x 1024)) before the square law (a group at or past 989snd's 15 takes neither) -- a round line 0.24995 a side at the defaults, 2047 / 0x7ffe at DIALOG 0.5, the music unmoved; every round stream by its class's group and every bank one-shot by its sound's VolGroup.",
+   "level": "reading",
+   "source": "the tuners' update functions (tuner_groups.py), FUN_0038a040 -> FUN_003414d0; InitSystemTuners FUN_0038a7a0 D:L282262, D:L282287, D:L282433, D:L282458; FUN_00342240 D:L241878-241890; 989snd vol.c 434-455, blocksnd.c 520, valloc.c 304 (research 186 §3.1, §5)",
+   "note": "docs/research/233-the-sound-as-built-iii.md",
+   "tests": [
+    { "file": "packages/sound/test/musicStream.test.ts", "name": "the option masters by group (tuner_groups.py; FUN_0038a040 -> FUN_003414d0): SOUND_VOLUME drives 0, 3, 4, 5 and 14, MUSIC_VOLUME 1, DIALOG_VOLUME 2 and 6, HEADSET_CONTROLLER 7, each trunc(v x 1024) under the square law; at the defaults a round line is 0.24995 a side and the music 0.27321 a channel; DIALOG 0.5 lowers the line and not the music", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "GameAudio.setTuners re-levels every round stream and every bank one-shot by its group's master (a stream's class, a bank sound's VolGroup; BANK_GROUP_READING, SOUND's 0, when none); the defaults change nothing", "data": "none" },
+    { "file": "packages/sound/test/musicStream.test.ts", "name": "a group past 989snd's 15 (VOL_NUM_GROUPS, vol.h) takes no master and no square law: a bank sound in groups 15-31 is its voice volume halved, whatever the options (snd_AdjustVolToGroup vol.c 439-441)", "data": "none" },
+    { "file": "packages/viewer/test/audio.test.ts", "name": "a bank sound in a group past 989snd's 15 plays with no master and no square law, the same whatever the options (VOL_NUM_GROUPS; vol.c 439-441)", "data": "none" }
+   ],
+   "owed": "SOUND_TUNER_SOURCE_PLACEHOLDER: the front end's one wiring line (research 233 §6) and the round's source; a recomp log of SetMasterVolume while each slider moves"
+  },
+  {
+   "id": "sound.headset.tv-stream",
+   "claim": "With no USB headset an SND_HST_* line offline is queued (20 records) and streamed on the TV one line at a time, in order, as an ordinary stream of its class's group (2, DIALOG's master); online it streams at once.",
+   "level": "reading",
+   "source": "FUN_00343140 D:L242200-242203; FUN_0034b6c0 D:L246909-246944; FUN_0034b910 D:L247006-247015; FUN_0034afd0; FUN_00342240 D:L241878-241890 (research 186 §3.1 HEADSET_ROUTE)",
+   "note": "docs/research/233-the-sound-as-built-iii.md",
+   "tests": [
+    { "file": "packages/sound/test/headsetQueue.test.ts", "name": "an HS line offline is queued, 20 slots, and streamed on the TV one at a time in order (FUN_0034b6c0 D:L246909-246944; FUN_0034afd0); online it streams at once (DAT_0045a0c1); HEADSET_ROUTE_READING 'streamed'", "data": "none" },
+    { "file": "packages/viewer/test/uiSoundHost.test.ts", "name": "a headset play reaches the stream output through the headset queue, one line at a time, as an ordinary stream of its class's group (2, DIALOG's master: FUN_00342240 D:L241878-241890), never counted as held", "data": "none" }
+   ],
+   "owed": "a capture of two SND_HST_* lines started together offline (HEADSET_QUEUE_READING); the death path's clear of +0xb (HEADSET_CLEAR_READING) is not built"
+  },
+  {
+   "id": "sound.ui.stop-on-exit",
+   "claim": "A SOUND command's 0x200 marks its name slot; when the slot's animation instance stops, a marked slot holding a voice is faded over the record's +4 (the f32 at the command's +0x12 offset) when +4 > 0, else stopped; an unmarked one is let go and plays out; the slots are walked before the instance's cleanup sequence; dlgExitState's MUS_SUCCESS (0x280) stops on exit.",
+   "level": "reading",
+   "source": "FUN_002659c0 D:L112356-112362; FUN_0026fd20 D:L118432-118480 from FUN_0026ff20 D:L118572; FUN_00346dd0 D:L244289-244307 (research 186 §3.1 STOP_ON_EXIT)",
+   "note": "docs/research/233-the-sound-as-built-iii.md",
+   "tests": [
+    { "file": "packages/ui/test/sounds/uiSoundCues.test.ts", "name": "a 0x200 slot sound stops when its animation instance stops: FadeOut(+4) when the record's +4 > 0, StopSound otherwise; a slot without the flag plays out (FUN_0026fd20 D:L118432-118480 from FUN_0026ff20 D:L118572); dlgExitState's MUS_SUCCESS stops on exit", "data": "none" },
+    { "file": "packages/ui/test/zanimRuntime.test.ts", "name": "an instance's end tells the host which animation stopped, a STOP_ANIMATION's and a natural end alike, once (FUN_0026ff20 D:L118572)", "data": "none" },
+    { "file": "packages/ui/test/zanimRuntime.test.ts", "name": "an instance's slot sounds are stopped before its cleanup sequence runs (FUN_0026fd20 D:L118572, then FUN_0026d870 D:L118599): a SOUND in the cleanup keeps playing", "data": "none" },
+    { "file": "packages/viewer/test/menuMusic.test.ts", "name": "the cues' stop and fade reach the music's name slot: StopSound at once; FadeOut(+4) over +4 x 240 ticks, the slot let go, the voice stopped at +4 s (FUN_0026fd20, FUN_00346dd0)", "data": "none" }
+   ],
+   "owed": "the front end's command host passes the instance's end to the cues by one line (research 233 §6)"
+  },
+  {
+   "id": "sound.ui.name-slot",
+   "claim": "A SOUND command's name slot is the running animation instance's own record of the name: keyed by the instance and the name, so CallMusic and CallMusicOld are two slots.",
+   "level": "reading",
+   "source": "FUN_002659c0 D:L112350-112352; FUN_0026d940 D:L117228-117242 (research 186 §3.1 STREAM_NAME_SLOT)",
+   "note": "docs/research/233-the-sound-as-built-iii.md",
+   "tests": [
+    { "file": "packages/ui/test/sounds/uiSoundCues.test.ts", "name": "the name slot is keyed by the animation instance and the name (FUN_0026d940 D:L117228-117242): CallMusic and CallMusicOld are two instances", "data": "none" }
+   ]
+  }
+ ]
+}

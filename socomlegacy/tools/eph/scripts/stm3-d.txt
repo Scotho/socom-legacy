@@ -1,0 +1,7 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). STM-3 (d): settled prone, a light Triangle: the whole prone -> crouch rise (the baseline for the bounce).
+# Starts from the saved state standing (--state). One trial per run: run it three times (STM-3: three repeats).
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351).
+500 triangle 1.0
+650 triangle 0
+3500 triangle 0.2
+3600 triangle 0

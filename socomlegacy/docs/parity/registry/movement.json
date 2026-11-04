@@ -1,0 +1,1223 @@
+{
+  "area": "movement",
+  "notes": ["docs/research/80-the-jump.md", "docs/research/83-look-and-aim.md", "docs/research/86-traversal.md", "docs/research/88-feel-parity.md", "docs/research/217-the-body-as-built.md", "docs/research/236-the-shotgun-guard-the-stance-window-and-the-wading-rules.md"],
+  "entries": [
+    {
+      "id": "movement.speed.run-forward",
+      "claim": "A full forward stick runs at seal_run's max_velocity, 65 units a second.",
+      "level": "reading",
+      "source": "disc READERC.ZAR motion.rdr seal_run max_velocity; FUN_00583350 / FUN_0058bdf0; research 25's traced velocity word (0, 0, -65) on the recomp",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "ten seconds of full forward holds 65.0 a second; back 37.0; the strafes 65; the boost does nothing", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "SEAL_LOCOMOTION's walk bands are the pinned motion.rdr, and the stances run at them: 65/37/65/65, 14.8/13.5/15/15, 11/11/5.5/5.5", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "movement-clips.json is motion.rdr and MOTION_P.ZAR through motionTableFromArchive and clipsFromPack, whole", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.speed.run-back",
+      "claim": "A full back stick runs at seal_run_bw's 37 units a second.",
+      "level": "reading",
+      "source": "disc READERC.ZAR motion.rdr seal_run_bw max_velocity; research 25's velocity word (0, 0, +37)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "ten seconds of full forward holds 65.0 a second; back 37.0; the strafes 65; the boost does nothing", "data": "none" },
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "backing up ramps to seal_run_bw's 37: 37 x 5 / 60 on the first tick, 37 from tick 12", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.strafe",
+      "claim": "A full side stick runs at 65 units a second either way (the strafe set's top band).",
+      "level": "reading",
+      "source": "disc READERC.ZAR motion.rdr seal_rstrafe / seal_lstrafe / seal_run_90r / seal_run_90l; FUN_00583030",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "ten seconds of full forward holds 65.0 a second; back 37.0; the strafes 65; the boost does nothing", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.diagonal",
+      "claim": "A 45-degree stick blends the run and the strafe by the stick's angle and renormalises by 1 / sqrt(w^2 + (1 - w)^2): 65 a second, heading 45 degrees.",
+      "level": "reading",
+      "source": "FUN_00583350 D:L443324-443368; FUN_00583030 D:L443246-443323",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a diagonal blends the run and the strafe by the stick's angle and renormalises: 65 at 45 degrees, heading 45", "data": "none" },
+        { "file": "packages/viewer/test/moveStick.test.ts", "name": "standing, (1, 1) still runs 65 at 45 degrees: min(1, |stick|) and the blend's renormalisation", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.ramp",
+      "claim": "The stick ramps at upper_z_accel 5 a second: 90 % of the run on tick 11 (0.183 s), full from tick 12, 59.042 units covered in the first second from rest.",
+      "level": "reading",
+      "source": "FUN_00586c10 (the mover header); dynamics.rdr lower/upper_z_accel 2, 5",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the ramp: the stick moves at most upper_z_accel 5 a second, so 90 % of the run is reached on tick 11 (0.18 s)", "data": "none" },
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "one second of full forward from rest covers 59.042: twelve ticks of the ramp, then 65 a second", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.ramp-light-push",
+      "claim": "The ramp's limit is lower + (upper - lower)(1 - (1 - |target|)^8) with lower 2 and upper 5: a 0.1 push moves 4.018 a second on its first tick, a 0.5 push 5.404, and half a stick is reached on tick 7.",
+      "level": "reading",
+      "source": "FUN_00586c10; dynamics.rdr lower/upper_x_accel and lower/upper_z_accel (DAT_0044c294..2a0)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "a light push ramps at lower_accel 2 + 3 (1 - (1 - |t|)^8): the first tick of 0.1 is 4.018 a second, of 0.5 is 5.404", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.stop",
+      "claim": "A stick let go (within 0.03 of rest) stops the SEAL on the same tick, from any speed.",
+      "level": "reading",
+      "source": "FUN_00586f00 / FUN_00586570 (DAT_003f3428 = 0.03)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a stick let go stops at once, from full or half (FUN_00586f00 idles it; FUN_00586570 skips the ramp at rest)", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.snap",
+      "claim": "An axis past 0.9 (forward) or 0.78 (lateral) whose wish moves faster than 9 (7.8) a second takes the wish at once and starts a 0.2 s pose cross-fade.",
+      "level": "reading",
+      "source": "FUN_00586c10 D:L445037-445055 (0x3e4ccccd)",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "the snap: forward past 0.9 at more than 9 a second, lateral past 0.78 at more than 7.8, on both sides of each edge", "data": "none" },
+        { "file": "packages/viewer/test/stickSnap.test.ts", "name": "names a snap only for an axis past its threshold whose wish moves faster than the rate", "data": "none" },
+        { "file": "packages/viewer/test/stickSnap.test.ts", "name": "forward, forward-left, forward: the release cross-fades over 0.2 s in the same play, the phase kept, no pose pop", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.speed.crouch-walk",
+      "claim": "Crouched under 0.838 of a stick the push is rescaled to 14 / 14.8: 14.0 ahead, 12.77 back, 14.19 aside, 19.80 on a 45-degree diagonal.",
+      "level": "reading",
+      "source": "FUN_00584c60; FUN_00582d10 D:L443164-443245; FUN_00583350's DAT_0064fc80",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "crouched under 0.838 of a stick: 14.0 ahead, 12.77 back, 14.19 aside, 19.80 on the diagonal (x 14 / 14.8 of each band)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the crouch walk (FUN_00584c60): under 0.838 of a stick it is rescaled to 14 / 14.8, so it runs at 14.0 whatever the push", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.crouch-run",
+      "claim": "Crouched at 0.838 of a stick (12.4 / 14.8) or more with 19 units of headroom the SEAL stands and runs the standing blend: 0.83 walks at 14.0, 0.84 runs at 54.6.",
+      "level": "reading",
+      "source": "FUN_00584c60 (153.76 <= |s|^2 x 219.04); FUN_0057efe0 D:L441190-441240",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "crouched at 0.838 of a stick or more it stands and runs: 0.83 crouch-walks at 14.0, 0.84 runs at 54.6", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the crouch at full stick (>= 0.838) with 19 units of headroom stands and runs the standing blend (FUN_0057efe0, FUN_00583030)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.prone",
+      "claim": "Prone the crawl runs 11 ahead and back and the strafe 5.5, on the direction class's one axis with no ramp, so W+D crawls 11.",
+      "level": "reading",
+      "source": "FUN_005845c0 -> FUN_00583500 D:L443369-443496; motion.rdr seal_prone_crawl / seal_prone_rstrafe",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "prone: the crawl 11 ahead and back, the strafe 5.5, and W+D crawls 11 on the class's one axis, with no ramp", "data": "none" },
+        { "file": "packages/viewer/test/moveStick.test.ts", "name": "prone, W+D crawls at the class axis's full 11 (it read 7.8 while the pair was put in the disc)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.speed.direction-class",
+      "claim": "The direction class takes the dominant axis when the other is at most 0.839 of it; in the diagonal band between, the last class holds.",
+      "level": "reading",
+      "source": "FUN_005858a0 (the mover header)",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "the direction class (FUN_005858a0): an axis dominates when the other is at most 0.839 of it; between, the last class holds", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.stick.left-pad",
+      "claim": "The move stick reads (127.5 - byte) x 0.007843138 per axis, 0.3 dead, rescaled and x sqrt 2 with no unit disc: byte 64 walks 26.006, byte 32 58.965, the run full from 0.795 of the travel.",
+      "level": "reading",
+      "source": "FUN_002da930 D:L179484-179878 on the left block; capture logs/parity/spawn_pcsx2.rdram pad block 0x84a114 (+0x288 0.3, +0x2a0 1, +0x2a1 1)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "byte 64 (half a stick) walks 26.006 and byte 32 (three quarters) 58.965; the run is full from 0.795 of the travel", "data": "none" },
+        { "file": "packages/viewer/test/moveStick.test.ts", "name": "0.3 a side is dead, and past it the push is rescaled and x sqrt 2 until an axis is full", "data": "none" },
+        { "file": "packages/viewer/test/moveStick.test.ts", "name": "a full diagonal is (1, 1), and a rim-clamped one (0.707, 0.707) is 0.822 a side: the disc is never imposed", "data": "none" }
+      ],
+      "owed": "the pad block is read off the console's RAM, the speeds are predictions: research 79's timed console run (research 88 section 5) would make them proven"
+    },
+    {
+      "id": "movement.speed.scoped",
+      "claim": "In the 9x view or a scope both move axes are multiplied by 0.2 before anything reads them.",
+      "level": "reading",
+      "source": "FUN_005966a0 D:L453818-453821",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/moverHold.test.ts", "name": "is the literal 0.2 of FUN_005966a0 453818-453821, the same value as zoom.ts's SCOPE_SLOW", "data": "none" },
+        { "file": "packages/viewer/test/moverHold.test.ts", "name": "a scoped full stick walks exactly as an unscoped stick of 0.2", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.tick.sixty-hertz",
+      "claim": "The mover steps on CGame::Tick's 60 Hz clock, so 30 and 240 frames a second land in the same place.",
+      "level": "reading",
+      "source": "FUN_001E7040 (research 71 section 1.5)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "steps at 60 Hz whatever the frame rate: 30 fps and 240 fps land in the same place", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.step.step-height",
+      "claim": "step_height 6.5 lifts the move's segment query: a kerb whose face is 6.5 tall is stepped onto, a 7-unit face stops the mover.",
+      "level": "reading",
+      "source": "disc READERC.ZAR dynamics.rdr step_height (DAT_0044c26c); FUN_0054aa30 D:L415167 (the wall probes at step_height, research 217 s2.1); FUN_005483d0 D:L413686-413736 (the contact branch's lifted look-ahead query)",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "step_height 6.5: a kerb whose face is 6.5 climbs, a 7-unit face stops the mover at the low probe line", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "SEAL_TUNING's walk, jump, look and camera fields are the pinned dynamics.rdr", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "movement-tuning.json is dynamics.rdr through readSealTuning, field for field", "data": "fixture" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "movement-tuning.json against dynamics.rdr decoded here byte by byte, not through parseRdr or readSealTuning: each field as the file stores it (f32)", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.step.no-rise-rule",
+      "claim": "No floor rise is compared with step_height on the ground: with no face met by the probe line and no floor at or under the feet + 6.5 at the new point (else that floor is the pick), a floor up to 20 over the feet (FUN_005b5d40's window) is stepped onto and one over 20 refused -- so a SEAL in the crack beside MP72's stair (736.5, 42.5, 841.5) leaves it in all eight directions.",
+      "level": "reading",
+      "source": "FUN_005483d0 D:L413711-413736 (step_height lifts the segment query; no rise compared); FUN_005b5d40 D:L470232-470274; disc RUN/MP72.ZDB di_stair, di_ext16_19, di_road13",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "no rise is compared with step_height (issue #111): a face-less floor 7 or 19.5 over the feet is stepped onto, one 21 over is refused (FUN_005b5d40's 20)", "data": "none" },
+        { "file": "packages/viewer/test/crossroadsStairPocket.test.ts", "name": "the pocket is the disc's crack: the road alone under it, the stringer's face met by the 6.5 line, the stair 7.4 over the feet past the stand-off", "data": "disc" },
+        { "file": "packages/viewer/test/crossroadsStairPocket.test.ts", "name": "a standing SEAL in the pocket leaves it by the stick in all eight directions within 2 s (east: onto the stair, 7.37 up)", "data": "disc" }
+      ],
+      "owed": "a capture of the original: a SEAL walked off the west edge of MP72's stair at about x 737 (issue #111) and, separately, into a face-less 7-20 rise; the reading is the decompilation's, not measured running"
+    },
+    {
+      "id": "movement.step.probe-origin",
+      "claim": "The ground probe's origin is the feet + 5.5 every tick, so a 6-6.5 kerb over a lower floor is stepped onto (STEP_PROBE_LIFT_READING).",
+      "level": "reading",
+      "source": "FUN_005b0840 / FUN_005b5d40 D:L470163-470290; capture logs/parity/spawn_pcsx2.rdram (+5.5 at the spawn)",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "steps onto a 6.25-unit kerb above an overlapping lower floor (research 101 A7)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "an overlapping surface 7 over the feet, above step_height, is walked under for the floor below", "data": "none" }
+      ],
+      "owed": "the origin while running and crouched or prone is not measured (W2.2c on PCSX2: a 6.25 kerb over a lower floor)"
+    },
+    {
+      "id": "movement.step.touch-and-slope",
+      "claim": "A drop within ground_touch_distance 8 is a step down, further is a fall; a ramp steeper than max_slope 50 degrees is not walked up.",
+      "level": "reading",
+      "source": "disc READERC.ZAR dynamics.rdr ground_touch_distance, max_slope",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a drop within ground_touch_distance 8 is a step down; a 13-unit crate top is a short fall to the floor", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "max_slope 50: a 45-degree ramp is walked up, a 55-degree ramp refuses", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.step.walls",
+      "claim": "The body meets a wall (bit 1 set, bit 18 clear, |n_y| < 0.7) with its size class's level probe at the feet + step_height 6.5 standing and crouched, and with its head line at the idle head + 2 (19.394 standing); it stops 3.5 off it and slides along it. Nothing between the two lines is met: no column.",
+      "level": "reading",
+      "source": "FUN_0054aa30 D:L415110-415133, D:L415231-415233, D:L415418-415419, D:L415441-415443; the slide research 24 section 2 step 3; ruling PF.R44",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a step toward a wall ends 3.5 from it, and slides along it", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a wall is bit 18 clear and met by the body's probes: standing the feet + 6.5 and the head line at 19.394, no column between (FUN_0054aa30; WALL_PROBE_READING)", "data": "none" },
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "standing and crouched the body meets a wall at the feet + 6.5 (step_height) and keeps 3.5 off it (FUN_0054aa30 D:L415110-415133, 415231-415233, 415418-415419; WALL_PROBE_READING)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.body.probe-prone",
+      "claim": "Prone the probe stands at the feet + 3.0 (the class (8.0, 6.0) height x 0.5) and the head line at 5.637; a crawl into a wall stops 8.0 off it along the travel, the same on the page and in the room; the low line ahead rises with the root's tilt (PRONE_PROBE_TILT_READING 'root'; the head line stays level, WALL_HEAD_LINE_READING); on a level tread the root is level. A riser standing over the probe within 8.0 ahead stops a crawl: stairs of 2/4, 3/6 and 4/8 rise/run stop it, 1/4 and 2/8 and a 2.9 kerb are crawled, a 3.1 kerb stops it.",
+      "level": "reading",
+      "source": "FUN_0054aa30 D:L415110-415133, D:L415231-415233, D:L415426-415431, FUN_0054ecd0 D:L416972-417027 (the tilt through the root's matrix, PRONE-TILT-2 (3), research 217 s7.8; level on a tread, s2.5); ruling PF.R44",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone meets a wall at 8.0 along the travel and no nearer; the 13-wide doorway and the 7.5-wide corridor of walk.test.ts still pass (the fan is cast along the travel, PRONE_FAN_READING)", "data": "none" },
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone at stairs: the level probe at 3.0 stops a crawl whose next riser stands over it within 8.0 ahead (2/4, 3/6, 4/8 rise/run) and passes 1/4, 2/8 and a 2.9 kerb; a 3.1 kerb stops it (PRONE_PROBE_TILT_READING; research 217 s2.5)", "data": "none" },
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone low line follows the root tilt (PRONE_PROBE_TILT_READING \"root\", FUN_0054ecd0 D:L416972-417027): up a 20-degree slope a fin 1.5 over the ground is crawled over, one 2.9 over it stops the crawl 8 short", "data": "none" },
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone head line stays level on a slope (WALL_HEAD_LINE_READING: the idle head, not lifted by FUN_0054ecd0)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "prone into a wall at 8: the page and the room agree (stopped at 8)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "prone into a wall at 8: the page and the room agree (stopped at 8)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.body.overhang-passed",
+      "claim": "A bar from 7 to 10 over the floor stops no stance: it lies between the low probe (6.5, prone 3.0) and the head line (19.394, 12.138, 5.637), so a standing SEAL walks under it (the owner's yes, H92), on the page and in the room.",
+      "level": "reading",
+      "source": "FUN_0054aa30 D:L415231-415233, D:L415441-415443; HUMAN_TASKS H92; ruling PF.R44",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "a 10-high slot (a bar from 7 to 10 over the floor) stops nothing: a standing SEAL walks under it (H92: the owner's yes; WALL_PROBE_READING)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "a 10-high slot standing: the page and the room agree (passed)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "a 10-high slot standing: the page and the room agree (passed)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.body.prone-fan",
+      "claim": "The prone fan is cast along the travel: the centre 1.1 x 1.4 r ahead and two side lines 0.39 r (3.12) off the axis from 1.4 r behind to 1.4 r ahead; the port keeps prone 8.0 off a wall ahead and 3.12 off one beside, so the 13-wide doorway and the 7.5-wide corridor are crawled through.",
+      "level": "reading",
+      "source": "FUN_0054aa30 D:L415166, D:L415235, D:L415582-415621, D:L415822-415861",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone meets a wall at 8.0 along the travel and no nearer; the 13-wide doorway and the 7.5-wide corridor of walk.test.ts still pass (the fan is cast along the travel, PRONE_FAN_READING)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "prone crawls through a 13-wide doorway and along a 7.5-wide corridor: the fan is cast along the travel, 0.39 r = 3.12 across (PRONE_FAN_READING)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.body.head-line",
+      "claim": "The controlled body also meets walls at its head node + 2 (the port: the idle head, 19.394 standing, 12.138 crouched, 5.637 prone): a lintel from 16 up stops a standing SEAL and passes a crouched one; a bar from 5 to 7 stops a prone one.",
+      "level": "reading",
+      "source": "FUN_0054aa30 D:L415441-415459; the head node actor+0x308 (CZSealBody D:L419620-419621); research 217 s2.2",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "a bar from 5 to 7 stops a standing and a crouched SEAL 3.5 short of it; prone its low probe at 3.0 passes under and its head line at 5.637 meets it (D:L415442-415443; WALL_HEAD_LINE_READING)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the head line lowers with the stance: a crouch passes under a lintel at 16 that stops a standing SEAL (the idle head + 2: 19.394 standing, 12.138 crouched, 5.637 prone; FUN_0054aa30 D:L415442-415443)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.fall.gravity",
+      "claim": "A walk-off falls under dynamics.rdr's 235 a second squared with the fall speed integrated first, stepped per 30 Hz game frame (525/15734 s): a 42-unit drop takes 18 frames (0.601 s; the port's 60 Hz tick 37) and lands at 141 a second.",
+      "level": "reading",
+      "source": "FUN_0059b440 D:L456467-456570; disc READERC.ZAR dynamics.rdr gravity",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "Jump land hard holds 55 ticks (0.903 s) and gives way to the stick past NoInterrupt 0.35: tick 20, not 19", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "stepping off a 42-unit deck falls under 235 a second squared, lands hard after ~0.60 s, and runs on after the clip", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "walking off the 142 deck east of A's spawn falls 42 onto the 100 floor in ~0.60 s (W2.2b)", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.fall.no-air-control",
+      "claim": "In the air the stick is not read: the velocity across the ground is the one the feet left the floor with (65 off a run).",
+      "level": "reading",
+      "source": "FUN_0054d9a0 D:L416501-416555; FUN_005af930 zeroes actor+0x240..0x244",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "the stick does nothing in the air: a full side push through the flight lands at the same point", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.threshold",
+      "claim": "At 15 units a second or more (225 <= |v|^2) the jump is the running jump, under it the standing jump.",
+      "level": "reading",
+      "source": "FUN_0057e1b0 D:L440776-440867",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "225 <= |v|^2 is the running jump: at exactly 15 a second the launch, at 14.99 the standing Jump", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "under 15 a second is the standing jump: the Jump action on the floor, 0.99 s, the feet never leave it", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.running-impulse",
+      "claim": "The running jump writes jump_factor x gravity x 0.4 = 79.9 a second up into the fall speed 0.1 s after the take-off, the delay counted down per 30 Hz game frame: through the two-frame wind-up the feet sink 0.785, and the third frame ends at +1.619.",
+      "level": "reading",
+      "source": "FUN_0057e1b0 D:L440830 (actor+0x1364, actor+0x1360 = 0x3dcccccd); FUN_005af930 D:L466729-467019; FUN_0059ad30 D:L456261-456327",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "the wind-up at the game frame: two frames of the fall from rest sink the feet 0.785, and the third rises to +1.619", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "from 15 a second the running jump: the launch, 79.9 up 0.1 s after take-off, 13.6 high, carried, no stick", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.running-flight",
+      "claim": "A flat running jump, stepped per 30 Hz game frame in FUN_0059b440's order, tops 11.485 over the floor (12.270 over the sunk feet) and lands on frame 22 (0.734 s), which the port's 60 Hz tick 45 runs: 0.75 s after the take-off, 48.75 ahead at 65.",
+      "level": "reading",
+      "source": "FUN_0059b440 D:L456467-456570; FUN_005af930 D:L466797-466803; research 90 section 8; research 208 section 4",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "the top is 11.485 over the floor (12.270 over the sunk feet) and the SEAL lands on frame 22, tick 45: 0.75 s, 48.75 ahead", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "every other divergence is one research 88 reports to its owner, and nothing unreported diverges", "data": "none" }
+      ],
+      "owed": "no console run of a jump exists (research 80 section 9, research 88 section 5): proven needs a PINE poll of the actor through a flat running jump"
+    },
+    {
+      "id": "movement.jump.standing",
+      "claim": "The standing jump is the Jump action on the floor: the feet never leave it, and it holds the mover 0.993 s (1.1 x (19/20)^2) -- 60 ticks.",
+      "level": "reading",
+      "source": "FUN_0057e1b0; FUN_0059afd0 D:L456328-456466 (no UseVelY); FUN_0028c4f0 D:L134223-134280",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "holds the mover 0.993 s: still the Jump after 59 ticks, over after 60; the feet never leave the floor", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "under 15 a second is the standing jump: the Jump action on the floor, 0.99 s, the feet never leave it", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.standing-interrupt",
+      "claim": "The standing jump gives way to a stick past 0.1 once its phase passes NoInterrupt 0.7: on tick 44 (0.733 s).",
+      "level": "reading",
+      "source": "FUN_00587c20 D:L445514-445576; FUN_00550ef0 D:L418180-418190; disc READERC.ZAR motion.rdr seal_jump NoInterrupt",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "gives way to the stick past NoInterrupt 0.7 of its phase: on tick 44 (0.733 s), not on tick 43", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the standing jump gives way to the stick past 0.7 of its phase (0.73 s), not before", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.air-control",
+      "claim": "While the standing jump plays the stick drives the SEAL at each set's top speed with no renormalisation: 65 ahead, 37 back, 65 aside standing, 20 each way crouched.",
+      "level": "reading",
+      "source": "FUN_0057a330 D:L438955-438985; FUN_0058bb50 / FUN_0058bc00 D:L447619-447686; FUN_005e0450 D:L494496-494629",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the standing jump's stick drives it at the sets' top speeds: 65 ahead, 37 back, 65 aside, 20 crouched", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "SEAL_LOCOMOTION's walk bands are the pinned motion.rdr, and the stances run at them: 65/37/65/65, 14.8/13.5/15/15, 11/11/5.5/5.5", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.gates",
+      "claim": "The jump is refused prone (crouched it is taken and the stance kept), on ground steeper than max_slope 50 degrees, and while any one-shot is on top of the action stack.",
+      "level": "reading",
+      "source": "FUN_0057e1b0 D:L440776-440867 (actor+0x1348 against DAT_0044c268; FUN_005551a0(entry+0x28, 0x40)); FUN_005b4340 D:L469305-469561",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "refused on ground steeper than max_slope 50: taken on a 49-degree ramp, refused on a 51-degree one", "data": "none" },
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "refused prone; taken crouched, which keeps the stance (FUN_005b4340(.., 0xb))", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "refused through a stance transition and the standing jump; taken on the idle after", "data": "none" },
+        { "file": "packages/viewer/test/moverHold.test.ts", "name": "no jump while a hold is on the stack (FUN_0057e1b0 wants a looped top entry)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.lock",
+      "claim": "No jump for 0.4 s after a landing (or a running jump's take-off): refused 23 ticks on, taken on the 24th.",
+      "level": "reading",
+      "source": "actor+0x135c = 0x3ecccccd in FUN_0057e1b0 and FUN_005af930",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "no jump for 0.4 s after a landing: refused 23 ticks on, taken on the 24th", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.jump.slope-floor",
+      "claim": "In the air the floor is the ground's own pick every tick: a slope rising over a jump's feet lifts them onto it and the rise goes on; only a fall lands.",
+      "level": "reading",
+      "source": "FUN_005b0420 D:L467037-467110; FUN_0059ad30 D:L456313-456322; FUN_0059b440 D:L456502-456512",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a 26.6-degree ramp: the flight never dips under it, and the landing is on it", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "rising into the ground keeps the rise (FUN_0059b440 zeroes only a fall): no landing until the feet come down", "data": "none" },
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "the feet at the floor land on a fall speed of 0 or more (FUN_0059b440 D:L456514: 0.0 <= actor+0x133c): at 0 and -0.5, not at +0.5", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "rmp1 (x 680-705, z 891-975, y 100 -> 142 at 26.6 degrees, the 100 floor under it): lands on the ramp", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.landing.hard-rate",
+      "claim": "A contact over land_hard_fall_rate 115 a second plays Jump land hard: off a 26 deck (14 game frames, 109.8) no clip, off a 30 deck (15 frames, 117.6) the hard landing.",
+      "level": "reading",
+      "source": "FUN_005af590 D:L466641-466728 (DAT_0044c260); disc READERC.ZAR dynamics.rdr land_hard_fall_rate",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "a fall over land_hard_fall_rate 115 lands hard: off a 26 deck at 109.8 none, off a 30 deck at 117.6 Jump land hard", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the jump's and the landing's table (physics.ts sealTuning, a second transcription the mover reads) is the same pinned dynamics.rdr", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.landing.corpse-land-forward",
+      "claim": "A corpse's landing over the hard rate (115) is always Land forward: the alive bit clear forces class 3, so it draws no coin and never lands Hit; the living still draw the coin between Hit and Hit stomach.",
+      "level": "reading",
+      "source": "FUN_005af590 D:L466658-466660 (+0xe1 bit 4; FUN_0029ee10 D:L145030, FUN_00547af0 D:L413024), D:L495332 (Land forward)",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a corpse's hard landing is always Land forward (D:L466658-466660: the alive bit clear forces class 3), never the coin's Hit; the living still draw the coin", "data": "none" },
+        { "file": "packages/viewer/test/knock.test.ts", "name": "a corpse draws no coin: two dead movers holding different seqs land the one clip, `Land forward` (D:L466658-466660; review 3, A2)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.landing.soft",
+      "claim": "Under 115 with the stick at rest the landing is seal_land_soft (0.632 s, 38 ticks, cut by the stick at once); with the stick held and moving, no clip: the run goes on.",
+      "level": "reading",
+      "source": "FUN_005af590 (|actor+0x38|^2 <= 400 or the stick at rest); disc READERC.ZAR motion.rdr seal_land_soft",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "with the stick at rest a soft landing: seal_land_soft holds 38 ticks (0.632 s), the carried 65 running down 2.5 a tick", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the soft landing gives way to the stick at once (no NoInterrupt); a stick under 0.1 does not cut it", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a flat running jump holds Jump launch the whole flight and lands straight into the run", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.landing.hard",
+      "claim": "Jump land hard holds the mover 0.903 s (55 ticks) and gives way to the stick past NoInterrupt 0.35 of its phase (tick 20).",
+      "level": "reading",
+      "source": "FUN_00587c20; disc READERC.ZAR motion.rdr seal_land_hard playback 1, NoInterrupt 0.35",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "Jump land hard holds 55 ticks (0.903 s) and gives way to the stick past NoInterrupt 0.35: tick 20, not 19", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.landing.carry-decay",
+      "claim": "Through a landing clip the carried take-off velocity runs down by 150 a second each second: 2.5 a tick, 65 to 0 in 26 ticks.",
+      "level": "reading",
+      "source": "FUN_0054d9a0 D:L416501-416555",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "with the stick at rest a soft landing: seal_land_soft holds 38 ticks (0.632 s), the carried 65 running down 2.5 a tick", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.landing.classes",
+      "claim": "The landing's class is the contact speed against g sqrt(2 h / g) of FALLING_DAMAGE 62 / 91 / 120: 170.7, 206.8, 237.5; over 206.8 a hit clip by a coin, at 237.5 Land forward.",
+      "level": "reading",
+      "source": "FUN_005ac1f0 D:L464864-464968; FUN_005af590 D:L466641-466728",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "landingClass: sqrt(2 g h) of FALLING_DAMAGE_LIGHT/HEAVY/DEATH -- 170.7, 206.8, 237.5", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a fall past heavy plays a hit, one of two by the draw; past death Land forward, then (the viewer) gets up", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.landing.launch-covers-flight",
+      "claim": "A flat running jump lands inside Jump launch; Jump fall plays only on a walk-off or after the launch's 2.21 s, and a landing with no clip poses the run it left.",
+      "level": "reading",
+      "source": "FUN_005af930 D:L466729-467019; FUN_0057e130 / FUN_0057e050 D:L440716-440775; FUN_00589aa0",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a flat running jump holds Jump launch the whole flight and lands straight into the run", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a flight outlasting the launch gives way to Jump fall (FUN_0057e130 -> FUN_0057e050), then lands", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the one-shots hold playback x ((n-1)/n)^2: the jump 0.993, the landings 0.632 / 0.903, the transitions 0.603 / 0.846 / 0.945", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.action.turn-cuts",
+      "claim": "The turn axis (the turn over turn_maxrate) past 0.1 cuts an interruptible action as a move axis does.",
+      "level": "reading",
+      "source": "FUN_00550ef0 D:L418180-418190 (actor+0x23c)",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the turn axis past 0.1 (the turn over turn_maxrate) cuts an interruptible action as the stick does", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.stance.transitions",
+      "claim": "A stance change on the floor plays Stand -> Crouch (0.603 s), Crouch -> Prone (0.846 s) or Stand -> Prone (0.945 s), backwards to get up, holding the mover and never cut by the player's stick; between stand and crouch over 10 a second it runs straight on.",
+      "level": "reading",
+      "source": "FUN_005817d0 / FUN_00581c10 / FUN_00581540 D:L442170-442660; FUN_00587c20 (actions 17, 19, 25); disc READERC.ZAR motion.rdr playback",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a stance change on the floor plays its transition, holding the mover; moving over 10 it runs straight on", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a transition is never cut by the stick: the player cannot interrupt Stand -> Crouch", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the one-shots hold playback x ((n-1)/n)^2: the jump 0.993, the landings 0.632 / 0.903, the transitions 0.603 / 0.846 / 0.945", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.tables.action-clips",
+      "claim": "The one-shots the mover waits on carry motion.rdr's playback and NoInterrupt and MOTION_P.ZAR's key counts and root travel (seal_jump 1.1 s / 20 keys / 0.7, seal_land_hard 1 / 20 / 0.35, ...), pinned whole in test/golden/movement-clips.json.",
+      "level": "reading",
+      "source": "disc RUN/READERC.ZAR motion.rdr playback, NoInterrupt; disc RUN/MOTION_P.ZAR key count, skel_root",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "ACTION_CLIPS are the pinned playback, keys, root travel and NoInterrupt -- the three transitions' too (SEP-POP)", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "movement-clips.json is motion.rdr and MOTION_P.ZAR through motionTableFromArchive and clipsFromPack, whole", "data": "fixture" },
+        { "file": "packages/viewer/test/locomotion.test.ts", "name": "ACTION_CLIPS are motion.rdr's playback and NoInterrupt, and MOTION_P.ZAR's key counts and root travel", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.tables.holds",
+      "claim": "A throw, the claymore's placing and a still crouched or prone reload hold the mover until the stick or the turn passes 0.1 after the clip's NoInterrupt (the standing throw 0.49, the claymore 0.9 of 2.7 s); their table is pinned in test/golden/movement-clips.json.",
+      "level": "reading",
+      "source": "FUN_00550ef0 D:L418172-418246; FUN_00587c20; FUN_005802b0 D:L441900-441903; FUN_005a82e0 D:L462786-462930; disc READERC.ZAR motion.rdr, MOTION_P.ZAR",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "HOLD_CLIPS and SWAP_OVERLAY are the pinned playback, keys, NoInterrupt and root travel (research 80 section 6e)", "data": "none" },
+        { "file": "packages/viewer/test/moverHold.test.ts", "name": "a standing throw stops a run dead and holds it past the release, to NoInterrupt 0.49", "data": "none" },
+        { "file": "packages/viewer/test/moverHold.test.ts", "name": "placing the claymore holds for 0.9 of its 2.7 s, moving by its root alone", "data": "none" },
+        { "file": "packages/viewer/test/moverHold.test.ts", "name": "motion.rdr's playback and NoInterrupt, MOTION_P.ZAR's key counts and root travel; none a BlendOverlay or looped", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.tables.dynamics",
+      "claim": "The walk's dynamics.rdr fields are gravity 235, jump_factor 0.85, ground_touch_distance 8, max_slope 50, step_height 6.5, accel 2 / 5, turn_maxrate 2, pitch_rate 0.85, land_hard_fall_rate 115, falling damage 62 / 91 / 120, cam_peek_decay_rate 6, pinned in test/golden/movement-tuning.json.",
+      "level": "reading",
+      "source": "disc RUN/READERC.ZAR dynamics.rdr through @s2u/scene readSealTuning",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "SEAL_TUNING's walk, jump, look and camera fields are the pinned dynamics.rdr", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the jump's and the landing's table (physics.ts sealTuning, a second transcription the mover reads) is the same pinned dynamics.rdr", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "movement-tuning.json is dynamics.rdr through readSealTuning, field for field", "data": "fixture" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "movement-tuning.json against dynamics.rdr decoded here byte by byte, not through parseRdr or readSealTuning: each field as the file stores it (f32)", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.motion.clip-rates",
+      "claim": "A full run plays seal_run at 1.1265 its own rate and a full strafe seal_run_90r at 1.183, each root travelling at the band (65); a 0.3 side stick splits seal_rstrafe and seal_rstrafe_fast, both at 19.5.",
+      "level": "reading",
+      "source": "FUN_0058bdf0 D:L447743-447913; FUN_00583030; disc MOTION_P.ZAR skel_root travel; research 25's traced node +0x24 1.1265 (recomp)",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "on the pinned roots the full run plays seal_run at 1.1265 and the full strafe seal_run_90r at 1.1827, each root at its band", "data": "none" },
+        { "file": "packages/viewer/test/locomotion.test.ts", "name": "on the disc: full ahead seal_run at 1.126 (research 25 traced 1.1265); full aside seal_run_90r, its root at 65", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.motion.one-shot-time",
+      "claim": "A one-shot plays its keys 0 to n - 1 in playback x ((n - 1) / n)^2 seconds.",
+      "level": "reading",
+      "source": "FUN_0028c4f0 D:L134223-134280; FUN_0028ada0",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the one-shots hold playback x ((n-1)/n)^2: the jump 0.993, the landings 0.632 / 0.903, the transitions 0.603 / 0.846 / 0.945", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the one-shots the mover waits on are motion.rdr's playback over their keys (FUN_0028c4f0)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.motion.standing-jump-root",
+      "claim": "seal_jump's root rises from 10.508 to 15.078 at key 12, 0.627 s into the play, so the camera's target tops at 25.078 over the feet.",
+      "level": "reading",
+      "source": "disc MOTION_P.ZAR seal_jump skel_root; FUN_0028c4f0; FUN_0029a950 D:L142412-142562",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "seal_jump's root tops at 15.078 on key 12, 0.627 s into the play; the camera's target then 25.078 over the feet", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "the body's posed root is taken as it stands (FUN_0029a950 reads the posed skel_root): the jump's 15.08 at once", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.stance.roots",
+      "claim": "The skeleton root stands 11.484 over the feet standing and 5.504 crouched (seal_stand's and seal_crouch's key 0; the console dump), so the camera's target is 21.484 and 15.378; a full run lowers it to seal_run's 10.305 + 10 = 20.305.",
+      "level": "reading",
+      "source": "capture logs/parity/spawn_pcsx2.rdram skel_root; disc MOTION_P.ZAR seal_stand / seal_crouch / seal_run skel_root",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the idle roots: STANCE stands on seal_stand's 11.484 and seal_crouch's 5.504; a run lowers the camera's target to 20.305", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the root height: standing 11.484 and crouched 5.504 as the dump has them; prone at the camera ramp's floor", "data": "none" },
+        { "file": "packages/viewer/test/locomotion.test.ts", "name": "ROOT_HEIGHT is skel_root's y at key 0 of MOTION_P.ZAR's seal_stand, seal_crouch, seal_prone (FUN_0057e770 L440983)", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.stance.prone-root",
+      "claim": "Prone the camera stands on seal_prone's root, 2.168 (555/256) over the feet (target 7.668), posed or not: the mover's own STANCE.prone.rootY, which the page uses before the clips arrive and the match server's shot cone always uses, is PRONE_ROOT, the same root.",
+      "level": "reading",
+      "source": "disc MOTION_P.ZAR seal_prone skel_root key 0; FUN_0029a950 D:L142412-142562",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "with no posed root the prone camera stands on seal_prone's 2.168 (research 180 s1.2; was the drift of research 88 section 4 item 3)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the prone root is seal_prone's 2.16796875 (555/256) and the camera fallback's prone target 2.168 + ramp (research 180 s1.2)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.pad-law",
+      "claim": "The right stick is 0.3 dead per axis, rescaled, x sqrt 2 below a full push, cubed at 0.65 and multiplied by the look gain 1.72: 1.118 at full push, reproducing research 22's measured axes 0.879 / 0.080 / 0.072.",
+      "level": "reading",
+      "source": "FUN_002da930 D:L179546-179765; FUN_002da200 D:L179235-179266; FUN_005966a0 D:L453771-453775; capture logs/parity/spawn_pcsx2.rdram pad block 0x84a13c",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "dead zone 0.3, curve 0.65 x v^3, ramp setting 0.75, gain 1.72: 1.118 at full push, 2.236 rad/s turn and 0.950 pitch", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "rx - 0x80 = +96 reads 0.879 and +-64 reads 0.080 / 0.072: the circle's sqrt 2 and the cube", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "every other divergence is one research 88 reports to its owner, and nothing unreported diverges", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.rates",
+      "claim": "At full push the turn is turn_maxrate 2 x 1.118 = 2.236 rad/s (128.1 degrees a second) and the pitch pitch_rate 0.85 x 1.118 = 0.950 rad/s (54.4).",
+      "level": "reading",
+      "source": "FUN_00551ec0 D:L418340 (DAT_0044c290); FUN_00594600 D:L452781-452958",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "dead zone 0.3, curve 0.65 x v^3, ramp setting 0.75, gain 1.72: 1.118 at full push, 2.236 rad/s turn and 0.950 pitch", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "full push: 0.65 x 1.72 = 1.118, 128.1 deg/s at turn_maxrate 2", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.ramp",
+      "claim": "A push grows by (dt + (1 - dt) x 0.13 x 0.25) / 1.25 = 0.0518 a game frame of 525/15734 s (1.553 a second) and reaches the full 0.65 on the 13th frame (0.42 s); a smaller push is taken at once. The port reads the pad every drawn frame and grows the ramp continuously at the 1.553 a second (full in 0.4185 s): MISSION R8, a known deviation the owner ruled 2026-10-04, held here so it stays visible (research 208 section 9). Owner-ruled (MISSION R8), so the tests pin the port's behaviour and there is no it.fails.",
+      "level": "drift",
+      "source": "FUN_002da930 D:L179722-179765, D:L179774-179776 (+0x2cc = 0.75); the frame: research 180 sections 0 and 1.1, research 208",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the ramp grows 0.0518 a game frame (525/15734 s) and reaches the full 0.65 on the 13th frame (0.43 s), not the 12th", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "grows by the step, falls at once, and a reversal starts from 0", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "the look law runs every drawn frame at the ramp's per-second equivalent (MISSION R8): the yaw is the frames' sum, full at 0.42 s", "data": "none" },
+        { "file": "packages/viewer/test/gameFrameHybrid.test.ts", "name": "a pad push turns the view on the next drawn frame, whatever the phase of the game frame", "data": "none" }
+      ],
+      "owed": "a capture of the look ramp per frame on the original (research 206 section 4); the frame itself is settled (research 208)"
+    },
+    {
+      "id": "movement.look.pitch-limits",
+      "claim": "The pitch moves to the aim limits -70 / 60 degrees standing and crouched (-20 / 25 prone) and not past; outside them it returns at 0.5 rad/s; alive it is held within +-1.4 rad; the rest pitch is init_aim_pitch -9.167.",
+      "level": "reading",
+      "source": "FUN_00594600 D:L452781-452958; disc READERC.ZAR dynamics.rdr max/min_aim_pitch, prone_max/min_aim_pitch, init_aim_pitch",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the pitch: aim limits -70..60 standing and crouched, -20..25 prone; back at 0.5 rad/s from outside; never past 1.4 rad", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "outside the limits (a stance change) it comes back at 0.5 rad/s, and a push outward does not move it", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "the pitch is the aim pitch: min/max_aim_pitch -70..60, prone -20..25 (FUN_00594600)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.throttle-off",
+      "claim": "turn/pitch_throttle_a/b 0.9 / 0.4 exist but the throttle is off on the console (DAT_0066b3e8 = 0).",
+      "level": "reading",
+      "source": "FUN_005966a0 D:L453779-453806; capture logs/parity/spawn_pcsx2.rdram",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.test.ts", "name": "the throttle (off on the console) is linear to (0.9, 0.4), then to (1, 1)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.scope",
+      "claim": "Scoped, the look is divided by the magnification (the M4A1's 1.5 and 2.5), the 9x view by 5 more (x 0.2).",
+      "level": "reading",
+      "source": "FUN_005966a0 D:L453807-453817 (FUN_005be660, DAT_00650638)",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the scope divides the look by its magnification, view mode 4 by 5 more (x 0.2); the move stick x 0.2 scoped", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "the zoom divides the look (the M4A1's 2.5x), and view mode 4 by 5 more", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.corner",
+      "claim": "A right stick in its corner (bytes 255, 0) reads (1, 1) and turns and pitches at 1.118 a side, not the rim's 0.622.",
+      "level": "reading",
+      "source": "FUN_002da200 on (1, 1)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "every other divergence is one research 88 reports to its owner, and nothing unreported diverges", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.byte176",
+      "claim": "Research 22 read the turn axis 0 at byte 176 on both runs; the model reads 0.005 (the single-byte edge of the dead zone).",
+      "level": "drift",
+      "source": "research 22 line 126 (recomp); FUN_002da930",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the right stick at byte 176 turns 0 after a 1 s hold, as research 22 read it on both runs [drift: the port 0.005]", "data": "none" }
+      ],
+      "owed": "held as it.fails (TA.R6; research 88 line 201); feelParity.test.ts lists look.axis176 as REPORTED. Which side is right at the dead zone's single-byte edge is the owner's: a console read of byte 176 would settle it"
+    },
+    {
+      "id": "movement.look.shake",
+      "claim": "The explosion shake presets by distance (within 100: x 60/30/4/1000, y 55/15/4/1150; within 200: 20/10/2/2000, 10/5/2/2000; within 600: 6/1/2/2000, 6/0.5/2/250) and the machine guns' per-round 1/1/1/1600, 1/1/1/2400.",
+      "level": "reading",
+      "source": "FUN_002994e0 D:L141795-141848; the camera's constructor D:L142906-142929; FUN_00550ef0 D:L418098-418110; disc ZWEAPON.ZAR zweapon.rdr ScreenShake",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the shake presets by distance (FUN_002994e0; the camera's constructor 142906-142929) and the machine guns' per round", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "starts centred, swings at its rate, falls by decr a game frame (525/15734 s) and ends", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "a 60 Hz page frame falls by half a game frame's decr: dt / GAME_FRAME_DT frames, not dt x 60", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.bob",
+      "claim": "In first person the view bobs 6 x cos(phase) PS2 pixels with the phase at 15 rad/s x the push (prone 4 at 8).",
+      "level": "reading",
+      "source": "FUN_005966a0 D:L453823-453849; disc READERC.ZAR dynamics.rdr BOBBING_FIRSTPERSON",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.test.ts", "name": "moving, 6 x cos(phase) pixels, the phase at 15 rad/s x the push; still, 0; prone, 4 at 8", "data": "none" },
+        { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "SEAL_TUNING's walk, jump, look and camera fields are the pinned dynamics.rdr", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.bank-and-cone",
+      "claim": "The run banks the spine 3.1 degrees into a full turn at 65 (-0.000375 x turn x speed); the aim cone is max_aim_yaw 85 standing, 45 prone.",
+      "level": "reading",
+      "source": "FUN_0057a330 D:L439197-439204; FUN_005df600 D:L493960-494010",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.test.ts", "name": "the run's bank: 3.1 deg into a full turn at 65", "data": "none" },
+        { "file": "packages/viewer/test/look.test.ts", "name": "the aim cone: 85 deg standing, 45 prone; the aim pitch limits", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.look.turn-in-place",
+      "claim": "Turning in place plays Step standing (seal_step), Crouch step crouched and the Prone turn prone, at |turn / turn_maxrate| x 0.6 / 0.3 / 0.35, backwards turning left.",
+      "level": "reading",
+      "source": "FUN_00586570 -> FUN_00586050; FUN_00584c60; FUN_005845c0; FUN_00583960 D:L443497-443545",
+      "note": "docs/research/80-the-jump.md",
+      "tests": [
+        { "file": "packages/viewer/test/animator.test.ts", "name": "the step's speed: |turn / turn_maxrate| x the stance's share, capped; backwards turning left", "data": "none" },
+        { "file": "packages/viewer/test/animator.test.ts", "name": "standing still and turning plays seal_step, crouched seal_crouch_step, prone seal_prone_turn, at that speed", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.camera.spawn",
+      "claim": "At the crouched spawn at the rest pitch the eye stands 19.603 over and 24.906 behind the feet, the target 15.378 over and 1.275 ahead, the eye before the pass 19.483 / 24.166, the pass's distance 26.519.",
+      "level": "proven",
+      "source": "capture probe_pcsx2.txt line 2 and logs/parity/spawn_pcsx2.rdram (cam+0xd8, cam+0x2c, DAT_003de268); FUN_0029a950",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "crouched at the rest pitch it is the console's smoothed eye: 19.603 up and 24.906 behind (cam+0xd8)", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "with the console's crouched spawn geometry it is the console's local eye (0, 19.483, 24.166) exactly: the pitch shortens it, not the pass", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.camera.standing",
+      "claim": "Standing at the rest pitch the eye is 25.709 over and 24.906 behind the feet, with no tether: the same 24.906 through a run and a turn in place.",
+      "level": "reading",
+      "source": "FUN_0029a950 D:L142412-142562; FUN_00297410 (W2.1)",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "standing at the rest pitch: 25.709 up, 24.906 behind", "data": "none" },
+        { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "standing at A facing +z (along research 24's route), the eye is 25.709 over the floor and 24.906 behind, unobstructed", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.camera.geometry",
+      "claim": "The goal is 28 behind the target at a level pitch, a vertical look closes to 14, the lead is -8 n.y looking down and -3 up; the ramp is 10 with no root, 5.5 at 2.169155, 10 from 5.6.",
+      "level": "reading",
+      "source": "FUN_0029a950 D:L142412-142562 (fStack_8 + 28.0, 14.0, DAT_003de278 / DAT_003de288)",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the goal 28 behind, a vertical look closing to 14, the pass 0.75 off a hit; the lead -8 down, -3 up, a probe under -5", "data": "none" },
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the ramp: 10 with no root, 5.5 at the prone floor 2.169155, 10 from 5.6; the target 21.484 standing, 15.378 crouched", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "the ramp at rootY 5.504, 5.6, 2.169 and 0 is 9.874, 10.0, 5.5 and 10.0 (the no-root fallback)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.camera.pass",
+      "claim": "The pass pulls the eye in to 0.75 short of a hit, holds the distance 1.5 s after the last hit, then lets it out 3 % of the gap a game frame of 525/15734 s (a time constant of 1.09 s).",
+      "level": "reading",
+      "source": "FUN_0029bf70 (cam+0x4c = 0x3fc00000, DAT_003de270 = 0.03, once a game frame: research 180 section 0 item 2, U2; research 208)",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "holds the pulled-in distance 1.5 s after the last hit, then lets it out at 3 % a game frame", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "lets out 3 % of the gap a game frame of 525/15734 s, not a 60 Hz tick: a time constant of 1.09 s (research 180 U2)", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "a wall 10 behind the actor pulls the eye in to 0.75 short of it, never through", "data": "none" },
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "after a hit the pulled-in distance holds 1.5 s, then lets out 3 % of the gap a game frame", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.camera.fov",
+      "claim": "The console projects 70 by 49 degrees; the PS2 presentation matches, the native one keeps the vertical 49 and widens with the window (78 at 16:9).",
+      "level": "proven",
+      "source": "capture cam_pcsx2_mission.txt line 8",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/look.parity.test.ts", "name": "the map camera half-angles 0.6109 by 0.4276; the fly camera projects 49 degrees vertical, and 70 horizontal at the PS2 aspect", "data": "none" }
+      ],
+      "owed": "the native horizontal angle (78 at 16:9) is a presentation proposal for the owner (research 88 section 2 item 5); the test above drives the viewer's FlyCamera projection at the PS2 aspect, the 16:9 row stays REPORTED in feelParity.test.ts"
+    },
+    {
+      "id": "movement.camera.root-rate",
+      "claim": "With no posed root on hand the camera's root moves to a new stance's at the stand-crouch span over seal_stand2crouch as played, (11.484 - 5.504) / 0.603 = 9.92 a second (ROOT_RATE_READING, a fallback with no original counterpart).",
+      "level": "reading",
+      "source": "disc READERC.ZAR motion.rdr seal_stand2crouch playback 0.65, MOTION_P.ZAR 27 keys; with the clips FUN_0029a950 reads the posed root (research 180 s1.10)",
+      "note": "docs/research/83-look-and-aim.md",
+      "tests": [
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "with no posed root a stance change moves the root over seal_stand2crouch's 0.603 s, not in one frame (research 180 s1.10)", "data": "none" }
+      ],
+      "owed": "a fallback with no original counterpart (the original reads the posed root), held by the ledger; research 180 s1.10's 0.900 s leaves out the playback"
+    },
+    {
+      "id": "movement.climb.height-table",
+      "claim": "The climb by height: <= 5 nothing, to 10 Step up, to 12 Climb crate, to 26.5 the crate/medium blend, to 28 Climb medium, to 32 Stand -> Hang, over 32 nothing; appflags 4 only for 5 < h <= 32, appflags 5 always Climb over.",
+      "level": "reading",
+      "source": "FUN_00580b70 D:L442174 (literals); FUN_005b3ce0 D:L469259-469276",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "<= 5 nothing; to 10 Step up; to 12 Climb crate; to 26.5 the crate/medium blend; to 28 Climb medium; to 32 the hang; over 32 nothing", "data": "none" },
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "appflags 4 (a crate) climbs only for 5 < h <= 32; appflags 5 always climbs over; 1, 3, 4 and 5 are the climbable ones", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "picks the clip by the height (FUN_00580b70): step, crate, medium, hang; nothing over 32 or on a plain wall", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.climb.blend",
+      "claim": "Between 12 and 26.5 the crate and the medium play as one play, the crate at 1 - (h - 12) / 14.5.",
+      "level": "reading",
+      "source": "FUN_00581110 D:L442306-442340",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "the blend weighs the crate 1 - (h - 12) / 14.5 (FUN_00581110): 0.586 at 18, 0.5 at 19.25", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "plays the crate and the medium as one play between 12 and 26.5, the crate at 1 - (h - 12) / 14.5", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.climb.step-up-automatic",
+      "claim": "A crate (appflags 4) 5 < h <= 10 is stepped onto with no press.",
+      "level": "reading",
+      "source": "FUN_005b3ce0 D:L469259-469276",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "steps onto a low crate with no press (appflags 4, 5 < h <= 10)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.climb.foot-offset",
+      "claim": "The climb's height adds the contact material's FOOT_STEP_OFFSET: -0.8 on grass, broken glass, leaves, ice, snow and gravel (hull materials 4, 14-18), else 0.",
+      "level": "reading",
+      "source": "the material parser D:L181399-181401; FUN_002deb30",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "the contact polygon's FOOT_STEP_OFFSET: -0.8 on materials 4 and 14-18 (grass, broken glass, leaves, ice, snow, gravel), else 0", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "adds the contact material's FOOT_STEP_OFFSET to the height: 12.5 of grass is an 11.7 crate climb, not a blend", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.climb.contact-facing",
+      "claim": "A climb is offered only on a contact kept within 24 across the ground and with the body facing the wall's normal at 0.3 or more (about 72.5 degrees): backing or strafing into a box offers nothing.",
+      "level": "reading",
+      "source": "FUN_005b3890 D:L468959-469000; FUN_005b3ce0 D:L469208-469218; FUN_005b2620",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "the contact is kept within 24 across the ground (576 = 24^2) and wants a facing of 0.3 (FUN_005b3890, 469208)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "does not climb prone, or facing away", "data": "none" },
+        { "file": "packages/viewer/test/climbFacing.test.ts", "name": "(b) walking backwards into it and (c) strafing into it: nothing is offered (the facing test, >= 0.3; 469213-469218)", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.climb.contact-from-hits",
+      "claim": "The climb's contact is the move's best wall hit met from its front (normal y at or under 0.6428, not VOLUMETRIC or LIQUID), climbable or not, and a plain wall's contact offers nothing; a climbable one is cleared when another hit of the move, on another polygon, turns its horizontal normal more than acos 0.9 (about 25.8 degrees) from it, so an inside corner offers nothing.",
+      "level": "reading",
+      "source": "FUN_005483d0 D:L413426-413457, D:L413823-413866, D:L413867-413901 (the literal 0.9 at D:L413894, the polygon word at D:L413884); FUN_005b0d30 D:L467394-467420; FUN_005b3ce0 D:L469131-469132",
+      "note": "docs/research/281-mp6-scaffold.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C1: a crate face met, then a coplanar plain wall met on a later move -- the plain wall is the contact, no climb offered (RED: the crate kept)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: an inside corner of two crate faces -- turned 20 degrees the climb is offered, 30 and 90 nothing (the 0.9; RED: 90 and 30 offered)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: a crate's outside corner walked into on its edge offers the climb (CORNER_HITS_READING 'span'; with 'any', nothing)", "data": "none" },
+        { "file": "packages/viewer/test/climbFacing.test.ts", "name": "(e2) PAR-21a C2: held in the inside corner with prop01, both faces met, nothing is offered (RED before C2: offered)", "data": "fixture" },
+        { "file": "packages/viewer/test/parity/mp6Scaffold.parity.test.ts", "name": "(c) from under the deck, facing +z, nothing is offered: held 3.5 off noclimb_invis, the walk meets only noclimb_invis (appflags 0), its contact, which offers nothing", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.climb.steer",
+      "claim": "The climb's clip runs from the press with the one-shot steer folded into it (no align before it): each tick the steer closes sqrt(ease(phase)) of the offset between the body and the clip's track from the aligned start, the vertical kept, and turns the body toward the face at most 2 pi rad/s times the sine -- the mount's law (SeatSteer). Was (NU-1c, 2026-10-17): the looped branch's align, 30 a second an axis, 4.712 rad/s, 46 ticks, before the clip.",
+      "level": "reading",
+      "source": "FUN_005b3340 D:L468759-468954 (the one-shot branch of FUN_0057a330, D:L439017-439020); FUN_005b1a10 D:L467857-467941; FUN_0054d9a0 D:L416455 (the play's velocity added to the root's)",
+      "note": "docs/research/313-the-climb-check.md",
+      "tests": [
+        { "file": "packages/viewer/test/climbFacing.test.ts", "name": "a 12 crate (appflags 4) walked into after two turns to the left (yaw 700): turned 20 degrees through the clip, not spun, faced at its end", "data": "none" },
+        { "file": "packages/viewer/test/climbFacing.test.ts", "name": "shortTurn: the signed short way in [-180, 180), for any winding of either yaw", "data": "none" },
+        { "file": "packages/viewer/test/traversalBody.test.ts", "name": "one clip puts its hands on the ledge alike at any height: the steer lifts or lowers the body, the clip is not stretched to it", "data": "fixture" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the clip is pushed on the press's command and advances on the next: no align before it (RED before B10: 'climbAlign', key 0)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "head on: the body is the clip's own track less the offset to the aligned start, closed by steerWeight each tick", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "from 60 degrees off: the turn is seatTurn each tick of the clip, never closing on its own; the track's steps taken along the turned body", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the vertical kept: a ledge 1 higher draws the body 1 x (1 - prod(1 - k)) higher, the same eased closure (was: 30 a second)", "data": "none" }
+      ],
+      "owed": "A PINE trace of actor+0x1c..+0x24, the rotation and the play's +0x1c from the release through a crate climb at a 60-degree approach (research 313 section 8.2, CLIMB_STEER_READING). Was (2026-10-10): none for the unit test, the ALIGN_* constants pinned per tick and the 46-tick cap"
+    },
+    {
+      "id": "movement.climb.obstacle-ray",
+      "claim": "At the contact's top + 0.5 (cast under the feet + 21.1) a level ray 1.1 past the contact meets a steep wall, and the original STORES its nearest hit as the contact when it is on another collider (FUN_005b0d30 at D:L416793). The port uses the ray's wall for that tick's offer only and keeps its stored contact: a named departure (PAR-21a, research 281 section 4.1; under C1 a stored plain wall behind a ledge would end a still body's offer, the port's still body casting nothing), closed with C3's segment records (PAR-21, WALL_PROBE_READING). The port also looks past a rejected hit where the original takes the nearest only (research 86 section 3.3).",
+      "level": "drift",
+      "source": "FUN_0054e430 D:L416696-416797 (the store D:L416793, its gate D:L416792); FUN_005b3ce0 D:L469246",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the obstacle ray (FUN_0054e430): a plain wall standing at the ledge's top serves that tick's offer, and no climb plan is made", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the obstacle ray stores its wall as the contact: after a tick at the ledge the stored contact is the wall behind it, as FUN_0054e430 stores it (D:L416793) [drift: the port keeps the crate's face]", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the obstacle ray refuses a VOLUMETRIC face at the ledge's top (a BUSH_VOL wall): the crate's climb is offered (RED on |n_y| and water only: no plan)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the obstacle ray admits a downward face behind the ledge at normal y -0.68 (signed against max_slope): no climb plan (RED on |n_y|: the crate offered)", "data": "none" }
+      ],
+      "owed": "held as it.fails (TA.R6; research 281 line 188, the departure item at lines 188-210; research 86 line 294); closes with C3's segment records (PAR-21, WALL_PROBE_READING), research 281 §4.1"
+    },
+    {
+      "id": "movement.climb.jump-grab",
+      "claim": "The climb's height is measured from the airborne feet, so a running jump brings a 36 ledge into the table's 32 while the contact holds.",
+      "level": "reading",
+      "source": "FUN_00593500 D:L452227; FUN_005b3ce0",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the jump-grab: a 36 ledge is out of reach from the floor, and in reach at the top of a jump", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "the jump-grab off the walk own running jump (79.9 up, research 80): a 36 ledge climbed from the air", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.climb.hang",
+      "claim": "Hanging, the stick at rest holds with no timer, ahead climbs (Hang -> Climb), back or aside lets go (Hang jump down: the clip's root for its first 0.2, then the fall); the jump and a crouch let go, a stand climbs.",
+      "level": "reading",
+      "source": "FUN_00584390 D:L443780-443830; FUN_00581ed0 D:L442695-442732; FUN_0059afd0 D:L456390-456395",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "holds with the stick at rest, and lets go on the stick back: the push off the wall, then the walk's fall", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "lets go on the jump and on a crouch; climbs on a stand", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "hangs from a 30-high ledge, and the stick ahead pulls up onto it", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.traversal.fallback-shapes",
+      "claim": "Before the pack arrives the moves use stand-in shapes from research 86 section 1's table: seal_hang2climbup rises 22.59 and goes 5.24 ahead (MOTION_P.ZAR: 22.590, 5.238), where traversal.ts's FALLBACK carries 22.56 and 5.1.",
+      "level": "drift",
+      "source": "disc MOTION_P.ZAR seal_hang2climbup skel_root",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "drift: the hang's pull-up stand-in rises 22.59 and goes 5.24 ahead, as the table has seal_hang2climbup", "data": "none" },
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "the climbs' stand-ins carry the table's keys, seconds, root, rise and travel: crate, medium, step up, hang, over", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.traversal.clip-names",
+      "claim": "The traversal moves play MOTION_P.ZAR's clips by name; the step while leaning is seal_llean_rstep (and the pistol's seal_p_rlean_rstep), but TRAVERSAL_CLIP.rleanStep names seal_rlean_rstep, which the disc does not hold.",
+      "level": "drift",
+      "source": "disc MOTION_P.ZAR member names",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "every TRAVERSAL_CLIP but the right lean's step is a clip in MOTION_P.ZAR", "data": "fixture" },
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "drift: TRAVERSAL_CLIP.rleanStep (seal_rlean_rstep) is a clip in MOTION_P.ZAR", "data": "fixture" }
+      ],
+      "owed": "both tests need MOTION_P.ZAR (fixture tier): a unit pin of the name list would only restate the source"
+    },
+    {
+      "id": "movement.ladder.climb",
+      "claim": "Walking into a ladder facing it mounts it (the root at 15.6 over the feet), the climb runs at 0.135 x the loop-rate K 1.7778 of the clip -- 13.5 units a second at a full stick (research 206 section 2, PF-38), a rung every 5 -- with the rungs 5.565 ahead of the root, and the slide falls at 0.8 g.",
+      "level": "reading",
+      "source": "FUN_005b4b40 D:L469562; FUN_005b1c80 D:L468183 (0x4179999a); FUN_00584240 D:L443742; FUN_0059b440 D:L456492; disc READERC.ZAR motion.rdr seal_climbladder",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "mounts with the root 15.6 over the feet, climbs at 0.135 x K 1.7778 of the clip: 13.5 a second at a full stick; the rungs 5.565 ahead", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "walking into the ladder facing it mounts it, climbs at 13.5 a second, and climbs off onto the deck", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "climbs back down and steps off at the foot, and the action button slides down at 0.8 g", "data": "none" }
+      ],
+      "owed": "13.5 is derived from the parser's fields and K, not measured (W2.2c on the console)"
+    },
+    {
+      "id": "movement.ladder.mount-gates",
+      "claim": "A ladder is mounted only in front of it (0.3) and facing into the quad (0.02), within 24 across the ground; from the deck by backing onto the head's short quad.",
+      "level": "reading",
+      "source": "FUN_005b4b40 D:L469562; FUN_005b3890 D:L469000",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "does not mount a ladder walked past, faced away from, or approached from behind", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "mounts from the deck by backing onto the head's short quad, and climbs down to the ground", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.ladder.head",
+      "claim": "A top mount facing away plays seal_180 (0.883 s) with the yaw turned by code; with the action held in the reversed climb-off's last 0.2 the SEAL slides from the head.",
+      "level": "reading",
+      "source": "D:L468210-468256; FUN_005b1890 D:L467818; FUN_00582540 D:L442907-442978",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "turns with \"180\" (0.883 s, by code) before the reversed climb-off when the SEAL faces the ladder from the deck", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "slides from the head with the action held in the reversed climb-off's last 0.2 (FUN_00582540)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.ladder.census",
+      "claim": "MP2 has five ladders (the sniper ladder at 547.5, 854.4 from 100 to 160 among them), each climbed from the side away from its deck; 38 ladders on 14 maps.",
+      "level": "reading",
+      "source": "disc RUN/MP2.ZDB worldCollision appflags 2 (findLadders)",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "finds the five ladders research 86 section 2.2 lists, each climbed from the side away from its deck", "data": "fixture" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "climbs the sniper ladder at (547.5, 854.4) from the 100 floor to the 160 deck with the disc's clips", "data": "fixture" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "finds a ladder by its appflags 2, its span and cap, and the side it is climbed from", "data": "none" },
+        { "file": "packages/viewer/test/ladderCensus.parity.test.ts", "name": "pins the five ladders of research 86 section 2.2, the spans traversal.test.ts asserts, each sided with a unit normal", "data": "none" },
+        { "file": "packages/viewer/test/ladderCensus.parity.test.ts", "name": "findLadders over RUN/MP2.ZDB's world collision finds the pinned ladders, in order, to 1e-4", "data": "fixture" }
+      ],
+      "owed": "MP2's five ladders are pinned (golden/mp2-ladders.json); the 38 ladders on 14 maps are held by no test: a census pin over every map needs public/maps on the generating host"
+    },
+    {
+      "id": "movement.peek.camera",
+      "claim": "The peek eases at cam_peek_decay_rate 6 and shifts the target 2.5 left and 2.8 right (3.3 / 4.35 in the eye camera), the aim kept parallel to the facing.",
+      "level": "reading",
+      "source": "FUN_002998f0 D:L141962-141976; FUN_0029a950 D:L142476-142484; FUN_0029ae50 D:L142613-142617; FUN_00297410 D:L140987-141028",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.parity.test.ts", "name": "the target shifts 2.5 to the left and 2.8 to the right (FUN_0029a950); the eye camera 3.3 and 4.35 (FUN_0029ae50)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "eases the camera peek to the side at cam_peek_decay_rate 6, holds the lean clip, and holds the mover still", "data": "none" },
+        { "file": "packages/viewer/test/playerCamera.test.ts", "name": "a held right peek aims straight ahead: far = targetL + rotate(pitch, (0, 0, -1000)), the shift 2.8 across", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.peek.gates",
+      "claim": "The peek is the d-pad held, refused on the move, into a wall within the side ray (9.5 right, 7.8375 left), through a jump or landing clip and a kit hold; no locomotion while it holds.",
+      "level": "reading",
+      "source": "FUN_00594cf0 D:L453431-453457; FUN_00596d60; FUN_005b4340 D:L469321-469353; FUN_005870e0 D:L445166-445175",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "does not start a peek on the move, or into a wall within the side ray (9.5 right, 7.8375 left)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "a kit hold refuses the peek until it ends (review 2, M-1)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "a jump pressed during a held peek is refused, not frozen: the lean clip is a one-shot on top (FUN_0057e1b0; review 4)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.peek.stance-press",
+      "claim": "A stance press under a held peek ends the peek and plays no transition, the stance unchanged (the three presses pop the stack and none has a case for state 3); with the d-pad still held the peek comes back the next tick, from the lean clip's held key in the port.",
+      "level": "reading",
+      "source": "FUN_00581660 D:L442436-442477; FUN_005817d0 D:L442479-442524; FUN_00581c10 D:L442605-442648; FUN_005b4340 (research 180 s1.12)",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "a stance press during a held peek ends the peek and plays no transition, the stance unchanged (FUN_00581660 D:L442436-442477, FUN_005817d0, FUN_00581c10: no case for state 3); with the d-pad still held the next tick peeks again from the held key (PEEK_REPUSH_KEY_READING)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "a stick held through a stance press under a peek does not move the SEAL on the press's tick, and the held lean peeks again the next (PEEK_REPUSH_KEY_READING)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "two stance presses in one tick under a held peek are both the peek's: no transition, the stance kept, as the room takes the one press its command carries", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "stance press under a peek: the page and the room agree (peek ended, stance kept)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "stance press under a peek: the page and the room agree (peek ended, stance kept)", "data": "none" }
+      ],
+      "owed": "a PINE capture of a prone press with the d-pad peek held (actor+0x174, +0x375, actor+0x534 per frame): whether the original's re-push replays the lean's rise (PEEK_REPUSH_KEY_READING, research 180 s1.12)"
+    },
+    {
+      "id": "movement.peek.still-reload-over",
+      "claim": "A still reload taken mid-peek is accepted (no posture-3 refusal) and plays over the lean: FUN_005a82e0 pops to the base only when +0x174 equals FUN_0057dc20's first non-3 posture, never in state 3, and pushes the reload in posture 3; the peek continues, as the lean's toss does.",
+      "level": "reading",
+      "source": "FUN_005a82e0 D:L462925-462928; FUN_0057dc20 D:L440540; FUN_005b4340 D:L469305-469520 (research 201 s10; research 180 s1.13 retracted)",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "a still reload taken mid-peek plays over the lean: the peek continues, state 3 kept (D:L462925-462928: cVar7 is never 3)", "data": "none" }
+      ],
+      "owed": "a capture of R pressed mid-peek, crouched (+0x174 and the top anim id per frame); a read of whether FUN_00588bc0's mapped-type pops (D:L446070-446240) catch a reload's type"
+    },
+    {
+      "id": "movement.peek.room-order",
+      "claim": "The player update reads the lean after the stance (D:L453431-453458 after D:L453331-453430): a stance and a lean on one command end the peek before the lean is read, on the room and the page alike.",
+      "level": "reading",
+      "source": "FUN_00594cf0 D:L453208-453458 (research 211 s2)",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/moverSim.test.ts", "name": "the room's press order is the jump, the Action, the swap, the zoom, the stance, then the lean (D:L453208-453458): a stance and a lean on one command end the peek before the lean is read", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "lean after stance in one tick: the page and the room agree (lean next tick)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "lean after stance in one tick: the page and the room agree (lean next tick)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.water.wade",
+      "claim": "In water the SEAL walks on the bed, the stick at clamp(1 - 0.05 x depth, 0.75, 1); prone only to 2 deep (a deeper prone press crouches), crouched to 8.5 (deeper stands).",
+      "level": "reading",
+      "source": "FUN_005b56c0 D:L469966-469975; FUN_00581660 D:L442436-442448; FUN_00581990 D:L442553; disc READERC.ZAR dynamics.rdr water_factor_slope, min_water_factor",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "wades on the bed, the stick at clamp(1 - 0.05 depth, 0.75, 1), and stands the SEAL up in deep water", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "over 2 deep, a prone press crouches -- no prone clip, no root motion -- from crouch it changes nothing", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "over 8.5 deep, a prone or a crouch press stands (FUN_00581990 -> FUN_00581c10); 2 deep or less, prone as ever", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.water.slope-stick",
+      "claim": "Going uphill each stick axis is multiplied by 1 - d^2 (d the floor normal against the axis), 1 downhill or across.",
+      "level": "reading",
+      "source": "FUN_005b56c0 D:L469966-470138",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "slows each axis going uphill by 1 - d^2 (FUN_005b56c0), not downhill or across", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.dive",
+      "claim": "The full stance press dives from 30 a second or more: the run kept, a 0.2 s hold, the root falling at gravity to the prone's 2.2, the speed bled at 150 a second each second.",
+      "level": "reading",
+      "source": "FUN_00584b00 D:L443977-444010; FUN_0057e540 D:L440870-440920; FUN_0059b870 D:L456585-456600",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "dives from a run into prone: the run kept, the root down at gravity after 0.2 s, the speed bled at 150", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "is refused walking (under 30 a second), prone, or in water over 2 deep", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.stance.headroom",
+      "claim": "The headroom ray runs from the hips + 2 straight up to the feet + 19 to stand (12 from prone to crouch); standing from a crouch or prone, and the crouch's run, need it clear; both ends stand its foot on the stance's idle hips (7.504 crouched, 4.168 prone).",
+      "level": "reading",
+      "source": "FUN_0057efe0 D:L441190-441245; FUN_00552ec0 D:L418995-419013; the hips node actor+0x304, CZSealBody ctor D:L419618-419619",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the crouch at full stick (>= 0.838) with 19 units of headroom stands and runs the standing blend (FUN_0057efe0, FUN_00583030)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a 10-unit roof over a crouched SEAL refuses the stand: the ray from the idle hips + 2 (7.504) to the feet + 19 meets it (FUN_0057efe0 D:L441190-441245; HEADROOM_HIPS_READING)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "stand under a 10 roof crouched: the page and the room agree (refused)", "data": "none" }
+      ],
+      "owed": "the foot is the posed hips in the original (11.33 crouch-walking): HEADROOM_HIPS_READING 'idle' is owed a capture, a crouch-run under a 12-unit lintel (research 217 section 1.2)"
+    },
+    {
+      "id": "movement.stance.crouch-gate",
+      "claim": "Crouch from stand or prone is refused by an obstacle within the firepoint's horizontal reach x 1.2 ahead (from prone the reach + 0.5) or 7.0 behind, at the feet + step_height x 1.2 (7.8).",
+      "level": "reading",
+      "source": "FUN_00552ec0 D:L418952-418966; FUN_0054d620 D:L416194-416363; actor+0x14b0 by FUN_005df930 D:L493889",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "crouch from stand is refused by an obstacle inside FUN_0054d620(|v| x 1.2, 7.0, 7.8); from prone the ahead reach is |v| + 0.5 (FUN_00552ec0 D:L418914-419025)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "crouch into a 7.8-high slot: the page and the room agree (refused)", "data": "none" }
+      ],
+      "owed": "the reach (CROUCH_GATE_REACH_READING 9.03 standing, 14.59 prone) is measured on the port's pose, owed an RDRAM read of actor+0x14b0; the segments are level (research 217 section 1.3)"
+    },
+    {
+      "id": "movement.stance.prone-to-crouch-headroom",
+      "claim": "Prone to crouch needs the headroom ray clear to the feet + 12 (mode 1), not 19: a SEAL under a 16 roof comes up to a crouch and not to a stand.",
+      "level": "reading",
+      "source": "FUN_00552ec0 D:L418978-418991; FUN_0057efe0 D:L441208-441215",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a 16-unit roof over a prone SEAL allows prone -> crouch (the ray 4.168 to the feet + 12 is clear) and refuses the stand (to 19)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "prone to crouch under 16: the page and the room agree (taken)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.stance.dive-ungated",
+      "claim": "The full press's dive asks no stance gate: FUN_00594cf0 starts FUN_0057e540 itself, so an obstacle 11.2 ahead refuses a still prone press, not a running dive.",
+      "level": "reading",
+      "source": "FUN_00594cf0 D:L453380-453392; FUN_0057e540 D:L440868-440927; FUN_00552d60 D:L418867-418912",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the dive into prone asks no gate: the press dives (FUN_00594cf0 D:L453386-453390 -> FUN_0057e540) before FUN_00552ec0 runs, so 11.2 ahead blocked still dives; a still press there is refused", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.stance.room-mirrors-gates",
+      "claim": "The room refuses the stance changes the page refuses, by the same rows of the shared gate table: one mover (Walker through MoverSim) on both ends.",
+      "level": "reading",
+      "source": "FUN_00552ec0 D:L418914-419025; ruling PF.R35",
+      "note": "docs/research/217-the-body-as-built.md",
+      "tests": [
+        { "file": "packages/central/test/roomGates.test.ts", "name": "prone refused 11.2 ahead: the page and the room agree (refused)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "stand under a 10 roof crouched: the page and the room agree (refused)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "prone to crouch under 16: the page and the room agree (taken)", "data": "none" },
+        { "file": "packages/central/test/roomGates.test.ts", "name": "crouch into a 7.8-high slot: the page and the room agree (refused)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "prone refused 11.2 ahead: the page and the room agree (refused)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "stand under a 10 roof crouched: the page and the room agree (refused)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "prone to crouch under 16: the page and the room agree (taken)", "data": "none" },
+        { "file": "packages/viewer/test/bodyGates.test.ts", "name": "crouch into a 7.8-high slot: the page and the room agree (refused)", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.yaw.short-turn",
+      "claim": "The game's facing is a rotation with no winding: every turn between two yaws is the short one, in [-180, 180).",
+      "level": "reading",
+      "source": "FUN_005b2d20 D:L468637-468680",
+      "note": "docs/research/86-traversal.md",
+      "tests": [
+        { "file": "packages/viewer/test/yawWinding.test.ts", "name": "shortTurn: FUN_005b2d20's short way, signed, in [-180, 180); where the old wrap failed it holds", "data": "none" },
+        { "file": "packages/viewer/test/climbFacing.test.ts", "name": "backing onto a ladder's head after two turns (yaw 720): no \"180\" -- the SEAL already has its back to the edge", "data": "none" }
+      ]
+    },
+    {
+      "id": "movement.spawn.slots",
+      "claim": "Each map has 24 or more spawn slots a side in AIMAPS.MPS, every slot standing on the probe's floor (Frostfire's A #0 on the deck at 100, B #1 on 142).",
+      "level": "reading",
+      "source": "disc RUN/MPn.ZDB AIMAPS.MPS",
+      "note": "docs/research/88-feel-parity.md",
+      "tests": [
+        { "file": "packages/viewer/test/spawnSlots.test.ts", "name": "W1.4b: with the probe's grid, each slot stands on the floor under its centre", "data": "none" },
+        { "file": "packages/viewer/test/spawnSlots.test.ts", "name": "W1.4b: every Frostfire slot stands on the probe's floor; A's #0 on the deck at 100, B's #1 on 142", "data": "fixture" },
+        { "file": "packages/viewer/test/spawnSlots.test.ts", "name": "all 44 measured spawns are accounted for by a slot of their own side, 24 or more a side (W1.R9)", "data": "fixture" }
+      ],
+      "owed": "the per-map slot counts and Frostfire's A #0 / B #1 heights are decoded numbers a golden pin could hold (TA.R3); not written in this pass (the slots are the spawn workstream's as much as the walk's)"
+    },
+    {
+      "id": "movement.stance.change-ticks",
+      "claim": "The server's stance-change tolerance is the transition's clip run to its last key in 60 Hz ticks, rounded up: 37 stand<->crouch, 51 crouch<->prone, 57 stand<->prone (playback x ((n-1)/n)^2 of motion.rdr's playback and MOTION_P.ZAR's keys); getting up the same (STANCE_REVERSE_TICKS_READING). The tolerance itself is the port's (the game has no server); the lengths are the disc's.",
+      "level": "reading",
+      "source": "FUN_0028c4f0 (oneShotSeconds); disc READERC.ZAR motion.rdr playback, MOTION_P.ZAR key counts; research 179 STANCE_CHANGE_TICKS_PLACEHOLDER (L695-710)",
+      "note": "docs/research/236-the-shotgun-guard-the-stance-window-and-the-wading-rules.md",
+      "tests": [
+        {"file": "packages/viewer/test/shotCone.test.ts", "name": "the stance window is the transition's clip in ticks (ACTION_SECONDS x 60, FUN_0028c4f0; research 179): a frame's own slack holds the span to +37 / +51 / +57 and drops it at +38 / +52 / +58, getting up the same (STANCE_REVERSE_TICKS_READING); a round with the root at the midpoint 58 ticks after stand->prone is still taken (the frame before still holds it) and 59 is refused", "data": "none"},
+        {"file": "packages/viewer/test/shotCone.test.ts", "name": "the page's own frames at 144 and 30 Hz, the round after gunFrame on the last command: every honest first-person round is accepted", "data": "none"}
+      ]
+    },
+    {
+      "id": "movement.water.stance-fallback",
+      "claim": "In water a prone press goes prone only 2 deep or less (else the crouch entry), a crouch only 8.5 deep or less (else the SEAL stands), and the crawl moves only to 1.5 deep; the prone entry's caller dispatches the requested stance 2 to it and 1 to the crouch entry.",
+      "level": "reading",
+      "source": "FUN_00581660 D:L442436-442474; FUN_00581990 D:L442524-442560; FUN_00583500; FUN_00552d60 D:L418877-418900; research 181 s8, research 86 s5.2",
+      "note": "docs/research/236-the-shotgun-guard-the-stance-window-and-the-wading-rules.md",
+      "tests": [
+        {"file": "packages/viewer/test/traversal.test.ts", "name": "over 2 deep, a prone press crouches -- no prone clip, no root motion -- from crouch it changes nothing", "data": "none"},
+        {"file": "packages/viewer/test/traversal.test.ts", "name": "over 8.5 deep, a prone or a crouch press stands (FUN_00581990 -> FUN_00581c10); 2 deep or less, prone as ever", "data": "none"}
+      ]
+    },
+    {
+      "id": "movement.climb.place-interrupt",
+      "claim": "A crate climb cut at its midpoint by the claymore's place: the original stacks the place over the climb, gravity resumes with the place current, and the resumed climb carries the body inside the crate's hull, not on its top (the owner's Frostfire box glitch); the port's climb owns the tick to its snap-to-top and ends on the top.",
+      "level": "drift",
+      "source": "FUN_0057d540 D:L440342-440346; FUN_00588bc0 D:L446055, D:L446292-446299; FUN_005af930 D:L466760-466810, FUN_00577e40 D:L437404-437409; FUN_0057a330 D:L438874-438910, FUN_00589aa0 D:L446500-446597 (research 230 s3.3 and its addendum: reading, pending review)",
+      "note": "docs/research/230-gameplay-feel-parity-audit.md",
+      "tests": [
+        {"file": "packages/viewer/test/parity/climbInterrupt.parity.test.ts", "name": "the body does not end on the top: under it, inside the hull's span (the original as research 230 s3.3 reads it)", "data": "none"},
+        {"file": "packages/viewer/test/parity/climbInterrupt.parity.test.ts", "name": "the body does not end on the top: under it, inside the hull's span (research 230 s3.3)", "data": "fixture"}
+      ],
+      "owed": "The playtest batch's PB-7 (b): the traversal letting a kit one-shot take the body mid-climb, the covered climb resumed (issue #96), after a capture of the original or the owner's acceptance of the reading (H162) and PAR-21's writer; research 230 s3.3's line numbers re-checked at its review (the probe's review found D:L466784/466781 one to three lines off)."
+    }
+  ]
+}

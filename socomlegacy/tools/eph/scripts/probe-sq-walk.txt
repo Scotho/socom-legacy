@@ -1,0 +1,6 @@
+# EPH probe script (tools/eph/probe.ts, PCSX2 alone; grammar <t_ms> <input> <pressure>). Seat ac, 2026-11-01, for 6d before the cancel reruns.
+# Square while walking: lup at 0.35 (key 5, Macro8), Square 1.2 s into the walk. Look: the speed under 15 u/s at the press.
+300 lup 0.35
+1500 square 1
+1650 square 0
+2500 lup 0

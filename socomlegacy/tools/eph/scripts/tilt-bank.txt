@@ -1,0 +1,11 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Tilt measurement, case tilt-bank (EPH-TILT; run it alone, not in movement-campaign.sh).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: the prone body's tilt on a slope, on a clean route: one cardinal push (lright alone, which at yaw 180 runs -x), released, the body let stop, then a full Triangle (stand -> prone) on the incline, held still to the end (run with --tail-ms 5000: the settle at 0.2 a frame is about a quarter second, the stand -> prone about one).
+# Look: tiltFinalDeg, tiltOverSlope, tiltSettleMs, tiltEasePer60Hz, tiltBasisDeg of act1 (tools/eph/analyze.ts): the full slope (root-up) or about 20% (world-up); tiltBeforeDeg is the standing body's tilt on the slope. The slope runs along x and the body faces +z, so the tilt shows as roll.
+# Route, from the 2026-10-31 replays (C:/Projects/eph-run/runs/20261031T154148Z and 154254Z, pcsx2.csv and page.csv; agent-mail evidence/eph-divergence-2026-10-31): under lright with no jump (24.5-26.5 s) both sides climbed the same bank going -x, on three lines z 822, 841 (PCSX2) and 852 (page): y -147 at x 946, -142 at x 916, -135 at x 885, -120 at x 864, -118 by x 840. From the start (x 937, z 855) a 600 ms full push runs about 39 u at the standing 65 u/s, stopping near x 898, on the 12-16 degree stretch between x 885 and 916, short of the steep part.
+# Avoids where the paths part: no prone pop and no light Triangle (a); the ditch at x 982, y -150 lies +x of the start, the other way (b); no diagonal stick, one stick half at a time (c). Not lup: at yaw 180 lup runs +z, where no replay sampled the ground from the start, so it is not chosen blind.
+# A full Triangle acts when its pressure crosses 0.3 (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle (tools/eph/pageSeed.ts); PCSX2: the plain keys (tools/eph/padIni.ts).
+500 lright 1       # full push -x, toward the bank
+1100 lright 0      # released near x 898
+2100 triangle 1.0  # full Triangle: stand -> prone, on the slope
+2250 triangle 0

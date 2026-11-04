@@ -1,0 +1,27 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Momentum and timing hunt, case hunt-momentum-rhythm-100 (EPH hunt 2026-11-01, seat ac; measured by tools/eph/analyze.ts; one trial per run, three trials a case).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: facing +x, eight cycles of the stick full forward 100 ms, released 100 ms.
+# Look: whether anything carries from one push to the next: the reading stops at once at rest (FUN_00586f00) so each push should ramp from 0 and every cycle travel the same; a side that builds speed over the cycles (a ramp state kept through the rest, a clip that keeps its phase) or loses it is the finding. The walk start's small animation restarting eight times.
+# Measures: dist per push and per rest; stopDist and stopMs per rest; the cycles against each other on each side
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+# Reading to test against (viewer mover.ts header, the decompilation as transcribed there, not re-read for this script): FUN_00586c10 ramps each move axis toward the pad at lo + (hi - lo)(1 - (1 - |target|)^8) a second (dynamics.rdr 2 and 5), and snaps to the pad when |prev| > 0.9 and the change beats 9 a second (the lateral axis: 0.78 and 7.8), restarting a 0.2 s clip blend (decomp 445053-445054); FUN_00586f00 stops at once when the stick is within 0.03 of rest; FUN_005b56c0's slope and water slow-down is not modelled on the page. The stick levels after the pad reader (viewer moveStick.ts, D:L179566-179634): 0.35 -> 0.101, 0.5 -> 0.404, 0.65 -> 0.707, 0.8 and 1 -> 1.
+# The turn: the right stick full left 880 ms, to yaw about 270 (facing +x), as turn-fwd-then-left (yaw90-tilt 20261031T165500Z..165635Z: 700 ms gave about 66 degrees with the stick's ramp; 128.1 deg/s at full push, viewer look.ts MAX_YAW_RATE). PCSX2's yaw is not sampled: read the heading of travel; a side whose turn ends more than about 5 degrees off the other reads its path along another line.
+# Ground: facing +x, lup runs x 937 -> 1027 at z 855-859, dry (flags105e 0), both sides together (strafe-then-fwd 20261031T162728Z, turn-fwd-then-left); sampled dry to x 1011 and z 832-890 there; the dip x 950-980 (y -148 to -150) is gentle; the water lies +z of z about 871 at x 917-937. At 65 u/s the strip holds about 1.2 s of full run. The eight pushes carry about 20-30 u.
+500 rleft 1   # turn left: yaw 180 -> about 270 (facing +x)
+1380 rleft 0
+2380 lup 1    # push
+2480 lup 0
+2580 lup 1
+2680 lup 0
+2780 lup 1
+2880 lup 0
+2980 lup 1
+3080 lup 0
+3180 lup 1
+3280 lup 0
+3380 lup 1
+3480 lup 0
+3580 lup 1
+3680 lup 0
+3780 lup 1
+3880 lup 0

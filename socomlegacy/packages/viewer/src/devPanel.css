@@ -1,0 +1,7 @@
+/* The test room's developer panel (`./devPanel`): the system's overlay, top right, under the frame counter. Hidden
+   carries no pointer events. A browser adaptation, a development build's alone: imported by `./devPanel.ts`, which the
+   page loads only under `import.meta.env.DEV`, so a release build carries none of it (OT.R29; `build_keyboard.test.ts`). */
+/* Above the playtest overlay (z-index 10000, bottom right) so a long panel can still be clicked. */
+#dev-panel { top: 56px; right: 12px; z-index: 10001; width: min(320px, calc(100vw - 24px)); }
+#dev-panel[hidden] { display: none; }
+#dev-panel-map { display: block; width: 100%; height: auto; aspect-ratio: 288 / 140; background: var(--s2u-ground-deep); border-radius: var(--s2u-radius-0); cursor: crosshair; }

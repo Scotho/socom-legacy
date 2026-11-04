@@ -1,0 +1,12 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Momentum and timing hunt, case hunt-momentum-backpedal-turn (EPH hunt 2026-11-01, seat ac; measured by tools/eph/analyze.ts; one trial per run, three trials a case).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: from the start, the left stick full back; after 0.4 s the right stick full left 0.6 s while backing; the back released 0.2 s after.
+# Look: the turn while backpedalling: the back band (37) held or lost in a turn, and the path's lag behind the facing (walkTurnRate against the page's yawRate) -- the same question as hunt-momentum-turn-run-dry on the other band and the other set (+0x90, the forward set reversed).
+# Measures: steadySpeed, headingDeg per segment; headingRate and walkTurnRate of the turn; yawRate (the page)
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+# Reading to test against (viewer mover.ts header, the decompilation as transcribed there, not re-read for this script): FUN_00586c10 ramps each move axis toward the pad at lo + (hi - lo)(1 - (1 - |target|)^8) a second (dynamics.rdr 2 and 5), and snaps to the pad when |prev| > 0.9 and the change beats 9 a second (the lateral axis: 0.78 and 7.8), restarting a 0.2 s clip blend (decomp 445053-445054); FUN_00586f00 stops at once when the stick is within 0.03 of rest; FUN_005b56c0's slope and water slow-down is not modelled on the page. The stick levels after the pad reader (viewer moveStick.ts, D:L179566-179634): 0.35 -> 0.101, 0.5 -> 0.404, 0.65 -> 0.707, 0.8 and 1 -> 1.
+# Ground: ldown runs -z on the flat strip x 920-950, z 810-855 (y -145 to -147; back-then-strafe 20261031T162801Z: z 855 -> 843 in 0.5 s, both together). The turn swings the back toward -x: radius about 16.5 u at 37 u/s and 128 deg/s, to about x 924, z 824 after the turn, then about 7 u on toward -x, short of the bank's foot at x 910.
+500 ldown 1   # back -z
+900 rleft 1   # turn left while backing
+1500 rleft 0
+1700 ldown 0

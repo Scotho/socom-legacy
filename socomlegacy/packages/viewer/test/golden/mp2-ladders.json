@@ -1,0 +1,10 @@
+{
+ "_source": "disc RUN/MP2.ZDB world collision (appflags 2) through loadMap, groundPolygons and groundGrid (packages/viewer/src/loadMap.ts, walk.ts) and findLadders (packages/scene/src/ladder.ts), each number to 1e-4; decoded from the MP2 test fixture 2026-10-10",
+ "ladders": [
+  {"x":547.5,"z":854.4055,"bottom":100,"top":160,"capTop":169.9041,"nx":0,"nz":1,"halfWidth":4,"sided":true,"path":"worldmodel/ladsnipe/ladderdown"},
+  {"x":783.2805,"z":363.7412,"bottom":99.8752,"top":155.2171,"capTop":164.7814,"nx":0.866,"nz":-0.5,"halfWidth":3.6461,"sided":true,"path":"worldmodel/lad1/ladderdown_1"},
+  {"x":496.7195,"z":596.2588,"bottom":99.8752,"top":155.2171,"capTop":164.7814,"nx":-0.866,"nz":0.5,"halfWidth":3.6461,"sided":true,"path":"worldmodel/lad2/ladderdown"},
+  {"x":989,"z":617.0664,"bottom":102.5195,"top":152.6436,"capTop":162.5221,"nx":0,"nz":1,"halfWidth":4,"sided":true,"path":"worldmodel/ldr/ladderdown"},
+  {"x":158.5,"z":913,"bottom":100,"top":156.8,"capTop":167.4258,"nx":-1,"nz":0,"halfWidth":4,"sided":true,"path":"worldmodel/laddrilltower/ladddown"}
+ ]
+}

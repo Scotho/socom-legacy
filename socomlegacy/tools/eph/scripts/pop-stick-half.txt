@@ -1,0 +1,12 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Prone-pop case, case pop-stick-half (EPH-TILT round 4, MV-PARITY (a); run alone, with pop-stick and pop-nostick).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: pop-stick with the stick at half push (lright 0.5): the crouch-walk branch under 0.838 (FUN_00584c60, FINDINGS 2026-10-31 Q3 left it unmeasured); at full push the original ran right (top action 0x42) at about 62.7 u/s.
+# Look: popSpeed, popTopAction, popJumpBit of pop1 against pop-stick's; stickLateral and padRaw0..3 say what the half push reached.
+# The half push: PCSX2's prepared macro, key P / Macro12 at 0.5 (tools/eph/padIni.ts PREPARED); the page's axis 0 at 0.5. Timings as pop-stick (incline-prone 16062-16661 shifted by -13000 ms).
+# Ground: as pop-stick (the flat strip x 920-950 at y -145 to -147; slower at half push, so short of the bank).
+500 triangle 1.0   # full Triangle: stand -> prone
+650 triangle 0
+3062 lright 0.5    # the stick held at half push, prone
+3198 triangle 0.2  # light Triangle: the pop
+3385 triangle 0    # released: the act
+4000 lright 0

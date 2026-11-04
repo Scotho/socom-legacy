@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-stand-backright-100 (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: standing, back and right full on the same frame (S+D) for 1.5 s, then both released: the one standing direction of the eight the matrix lacks (mx-stand-backleft-100 is S+A).
+# Look: steadySpeed and headingDeg against mx-stand-backleft-100 (the mirror) and mx-stand-back-100 / mx-stand-right-100 (the cardinals): a diagonal faster or slower than its cardinals, a heading off 45 degrees, a different body (topActionId) for back-right than back-left; the stop glide.
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: -z and -x from the start, over the flat strip x 920-950, z 810-855 (y -145 to -147; pop-stick's header); the bank's foot from x 910 (-x), the dip at x 950-980 (+x), water +z of z about 871 (flags105e +0x80, the 2026-10-31 runs). At about 45 u/s on the diagonal the -x part reaches the bank's foot near 0.8 s: the first 0.8 s is the clean read, the rest says how each side meets the bank.
+500 ldown 1
+500 lright 1
+2000 ldown 0
+2000 lright 0

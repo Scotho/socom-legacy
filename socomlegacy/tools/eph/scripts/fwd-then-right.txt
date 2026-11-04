@@ -1,0 +1,9 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Two-key case, case fwd-then-right (EPH-TILT round 4; run alone, with the other three of fwd-then-right / right-then-fwd / back-then-left / left-then-back).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: W then D (lup alone 0.5 s, then lright added 0.5 s): the pairs W+A lost and S+D kept, crossed.
+# Look: stickForward and stickLateral of the two-key segment on each side (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick) and the guest pad's own read, padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555) and padMoveA/B (D:L179556-179559): an axis at 0 in the SEAL but pushed in the pad bytes is the game; at rest in the pad bytes too is the injector or PCSX2 losing the key. FINDINGS 2026-10-31 Q4: W+A lost its second key in either order, S+D did not.
+# Ground: lup runs +z, down a gentle slope both sides walked together in fwd-then-strafe (20261031T162651Z: z 855 -> 906 in 1 s, y -145.5 -> -151.7); lright then -x, unsampled at those z. The axis reads do not depend on the ground.
+500 lup 1
+1000 lright 1
+1500 lup 0
+1500 lright 0

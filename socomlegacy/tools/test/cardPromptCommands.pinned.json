@@ -1,0 +1,1035 @@
+{
+ "entries": [
+  "UIanim.rdr/intro_onstart",
+  "dlgNetPlayerName.rdr/memcard_operations",
+  "UIMemCardAnim.rdr/has_memcard_changed"
+ ],
+ "animations": [
+  {
+   "key": "UIanim.rdr/intro_onstart",
+   "commands": [
+    "FormatMemCard",
+    "IsMemCardFormatted",
+    "IsMemCardInserted",
+    "IsSpaceForSaveGameFile",
+    "MC_ChPort",
+    "POPUPDIALOG"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/AskToFormat",
+    "UIMemCardAnim.rdr/AreYouSureYouWantToFormat",
+    "UIMemCardAnim.rdr/AreYouSureYouDontWantToFormat",
+    "UIMemCardAnim.rdr/Ensure_MC_Dirs",
+    "UIMemCardAnim.rdr/load_initial_config"
+   ],
+   "popups": [
+    823,
+    824,
+    825
+   ],
+   "ops": [
+    "== old_and_busted (2)",
+    "  MC_ChPort(0)",
+    "  IF IsMemCardInserted(NA)",
+    "    CALL_SEQUENCE check_formatted",
+    "  ELSE",
+    "    CALL_SEQUENCE end_of_screen",
+    "  ENDIF",
+    "== check_formatted (2)",
+    "  IF NOT ( IsMemCardFormatted(NA) )",
+    "    VALVE NotDone = 0",
+    "    WHILE NotDone == 0",
+    "      CALL AskToFormat (blocking)",
+    "      IF AreYouSure != 1",
+    "        CALL AreYouSureYouWantToFormat (blocking)",
+    "        IF AreYouSure != 1 AND IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "          CALL_SEQUENCE do_formatting",
+    "          VALVE NotDone = 1",
+    "        ENDIF",
+    "      ELSE",
+    "        CALL AreYouSureYouDontWantToFormat (blocking)",
+    "        IF AreYouSure == 1",
+    "          VALVE NotDone = 1",
+    "          CALL_SEQUENCE end_of_screen",
+    "        ENDIF",
+    "      ENDIF",
+    "    END_WHILE",
+    "  ELSE",
+    "    IF NOT IsSpaceForSaveGameFile(NA)",
+    "      POPUPDIALOG(NA)",
+    "      VALVE SitHere = 0",
+    "      POPUP #823 buttons #226 -> SitHere",
+    "      WHILE SitHere == 0",
+    "      END_WHILE",
+    "    ENDIF",
+    "    CALL_SEQUENCE end_of_screen",
+    "  ENDIF",
+    "== do_formatting (2)",
+    "  VALVE AreYouSure = 3000",
+    "  POPUPDIALOG(NA)",
+    "  POPUP #824 buttons none -> AreYouSure keep",
+    "  WAIT 0.2",
+    "  FormatMemCard(NA)",
+    "  POPUPDIALOG(NA)",
+    "  POPUP #825 buttons none -> AreYouSure keep",
+    "  WAIT 0.2",
+    "  CALL Ensure_MC_Dirs (blocking)",
+    "  CALL_SEQUENCE end_of_screen",
+    "== end_of_screen (1)",
+    "  CALL load_initial_config (blocking)"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/AskToFormat",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    850,
+    851
+   ],
+   "ops": [
+    "VALVE AreYouSure = 0",
+    "POPUPDIALOG(NA)",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #850 buttons #246/#253 -> AreYouSure",
+    "ELSE",
+    "  POPUP #851 buttons #246/#253 -> AreYouSure",
+    "ENDIF",
+    "WHILE AreYouSure == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/AreYouSureYouWantToFormat",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    848,
+    849
+   ],
+   "ops": [
+    "VALVE AreYouSure = 0",
+    "POPUPDIALOG(NA)",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #848 buttons #246/#253 -> AreYouSure",
+    "ELSE",
+    "  POPUP #849 buttons #246/#253 -> AreYouSure",
+    "ENDIF",
+    "WHILE AreYouSure == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/AreYouSureYouDontWantToFormat",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    846,
+    847
+   ],
+   "ops": [
+    "VALVE AreYouSure = 0",
+    "POPUPDIALOG(NA)",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #846 buttons #253/#246 -> AreYouSure",
+    "ELSE",
+    "  POPUP #847 buttons #253/#246 -> AreYouSure",
+    "ENDIF",
+    "WHILE AreYouSure == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/Ensure_MC_Dirs",
+   "commands": [
+    "MC_ChDir",
+    "MC_CreateIconFiles",
+    "MC_Exists",
+    "MC_MkDir",
+    "SaveConfig"
+   ],
+   "calls": [],
+   "popups": [],
+   "ops": [
+    "IF MC_Exists(..)",
+    "  MC_ChDir(..)",
+    "ENDIF",
+    "IF MC_Exists(BASCUS-97275SOCOMII)",
+    "  MC_ChDir(BASCUS-97275SOCOMII)",
+    "  VALVE MemcardAlreadyHasData = 1",
+    "ELSE",
+    "  MC_MkDir(BASCUS-97275SOCOMII)",
+    "  MC_ChDir(BASCUS-97275SOCOMII)",
+    "  MC_CreateIconFiles(NA)",
+    "  SaveConfig(BASCUS-97275SOCOMII)",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/load_initial_config",
+   "commands": [
+    "CheckVideoMode",
+    "IsMemCardFormatted",
+    "IsMemCardInserted",
+    "IsSpaceForSaveGameFile",
+    "KILLPOPUP",
+    "ListSavedGames",
+    "LoadConfig",
+    "POPUPDIALOG",
+    "StoreOptions"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/find_a_memcard",
+    "UIMemCardAnim.rdr/AskToFormat",
+    "UIMemCardAnim.rdr/AreYouSureYouWantToFormat",
+    "UIMemCardAnim.rdr/do_formatting",
+    "UIMemCardAnim.rdr/AreYouSureYouDontWantToFormat",
+    "UIMemCardAnim.rdr/DisplayLoadingWarning",
+    "UIMemCardAnim.rdr/Ensure_MC_Dirs_Fast",
+    "UIMemCardAnim.rdr/NoSOCOMDataFound2",
+    "UIMemCardAnim.rdr/CannotSaveNoSpace",
+    "UIMemCardAnim.rdr/DisplayErrorLoading",
+    "UIMemCardAnim.rdr/SwitchToProgressiveVideo"
+   ],
+   "popups": [
+    826
+   ],
+   "ops": [
+    "IF memcard_have_loaded_config == 0",
+    "  VALVE KeepTryingMemcardLoad = 1",
+    "  WHILE KeepTryingMemcardLoad == 1",
+    "    VALVE KeepTryingMemcardLoad = 0",
+    "    IF memcard_already_selected == 0",
+    "      CALL find_a_memcard (blocking)",
+    "    ENDIF",
+    "    IF IsMemCardInserted(NA)",
+    "      IF NOT ( IsMemCardFormatted(NA) ) AND IsMemCardInserted(NA)",
+    "        VALVE NotDone = 1",
+    "        WHILE NotDone == 0 AND IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "          CALL AskToFormat (blocking)",
+    "          IF IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "            IF AreYouSure != 1",
+    "              CALL AreYouSureYouWantToFormat (blocking)",
+    "              IF AreYouSure != 1 AND IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "                CALL do_formatting (blocking)",
+    "                VALVE MemcardGotFormatted = 1",
+    "                VALVE NotDone = 1",
+    "              ENDIF",
+    "            ELSE",
+    "              CALL AreYouSureYouDontWantToFormat (blocking)",
+    "              IF AreYouSure == 1",
+    "                VALVE NotDone = 1",
+    "              ENDIF",
+    "            ENDIF",
+    "          ENDIF",
+    "        END_WHILE",
+    "      ENDIF",
+    "      IF IsMemCardFormatted(NA)",
+    "        CALL DisplayLoadingWarning (blocking)",
+    "        VALVE MemcardAlreadyHasData = 0",
+    "        CALL Ensure_MC_Dirs_Fast (blocking)",
+    "        IF MemcardAlreadyHasData == 0 AND IsMemCardInserted(NA)",
+    "          IF IsSpaceForSaveGameFile(NA)",
+    "            CALL NoSOCOMDataFound2 (blocking)",
+    "          ELSE",
+    "            CALL CannotSaveNoSpace (blocking)",
+    "          ENDIF",
+    "        ELSE",
+    "          VALVE memcard_error = 0",
+    "          LoadConfig(BASCUS-97275SOCOMII)",
+    "          ListSavedGames(NA)",
+    "          WAIT 0.3",
+    "          IF memcard_error == 1",
+    "            CALL DisplayErrorLoading (blocking)",
+    "          ELSE",
+    "            IF video_mode == 1",
+    "              IF NOT CheckVideoMode(DTV)",
+    "                CALL SwitchToProgressiveVideo (blocking)",
+    "              ENDIF",
+    "            ENDIF",
+    "          ENDIF",
+    "        ENDIF",
+    "      ELSE",
+    "        VALVE AcceptNoData = 0",
+    "        POPUPDIALOG(NA)",
+    "        IF MainMenuCardSlot == 0",
+    "          POPUP <text 137> buttons #226 -> AcceptNoData",
+    "        ELSE",
+    "          POPUP <text 137> buttons #226 -> AcceptNoData",
+    "        ENDIF",
+    "        WHILE AcceptNoData == 0",
+    "        END_WHILE",
+    "      ENDIF",
+    "    ELSE",
+    "      VALVE AcceptNotInserted = 0",
+    "      STOP menu_fade_up",
+    "      OPACITY MENUFADER 0->0.7 0.05",
+    "      VALVE AcceptNotInserted = 0",
+    "      POPUPDIALOG(NA)",
+    "      IF memcard_already_selected == 1",
+    "        IF MainMenuCardSlot == 0",
+    "          POPUP <text 72> buttons #226 -> AcceptNotInserted",
+    "        ELSE",
+    "          POPUP <text 72> buttons #226 -> AcceptNotInserted",
+    "        ENDIF",
+    "        WHILE AcceptNotInserted == 0",
+    "        END_WHILE",
+    "        VALVE KeepTryingMemcardLoad = 0",
+    "      ELSE",
+    "        POPUP #826 buttons #246/#253 -> AcceptNotInserted",
+    "        WHILE AcceptNotInserted == 0",
+    "        END_WHILE",
+    "        IF AcceptNotInserted == 1",
+    "          VALVE KeepTryingMemcardLoad = 1",
+    "        ENDIF",
+    "      ENDIF",
+    "    ENDIF",
+    "    KILLPOPUP(NA)",
+    "    VALVE memcard_have_loaded_config = 1",
+    "    OPACITY MENUFADER 0.7->0 0.05",
+    "  END_WHILE",
+    "ENDIF",
+    "StoreOptions(NA)"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/find_a_memcard",
+   "commands": [
+    "IsMemCardInserted",
+    "MC_ChPort",
+    "POPUPDIALOG"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/choose_memcard_slot"
+   ],
+   "popups": [
+    827
+   ],
+   "ops": [
+    "VALVE num_memcards = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #827 keep",
+    "WAIT 1",
+    "VALVE MainMenuCardSlot = 0",
+    "MC_ChPort(0)",
+    "IF IsMemCardInserted(NA)",
+    "  VALVE num_memcards += 1",
+    "ENDIF",
+    "VALVE MainMenuCardSlot = 1",
+    "MC_ChPort(1)",
+    "IF IsMemCardInserted(NA)",
+    "  VALVE num_memcards += 1",
+    "ELSE",
+    "  VALVE MainMenuCardSlot = 0",
+    "  MC_ChPort(0)",
+    "ENDIF",
+    "IF num_memcards > 1",
+    "  CALL choose_memcard_slot (blocking)",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/choose_memcard_slot",
+   "commands": [
+    "MC_ChPort",
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    828,
+    829
+   ],
+   "ops": [
+    "VALVE MainMenuCardSlotChoice = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #828 buttons #510/#511 -> MainMenuCardSlotChoice",
+    "WHILE MainMenuCardSlotChoice == 0",
+    "END_WHILE",
+    "POPUPDIALOG(NA)",
+    "POPUP #829 keep",
+    "IF MainMenuCardSlotChoice == 1",
+    "  VALVE MainMenuCardSlot = 0",
+    "  MC_ChPort(0)",
+    "ELSE",
+    "  VALVE MainMenuCardSlot = 1",
+    "  MC_ChPort(1)",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/do_formatting",
+   "commands": [
+    "FormatMemCard",
+    "POPUPDIALOG"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/Ensure_MC_Dirs"
+   ],
+   "popups": [
+    836,
+    837,
+    838,
+    839
+   ],
+   "ops": [
+    "VALVE AreYouSure = 3000",
+    "POPUPDIALOG(NA)",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #836 buttons none -> AreYouSure keep",
+    "ELSE",
+    "  POPUP #837 buttons none -> AreYouSure keep",
+    "ENDIF",
+    "WAIT 0.2",
+    "IF FormatMemCard(NA)",
+    "  POPUPDIALOG(NA)",
+    "  IF MainMenuCardSlot == 0",
+    "    POPUP #838 buttons none -> AreYouSure keep",
+    "  ELSE",
+    "    POPUP #839 buttons none -> AreYouSure keep",
+    "  ENDIF",
+    "  WAIT 0.2",
+    "  CALL Ensure_MC_Dirs (blocking)",
+    "ELSE",
+    "  VALVE AreYouSure = 0",
+    "  POPUP <text 55> buttons none -> AreYouSure",
+    "  WHILE AreYouSure == 0",
+    "  END_WHILE",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/DisplayLoadingWarning",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    842,
+    843
+   ],
+   "ops": [
+    "POPUPDIALOG(NA)",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #842 keep",
+    "ELSE",
+    "  POPUP #843 keep",
+    "ENDIF",
+    "WAIT 0.3"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/Ensure_MC_Dirs_Fast",
+   "commands": [
+    "MC_ChDir",
+    "MC_Exists"
+   ],
+   "calls": [],
+   "popups": [],
+   "ops": [
+    "IF MC_Exists(..)",
+    "  MC_ChDir(..)",
+    "ENDIF",
+    "IF MC_Exists(BASCUS-97275SOCOMII)",
+    "  VALVE MemcardAlreadyHasData = 1",
+    "  MC_ChDir(BASCUS-97275SOCOMII)",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/NoSOCOMDataFound2",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    844,
+    845
+   ],
+   "ops": [
+    "VALVE AcceptNoData = 0",
+    "POPUPDIALOG(NA)",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #844 buttons none -> AcceptNoData",
+    "ELSE",
+    "  POPUP #845 buttons none -> AcceptNoData",
+    "ENDIF",
+    "WHILE AcceptNoData == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/CannotSaveNoSpace",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    855,
+    856
+   ],
+   "ops": [
+    "POPUPDIALOG(NA)",
+    "VALVE SitHere = 0",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #855 buttons #226 -> SitHere",
+    "ELSE",
+    "  POPUP #856 buttons #226 -> SitHere",
+    "ENDIF",
+    "WHILE SitHere == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/DisplayErrorLoading",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    841
+   ],
+   "ops": [
+    "VALVE ConfirmError = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #841 buttons none -> ConfirmError",
+    "WHILE ConfirmError == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/SwitchToProgressiveVideo",
+   "commands": [
+    "CheckVideoMode",
+    "KillPopUp",
+    "POPUPDIALOG",
+    "SwitchProgressiveVideo"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/verify_video_dtv"
+   ],
+   "popups": [
+    721,
+    722,
+    723
+   ],
+   "ops": [
+    "== NA (1)",
+    "  VALVE OptionsMenuChanged = 1",
+    "  IF NOT CheckVideoMode(DTV)",
+    "    CALL verify_video_dtv (blocking)",
+    "    IF AreYouSure == 1",
+    "      VALVE video_mode = 1",
+    "      SwitchProgressiveVideo(DTV)",
+    "    ENDIF",
+    "  ENDIF",
+    "  IF AreYouSure == 1",
+    "    CALL_SEQUENCE monitor_acceptance",
+    "    CALL_SEQUENCE switch_safeguard",
+    "  ELSE",
+    "    VALVE video_mode = 0",
+    "  ENDIF",
+    "== monitor_acceptance (2)",
+    "  VALVE AreYouSure = 0",
+    "  POPUPDIALOG(NA)",
+    "  POPUP #721 buttons #246/#253 -> AreYouSure",
+    "  WHILE AreYouSure == 0",
+    "  END_WHILE",
+    "  STOP_SEQUENCE",
+    "  IF AreYouSure == 1",
+    "    VALVE video_mode = 0",
+    "    SwitchProgressiveVideo(NTSC)",
+    "    VALVE AreYouSure = 0",
+    "    POPUPDIALOG(NA)",
+    "    POPUP #722 buttons #226 -> AreYouSure",
+    "    WHILE AreYouSure == 0",
+    "    END_WHILE",
+    "  ENDIF",
+    "== switch_safeguard (2)",
+    "  WAIT 10",
+    "  STOP_SEQUENCE",
+    "  KillPopUp(NA)",
+    "  VALVE video_mode = 0",
+    "  SwitchProgressiveVideo(NTSC)",
+    "  VALVE AreYouSure = 0",
+    "  POPUPDIALOG(NA)",
+    "  POPUP #723 buttons #226 -> AreYouSure",
+    "  WHILE AreYouSure == 0",
+    "  END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/verify_video_dtv",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    854
+   ],
+   "ops": [
+    "VALVE AreYouSure = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #854 buttons #246/#253 -> AreYouSure",
+    "WHILE AreYouSure == 0",
+    "END_WHILE",
+    "IF AreYouSure == 1",
+    "  VALVE AreYouSure = 2",
+    "ELSE",
+    "  VALVE AreYouSure = 1",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "dlgNetPlayerName.rdr/memcard_operations",
+   "commands": [
+    "POPUPDIALOG",
+    "UpdateAcctInfo"
+   ],
+   "calls": [
+    "dlgNetPlayerName.rdr/CanWeSavePassword",
+    "UIMemCardAnim.rdr/save_and_leave"
+   ],
+   "popups": [
+    607,
+    608
+   ],
+   "ops": [
+    "IF SaveAvailable == 1",
+    "  CALL CanWeSavePassword (blocking)",
+    "  IF AreYouSure == 1",
+    "    VALVE ShouldLeaveOnSaveAndLeave = 1",
+    "    UpdateAcctInfo(NA)",
+    "    VALVE SaveConcluded = 0",
+    "    WHILE SaveConcluded == 0",
+    "      VALVE SaveConcluded = 1",
+    "      CALL save_and_leave (blocking)",
+    "    END_WHILE",
+    "    VALVE ShouldLeaveOnSaveAndLeave = 0",
+    "  ELSE",
+    "    IF num_memcards == 0",
+    "      VALVE AreYouSure = 0",
+    "      POPUPDIALOG(NA)",
+    "      POPUP #607 buttons #457 -> AreYouSure",
+    "      WHILE AreYouSure == 0",
+    "      END_WHILE",
+    "    ELSE",
+    "      POPUPDIALOG(NA)",
+    "      POPUP #608",
+    "    ENDIF",
+    "    OPACITY MENUFADER 0.7->0 0.05",
+    "  ENDIF",
+    "ENDIF",
+    "STOP menu_fade_up",
+    "OPACITY MENUFADER 0->0.99 0.5"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "dlgNetPlayerName.rdr/CanWeSavePassword",
+   "commands": [
+    "IsMemCardInserted",
+    "MC_ChPort"
+   ],
+   "calls": [],
+   "popups": [],
+   "ops": [
+    "VALVE num_memcards = 0",
+    "VALVE AreYouSure = 0",
+    "VALVE MainMenuCardSlot = 0",
+    "MC_ChPort(0)",
+    "IF IsMemCardInserted(NA)",
+    "  VALVE num_memcards += 1",
+    "ENDIF",
+    "VALVE MainMenuCardSlot = 1",
+    "MC_ChPort(1)",
+    "IF IsMemCardInserted(NA)",
+    "  VALVE num_memcards += 1",
+    "ELSE",
+    "  VALVE MainMenuCardSlot = 0",
+    "  MC_ChPort(0)",
+    "ENDIF",
+    "IF num_memcards > 0",
+    "  VALVE AreYouSure = 1",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/save_and_leave",
+   "commands": [
+    "IsMemCardFormatted",
+    "IsMemCardInserted",
+    "IsMemcardSaveOK",
+    "IsSpaceForSaveGameFile",
+    "KILLPOPUP",
+    "POPUPDIALOG",
+    "SWITCHMENU",
+    "SaveConfig",
+    "StoreOptions"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/choose_memcard_slot_cancellable",
+    "UIMemCardAnim.rdr/AskToFormat",
+    "UIMemCardAnim.rdr/AreYouSureYouWantToFormat",
+    "UIMemCardAnim.rdr/do_formatting",
+    "UIMemCardAnim.rdr/AreYouSureYouDontWantToFormat",
+    "UIMemCardAnim.rdr/Ensure_MC_Dirs_Fast",
+    "UIMemCardAnim.rdr/AskToOverwrite",
+    "UIMemCardAnim.rdr/CannotSaveNoMemcard",
+    "UIMemCardAnim.rdr/Ensure_MC_Dirs",
+    "UIMemCardAnim.rdr/DisplayErrorSaving",
+    "UIMemCardAnim.rdr/CannotSaveNoSpace",
+    "UIMemCardAnim.rdr/CannotSaveNotFormatted",
+    "UIMemCardAnim.rdr/has_memcard_changed"
+   ],
+   "popups": [
+    831,
+    832,
+    833,
+    834,
+    835
+   ],
+   "ops": [
+    "StoreOptions(NA)",
+    "STOP menu_fade_up",
+    "STOP has_memcard_changed",
+    "OPACITY MENUFADER 0->0.7 0.05",
+    "VALVE AreYouSure = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #831 buttons #253/#246 -> AreYouSure",
+    "WHILE AreYouSure == 0",
+    "END_WHILE",
+    "IF AreYouSure != 66",
+    "  VALVE DoneSaving = 1",
+    "  WHILE DoneSaving == 1",
+    "    VALVE DoneSaving = 0",
+    "    IF AreYouSure == 1",
+    "      CALL choose_memcard_slot_cancellable (blocking)",
+    "      IF MainMenuCardSlotChoice == 66",
+    "        OPACITY MENUFADER 0.7->0 0.05",
+    "        VALVE SaveConcluded = 0",
+    "        STOP save_and_leave",
+    "        WAIT 15",
+    "      ENDIF",
+    "      POPUPDIALOG(NA)",
+    "      IF MainMenuCardSlot == 0",
+    "        POPUP #832 keep",
+    "      ELSE",
+    "        POPUP #833 keep",
+    "      ENDIF",
+    "      WAIT 1",
+    "      IF IsMemCardInserted(NA)",
+    "        VALVE MemcardGotFormatted = 0",
+    "        IF NOT ( IsMemCardFormatted(NA) ) AND IsMemCardInserted(NA)",
+    "          VALVE NotDone = 0",
+    "          WHILE NotDone == 0 AND IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "            CALL AskToFormat (blocking)",
+    "            IF IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "              IF AreYouSure != 1",
+    "                CALL AreYouSureYouWantToFormat (blocking)",
+    "                IF AreYouSure != 1 AND IsMemCardInserted(NA) AND NOT ( IsMemCardFormatted(NA) )",
+    "                  CALL do_formatting (blocking)",
+    "                  VALVE MemcardGotFormatted = 1",
+    "                  VALVE NotDone = 1",
+    "                ENDIF",
+    "              ELSE",
+    "                CALL AreYouSureYouDontWantToFormat (blocking)",
+    "                IF AreYouSure == 1",
+    "                  VALVE NotDone = 1",
+    "                  VALVE SaveConcluded = 0",
+    "                ENDIF",
+    "              ENDIF",
+    "            ENDIF",
+    "          END_WHILE",
+    "        ENDIF",
+    "        CALL Ensure_MC_Dirs_Fast (blocking)",
+    "        IF IsMemcardSaveOK(NA)",
+    "          IF IsSpaceForSaveGameFile(NA)",
+    "            VALVE MemcardAlreadyHasData = 0",
+    "            CALL Ensure_MC_Dirs_Fast (blocking)",
+    "            VALVE ShouldContinue = 1",
+    "            IF MemcardAlreadyHasData == 1 AND MemcardGotFormatted == 0",
+    "              VALVE AreYouSure = 0",
+    "              CALL AskToOverwrite",
+    "              WHILE AreYouSure == 0",
+    "                IF NOT IsMemCardInserted(NA)",
+    "                  CALL CannotSaveNoMemcard (blocking)",
+    "                  VALVE AreYouSure = 1",
+    "                ENDIF",
+    "                WAIT 0.1",
+    "              END_WHILE",
+    "              IF AreYouSure == 1",
+    "                VALVE ShouldContinue = 0",
+    "                VALVE SaveConcluded = 0",
+    "              ENDIF",
+    "            ENDIF",
+    "            IF ShouldContinue == 1",
+    "              POPUPDIALOG(NA)",
+    "              IF MainMenuCardSlot == 0",
+    "                POPUP #834 keep",
+    "              ELSE",
+    "                POPUP #835 keep",
+    "              ENDIF",
+    "              WAIT 0.2",
+    "              VALVE memcard_error = 0",
+    "              VALVE MemcardAlreadyHasData = 0",
+    "              CALL Ensure_MC_Dirs (blocking)",
+    "              IF MemcardAlreadyHasData == 1",
+    "                SaveConfig(BASCUS-97275SOCOMII)",
+    "              ENDIF",
+    "              WAIT 0.2",
+    "              IF memcard_error == 1",
+    "                VALVE SaveConcluded = 0",
+    "                CALL DisplayErrorSaving (blocking)",
+    "              ENDIF",
+    "              KILLPOPUP(NA)",
+    "              OPACITY MENUFADER 0.7->0 0.05",
+    "            ENDIF",
+    "          ELSE",
+    "            CALL CannotSaveNoSpace (blocking)",
+    "            VALVE DoneSaving = 1",
+    "            VALVE SaveConcluded = 0",
+    "          ENDIF",
+    "        ELSE",
+    "          IF memcard_error_code == 1",
+    "            CALL CannotSaveNotFormatted (blocking)",
+    "          ELSEIF memcard_error_code == 2",
+    "            CALL CannotSaveNoMemcard (blocking)",
+    "          ELSEIF NOT ( IsSpaceForSaveGameFile(NA) )",
+    "            CALL CannotSaveNoSpace (blocking)",
+    "          ENDIF",
+    "          VALVE SaveConcluded = 0",
+    "        ENDIF",
+    "      ELSE",
+    "        CALL CannotSaveNoMemcard (blocking)",
+    "        VALVE SaveConcluded = 0",
+    "      ENDIF",
+    "    ENDIF",
+    "  END_WHILE",
+    "  IF ShouldLeaveOnSaveAndLeave == 0",
+    "    IF MultiplayerDisconnectFromOptions == 0",
+    "      IF CameFromNewGameButton == 1",
+    "        VALVE uiEquipReturnScreen = 51",
+    "        SWITCHMENU(dlgAlbaniaCinematic.rdr)",
+    "        VALVE CameFromNewGameButton = 0",
+    "      ELSE",
+    "        SWITCHMENU(PREVIOUS_SCREEN)",
+    "      ENDIF",
+    "    ENDIF",
+    "  ENDIF",
+    "ENDIF",
+    "CALL has_memcard_changed"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/choose_memcard_slot_cancellable",
+   "commands": [
+    "MC_ChPort",
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    829,
+    830
+   ],
+   "ops": [
+    "VALVE MainMenuCardSlotChoice = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #830 buttons #510/#511 -> MainMenuCardSlotChoice TRIANGLE",
+    "WHILE MainMenuCardSlotChoice == 0",
+    "END_WHILE",
+    "IF MainMenuCardSlotChoice != 66",
+    "  POPUPDIALOG(NA)",
+    "  POPUP #829 keep",
+    "  IF MainMenuCardSlotChoice == 1",
+    "    VALVE MainMenuCardSlot = 0",
+    "    MC_ChPort(0)",
+    "  ELSE",
+    "    VALVE MainMenuCardSlot = 1",
+    "    MC_ChPort(1)",
+    "  ENDIF",
+    "ENDIF"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/AskToOverwrite",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    857
+   ],
+   "ops": [
+    "POPUPDIALOG(NA)",
+    "POPUP #857 buttons #246/#253 -> AreYouSure"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/CannotSaveNoMemcard",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    860,
+    861
+   ],
+   "ops": [
+    "POPUPDIALOG(NA)",
+    "VALVE SitHere = 0",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #860 buttons #226 -> SitHere",
+    "ELSE",
+    "  POPUP #861 buttons #226 -> SitHere",
+    "ENDIF",
+    "WHILE SitHere == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/DisplayErrorSaving",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    840
+   ],
+   "ops": [
+    "VALVE ConfirmError = 0",
+    "POPUPDIALOG(NA)",
+    "POPUP #840 buttons none -> ConfirmError",
+    "WHILE ConfirmError == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/CannotSaveNotFormatted",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [
+    858,
+    859
+   ],
+   "ops": [
+    "POPUPDIALOG(NA)",
+    "VALVE SitHere = 0",
+    "IF MainMenuCardSlot == 0",
+    "  POPUP #858 buttons #226 -> SitHere",
+    "ELSE",
+    "  POPUP #859 buttons #226 -> SitHere",
+    "ENDIF",
+    "WHILE SitHere == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/has_memcard_changed",
+   "commands": [
+    "MC_ChPort",
+    "MC_Changed"
+   ],
+   "calls": [
+    "UIMemCardAnim.rdr/AskToLoadData",
+    "UIanim.rdr/intro_onstart"
+   ],
+   "popups": [],
+   "ops": [
+    "IF MC_Changed(NA)",
+    "  CALL AskToLoadData (blocking)",
+    "  IF AreYouSure == 1",
+    "    VALVE memcard_have_loaded_config = 0",
+    "    IF mc_changed_slot == 0",
+    "      VALVE MainMenuCardSlot = 0",
+    "      MC_ChPort(0)",
+    "    ELSE",
+    "      VALVE MainMenuCardSlot = 1",
+    "      MC_ChPort(1)",
+    "    ENDIF",
+    "    VALVE memcard_already_selected = 1",
+    "    CALL intro_onstart (blocking)",
+    "    VALVE memcard_have_loaded_config = 1",
+    "  ENDIF",
+    "ENDIF",
+    "WAIT 1.5",
+    "LOOP forever"
+   ],
+   "unknown": []
+  },
+  {
+   "key": "UIMemCardAnim.rdr/AskToLoadData",
+   "commands": [
+    "POPUPDIALOG"
+   ],
+   "calls": [],
+   "popups": [],
+   "ops": [
+    "VALVE AreYouSure = 0",
+    "POPUPDIALOG(NA)",
+    "IF mc_changed_slot == 0",
+    "  POPUP <text 102> buttons #253/#246 -> AreYouSure",
+    "ELSE",
+    "  POPUP <text 102> buttons #253/#246 -> AreYouSure",
+    "ENDIF",
+    "WHILE AreYouSure == 0",
+    "END_WHILE"
+   ],
+   "unknown": []
+  }
+ ],
+ "names": [
+  "CheckVideoMode",
+  "FormatMemCard",
+  "IsMemCardFormatted",
+  "IsMemCardInserted",
+  "IsMemcardSaveOK",
+  "IsSpaceForSaveGameFile",
+  "KILLPOPUP",
+  "KillPopUp",
+  "ListSavedGames",
+  "LoadConfig",
+  "MC_ChDir",
+  "MC_ChPort",
+  "MC_Changed",
+  "MC_CreateIconFiles",
+  "MC_Exists",
+  "MC_MkDir",
+  "POPUPDIALOG",
+  "SWITCHMENU",
+  "SaveConfig",
+  "StoreOptions",
+  "SwitchProgressiveVideo",
+  "UpdateAcctInfo"
+ ]
+}

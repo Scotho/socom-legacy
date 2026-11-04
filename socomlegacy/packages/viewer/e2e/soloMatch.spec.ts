@@ -1,0 +1,39 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
+import type {} from '../src/hook';
+import { TEST_ROOM } from './urls';
+
+/**
+ * The single-player match (`../src/net/loopback`; research 91 section 20, 85 section 12): offline, reCOM mode joins the
+ * match server's own room run in the page -- no `&fly`, no `&nomatch` -- as the host's SEAL, stood at a slot, the round
+ * on; a grenade tossed at the feet hurts (or kills) the player, as the owner asked on 2026-09-29.
+ */
+
+const FIXTURES = join(fileURLToPath(new URL('../../..', import.meta.url)), 'test-fixtures');
+const HAVE = existsSync(join(FIXTURES, 'RUN', 'MP2.ZDB'));
+
+test('offline: the page plays its own match, and a grenade at the feet hurts the player', async ({ page }) => {
+  test.skip(!HAVE, 'needs the fixtures (npm run extract-maps)');
+  test.setTimeout(120_000);
+  const problems: string[] = [];
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+
+  // The kit these pins were measured on: the M4A1 SD, the Mark 23, the M67 and the HE, no 2X (W2.R4's), by the
+  // developer's `&kit=` (README; the default spawn is the map's type's kit since web sprint 4).
+  await page.goto(`${TEST_ROOM}?map=MP2&mode=play&devmode&noarmory&kit=62,15,121,126,255`);
+  await expect(page.locator('#status')).toContainText('FROSTFIRE (MP2)', { timeout: 60_000 });
+  await expect.poll(async () => page.evaluate(() => window.__viewer.net?.()?.state ?? null), { timeout: 30_000 }).toBe('open');
+  const net = await page.evaluate(() => window.__viewer.net!()!);
+  expect(net.role).toBe('player');
+  expect(net.team).toBe('seal');
+  await expect.poll(async () => page.evaluate(() => window.__viewer.feet()), { timeout: 30_000 }).not.toBeNull();
+  expect((await page.evaluate(() => window.__viewer.hud())).model.health).toBe(1);
+
+  // A short toss: it lands at the SEAL's feet, and the room's blast reaches the thrower (FUN_005ac070 asks no thrower).
+  // Four 60 Hz ticks' hold (power .185): the weakest lob the release request takes (PAR-20 D10, research 256 s1).
+  await page.evaluate(() => window.__viewer.throwGrenade(4 / 60, true));
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.hud())).model.health, { timeout: 8_000 }).toBeLessThan(1);
+  expect(problems).toEqual([]);
+});

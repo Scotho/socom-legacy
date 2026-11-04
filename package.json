@@ -1,0 +1,27 @@
+{
+  "name": "socom-legacy",
+  "version": "0.4.6",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0",
+  "description": "SOCOM Legacy: SOCOM U.S. Navy SEALs II ported to the browser in TypeScript and three.js -- the client; bring your own disc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Scotho/socom-legacy.git"
+  },
+  "workspaces": [
+    "socomlegacy",
+    "socomlegacy/packages/*",
+    "socomlegacy/tools",
+    "shared"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck -w @s2u/socomlegacy && npm run typecheck -w shared",
+    "test": "npm test -w @s2u/socomlegacy && npm test -w shared",
+    "test:ci": "npm test -w @s2u/socomlegacy -- --testTimeout=30000 && npm test -w shared -- --testTimeout=30000",
+    "test:changed": "npm run test:changed -w @s2u/socomlegacy",
+    "build": "npm run build -w @s2u/socomlegacy",
+    "dev": "npm run dev -w @s2u/socomlegacy",
+    "extract-maps": "npm run extract-maps -w @s2u/socomlegacy"
+  }
+}

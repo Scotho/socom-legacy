@@ -1,0 +1,1382 @@
+{
+  "fixtureFormat": "neutral-authoring-source-1",
+  "id": "original-courtyard",
+  "label": "Original courtyard fixture",
+  "status": "fixture preparation; typed adapter and engine acceptance pending",
+  "provenance": {
+    "kind": "original-authored browser adaptation",
+    "method": "Geometric rectangles and boxes created by generate.py for this fixture.",
+    "discContent": false,
+    "externalAssets": false,
+    "externalFetch": false
+  },
+  "coordinates": {
+    "unit": "metre",
+    "metersPerUnit": 1,
+    "up": "+Y",
+    "handedness": "right",
+    "north": "-Z",
+    "east": "+X",
+    "transformsBaked": true,
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "note": "All source and GLB positions are metres. Runtime conversion awaits the published adapter."
+  },
+  "bounds": {
+    "min": [
+      -20.5,
+      0,
+      -16.5
+    ],
+    "max": [
+      20.5,
+      4,
+      16.5
+    ]
+  },
+  "render": {
+    "file": "courtyard.glb",
+    "floorColor": [
+      0.27,
+      0.31,
+      0.29,
+      1
+    ],
+    "wallBoxes": [
+      {
+        "id": "wall-west",
+        "min": [
+          -20.5,
+          0,
+          -16.5
+        ],
+        "max": [
+          -20,
+          4,
+          16.5
+        ],
+        "color": [
+          0.18,
+          0.38,
+          0.68,
+          1
+        ]
+      },
+      {
+        "id": "wall-east",
+        "min": [
+          20,
+          0,
+          -16.5
+        ],
+        "max": [
+          20.5,
+          4,
+          16.5
+        ],
+        "color": [
+          0.77,
+          0.35,
+          0.13,
+          1
+        ]
+      },
+      {
+        "id": "wall-north",
+        "min": [
+          -20,
+          0,
+          -16.5
+        ],
+        "max": [
+          20,
+          4,
+          -16
+        ],
+        "color": [
+          0.36,
+          0.43,
+          0.48,
+          1
+        ]
+      },
+      {
+        "id": "wall-south",
+        "min": [
+          -20,
+          0,
+          16
+        ],
+        "max": [
+          20,
+          4,
+          16.5
+        ],
+        "color": [
+          0.36,
+          0.43,
+          0.48,
+          1
+        ]
+      },
+      {
+        "id": "divider",
+        "min": [
+          -0.5,
+          0,
+          -8
+        ],
+        "max": [
+          0.5,
+          3,
+          8
+        ],
+        "color": [
+          0.74,
+          0.69,
+          0.51,
+          1
+        ]
+      }
+    ],
+    "visualOnlyMarkers": [
+      {
+        "id": "pickup-marker",
+        "vertices": [
+          [
+            -0.5,
+            0.01,
+            -11.5
+          ],
+          [
+            0.5,
+            0.01,
+            -11.5
+          ],
+          [
+            0.5,
+            0.01,
+            -12.5
+          ],
+          [
+            -0.5,
+            0.01,
+            -12.5
+          ]
+        ],
+        "color": [
+          0.85,
+          0.76,
+          0.15,
+          1
+        ]
+      },
+      {
+        "id": "site-a-marker",
+        "vertices": [
+          [
+            13,
+            0.01,
+            1
+          ],
+          [
+            15,
+            0.01,
+            1
+          ],
+          [
+            15,
+            0.01,
+            -1
+          ],
+          [
+            13,
+            0.01,
+            -1
+          ]
+        ],
+        "color": [
+          0.18,
+          0.38,
+          0.68,
+          1
+        ]
+      },
+      {
+        "id": "site-b-marker",
+        "vertices": [
+          [
+            -15,
+            0.01,
+            1
+          ],
+          [
+            -13,
+            0.01,
+            1
+          ],
+          [
+            -13,
+            0.01,
+            -1
+          ],
+          [
+            -15,
+            0.01,
+            -1
+          ]
+        ],
+        "color": [
+          0.77,
+          0.35,
+          0.13,
+          1
+        ]
+      }
+    ]
+  },
+  "collision": {
+    "polygons": [
+      {
+        "id": "floor",
+        "owner": "courtyard-floor",
+        "role": "floor",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            16
+          ],
+          [
+            20,
+            0,
+            16
+          ],
+          [
+            20,
+            0,
+            -16
+          ],
+          [
+            -20,
+            0,
+            -16
+          ]
+        ]
+      },
+      {
+        "id": "wall-west-west",
+        "owner": "wall-west",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20.5,
+            0,
+            16.5
+          ],
+          [
+            -20.5,
+            4,
+            16.5
+          ],
+          [
+            -20.5,
+            4,
+            -16.5
+          ],
+          [
+            -20.5,
+            0,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-west-east",
+        "owner": "wall-west",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            -16.5
+          ],
+          [
+            -20,
+            4,
+            -16.5
+          ],
+          [
+            -20,
+            4,
+            16.5
+          ],
+          [
+            -20,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-west-bottom",
+        "owner": "wall-west",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20.5,
+            0,
+            -16.5
+          ],
+          [
+            -20,
+            0,
+            -16.5
+          ],
+          [
+            -20,
+            0,
+            16.5
+          ],
+          [
+            -20.5,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-west-top",
+        "owner": "wall-west",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20.5,
+            4,
+            16.5
+          ],
+          [
+            -20,
+            4,
+            16.5
+          ],
+          [
+            -20,
+            4,
+            -16.5
+          ],
+          [
+            -20.5,
+            4,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-west-north",
+        "owner": "wall-west",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20.5,
+            0,
+            -16.5
+          ],
+          [
+            -20.5,
+            4,
+            -16.5
+          ],
+          [
+            -20,
+            4,
+            -16.5
+          ],
+          [
+            -20,
+            0,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-west-south",
+        "owner": "wall-west",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            16.5
+          ],
+          [
+            -20,
+            4,
+            16.5
+          ],
+          [
+            -20.5,
+            4,
+            16.5
+          ],
+          [
+            -20.5,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-east-west",
+        "owner": "wall-east",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            16.5
+          ],
+          [
+            20,
+            4,
+            16.5
+          ],
+          [
+            20,
+            4,
+            -16.5
+          ],
+          [
+            20,
+            0,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-east-east",
+        "owner": "wall-east",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20.5,
+            0,
+            -16.5
+          ],
+          [
+            20.5,
+            4,
+            -16.5
+          ],
+          [
+            20.5,
+            4,
+            16.5
+          ],
+          [
+            20.5,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-east-bottom",
+        "owner": "wall-east",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            -16.5
+          ],
+          [
+            20.5,
+            0,
+            -16.5
+          ],
+          [
+            20.5,
+            0,
+            16.5
+          ],
+          [
+            20,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-east-top",
+        "owner": "wall-east",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            4,
+            16.5
+          ],
+          [
+            20.5,
+            4,
+            16.5
+          ],
+          [
+            20.5,
+            4,
+            -16.5
+          ],
+          [
+            20,
+            4,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-east-north",
+        "owner": "wall-east",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            -16.5
+          ],
+          [
+            20,
+            4,
+            -16.5
+          ],
+          [
+            20.5,
+            4,
+            -16.5
+          ],
+          [
+            20.5,
+            0,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-east-south",
+        "owner": "wall-east",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20.5,
+            0,
+            16.5
+          ],
+          [
+            20.5,
+            4,
+            16.5
+          ],
+          [
+            20,
+            4,
+            16.5
+          ],
+          [
+            20,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-north-west",
+        "owner": "wall-north",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            -16
+          ],
+          [
+            -20,
+            4,
+            -16
+          ],
+          [
+            -20,
+            4,
+            -16.5
+          ],
+          [
+            -20,
+            0,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-north-east",
+        "owner": "wall-north",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            -16.5
+          ],
+          [
+            20,
+            4,
+            -16.5
+          ],
+          [
+            20,
+            4,
+            -16
+          ],
+          [
+            20,
+            0,
+            -16
+          ]
+        ]
+      },
+      {
+        "id": "wall-north-bottom",
+        "owner": "wall-north",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            -16.5
+          ],
+          [
+            20,
+            0,
+            -16.5
+          ],
+          [
+            20,
+            0,
+            -16
+          ],
+          [
+            -20,
+            0,
+            -16
+          ]
+        ]
+      },
+      {
+        "id": "wall-north-top",
+        "owner": "wall-north",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            4,
+            -16
+          ],
+          [
+            20,
+            4,
+            -16
+          ],
+          [
+            20,
+            4,
+            -16.5
+          ],
+          [
+            -20,
+            4,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-north-north",
+        "owner": "wall-north",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            -16.5
+          ],
+          [
+            -20,
+            4,
+            -16.5
+          ],
+          [
+            20,
+            4,
+            -16.5
+          ],
+          [
+            20,
+            0,
+            -16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-north-south",
+        "owner": "wall-north",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            -16
+          ],
+          [
+            20,
+            4,
+            -16
+          ],
+          [
+            -20,
+            4,
+            -16
+          ],
+          [
+            -20,
+            0,
+            -16
+          ]
+        ]
+      },
+      {
+        "id": "wall-south-west",
+        "owner": "wall-south",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            16.5
+          ],
+          [
+            -20,
+            4,
+            16.5
+          ],
+          [
+            -20,
+            4,
+            16
+          ],
+          [
+            -20,
+            0,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "wall-south-east",
+        "owner": "wall-south",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            16
+          ],
+          [
+            20,
+            4,
+            16
+          ],
+          [
+            20,
+            4,
+            16.5
+          ],
+          [
+            20,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-south-bottom",
+        "owner": "wall-south",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            16
+          ],
+          [
+            20,
+            0,
+            16
+          ],
+          [
+            20,
+            0,
+            16.5
+          ],
+          [
+            -20,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "wall-south-top",
+        "owner": "wall-south",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            4,
+            16.5
+          ],
+          [
+            20,
+            4,
+            16.5
+          ],
+          [
+            20,
+            4,
+            16
+          ],
+          [
+            -20,
+            4,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "wall-south-north",
+        "owner": "wall-south",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -20,
+            0,
+            16
+          ],
+          [
+            -20,
+            4,
+            16
+          ],
+          [
+            20,
+            4,
+            16
+          ],
+          [
+            20,
+            0,
+            16
+          ]
+        ]
+      },
+      {
+        "id": "wall-south-south",
+        "owner": "wall-south",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            20,
+            0,
+            16.5
+          ],
+          [
+            20,
+            4,
+            16.5
+          ],
+          [
+            -20,
+            4,
+            16.5
+          ],
+          [
+            -20,
+            0,
+            16.5
+          ]
+        ]
+      },
+      {
+        "id": "divider-west",
+        "owner": "divider",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -0.5,
+            0,
+            8
+          ],
+          [
+            -0.5,
+            3,
+            8
+          ],
+          [
+            -0.5,
+            3,
+            -8
+          ],
+          [
+            -0.5,
+            0,
+            -8
+          ]
+        ]
+      },
+      {
+        "id": "divider-east",
+        "owner": "divider",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            0.5,
+            0,
+            -8
+          ],
+          [
+            0.5,
+            3,
+            -8
+          ],
+          [
+            0.5,
+            3,
+            8
+          ],
+          [
+            0.5,
+            0,
+            8
+          ]
+        ]
+      },
+      {
+        "id": "divider-bottom",
+        "owner": "divider",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -0.5,
+            0,
+            -8
+          ],
+          [
+            0.5,
+            0,
+            -8
+          ],
+          [
+            0.5,
+            0,
+            8
+          ],
+          [
+            -0.5,
+            0,
+            8
+          ]
+        ]
+      },
+      {
+        "id": "divider-top",
+        "owner": "divider",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -0.5,
+            3,
+            8
+          ],
+          [
+            0.5,
+            3,
+            8
+          ],
+          [
+            0.5,
+            3,
+            -8
+          ],
+          [
+            -0.5,
+            3,
+            -8
+          ]
+        ]
+      },
+      {
+        "id": "divider-north",
+        "owner": "divider",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            -0.5,
+            0,
+            -8
+          ],
+          [
+            -0.5,
+            3,
+            -8
+          ],
+          [
+            0.5,
+            3,
+            -8
+          ],
+          [
+            0.5,
+            0,
+            -8
+          ]
+        ]
+      },
+      {
+        "id": "divider-south",
+        "owner": "divider",
+        "role": "wall",
+        "region": "courtyard",
+        "vertices": [
+          [
+            0.5,
+            0,
+            8
+          ],
+          [
+            0.5,
+            3,
+            8
+          ],
+          [
+            -0.5,
+            3,
+            8
+          ],
+          [
+            -0.5,
+            0,
+            8
+          ]
+        ]
+      }
+    ],
+    "note": "Explicit convex planar quads. Floor is walkable; all six faces of every wall box are wall surfaces, including tops/bottoms."
+  },
+  "regions": [
+    {
+      "id": "courtyard",
+      "label": "Courtyard",
+      "min": [
+        -20,
+        0,
+        -16
+      ],
+      "max": [
+        20,
+        4,
+        16
+      ]
+    },
+    {
+      "id": "west-staging",
+      "label": "West staging",
+      "min": [
+        -18,
+        0,
+        -5
+      ],
+      "max": [
+        -10,
+        4,
+        5
+      ]
+    },
+    {
+      "id": "east-staging",
+      "label": "East staging",
+      "min": [
+        10,
+        0,
+        -5
+      ],
+      "max": [
+        18,
+        4,
+        5
+      ]
+    },
+    {
+      "id": "north-route",
+      "label": "North route",
+      "min": [
+        -4,
+        0,
+        -14
+      ],
+      "max": [
+        4,
+        4,
+        -10
+      ]
+    },
+    {
+      "id": "south-route",
+      "label": "South route",
+      "min": [
+        -4,
+        0,
+        10
+      ],
+      "max": [
+        4,
+        4,
+        14
+      ]
+    }
+  ],
+  "spawns": [
+    {
+      "id": "spawn-a-0",
+      "team": "A",
+      "position": [
+        -15,
+        0,
+        -3
+      ],
+      "facing": [
+        1,
+        0,
+        0
+      ],
+      "region": "west-staging"
+    },
+    {
+      "id": "spawn-a-1",
+      "team": "A",
+      "position": [
+        -15,
+        0,
+        3
+      ],
+      "facing": [
+        1,
+        0,
+        0
+      ],
+      "region": "west-staging"
+    },
+    {
+      "id": "spawn-b-0",
+      "team": "B",
+      "position": [
+        15,
+        0,
+        -3
+      ],
+      "facing": [
+        -1,
+        0,
+        0
+      ],
+      "region": "east-staging"
+    },
+    {
+      "id": "spawn-b-1",
+      "team": "B",
+      "position": [
+        15,
+        0,
+        3
+      ],
+      "facing": [
+        -1,
+        0,
+        0
+      ],
+      "region": "east-staging"
+    }
+  ],
+  "objectives": {
+    "experience": "Demolition",
+    "pickup": {
+      "id": "bomb-pickup",
+      "role": "shared-bomb-pickup",
+      "position": [
+        0,
+        0,
+        -12
+      ],
+      "region": "north-route"
+    },
+    "sites": [
+      {
+        "id": "plant-a",
+        "role": "bomb-plant-site",
+        "plantingTeam": "A",
+        "position": [
+          14,
+          0,
+          0
+        ],
+        "region": "east-staging"
+      },
+      {
+        "id": "plant-b",
+        "role": "bomb-plant-site",
+        "plantingTeam": "B",
+        "position": [
+          -14,
+          0,
+          0
+        ],
+        "region": "west-staging"
+      }
+    ],
+    "note": "Roles and positions only. No authored timing, damage, score, interaction reach, or replacement game rules. Adapt to existing Demolition actions after type review."
+  },
+  "geometryProbes": {
+    "clearanceMetres": 0.5,
+    "routes": [
+      {
+        "id": "north",
+        "points": [
+          [
+            -15,
+            0,
+            -3
+          ],
+          [
+            -10,
+            0,
+            -12
+          ],
+          [
+            0,
+            0,
+            -12
+          ],
+          [
+            10,
+            0,
+            -12
+          ],
+          [
+            15,
+            0,
+            -3
+          ]
+        ]
+      },
+      {
+        "id": "south",
+        "points": [
+          [
+            -15,
+            0,
+            3
+          ],
+          [
+            -10,
+            0,
+            12
+          ],
+          [
+            0,
+            0,
+            12
+          ],
+          [
+            10,
+            0,
+            12
+          ],
+          [
+            15,
+            0,
+            3
+          ]
+        ]
+      }
+    ],
+    "rays": [
+      {
+        "id": "blocked-by-divider",
+        "from": [
+          -10,
+          1.5,
+          0
+        ],
+        "to": [
+          10,
+          1.5,
+          0
+        ],
+        "blocked": true
+      },
+      {
+        "id": "clear-north",
+        "from": [
+          -10,
+          1.5,
+          -12
+        ],
+        "to": [
+          10,
+          1.5,
+          -12
+        ],
+        "blocked": false
+      }
+    ],
+    "note": "Fixture geometry expectations only; not engine navigation data or executed player/shot results."
+  }
+}

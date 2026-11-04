@@ -1,0 +1,105 @@
+/*
+ * The replay viewer (MU-10, `./view.ts` `mountReplayViewer`, `./transport.ts`): full-bleed with the always-on bottom
+ * transport bar (the dialogue's D7 and Q10 default), in the console's Watch layer (`../../console/adapters/replays.ts`,
+ * which gives it the section's root, `.mur`, and its body). Every colour, type and measure is a `--mu-*` token
+ * (`../tokens.css`). A browser adaptation (MU.R1). CX-27 (the console plan): the retired Replays section's list rules
+ * (its head, the match cards, the room filter and More, CX-26's `mountReplays`) are gone: no live markup draws them.
+ *
+ * RV-3 (research 276 §2): every control's target is at least the design system's `--s2u-hit-min` (44 px, MU-F3's rule)
+ * both ways -- the transport's buttons, the speed's, the cameras, Back -- and the seek bar's rail sits in a band that
+ * tall; its focus is the range input laid over the band (transparent, it takes no pointer: the band does), ringed on
+ * the band as the setup page's disc picker rings its own input.
+ */
+.mur { display: flex; flex-direction: column; gap: var(--mu-gap-3); height: 100%; padding-block: var(--mu-gap-4); padding-inline: 0; box-sizing: border-box; }
+.mur__body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.mur__quiet { margin: 0; color: var(--mu-text-dim); }
+
+/* the viewer's head: the match's map, rules and date, and the disc's lock note */
+.mur__map { font: var(--mu-type-label); letter-spacing: var(--mu-tracking-label); text-transform: uppercase; color: var(--mu-text-strong); }
+.mur__chip { flex: none; padding: 0 var(--mu-gap-2); font: var(--mu-type-caption-dim); letter-spacing: var(--mu-tracking-caption); text-transform: uppercase;
+  color: var(--mu-text-dim); border: 1px solid var(--mu-line); border-radius: var(--mu-radius-pill); }
+.mur__date { color: var(--mu-text-dim); white-space: nowrap; }
+.mur__locked { display: inline-flex; align-items: center; gap: var(--mu-gap-1); font: var(--mu-type-caption-dim); letter-spacing: var(--mu-tracking-caption);
+  text-transform: uppercase; color: var(--mu-text-dim); }
+.mur__locked .mu-icon { width: 16px; height: 16px; }
+
+/* a state over the stage: the disc's lock, a refused or failed open. (CX-29: `.mu-shell .mur__prompt-title` went -- it
+   matched nothing since the shell went with CX-25, no `.mu-shell` being drawn, so the title draws as it did.) */
+.mur__prompt { display: grid; justify-items: start; gap: var(--mu-gap-2); padding: var(--mu-gap-4); border: 1px dashed var(--mu-line); border-radius: var(--mu-radius); }
+.mur__prompt--alert { border-style: solid; border-color: var(--mu-alert); }
+.mur__prompt-icon { width: var(--mu-icon-large); height: var(--mu-icon-large); color: var(--mu-line-strong); }
+.mur__prompt--alert .mur__prompt-icon { color: var(--mu-alert); }
+
+/* the viewer: its head, the stage, the transport at the foot */
+.mur__viewer { flex: 1; display: flex; flex-direction: column; gap: var(--mu-gap-3); min-height: var(--mu-panel-min-h); outline: none; }
+.mur__viewer:focus-visible { outline: 2px solid var(--mu-focus); outline-offset: 2px; }
+.mur__viewer-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--mu-gap-3); }
+.mur__viewer-head .mu-button { min-height: var(--s2u-hit-min); }
+.mur__cameras { display: inline-flex; margin-left: auto; padding: 2px; gap: 2px; background: var(--mu-surface-raised); border-radius: var(--mu-radius-pill); }
+.mur__camera { display: grid; place-items: center; min-width: var(--s2u-hit-min); min-height: var(--s2u-hit-min); appearance: none; cursor: pointer; color: var(--mu-text-dim);
+  background: transparent; border: 0; border-radius: var(--mu-radius-pill); }
+.mur__camera[aria-pressed="true"] { color: var(--mu-ground); background: var(--mu-accent-strong); }
+.mur__camera:focus-visible { outline: 2px solid var(--mu-focus); outline-offset: 1px; }
+.mur__stage { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 240px); gap: var(--mu-gap-3); min-height: 0; }
+.mur__world { display: grid; place-content: center; justify-items: center; gap: var(--mu-gap-2); padding: var(--mu-gap-4); text-align: center;
+  background: var(--mu-ground); border: 1px solid var(--mu-line); border-radius: var(--mu-radius); }
+/* MU-11: the world drawn -- the framed test room fills the world's place (`./worldStage`); the test room sets its own picture inside */
+.mur__world[data-world="drawn"] { display: block; padding: 0; overflow: hidden; }
+.mur__frame-host { width: 100%; height: 100%; min-height: 320px; }
+.mur__frame { display: block; width: 100%; height: 100%; border: 0; background: var(--mu-ground); }
+.mur__world-icon { width: var(--mu-icon-large); height: var(--mu-icon-large); color: var(--mu-line-strong); }
+.mur__roster { display: grid; align-content: start; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.mur__player { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--mu-gap-2); min-height: 32px;
+  padding: 0 var(--mu-gap-2); background: var(--mu-surface-card); border-left: 3px solid var(--mu-line); border-radius: var(--mu-radius); }
+.mur__player[data-team="seal"] { border-left-color: var(--mu-live); }
+.mur__player[data-team="terrorist"] { border-left-color: var(--mu-alert); }
+.mur__player .mu-icon { width: 16px; height: 16px; color: var(--mu-text-dim); }
+.mur__player-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mu-text-strong); }
+.mur__player-team { font: var(--mu-type-caption-dim); letter-spacing: var(--mu-tracking-caption); text-transform: uppercase; color: var(--mu-text-dim); }
+.mur__status { margin: 0; color: var(--mu-text); }
+
+/* the transport bar: the seek bar over one row of controls */
+.mur-transport { display: grid; gap: var(--mu-gap-2); padding: var(--mu-gap-3); background: var(--mu-surface-card); border: 1px solid var(--mu-line); border-radius: var(--mu-radius); }
+.mur-status, .mur-note { margin: 0; font: var(--mu-type-caption-dim); letter-spacing: var(--mu-tracking-caption); color: var(--mu-text-dim); }
+.mur-status[hidden], .mur-note[hidden], .mur-partial[hidden] { display: none; }
+.mur-note { color: var(--mu-accent); }
+.mur-seek { position: relative; min-height: var(--s2u-hit-min); cursor: pointer; touch-action: none; border-radius: var(--mu-radius); }
+.mur-seek::before { content: ""; position: absolute; left: 0; right: 0; top: calc(50% - 4px); height: 8px; background: var(--mu-surface-raised);
+  border-radius: var(--mu-radius-pill); pointer-events: none; }
+.mur-seek:has(> .mur-seek__input:is(.is-pad-focused, :focus-visible)) { outline: 2px solid var(--mu-focus); outline-offset: 2px; }
+.mur-seek__input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
+.mur-seek__fill { position: absolute; left: 0; top: calc(50% - 4px); height: 8px; background: var(--mu-accent); border-radius: var(--mu-radius-pill); pointer-events: none; }
+.mur-seek__marks { position: absolute; left: 0; right: 0; top: calc(50% - 4px); height: 8px; pointer-events: none; }
+.mur-seek__mark { position: absolute; top: -3px; bottom: -3px; width: 3px; margin-left: -1.5px; background: var(--mu-live); border-radius: 1px; }
+.mur-seek__head { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; background: var(--mu-text-strong);
+  border-radius: 50%; box-shadow: 0 0 0 3px color-mix(in srgb, var(--mu-accent) 40%, transparent); pointer-events: none;
+  transition: transform var(--mu-fast) var(--mu-ease); }
+.mur-seek:hover .mur-seek__head { transform: scale(1.15); }
+/* RV-3: the hover's time, over the rail where a press would seek */
+.mur-seek__hover { position: absolute; bottom: calc(50% + 12px); padding: 0 var(--mu-gap-1); transform: translateX(-50%); font: var(--mu-type-mono);
+  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--mu-text-strong); background: var(--mu-surface-raised); border-radius: var(--mu-radius);
+  pointer-events: none; }
+.mur-seek__hover[hidden] { display: none; }
+.mur-transport__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--mu-gap-1); }
+.mur-tbtn { display: grid; place-items: center; min-width: var(--s2u-hit-min); min-height: var(--s2u-hit-min); appearance: none; cursor: pointer; color: var(--mu-text-strong);
+  background: transparent; border: 1px solid transparent; border-radius: var(--mu-radius); transition: background-color var(--mu-fast) var(--mu-ease); }
+.mur-tbtn:hover:enabled { background: var(--mu-surface-hover); }
+.mur-tbtn:focus-visible { outline: 2px solid var(--mu-focus); outline-offset: 1px; }
+.mur-tbtn:disabled { cursor: default; color: var(--mu-text-dim); }
+.mur-tbtn[data-action="toggle"] { width: 48px; height: 48px; color: var(--mu-ground); background: var(--mu-accent-strong); border-radius: 50%; }
+.mur-tbtn[data-action="toggle"]:hover:enabled { background: var(--mu-text-strong); }
+.mur-tbtn[data-action="toggle"]:disabled { color: var(--mu-text-dim); background: var(--mu-surface-raised); }
+.mur-time { margin-left: var(--mu-gap-3); font: var(--mu-type-mono); font-variant-numeric: tabular-nums; color: var(--mu-text-strong); }
+.mur-partial { margin: 0 0 0 var(--mu-gap-2); }
+.mur-speed { display: inline-flex; align-items: center; gap: var(--mu-gap-1); margin-left: auto; padding: 0 var(--mu-gap-1);
+  background: var(--mu-surface-raised); border-radius: var(--mu-radius-pill); }
+.mur-speed__value { min-width: 5ch; text-align: center; font: var(--mu-type-mono); font-variant-numeric: tabular-nums; color: var(--mu-text-strong); }
+/* RV-3: the hint row -- the focused control's key and pad button (the design system's prompts, MU.R19) */
+.mur-hints { gap: var(--mu-gap-1) var(--mu-gap-4); color: var(--mu-text-dim); }
+
+@media (max-width: 900px) {
+  .mur__stage { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mur-tbtn, .mur-seek__head { transition: none; }
+}

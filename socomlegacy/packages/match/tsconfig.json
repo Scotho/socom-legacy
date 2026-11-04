@@ -1,0 +1,6 @@
+// @s2u/match: the same settings as central's, written by SA-3's move script.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "composite": false, "declaration": false, "noEmit": true, "types": ["node", "vite/client"], "lib": ["ES2022", "DOM"] },
+  "include": ["src", "test", "vitest.config.ts"]
+}

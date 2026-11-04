@@ -1,0 +1,6 @@
+# build.sh writes here: the unpacked libmpeg2 source and its working files, not committed (PLAT-19a). The built decoder
+# and its pinned source tarball ARE committed (the owner, 2026-10-19, in the merge controller's seat: "please do" -- so a
+# host that pulls main can build without fetching them; OT.R66).
+/out/*
+!/out/libmpeg2.wasm
+!/out/mpeg2dec_0.5.1.orig.tar.gz

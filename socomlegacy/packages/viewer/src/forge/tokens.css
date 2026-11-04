@@ -1,0 +1,81 @@
+/*
+ * FORGE (FUI-7, ruling FUI.R4; a browser adaptation, no original): the Forge's one alias block. Every `--fx-*` colour,
+ * type role, radius, shadow and stacking step here reads the shared design system (`shared/ds`: `tokens.css` and
+ * `base.css`'s first `:root` block), never a colour of its own, so the Forge and the launcher are one product. The
+ * `--fx-*` names are kept, so the sheets, the specs and the source pins read the same names. Read by `./forge.css`
+ * (the lobby window's `./lobby/lobby.css` is drawn inside the Forge's body) and `../agent/panel.css` (the test room's
+ * agent dock sits outside the Forge's body, hence the three scopes). `test/forge/tokens.test.ts` refuses a colour
+ * literal here and in those three sheets, and holds the contrast pairs below.
+ */
+body.forge-page, .agent-panel, .agent-testroom-dock {
+  /* surfaces, darkest to lit (shared/ds README, "Tokens": surface-raised, -card, -hover) */
+  --fx-deep: var(--s2u-ground-deep);
+  --fx-bg: var(--s2u-ground);
+  --fx-bar: var(--s2u-surface-raised);
+  --fx-panel: var(--s2u-panel);
+  --fx-panel-2: var(--s2u-surface-card);
+  --fx-hover: var(--s2u-surface-hover);
+  /* The one selected fill (VP-1: `#1d3038` six times before), under a gold label and edge. */
+  --fx-selected: var(--s2u-surface-card);
+  --fx-veil: var(--s2u-veil);
+  --fx-veil-strong: var(--s2u-veil-strong);
+  --fx-scrim: var(--s2u-scrim);
+  /* ink */
+  --fx-text: var(--s2u-text);
+  --fx-text-strong: var(--s2u-text-strong);
+  --fx-dim: var(--s2u-text-dim);
+  --fx-gold: var(--s2u-gold);
+  --fx-gold-hi: var(--s2u-gold-display);
+  --fx-on-accent: var(--s2u-ground-deep);
+  /* edges (VP-9): a divider between regions, and a control's own edge at 3:1 (text-dim, as the system's actions) */
+  --fx-divider: var(--s2u-highlight);
+  --fx-control-edge: var(--s2u-text-dim);
+  --fx-edge: var(--fx-divider);
+  --fx-edge-hi: var(--fx-control-edge);
+  /* states: always beside a word, never the colour alone (shared/ds README, "s2u-chip") */
+  --fx-live: var(--s2u-state-live);
+  --fx-ready: var(--s2u-state-ready);
+  --fx-wait: var(--s2u-state-wait);
+  --fx-alert: var(--s2u-state-alert);
+  --fx-danger: var(--s2u-glyph-circle);
+  --fx-disabled: var(--s2u-disabled);
+  /* the one focus ring, keyboard and pad (shared/ds README, "The focus ring"); a scroller sets the offset inside */
+  --fx-focus: var(--s2u-focus);
+  --fx-focus-w: var(--s2u-focus-w);
+  --fx-focus-offset: var(--s2u-focus-offset);
+  /* the placed things' hues: the spawns' teams, the NPCs' sides, the bomb, the inspector's axis tags. Team A beside
+     the selection gold is FUI-10's (VP-3); here each is a system hue that clears 4.5:1 on every forge surface. */
+  --fx-team-a: var(--s2u-warn);
+  --fx-team-b: var(--s2u-cyan-boot);
+  --fx-side-seal: var(--s2u-glyph-cross);
+  --fx-side-terrorist: var(--s2u-glyph-circle);
+  --fx-bomb: var(--s2u-text-strong);
+  --fx-axis-x: var(--s2u-glyph-circle);
+  --fx-axis-y: var(--s2u-glyph-triangle);
+  --fx-axis-z: var(--s2u-glyph-cross);
+  /* type: five roles (VP-8), the floor 12 px and text-dim never below 13 px ("not below 13px", shared/ds/tokens.json);
+     the body at 13 px is the system's compact reading size (base.css `[data-density="compact"]`, the readout's 13 px) */
+  --fx-type-title: var(--s2u-type-panel-heading);
+  --fx-type-body: 400 13px/18px var(--s2u-font-body);
+  --fx-type-control: 400 12px/16px var(--s2u-font-body);
+  --fx-type-caption: 500 13px/16px var(--s2u-font-label);
+  --fx-type-mono: var(--s2u-type-readout);
+  /* shape: one radius (the system's controls are square), the pill for a chip, the system's one lift */
+  --fx-radius: var(--s2u-radius-0);
+  --fx-radius-pill: var(--s2u-radius-pill);
+  --fx-lift: var(--s2u-viewer-lift);
+  --fx-ico: var(--s2u-icon-16);
+  /* the stacking ladder (VP-15), hung from the system's overlay step (30): the docks, the toolbar and status bar, the
+     START menu, the lobby window, a dialog, the match. `--fx-z-local` lifts a thing over its siblings in its own box;
+     the match's Back sits over the match's own canvas (1000) and touch layer (1001), inside the match's host
+     (`./match`); the test room's agent dock over that page's HUD. */
+  --fx-z-local: 2;
+  --fx-z-dock: 2;
+  --fx-z-bar: 3;
+  --fx-z-menu: calc(var(--s2u-z-overlay) - 18);
+  --fx-z-window: calc(var(--s2u-z-overlay) - 10);
+  --fx-z-modal: calc(var(--s2u-z-overlay) - 5);
+  --fx-z-match: var(--s2u-z-overlay);
+  --fx-z-match-back: 1100;
+  --fx-z-testroom: 180;
+}

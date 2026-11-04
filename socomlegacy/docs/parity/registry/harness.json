@@ -1,0 +1,446 @@
+{
+ "area": "harness",
+ "notes": [
+  "docs/research/108-the-capture-comparison-harness.md",
+  "docs/research/113-golden-capture-manifest.md"
+ ],
+ "entries": [
+  {
+   "id": "harness.score.compare-py",
+   "claim": "compare.score's three numbers (score, mad, block) are reproduced to the last printed digit: 55 of 55 archived pairs equal Python's, and the synthetic pairs print 85.0 / 0.2991 / 0.0 and 98.5 / 0.0084 / 0.0214 as compare.py does.",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/compare.py:19 (score), run; capture logs/parity/gate/x51_gate_iop/title, runs/pcsx2_title1, runs/pcsx2_mission_a, scripts/parity/refs/lobby",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "scores the synthetic pairs as compare.py does",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScoreDev.test.ts",
+     "name": "prints compare.score's numbers for every sampled pair, and drive.thumb's distances",
+     "data": "capture"
+    }
+   ]
+  },
+  {
+   "id": "harness.score.box-resample",
+   "claim": "PIL's BOX resample to 320x224 (compare._arr) is reproduced byte for byte from 640x480 and 640x448 frames (SHA-256 of the grids as Python prints them); the same size with no box is the image, a 2x BOX is (a + b + 1) >> 1 across then down.",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/compare.py:15 (_arr); Pillow src/libImaging/Resample.c, run (PIL 12.1.1)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "BOX to 320x224 from 640x480 and 640x448 (compare._arr)",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "the same size and no box is the image itself; 2x BOX is (a + b + 1) >> 1 twice",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.score.float32-mean",
+   "claim": "The whole-frame mean is numpy 2.5.3's float32 pairwise sum (eight accumulators, blocks of up to 128): its printed means of an LCG array at five lengths (5..215040) are matched bit for bit, where a double sum and a sequential float32 sum differ.",
+   "level": "proven",
+   "source": "numpy 2.5.3 pairwise_sum_FLOAT, run (research 108 §2.2)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "the pairwise order: neither a double sum nor a sequential float32 sum gives these",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.score.python-round",
+   "claim": "Scores round as Python's round(x, n): on the double's exact value, an exact tie to the even digit (97.25 to 97.2, 98.75 to 98.8, 2.675 to 2.67).",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/compare.py:25 (round), run under Python 3.13",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "Python's round: the exact binary value, an exact tie to the even digit",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.thumb.drive-thumb",
+   "claim": "drive.thumb (crop to content, BICUBIC 160x112 grey) and convert(\"L\") are reproduced byte for byte (Python's hashes), with the thumbnail distance 43.18605041503906 of the synthetic pair; on the dev host six consecutive title captures' distances equal drive.thumb's.",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/drive.py:276 (thumb), run",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "convert(\"L\") and drive.thumb (crop to content, BICUBIC 160x112), and their distance",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScoreDev.test.ts",
+     "name": "prints compare.score's numbers for every sampled pair, and drive.thumb's distances",
+     "data": "capture"
+    }
+   ]
+  },
+  {
+   "id": "harness.control.black-main-menu",
+   "claim": "A black frame scores 60.2 (mad 0.1423, block 0.6536) against the lit main-menu reference ref_main_menu_ours.png, as compare.py prints: under the gate's 90.",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/compare.py:19 on desktop@be557831:scripts/parity/ref_main_menu_ours.png against black",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "planted negative control: a black frame scores under 90 against the lit main-menu reference",
+     "data": "capture"
+    }
+   ],
+   "owed": "a unit-tier pin needs the reference PNG on every clone: it is the recomp's capture, a binary file only the ta-fixtures stream may propose for git (TA.R2); until then it runs where SOCOM_PC_ROOT or ref/desktop holds it"
+  },
+  {
+   "id": "harness.control.pcsx2-main-menu",
+   "claim": "PCSX2's 640x448 lit main-menu frame ref_main_menu_ours.pcsx2.png scores 63.8 against black (research 108 §4's table), and our dlgMenu scored against it reaches 97.1 with the 4:3 correction, 94.9 without.",
+   "level": "proven",
+   "source": "capture desktop@be557831:scripts/parity/ref_main_menu_ours.pcsx2.png (PCSX2), scored by desktop@be557831:tools_py/parity/compare.py:19",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/uiCompositorScore.test.ts",
+     "name": "dlgMenu as built against PCSX2's full main-menu frame (640x448 window: the 4:3 correction) -- the block's bar",
+     "data": "capture"
+    }
+   ],
+   "owed": "needs the disc (the dialog's bitmaps) and the PCSX2 capture; a unit pin of the control alone waits on the capture's place in git (TA.R2, ta-fixtures). The test returns early, passing, when this one capture is absent although the rest of its data is present"
+  },
+  {
+   "id": "harness.control.dark-trap",
+   "claim": "A frame is matched only at score >= 90 and score >= its golden's black control + CONTROL_MARGIN_READING (5.0, counted in tenths): a dark golden, which scores 100 against black, is never matched (research 98 §1-2's trap).",
+   "level": "reading",
+   "source": "desktop@be557831:tools_py/parity/gate.py:105 (TITLE_MIN_SCORE 90.0); the margin a reading bounded by research 98 §1's record (2.7, 10.7)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "a dark golden scores 100 against black: the harness refuses to call that matched",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "a lit golden matched by its frame is matched; the margin is counted in tenths",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.mask.inside-ignored",
+   "claim": "The masked-background rule (the harness's own, no original): a frame differing from its golden only inside the mask, rounded outward onto the 320x224 grid, scores 100.0 / 0.0 / 0.0; one differing outside it does not.",
+   "level": "reading",
+   "source": "research 108 §5, by construction on compare.score's arithmetic (desktop@be557831:tools_py/parity/compare.py:19)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "a frame differing only inside the mask scores as identical",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "the mask is rounded outward onto the grid: odd frame edges still leave nothing inside it counted",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "one differing outside it does not",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.mask.uncovered-only",
+   "claim": "A masked score is taken over the uncovered pixels and blocks only: the half-wrong dialog with 75% masked scores 67.2 / 0.1569 / 0.5 (control 10.8, not matched), a block cut to its 8x8 corner is judged on those 64 pixels (44.1), a whole-frame mask is refused.",
+   "level": "reading",
+   "source": "research 108 §5 (the review of 2026-10-01), by construction",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "the mask leaves the score of what is outside it: the masked area is not counted as agreeing",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "a block the mask cuts is judged on its uncovered pixels, not diluted by shared black",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "a mask over the whole frame leaves nothing to score: refused",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.letterbox.box",
+   "claim": "PCSX2 shows the console's 448 lines at 4:3 inside its 640x448 window: the picture is x 21.33..618.67, and the 4:3 correction resamples the golden from that box through PIL's box argument (the grid's hash as Python prints it).",
+   "level": "reading",
+   "source": "KNOWN [online-7pct] (desktop@be557831:docs/KNOWN.md); PIL Image.resize box, run",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "BOX with the 4:3 letterbox box (21.33..618.67 of a 640x448 PCSX2 window: KNOWN [online-7pct])",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.gate.score-title",
+   "claim": "gate.score_title's verdict and detail line are reproduced line for line (every capture of the window s00..s18 >= 90.0 and at least 16 of them), and the gate itself passes a directory the harness writes with the very detail the harness computes (19/23, window 19/19).",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/gate.py:200 (score_title), run on the harness's directory",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "reproduces the gate's verdict and detail",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScoreDev.test.ts",
+     "name": "writes a run directory that gate --score-title passes, with the detail the harness computes",
+     "data": "capture"
+    }
+   ]
+  },
+  {
+   "id": "harness.steps.manifest-json",
+   "claim": "The run directory's manifest.json is written as drive.py's json.dump(indent=1) writes it, byte for byte (Python's float form: 22.0, 0.0).",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/drive.py:612 (run_steps, its manifest), json.dump(indent=1) run",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "writes manifest.json as json.dump(indent=1) does",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.steps.parse",
+   "claim": "parseSteps reads drive.parse's vocabulary (<mode>+<delay>:<BTN>[+<BTN>], # comments, NONE dropped); the desktop's scripts/parity/title_menu.txt parses to its 23 steps.",
+   "level": "reading",
+   "source": "desktop@be557831:tools_py/parity/drive.py:237 (parse); desktop@be557831:scripts/parity/title_menu.txt",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "parses drive.py's vocabulary (the desktop title script: SOCOM_PC_ROOT or ref/desktop)",
+     "data": "disc"
+    },
+    {
+     "file": "tools/test/captureSteps.parity.test.ts",
+     "name": "reads <mode>+<delay>:<BTN>[+<BTN>] with a # comment and a blank line: buttons upper-cased, NONE dropped",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureSteps.parity.test.ts",
+     "name": "refuses a line with no ':', no '+<delay>', or a delay that is not a number",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.steps.runner",
+   "claim": "runSteps drives a page as drive.run_steps does: it settles, captures sNN_<btn>.png before each press, the wNN_ frames of a wait and final.png after the tail; the gate's re-score reads the directory it writes.",
+   "level": "reading",
+   "source": "desktop@be557831:tools_py/parity/drive.py:612 (run_steps)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureScore.test.ts",
+     "name": "drives a recorded page: settles, presses, captures before each press; the gate's re-score reads the directory",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.refs.text-band",
+   "claim": "The dialog-text band of save_empty_card.txt is the drive.thumb rows 47:62 x columns 36:125, matched at a mean |difference| under 8.",
+   "level": "reading",
+   "source": "desktop@be557831:scripts/parity/save_empty_card.txt (untilref/ifref 47,62,36,125,8)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureRefs.test.ts",
+     "name": "rows 47:62 x columns 36:125 of drive.thumb, matched under 8",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.refs.shell-diff",
+   "claim": "Shell.diff is reproduced to the last digit: the synthetic crops' three distances as Python prints them, and on the login run 5 frames x 11 references = 55 distances equal, with every is_screen verdict.",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/online_login_ours.py:1140 (Shell.diff), run; capture logs/parity/blop_c",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureRefs.test.ts",
+     "name": "Shell.diff to the last digit",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureScoreDev.test.ts",
+     "name": "prints Shell.diff's distance for every refs.json reference on every frame, and is_screen's verdicts",
+     "data": "capture"
+    }
+   ]
+  },
+  {
+   "id": "harness.refs.scales-and-strides",
+   "claim": "ref_scales resizes a reference to five widths (x0.90, 0.93, 0.96, 1.0, 1.04 by Python's half-even round: 245 x 0.90 gives 220), and a strided crop's mean and std are numpy's one pairwise sum through its 8192-element iterator buffer (a larger crop is refused).",
+   "level": "proven",
+   "source": "desktop@be557831:tools_py/parity/online_login_ours.py:1168 (ref_scales); numpy 2.5.3, run",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureRefs.test.ts",
+     "name": "the frame convert(\"L\") and BICUBIC-resized to 320x224; the reference at five widths (round half-even)",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/captureRefs.test.ts",
+     "name": "a strided crop's mean and std as numpy takes them (one pairwise sum through the iterator buffer)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.refs.is-screen",
+   "claim": "is_screen refuses a reference within its threshold when another reference sharing its box is nearer (persona at 0.0996 is refused because login is nearer), and matches the nearest one (login).",
+   "level": "reading",
+   "source": "desktop@be557831:tools_py/parity/online_login_ours.py:1182 (is_screen)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureRefs.test.ts",
+     "name": "is_screen: under 0.45, and no reference sharing the box nearer",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.refs.is-screen-thresholds",
+   "claim": "is_screen's distance threshold is 0.45 (SCREEN_THRESH), and 0.5 for write_down, save_card and card_slot (PROMPT_THRESH): a distance between the two matches those three prompts and no other reference.",
+   "level": "reading",
+   "source": "desktop@be557831:tools_py/parity/online_login_ours.py:1180-1188 (PROMPT_THRESH, is_screen)",
+   "note": "docs/research/108-the-capture-comparison-harness.md",
+   "tests": [
+    {
+     "file": "tools/test/captureRefs.parity.test.ts",
+     "name": "a distance in (0.45, 0.5] matches write_down, save_card and card_slot and no other reference; one over 0.5 matches neither",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.manifest.inventory",
+   "claim": "Every one of PLAT-06's 103 dialogs is in exactly one of a manifest row and the no-frame list, and the manifest passes its own validator against the inventory.",
+   "level": "reading",
+   "source": "tools/test/dialogInventory.pinned.json (the disc's dialogs, research 96) against docs/parity/golden-manifest.json",
+   "note": "docs/research/113-golden-capture-manifest.md",
+   "tests": [
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "covers every dialog of the inventory: in a row, or in the no-frame list with an owing task",
+     "data": "none"
+    },
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "passes its own validator against PLAT-06's inventory",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.manifest.counts",
+   "claim": "The manifest holds 58 rows and 175 captures, eleven states without a frame, and its no-frame list is owed BOOT-01 1, OPT-19 16, ONL-32 22, PLAT-36 4, none 35 (34 campaign dialogs under R1 and the dangling dlgStickSetup).",
+   "level": "reading",
+   "source": "capture listings under SOCOM_PC_ROOT logs/parity and SOCOM_PARITY_ARCHIVE (research 113 §2.1)",
+   "note": "docs/research/113-golden-capture-manifest.md",
+   "tests": [
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "holds every row and its capture count (the pin: a row or capture lost or added fails here)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.manifest.owed-methods",
+   "claim": "Every screen and state without a frame names how it is to be captured (a key of owedMethods, each with its how and cites); only R1's campaign dialogs and the dangling name are owed by no task.",
+   "level": "reading",
+   "source": "the sprint 9 plan's owner default 4 and its gate's PLAT-31 row (research 113 §3)",
+   "note": "docs/research/113-golden-capture-manifest.md",
+   "tests": [
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "names how every screen and state without a frame is to be captured (plan owner default 4; the gate's PLAT-31 row)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.manifest.netgui-return-slot",
+   "claim": "The online \"Select MEMORY CARD slot:\" frame s4_pcsx2/A_30.png is dlgReturnFromNTGUI2's (the slot popup after the NetGUI reboot), and dlgMPswitch, which draws nothing, is in the no-frame list owed to PLAT-36's call trace.",
+   "level": "reading",
+   "source": "disc dlgMPswitch.rdr and dlgReturnFromNTGUI2.rdr (tools/dump-dialogs.ts: objects, scripts, ONSTART); capture logs/parity/s4_pcsx2/A_30.png and its file times",
+   "note": "docs/research/113-golden-capture-manifest.md",
+   "tests": [
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "puts the s4 slot popup after the NetGUI reboot under dlgReturnFromNTGUI2, and dlgMPswitch in the no-frame list",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.manifest.card-slot-crop",
+   "claim": "The harness crop scripts/parity/refs/card_slot.png is the persona-save slot prompt over CONNECT TO SOCOM II (dlgNetPlayerName), row online.persona-save-slot.",
+   "level": "reading",
+   "source": "desktop@be557831:tools_py/parity/online_login_ours.py (login_prompts); capture online/login/07_card_slot.png",
+   "note": "docs/research/113-golden-capture-manifest.md",
+   "tests": [
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "puts the harness card_slot crop with the persona-save slot prompt over CONNECT TO SOCOM II",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "harness.manifest.captures-on-host",
+   "claim": "Every capture the manifest names exists under its root with the recorded byte count and PNG width and height.",
+   "level": "reading",
+   "source": "capture files under SOCOM_PC_ROOT and SOCOM_PARITY_ARCHIVE (their sizes and IHDR)",
+   "note": "docs/research/113-golden-capture-manifest.md",
+   "tests": [
+    {
+     "file": "tools/test/goldenManifest.test.ts",
+     "name": "exists with the recorded byte count and pixel size",
+     "data": "capture"
+    }
+   ],
+   "owed": "the captures are frames of the original and the recomp: under RS.R8 they wait on ta-fixtures' size policy (TA.R2); the counts and names are held in CI by harness.manifest.counts"
+  }
+ ]
+}

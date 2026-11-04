@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-w-then-a-750 (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: W alone 0.75 s, then A added for 1.0 s, then both released: the gap between round 4's kept 0.5 s (fwd-then-left-half) and lost 1.0 s (fwd-then-strafe), to bracket where the lateral starts to drop.
+# Look: stickLateral and ctlLateral of the two-key segment against the pad bytes (padRaw0 pushed, axis 0 = the game), and the top action / flags105e when A lands (3 or 67, water +0x80) -- the drop may follow the water or the body, not the gap.
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: W runs +z into the water from about z 871 after about 0.25 s, as every round-4 W run: the same ground as the cases it brackets.
+500 lup 1
+1250 lleft 1
+2250 lup 0
+2250 lleft 0

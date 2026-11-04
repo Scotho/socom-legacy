@@ -1,0 +1,95 @@
+/*
+ * The modern UI's design tokens (MU-1): an additive layer over the shared design system (`shared/ds`, its `--s2u-*`
+ * tokens), never a fork of it. Every value here is a system token or a mix of two; the only new numbers are the
+ * modern layout's own measures (the rail's width, the icon sizes, the panel's minimum height). Scoped to the modern
+ * UI's own elements (`[data-modern]`), so nothing of the setup page or the game reads them. A browser adaptation (MU.R1).
+ *
+ * Why here and not in `shared/ds/tokens.json`: the system's tokens are generated, versioned and shared with the
+ * project pages; the modern UI is a standalone branch until it is reviewed (the plan, "The integration branch"), so its
+ * tokens stay beside it and move into `shared/ds` (a VERSION bump) only if it lands.
+ *
+ * LU-1 (MU.R19; the launcher brief's section 4): shared/ds 1.1.0 now names the surfaces, the states, the focus ring's
+ * width and offset and the icon sizes, so the stand-ins below read those names (the same values: each 1.1.0 token is an
+ * alias of the one these read before), and the rail's width, the hint bar's type and the duplicate Cross glyph colour
+ * went with the rail and the hint bar. The `--mu-*` names themselves stay until each file using them is touched
+ * (LU-1..LU-4).
+ */
+[data-modern] {
+  /* surfaces, darkest to lit */
+  --mu-ground: var(--s2u-ground-deep);
+  --mu-surface: var(--s2u-scrim);
+  --mu-surface-raised: var(--s2u-surface-raised);
+  --mu-surface-card: var(--s2u-surface-card);
+  --mu-surface-hover: var(--s2u-surface-hover);
+  --mu-surface-active: var(--s2u-surface-active);
+  --mu-line: color-mix(in srgb, var(--s2u-gold-source) 40%, transparent);
+  --mu-line-strong: var(--s2u-gold-source);
+  /* ink */
+  --mu-text: var(--s2u-text);
+  --mu-text-dim: var(--s2u-text-dim);
+  --mu-text-strong: var(--s2u-text-strong);
+  --mu-accent: var(--s2u-gold);
+  --mu-accent-strong: var(--s2u-gold-display);
+  --mu-accent-glow: var(--s2u-title-glow);
+  /* states: live and ready, waiting, attention */
+  --mu-live: var(--s2u-state-live);
+  --mu-ready: var(--s2u-state-ready);
+  --mu-wait: var(--s2u-state-wait);
+  --mu-alert: var(--s2u-state-alert);
+  --mu-focus: var(--s2u-focus);
+  /* type */
+  --mu-type-title: var(--s2u-type-panel-heading);
+  --mu-tracking-title: var(--s2u-tracking-panel-heading);
+  --mu-type-label: var(--s2u-type-nav);
+  --mu-tracking-label: var(--s2u-tracking-nav);
+  /* MU-8c (C3): the captions keep to the system's floor -- never below 12px, and `--mu-text-dim` (`text-dim`, "not
+     below 13px", `shared/ds/tokens.json`) never below 13px. The system's own 11px `stat-caption` and `readout-caption`
+     are not used here: a 12px caption in the system's label face, a 13px one for dim text, and the mono readout is the
+     system's 13px `readout`. */
+  --mu-type-caption: 500 12px/16px var(--s2u-font-label);
+  --mu-type-caption-dim: 500 13px/16px var(--s2u-font-label);
+  --mu-tracking-caption: 0.12em;
+  --mu-type-body: var(--s2u-type-body-small);
+  --mu-type-mono: var(--s2u-type-readout);
+  /* measure */
+  --mu-gap-1: var(--s2u-space-1);
+  --mu-gap-2: var(--s2u-space-2);
+  --mu-gap-3: var(--s2u-space-3);
+  --mu-gap-4: var(--s2u-space-4);
+  --mu-gap-6: var(--s2u-space-6);
+  --mu-gap-8: var(--s2u-space-8);
+  --mu-gap-12: var(--s2u-space-12);   /* MU-P2 (review r2, P3-5): the shelf's edge fade (`./launcher.css`) */
+  --mu-radius: var(--s2u-radius-viewer);
+  --mu-radius-pill: var(--s2u-radius-pill);
+  --mu-icon: var(--s2u-icon-20);
+  --mu-icon-large: var(--s2u-icon-40);
+  --mu-panel-min-h: 440px;
+  --mu-lift: var(--s2u-viewer-lift);
+  /* motion */
+  --mu-fast: var(--s2u-dur-fast);
+  --mu-base: var(--s2u-dur-base);
+  --mu-ease: var(--s2u-ease);
+  /* interaction (MU-8a): one focus ring, one press */
+  --mu-focus-ring: var(--s2u-focus-w) solid var(--mu-focus);
+  --mu-focus-offset: var(--s2u-focus-offset);
+  --mu-press: var(--mu-surface-active);
+  --mu-accent-press: var(--mu-accent);
+}
+[data-modern] .mu-icon { width: var(--mu-icon); height: var(--mu-icon); flex: none; }
+
+/*
+ * The modern UI's one focus style (MU-8a): the keyboard's focus and the setup page's pad focus (`.is-pad-focused`,
+ * `../startupNavigation`) draw the same ring on every control of the modern UI -- the launcher's tiles, the top bar's
+ * account, the sections. It is the design system's launcher ring (shared/ds part C: the same width, colour and offset
+ * tokens) with one difference kept: an element whose ring must sit inside its box sets `--mu-focus-offset`, which the
+ * sections' styles do. Here, not in `./modern.css`, because this file is the one both the launcher (`./launcher`) and
+ * the shell (`./index`) load.
+ */
+[data-modern] :is(button, a[href], input, select, textarea, summary, [tabindex]):is(:focus-visible, .is-pad-focused) {
+  outline: var(--mu-focus-ring); outline-offset: var(--mu-focus-offset);
+}
+
+/* Reduced motion: every transition on the motion tokens runs in no time; the looping spinners stop (`./modern.css`). */
+@media (prefers-reduced-motion: reduce) {
+  [data-modern] { --mu-fast: 0s; --mu-base: 0s; }
+}

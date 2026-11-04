@@ -1,0 +1,2006 @@
+{
+ "area": "weapons",
+ "notes": [
+  "docs/research/79-weapon-table-and-fire-point.md",
+  "docs/research/84-accuracy-and-recoil.md",
+  "docs/research/94-the-arsenal.md",
+  "docs/research/95-the-armory.md",
+  "docs/research/181-c3-combat-hud-effects.md",
+  "docs/research/210-modes-panes-barriers-and-the-c4-gates.md",
+  "docs/research/218-the-permission-as-built.md",
+  "docs/research/232-the-view-as-built.md",
+  "docs/research/217-the-body-as-built.md",
+  "docs/research/233-the-sound-as-built-iii.md",
+  "docs/research/235-the-explosives-as-built.md",
+  "docs/research/236-the-shotgun-guard-the-stance-window-and-the-wading-rules.md",
+  "docs/research/321-the-weapon-crosshairs.md",
+  "docs/research/381-the-scoped-sway-on-the-view.md"
+ ],
+ "entries": [
+  {
+   "id": "weapons.table.records",
+   "claim": "zweapon.rdr holds 86 ZWEAPON records; the kit table reads 44 of them as firearm records (10 pistols, 5 SMGs, 15 rifles with the F2000, 3 shotguns, 3 MGs with the .PKM, 6 snipers, and the MGL and M79 as carriers), never the Designator (11) nor the M203 item (141).",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON; FUN_003cda30 D:L322125-322640",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "each golden file opens with _source: the disc file, the reader and the date",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every kit's two firearm slots have a pinned record; the Designator (11) and the M203 item (141) none",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "readKitTable(ZWEAPON.ZAR).records is weapon-records.json, whole",
+     "data": "disc"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "the kit table: every firearm of every kit has its record; the baked three are the file's; the launchers have none",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.m4a1sd",
+   "claim": "The M4A1 SD (ID 62): FireWait 0.14, 30 x 3, ZoomMode1 3, AccBurstCnt 5-10 with AccScalar 0-0; standing ReticuleKnock 12/70/45, TargetMin/Max 1/26, sway 6/6 within 20/24, decay -0.04; crouched knock 11, TargetMin 0.75; prone knock 10 capped at 20; KnockCount 1 at 0.4; Effective/Maximum_Range 550/800 m; Damage_Modifier 0.15.",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON \"M4A1 SD\"; FUN_003cda30 D:L322200-322356",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the M4A1 SD and the M4A1 per stance, as research 84 §1 prints them",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the baked records the page and the room fire without the tables are the pinned ones: HELD_RIFLE 62, DEFAULT_RIFLE 54, HELD_SIDEARM 15",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weapons.test.ts",
+     "name": "is the transcription: HELD_RIFLE is the file M4A1 SD, the rifle the SEAL holds",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.m4a1",
+   "claim": "The M4A1 (ID 54): FireWait 0.12, 30 x 3, ZoomMode1 2.5, AccBurstCnt 4-7 with AccScalar 0-0.03; knock 12/9/8 by stance, capped 45/45/20; sway 5/4; Effective/Maximum_Range 600/1000 m; Damage_Modifier 0.3; the mp_seal1 kit's primary.",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON \"M4A1\"; READERC.ZAR character.rdr mp_seal1",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the M4A1 SD and the M4A1 per stance, as research 84 §1 prints them",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weapons.test.ts",
+     "name": "is the transcription: DEFAULT_RIFLE, HELD_RIFLE and BULLET_MARK are the files', proven each run that has them",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.mark23",
+   "claim": "The Mark 23 (ID 15): FireWait 0.2, 12 rounds of 45 ACP (Piercing 4), 125 m, semi only, one zoom mode; standing knock 20/60/40 at KnockCount 1 strength 1, TargetDilateUponFire 20, TargetMin/Max 10/30 (prone 14/34); no FireRifleKick.",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON \"Mark 23\"",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the Mark 23, as research 84 §16 prints it: FireWait 0.2, 12 rounds of 45 ACP (Piercing 4), 125 m, a heavy knock and bloom, no kick",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weapons.test.ts",
+     "name": "is the transcription: HELD_SIDEARM is the file Mark 23, the second weapon of the mp_seal1 kit",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.rate",
+   "claim": "Each record's FireWait (weapon +0x50, default 0.1) is its only rate field, per research 94 §C11 (e.g. 9mm Sub and MP5K 0.075, M82A1A 2.1, 870 0.75).",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr FireWait; FUN_003cda30",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every firearm row of research 94 §C11 is the pinned record: FireWait, the fire modes MaxFireMode and the mode keys enable, the zoom modes",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every row of research 94 §C11 is the pinned arsenal: rate, magazine, reload keys, arming, backblast, cost, gravity, timers, muzzle speed",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "readArsenal(ZWEAPON.ZAR) is arsenal-items.json, whole, in the file's order",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.magazine",
+   "claim": "Ammo_Capacity and NumMags per record as research 94 §C11 lists them (M60E3 100 x 2, MP5K 30 x 6, 870 8 x 5, M40A1 25 x 1).",
+   "level": "reading",
+   "source": "disc RUN/ZWEAPON.ZAR zweapon.rdr Ammo_Capacity, NumMags (+0x28, +0x2c)",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every row of research 94 §C11 is the pinned arsenal: rate, magazine, reload keys, arming, backblast, cost, gravity, timers, muzzle speed",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "readKitTable(ZWEAPON.ZAR).records is weapon-records.json, whole",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.reloadkeys",
+   "claim": "ReloadTime (default 0), ReloadDelay (default 0.01), ReloadAfterShot (a presence flag) and ReloadDelayAfterShot (default 0.01) per record: Spas 12 and JACKHAMMER 2 / 0.5, M60E3 3, M63A 2.5, 870 delay 1, the bolts M40A1 and M87ELR 0.5.",
+   "level": "reading",
+   "source": "FUN_003cda30 D:L322538-322556; disc zweapon.rdr",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the class keys only where the record has them (research 94 §C1.1, §C1.2, §C2.1): the bolt, the pump, the reload times, the pellets",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every row of research 94 §C11 is the pinned arsenal: rate, magazine, reload keys, arming, backblast, cost, gravity, timers, muzzle speed",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weapons.test.ts",
+     "name": "the 870 keeps the parser's after-shot default: its ReloadAfterShotDelay is no key the game reads (R94.12)",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.firemodes",
+   "claim": "MaxFireMode n enables modes 0..n, SingleMode/AutoMode enable 1/3 and raise the max, no record has BurstMode: semi only for the pistols but the Model 18, the 870, Spas 12 and the snipers; semi+burst the M16A2s; all three for the M4A1s, 552s, AKs, Groza and the SMGs; semi+auto the Model 18, M14, JACKHAMMER, SA-80 A2, Steyr Aug; auto only the MGs; none the MGL and M79.",
+   "level": "reading",
+   "source": "FUN_003cda30 D:L322496-322512; FUN_003d2a80, FUN_003d2a30; disc zweapon.rdr",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the fire modes, weapon by weapon, as research 94 §C1.3 lists them",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weapons.test.ts",
+     "name": "reads the zoom table, the burst accuracy, and the fire modes MaxFireMode and the mode keys enable",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.zoommodes",
+   "claim": "ZoomMode0 is 1.5 on every record and never a magnification; the 13 in-scope scoped records and their levels: M4A1 2.5, M4A1 SD, 552, 552SD and Groza 3, SA-80 A2 4, Steyr Aug 2.5, SR-25, SR-25 SD and Dragunov 8, M40A1 6/12, M82A1A and M87ELR 8/16 (the out-of-scope F2000 6).",
+   "level": "reading",
+   "source": "disc zweapon.rdr NumZoomModes, ZoomMode%d (weapon +0x280); FUN_005448a0 D:L411005-411008",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the 13 scoped weapons and their levels (research 94 §C1.4); ZoomMode0 1.5 on every record",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/sights.test.ts",
+     "name": "41 firearms; each resolves its zoom levels (the note's Zoom1/Zoom2) and its reticle set, scoped and not",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.units",
+   "claim": "The parser multiplies the ranges, speeds, radii and gravity by DAT_003dfe10 = 10 (metres to world units): the M4A1 SD flies 8,000 units, the default gravity is 98 u/s^2, every launched round arms at 100 units.",
+   "level": "reading",
+   "source": "FUN_003cda30 D:L322405-322445; DAT_003dfe10",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the M4A1 SD and the M4A1 per stance, as research 84 §1 prints them",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every row of research 94 §C11 is the pinned arsenal: rate, magazine, reload keys, arming, backblast, cost, gravity, timers, muzzle speed",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.shotgun",
+   "claim": "The 12 Gauge round (ZAMMO ID 27): NumProjectilesFired 4, Piercing 6, ImpactDamage 2.5 -- the Spas 12, the JACKHAMMER and the 870 fire it.",
+   "level": "reading",
+   "source": "disc zweapon.rdr ZAMMO \"12 Gauge\"; FUN_003cedb0 D:L322629-322735",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the class keys only where the record has them (research 94 §C1.1, §C1.2, §C2.1): the bolt, the pump, the reload times, the pellets",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the pellets: four rays a pull from the 12 gauge shotguns, one from everything else",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.stanceinherit",
+   "claim": "Reticule_Modifiers stance n starts as a copy of stance n-1 (stance 0 as FUN_003c59c0 builds it: zeros, Mult 1, KnockCount 3, KnockEntryStrength 1), then each key present overwrites its field.",
+   "level": "reading",
+   "source": "FUN_003cda30 D:L322215-322245; FUN_003c59c0",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weapons.test.ts",
+     "name": "reads the stances as the parser does: each starts as a copy of the one before, the constructor defaults under all",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.unreadkeys",
+   "claim": "The per-stance AccuracyBurstCnt_*/AccuracyScalar_*, TracerTextureName and the 870's ReloadAfterShotDelay have no string in the ELF, so nothing reads them; Encumbrance is parsed to +0x38 and never read.",
+   "level": "reading",
+   "source": "ELF strings 0x3fc6d0-0x3fcd70; FUN_003d29f0 D:L322491-322495",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the class keys only where the record has them (research 94 §C1.1, §C1.2, §C2.1): the bolt, the pump, the reload times, the pellets",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponUnreadKeys.parity.test.ts",
+     "name": "weaponRecord is the same with and without the per-stance AccuracyBurstCnt_*/AccuracyScalar_*, TracerTextureName, ReloadAfterShotDelay and Encumbrance",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.table.soundradius",
+   "claim": "Sound_Radius x10 only feeds the AI's hearing (a stimulus at the muzzle, radius^2, 0.1 s): no effect in a players-only match.",
+   "level": "reading",
+   "source": "FUN_003d2d70 D:L325585-325596",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [],
+   "owed": "no reader in the port (no bots), so there is nothing to drive; a test is owed with the bots"
+  },
+  {
+   "id": "weapons.fire.interval",
+   "claim": "The wait after a round is FireWait in single, FireWait x 0.8 in burst and automatic, 1 s in mode 0: the SD 0.14 / 0.112 s (536 a minute), the M4A1 0.12 / 0.096 (625).",
+   "level": "reading",
+   "source": "FUN_005c09f0 D:L476313-476340",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the wait: FireWait single, x 0.8 burst and automatic -- the SD 0.14 / 0.112 s (536 a minute), the M4A1 0.12 / 0.096 (625)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "single 1 round a pull at FireWait, burst 3 and automatic at 0.8 x FireWait",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.fire.roundsperpull",
+   "claim": "Rounds a pull by mode: 0 none, 1 one, 2 three, 3 10,000, 4 and up (a round mode) one.",
+   "level": "reading",
+   "source": "FUN_005c0940 D:L476281-476307",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "rounds a pull: single 1, burst 3, automatic 10,000, safe 0, a round mode (an item id) 1",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.fire.defaultmode",
+   "claim": "The original's kit set-up steps the selected slot's mode once from 0 (the first mode the weapon enables) and puts it on burst when the weapon enables mode 2: burst where it has it, else its first mode (a sidearm with no primary, stepped at its selection too, a second step); a weapon picked up comes up on its highest mode. The page's spawn default departs by OT.R100 (DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION).",
+   "level": "reading",
+   "source": "FUN_005c0250 D:L476181-476192; FUN_005c4b10 D:L478930-478931; FUN_005c0fd0 D:L476658-476668",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the mode each pinned weapon comes up in, as the original: burst where it has it, else its first mode (FUN_005c0250 D:L476185-476192)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "the original comes up on burst, else its first mode (FUN_005c0250); the switch goes single, burst, automatic and round; not while scoped",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "a weapon picked up: its highest mode in the hand (FUN_005c0fd0 D:L476658-476668), its first at a swap to it (FUN_005c4b10 D:L478930-478931)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.fire.modeswitch",
+   "claim": "The switch (L3) goes to the next enabled mode, past MaxFireMode back to single, and is refused while magnified over 1.01.",
+   "level": "reading",
+   "source": "FUN_005c4600 D:L478555-478650",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the switch walks each weapon's own modes in order and wraps to single; refused while magnified (FUN_005c4600)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/firearms.test.ts",
+     "name": "refused while magnified (FUN_005c4600 L478570-478575); a round mode fires one round a pull (FUN_005c0940 L476297)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.bloommove",
+   "claim": "Each game frame (30 Hz, 525/15734 s) the reticle aims at |v|^2 / 65 x TargetDilateUponMovementMult + 158.7 x (turn^2 + pitch^2), opens toward it TargetDilateUponMovement a frame (29 times in a second) and closes at TargetConstrict a second, clamped to the stance's TargetMin/Max. The port (page and room alike) opens it continuously at the per-second equivalent, TargetDilateUponMovement / GAME_FRAME_DT (29.97 a second): MISSION R8, a known deviation the owner ruled 2026-10-04, held here so it stays visible (research 208 section 9). Owner-ruled (MISSION R8), so the tests pin the port's behaviour and there is no it.fails.",
+   "level": "drift",
+   "source": "FUN_005c2670 D:L477256-477377; FUN_005c0fd0 D:L476543 (once a kit tick, a game frame: research 181 X1, research 208)",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "moving: aims at |v|^2 / 65 x Mult, opening 1 a tick; crouched the multiplier is 13",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "a second of 60 Hz page frames opens the bloom by TargetDilateUponMovement / GAME_FRAME_DT (29.97), not 60 or 29",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "the constrict stays TargetConstrict a second: 0.1 s of page frames closes 50 x 0.1",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/shotCone.test.ts",
+     "name": "the cone runs continuously on 60 Hz commands, as the page does (MISSION R8): 60 commands open a run 1 / GAME_FRAME_DT",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "turning and pitching count 158.7 x rate^2; in the air the carried speed counts twice",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "rests at TargetMin; a round opens it by TargetDilateUponFire; it closes at TargetConstrict a second",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.bloomround",
+   "claim": "A round unscoped opens the reticle by TargetDilateUponFire x (1 + the burst scalar), clamped: the SD +7 from rest 1 to its cap 26, the Mark 23 +20 from 10 to 30.",
+   "level": "reading",
+   "source": "FUN_005c3360 D:L477683-477814",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the M4A1 SD standing: the first round of a pull climbs 12 x 0.4 = 4.8 px, each after 12, capped at 45; the bloom +7 from rest 1",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the Mark 23: the first round climbs the whole 20 (KnockEntryStrength 1), the bloom 20 from its rest 10, capped at 30",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.burstscalar",
+   "claim": "The burst scalar is min(count + 1 - AccBurstCnt_Min, AccBurstCnt_Max) x the slope when positive, so the M4A1 reaches 0.07 and the SD stays 0.",
+   "level": "reading",
+   "source": "FUN_005c3360 D:L477683-477814; FUN_003c62b0 (+0x278)",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the burst scalar: the M4A1 grows to min(n, 7) x 0.01 = 0.07 (the cap is on n, research 84 §3); the SD never",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "the M4A1 grows its bloom over a burst (AccBurstCnt 4..7, AccScalar 0..0.03); the SD does not",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.knock",
+   "claim": "A round unscoped moves the whole reticle up by ReticuleKnock (the KnockCount-th round of a pull by x KnockEntryStrength, earlier rounds not at all), capped at ReticuleKnockMax, returning at ReticuleKnockReturn a second: the SD 4.8 then 12 to 45, back at 70.",
+   "level": "reading",
+   "source": "FUN_005c3360 D:L477755-477790; FUN_005c2670 D:L477297-477321",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the M4A1 SD standing: the first round of a pull climbs 12 x 0.4 = 4.8 px, each after 12, capped at 45; the bloom +7 from rest 1",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "climbs 0.4 x 12 on the first round, 12 after, capped at 45; comes back at 70 a second",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.knockcapprojection",
+   "claim": "The knock's cap is ReticuleKnockMax x the camera's y scale cam+0x474 (the zoom x 1.0: 1.01 in first person and the night vision) x the aim-to-muzzle depth ratio (d_aim - d_fire) / d_aim, a little under 1: about 45.45 x the depth ratio on the SD in first person; the port takes the whole product as 1 and caps at ReticuleKnockMax (45) in every view.",
+   "level": "reading",
+   "source": "FUN_005c3360 D:L477762-477790; FUN_0029b2f0 D:L142704",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [],
+   "owed": "no test: the original's cap is neither exactly 45 nor exactly 45.45 (the depth ratio, unmeasured, may cancel the 1.01 in first person), so neither value can be pinned as the original's; owed with the owner's ruling on research 84 section 4's \"taken as 1\" (the ratio only, or the whole product) or a measurement of d_aim and d_fire on the running original"
+  },
+  {
+   "id": "weapons.accuracy.cone",
+   "claim": "The size and the knock become tangents by tan(tan(hfov)) over the half frame (a fifth wider than the reticle drawn), and a round goes dir + right x (ox + r s1) + up x (oy + r s2) with s = u|u|, r = size x ty x 0.707.",
+   "level": "reading",
+   "source": "FUN_005bd100 D:L474185-474277; FUN_00592260 D:L451531-451578",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "turns pixels to tangents as the game does: tan(tan(hfov)) over the half frame",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "spreads a round over a square, densest at its centre, never past its corners",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.zoomdivides",
+   "claim": "The knock's and the sway's offsets are divided by the running magnification (cam+0x474), the radius is not: scoped the cone is a point moved by the sway / ZoomMode.",
+   "level": "reading",
+   "source": "FUN_005bd100 D:L474236-474266",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "scoped, the sway turns into tangents divided by the magnification: 3x on the SD is a third",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "a scoped round is never further off the cross than SniperDistLimit / ZoomMode, in every stance",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.sway",
+   "claim": "Scoped, each axis moves p += dt ((PP + 0.75)|p/L| + PP + 0.25) within L = SniperDistLimit x (0.8 exertion + 0.2), flipping at the ends, and stops below exertion 0.2.",
+   "level": "reading",
+   "source": "FUN_005b9280 D:L472136-472185",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "drifts only scoped, within SniperDistLimit, turning at its ends",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "starts at 1; still in the scope it decays at the stance SniperDecayRate a second",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.scopeview",
+   "claim": "The sway moves the view: the camera's screen offset is (sway x, -sway y) PS2 pixels in a scope (view state 5 and up) and (0, -sway y) in the 9x view (state 4), so the scope's fixed cross shows the round's pixel.",
+   "level": "reading",
+   "source": "FUN_005b9030 D:L471951-471957; FUN_005bd100 D:L474218-474223; FUN_00594cf0 D:L453669-453676; FUN_00294070 D:L138944-138945",
+   "note": "docs/research/381-the-scoped-sway-on-the-view.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/scopeSwayView.test.ts",
+     "name": "scopeViewOffset: (sway x, -sway y) from state 5; state 4 the y alone; below 4 none",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/scopeSwayView.test.ts",
+     "name": "scoped, the view's offset puts the round's pixel under the frame's centre, where the scope's cross is",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.accuracy.reticlehalved",
+   "claim": "The HUD draws the arms the size out, halved in the third-person view (state 0).",
+   "level": "reading",
+   "source": "BitmapReticule_UpdateAccuracy FUN_00215250 D:L69729-69731",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "the rest in third person: TargetMin 1 halved is the console frame within its pixel",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.kick.scopedonly",
+   "claim": "The kick starts only scoped (view state over 4) on the first round of a pull; a second round drops the scope to first person; unscoped the camera never kicks.",
+   "level": "reading",
+   "source": "FUN_005c5340 D:L479398-479406; FUN_00550ef0 D:L418390-418393",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "scoped (state 5): no knock, no bloom; the first round kicks, the second drops the scope (FUN_005c5340)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "scoped (5+): no knock, no bloom; the first round kicks, the second drops the scope",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.kick.curve",
+   "claim": "The kick rises at FireRifleKickRate to BaseDist + RandomDist x rand and falls at ReturnRate to the pitch it started from: the SD 0.09-0.105 rad standing, 0.08 crouched, 0.06 prone, 0.5 up and 0.18 down.",
+   "level": "reading",
+   "source": "FUN_005b91c0; FUN_005b9280 D:L472095-472135",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the SD climbs BaseDist + RandomDist x rand at 0.5 rad/s -- 0.09 to 0.105 standing, 0.08 crouched, 0.06 prone -- then falls at 0.18",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "every pinned record kicks by its own stance's FireRifleKick*; no pistol and no shotgun record carries one",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapon.test.ts",
+     "name": "climbs by BaseDist + RandomDist x rand at KickRate, then falls back to the rest at KickReturnRate",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.kick.stickfollow",
+   "claim": "While the kick falls, an upward pitch push (ctrl+0x138 x DAT_003df198, the pad's pitch axis in [-1, 1]) raises its rest by 0.04 x the push a game frame (DAT_00650980), capped at the falling pitch, which then ends the fall.",
+   "level": "reading",
+   "source": "FUN_005b9280 D:L472095-472117; FUN_00550ef0 D:L418393; DAT_00650980 = 0x3d23d70a; FUN_005966a0 D:L453773 -> FUN_002c65b0 D:L166969-167006",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapon.test.ts",
+     "name": "falling, an upward pitch push raises the rest 0.04 x the push a game frame, capped at the pitch (FUN_005b9280, DAT_00650980)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "hands the source's pad pitch push to the falling kick: the rest follows it up (PF-06)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/look.test.ts",
+     "name": "the pitch axis (ctrl+0x138 x DAT_003df198) is the pad reader's ramped push: before the gain and the zoom, up positive",
+     "data": "none"
+    }
+   ],
+   "owed": "the axis's sign on the console: a dump with the right stick held up and one held down, reading ctrl+0x138 (research 202 section 2.5)"
+  },
+  {
+   "id": "weapons.zoom.steps",
+   "claim": "D-pad Up: 0 -> 1 (1.01); 1 -> 5 with two or more ZoomModes, else -> 4 (the binoculars, 9x); 5.. -> s + 1 while s - 3 < NumZoomModes; no wrap; a night map steps 1 -> 3.",
+   "level": "reading",
+   "source": "FUN_005445b0 D:L410716; 0x544780-0x54480c; FUN_005448a0 D:L410929",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "every record: third -> first person (1.01) -> its scope levels in order, no wrap; one mode -> the binoculars at 9x",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/zoom.test.ts",
+     "name": "the M4A1 SD: third -> first person -> 3x, and in stays there; out goes back through first person to third",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.zoom.out",
+   "claim": "D-pad Down: 1 -> 0; 3 and 4 -> 1; 5 -> 1 (3 at night); s > 5 -> s - 1.",
+   "level": "reading",
+   "source": "FUN_00544400 D:L410623; table 0x65c320",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the M40A1 out of its 12x: 6 -> 5 (6x) -> first person -> third; a night map steps 1 -> 3 -> 5 and 5 -> 3",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/zoom.test.ts",
+     "name": "night maps: third -> first person -> the night vision -> the scope, and back out the same way",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.zoom.run",
+   "claim": "The applied magnification runs linearly to the target at 3 x the target a second in (at least 3 x the old out), and divides tan(half FOV).",
+   "level": "reading",
+   "source": "FUN_001f1610; FUN_001f0750 D:L52864-52990; FUN_0029b2f0",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/zoom.test.ts",
+     "name": "runs to the magnification at 3 x the target a second, and the FOV and the look follow it",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.zoom.hud",
+   "claim": "The HUD writes ZOOM: %2.1fx of the state's value -- 9.0 in the binoculars, ZoomMode[state - 4] in a scope -- only over 1.01.",
+   "level": "reading",
+   "source": "FUN_001f6ce0 D:L56025-56066",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/zoom.test.ts",
+     "name": "FUN_001f6ce0: the HUD reads 9.0 in the binoculars and ZoomMode[state - 4] in a scope -- the state's, not the run's",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the M40A1 out of its 12x: 6 -> 5 (6x) -> first person -> third; a night map steps 1 -> 3 -> 5 and 5 -> 3",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.zoom.binocularsrefuse",
+   "claim": "With the binoculars up (state 4) no round, throw, charge or rocket leaves and no reload begins.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475303-475305; FUN_005c2a90 D:L477410",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/zoom.test.ts",
+     "name": "FUN_005be9a0 475290-475305: no use of the trigger in state 4 -- by the view state alone, every item the page holds",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/zoom.test.ts",
+     "name": "FUN_005c2a90 477410: no reload begins in state 4",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.reticle.sets",
+   "claim": "The reticle set is the view first (4 -> 7, a magnification over 1.01 -> 5), then a launcher carrier 3 (the M203 rifles in a rifle mode 1), then the ID: 11 -> 9, 4-30 -> 0, 31-80 -> 1, 81-90 -> 2, 91-120 -> 1, 121-140 and 151-189 -> 4, 190-253 -> 0.",
+   "level": "reading",
+   "source": "FUN_005be300 D:L474894-474950",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "unscoped by the ID: pistols 0, SMGs, rifles, MGs and snipers 1, shotguns 2, the grenade launchers 3; a scope 5, the binoculars 7",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "picks the set by the view, then the weapon ID (FUN_005be300)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.reticle.colours",
+   "claim": "The arms are (200, 200, 24) at rest, (24, 200, 44) on a teammate, (200, 24, 44) on an identified enemy, (130, 130, 130) inside the selected record's arming distance -- a rocket launcher's or its rocket's only (class 0x91 / 0xb9; a raised LAW or RPG-7 on its rocket, 100 units); an under-barrel or grenade-launcher round (class 0xab) never greys.",
+   "level": "reading",
+   "source": "FUN_00215c10 D:L69906-70294 (the grey D:L70222-70258); FUN_005c3780 D:L477826-477834; DAT_003dc5a0..b0, DAT_003dc588..98",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "colours the arms as FUN_00215c10 does, the rest one the measured tint",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "ARMING-GREY: a raised LAW and RPG-7 grey inside their rocket's 10 m (LAW HEAT 185, RPG 186: class 0xb9, +0x68 100 units) and not at or past it",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "weapons.reticle.target-perception",
+   "claim": "An other under the reticle is red and named only while the HUD body's perception record of him is marked: each completed query adds the rate times its elapsed time to the record, clamped to [0, 2], marking it at 1 or more without the veto; an unseen query's rate is -1 a second; a target rejected by the enqueue pass (out of the 80-degree cone from the camera, of radius 25 at the eye, and not moving faster than 50 a second in front) is cleared at once and decays by -0.15 of itself a second; an inactive one is cleared; one beyond the 1000 reach (at most 0.95 of the MID) is untouched.",
+   "level": "reading",
+   "source": "FUN_005c9b30 D:L482197-482220; FUN_005ca170 D:L482279-482283; FUN_005ca9f0 D:L482547-482571; FUN_005cc120 D:L483169-483305; FUN_005c9520 D:L481800-481863; FUN_0060aa20 D:L516159-516248; FUN_00598280 D:L454716, D:L454793-454802; FUN_00215c10 D:L70119-70130",
+   "note": "docs/research/321-the-weapon-crosshairs.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "a seen query fills the record by the rate times its elapsed time; at 1 the record is marked (>=, D:L482210); the clamp holds it at 2",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "an unseen query (FUN_0060b120 at 0 or less): the rate -1 a second -- from 2 the mark holds through one second and clears below 1; the clamp at 0",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "rejected by the enqueue pass (out of the cone and slow): the mark cleared at once, the record decayed by -0.15 of itself a second (D:L482556-482566); a seen query marks it again",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "inactive (dead or gone: the dispatcher's else, D:L482176): the mark cleared, the record kept; beyond the reach: untouched (FUN_005ca9f0 returns, D:L482552-482553)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "perceptionLook (FUN_005ca9f0, FUN_005cc120 for the human: slot +0x2c 1, slot +0x38 none): inactive, beyond the reach, the cone, the fast mover in front",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "AD-3: an other is red with its name and no bar only while the record carries bit 0x200 (D:L70119-70130, D:L70172-70176); unmarked, or beyond the range, the rest",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "an enemy under the reticle the sight never reached is not named; seen once he is red, and behind the wall he stays red a second (the rate -1 from 2), then the rest",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "AD-3's review F1: in a scope the cone takes the zoom's target magnification at once (body +0x204, FUN_005c9520 D:L481801-481806), not the one still easing toward it",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "AD-3's re-check of F2: the observing body's rebuild empties its records (PERCEPTION_RECORD_LIFE_READING) -- marked, a round start, back in the cone unseen: the rest; one actor's record dropped alone",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "AD-3's re-check of F2: the page's own spawn (the observer rebuilt: a round start online, its respawn) empties the records -- the enemy back in the cone behind the wall is the rest",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "AD-3's re-check of F2: only the enemy rebuilt mid-round keeps the page's record of him (FUN_002a0f70's leave cancelled) -- back alive behind the wall, red until it falls under 1",
+     "data": "none"
+    }
+   ],
+   "owed": "reading, pending review; the seen rate, the sight, the queries' schedule and the veto are placeholders (research 321 section 7.5); proven by a capture or a PINE trace of the record's +0x18 / +0x2c against the queries' timestamps, an enemy coming into view and leaving it (the acquisition's latency, not claimed)"
+  },
+  {
+   "id": "weapons.reticle.special-actors",
+   "claim": "A body carrying the escortee bit 17 online (the hostages' 0xc0020000 of MP6, MP10, MP11 and MP71, the VIPs' 0x40020000 of MP52, MP53 and MP82; offline bit 31 without bits 1 and 18, the hostages only) is green under the reticle with its record's name and its bar -- red only when the round is ESCORT (type 3) and the observer is on the Terrorist side.",
+   "level": "reading",
+   "source": "FUN_00215c10 D:L70107-70158, D:L70213-70219; FUN_002c30b0 D:L164672-164704; FUN_00533370 D:L400379-400443; disc RUN/MP*.ZDB READERM.ZAR vehicles.rdr name, display, team",
+   "note": "docs/research/321-the-weapon-crosshairs.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "the special actors online (bit 17): a hostage green on every type; the escort's VIP green, red only in ESCORT for a Terrorist-side observer (D:L70137-70158, FUN_002c30b0)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/reticle.test.ts",
+     "name": "offline the flag is bit 31 without bits 1 and 18 (D:L70109-70113): the hostages' 0xc0020000 flagged -- its name, not the blank; the VIPs' 0x40020000 not -- it goes by its side",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "a hostage under the reticle (the room's list): green with its record's name, no bar while the room sends none; red only in ESCORT for a Terrorist page",
+     "data": "none"
+    }
+   ],
+   "owed": "reading, pending review; the VIP's live path (the room spawns no ESCORT VIP body yet) and a hostage's bar (no page is sent a hostage's health); a disc-tier test of the 21 special records' masks and names (AD-3 read them by a scratch script); proven by a capture aiming at a hostage and at the escort's VIP from each side"
+  },
+  {
+   "id": "weapons.reticle.scopeoverlay",
+   "claim": "Every scoped weapon draws set 5 (ret_scope_01 and ret_scope_02); only the F2000 skips ret_scope_02.",
+   "level": "reading",
+   "source": "ChangeReticule type 5 D:L69434-69510",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/sights.test.ts",
+     "name": "the scope overlay: set 5's two bitmaps for every scoped weapon, the F2000 without ret_scope_02 (ChangeReticule)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.magazines.ring",
+   "claim": "A weapon keeps ten magazine slots; a reload takes the next slot round the ring with rounds, whole or part-spent, at the reload's start; the one taken out keeps its rounds.",
+   "level": "reading",
+   "source": "FUN_005c2a90 D:L477462-477483; FUN_005ba3d0",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/magazines.test.ts",
+     "name": "a reload takes the next magazine round the ring with rounds, whole or part-spent; the one out keeps its rounds",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/magazines.test.ts",
+     "name": "fills NumMags full magazines of the capacity, the rest of the ten empty, the first in the weapon",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.magazines.doubleammo",
+   "claim": "2X (ID 194) in the kit doubles NumMags, at most ten, for the pistol, SMG, rifle, shotgun, MG and sniper classes, never the grenade launchers; Ammo_Capacity unchanged.",
+   "level": "reading",
+   "source": "FUN_005c75f0 D:L480207-480270; FUN_005ba3d0 D:L472725-472745",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "Ammo_Capacity x NumMags; 2X doubles NumMags for pistol to sniper, at most ten, never the grenade launchers",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/magazines.test.ts",
+     "name": "the Double Ammo Load doubles NumMags, at most ten (FUN_005ba3d0)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.magazines.box",
+   "claim": "The ammo box shows the rounds in the weapon over Ammo_Capacity and MAGS as the magazines holding rounds less one.",
+   "level": "reading",
+   "source": "FUN_00237760 D:L85128-85201; FUN_005c49b0 D:L478716-478770",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/magazines.test.ts",
+     "name": "shows MAGS as the magazines with rounds less one: with the weapon empty, one fewer than the others",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.class.reloaddelay",
+   "claim": "The lock before a reload lands is the record's ReloadDelay, default 0.01: the 870 1 s, the Spas 12 and JACKHAMMER 0.5. It is spent once, on the page, which sends the reload at its end; the room's reload begins at that command.",
+   "level": "reading",
+   "source": "FUN_005c32b0 D:L477653-477680; FUN_005c0fd0 D:L476549-476561; FUN_003d2c40",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "ReloadDelay: the 870 1 s, the Spas 12 and the JACKHAMMER 0.5, every other firearm the default 0.01",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomReloadDelay.test.ts",
+     "name": "the Spas 12, the JACKHAMMER (ReloadDelay 0.5) and the 870 (1): the page's reloadStart comes the delay after the press, and the room's lock and still clip start at the command it names, no later -- the page's StillReloadLife and the room's reloadLife agree command for command",
+     "data": "fixture"
+    }
+   ]
+  },
+  {
+   "id": "weapons.class.aftershot",
+   "claim": "After a round with another left, a ReloadAfterShot record locks the kit for ReloadDelayAfterShot: the bolts M40A1 and M87ELR 0.5 s, the 870 the default 0.01 s (its key misspelt on the disc, R94.12).",
+   "level": "reading",
+   "source": "FUN_005c5340 D:L479291-479343",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the lock after a round: the bolts 0.5 s, the 870's pump 0.01 s (its misspelt key, R94.12), none on the last round or for any other",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.class.pellets",
+   "claim": "A shotgun pull fires NumProjectilesFired (4) rays, each its own cone draw, one shell off the magazine.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475580-475677",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the pellets: four rays a pull from the 12 gauge shotguns, one from everything else",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a shotgun pull: 4 rays, each its own cone draw, one shell off the magazine (FUN_005be9a0 L475580-475677)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.class.reloadtime",
+   "claim": "ReloadTime stretches only the standing reload clip to last it (speed^2 <= 400); the moving clip plays at its own rate.",
+   "level": "reading",
+   "source": "FUN_005a82e0 D:L462821-462945",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/firearms.test.ts",
+     "name": "ReloadTime stretches the still clip to it, not the moving one (L462940-462945: bVar3); without the clip, the placeholder",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.class.bulletray",
+   "claim": "A bullet ignores Muzzle_Velocity and gravity: it is cast as one segment of Maximum_Range x 1.1 (the round's range gate then ends it at Maximum_Range x 10 units).",
+   "level": "reading",
+   "source": "FUN_003ca5a0 D:L320383-320398; FUN_003c8920",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a round is a straight ray with no drop: a level miss ends Maximum_Range x 10 units along the aim, its height unchanged",
+     "data": "none"
+    }
+   ],
+   "owed": "the 1.1 segment and the range gate are not modelled apart (the port casts Maximum_Range x 10 once; both give the same end): a pin of the game's 1.1 cast is owed only if the two ever differ"
+  },
+  {
+   "id": "weapons.damage.bullet",
+   "claim": "A round's damage is (ImpactDamage + Damage_Modifier) x 14, whole to Effective_Range, falling linearly to 0 at Maximum_Range, ignored past it: the SD 34.3, the M4A1 36.4, the Mark 23 42.",
+   "level": "reading",
+   "source": "FUN_003c7600 D:L318738-318767",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "(ImpactDamage + Damage_Modifier) x 14, whole to Effective_Range, to 0 at Maximum_Range, none past it -- in units, x 10",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.penetration",
+   "claim": "A struck surface leaves the round (range + range x Piercing x 0.1) x PENETRATION of its range; a PENETRATION 1 material is passed over; there is no count limit. The PENETRATION is the struck polygon's own material's (byte 0 the map's DefaultMaterial), on the page and in the match server's room alike: a STONE or METAL_THICK wall (0) stops the round, METAL_THIN and PIPE_STEAM (0.35) leave 0.35 x (1 + Piercing x 0.1).",
+   "level": "reading",
+   "source": "HandleIntersections 0x3c9b70 D:L319920-320067; FUN_003c8920 D:L319339-319527 (the byte FUN_002dc1d0 D:L319383, DAT_0044f358 D:L319388, +0x24 D:L319473-319476, the cut D:L319510-319516); disc RUN/READERC.ZAR materials.rdr SOILS PENETRATION",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/accuracy.test.ts",
+     "name": "passes over 1.0, strikes the rest, and cuts the range by (1 + Piercing x 0.1) x PENETRATION",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a thin metal sheet leaves 0.35 x 1.3 of the range: a wall past it is out of reach",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomPenetration.test.ts",
+     "name": "a STONE wall (byte 7, PENETRATION 0) stops the round: no damage behind it, the shot ends at the wall",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomPenetration.test.ts",
+     "name": "a METAL_THIN (26) or PIPE_STEAM (31) wall: a close body is hit, one past the cut range (300 x 0.35 = 105) is not",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomPenetration.test.ts",
+     "name": "a byte-0 wall takes the map's DefaultMaterial (FUN_002dc1d0; UNKNOWN when the map names none)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.aim.bodyconvergence",
+   "claim": "The aim point is the nearest hit of the eye's ray, a body included (PERSON 0.97 is not looked through), and the round leaves the muzzle toward it.",
+   "level": "reading",
+   "source": "FUN_005aa6e0 D:L464097-464290; FUN_005be9a0 D:L475535-475559",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "converges the muzzle on a remote body under the reticle before the distant wall",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.aim.ray",
+   "claim": "The eye's aim ray looks through VOLUMETRIC, LIQUID and PENETRATION >= 0.98 non-PICKUP materials (glass, nets, fences, water, the volumes) and stops at any other, an ITEM (1.0, PICKUP) among them; the nearest kept hit is the aim point the round and the M203's loft leave toward. AD-2: its query reaches only side-bit surfaces without bit 19 (DAT_0044d758 1), and a hit on an m_cameratype 1 surface or with an empty material slot is passed; the accuracy pip's eye ray, the reticle's target pick and the hostage order's pick (the page's and the room's: viewer net/hostageOrder.ts pickSurfaces, crosshairPick, through net/aimQuery.ts) are this one.",
+   "level": "reading",
+   "source": "FUN_005aa6e0 D:L464117-464169; FUN_002d2890 D:L174845-174862; FUN_002d4fd0 D:L176018-176021",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/weapons.parity.test.ts",
+     "name": "the eye's ray looks through a LIQUID face: the round leaves the muzzle toward the stone behind the water",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "the M203's loft aims at the same hit: past a CHAINLINK_FENCE onto the stone, stopped by an ITEM",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: the shot's eye ray takes the eye's class too (one query in the original): an m_cameratype 1, 2 or 3 face, or one with no side bit, before the stone is looked through; an m_cameratype 0 one stops it",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: aimHitKept and aimQueryAdmits -- an empty material slot is kept by neither query; m_cameratype 1 is passed whatever its material; the two queries differ only in the camera bit they skip",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: the 44 SOILS and the two built-ins off READERC.ZAR's materials.rdr -- the pip's two rays keep exactly what the shot's eye ray keeps: 13 looked through by both, the other 33 stopping both",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/hostageOrderPick.test.ts",
+     "name": "AD-2 F1: a palm trunk -- an m_cameratype 2 WOOD_THICK face -- before a body is not met: the body is picked, as the shot aims past it",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hostageOrderPick.test.ts",
+     "name": "AD-2 F1: an m_cameratype 1 face (bit 18 alone, the dredge on MP1) is met but looked through (kept false); the body is picked",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hostageOrderPick.test.ts",
+     "name": "AD-2 F1: a face without the side bit (ditype 1) is ignored, and so is m_cameratype 3; the body is picked",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hostageOrderPick.test.ts",
+     "name": "AD-2 F1: a plain wall still blocks (kept true), a fence is still looked through, the default material by byte 0; a surface without kept falls back to the material rule",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/hostageOrderPick.test.ts",
+     "name": "AD-2 F1: fire.ts re-exports the shared module's admission -- one rule for the shot and the picks",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "AD-2 F1: an enemy behind a palm trunk (WOOD_THICK, m_cameratype 2) is named red, as the shot aims past the trunk; behind the same face at m_cameratype 0 the reticle rests",
+     "data": "none"
+    },
+    {
+     "file": "packages/central/test/roomHostageOrders.test.ts",
+     "name": "AD-2 F1: an order through a palm trunk's face (WOOD_THICK, m_cameratype 2: the eye's query skips bit 19, as the shot's eye ray does) is no longer refused -- FOLLOW joins the hostage; the same face at m_cameratype 0 still blocks it",
+     "data": "none"
+    }
+   ],
+   "owed": "reading, pending review (the port of the pass rule into fire.ts's eye ray; fire.test.ts's it.each holds the fence, ITEM, WATER, LEAFY_TREE and GLASS_THICK cases; AD-2's class and hit rule, 2026-10-15; the reticle's and the hostage order's pick, page and room, by AD-2's review F1); proven by a capture of the original aimed through a fence and at a bit-19 surface"
+  },
+  {
+   "id": "weapons.aim.pip",
+   "claim": "The accuracy pip marks the muzzle's segment toward the eye's aim point: its nearest kept hit -- the eye's hit rule (an empty material slot, an m_cameratype 1 surface, VOLUMETRIC, LIQUID or PENETRATION >= 0.98 non-PICKUP passed), over side-bit surfaces without bit 18 (DAT_0044d758 0), the others' bodies included -- is a block when the eye kept no hit, or when it is off the eye's kept point by more than 0.008 on any one axis; the eye's ray is the shot's own, so behind a fence the pip and the round aim at one point and the fence is no block.",
+   "level": "reading",
+   "source": "FUN_005aa6e0 D:L464333-464370; FUN_005b6240 D:L470352-470415; FUN_002d2890 D:L174845-174862",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: the 44 SOILS and the two built-ins off READERC.ZAR's materials.rdr -- the pip's two rays keep exactly what the shot's eye ray keeps: 13 looked through by both, the other 33 stopping both",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: behind a chain-link fence the pip aims past it as the shot does, and the muzzle's segment no longer reports the fence as a block (LATER 35)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: the nearest kept hit, not the first met: a fence before a low stone wall on the muzzle's segment -- the pip is the stone, in either surface order",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: the queries' class (FUN_002d2890 D:L174845-174862): no side bit, m_cameratype 1 or 3 in neither ray; m_cameratype 2 (bit 19) in the muzzle's, not the eye's -- with and without the table",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: a body on the muzzle's segment blocks as a wall does, the nearer of the two taken (FUN_005b6240's query holds every node but the shooter's)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "AD-2: PIP_TOLERANCE only against a kept aim, axis by axis (D:L464339-464370): with nothing under the reticle a hit 0.001 short of the ray's end blocks; with a body under the reticle a hit 0.0082 short of it is none (each axis within 0.008), 0.01 short is one",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/weapon.test.ts",
+     "name": "is the muzzle's ray meeting something short of the point under the reticle",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "the accuracy pip measures against the body: a wall only the far leg crosses is no block",
+     "data": "none"
+    }
+   ],
+   "owed": "reading, pending review (AD-2, 2026-10-15); a model's first-hit rule (+0x80 bit 0, research 230 section 3.4 F1) unmodelled; proven by a capture of the original's pip through a chain-link fence and against a low wall"
+  },
+  {
+   "id": "weapons.aim.reach",
+   "claim": "The eye's aim ray -- the shot's aim point and the reticle's pick of the actor under it, one ray -- is max(range, 600) capped at the camera's +0xec long: the held item's Maximum_Range x 10 (the round's own record in a launcher's round mode), 0 with none, floored at 600, then capped at the active camera's +0xec -- the map record's MID (m_mid_plane, 0x2C) plus the view state's extension (+200 night vision and binoculars, +300 a scope), put back on every view-state change; the round's own flight stays Maximum_Range x 10.",
+   "level": "reading",
+   "source": "FUN_005aa6e0 D:L464097-464114; FUN_00318da0 D:L217190-217197; FUN_002915f0 D:L137526-137531; FUN_001f1470 D:L53202-53255; FUN_001f0750 D:L52939; FUN_005c6600 D:L479603-479660; disc RUN/MP<N>.ZDB MP<N>.ZED cameras/camera +0x2C over the 22 multiplayer maps",
+   "note": "docs/research/232-the-view-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "aimReach: max(range, 600) capped at the camera -- a range under 600, or none, is 600; a MID under 600 caps below the floor (MP5, MP82: 550); with no camera known, the floored range",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "cameraAimCap: the record's MID plus the view's extension -- MP5's 550, not its far 800; none without a record",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a MID under 600 (550): a wall at 700, past the cap, is not the aim point -- the muzzle converges 550 out under the reticle and the round flies on to the wall",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a range under 600 is floored: a 30 m record looks 600 out, not 300, for the round and the accuracy pip alike",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "the view states: into the night vision, the binoculars and a scope the cap grows by 200 / 200 / 300 and is put back on the way out (FUN_001f1470 D:L53202-53255; FUN_001f0750 D:L52939, 53049, 53075, 53159)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "the round's own flight is still Maximum_Range x 10 (research 84 section 13): a miss under a 640 cap leaves the muzzle through the aim point 640 out and ends 10,000 on, with and without the penetration table; the eye standing in flies 10,000 too",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "a round mode's eye ray takes the round's own record (FUN_005c3780 through FUN_005c6600's redirect, D:L479603-479660): with nothing under the reticle the loft aims min(max(the round's range, 600), the cap) out",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/cameraParams.test.ts",
+     "name": "AD-1: reads the mid plane, `m_mid_plane` at 0x2C between the near and the far -- the camera's +0xEC, the aim ray's cap (FUN_00318da0 D:L217190-217197 copies the record to cam+0xC0; FUN_005aa6e0 D:L464106-464109) -- apart from the far: MP5's 550 / 800",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/cameraParamsDisc.test.ts",
+     "name": "each record's near / MID / far (0x28 / 0x2C / 0x30) is the authored text's clip and mid_clip, and the census",
+     "data": "disc"
+    },
+    {
+     "file": "packages/scene/test/cameraParamsDisc.test.ts",
+     "name": "the MID differs from the far on ten maps (the far is no stand-in for the cap); MP5 and MP82 alone hold one under 600 (550)",
+     "data": "disc"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "AD-1: the aim's cap is the loaded map's camera MID plus the view's extension, read at each cast (FUN_005aa6e0 D:L464106-464109; FUN_001f1470 D:L53202-53255): MP5's 550, 850 in a scope, 550 again out of it; none without a map",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fire.test.ts",
+     "name": "F2 (AD-1's review): a body past the cap but on the round's own line is still met -- a 550 cap, a body at 700, a wall at 900, from the muzzle and from the eye: without the penetration table the round ends at the body unmarked; with it (P12, SW-2) it goes on past the body to the wall",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/matchFirearm.test.ts",
+     "name": "MP81's MID 2500: an enemy 800 down the ray (200 across the ground) is picked; MP5's 550: one 570 down it is not -- the pick cast as far as the shot's eye ray",
+     "data": "none"
+    }
+   ],
+   "owed": "the original's dynamic endpoint trace (research 232 section 8.5): the cells 0x43666c / 0x436670, cam+0xec and FUN_005aa6e0's segment end across the view's transitions, their restoration and a map change, on MP5 or MP82 (550) and a map whose MID is not its far, and across the untraced writers and paths of section 8.2 (the camera animation, the suspend / resume pair, the zeroing paths); reading, pending review. Was: drift (the port's eye ray Maximum_Range x 10 long; the camera's +0xec not read)"
+  },
+  {
+   "id": "weapons.arsenal.classbyid",
+   "claim": "A record's class is its ID range: 4-30 pistol, 31-50 SMG, 51-80 rifle, 81-90 shotgun, 91-100 MG, 101-120 sniper, 121-140 grenade, 141-144 grenade launcher, 145-150 rocket launcher, 151-170 explosive, 171-184 launcher round, 185-189 rocket round, 190-200 gear, 201-204 armour, 205-253 turrets; primaries SMG to sniper and the grenade launchers, secondaries the pistols, the rest equipment.",
+   "level": "reading",
+   "source": "FUN_003d1a60 D:L324331-324352; FUN_003d1d10 D:L324404; FUN_003d1ce0 D:L324392",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every row of research 94 §A1 is a pinned item in the file's order: its names, its class by its id range, its slot, its valve",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "classes an item by its id range (FUN_003d1a60) and puts it in its slot kind",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.valvemap",
+   "claim": "FUN_003cf1f0 maps 68 item IDs to 67 valve names (the RPG-7 and its round share Enable_RPG), looked up case-sensitively; an item with no valve is never selectable.",
+   "level": "reading",
+   "source": "FUN_003cf1f0 D:L322760-322968; FUN_00351ef0 D:L250997",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every row of research 94 §A1 is a pinned item in the file's order: its names, its class by its id range, its slot, its valve",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "holds FUN_003cf1f0's 68 cases, the RPG-7 and its round sharing one valve",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.sidelists",
+   "claim": "An item is listed for a side when its valve carries bit 1 (SEALs) or 8 (Terrorists): each of the 22 MP maps' two lists as research 94 section A4 tables them.",
+   "level": "reading",
+   "source": "FUN_0023c390 D:L87468-87478; disc MP<n>.ZDB READERM.ZAR mission.rdr Valves",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "each side's list on each of the 22 maps is research 94 §A4's: the pinned valves through FUN_003cf1f0, bit 1 the SEALs, 8 the Terrorists",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "MP2: its Enable_* and InWhichAOP valves, its UiVehicles and its kits are the pin",
+     "data": "disc"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "each side's list on each map equals research 94 §A4 (the valves through FUN_003cf1f0)",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.c4lock",
+   "claim": "Enable_c4 16 locks C4 in every SEAL kit on MP61, MP62 and MP73 and nobody may pick it there; MP81's Enable_C4 (capital) is no valve the code reads.",
+   "level": "reading",
+   "source": "FUN_0023e910 D:L88527-88545",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "C4: locked in every SEAL kit on the BREACH maps (Enable_c4 16; FUN_0023e910), selectable by nobody there; MP81's Enable_C4 is no valve",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "locks the M203, FULL_SLOT, a lone launcher round, and C4 by the side's 16/32 bit",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.kits",
+   "claim": "Each map's 4 + 4 character types carry their character.rdr default_weapons (176 kits, research 91 section 14), 2X in 112 of them.",
+   "level": "reading",
+   "source": "disc READERC.ZAR character.rdr default_weapons; MP<n>.ZDB chartype.rdr; FUN_0053ce00 D:L406362-406395",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "every one of the 176 kits is research 91 §14's: the character, then primary / secondary / the equipment, by name",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "2X on every map for both sides (research 94 §A7), carried by 112 of the 176 kits (research 91 §14); one slot only",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "Frostfire's kits are research 91 §14's; the BREACH SEALs carry the locked C4; MP6 SEAL 4 the Terrorists' 226",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.kitsunchecked",
+   "claim": "The spawn kits are not checked against the valves: the only kit items their side may not pick are the 226 of mp6_seal4 and mp7_seal2 and the BREACH SEALs' locked C4.",
+   "level": "reading",
+   "source": "CZSealBody_PostCreateSeal 0x599f00 D:L455790-455836 (FUN_005bdfb0, no FUN_003cf1f0)",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "176 kits (4 + 4 a map), never checked against the valves: the only items a kit carries that its side may not pick are §A4's 226s and locked C4s",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.slotcost",
+   "claim": "SlotCost 2 on the LAW, the RPG-7 and the Satchel: the pick fills the next equipment slot (4 wrapping to 2) with LAW HEAT, the RPG round or FULL_SLOT; a launcher primary fills its rounds (M203 rifles 141 and 175, the M79 179, the MGL 175).",
+   "level": "reading",
+   "source": "FUN_0023fef0 D:L89138-89330",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "SlotCost 2 on the LAW, the RPG-7 and the Satchel only; the pick fills the partner slot, 4 wrapping to 2 (FUN_0023fef0)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "a cost-2 pick fills the next equipment slot with its round, 4 wrapping to 2",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.singles",
+   "claim": "2X, the thermal scope, the PMN, the claymore, the LAW, the RPG-7 and LAW HEAT may sit in one slot only; the thermal scope only beside a sniper.",
+   "level": "reading",
+   "source": "FUN_0023c390 D:L87400-87466",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/arsenal.test.ts",
+     "name": "refuses the wrong slot kind, the other side's item, a second single item, a thermal scope without a sniper",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "2X on every map for both sides (research 94 §A7), carried by 112 of the 176 kits (research 91 §14); one slot only",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.arsenal.autofillside",
+   "claim": "The in-game auto-fill of a launcher's or a cost-2 item's dependants tests the side inverted (player_team 0 -> mask 8).",
+   "level": "drift",
+   "source": "FUN_0023b9b0 D:L87139-87170; FUN_0023bc50; MIPS 0x23bbdc",
+   "note": "docs/research/94-the-arsenal.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "DRIFT: a SEAL's refill after the Satchel on MP1 is the PMN (mask 8, as FUN_0023b9b0 tests the side), not the Claymore",
+     "data": "none"
+    }
+   ],
+   "owed": "the test is it.fails (TA.R6): it goes red when the refill tests the side as shipped (player_team 0 -> mask 8). A known, ruled divergence (R94.4, W4.R2; INGAME_AUTOFILL_SIDE_READING, open for the owner). On the 22 pinned maps the two readings part only after the Satchel, which no map enables and no kit carries; arsenal.test.ts's refill test pins the port's reading (b) and is not listed here"
+  },
+  {
+   "id": "weapons.armory.defaulttype",
+   "claim": "With no saved loadout a player is SEAL 1 / TERRORIST 1 (type index 0 / 4).",
+   "level": "reading",
+   "source": "ChangeCharacterType 0x2795e0; UiEquipSwitch (UIZANIM dlg_equipment_mp)",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/armoryCharacters.test.ts",
+     "name": "refuses what is not a whole index, and without the map's table allows the default alone",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.armory.fourthcolumn",
+   "claim": "The fourth column of each side is open where the map's InWhichAOP is 0 (MP1-MP12) and, in the original, locked on the campaign maps (50 on 51-53, 60 on 61-64, 70 on 71-73, 80 on 81-83); the port opens them by the owner's ruling OT.R91 (2026-10-31), the original's rule kept behind the ruling's flag.",
+   "level": "reading",
+   "source": "UnlockMPChar; disc MP<n>.ZDB mission.rdr Valves InWhichAOP",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the ARMORY's fourth column (research 95 R95.6, §6): open where InWhichAOP is 0 (MP1-MP12), locked on the campaign maps in the original, open by OT.R91; UiVehicles in chartype order",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/armoryCharacters.test.ts",
+     "name": "the original locks the fourth on a campaign map (InWhichAOP 50/60/70/80: the owner's Crossroads capture, ALG OFFICER LOCKED) -- the rule with the ruling off",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.armory.columns",
+   "claim": "Column n is the type UiVehicles[n-1] names (Seal1..4, Terrorist1..4 on all 22 maps, chartype.rdr's order).",
+   "level": "reading",
+   "source": "FUN_002af8c0 D:L153936-153991; FUN_0053b4b0 D:L405168-405202",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weaponTable.parity.test.ts",
+     "name": "the ARMORY's fourth column (research 95 R95.6, §6): open where InWhichAOP is 0 (MP1-MP12), locked on the campaign maps in the original, open by OT.R91; UiVehicles in chartype order",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/armoryCharacters.test.ts",
+     "name": "a column is its type by its UiVehicles name (UiCharType<n>, FUN_002af8c0 -> FUN_0053b4b0), not by chartype position",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.armory.defaults",
+   "claim": "Circle restores the type's whole default kit, primary and secondary included.",
+   "level": "reading",
+   "source": "ChooseDefaultEquipment 0x282980 D:L128604-128652",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/armoryState.test.ts",
+     "name": "S6 Defaults: Circle restores the type's whole kit, clears the record, no sound; input held 2.3 s",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.armory.profilekey",
+   "claim": "The saved loadout is keyed per map (and host, port, account) with one record per side holding the type and the five picks.",
+   "level": "reading",
+   "source": "UICharacterProfile 0x275770 D:L121919-122133; FUN_002fb610 D:L198800-198900",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/armory.test.ts",
+     "name": "Square stores the record per map and side (W5.R4 as amended); the next opening starts on it, CUSTOM",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.armory.statbars",
+   "claim": "The stat bars (VOLUME, ACCURACY, RANGE, FIRE RATE) are per-weapon ShowAndSpin script constants, not derived from zweapon.rdr.",
+   "level": "reading",
+   "source": "UIZANIM.ZAR ShowAndSpin.rdr (sas/ShowAndSpin@28-53372)",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/armory.test.ts",
+     "name": "the Primary row: the kit's rifle shown and spun 178.97 deg about -Y in 3 s, its bars, name, fire mode and tip as scripted",
+     "data": "fixture"
+    }
+   ],
+   "owed": "held only with the fixture; a golden of the decoded per-weapon bar scales (with a unit test of the bars the view draws) is owed: not written in this budget"
+  },
+  {
+   "id": "weapons.armory.spin",
+   "claim": "The preview spins 178.97 deg about -Y every 3 s (59.66 deg/s) for all 67 models, each at its own AZIMUTH/ELEV/DISTANCE.",
+   "level": "reading",
+   "source": "UIZANIM.ZAR ShowAndSpin.rdr",
+   "note": "docs/research/95-the-armory.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/armory.test.ts",
+     "name": "the Primary row: the kit's rifle shown and spun 178.97 deg about -Y in 3 s, its bars, name, fire mode and tip as scripted",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/armory.test.ts",
+     "name": "all 67 entries land inside EquipWeapWin (MODEL_CAMERA_READING), every one's model decoded",
+     "data": "fixture"
+    }
+   ],
+   "owed": "held only with the fixture; a unit pin of the decoded spin and the 67 entries' camera numbers is owed"
+  },
+  {
+   "id": "weapons.model.form",
+   "claim": "The weapon models are drawn by command 0x70 (ITOF15 x TOP+3.w, the scale form): 59 weapons in 212 chunks, 19,961 triangles on every map; the M4A1 SD from m4_high, 688 vertices, 395 triangles.",
+   "level": "reading",
+   "source": "disc MP<n>.ZDB WEAP_GEO.ZED, WEAP_MDL.ZED",
+   "note": "docs/research/79-weapon-table-and-fire-point.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weapon.test.ts",
+     "name": "draws the M4A1 SD from m4_high at the high LOD: 688 vertices, 395 triangles, two textures",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/scene/test/weapon.test.ts",
+     "name": "decodes every weapon on MP2, both LODs, with no diagnostic: 212 chunks, 19,961 triangles",
+     "data": "fixture"
+    }
+   ],
+   "owed": "held only with the fixture: a golden of the decoded counts and bboxes is owed (the model bytes are the fixture stream's, TA.R2)"
+  },
+  {
+   "id": "weapons.model.m4a1sdnodes",
+   "claim": "The M4A1 SD's nodes: firepoint (7.7854, 0.8338, 0), firepoint_shell (0.9817, 0.0703, 0.0178), aimpoint (-0.2146, 0.8338, 0), Gun_box at the origin.",
+   "level": "reading",
+   "source": "disc MP2.ZDB WEAP_GEO.ZED m4Acarbine_sd nparams",
+   "note": "docs/research/79-weapon-table-and-fire-point.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/weapon.test.ts",
+     "name": "names the M4A1 SD's own nodes: the muzzle, the shell port, the sight and the pickup box",
+     "data": "fixture"
+    }
+   ],
+   "owed": "held only with the fixture; a golden of every weapon's named points (firepoint, aimpoint, firepoint_shell, scope) with a unit test of the muzzle the round leaves from is owed"
+  },
+  {
+   "id": "weapons.firepoint.stancecode",
+   "claim": "GetPutativeFirePointW takes the stance code from the list at +0x1c0, top down, skipping 3s; 0 for an empty list.",
+   "level": "reading",
+   "source": "FUN_0057fa70 D:L67-153 (decomp CZSealBody_GetPutativeFirePointW 0x57fa70 :67-153)",
+   "note": "docs/research/79-weapon-table-and-fire-point.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/firePoint.test.ts",
+     "name": "is 0 for an empty list: *(+0x1c8) < 0 takes the bltz to :145 and zeroes v1",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/firePoint.test.ts",
+     "name": "skips code 3 from the top down (:105 beq to :126) and returns the first other code",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.firepoint.slots",
+   "claim": "Codes 0-2 pick one of two rows of three offsets by a2; code 0 in actor state 3 or moving faster than 20 along z picks its own; the ten constants at 0x65d038-0x65d0c8 go through the actor node's matrix.",
+   "level": "reading",
+   "source": "FUN_0057fa70 :153-644",
+   "note": "docs/research/79-weapon-table-and-fire-point.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/firePoint.test.ts",
+     "name": "codes 0, 1 and 2 pick one of two rows of three by a2 (:457-617)",
+     "data": "none"
+    },
+    {
+     "file": "packages/scene/test/firePoint.test.ts",
+     "name": "a1 true: the slot offset as (x, y, z, 1) through the node matrix (FUN_003085c0, :632-644)",
+     "data": "none"
+    }
+   ],
+   "owed": "the ten offsets' values (.data 0x65d038-0x65d0d7) are not read; a pin of them is owed with that read (research 79 section 6 ask 1)"
+  },
+  {
+   "id": "weapons.claymore.water-depth",
+   "claim": "The claymore and the PMN (item 0x9e) are refused only while the SEAL wades deeper than 3.2 u (DAT_003dfe10 10.0 x 0.32; the depth +0xf88 is the water line over the feet), never for moving: set down on the move they are taken, page and room alike.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475310-475320 (the claymore), D:L475338-475350 (the PMN); FUN_005b52b0 D:L469852 (+0xf88 the depth)",
+   "note": "docs/research/210-modes-panes-barriers-and-the-c4-gates.md",
+   "tests": [
+    {
+     "file": "packages/scene/test/projectile.test.ts",
+     "name": "the claymore and the PMN are refused wading deeper than 3.2 u (DAT_003dfe10 x 0.32, D:L475310-475350), never for moving: CLAYMORE_RULES.maxWaterDepth",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "a claymore set down on the move is accepted; one in water past 3.2 u is refused; a PMN the same",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/grenade.test.ts",
+     "name": "the claymore: four down at most, set down on the move, none wading past 3.2 u or off the ground, and the Detonator reaches 500 units",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/equipment.test.ts",
+     "name": "the wading depth is the water line over the feet (probeWater, FUN_005b52b0), 0 out of the water",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/placedChargesReal.test.ts",
+     "name": "MP71: four claymores the page sets down wading 3.04 deep (under 3.2) are taken by the room and its Detonator kills the enemy ahead",
+     "data": "disc"
+    }
+   ]
+  },
+  {
+   "id": "weapons.c4.settle",
+   "claim": "C4 is planted only with the reticle on the same plantable target for 0.2 s (kit +0x8a4 set to 0.2 when the aimed object is none, another, not plantable or has moved, else counted down): a new target, none, or the target moving restarts it; the SEAL's own speed is not read.",
+   "level": "reading",
+   "source": "FUN_005be6f0 D:L475130-475197 (0x3e4ccccd); FUN_005be990 D:L475204-475208; FUN_005aa6e0 D:L464262-464286 (the aim ray); research 206 s1.2 V1 #9; ruling PF.R13",
+   "note": "docs/research/210-modes-panes-barriers-and-the-c4-gates.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/equipment.test.ts",
+     "name": "the plant needs the target settled 0.2 s under the reticle (kit +0x8a4, FUN_005be6f0 D:L475130-475197) and its surface not INVISIBLE_DI (005c1970): c4PlantAllowed",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/equipment.test.ts",
+     "name": "the settle restarts on no target, a new target, or the target moved (V1 #9, research 206 s1.2); the SEAL's own speed is never read (PF.R13)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/equipmentPage.test.ts",
+     "name": "C4 needs the reticle on the same plantable target for 0.2 s: a new target restarts the timer, a target that moved too; the SEAL's own speed is not tested; no C4 in the kit refuses",
+     "data": "none"
+    }
+   ],
+   "owed": "The placing's body+0xe84 == 0.0 (FUN_005be9a0 D:L475402-475405) has no writer found: an RDRAM read standing and walking is owed (C4_BODY_STILL_READING, note only)."
+  },
+  {
+   "id": "weapons.c4.plant-time",
+   "claim": "The charge goes down 1.098 s into the plant: action 0x3e Put on wall's trigger phase 0.45 of seal_put_onwall, playback 2.5 over 42 keys (0.45 x 2.5 x 41/42), plus up to a frame.",
+   "level": "reading",
+   "source": "FUN_005be9a0 D:L475420-475452 (trigger +0x60 0x3ee66666), D:L476883-476901 (the kit tick); FUN_0028c4f0 D:L134236-134275; disc RUN/READERC.ZAR motion.rdr seal_put_onwall playback; disc RUN/MOTION_P.ZAR seal_put_onwall",
+   "note": "docs/research/181-c3-combat-hud-effects.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/equipment.test.ts",
+     "name": "the plant lands at 0.45 x 2.5 x 41/42 = 1.098 s of seal_put_onwall, from motion.rdr and MOTION_P.ZAR (C4_PLANT_TIME_READING retired)",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/viewer/test/equipmentPage.test.ts",
+     "name": "is refused away from a target, planted at one, and goes off at its Timer1 (6 s)",
+     "data": "none"
+    }
+   ],
+   "owed": "The page's body plays the claymore's clip through the plant: seal_put_onwall is no HOLD_CLIPS entry, and adding one renumbers the wire's hold codes (research 210 s9)."
+  },
+  {
+   "id": "weapons.c4.invisible-di",
+   "claim": "C4's set-down is refused on a surface whose material is named exactly INVISIBLE_DI (a case-sensitive byte compare with the ELF string 0x65f8c8); no material name is required, and the name alone authorises nothing.",
+   "level": "reading",
+   "source": "005c1970 D:L476975-476977 (00198f18; the placement call L476985); research 194 s7 A10",
+   "note": "docs/research/210-modes-panes-barriers-and-the-c4-gates.md",
+   "tests": [
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "C4 on a surface named exactly INVISIBLE_DI is refused (005c1970); on another surface the remaining checks decide; the name alone authorises nothing",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/equipmentPage.test.ts",
+     "name": "C4 on a surface named exactly INVISIBLE_DI is refused on the page too (005c1970 D:L476975-476977); the pick itself is aimPick",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.c4.wire",
+   "claim": "The page names C4's target and the node and point its aim struck on the throw; the room plants only when that destructible takes the charge there, the point lies within 32 u of the feet along the ground, the line from the head meets the named node at the point, and a malformed target or surface is ignored; the 0.2 s settle is the page's.",
+   "level": "reading",
+   "source": "FUN_002739b0 0x2739b0-0x2739ec; FUN_005aa240 D:L463895 (the ground reach); C4_REACH_READING; C4_SURFACE_SLACK_PLACEHOLDER; ruling PF.R18",
+   "note": "docs/research/210-modes-panes-barriers-and-the-c4-gates.md",
+   "tests": [
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "C4 on a surface named exactly INVISIBLE_DI is refused (005c1970); on another surface the remaining checks decide; the name alone authorises nothing",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "a C4 throw with a malformed target or surface is ignored as a malformed throw is: nothing planted, nothing tallied (roomFuzz, roomHostile)",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomBarriers.test.ts",
+     "name": "a Terrorist with C4 (Enable_c4 = 9) plants on a shield-17 barrier end to end and it opens at the Timer1",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/accessBarriers.test.ts",
+     "name": "the C4 target is the bound destructible under the reticle (aimPick -> c4TargetOf) within C4_REACH_READING of the feet, settled 0.2 s, not on INVISIBLE_DI; the room checks the page's named node along the head's line (c4Line)",
+     "data": "none"
+    }
+   ],
+   "owed": "C4_REACH_READING's own value (research 202 s2.1: 19.9 u from skel_root to the aimed point) owes a capture (research 206 A30); the room poses no skel_root, so 32 u stands."
+  },
+  {
+   "id": "weapons.fire.nofire-phase",
+   "claim": "A firearm's round leaves over a forward-playing motion only at phase > its NoFire, strictly (FUN_0058a8c0 via FUN_005a7de0's firearm branch): seal_crouch2prone refuses at 0.8 and fires at 0.8001; a bare NoFire refuses through phase 1; the phase is the stack's, the same NoInterrupt is compared on.",
+   "level": "reading",
+   "source": "FUN_005a7de0 D:L462695-462705; FUN_0058a8c0 D:L446897-446915; FUN_00587c20 D:L445553-445570",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fireCapability.test.ts",
+     "name": "forward play fires strictly past NoFire: seal_crouch2prone at phase 0.8 refused, 0.8001 allowed; reverse play strictly under 1 - NoFire (FUN_005a7de0 L462695-462705)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fireCapability.test.ts",
+     "name": "bare NoFire refuses through phase 1: stand -> prone, the hang, the ladder slide, the claymore's placing never fire",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomCapability.test.ts",
+     "name": "a round at a command inside stand -> prone is dropped 'nofire' and consumes no round; the first command past crouch -> prone's 0.8 fires",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.fire.nofire-reverse",
+   "claim": "Over a motion played backwards (the stance changes out of prone) a round leaves only at phase < 1 - NoFire, strictly, the phase running from (n-1)/n down (the port's clipVelocity convention, end - run): prone -> crouch fires once under 0.2 of seal_crouch2prone.",
+   "level": "reading",
+   "source": "FUN_0058a8c0 D:L446897-446915 (the reverse branch); the stack entry's +0x28 bit 0x20 (FUN_005551a0, D:L462700)",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fireCapability.test.ts",
+     "name": "forward play fires strictly past NoFire: seal_crouch2prone at phase 0.8 refused, 0.8001 allowed; reverse play strictly under 1 - NoFire (FUN_005a7de0 L462695-462705)",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.fire.no-airborne-lock",
+   "claim": "There is no blanket airborne or any-action fire lock: the standing jump, the fall, the soft landing and the six short MP flinches carry no NoFire and fire throughout; the running jump's launch carries its own 0.2 (its first 0.2 x 2.4 x 24/25 = 0.461 s refused, in the air or not) and seal_land_hard refuses only to its phase 0.3.",
+   "level": "reading",
+   "source": "FUN_005a7de0 D:L462612-462705; disc motion.rdr NoFire (194 A02's table; seal_runningjump_launch 0.2 off the fixture)",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fireCapability.test.ts",
+     "name": "seal_land_hard locks the fire to phase 0.3 only, not the clip; the jump, the soft landing and the six short flinches never lock it (no blanket airborne or action rule)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/fireCapability.test.ts",
+     "name": "the running jump's launch refuses to its phase 0.2 (0.2 x 2.4 x 24/25 = 0.461 s) and then fires; the standing jump and the soft landing are open throughout",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomCapability.test.ts",
+     "name": "a round at a command during the jump or the soft landing is taken; during seal_land_hard before 0.3 dropped, after taken",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.fire.command-time",
+   "claim": "The fire's permission is the command's: the room records it at each command (AimFrame.fire, from the same headless capability the page asks of its own mover) and refuses a round 'nofire' against the frame of the command it names, never the body's present state, before any round is spent.",
+   "level": "reading",
+   "source": "FUN_005c0ae0 D:L476375-476378, 476442-476444 (the gate asked at the round); ruling PF.R36 (the room's adaptation)",
+   "note": "docs/research/218-the-permission-as-built.md",
+   "tests": [
+    {
+     "file": "packages/match/test/roomCapability.test.ts",
+     "name": "the permission is the command's, not the present: a round named for a command before the transition, arriving after it began, is taken (PF.R36)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/walk.test.ts",
+     "name": "WalkMode.fireAllowed refuses through stand -> prone and opens past crouch -> prone's 0.8, from the table play hands over",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.launcher.raise-seconds",
+   "claim": "A rocket launcher comes up in seal_rifle2launcher (35 keys) from the rifle and seal_pistol2launcher (24) from the pistol, playback 1.5, NoFire: 1.4155 s and 1.3776 s before its first rocket; it goes down in the same clip reversed, the firearm's first round as long after.",
+   "level": "reading",
+   "source": "FUN_005a6d30 D:L462097-462133; FUN_005a6b70 D:L462045-462092; names D:L495408-495411; disc READERC.ZAR motion.rdr, MOTION_P.ZAR",
+   "note": "docs/research/217-the-body-as-built.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/equipment.test.ts",
+     "name": "launcherRaiseSeconds is the one-shot of 1.5 over 35 keys from the rifle and 24 from the pistol; the lower the same (no disc)",
+     "data": "none"
+    },
+    {
+     "file": "packages/viewer/test/equipment.test.ts",
+     "name": "the launcher's raise is seal_rifle2launcher 1.4155 s from the rifle and seal_pistol2launcher 1.3776 s from the pistol (playback 1.5, 35 / 24 frames, FUN_005a6d30); the lower the same clip reversed, the same length",
+     "data": "fixture"
+    },
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "the room holds the first rocket 1.4155 s after a raise from the rifle and 1.3776 s from the pistol; the firearm's first round the same after the lower",
+     "data": "none"
+    }
+   ],
+   "owed": "a trace of NoFire's reader would show the rocket held for the whole clip (research 179 s11.15's one step); the page's raise from the pistol waits the rifle's length until main.ts passes the firearm in hand"
+  },
+  {
+   "id": "weapons.select.empty-slot-name",
+   "claim": "WEAPON EXCHANGE's row of an empty slot (0xff) reads zweapon.rdr's EQUIP_NONE DisplayName <NONE> and the second slot of a two-slot item (0xfe) FULL_SLOT's -------; rows past the character's slot count are blank.",
+   "level": "reading",
+   "source": "FUN_003c4b40 D:L316433-316449; FUN_0023e370 D:L88328-88339; disc RUN/ZWEAPON.ZAR zweapon.rdr EQUIP_NONE, FULL_SLOT DisplayName (research 181 §3.1)",
+   "note": "docs/research/233-the-sound-as-built-iii.md",
+   "tests": [
+    { "file": "packages/viewer/test/weaponSelect.test.ts", "name": "an empty slot's row reads <NONE> and a two-slot item's second row ------- from zweapon.rdr's EQUIP_NONE (0xff) and FULL_SLOT (0xfe) DisplayName (FUN_003c4b40 D:L316433-316449; FUN_0023e370 L88329-88336); rows past the count are blank", "data": "none" }
+   ]
+  },
+  {
+   "id": "weapons.select.pulse-phase",
+   "claim": "WEAPON EXCHANGE's three pulses -- the slot bar (4/s), the card highlight (4/s) and the arrows (2/s) -- start 0 rising when the HUD is built and carry their phase from one opening to the next, each advanced only while its part shows (the bar in the list, the arrows in the picker, the highlight while the body shows).",
+   "level": "reading",
+   "source": "FUN_00241a90 D:L89868-89880; FUN_0023cd20 from FUN_00240e60 D:L89595-89600 (one caller FUN_001fa360 D:L57437-57440); FUN_00240600 D:L89400-89488; FUN_0023d2b0 D:L87909-87923 (research 181 §3.4, 202 §3.12)",
+   "note": "docs/research/233-the-sound-as-built-iii.md",
+   "tests": [
+    { "file": "packages/viewer/test/weaponSelect.test.ts", "name": "the slot bar's, the card highlight's and the arrows' pulses carry their phase from one opening to the next, each advanced only while its part shows (FUN_00240600 D:L89400-89488; FUN_0023d2b0 D:L87909-87923); set once when the HUD is built (FUN_00241a90; FUN_0023cd20 from FUN_00240e60 D:L89595-89600, research 202 §3.12)", "data": "none" }
+   ],
+   "owed": "a breakpoint on 0x240e60 across a round restart: whether the HUD (and so the pulses) is rebuilt between rounds of one match (research 202 §3.12)"
+  },
+  {
+   "id": "weapons.blast.ignore-explosion-di-actor",
+   "claim": "A round with IgnoreExplosionDI (projectile +5 & 2) is not vetoed by a blocking hit on the actor's queued blast ray: a C4 hurts a SEAL whose head its blast cannot see, where an M67 at the same point is occluded; the radius and fraction checks still follow.",
+   "level": "reading",
+   "source": "FUN_005a0e70 D:L459192-459193 (the getter FUN_003c8310 D:L319159-319162; the ray queued by FUN_005ac070 D:L464837-464858; research 194 s7 A11)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomBlast.test.ts", "name": "a C4 going off behind a wall hurts the SEAL whose head the blast cannot see (005a0e70 D:L459192-459193: the queued ray's veto skipped with the bit, IGNORE_EXPLOSION_DI_READING); the M67 at the same point and the same SEAL is occluded, as before", "data": "none" }
+   ],
+   "owed": "capture B (owner list 5): a C4 on a Vigilance barrier with a SEAL behind it -- the body's +5 byte, the queued ray's hits and the damage recorded (research 194 s7's runtime certification, 235 s7)"
+  },
+  {
+   "id": "weapons.blast.ignore-explosion-di-world",
+   "claim": "A round with IgnoreExplosionDI skips the world target's collision-material loop and the target is eligible: a C4 reaches a destructible behind another surface, where an unflagged blast at the same point does not. The port has no material loop: the flag skips PF.R11's clear line that stands in for it (MATERIAL_ATTENUATION_PLACEHOLDER), after the cones.",
+   "level": "reading",
+   "source": "FUN_003c80e0 D:L319096-319143; caller FUN_003c7dd0 D:L318978-318992 (research 194 s7 A11; ruling PF.R11, research 209 s13)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomBarriers.test.ts", "name": "a C4's blast reaches a destructible whose line from the blast is blocked by another surface (003c80e0 D:L319096-319143: the material loop skipped with the bit); a grenade's blast at the same point does not (SCENE_BLAST_REACH_PLACEHOLDER's clear line)", "data": "none" }
+   ],
+   "owed": "capture B (owner list 5): a C4 on a Vigilance barrier with a SEAL behind it -- the body's +5 byte, the queued ray's hits and the damage recorded (research 194 s7's runtime certification, 235 s7)"
+  },
+  {
+   "id": "weapons.blast.ignore-explosion-di-data",
+   "claim": "IgnoreExplosionDI is a bare field of the round (ZAMMO), copied from ammo +0x28 & 2 to projectile +5 & 2: of the disc's 39 ZAMMO rows only C4 Ammo (18) carries it; the M67's, the claymore's and the PMN's rounds do not.",
+   "level": "reading",
+   "source": "FUN_003cb1a0 D:L320755-320756, FUN_003d43c0; disc RUN/ZWEAPON.ZAR zweapon.rdr ZAMMO IgnoreExplosionDI (research 194 s7 ammo-flags.json)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/scene/test/projectile.test.ts", "name": "IgnoreExplosionDI is read as a bare field: C4 Ammo (18) alone of the fixture's ZAMMO rows carries it; the M67, the claymore and the PMN do not (003cb1a0 D:L320755-320756: ammo +0x28 & 2 -> projectile +5 & 2)", "data": "fixture" }
+   ],
+   "owed": "a no-data pin of the parsed C4 record is not written: the field is read off the disc's table by throwableRecord, which only the fixture holds (the room tests carry it on their own transcribed C4)"
+  },
+  {
+   "id": "weapons.blast.ignore-explosion-di-unchanged",
+   "claim": "The bit changes only the two obstruction decisions: a flagged blast outside its radius hurts no one, friendly fire off still spares the planter's side, in the open its fragments and knock are the unflagged round's, and a resting flagged charge rides the join envelope as any charge (the flag the record's, not the wire's).",
+   "level": "reading",
+   "source": "research 194 s7 A11 (\"replacing every check with a global seen || isC4 shortcut is insufficient\"; the acceptance: same origin and victim, field false vs true, reset/rejoin of a live flagged projectile); 198 s4.4",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomBlast.test.ts", "name": "the bit changes nothing else: a flagged blast outside its radius hurts no one, friendly fire off still spares the planter's side, the fragments' law and the knock are the unflagged ones at the same distance", "data": "none" },
+    { "file": "packages/match/test/roomJoin.test.ts", "name": "a joiner's envelope carries a resting C4 as any charge; its flag is the record's, not the wire's -- nothing new on the envelope", "data": "none" }
+   ]
+  },
+  {
+    "id": "weapons.launcher.wading",
+    "claim": "The rocket launcher cannot be taken up wading deeper than 8.5 units: FUN_005857e0 needs +0xf88 (the water surface less the feet) <= 8.5 when bit 7 of +0x105e (in water) is set -- the crouch entry's test; page (slotSelectable) and room (raiseLauncher, 'throw: wading'); a launcher already up stays up.",
+    "level": "reading",
+    "source": "FUN_005857e0 D:L444332-444360; FUN_00581990 D:L442552; FUN_005b52b0 D:L469852-469902; research 181 s2.6",
+    "note": "docs/research/236-the-shotgun-guard-the-stance-window-and-the-wading-rules.md",
+    "tests": [
+      {"file": "packages/viewer/test/equipment.test.ts", "name": "the rocket launcher cannot be taken up wading deeper than 8.5 units (FUN_005857e0 D:L444332-444360: +0xf88 <= 8.5 with bit 7 of +0x105e; LAUNCHER_BODY_READING): depth 9 refused, 8 allowed, 0 out of the water; a context without a depth reads 0", "data": "none"},
+      {"file": "packages/match/test/roomEquipment.test.ts", "name": "the room refuses a launcher raise wading deeper than 8.5 (dropped 'throw: wading') and allows it at 8; a raise already up is not lowered by the water", "data": "none"},
+      {"file": "packages/viewer/test/equipmentPage.test.ts", "name": "the slot key cannot bring the launcher up wading deeper than 8.5 (FUN_005857e0 D:L444332-444360; LAUNCHER_BODY_READING): the source's own grid and feet, or its depth hook", "data": "none"},
+      {"file": "packages/viewer/test/matchMount.test.ts", "name": "PF-37: the R2 inventory's launcher reads the wading depth (matchThrow.ts inventoryKit, the same depth selectSlot reads): once, for both pages", "data": "none"}
+    ],
+    "owed": "the R2 inventory's depth line landed in wave 4 (now matchThrow.ts inventoryKit, MATCH-THROW; research 236 s4) and is pinned as text only: a behaviour test of the R2 list in water (matchThrow.ts inventoryKit) is owed"
+  },
+  {
+   "id": "weapons.volatile.data",
+   "claim": "Volitile is a bare field of the round (ZAMMO), ammo +0x28 & 1: of the disc's 39 ZAMMO rows only Claymore Ammo (17) and PMN Ammo (44) carry it; C4's and the hand grenades' rounds do not.",
+   "level": "reading",
+   "source": "FUN_003d4400 D:L326522-326525; disc RUN/ZWEAPON.ZAR zweapon.rdr ZAMMO Volitile (research 194 s9 A21, ammo-flags.json)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/scene/test/projectile.test.ts", "name": "Volitile is read as a bare field: Claymore Ammo (17) and PMN Ammo (44) alone of the fixture's ZAMMO rows carry it, never C4 or a grenade (003d4400 D:L326522-326525: ammo +0x28 & 1; VOLATILE_READING)", "data": "fixture" }
+   ],
+   "owed": "a no-data pin of the parsed records is not written: the field is read off the disc's table by throwableRecord, which only the fixture holds (the baked CLAYMORE carries it, held by the same fixture test; the room tests carry it on their own transcribed records)"
+  },
+  {
+   "id": "weapons.volatile.damage-queues",
+   "claim": "Damage on a resting Volitile charge queues its detonation through CProjectileNodeEx's hit callback: GetDamage(1.0, incoming, target) must be nonzero -- the 1.0 a minimum on the base before its x14, so a round whose base at the charge is under 1.0 (or past Maximum_Range) queues nothing -- the target must not already be going off, and then state 3 / stage 2; an unflagged charge (C4) or a projectile in flight is not reached this way.",
+   "level": "reading",
+   "source": "FUN_003c69c0 L318206-318216 (via FUN_003d4b80 L326966-326970, CProjectileNodeEx vtable 0x4083f0 built by FUN_003cb8a0 L320887-320891); FUN_003c7600 D:L318763-318767 (research 194 s9 A21, 235 s3)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a round into a resting claymore within CHARGE_HIT_RADIUS_PLACEHOLDER queues its detonation (003c69c0 L318215-318216: state 3 / stage 2 -> the port's trigger), the room tells detonate with its pid and the shooter, and the charge goes off on the next game frame (VOLATILE_CHAIN_TIMING_READING) with the owner credited for its kills (VOLATILE_CREDIT_READING)", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a round whose damage at the charge is 0 -- beyond its maximum range -- queues nothing (GetDamage(1.0, ...) nonzero, L318206-318207; VOLATILE_MIN_DAMAGE_READING); a round past a C4 (unflagged) or a grenade in flight strikes neither", "data": "none" },
+    { "file": "packages/scene/test/projectile.test.ts", "name": "raySphere gives the entry distance of a ray into a sphere within its reach (null for a miss, behind or past the reach); volatileQueues is GetDamage's 1.0 minimum on the base before its x14 (FUN_003c7600 D:L318763-318767)", "data": "none" }
+   ],
+   "owed": "capture B (owner list 5): a claymore shot and a PMN in a blast, recording the target's state +0x0a, stage +8 and the hit callback (194 s9's original sequence); the online local-owner and sender gates (L318214, L318217-318221) are the room's authority, not ported (VOLATILE_SENDER_GATE_READING)"
+  },
+  {
+   "id": "weapons.volatile.dispatch",
+   "claim": "Both the direct impact and the explosion's target walk call the charge's damage interface: a round entering the charge (the port: a 5-unit placeholder sphere) and a blast reaching it inside Explosion_Radius with the line clear queue it; a wall between the blast and the charge, or the charge outside the radius, does not; the claymore's 32nd outside its cone follows GetDamage's minimum and leaves it nonzero (it still queues); every page sets its copy off by the room's detonate.",
+   "level": "reading",
+   "source": "FUN_003c8920 D:L319417-319418; FUN_003c7dd0 0x3c7e74-0x3c7e8c after FUN_003c80e0; FUN_003c7600 D:L318763-318781 (research 194 s9 A21, 235 s3-s4)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a round into a resting claymore within CHARGE_HIT_RADIUS_PLACEHOLDER queues its detonation (003c69c0 L318215-318216: state 3 / stage 2 -> the port's trigger), the room tells detonate with its pid and the shooter, and the charge goes off on the next game frame (VOLATILE_CHAIN_TIMING_READING) with the owner credited for its kills (VOLATILE_CREDIT_READING)", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a blast reaching a resting PMN inside its radius with the line clear queues it; one outside the radius or behind a wall does not, one behind a claymore's back still does (its 32nd follows GetDamage's 1.0 minimum, D:L318763-318781); two claymores a metre apart chain: the first's blast queues the second, which goes off one frame later, each once", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "tagOwn gives the page's own charge the room's pid by kind and launch point; detonateRemote sets a resting copy's trigger so its next step explodes with sound and scorch (a live event, not a hydrate); an unknown pid is ignored", "data": "none" }
+   ]
+  },
+  {
+   "id": "weapons.volatile.once",
+   "claim": "A charge already going off (states 5/6) is not requeued: a round and a blast on the same frame, a Detonator plus a round, a proximity trip plus a blast each give one blast; two charges a metre apart chain, each once; a new round clears a queued charge with the air.",
+   "level": "reading",
+   "source": "FUN_003c69c0 L318208-318214 (research 194 s9 A21's acceptance: 'an already-exploding target cannot requeue or double-score'; 235 s4)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a charge already going off is not requeued and scores no second blast: a round and a blast on the same frame, a Detonator plus a round, a proximity trip plus a blast (VOLATILE_STATE_GATE_READING)", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a blast reaching a resting PMN inside its radius with the line clear queues it; one outside the radius or behind a wall does not, one behind a claymore's back still does (its 32nd follows GetDamage's 1.0 minimum, D:L318763-318781); two claymores a metre apart chain: the first's blast queues the second, which goes off one frame later, each once", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a departed owner's claymore shot by another goes off with no one credited (how 'orphan', as its own blast would be); a new round clears the queue with the air", "data": "none" }
+   ]
+  },
+  {
+   "id": "weapons.volatile.chain-timing",
+   "claim": "A queued charge goes off on the next game frame (the port: the queue becomes the +0xc4 trigger at the frame's start, whatever the flying list's order, so a chain moves a frame a link) and its kills are its owner's, a departed owner's 'orphan'.",
+   "level": "reading",
+   "source": "FUN_003c69c0 L318215-318216 (state 3); FUN_003c8740 (+0xc4: the next tick detonates it); research 194 s9 L209 (the queue-to-explosion timing and chain order owed), 235 s4",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a round into a resting claymore within CHARGE_HIT_RADIUS_PLACEHOLDER queues its detonation (003c69c0 L318215-318216: state 3 / stage 2 -> the port's trigger), the room tells detonate with its pid and the shooter, and the charge goes off on the next game frame (VOLATILE_CHAIN_TIMING_READING) with the owner credited for its kills (VOLATILE_CREDIT_READING)", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a blast reaching a resting PMN inside its radius with the line clear queues it; one outside the radius or behind a wall does not, one behind a claymore's back still does (its 32nd follows GetDamage's 1.0 minimum, D:L318763-318781); two claymores a metre apart chain: the first's blast queues the second, which goes off one frame later, each once", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a departed owner's claymore shot by another goes off with no one credited (how 'orphan', as its own blast would be); a new round clears the queue with the air", "data": "none" }
+   ],
+   "owed": "the source's state-3-to-explosion timing, chain order and credit (VOLATILE_CHAIN_TIMING_READING, VOLATILE_CREDIT_READING): capture B's two claymores side by side, one shot, and a claymore left by a quitter (235 s7)"
+  },
+  {
+   "id": "weapons.volatile.geometry",
+   "claim": "Which surfaces of a resting claymore or PMN a round meets is the model's (FUN_003caf60 binds the model's damage interface, third argument 0: not every child); the port stands a 5-unit sphere about the charge in for it (CHARGE_HIT_RADIUS_PLACEHOLDER) with a muzzle inside it striking only facing the charge, and the charge is no surface of the round's walk: the round goes on untouched to the next real surface, which the shot's to names (CHARGE_ROUND_PASS_READING).",
+   "level": "reading",
+   "source": "FUN_003caf60 L320625-320646, FUN_003158b0 (node +0x94, L215134) (research 194 s9 A21: 'geometry reach' owed; 198 s4.1 WP11; 235 s4)",
+   "note": "docs/research/235-the-explosives-as-built.md",
+   "tests": [
+    { "file": "packages/scene/test/projectile.test.ts", "name": "raySphere gives the entry distance of a ray into a sphere within its reach (null for a miss, behind or past the reach); volatileQueues is GetDamage's 1.0 minimum on the base before its x14 (FUN_003c7600 D:L318763-318767)", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a round whose damage at the charge is 0 -- beyond its maximum range -- queues nothing (GetDamage(1.0, ...) nonzero, L318206-318207; VOLATILE_MIN_DAMAGE_READING); a round past a C4 (unflagged) or a grenade in flight strikes neither", "data": "none" },
+    { "file": "packages/match/test/roomVolatile.test.ts", "name": "a round that hits a charge continues to the wall behind it; the shot event's to is the wall (CHARGE_ROUND_PASS_READING: no surface of the walk, the range uncut); a muzzle inside the radius facing away misses", "data": "none" }
+   ],
+   "owed": "the claymore's and the PMN's model bounds and the collision surfaces that reach the interface (a disc read of the models the fixture lacks; capture B's claymore), and whether a round stops at the charge's node"
+  }
+ ]
+}

@@ -1,0 +1,99 @@
+/* OV-2: the overlay over the active page (`./index`; brief 4.2), a browser adaptation, a release feature since OT.R60.
+   On the page: its frame, over the front end's canvas (z 1000) and the match, under the original loading panel
+   (z 19000) and the handoff cover (z 18999). In its own document (the page's sheets copied in, the console's own sheet
+   linked): the console launcher in its overlay mode (OVERLAY-CONSOLE), drawn by the design system's cx layer and
+   `../../console/console.css`; the Report's host beside it. Colour and type are the system's tokens. */
+/* OT.R60 (d): the frame blurs and slightly darkens the live game behind it -- the game keeps rendering under it (MU2.R3),
+   so the blur is live. The radius and the darkening are `./index`'s named adaptations (OVERLAY_BLUR_PX_ADAPTATION,
+   OVERLAY_DIM_ADAPTATION), written by the module into the frame's custom properties; the fallbacks here are the same
+   values. */
+/* The touch Menu button stands left of the top centre, clear of WEAPON EXCHANGE's INV pill there (`#tw-weapons`, at least
+   72px wide; B61 review F2). */
+.mu-touch-menu { position: fixed; z-index: 18890; top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(50% - 56px); transform: translateX(-100%); min-height: 44px; min-width: 56px; border: 1px solid var(--s2u-text, #eee); border-radius: var(--s2u-radius-viewer, 6px); background: var(--s2u-panel-veil, #002933f2); color: var(--s2u-text, #eee); font: 14px sans-serif; touch-action: manipulation; }
+.mu-touch-menu[hidden] { display: none; }
+/* F2 (the merge controller's rule, 2026-10-18): while the touch Menu button sits pushed below a page's #site-links bar
+   (`MENU_BELOW_BAR_CLASS`, ./index.ts), the page's panel, controls and tip start below it, at --mu-touch-menu-clear;
+   their scrolled bodies keep to the height left. Selectors outrank the page's own tops (styles.css' media rules). */
+body.mu-menu-below-bar #panel, body.mu-menu-below-bar #controls { top: var(--mu-touch-menu-clear); }
+body.mu-menu-below-bar #mobile-tip { top: var(--mu-touch-menu-clear); }
+body.mu-menu-below-bar #panel .s2u-overlay__body, body.mu-menu-below-bar #controls .s2u-overlay__body { max-height: calc(100dvh - var(--mu-touch-menu-clear) - 16px); }
+/* The review's F1: on a sideways phone the page keeps the panel above the touch layer's bottom row (styles.css' block of
+   the same query: 55vh less the panel's top); moved down, the panel keeps the smaller of that and the rule above.
+   LATER 209 (the merge controller's product-track call, 2026-10-21): with a pad connected the touch layer is not drawn
+   (`.pad-on`, `../../styles.css`), so there is no row to clear and the rule above holds alone. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  body.mu-menu-below-bar:not(.pad-on) #panel .s2u-overlay__body { max-height: min(calc(100dvh - var(--mu-touch-menu-clear) - 16px), calc(55vh - var(--mu-touch-menu-clear) - 8px)); }
+}
+.mu-overlay-frame { position: fixed; inset: 0; width: 100vw; height: 100dvh; border: 0; margin: 0; padding: 0; z-index: 18900;
+  -webkit-backdrop-filter: blur(var(--mu-overlay-blur)); backdrop-filter: blur(var(--mu-overlay-blur)); background-color: color-mix(in srgb, var(--s2u-ground, #000) calc(var(--mu-overlay-dim) * 100%), transparent); color-scheme: normal;
+  --mu-overlay-blur: 12px; --mu-overlay-dim: 0.35; --mu-overlay-scrim: 0.7; }
+.mu-overlay-frame[hidden] { display: none; }
+/* The fallback (OT.R60 (d): "where the blur is unsupported or too costly, a darkened scrim without it"): no filter, the
+   darker scrim of OVERLAY_SCRIM_ADAPTATION. Where the browser has no backdrop-filter, and on a frame the seat forces with
+   `mu-overlay-frame--noblur` (to measure both). */
+@supports not (backdrop-filter: blur(1px)) {
+  .mu-overlay-frame { background-color: color-mix(in srgb, var(--s2u-ground, #000) calc(var(--mu-overlay-scrim) * 100%), transparent); }
+}
+.mu-overlay-frame.mu-overlay-frame--noblur { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: color-mix(in srgb, var(--s2u-ground, #000) calc(var(--mu-overlay-scrim) * 100%), transparent); }
+
+/* OT.R60 (e): the open and the close (`./motion`'s named adaptations, written by `./index` into these properties at each
+   ramp). The frame -- the one layer that blurs -- ramps its blur and its dim (or the fallback's scrim: its opacity) from
+   nothing and back; the blur ramps out last (its delay on the close). Only backdrop-filter and background-color move. */
+.mu-overlay-frame[data-phase] { transition: backdrop-filter var(--mu-overlay-ramp-ms, 0ms) var(--mu-overlay-ease, ease) var(--mu-overlay-ramp-delay, 0ms),
+  -webkit-backdrop-filter var(--mu-overlay-ramp-ms, 0ms) var(--mu-overlay-ease, ease) var(--mu-overlay-ramp-delay, 0ms),
+  background-color var(--mu-overlay-ramp-ms, 0ms) var(--mu-overlay-ease, ease) var(--mu-overlay-ramp-delay, 0ms); }
+.mu-overlay-frame[data-phase="closed"], .mu-overlay-frame[data-phase="closing"] { -webkit-backdrop-filter: blur(0px); backdrop-filter: blur(0px); background-color: transparent; }
+.mu-overlay-frame.mu-overlay-frame--noblur[data-phase="closed"], .mu-overlay-frame.mu-overlay-frame--noblur[data-phase="closing"] { -webkit-backdrop-filter: none; backdrop-filter: none; background-color: transparent; }
+
+/* The console's panels in the frame's document: the crossbar (with the header) first, then the list, then the legend
+   (LR-39: Home's readout, the summary, is drawn no more), each rising and fading in at the stagger; on the close the
+   reverse, the legend first. Only opacity and
+   transform move, and only during a ramp (the console's own transitions otherwise). Reduced motion: no rise, no stagger
+   (`--mu-ovp-rise`, `--mu-ovp-stagger`). */
+html.mu-overlay-doc :is(.cx-header, .cx-crossbar) { --mu-ovp-i: 0; }
+html.mu-overlay-doc :is(.cx-list, .cx-screenhead, .cx-screen__body) { --mu-ovp-i: 1; }
+html.mu-overlay-doc .cx-legend { --mu-ovp-i: 2; }
+html.mu-overlay-doc[data-overlay-phase="opening"] :is(.cx-header, .cx-crossbar, .cx-list, .cx-screenhead, .cx-screen__body, .cx-legend) {
+  transition: opacity var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc(var(--mu-ovp-i) * var(--mu-ovp-stagger, 0ms)),
+    transform var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc(var(--mu-ovp-i) * var(--mu-ovp-stagger, 0ms)); }
+html.mu-overlay-doc[data-overlay-phase="closing"] :is(.cx-header, .cx-crossbar, .cx-list, .cx-screenhead, .cx-screen__body, .cx-legend) {
+  transition: opacity var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc((2 - var(--mu-ovp-i)) * var(--mu-ovp-stagger, 0ms)),
+    transform var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc((2 - var(--mu-ovp-i)) * var(--mu-ovp-stagger, 0ms)); }
+html.mu-overlay-doc:is([data-overlay-phase="closed"], [data-overlay-phase="closing"]) :is(.cx-header, .cx-crossbar, .cx-list, .cx-screenhead, .cx-screen__body, .cx-legend) {
+  opacity: 0; transform: translateY(var(--mu-ovp-rise, 0px)); }
+/* LR-39 (LR.R32: the overlay's Home is the landing page's, `is-page`): at the page's wide rule its list's own transform
+   (`--cx-list-shift`) and transform-only transition (`../../console/console.css`, LR-23) outrank the three rules above, so
+   the list keeps them here, at the same rule: the stagger's opacity with its transform, and the rise added to the shift. */
+@media (width > 760px) and (height > 550px) {
+  html.mu-overlay-doc[data-overlay-phase="opening"] .cx-home.is-page .cx-home__body > .cx-list {
+    transition: opacity var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc(1 * var(--mu-ovp-stagger, 0ms)),
+      transform var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc(1 * var(--mu-ovp-stagger, 0ms)); }
+  html.mu-overlay-doc[data-overlay-phase="closing"] .cx-home.is-page .cx-home__body > .cx-list {
+    transition: opacity var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc(1 * var(--mu-ovp-stagger, 0ms)),
+      transform var(--mu-ovp-ms, 0ms) var(--mu-ovp-ease, ease) calc(1 * var(--mu-ovp-stagger, 0ms)); }
+  html.mu-overlay-doc:is([data-overlay-phase="closed"], [data-overlay-phase="closing"]) .cx-home.is-page .cx-home__body > .cx-list {
+    transform: translateY(calc(var(--cx-list-shift) * -70px + var(--mu-ovp-rise, 0px))); }
+}
+
+/* The seat's frames' F-C: on the close the frame's whole body -- the header, the legend, a dialog open over the console,
+   the toast -- fades out with the panels, ending before the blur has ramped out (`--mu-ovl-ms`, `./motion`), so nothing
+   of the console is left whole until the frame hides. On the open the body is whole at once (the panels' stagger is the
+   open's fade); a reversal mid-close brings it back from where it was, on the open's ramp. Opacity only. */
+html.mu-overlay-doc[data-overlay-phase] body {
+  transition: opacity var(--mu-ovl-ms, 0ms) var(--mu-ovl-ease, ease); }
+html.mu-overlay-doc[data-overlay-phase="closing"] body { opacity: 0; }
+
+/* The seat's frames' F-D (the review's F3): the console's own transitions -- the crossbar's focus, its font-size, padding,
+   letter-spacing, stroke-width -- would run as the console first draws in the frame (its styles settling on the frame
+   shown), layout work at the worst moment. From the console's first draw until the open completes (`./index` marks the
+   frame's root `data-overlay-settling`) they are off; the open's own fade of the panels and the body is kept. The
+   launcher page is unchanged (this sheet's rules sit under the overlay's document mark). */
+html.mu-overlay-doc[data-overlay-settling] :not(.cx-header, .cx-crossbar, .cx-list, .cx-screenhead, .cx-screen__body, .cx-legend, body) {
+  transition-property: none !important; }
+
+/* The frame's document is transparent, so the frame's blur is what shows behind the console (OT.R60 (d)). */
+html.mu-overlay-doc, html.mu-overlay-doc body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+/* The Report (FB-1's dialog) over the console, the console inert under it (`../report`'s `inertRoot`). */
+.mu-overlay__report-host { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+.mu-overlay__report-host > * { pointer-events: auto; }
+.mu-overlay__report-host:empty { display: none; }

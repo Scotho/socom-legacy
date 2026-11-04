@@ -1,0 +1,4 @@
+# EPH probe script (tools/eph/probe.ts, PCSX2 alone; grammar <t_ms> <input> <pressure>). Seat ac, 2026-11-01, for 6d before the cancel reruns.
+# Not a probe case: opens the pause menu (START) and holds it, for a frame of its settings (--shots).
+500 start 1
+650 start 0

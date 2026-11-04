@@ -1,0 +1,12 @@
+/*
+ * The setup page's own sheet, empty of rules since CX-27 (the console plan). It held the setup page of OT.R28 and its
+ * launcher frame (LU-1..LS-1), gone with CX-9b (`./modern/launcher.ts`, `./startup.ts`'s `Startup`), then the modern
+ * Settings' "This browser" cards (the controller and microphone cards, the Visuals choice: `.startup-device*`,
+ * `.startup-section-head`, `.startup-visuals`, `.startup-look*`, `.startup-fields`, `.startup-range-label`,
+ * `.startup-note`, `.startup-actions`, `.pad-binding*`), whose one view (`startupSettingsView.ts`) CX-26 retired, and
+ * CX-26's `.mu-set` before it. CX-27's walk from every entry found no live markup or code drawing any of those classes,
+ * so their rules are gone. The file stays because it is a build input: `setup/index.html` links it and the console's
+ * hand-over (`./console/adapters/launch.ts` `GAME_SHEETS`) hands it to the game page. The home link's emblem
+ * (`.startup-emblem`, the one class of the family the page draws) is `./styles.css`', as are the plain disc page and the
+ * test room's chrome. A browser adaptation: nothing of the game.
+ */

@@ -1,0 +1,15 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Hunt case, case hunt-stances-dive-walk-fwd-050 (eph-hunt-2026-11-01, seat ac: stances, dives and pops; measured by tools/eph/analyze.ts).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: run it three times.
+# Tests: the full Triangle while walking forward at half push (lup 0.5, 0.404 of the band, about 26 u/s): a dive, or the plain stand -> prone with a slide?
+# Look: as hunt-stances-dive-run-fwd-dry: transitionMs, endStance, dist after the act and the top action ids; set beside dive-run-fwd-dry and dive-walk-fwd-035 (the dive against speed).
+# Ground: facing +x, lup runs where turn-fwd-then-left's W ran, x 937 -> 1027 at z 855-859, dry, both sides together for its first 0.5 s (2026-10-31 flags105e); the ditch at x 982, y -150 (eph-divergence-2026-10-31 (b)) lies at z 834-843, off this line; the water lies +z of z 871. 1 s at about 26 u/s: x about 963 at the act.
+# The turn: the right stick full left 880 ms, as turn-fwd-then-left (to yaw about 270, facing +x; the yaw90-tilt runs turned both sides within 4 degrees of each other); facing +x, lup runs +x and lleft runs -z.
+# Stick (viewer moveStick.ts, FUN_002da930 D:L179566-179634): one axis at p runs (p - 0.3) / 0.7 x sqrt 2 of the band, clamped to 1: 0.35 -> 0.101, 0.5 -> 0.404, 0.65 -> 0.707, 0.8 -> 1.000; the crouch walk stands into the run at 0.838 of a stick (FUN_00584c60), one axis at about 0.715.
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 (tools/eph/pageSeed.ts); PCSX2: the plain keys and the prepared macros (tools/eph/padIni.ts PREPARED).
+# Owner (2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+500 rleft 1
+1380 rleft 0
+2380 lup 0.5
+3380 triangle 1.0  # full Triangle while walking at half push
+3530 triangle 0
+4380 lup 0

@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="284" viewBox="0 0 760 284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Server: 95% toward r0001 multiplayer compatibility">
+<title>Server: 48 done, 5 partial, 0 to do</title>
+<rect x="0.5" y="0.5" width="759" height="283" rx="10" fill="#1a1a19" stroke="#33332f"/>
+<text x="24" y="46" font-size="20" font-weight="700" fill="#f2f2ee">Server</text>
+<text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">95%</text>
+<text x="24" y="66" font-size="12" fill="#a3a39c">The services in our match server, one operation per Medius request (R6); 40 of research 97's 44 request pairs answered</text>
+<line x1="24" y1="80" x2="736" y2="80" stroke="#33332f"/>
+<text x="24" y="106" font-size="13" fill="#f2f2ee">Accounts &amp; persistence</text>
+<text x="736" y="106" font-size="12" fill="#a3a39c" text-anchor="end">6/6 · 100%</text>
+<circle cx="259" cy="102" r="5" fill="#0ca30c"><title>SVC-01/02 The service record and the Medius message map — done</title></circle>
+<circle cx="274" cy="102" r="5" fill="#0ca30c"><title>SVC-03 Accounts: argon2id, the remember cookie, attempt limits — done</title></circle>
+<circle cx="289" cy="102" r="5" fill="#0ca30c"><title>SVC-03a The remember cookie's rotating life — done</title></circle>
+<circle cx="304" cy="102" r="5" fill="#0ca30c"><title>SVC-04 Persistence in SQLite — done</title></circle>
+<circle cx="319" cy="102" r="5" fill="#0ca30c"><title>SVC-05 Server texts: universe, policy, announcement — done</title></circle>
+<circle cx="334" cy="102" r="5" fill="#0ca30c"><title>SVC-24 ARMORY loadouts kept on the account — done</title></circle>
+<text x="24" y="123" font-size="13" fill="#f2f2ee">Rooms, games &amp; the bridge</text>
+<text x="736" y="123" font-size="12" fill="#a3a39c" text-anchor="end">8/8 · 100%</text>
+<circle cx="259" cy="119" r="5" fill="#0ca30c"><title>SVC-06 Rooms and the game list: nine pairs, filters, map allowlist — done</title></circle>
+<circle cx="274" cy="119" r="5" fill="#0ca30c"><title>SVC-07a The bridge to the match's start — done</title></circle>
+<circle cx="289" cy="119" r="5" fill="#0ca30c"><title>SVC-07b The host role handed on before launch — done</title></circle>
+<circle cx="304" cy="119" r="5" fill="#0ca30c"><title>SVC-07 Results applied after the match — done</title></circle>
+<circle cx="319" cy="119" r="5" fill="#0ca30c"><title>SVC-07c Each seat told its new rating and medal — done</title></circle>
+<circle cx="334" cy="119" r="5" fill="#0ca30c"><title>SVC-14a Each room's eligible ranks on the list — done</title></circle>
+<circle cx="349" cy="119" r="5" fill="#0ca30c"><title>SVC-15 Find player, the room's player list (0xdc), presence — done</title></circle>
+<circle cx="364" cy="119" r="5" fill="#0ca30c"><title>MAPS-4 The fourth default map, GET /maps — done</title></circle>
+<text x="24" y="140" font-size="13" fill="#f2f2ee">Stats, ladder &amp; ranks</text>
+<text x="736" y="140" font-size="12" fill="#a3a39c" text-anchor="end">9.5/10 · 95%</text>
+<circle cx="259" cy="136" r="5" fill="#0ca30c"><title>SVC-12a Per-match stats arithmetic — done</title></circle>
+<circle cx="274" cy="136" r="5" fill="#0ca30c"><title>SVC-12b The 256-byte stats record's offsets — done</title></circle>
+<circle cx="289" cy="136" r="5" fill="#0ca30c"><title>SVC-12c The record stored and returned — done</title></circle>
+<circle cx="304" cy="136" r="5" fill="#0ca30c"><title>SVC-12d The room's counters and its two results — done</title></circle>
+<circle cx="319" cy="136" r="5" fill="#0ca30c"><title>SVC-12e One decoder for the stats record — done</title></circle>
+<circle cx="334" cy="136" r="5" fill="#0ca30c"><title>SVC-13 Ladder, tiers and medals — done</title></circle>
+<circle cx="349" cy="136" r="5" fill="#0ca30c"><title>SVC-13a The rating's per-round arithmetic — done</title></circle>
+<circle cx="364" cy="136" r="5" fill="#0ca30c"><title>SVC-14 The rank gate (525) — done</title></circle>
+<circle cx="379" cy="136" r="5" fill="#0ca30c"><title>PROVE-1 The harness scoring a Medius transcript against our results — done</title></circle>
+<g><title>The clan ladder (0xd2, 0xd4, the clan rating) — partial</title><circle cx="394" cy="136" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M394,131 A5,5 0 0 0 394,141 Z" fill="#fab219"/></g>
+<text x="24" y="157" font-size="13" fill="#f2f2ee">Clans</text>
+<text x="736" y="157" font-size="12" fill="#a3a39c" text-anchor="end">4/5 · 80%</text>
+<circle cx="259" cy="153" r="5" fill="#0ca30c"><title>SVC-08 Create, disband, look up, leadership, icon, tag — done</title></circle>
+<circle cx="274" cy="153" r="5" fill="#0ca30c"><title>SVC-09a INVITATIONS for a player with none — done</title></circle>
+<circle cx="289" cy="153" r="5" fill="#0ca30c"><title>SVC-10 Clan messages — done</title></circle>
+<g><title>SVC-09 Invite, respond, revoke, remove, quit, roster — partial</title><circle cx="304" cy="153" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M304,148 A5,5 0 0 0 304,158 Z" fill="#fab219"/></g>
+<g><title>SVC-11 Clan games and challenges — partial</title><circle cx="319" cy="153" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M319,148 A5,5 0 0 0 319,158 Z" fill="#fab219"/></g>
+<text x="24" y="174" font-size="13" fill="#f2f2ee">Social: info, friends, chat</text>
+<text x="736" y="174" font-size="12" fill="#a3a39c" text-anchor="end">4.5/5 · 90%</text>
+<circle cx="259" cy="170" r="5" fill="#0ca30c"><title>SVC-15a PLAYER INFO's lookup — done</title></circle>
+<circle cx="274" cy="170" r="5" fill="#0ca30c"><title>SVC-16 Friends with the original's confirmation — done</title></circle>
+<circle cx="289" cy="170" r="5" fill="#0ca30c"><title>SVC-17 The ignore list — done</title></circle>
+<circle cx="304" cy="170" r="5" fill="#0ca30c"><title>SVC-19 In-round text chat, team scope, custom messages — done</title></circle>
+<g><title>SVC-18 Lobby text chat and whispers — partial</title><circle cx="319" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M319,165 A5,5 0 0 0 319,175 Z" fill="#fab219"/></g>
+<text x="24" y="191" font-size="13" fill="#f2f2ee">Voice relay</text>
+<text x="736" y="191" font-size="12" fill="#a3a39c" text-anchor="end">6/6 · 100%</text>
+<circle cx="259" cy="187" r="5" fill="#0ca30c"><title>SVC-20a The floor table and channel map — done</title></circle>
+<circle cx="274" cy="187" r="5" fill="#0ca30c"><title>SVC-20b The relay and the page's capture and playback — done</title></circle>
+<circle cx="289" cy="187" r="5" fill="#0ca30c"><title>SVC-20c In-round routing: sides, dead, spectators, radio, mute — done</title></circle>
+<circle cx="304" cy="187" r="5" fill="#0ca30c"><title>SVC-21 Opus narrowband through WebCodecs — done</title></circle>
+<circle cx="319" cy="187" r="5" fill="#0ca30c"><title>SVC-22 The headset UX in the browser — done</title></circle>
+<circle cx="334" cy="187" r="5" fill="#0ca30c"><title>VOICE-LATE-4 The late and choppy voice on the owner's Edge — done</title></circle>
+<text x="24" y="208" font-size="13" fill="#f2f2ee">Moderation &amp; hardening</text>
+<text x="736" y="208" font-size="12" fill="#a3a39c" text-anchor="end">8/8 · 100%</text>
+<circle cx="259" cy="204" r="5" fill="#0ca30c"><title>SVC-23 Moderation, its deviations listed — done</title></circle>
+<circle cx="274" cy="204" r="5" fill="#0ca30c"><title>SVC-23a The ladder's limits and the void — done</title></circle>
+<circle cx="289" cy="204" r="5" fill="#0ca30c"><title>SVC-23b Cheat signals and flags — done</title></circle>
+<circle cx="304" cy="204" r="5" fill="#0ca30c"><title>SVC-23c Flood limits — done</title></circle>
+<circle cx="319" cy="204" r="5" fill="#0ca30c"><title>SVC-23d The team's vote kick at the round's end — done</title></circle>
+<circle cx="334" cy="204" r="5" fill="#0ca30c"><title>SVC-23e The -972 rejoin refusal; spectators' VOTE ALL — done</title></circle>
+<circle cx="349" cy="204" r="5" fill="#0ca30c"><title>SVC-23f..h VOTE ALL's page half, the void past a restore, the bots' hit share — done</title></circle>
+<circle cx="364" cy="204" r="5" fill="#0ca30c"><title>HARD-SEAT, HARD-ROUND, the last resort, the origin gate, file modes — done</title></circle>
+<text x="24" y="225" font-size="13" fill="#f2f2ee">Match hosting</text>
+<text x="736" y="225" font-size="12" fill="#a3a39c" text-anchor="end">4.5/5 · 90%</text>
+<circle cx="259" cy="221" r="5" fill="#0ca30c"><title>The authoritative room: damage, hits, scoring, round flow, victory — done</title></circle>
+<circle cx="274" cy="221" r="5" fill="#0ca30c"><title>The wire, drain, look, store, room (NET-*) — done</title></circle>
+<circle cx="289" cy="221" r="5" fill="#0ca30c"><title>Join in progress; the mission modes' server side — done</title></circle>
+<circle cx="304" cy="221" r="5" fill="#0ca30c"><title>RECONNECT-GHOST A quick reconnect keeps its body alive (OT.R59, an adaptation) — done</title></circle>
+<g><title>WATCH GAME's server side — partial</title><circle cx="319" cy="221" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M319,216 A5,5 0 0 0 319,226 Z" fill="#fab219"/></g>
+<line x1="24" y1="246" x2="736" y2="246" stroke="#33332f"/>
+<circle cx="29" cy="262" r="5" fill="#0ca30c"><title>done 48</title></circle>
+<text x="39" y="266" font-size="12" fill="#a3a39c">done 48</text>
+<g><title>partial 5</title><circle cx="108" cy="262" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,257 A5,5 0 0 0 108,267 Z" fill="#fab219"/></g>
+<text x="118" y="266" font-size="12" fill="#a3a39c">partial 5</text>
+<circle cx="201" cy="262" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 0</title></circle>
+<text x="211" y="266" font-size="12" fill="#a3a39c">to do 0</text>
+<text x="736" y="266" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-10-24</text>
+</svg>

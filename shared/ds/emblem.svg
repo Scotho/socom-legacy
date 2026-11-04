@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SOCOM II Legacy">
+  <rect x="2" y="2" width="60" height="60" rx="6" fill="#000e11" stroke="#c4a04a" stroke-width="3"/>
+  <circle cx="32" cy="32" r="21" fill="none" stroke="#786e3b" stroke-width="2.5" stroke-dasharray="26 7"/>
+  <path d="M15 32h6M43 32h6M32 11v5M32 48v5" stroke="#786e3b" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M21 45 29.5 19H36L27.5 45Z M31 45 39.5 19H46L37.5 45Z" fill="#dcb85c"/>
+</svg>

@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "name": "climb-interrupt",
+  "map": "synthetic-crate",
+  "revision": "r0001",
+  "spawn": { "x": 0, "y": 10, "z": 12, "yaw": 0, "how": "teleport" },
+  "seed": null,
+  "frameHz": 29.97,
+  "pad": [
+    { "frame": 0, "b": "0x0000", "lx": 128, "ly": 0, "rx": 128, "ry": 128 },
+    { "frame": "prompt+0", "b": "0x4000", "ly": 128 },
+    { "frame": "prompt+1", "b": "0x0000" },
+    { "frame": "climb+17", "b": "0x8000" }
+  ],
+  "events": {
+    "prompt": "traversal.prompt != null",
+    "climb": "action == climb"
+  },
+  "stop": { "orFrames": 120 },
+  "fields": "frostfire-box",
+  "cites": {
+    "world": "synthetic crate copied from packages/viewer/test/parity/climbInterrupt.parity.test.ts (12-high box, appflags 4). No disc."
+  },
+  "outcomes": [
+    { "id": "climb-before-place", "at": "before-place", "field": "action.current", "equals": "climb" }
+  ]
+}

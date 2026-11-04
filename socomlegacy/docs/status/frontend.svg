@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="250" viewBox="0 0 760 250" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Game · front end: 64% toward r0001 multiplayer compatibility">
+<title>Game · front end: 41 done, 16 partial, 20 to do</title>
+<rect x="0.5" y="0.5" width="759" height="249" rx="10" fill="#1a1a19" stroke="#33332f"/>
+<text x="24" y="46" font-size="20" font-weight="700" fill="#f2f2ee">Game · front end</text>
+<text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">64%</text>
+<text x="24" y="66" font-size="12" fill="#a3a39c">Boot to the main menu's ONLINE item: the dialog runtime, movies and sound, menus, options, the memory card</text>
+<line x1="24" y1="80" x2="736" y2="80" stroke="#33332f"/>
+<text x="24" y="106" font-size="13" fill="#f2f2ee">Dialog runtime</text>
+<text x="736" y="106" font-size="12" fill="#a3a39c" text-anchor="end">13/16 · 81%</text>
+<circle cx="259" cy="102" r="5" fill="#0ca30c"><title>PLAT-05 The generic .rdr dialog loader — done</title></circle>
+<circle cx="274" cy="102" r="5" fill="#0ca30c"><title>PLAT-06 Dialog inventory and flow graph — done</title></circle>
+<circle cx="289" cy="102" r="5" fill="#0ca30c"><title>PLAT-07 The zAnim UI script runtime — done</title></circle>
+<circle cx="304" cy="102" r="5" fill="#0ca30c"><title>PLAT-09 Valves and UI variables — done</title></circle>
+<circle cx="319" cy="102" r="5" fill="#0ca30c"><title>PLAT-10 Screen and state manager — done</title></circle>
+<circle cx="334" cy="102" r="5" fill="#0ca30c"><title>PLAT-13 UI text: fonts, glow, teletype — done</title></circle>
+<circle cx="349" cy="102" r="5" fill="#0ca30c"><title>PLAT-14 The 2D compositor at 640x448 — done</title></circle>
+<circle cx="364" cy="102" r="5" fill="#0ca30c"><title>PLAT-15 Widgets — done</title></circle>
+<circle cx="379" cy="102" r="5" fill="#0ca30c"><title>PLAT-16 Popups — done</title></circle>
+<circle cx="394" cy="102" r="5" fill="#0ca30c"><title>PLAT-17 The software keyboard — done</title></circle>
+<g><title>PLAT-04 Locale and string service — partial</title><circle cx="409" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M409,97 A5,5 0 0 0 409,107 Z" fill="#fab219"/></g>
+<g><title>PLAT-08 The UI command table (207 rows) — partial</title><circle cx="424" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M424,97 A5,5 0 0 0 424,107 Z" fill="#fab219"/></g>
+<g><title>PLAT-11 Menu input: pad, stick, focus ring — partial</title><circle cx="439" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M439,97 A5,5 0 0 0 439,107 Z" fill="#fab219"/></g>
+<g><title>PLAT-12 The front end's frame clock — partial</title><circle cx="454" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M454,97 A5,5 0 0 0 454,107 Z" fill="#fab219"/></g>
+<g><title>PLAT-28 The 'available in the desktop recompilation' screen — partial</title><circle cx="469" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M469,97 A5,5 0 0 0 469,107 Z" fill="#fab219"/></g>
+<g><title>PLAT-34 The ARMORY folded into the generic runtime — partial</title><circle cx="484" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M484,97 A5,5 0 0 0 484,107 Z" fill="#fab219"/></g>
+<text x="24" y="123" font-size="13" fill="#f2f2ee">Movies &amp; sound</text>
+<text x="736" y="123" font-size="12" fill="#a3a39c" text-anchor="end">6.5/8 · 81%</text>
+<circle cx="259" cy="119" r="5" fill="#0ca30c"><title>PLAT-18 PSS demux — done</title></circle>
+<circle cx="274" cy="119" r="5" fill="#0ca30c"><title>PLAT-19a libmpeg2 to wasm, frame-exact — done</title></circle>
+<circle cx="289" cy="119" r="5" fill="#0ca30c"><title>PLAT-19b The MPEG-2 decoder in the page — done</title></circle>
+<circle cx="304" cy="119" r="5" fill="#0ca30c"><title>PLAT-20 Movie audio and A/V sync — done</title></circle>
+<circle cx="319" cy="119" r="5" fill="#0ca30c"><title>PLAT-21 The movie player: loop, end event, skip, background — done</title></circle>
+<g><title>PLAT-19c Real-time decode — partial</title><circle cx="334" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M334,114 A5,5 0 0 0 334,124 Z" fill="#fab219"/></g>
+<g><title>PLAT-22 Streamed music and voice — partial</title><circle cx="349" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M349,114 A5,5 0 0 0 349,124 Z" fill="#fab219"/></g>
+<g><title>PLAT-23 UI sounds — partial</title><circle cx="364" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M364,114 A5,5 0 0 0 364,124 Z" fill="#fab219"/></g>
+<text x="24" y="140" font-size="13" fill="#f2f2ee">Boot &amp; intro</text>
+<text x="736" y="140" font-size="12" fill="#a3a39c" text-anchor="end">5/10 · 50%</text>
+<circle cx="259" cy="136" r="5" fill="#0ca30c"><title>BOOT-02 The loader's RAW screens — done</title></circle>
+<circle cx="274" cy="136" r="5" fill="#0ca30c"><title>BOOT-03 The Sony and Zipper cards (SONY448 pictures) — done</title></circle>
+<circle cx="289" cy="136" r="5" fill="#0ca30c"><title>BOOT-04 The intro shell to goto_menu — done</title></circle>
+<circle cx="304" cy="136" r="5" fill="#0ca30c"><title>BOOT-06 The hand-off into the menu — done</title></circle>
+<circle cx="319" cy="136" r="5" fill="#0ca30c"><title>BOOT-10a The logoff's return to the menu without the boot — done</title></circle>
+<circle cx="334" cy="136" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>BOOT-05 The boot card check and config load — todo</title></circle>
+<circle cx="349" cy="136" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>BOOT-07 The idle attract loop — todo</title></circle>
+<circle cx="364" cy="136" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>BOOT-08 Region and language — todo</title></circle>
+<circle cx="379" cy="136" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>BOOT-09 Hardware branches: HDD, video mode, controller — todo</title></circle>
+<circle cx="394" cy="136" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>BOOT-10 The relaunch dialogs — todo</title></circle>
+<text x="24" y="157" font-size="13" fill="#f2f2ee">Main menu &amp; offline menus</text>
+<text x="736" y="157" font-size="12" fill="#a3a39c" text-anchor="end">6/11 · 55%</text>
+<circle cx="259" cy="153" r="5" fill="#0ca30c"><title>MENU-01a dlgMenu's commands and the online entry — done</title></circle>
+<circle cx="274" cy="153" r="5" fill="#0ca30c"><title>MENU-02a The main menu without its streams — done</title></circle>
+<circle cx="289" cy="153" r="5" fill="#0ca30c"><title>MENU-03 NEW GAME / LOAD GAME open the desktop screen — done</title></circle>
+<circle cx="304" cy="153" r="5" fill="#0ca30c"><title>MENU-08 The LAN item opens the desktop screen — done</title></circle>
+<circle cx="319" cy="153" r="5" fill="#0ca30c"><title>MENU-09 The unplaced dialogs placed or shown unreachable — done</title></circle>
+<g><title>MENU-01 The rest of the offline UI commands — partial</title><circle cx="334" cy="153" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M334,148 A5,5 0 0 0 334,158 Z" fill="#fab219"/></g>
+<g><title>MENU-02 The main menu with its movie and music, scored unmasked — partial</title><circle cx="349" cy="153" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M349,148 A5,5 0 0 0 349,158 Z" fill="#fab219"/></g>
+<circle cx="364" cy="153" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>MENU-04 The EXTRAS hub — todo</title></circle>
+<circle cx="379" cy="153" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>MENU-05 Extras movies, gallery, credits — todo</title></circle>
+<circle cx="394" cy="153" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>MENU-06 The jukebox — todo</title></circle>
+<circle cx="409" cy="153" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>MENU-07 The unlock viewers — todo</title></circle>
+<text x="24" y="174" font-size="13" fill="#f2f2ee">Options &amp; memory card</text>
+<text x="736" y="174" font-size="12" fill="#a3a39c" text-anchor="end">15/22 · 68%</text>
+<circle cx="259" cy="170" r="5" fill="#0ca30c"><title>PLAT-25 Two virtual card slots in localStorage — done</title></circle>
+<circle cx="274" cy="170" r="5" fill="#0ca30c"><title>PLAT-26 libmc — done</title></circle>
+<circle cx="289" cy="170" r="5" fill="#0ca30c"><title>OPT-01 The options save writes the card as the game does — done</title></circle>
+<circle cx="304" cy="170" r="5" fill="#0ca30c"><title>OPT-02 PersistentValves: the 65 valves — done</title></circle>
+<circle cx="319" cy="170" r="5" fill="#0ca30c"><title>OPT-03 Which settings persist — done</title></circle>
+<circle cx="334" cy="170" r="5" fill="#0ca30c"><title>OPT-04 Persona records on the card — done</title></circle>
+<circle cx="349" cy="170" r="5" fill="#0ca30c"><title>OPT-05i The online entry's card prompts — done</title></circle>
+<circle cx="364" cy="170" r="5" fill="#0ca30c"><title>OPT-09 The OPTIONS screen — done</title></circle>
+<circle cx="379" cy="170" r="5" fill="#0ca30c"><title>OPT-10 AUDIO OPTIONS — done</title></circle>
+<circle cx="394" cy="170" r="5" fill="#0ca30c"><title>OPT-11 VIDEO OPTIONS — done</title></circle>
+<circle cx="409" cy="170" r="5" fill="#0ca30c"><title>OPT-13 CONTROLLER OPTIONS — done</title></circle>
+<circle cx="424" cy="170" r="5" fill="#0ca30c"><title>OPT-14 CONTROLLER PRESETS — done</title></circle>
+<circle cx="439" cy="170" r="5" fill="#0ca30c"><title>OPT-20 The ARMORY loadout file on the card — done</title></circle>
+<g><title>PLAT-24 The browser storage abstraction — partial</title><circle cx="454" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M454,165 A5,5 0 0 0 454,175 Z" fill="#fab219"/></g>
+<g><title>OPT-12 SCREEN ADJUST — partial</title><circle cx="469" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M469,165 A5,5 0 0 0 469,175 Z" fill="#fab219"/></g>
+<g><title>OPT-17 The desktop screen wired into the options — partial</title><circle cx="484" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M484,165 A5,5 0 0 0 484,175 Z" fill="#fab219"/></g>
+<g><title>OPT-18 Options applied to the engine — partial</title><circle cx="499" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M499,165 A5,5 0 0 0 499,175 Z" fill="#fab219"/></g>
+<circle cx="514" cy="170" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>OPT-05a UIMemCardAnim decoded; the 16 card commands — todo</title></circle>
+<circle cx="529" cy="170" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>OPT-05b..h Every card state: none, unformatted, full, overwrite, errors, removal, slot select — todo</title></circle>
+<circle cx="544" cy="170" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>OPT-06 Card timing — todo</title></circle>
+<circle cx="559" cy="170" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>OPT-07 Managing the card outside the game — todo</title></circle>
+<circle cx="574" cy="170" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>OPT-16 The HDD row — todo</title></circle>
+<text x="24" y="191" font-size="13" fill="#f2f2ee">Proof: captures &amp; traces</text>
+<text x="736" y="191" font-size="12" fill="#a3a39c" text-anchor="end">3.5/10 · 35%</text>
+<circle cx="259" cy="187" r="5" fill="#0ca30c"><title>PLAT-29a Load-phase marks and the budget table — done</title></circle>
+<circle cx="274" cy="187" r="5" fill="#0ca30c"><title>PLAT-30 The capture comparison harness — done</title></circle>
+<circle cx="289" cy="187" r="5" fill="#0ca30c"><title>PLAT-01/02/35 The matrix and graph check, package boundaries, mission docs — done</title></circle>
+<g><title>PLAT-31 The golden capture manifest — partial</title><circle cx="304" cy="187" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M304,182 A5,5 0 0 0 304,192 Z" fill="#fab219"/></g>
+<circle cx="319" cy="187" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>BOOT-01 Boot and attract reference captures — todo</title></circle>
+<circle cx="334" cy="187" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>OPT-19 Menus, options and card captures — todo</title></circle>
+<circle cx="349" cy="187" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>PLAT-36 The recompilation trace window — todo</title></circle>
+<circle cx="364" cy="187" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>PLAT-29b The load-time threshold — todo</title></circle>
+<circle cx="379" cy="187" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>PLAT-32 Script and state trace goldens — todo</title></circle>
+<circle cx="394" cy="187" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>PLAT-33 Audio goldens — todo</title></circle>
+<line x1="24" y1="212" x2="736" y2="212" stroke="#33332f"/>
+<circle cx="29" cy="228" r="5" fill="#0ca30c"><title>done 41</title></circle>
+<text x="39" y="232" font-size="12" fill="#a3a39c">done 41</text>
+<g><title>partial 16</title><circle cx="108" cy="228" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,223 A5,5 0 0 0 108,233 Z" fill="#fab219"/></g>
+<text x="118" y="232" font-size="12" fill="#a3a39c">partial 16</text>
+<circle cx="208" cy="228" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 20</title></circle>
+<text x="218" y="232" font-size="12" fill="#a3a39c">to do 20</text>
+<text x="736" y="232" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-10-24</text>
+</svg>

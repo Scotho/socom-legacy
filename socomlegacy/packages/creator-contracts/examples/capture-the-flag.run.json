@@ -1,0 +1,46 @@
+{
+  "about": "FCW-34's acceptance run for the capture-the-flag example (not a pack member): the blank floor's entities the pack names, placed by the agent's edits (zone.place, spawner.place), and a scripted run for forge.rules.test with the rule trace it must give. Authored test geometry in world units, no game value.",
+  "layout": {
+    "zones": [
+      { "id": "base-seal", "shape": "cylinder", "at": [-1000, -50, 0], "radius": 150, "height": 200 },
+      { "id": "base-terrorist", "shape": "cylinder", "at": [1000, -50, 0], "radius": 150, "height": 200 }
+    ],
+    "spawners": [
+      { "id": "stand-seal", "source": "item", "at": [-1000, 0, 400], "yaw": 0, "radius": 10 },
+      { "id": "stand-terrorist", "source": "item", "at": [1000, 0, 400], "yaw": 0, "radius": 10 }
+    ]
+  },
+  "script": {
+    "seed": 34,
+    "players": [
+      { "id": 1, "team": "seal", "at": [0, 0, 0] },
+      { "id": 2, "team": "terrorist", "at": [0, 0, -2000] }
+    ],
+    "ticks": [
+      { "move": { "1": [1000, 0, 400] } },
+      { "move": { "1": [-1000, 0, 0] } },
+      { "move": { "1": [1000, 0, 400] } },
+      { "move": { "1": [-1000, 0, 0] } },
+      { "move": { "1": [1000, 0, 400] } },
+      { "move": { "1": [-1000, 0, 0] } }
+    ]
+  },
+  "expect": {
+    "fired": [
+      "flags-out",
+      "seal-takes-flag", "seal-captures",
+      "seal-takes-flag", "seal-captures",
+      "seal-takes-flag", "seal-captures", "seal-wins"
+    ]
+  },
+  "dropped": {
+    "ticks": [
+      { "move": { "1": [1000, 0, 400] } },
+      { "alive": { "1": false }, "events": [{ "name": "player.death", "victim": 1, "attacker": 2 }] },
+      { "move": { "1": [-1000, 0, 0] } }
+    ],
+    "expect": {
+      "fired": ["flags-out", "seal-takes-flag", "seal-carrier-down"]
+    }
+  }
+}

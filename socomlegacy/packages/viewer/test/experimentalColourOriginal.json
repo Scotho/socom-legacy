@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "e50e086a0c2926a37904235446c1944ae301ab26",
+  "sourceFile": "src/experimentalPass.ts",
+  "description": "Both shader stages, synthetic postShader fixture; three r186, no GPU; unskinned source unchanged by identifier normalization.",
+  "hashes": {
+    "GLSL/false/false": "14ff58f0806b25e52213c7fe8d8fbf66ea27351dfd2e4462c90ce9af7cf8e332",
+    "GLSL/false/true": "e40b36fc69041d57d1e56645e94915aa9c06e4f9f0b09d6e538df762e2b198e2",
+    "GLSL/true/false": "8915b2399f2a7c6b197612603a12c9d75e796f707921d93175e3e42806040164",
+    "GLSL/true/true": "6a1680920bb72be91f49966d3a165f2d0edc8528f522c6dd16a9f950c9b84854",
+    "WGSL/false/false": "5677e2d6f4ad1049d29e0dd8c631129adede53d6b9414992a5582abc17e1f118",
+    "WGSL/false/true": "a91704e3b10c857c11ad865431309a92f20dd00fe5179f93d75e7f15f7234166",
+    "WGSL/true/false": "2c5b3fbac4239dc8d2ef30e92d03e7b1193b68c19cab7a82b05e4aa986862d5f",
+    "WGSL/true/true": "9ae5d5144d79c65c69af7a1d4155a8bab42efeea62df6e66219177133fa4bbcd"
+  }
+}

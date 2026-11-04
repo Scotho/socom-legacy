@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="233" viewBox="0 0 760 233" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Game · online: 92% toward r0001 multiplayer compatibility">
+<title>Game · online: 38 done, 3 partial, 2 to do</title>
+<rect x="0.5" y="0.5" width="759" height="232" rx="10" fill="#1a1a19" stroke="#33332f"/>
+<text x="24" y="46" font-size="20" font-weight="700" fill="#f2f2ee">Game · online</text>
+<text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">92%</text>
+<text x="24" y="66" font-size="12" fill="#a3a39c">The client's online screens, from LOGIN through the lobbies to the round's screens and back</text>
+<line x1="24" y1="80" x2="736" y2="80" stroke="#33332f"/>
+<text x="24" y="106" font-size="13" fill="#f2f2ee">Login &amp; account</text>
+<text x="736" y="106" font-size="12" fill="#a3a39c" text-anchor="end">11/11 · 100%</text>
+<circle cx="259" cy="102" r="5" fill="#0ca30c"><title>ONL-33 The online dialogs read from the disc — done</title></circle>
+<circle cx="274" cy="102" r="5" fill="#0ca30c"><title>ONL-01a The saved network configuration on the virtual card (OC-1) — done</title></circle>
+<circle cx="289" cy="102" r="5" fill="#0ca30c"><title>ONL-01 Card slot and LOGIN — done</title></circle>
+<circle cx="304" cy="102" r="5" fill="#0ca30c"><title>ONL-02 EDIT NETWORK CONFIGURATIONS as a desktop-only row — done</title></circle>
+<circle cx="319" cy="102" r="5" fill="#0ca30c"><title>ONL-03 The DNAS screen — done</title></circle>
+<circle cx="334" cy="102" r="5" fill="#0ca30c"><title>ONL-04 SELECT UNIVERSE — done</title></circle>
+<circle cx="349" cy="102" r="5" fill="#0ca30c"><title>ONL-06 The persona form and list — done</title></circle>
+<circle cx="364" cy="102" r="5" fill="#0ca30c"><title>ONL-07 Connect, authenticate, register; connect errors 543-548 — done</title></circle>
+<circle cx="379" cy="102" r="5" fill="#0ca30c"><title>ONL-08 USER AGREEMENT — done</title></circle>
+<circle cx="394" cy="102" r="5" fill="#0ca30c"><title>ONL-09 The SOCOM II ONLINE menu, SERVER NEWS, MESSAGES — done</title></circle>
+<circle cx="409" cy="102" r="5" fill="#0ca30c"><title>ONL-10 Logoff — done</title></circle>
+<text x="24" y="123" font-size="13" fill="#f2f2ee">Rooms, games &amp; lobby</text>
+<text x="736" y="123" font-size="12" fill="#a3a39c" text-anchor="end">10/12 · 83%</text>
+<circle cx="259" cy="119" r="5" fill="#0ca30c"><title>ONL-11 BRIEFING ROOMS list — done</title></circle>
+<circle cx="274" cy="119" r="5" fill="#0ca30c"><title>ONL-13 CREATE GAME, public and private — done</title></circle>
+<circle cx="289" cy="119" r="5" fill="#0ca30c"><title>ONL-14 The PLAY LIST map selector — done</title></circle>
+<circle cx="304" cy="119" r="5" fill="#0ca30c"><title>ONL-15 ONLINE FILTERS and AUTOPLAY — done</title></circle>
+<circle cx="319" cy="119" r="5" fill="#0ca30c"><title>OPT-15 ONLINE OPTIONS, SOPs and taunts — done</title></circle>
+<circle cx="334" cy="119" r="5" fill="#0ca30c"><title>ONL-16a GAME LOBBY to the launch: READY gate, countdown, host — done</title></circle>
+<circle cx="349" cy="119" r="5" fill="#0ca30c"><title>ONL-16 The lobby's chat half — done</title></circle>
+<circle cx="364" cy="119" r="5" fill="#0ca30c"><title>ONL-16b The lobby's voice: talk box, TalkerName bar — done</title></circle>
+<circle cx="379" cy="119" r="5" fill="#0ca30c"><title>ONL-18 The loading screen and the load barrier — done</title></circle>
+<g><title>ONL-12 BRIEFING ROOM — partial</title><circle cx="394" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M394,114 A5,5 0 0 0 394,124 Z" fill="#fab219"/></g>
+<g><title>ONL-17 GAME LOBBY -&gt; ARMORY -&gt; lobby — partial</title><circle cx="409" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M409,114 A5,5 0 0 0 409,124 Z" fill="#fab219"/></g>
+<circle cx="424" cy="119" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>The GAME DETAILS panel — todo</title></circle>
+<text x="24" y="140" font-size="13" fill="#f2f2ee">Social: chat, friends, clans</text>
+<text x="736" y="140" font-size="12" fill="#a3a39c" text-anchor="end">8/8 · 100%</text>
+<circle cx="259" cy="136" r="5" fill="#0ca30c"><title>ONL-23a Both chat panels drawn — done</title></circle>
+<circle cx="274" cy="136" r="5" fill="#0ca30c"><title>ONL-23 Text chat in the briefing room and the lobby — done</title></circle>
+<circle cx="289" cy="136" r="5" fill="#0ca30c"><title>ONL-25 IGNORE — done</title></circle>
+<circle cx="304" cy="136" r="5" fill="#0ca30c"><title>ONL-24 FRIENDS — done</title></circle>
+<circle cx="319" cy="136" r="5" fill="#0ca30c"><title>ONL-26 Create clan — done</title></circle>
+<circle cx="334" cy="136" r="5" fill="#0ca30c"><title>ONL-27 Clan roster, member and leader pages — done</title></circle>
+<circle cx="349" cy="136" r="5" fill="#0ca30c"><title>ONL-28 Clan invitations pages — done</title></circle>
+<circle cx="364" cy="136" r="5" fill="#0ca30c"><title>ONL-29 Clan messages — done</title></circle>
+<text x="24" y="157" font-size="13" fill="#f2f2ee">Stats &amp; rankings</text>
+<text x="736" y="157" font-size="12" fill="#a3a39c" text-anchor="end">3/3 · 100%</text>
+<circle cx="259" cy="153" r="5" fill="#0ca30c"><title>ONL-30a PLAYER RANKING, PLAYER INFO, the top ten — done</title></circle>
+<circle cx="274" cy="153" r="5" fill="#0ca30c"><title>ONL-30 CLAN RANKING — done</title></circle>
+<circle cx="289" cy="153" r="5" fill="#0ca30c"><title>ONL-34 The medal of merit beside the name — done</title></circle>
+<text x="24" y="174" font-size="13" fill="#f2f2ee">Round screens, spectating &amp; errors</text>
+<text x="736" y="174" font-size="12" fill="#a3a39c" text-anchor="end">7.5/9 · 83%</text>
+<circle cx="259" cy="170" r="5" fill="#0ca30c"><title>ONL-20 ROUND COMPLETE / FINAL ROUND / GAME COMPLETE — done</title></circle>
+<circle cx="274" cy="170" r="5" fill="#0ca30c"><title>ONL-19 The scoreboard's online fields — done</title></circle>
+<circle cx="289" cy="170" r="5" fill="#0ca30c"><title>ONL-21 Spectating: WATCH GAME — done</title></circle>
+<circle cx="304" cy="170" r="5" fill="#0ca30c"><title>ONL-22a Leaving and coming back — done</title></circle>
+<circle cx="319" cy="170" r="5" fill="#0ca30c"><title>ONL-22 The full error set: vote kick, timeouts, 365, 548 — done</title></circle>
+<circle cx="334" cy="170" r="5" fill="#0ca30c"><title>The system-message and server-error popups — done</title></circle>
+<circle cx="349" cy="170" r="5" fill="#0ca30c"><title>ONL-20b The return to the game lobby after a full game — done</title></circle>
+<g><title>ONL-31 The online screens' music — partial</title><circle cx="364" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M364,165 A5,5 0 0 0 364,175 Z" fill="#fab219"/></g>
+<circle cx="379" cy="170" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>ONL-32 The online reference set: captures and Medius transcripts — todo</title></circle>
+<line x1="24" y1="195" x2="736" y2="195" stroke="#33332f"/>
+<circle cx="29" cy="211" r="5" fill="#0ca30c"><title>done 38</title></circle>
+<text x="39" y="215" font-size="12" fill="#a3a39c">done 38</text>
+<g><title>partial 3</title><circle cx="108" cy="211" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,206 A5,5 0 0 0 108,216 Z" fill="#fab219"/></g>
+<text x="118" y="215" font-size="12" fill="#a3a39c">partial 3</text>
+<circle cx="201" cy="211" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 2</title></circle>
+<text x="211" y="215" font-size="12" fill="#a3a39c">to do 2</text>
+<text x="736" y="215" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-10-24</text>
+</svg>

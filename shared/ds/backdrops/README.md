@@ -1,0 +1,3 @@
+`crossroads.jpg` is the project's authored picture of the Crossroads plaza at dusk (1672x941, 346234 bytes): project art, not a game screenshot, taken from the owner's design export of 2026-10-11 (`assets/crossroads.jpg`) for the Console launcher's `.cx-backdrop` (`../README.md`, "The Console launcher (1.5.0)").
+
+LR-5 (the launcher redesign, `socomlegacy/docs/plans/2026-10-26-launcher-redesign.md`): the launcher draws it only when Settings > Appearance > Background picture is Crossroads (the artifact's default is None, "Wave only"), darkened behind the sheet backdrop; the choice is saved in this browser (`s2u.console.v1.backdrop`), and the same file is the Crossroads pick's thumbnail.

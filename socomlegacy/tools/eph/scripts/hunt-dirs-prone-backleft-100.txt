@@ -1,0 +1,12 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Movement hunt, directions and combinations, case hunt-dirs-prone-backleft-100 (seat ac, 2026-11-01; the owner: "try every strange movement combination and look for the small animations we could have missed"). One trial per run; run it three times for a matrix.
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180). At yaw 180 lup runs +z, ldown -z, lleft +x, lright -x.
+# Tests: prone (full Triangle), back and left full on the same frame (S+A, a pair round 4 found kept) for 2.0 s, then released: what prone does with two axes at once.
+# Look: the crawl's direction (headingDeg) and speed: mx-prone-fwd-100's header says prone reads one axis -- does a diagonal crawl back, roll left, or both; the body (topActionId) against mx-prone-back-100 and mx-prone-left-100; any roll animation starting and stopping.
+# Axes: stickForward / stickLateral (PCSX2 actor+0x240 / +0x244; the page Walker.cutStick), ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padRaw0..3 (the analog bytes, FUN_002da930 D:L179548-179555: raw0 left X, raw1 left Y) and padMoveA/B (D:L179556-179559); the pad bytes first: "pad pushed, axis 0" is the game (FINDINGS 2026-10-31 Q2).
+# Ground: -z and +x at crawl speed (desktop fit 11.0 fwd) from the start: under 25 u, on the flat strip x 920-950, z 810-855 (y -145 to -147; pop-stick's header); the bank's foot from x 910 (-x), the dip at x 950-980 (+x), water +z of z about 871 (flags105e +0x80, the 2026-10-31 runs).
+500 triangle 1.0
+650 triangle 0     # full Triangle: stand -> prone
+3000 ldown 1
+3000 lleft 1
+5000 ldown 0
+5000 lleft 0

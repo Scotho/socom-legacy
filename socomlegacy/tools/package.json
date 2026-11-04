@@ -1,0 +1,18 @@
+{
+  "name": "@s2u/tools",
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@s2u/archive": "*",
+    "@s2u/creator-contracts": "*",
+    "@s2u/fmv": "*",
+    "@s2u/gs": "*",
+    "@s2u/mesh": "*",
+    "@s2u/sound": "*",
+    "@s2u/ui": "*",
+    "hash-wasm": "^4.12.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.1.0"
+  }
+}

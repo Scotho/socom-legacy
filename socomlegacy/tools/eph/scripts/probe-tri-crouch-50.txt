@@ -1,0 +1,7 @@
+# EPH probe script (tools/eph/probe.ts, PCSX2 alone; grammar <t_ms> <input> <pressure>). Seat ac, 2026-11-01, for 6d before the cancel reruns.
+# Press-length ladder: crouched first (a light Triangle, key 7 = Macro15 at 0.2), then a full Triangle held 50 ms.
+# Look: as probe-tri-stand-*: the pressure ramp, the peak, the request, posture and action after the full press.
+300 triangle 0.2
+450 triangle 0
+2300 triangle 1
+2350 triangle 0

@@ -1,0 +1,41 @@
+id	novelty	priority	title	confidence
+W2-A-01	extends	P1	World weapon/ammo pickup lifecycle and owner-routed claims	source reading; owner recipient and respawn exclusion independently reviewed by W2-C
+W2-A-02	extends	P1	NoFire motion field and command-time actor fire capability	source reading independently reviewed; isolated retail scalar instruction probe, not runtime parity
+W2-A-03	covered	P1	Flinch reload refusal integrates with authoritative action state	source reading, independently reread; already in C1/E final
+W2-A-04	covered	P1	Blast/action arbitration and traversal-busy skip	source reading; exact ladder/hang resulting state unresolved
+W2-A-05	extends	P2	Online melee/restraint/body-carry scope exclusion	source reading, limited to local action picker
+W2-A-06	covered	P2	Friendly-fire enforcement already sourced	earlier source reading; r0004 difference retained
+W2-A-07	covered	P2	Raw online shotgun damage is covered by final C1	C1 STRONG source reading; original runtime capture owed
+W2-A-08	covered	P2	Rescued NPC eligibility spans fall and environmental damage	source reading; all possible binary aliases not exhausted
+W2-A-09	extends	P2	Shotgun last-projectile guard reset location	source reading and retail instruction verification; scheduling unresolved
+W2-A-10	extends	P2	C4 INVISIBLE_DI surface equality refusal	source reading independently reviewed; isolated scalar strcmp probe
+W2-A-11	extends	P1	IgnoreExplosionDI omitted blast visibility consumers	source reading independently reviewed; no original runtime measurement
+W2-A-12	covered	P1	Body penetration already covered by C1/B	earlier STRONG source reading; key consumers reread in W2
+W2-A-13	covered	P2	Reload posture six remains a bounded unknown	source getter reading; semantic mapping unresolved
+W2-A-14	covered	P2	Ammo Stun effect remains unconsumed; recovery is a separate covered system	C1 four-search negative evidence, not proof of unused data
+W2-A-15	covered	P2	Sound_Radius multiplayer subscriber scope remains open	existing stimulus source reading; complete listener census unresolved
+W2-A-16	superseded	P2	Limb spill note names are superseded	current source notes and implementation already settle values
+W2-A-17	extends	P2	BODY_BLOOD_MARK_PLACEHOLDER remains unresolved at projection destination	bounded source reading; lasting mark destination/retention unresolved
+W2-A-18	covered	P2	EXPLODE_ON_IMPACT_READING covered core with exceptions	source reading; arming/material boundary captures owed
+W2-A-19	covered	P2	LAUNCHER_RELOAD_CONDITION_READING is current launcher animation set	source reading cross-connection to earlier C1/C3 identity
+W2-A-20	superseded	P2	SLOT_OF_LAUNCHER_READING superseded by PORT95 selection scripts	existing source-read script tables/rules
+W2-A-21	extends	P1	VOLATILE_READING damage-triggered projectile detonation consumer	Source reading independently checked by W2-B; original runtime comparison owed.
+W2-A-22	superseded	P2	ARMORY_LIST_FILTER_PLACEHOLDER superseded by script-side Enable predicates	existing script source reading and prior C4 outputs
+W2-B-01	extends	P1	World/account/page/seat admission and lifecycle contract	source reading (implementation independently reviewed; native/runtime limits retained); browser design proposal
+W2-B-02	extends	P1	Effective settings and occupancy across list, room, and map changes	source reading (settings/count implementation independently reviewed by root; unsampled native/runtime limits retained); implementation design inference
+W2-B-03	new	P1	Projectile join-state and observer ownership disagreement	source reading (implementation independently reviewed; native/runtime limits retained); predicate model only, no runtime reproduction
+W2-B-04	new	P1	Round/result phase and elapsed deadline hydration	source reading (implementation independently reviewed; native/runtime limits retained)
+W2-B-05	new	P1	Corpse age and selected death pose hydration	source reading (corpse hydration implementation independently reviewed by root); native exact late-join appearance unresolved
+W2-B-06	extends	P2	Game-list priority byte consumer and ordinary create default	source reading; selected retail ELF instructions checked; caseless tie-break independently reviewed
+W2-B-07	extends	P2	Persistent valve creation fallback and lobby lock consumers	source/script reading (bounded UI/fallback consumers independently reviewed by root); broader policy unresolved
+W2-B-08	deferred	P2	Preserve covered score work and deliberate authority/reconnect adaptations	source reading and roadmap reconciliation
+W2-C-01	extends	P1	Interactive clutter loses bend controls and FoliageSound consumer	source reading (independently reviewed by W2-B); retail artifact inventory measured, no runtime comparison
+W2-C-02	extends	P1	Persistent positioned audio lacks moving-node updates and animation-owned sound lifetime	source reading (independently reviewed by W2-B); disc/instruction measurements, no audio parity capture
+W2-C-03	covered	P2	Camera LOD detail zoom and far clipping findings remain prior coverage	prior C9 grades preserved; source versus runtime evidence distinguished
+W2-C-04	covered	P1	Map objectives destructibles traversal and turrets use prior all-map plan	prior WT96-102 source/geometry readings; not runtime parity certification
+W2-C-05	superseded	P2	Automatic Doppler candidate rejected by receiving driver mask	source reading independently reviewed by W2-B; no original-runtime measurement
+W2-R-01	extends	P1	Radio labels, payloads and side-channel predicate	source reading; core trace independently reviewed by W2-A; no runtime comparison
+W2-R-02	extends	P1	Preset-aware talk input must suppress the competing secondary swap	source reading; core trace independently reviewed by W2-A; no runtime comparison
+W2-R-03	extends	P1	Talk states4/5 belong to TeamCommand, not actor life or stance	source reading; core trace independently reviewed by W2-A; dead-talk reachability remains unresolved
+W2-R-04	extends	P2	Channel HUD count source chain and remaining membership semantics	source reading; collection-count source traced; exact membership filter unresolved
+W2-R-05	extends	P2	Mode-conditioned TeamCommand labels for payloads0x2e/0x2f	source reading; root ELF/registration probe checked; original UI capture owed

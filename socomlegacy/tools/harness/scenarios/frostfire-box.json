@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "name": "frostfire-box",
+  "map": "MP2",
+  "revision": "r0001",
+  "spawn": { "x": 938, "y": 100, "z": 845, "yaw": 0, "how": "teleport" },
+  "seed": null,
+  "frameHz": 29.97,
+  "pad": [
+    { "frame": 0, "b": "0x0000", "lx": 128, "ly": 128, "rx": 128, "ry": 128 },
+    { "frame": 30, "b": "0x0000", "ly": 0 },
+    { "frame": "prompt+0", "b": "0x4000" },
+    { "frame": "climb+17", "b": "0x8000" }
+  ],
+  "events": {
+    "prompt": "traversal.prompt != null",
+    "climb": "action == climb"
+  },
+  "stop": { "orFrames": 600 },
+  "fields": "frostfire-box",
+  "cites": {
+    "sequence": "research 230 s3.3; research 86 s1.1 (seal_climbcrate 1.168 s), as the plan's section 2.1 specimen writes them",
+    "crate": "research 86 s3.6 / 90 item 11, as the plan's section 2.1 specimen writes it"
+  }
+}

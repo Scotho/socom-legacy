@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "450b737676cc16747e41ffe855f28d562b56ee91",
+  "sourceFiles": [
+    "src/world.ts",
+    "src/bodyView.ts",
+    "src/rigShading.ts"
+  ],
+  "description": "Synthetic fixture fresh per backend, both shader stages, three.js r186; only process-global skinning buffer IDs renamed consistently; no GPU/game data.",
+  "hashes": {
+    "GLSL/map": "a8bfba76a8e42d012f022445ae91dbc885202704eb6f36dde3987c1f66626a4d",
+    "GLSL/detail": "753308e1d029cc96f1476fdf85a464332d1a81d05f8f4e732c3401483987bcc9",
+    "GLSL/bodyPlain": "4172794bc02dc1eaf967b927b7081a4e75256a8bf478607f7dafcb3c13f766e9",
+    "GLSL/bodyTextured": "22674298e12671cfe7de959bd398c7e36ec10706b8df3dbbdc48bb5420e8d0c8",
+    "WGSL/map": "5b074b96410c9b1699a27c851a774451b78934a9556ea4e4cde3e03da162df6d",
+    "WGSL/detail": "e11f6af2759e2bd815529f7b981fb9f4ce9f3666dd7bb277d684faa14227a5cc",
+    "WGSL/bodyPlain": "174d84237baf1fb776ae7e6aa63d0cf0d7667c35a3be71ccd58c5cffbe5afc21",
+    "WGSL/bodyTextured": "8050e4611ea0a56ddf40b1661dfdb4e237923b858a4ca0062f89b56470cb7f02"
+  }
+}

@@ -1,0 +1,32 @@
+/*
+ * The modern UI's shell (MU-1, `./index.ts`): dark, tactical, icon-led. Every colour, type and measure is a `--mu-*`
+ * token (`./tokens.css`), itself the shared system's. A browser adaptation (MU.R1).
+ *
+ * MU-8a: the focus ring is the one shared rule in `./tokens.css` (keyboard and pad alike); a control here only sets its
+ * `--mu-focus-offset`. Hover is `--mu-surface-hover`, press `--mu-press` (the primary action `--mu-accent-press`);
+ * every transition runs on `--mu-fast`, which reduced motion sets to zero (`./tokens.css`).
+ *
+ * CX-25 to CX-29 (the console plan): the shell, its sections and their parts are retired -- no page has drawn them
+ * since OVERLAY-CONSOLE (#259). What stays is what the replay viewer (`./replays/view.ts`, `./replays/transport.ts`)
+ * and the Report (`./report`) draw: the buttons and the pill. CX-29: the shell's scope (`.mu-shell`), its top bar's
+ * badge and account (`.mu-badge`, `.mu-account*`), the Lobbies' note (`.mul__note`) and the sections' empty state
+ * (`.mu-empty*`) went too: no live markup or code draws one.
+ */
+
+.mu-button[hidden] { display: none; }
+.mu-button { display: inline-flex; align-items: center; gap: var(--mu-gap-2); min-height: 36px; padding: 0 var(--mu-gap-4); appearance: none; cursor: pointer;
+  font: var(--mu-type-label); letter-spacing: var(--mu-tracking-label); text-transform: uppercase;
+  color: var(--mu-text-strong); background: var(--mu-surface-card); border: 1px solid var(--mu-line-strong); border-radius: var(--mu-radius);
+  transition: background-color var(--mu-fast) var(--mu-ease), color var(--mu-fast) var(--mu-ease), border-color var(--mu-fast) var(--mu-ease); }
+.mu-button:hover:enabled { background: var(--mu-surface-hover); }
+.mu-button--primary { color: var(--mu-ground); background: var(--mu-accent-strong); border-color: var(--mu-accent-strong); }
+.mu-button--primary:hover:enabled { background: var(--mu-text-strong); border-color: var(--mu-text-strong); }
+.mu-button:disabled { cursor: default; color: var(--mu-text-dim); background: transparent; border-color: var(--mu-line); }
+.mu-button:active:enabled { background: var(--mu-press); }
+.mu-button--primary:active:enabled { background: var(--mu-accent-press); border-color: var(--mu-accent-press); }
+/* (CX-27: the fields' parts -- `.mu-field*`, `.mu-check`, `.mu-link`, MU-2's sign-in panel's, whose own part rules
+   CX-26 retired with the panel -- went too: no live markup draws them.) */
+
+/* a state's pill (the replay viewer's "Partial recording", `./replays/transport.ts`) */
+.mu-pill { margin-top: var(--mu-gap-2); padding: 2px var(--mu-gap-3); font: var(--mu-type-caption-dim); letter-spacing: var(--mu-tracking-caption); text-transform: uppercase;
+  color: var(--mu-text-dim); border: 1px dashed var(--mu-line); border-radius: var(--mu-radius-pill); }

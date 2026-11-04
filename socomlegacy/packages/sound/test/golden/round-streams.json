@@ -1,0 +1,25 @@
+{
+  "_source": "disc RUN/SOUNDRDR.ZAR sounds.rdr SETS ST entries through parseStreamEntries, resolved with streamFor over missionSoundBlocks(MP2) and named by streamFile; 2026-10-02",
+  "cues": [
+    {"name":"MUS_MP_SEAL_INTRO_1","hash":-963973534,"block":"SMUS","n1":"MUMP0001","music":true,"loop":false,"efx":false,"file":"MUMP0001.VPK"},
+    {"name":"MUS_MP_SEAL_INTRO_2","hash":1602469848,"block":"SMUS","n1":"MUMP0002","music":true,"loop":false,"efx":false,"file":"MUMP0002.VPK"},
+    {"name":"MUS_MP_SEAL_INTRO_3","hash":679776078,"block":"SMUS","n1":"MUMP0003","music":true,"loop":false,"efx":false,"file":"MUMP0003.VPK"},
+    {"name":"MUS_MP_SEAL_INTRO_4","hash":-1226827027,"block":"SMUS","n1":"MUMP0004","music":true,"loop":false,"efx":false,"file":"MUMP0004.VPK"},
+    {"name":"MUS_MP_SEAL_INTRO_5","hash":-1041814917,"block":"SMUS","n1":"MUMP0005","music":true,"loop":false,"efx":false,"file":"MUMP0005.VPK"},
+    {"name":"MUS_MP_TERR_INTRO_1","hash":445228261,"block":"SMUS","n1":"MUMP0006","music":true,"loop":false,"efx":false,"file":"MUMP0006.VPK"},
+    {"name":"MUS_MP_TERR_INTRO_2","hash":-2088700577,"block":"SMUS","n1":"MUMP0007","music":true,"loop":false,"efx":false,"file":"MUMP0007.VPK"},
+    {"name":"MUS_MP_TERR_INTRO_3","hash":-192428599,"block":"SMUS","n1":"MUMP0008","music":true,"loop":false,"efx":false,"file":"MUMP0008.VPK"},
+    {"name":"MUS_MP_TERR_INTRO_4","hash":1793282154,"block":"SMUS","n1":"MUMP0009","music":true,"loop":false,"efx":false,"file":"MUMP0009.VPK"},
+    {"name":"MUS_MP_TERR_INTRO_5","hash":501506300,"block":"SMUS","n1":"MUMP0010","music":true,"loop":false,"efx":false,"file":"MUMP0010.VPK"},
+    {"name":"MUS_MP_SEAL_WIN_RUS","hash":2046408298,"block":"SMUS","n1":"MUMP0019","music":true,"loop":false,"efx":false,"file":"MUMP0019.VPK"},
+    {"name":"MUS_MP_SEAL_WIN_BRA","hash":-651693419,"block":"SMUS","n1":"MUMP0015","music":true,"loop":false,"efx":false,"file":"MUMP0015.VPK"},
+    {"name":"MUS_MP_SEAL_WIN_ALG","hash":-431761882,"block":"SMUS","n1":"MUMP0017","music":true,"loop":false,"efx":false,"file":"MUMP0017.VPK"},
+    {"name":"MUS_MP_SEAL_WIN_ALB","hash":-1775689047,"block":"SMUS","n1":"MUMP0013","music":true,"loop":false,"efx":false,"file":"MUMP0013.VPK"},
+    {"name":"MUS_MP_TERR_WIN_RUS","hash":-1510277907,"block":"SMUS","n1":"MUMP0020","music":true,"loop":false,"efx":false,"file":"MUMP0020.VPK"},
+    {"name":"MUS_MP_TERR_WIN_BRA","hash":86292498,"block":"SMUS","n1":"MUMP0016","music":true,"loop":false,"efx":false,"file":"MUMP0016.VPK"},
+    {"name":"MUS_MP_TERR_WIN_ALG","hash":977312929,"block":"SMUS","n1":"MUMP0018","music":true,"loop":false,"efx":false,"file":"MUMP0018.VPK"},
+    {"name":"MUS_MP_TERR_WIN_ALB","hash":1244293166,"block":"SMUS","n1":"MUMP0014","music":true,"loop":false,"efx":false,"file":"MUMP0014.VPK"},
+    {"name":"^PH_0014","hash":1824188679,"block":"MULTI","n1":"PH_0014","music":false,"loop":false,"efx":false,"file":"PH_0014.VAG"},
+    {"name":"^PH_0002","hash":-1664975501,"block":"MULTI","n1":"PH_0002","music":false,"loop":false,"efx":false,"file":"PH_0002.VAG"}
+  ]
+}

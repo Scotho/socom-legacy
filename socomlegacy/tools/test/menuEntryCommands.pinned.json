@@ -1,0 +1,299 @@
+{
+ "dialogs": [
+  {
+   "name": "dlgMenu.rdr",
+   "bindings": [
+    "SCREEN EVENT ONSTART -> PulseArrows [dlgMenu.rdr]",
+    "SCREEN EVENT ONSTART -> UiStopAttract [dlgMenu.rdr]",
+    "SCREEN EVENT ONSTART -> SetMenuValve [dlgMenu.rdr]",
+    "SCREEN EVENT ONSTART -> has_memcard_changed [UIMemCardAnim.rdr]",
+    "SCREEN EVENT ONSTART -> CleanupMissionMemory [dlgMenu.rdr]",
+    "SCREEN EVENT MEMCARD_ERROR -> handle_memcard_error [dlgMenu.rdr]",
+    "new_game_button BUTTON CROSS -> UiprepMission1 [dlgMenu.rdr]",
+    "new_game_button BUTTON DOWN -> OnMenuBtnDown [dlgMenu.rdr]",
+    "new_game_button BUTTON LEFT -> OnMenuBtnUp [dlgMenu.rdr]",
+    "new_game_button BUTTON RIGHT -> OnMenuBtnDown [dlgMenu.rdr]",
+    "new_game_button BUTTON UP -> OnMenuBtnUp [dlgMenu.rdr]",
+    "load_game_button BUTTON CROSS -> MainMenuOnLoad [dlgMenu.rdr]",
+    "load_game_button BUTTON DOWN -> OnMenuBtnDown [dlgMenu.rdr]",
+    "load_game_button BUTTON LEFT -> OnMenuBtnUp [dlgMenu.rdr]",
+    "load_game_button BUTTON RIGHT -> OnMenuBtnDown [dlgMenu.rdr]",
+    "load_game_button BUTTON UP -> OnMenuBtnUp [dlgMenu.rdr]",
+    "multiplayer_button BUTTON CROSS -> do_multi_or_medius [dlgMenu.rdr]",
+    "multiplayer_button BUTTON DOWN -> OnMenuBtnDown [dlgMenu.rdr]",
+    "multiplayer_button BUTTON LEFT -> OnMenuBtnUp [dlgMenu.rdr]",
+    "multiplayer_button BUTTON RIGHT -> OnMenuBtnDown [dlgMenu.rdr]",
+    "multiplayer_button BUTTON UP -> OnMenuBtnUp [dlgMenu.rdr]",
+    "options_button BUTTON CROSS -> CallOptions [dlgMenu.rdr]",
+    "options_button BUTTON DOWN -> OnMenuBtnDown [dlgMenu.rdr]",
+    "options_button BUTTON LEFT -> OnMenuBtnUp [dlgMenu.rdr]",
+    "options_button BUTTON RIGHT -> OnMenuBtnDown [dlgMenu.rdr]",
+    "options_button BUTTON UP -> OnMenuBtnUp [dlgMenu.rdr]",
+    "Extras_button BUTTON CROSS -> CallExtras [dlgMenu.rdr]",
+    "Extras_button BUTTON DOWN -> OnMenuBtnDown [dlgMenu.rdr]",
+    "Extras_button BUTTON LEFT -> OnMenuBtnUp [dlgMenu.rdr]",
+    "Extras_button BUTTON RIGHT -> OnMenuBtnDown [dlgMenu.rdr]",
+    "Extras_button BUTTON UP -> OnMenuBtnUp [dlgMenu.rdr]",
+    "LAN_button BUTTON CROSS -> go_to_LAN_play [dlgMenu.rdr]",
+    "LAN_button BUTTON DOWN -> OnMenuBtnDown [dlgMenu.rdr]",
+    "LAN_button BUTTON LEFT -> OnMenuBtnUp [dlgMenu.rdr]",
+    "LAN_button BUTTON RIGHT -> OnMenuBtnDown [dlgMenu.rdr]",
+    "LAN_button BUTTON UP -> OnMenuBtnUp [dlgMenu.rdr]",
+    "SavedGames BUTTON CROSS -> LoadGameOnListBox [dlgMenu.rdr]",
+    "SavedGames BUTTON TRIANGLE -> CancelLoadGame [dlgMenu.rdr]"
+   ],
+   "animations": {
+    "SetMenuValve": [
+     "FlushMenuHistory",
+     "GetNumSavedGames",
+     "SuspendMenuInput"
+    ],
+    "OnMenuBtnUp": [
+     "SuspendMenuInput"
+    ],
+    "OnMenuBtnDown": [
+     "SuspendMenuInput"
+    ],
+    "ActivateMenuBtns": [
+     "ActivateButton",
+     "DisableButton",
+     "EnableButton"
+    ],
+    "CallMusicPressDemo": [
+     "RebootIOP",
+     "VagStreaming"
+    ],
+    "PulseArrows": [],
+    "CleanupMissionMemory": [
+     "CleanupMissionMemory"
+    ],
+    "CallExtras": [
+     "SWITCHMENU",
+     "SuspendMenuInput"
+    ],
+    "CallOptions": [
+     "SWITCHMENU",
+     "SuspendMenuInput"
+    ],
+    "CallMissionSelection": [
+     "POPUPDIALOG",
+     "SWITCHMENU",
+     "SuspendMenuInput"
+    ],
+    "UiprepMission1": [
+     "ClearCareerStats",
+     "SWITCHMENU",
+     "SuspendMenuInput"
+    ],
+    "UiStopAttract": [
+     "SuspendMenuInput"
+    ],
+    "UiAttractMode": [
+     "FadeAllSounds",
+     "SWITCHMENU",
+     "SuspendMenuInput",
+     "VagStreaming"
+    ],
+    "go_to_LAN_play": [
+     "SWITCHMENU",
+     "SuspendMenuInput"
+    ],
+    "do_multi_or_medius": [
+     "SWITCHMENU",
+     "SuspendMenuInput"
+    ],
+    "handle_memcard_error": [],
+    "MissionShortcutSKB": [
+     "BackgroundMPEG",
+     "ClearUIVar",
+     "GetTextInput",
+     "RebootIOP",
+     "SETMISSION",
+     "SWITCHMENU",
+     "TestUIVar",
+     "VagStreaming"
+    ],
+    "CancelLoadGame": [
+     "ActivateButton",
+     "BackgroundMPEG"
+    ],
+    "GetSlotToLoadFrom": [
+     "MC_ChPort",
+     "POPUPDIALOG"
+    ],
+    "WatchForMemcardRemoval": [
+     "IsMemcardInserted"
+    ],
+    "MainMenuOnLoad": [
+     "ActivateButton",
+     "BackgroundMPEG",
+     "EnableButton",
+     "IsMemcardSaveOK",
+     "KillPopup",
+     "POPUPDIALOG"
+    ],
+    "GoToNextMission": [
+     "AutoAim",
+     "SETMISSION",
+     "SWITCHMENU"
+    ],
+    "LoadGameOnListBox": [
+     "ActivateButton",
+     "BackgroundMPEG",
+     "DisableButton",
+     "DoesSlotHaveGame",
+     "EnableButton",
+     "IsMemcardSaveOK",
+     "KillPopup",
+     "LoadSavedGame",
+     "POPUPDIALOG",
+     "SuspendMenuInput"
+    ]
+   },
+   "library": {
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/Ensure_MC_Dirs_Fast": [
+     "MC_ChDir",
+     "MC_Exists"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/has_memcard_changed": [
+     "MC_ChPort",
+     "MC_Changed"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/AskToLoadData": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIanim.rdr/intro_onstart": [
+     "FormatMemCard",
+     "IsMemCardFormatted",
+     "IsMemCardInserted",
+     "IsSpaceForSaveGameFile",
+     "MC_ChPort",
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/AskToFormat": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/AreYouSureYouWantToFormat": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/AreYouSureYouDontWantToFormat": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/Ensure_MC_Dirs": [
+     "MC_ChDir",
+     "MC_CreateIconFiles",
+     "MC_Exists",
+     "MC_MkDir",
+     "SaveConfig"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/load_initial_config": [
+     "CheckVideoMode",
+     "IsMemCardFormatted",
+     "IsMemCardInserted",
+     "IsSpaceForSaveGameFile",
+     "KILLPOPUP",
+     "ListSavedGames",
+     "LoadConfig",
+     "POPUPDIALOG",
+     "StoreOptions"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/find_a_memcard": [
+     "IsMemCardInserted",
+     "MC_ChPort",
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/choose_memcard_slot": [
+     "MC_ChPort",
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/do_formatting": [
+     "FormatMemCard",
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/DisplayLoadingWarning": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/NoSOCOMDataFound2": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/CannotSaveNoSpace": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/DisplayErrorLoading": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/SwitchToProgressiveVideo": [
+     "CheckVideoMode",
+     "KillPopUp",
+     "POPUPDIALOG",
+     "SwitchProgressiveVideo"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/verify_video_dtv": [
+     "POPUPDIALOG"
+    ],
+    "RUN/UIZANIM.ZAR:UIMemCardAnim.rdr/LoadGameOnStart": [
+     "IsMemCardFormatted",
+     "IsMemCardInserted",
+     "ListSavedGames"
+    ]
+   }
+  },
+  {
+   "name": "dlgMPswitch.rdr",
+   "bindings": [
+    "SCREEN EVENT ONSTART -> StopStreaming [dlgMPswitch.rdr]"
+   ],
+   "animations": {
+    "StopStreaming": [
+     "SWITCHMENU",
+     "VagStreaming"
+    ]
+   },
+   "library": {}
+  }
+ ],
+ "names": [
+  "ActivateButton",
+  "AutoAim",
+  "BackgroundMPEG",
+  "CheckVideoMode",
+  "CleanupMissionMemory",
+  "ClearCareerStats",
+  "ClearUIVar",
+  "DisableButton",
+  "DoesSlotHaveGame",
+  "EnableButton",
+  "FadeAllSounds",
+  "FlushMenuHistory",
+  "FormatMemCard",
+  "GetNumSavedGames",
+  "GetTextInput",
+  "IsMemCardFormatted",
+  "IsMemCardInserted",
+  "IsMemcardInserted",
+  "IsMemcardSaveOK",
+  "IsSpaceForSaveGameFile",
+  "KILLPOPUP",
+  "KillPopUp",
+  "KillPopup",
+  "ListSavedGames",
+  "LoadConfig",
+  "LoadSavedGame",
+  "MC_ChDir",
+  "MC_ChPort",
+  "MC_Changed",
+  "MC_CreateIconFiles",
+  "MC_Exists",
+  "MC_MkDir",
+  "POPUPDIALOG",
+  "RebootIOP",
+  "SETMISSION",
+  "SWITCHMENU",
+  "SaveConfig",
+  "StoreOptions",
+  "SuspendMenuInput",
+  "SwitchProgressiveVideo",
+  "TestUIVar",
+  "VagStreaming"
+ ]
+}

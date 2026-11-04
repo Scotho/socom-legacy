@@ -1,0 +1,42 @@
+{
+  "_source": "disc RUN/SOUNDS/BNKSTORE.ZAR HUDUI.bnk through parseBankFile; RUN/SOUNDRDR.ZAR sounds.rdr SETS/HUDUI through soundScriptFromArchive (ordinal: the entry's place in the set); RUN/UI/READERC.ZAR uisounds.rdr SOUNDS and UiParams.rdr CommonSoftKeyboardProps through parseRdr; 2026-10-02",
+  "sounds": [
+    {"index":0,"name":".DINK","vol":98,"volGroup":14,"pan":0,"hash":1545266638,"ordinal":0,"oneShot":true,"range":null},
+    {"index":1,"name":".BACK","vol":83,"volGroup":14,"pan":0,"hash":-1026779673,"ordinal":1,"oneShot":true,"range":null},
+    {"index":2,"name":".THUNK","vol":103,"volGroup":14,"pan":0,"hash":-86717708,"ordinal":2,"oneShot":true,"range":null},
+    {"index":3,"name":".SLIDE","vol":113,"volGroup":14,"pan":0,"hash":-805495254,"ordinal":3,"oneShot":true,"range":null},
+    {"index":4,"name":".NEG","vol":90,"volGroup":14,"pan":0,"hash":2115750056,"ordinal":4,"oneShot":true,"range":null},
+    {"index":5,"name":".COUNT","vol":110,"volGroup":14,"pan":0,"hash":952874026,"ordinal":5,"oneShot":true,"range":null},
+    {"index":6,"name":".TYPE_1","vol":45,"volGroup":14,"pan":0,"hash":1901296588,"ordinal":6,"oneShot":true,"range":null},
+    {"index":7,"name":".TYPE","vol":44,"volGroup":14,"pan":0,"hash":601621497,"ordinal":7,"oneShot":true,"range":null},
+    {"index":8,"name":".METAL","vol":115,"volGroup":14,"pan":0,"hash":2104493185,"ordinal":8,"oneShot":true,"range":null},
+    {"index":9,"name":".SKB_ENTER","vol":110,"volGroup":14,"pan":0,"hash":729600940,"ordinal":9,"oneShot":true,"range":null},
+    {"index":10,"name":".SKB_TYPE","vol":90,"volGroup":14,"pan":0,"hash":1380126405,"ordinal":10,"oneShot":true,"range":null},
+    {"index":11,"name":".SFX_VOL_SLIDER","vol":127,"volGroup":14,"pan":0,"hash":-1255833045,"ordinal":11,"oneShot":true,"range":null},
+    {"index":12,"name":".TCM_SLIDE","vol":70,"volGroup":14,"pan":0,"hash":-1590691019,"ordinal":12,"oneShot":true,"range":null},
+    {"index":13,"name":".TCM_SELECT","vol":50,"volGroup":14,"pan":0,"hash":-2059350454,"ordinal":13,"oneShot":true,"range":null},
+    {"index":14,"name":".NV_GOGGLES_ON","vol":50,"volGroup":14,"pan":0,"hash":-943545292,"ordinal":14,"oneShot":true,"range":null},
+    {"index":15,"name":".NV_GOGGLES_OFF","vol":50,"volGroup":14,"pan":0,"hash":-1541949647,"ordinal":15,"oneShot":true,"range":null},
+    {"index":16,"name":".SKB_NAV","vol":90,"volGroup":14,"pan":0,"hash":1582274586,"ordinal":16,"oneShot":true,"range":null},
+    {"index":17,"name":".BOMB_BEEP","vol":120,"volGroup":14,"pan":0,"hash":-824085960,"ordinal":17,"oneShot":true,"range":[50,100]},
+    {"index":18,"name":".SPLASHSCROLL_1","vol":65,"volGroup":14,"pan":0,"hash":72577812,"ordinal":18,"oneShot":true,"range":null},
+    {"index":19,"name":".COUNTDOWN","vol":127,"volGroup":2,"pan":0,"hash":666817026,"ordinal":19,"oneShot":true,"range":null},
+    {"index":20,"name":".COUNTDOWN2","vol":127,"volGroup":2,"pan":0,"hash":-184786445,"ordinal":20,"oneShot":true,"range":null},
+    {"index":21,"name":".COUNTDOWN3","vol":127,"volGroup":2,"pan":0,"hash":-2080681627,"ordinal":21,"oneShot":true,"range":null},
+    {"index":22,"name":".COUNTDOWN4","vol":127,"volGroup":2,"pan":0,"hash":497009862,"ordinal":22,"oneShot":true,"range":null},
+    {"index":23,"name":".COUNTDOWN5","vol":120,"volGroup":2,"pan":0,"hash":1788408912,"ordinal":23,"oneShot":true,"range":null}
+  ],
+  "uisounds": {
+    "TELETYPE": ".TYPE",
+    "BACK": ".BACK",
+    "SELECTION": ".METAL"
+  },
+  "keyboard": {
+    "ScaleUpSound": ".SLIDE",
+    "ScaleDownSound": ".SLIDE\t",
+    "KeyPressSound": ".SKB_TYPE",
+    "KeyPressEnterSound": ".THUNK",
+    "NavigationSound": ".SKB_NAV",
+    "NegativeSound": ".NEG"
+  }
+}

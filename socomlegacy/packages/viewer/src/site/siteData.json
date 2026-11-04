@@ -1,0 +1,1463 @@
+{
+  "commit": "381ada82f",
+  "sprints": [
+    {
+      "number": 6,
+      "name": "Foundations and the four spikes, first person",
+      "seat": "the owner",
+      "tasks": 16,
+      "points": 30,
+      "after": "--",
+      "online": false,
+      "state": "closed",
+      "status": "Web sprint 6: closed at 3c948c5c on its gate; its carried items are in its Log.",
+      "source": "docs/HANDOFF.md §2"
+    },
+    {
+      "number": 7,
+      "name": "The dialog runtime and the harness",
+      "seat": "the owner",
+      "tasks": 8,
+      "points": 36,
+      "after": "6",
+      "online": false,
+      "state": "owed",
+      "status": "Web sprint 7: (the dialog runtime, the movies and the harness) -- every task merged; not closed: W7.R6's scored acceptance items and the close review are owed (its plan's Log).",
+      "source": "docs/HANDOFF.md §2"
+    },
+    {
+      "number": 8,
+      "name": "The online path I: the services and the card's data the flow calls",
+      "seat": "the owner",
+      "tasks": 8,
+      "points": 16,
+      "after": "6",
+      "online": true,
+      "state": "unstated",
+      "status": "",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 9,
+      "name": "Screens, widgets, input, popups, keyboard, movies",
+      "seat": "the owner",
+      "tasks": 10,
+      "points": 38,
+      "after": "7",
+      "online": false,
+      "state": "owed",
+      "status": "Web sprint 9: whole on agent/online (PLAT-10/11/15/16/17/23 and the connecting lines); its close is owed with sprint 7's.",
+      "source": "docs/HANDOFF.md §2"
+    },
+    {
+      "number": 10,
+      "name": "Services: the stats record, clans, ladder, chat (online track)",
+      "seat": "the owner",
+      "tasks": 14,
+      "points": 40,
+      "after": "17",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-10 at b18b1226b on agent/online (the plan's Log, its close entry: fourteen tasks merged, each reviewed; the pull request the merge controller's, his landing gate the sprint's gate). (Was: adopted 2026-10-09 on agent/online (…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 11,
+      "name": "The online path II: the main menu, LOGIN, DNAS, SELECT UNIVERSE",
+      "seat": "the owner",
+      "tasks": 10,
+      "points": 22,
+      "after": "8, 9",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-04 (the online path's plan Log, its close entry; merged to main by the controller under OT.R13). Every task merged and reviewed; the gate's rows in the Log; the carry in HANDOFF section 7.",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 12,
+      "name": "The boot's rest: the card check, the attract, the relaunch dialogs, the goldens (parked)",
+      "seat": "the owner",
+      "tasks": 7,
+      "points": 21,
+      "after": "15, 21",
+      "online": false,
+      "state": "parked",
+      "status": "parked until the online path runs (OT.R6), all of it. OT.R11 (2026-10-02) took the opener -- BOOT-02, BOOT-04, BOOT-06 -- to the path's sprint 24; until then it was titled \"Boot to menu\" and read 10 tasks and 32 points. BOOT-05 stays here…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 13,
+      "name": "The memory card's screens (parked)",
+      "seat": "the owner",
+      "tasks": 11,
+      "points": 17,
+      "after": "12",
+      "online": false,
+      "state": "parked",
+      "status": "parked until the online path runs (OT.R6), all but PLAT-34 (the ARMORY folded), which OT-0 moved to the path's sprint 17 beside ONL-17 (2026-10-02); the title's \"the ARMORY folded\" is that history.",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 14,
+      "name": "The OPTIONS screens, and EXTRAS (parked)",
+      "seat": "the owner",
+      "tasks": 13,
+      "points": 37,
+      "after": "15, 21",
+      "online": false,
+      "state": "parked",
+      "status": "parked until the online path runs (OT.R6), all of it; meanwhile OPTIONS and EXTRAS open the desktop-recompilation screen (OT.R5; MENU-03's hook). Its After line read \"sprints 11, 15\" until OT-0 moved MENU-01 and PLAT-22 to 21.",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 15,
+      "name": "The card's data: libmc, saves, personas (online track)",
+      "seat": "the owner",
+      "tasks": 6,
+      "points": 16,
+      "after": "17",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-09, landed on main b4448d97e (PR #108) (the plan 2026-10-08-web-sprint-15-the-cards-data.md, adopted 2026-10-09, its Log's close entry; the pull request into main is the merge controller's to land after his landing gate): PL…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 16,
+      "name": "The online path III: persona to the ONLINE menu, logoff; rooms and the bridge",
+      "seat": "the owner",
+      "tasks": 9,
+      "points": 27,
+      "after": "11",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-04 (the online path's plan's Log, the close entry): ONL-06, ONL-07, ONL-08, ONL-09, SVC-06, SVC-07a and SVC-09a merged, with the server's hardening (OT.R26) and the setup page, ARMORY and site batch (OT.R28-OT.R34); ONL-10 a…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 17,
+      "name": "The online path IV: rooms, CREATE GAME, the lobby, the ARMORY, loading: the match starts",
+      "seat": "the owner",
+      "tasks": 10,
+      "points": 36,
+      "after": "16",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-06 (the plan 2026-10-02-online-path-target.md, its Log)",
+      "source": "docs/plans/2026-10-02-online-path-target.md, ## Log, 2026-10-06"
+    },
+    {
+      "number": 18,
+      "name": "Online III: the carried items, social, clans, player ranking (online track; two plans)",
+      "seat": "the owner",
+      "tasks": 19,
+      "points": 43,
+      "after": "10, 22",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-13 (the plan 2026-10-13-web-sprint-18-the-clans-pages.md, its Log)",
+      "source": "docs/plans/2026-10-13-web-sprint-18-the-clans-pages.md, ## Log, 2026-10-13"
+    },
+    {
+      "number": 19,
+      "name": "The round's edges, clan games and CLAN RANKING, the proven sweep (gameplay track, last)",
+      "seat": "the owner",
+      "tasks": 6,
+      "points": 18,
+      "after": "18, 23",
+      "online": false,
+      "state": "closed",
+      "status": "closed 2026-10-15 (the plan 2026-10-14-web-sprint-19-watch-game-and-leaving.md, its Log)",
+      "source": "docs/plans/2026-10-14-web-sprint-19-watch-game-and-leaving.md, ## Log, 2026-10-15"
+    },
+    {
+      "number": 20,
+      "name": "Voice: lobby + match PTT (online track, first)",
+      "seat": "the owner",
+      "tasks": 7,
+      "points": 23,
+      "after": "9, 17",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-08, landed on main bd8cea7e3 (PR #76) (the plan 2026-10-08-web-sprint-20-voice.md, its Log's close and landing entries; the landing gate's record in the merge commit): every task merged after a fresh review (V-WIRE, SVC-20a,…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 21,
+      "name": "The main menu's music, the offline commands, the online music (parked)",
+      "seat": "the owner",
+      "tasks": 5,
+      "points": 23,
+      "after": "17, 24",
+      "online": true,
+      "state": "parked",
+      "status": "parked until the online path runs (OT.R6). New at OT-0 (2026-10-02): sprint 11's parked half as it stood before the re-cut -- the main menu with its music and its movie (MENU-02, over its path slice MENU-02a), the rest of the offline comma…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 22,
+      "name": "Online: results, options, filters, chat (online track)",
+      "seat": "the owner",
+      "tasks": 10,
+      "points": 30,
+      "after": "10, 15",
+      "online": true,
+      "state": "closed",
+      "status": "closed 2026-10-11 at 4718bcc11 on agent/online (the plan's Log, its close entry: ten tasks merged, each reviewed by a fresh reviewer; the pull request the merge controller's, his landing gate the sprint's gate). (Was: adopted 2026-10-10 on…",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 23,
+      "name": "After the match starts: round screens, leaving (gameplay track)",
+      "seat": "the owner",
+      "tasks": 2,
+      "points": 4,
+      "after": "17",
+      "online": false,
+      "state": "unstated",
+      "status": "",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 24,
+      "name": "The online path V: the opener -- the loader's screens, the cards, the trailer with its sound, into the menu",
+      "seat": "the owner",
+      "tasks": 5,
+      "points": 17,
+      "after": "11",
+      "online": true,
+      "state": "unstated",
+      "status": "",
+      "source": "docs/roadmap/SPRINTS.md"
+    },
+    {
+      "number": 42,
+      "name": "The browser's video settings page: render scale, performance options, FPS overlay, no-GPU notice (a browser adaptation)",
+      "seat": "the owner",
+      "tasks": 1,
+      "points": 3,
+      "after": "--",
+      "online": false,
+      "state": "scheduled",
+      "status": "scheduled 2026-10-29 on the owner's word in the dispatch seat 04 (\"Active, next sprint\", his answer to \"active next sprint, or future scope\"); no plan yet. It runs beside the client profiling lane (CPF, docs/plans/2026-10-28-client-perform…",
+      "source": "docs/roadmap/SPRINTS.md"
+    }
+  ],
+  "inFlight": [
+    {
+      "title": "Web sprint 19, the second half (WATCH GAME and leaving a game) -- CLOSED 2026-10-14: every row merged on agent/online, each after a fresh review, and on main through checkpoints 14-16 (PR #209, PR #211 and the checkpoint 16 landing PR of 2026-10-14): adopted 2026-10-14 on the merge controller's word (W19.R1, W19.R8-R12)",
+      "state": "landed",
+      "summary": "(the plan 2026-10-14-web-sprint-19-watch-game-and-leaving.md; its task table and Log): WATCH-JOIN, NET-ERRNO, BAILOUT; LATE-WATCH (W19.R12: every late seat loads on READY), ROUND-90 (H105 closed), SPECTATOR-VIEW; VERSION-ABORT, WATCH-DOCS;…"
+    },
+    {
+      "title": "Web sprint 19, the clans' half (clan games and the clans' ladder) -- CLOSED 2026-10-14: every row merged on agent/online, each after a fresh review, and on main through checkpoints 7-13 (PR #189... PR #208, main bdabd45de): adopted 2026-10-13 on the merge controller's word (W19.R1: sprint 19 in two halves, this first; ONL-21 WATCH GAME and ONL-22 leaving and the network errors a second plan after it)",
+      "state": "landed",
+      "summary": "(the plan 2026-10-13-web-sprint-19-clan-games-and-the-clans-ladder.md, W19.R1-R5; its task table and Log): CLAN-JOIN (308; the host's seating by option), then the clans' ladder -- CLAN-ROSTER-LADDER and CLAN-BOARD-SERVER (310) -- and CLAN…"
+    },
+    {
+      "title": "Web sprint 18, the players' half (the carried items and the players' pages) -- CLOSED 2026-10-13: every row merged on agent/online, each after a fresh review, and on main through checkpoints 1-4 (PR #166, main 4741f57e0; PR #172, ce798266b; PR #173, 5dea43328; PR #175, df0eb0d62)",
+      "state": "landed",
+      "summary": "(the plan 2026-10-11-web-sprint-18-the-carried-and-the-players-pages.md, W18.R1-R11; its task table and Log): checkpoint 1 -- PROMOTE-18, the carried items SVC-12e / SVC-03a / SVC-23g / SVC-07c / SVC-23h / SVC-23f, SVC-15a, SVC-16, ONL-25,…"
+    },
+    {
+      "title": "Web sprint 22 (the results and the lobby's text) -- CLOSED on agent/online 4718bcc11 (2026-10-11; from main 1751594b2, main 01035996d merged in at ff9176b26), its pull request a draft for the merge controller's landing gate",
+      "state": "landed",
+      "summary": "(the plan 2026-10-10-web-sprint-22-the-results-and-the-lobbys-text.md, its Log's close entry): ten tasks merged, each reviewed by a fresh reviewer (SVC-23e and PROVE-1 by dot) -- the room's counters and the two results (SVC-12d), ONLINE OP…"
+    },
+    {
+      "title": "Web sprint 10 (the services) -- LANDED on main 1751594b2 (PR #128, 2026-10-10), merged back into agent/online",
+      "state": "landed",
+      "summary": "(the plan 2026-10-09-web-sprint-10-the-services.md, W10.R1-R6; its Log's close entry is the record): the stats record's arithmetic, bytes and store with the match server's write at a match's end (SVC-12a/b/c; research 261), clan identity,…"
+    },
+    {
+      "title": "The modern UI lane (MU.R1-R27) -- wrapped 2026-10-10 on agent/modern-ui (seat), the gate GREEN on 9a5f849f1 both views, main b155834d6 merged; not pushed: the owner looks first",
+      "state": "landed",
+      "summary": "(the plan 2026-10-09-modern-ui-parallel.md; its Log is the state; the handoff briefs/modern-ui-handoff.md). Standalone under MU.R1 until the controller and the online seat review it (MU.R6); owed: the sprint-38 main merge, the real START -…"
+    },
+    {
+      "title": "Web sprint 15 (the card's data) -- LANDED on main b4448d97e (PR #108, 2026-10-09), merged back into agent/online",
+      "state": "landed",
+      "summary": "(the plan 2026-10-08-web-sprint-15-the-cards-data.md, its Log's close entry): libmc whole (PLAT-26, research 228), the options' 65 valves as JSON and the whole table at boot with no password-class var on the card (OPT-02, OPT-02b, W15.R6),…"
+    },
+    {
+      "title": "Web sprint 20 (voice) -- LANDED on main bd8cea7e3 (PR #76, 2026-10-08), merged back into agent/online",
+      "state": "landed",
+      "summary": "(the plan 2026-10-08-web-sprint-20-voice.md, its Log's close entry): the wire (Frame.Voice, four Opus packets per 80 ms), the floor and the channel map on the server, the relay, the page's client, codec, talk input and headset UX, the roun…"
+    },
+    {
+      "title": "The repo restructure, Phase B",
+      "state": "landed",
+      "summary": "(plan) is on main (the owner's go H67, his word for main H62): the desktop tree removed and pinned as the ref/desktop submodule, the guards in workflow/, the web/ level dropped (socomlegacy/, landing/, shared/ at the root), the conventions (M…"
+    },
+    {
+      "title": "Web sprint 6",
+      "state": "landed",
+      "summary": "closed at 3c948c5c on its gate; its carried items are in its Log."
+    },
+    {
+      "title": "Web sprint 7",
+      "state": "owed",
+      "summary": "(the dialog runtime, the movies and the harness) -- every task merged; not closed: W7.R6's scored acceptance items and the close review are owed (its plan's Log)."
+    },
+    {
+      "title": "Web sprint 9",
+      "state": "owed",
+      "summary": "whole on agent/online (PLAT-10/11/15/16/17/23 and the connecting lines); its close is owed with sprint 7's."
+    },
+    {
+      "title": "The contributor integration",
+      "state": "landed",
+      "summary": "(plan) is on main whole (d7433071, 96185683); its owed items are in section 7."
+    },
+    {
+      "title": "The online path",
+      "state": "landed",
+      "summary": "(plan, OT.R1-OT.R14; the Log is the record) ran web sprint 11 on agent/online (seat), cut from main b0529bab and merged back by the controller under OT.R13 (PR #13, merge commit cd24d9ec, 2026-10-04; the local gate in the Log, OT.R15: no G…"
+    },
+    {
+      "title": "The playtest lane (web sprints 33-36; the design, sprint 33's plan), the owner's seat, the session \"Replays/playtest mode plans\"",
+      "state": "in-flight",
+      "summary": "web sprint 33 -- the.s2r format and the Room recorder (additive), the playtest room's badge, Mark and video ring, the @s2u/playtest session service, offline recording in segments, the server's REPLAYS_DIR, the e2e -- is on agent/playtest (…"
+    },
+    {
+      "title": "PARITY-1: both match paths and the gameplay feel (plan, the web controller's seat, 2026-10-08/09) -- CLOSED on agent/parity; its pull request is the merge controller's to land.",
+      "state": "in-flight",
+      "summary": "ACT (the actions on the menu-launched match) landed before it (PR #71); HX-OBEY by PR #68. PARITY-1 delivered, on both pages (/testroom and the lobby-launched match): - PAR-19's effective-action life model, with the victory dance folded in…"
+    }
+  ],
+  "plans": [
+    {
+      "id": "2026-09-20-web-map-viewer",
+      "date": "2026-09-20",
+      "title": "Web Map Viewer Implementation Plan (M0-M4)"
+    },
+    {
+      "id": "2026-09-28-web-sprint-1",
+      "date": "2026-09-28",
+      "title": "Web sprint 1 — \"the engine's world\" — implementation plan"
+    },
+    {
+      "id": "2026-09-28-web-sprint-2",
+      "date": "2026-09-28",
+      "title": "Web sprint 2 — \"the SEAL in the world\" — implementation plan"
+    },
+    {
+      "id": "2026-09-28-web-sprint-2-cloud",
+      "date": "2026-09-28",
+      "title": "Web sprint 2 — \"the player\" — implementation plan"
+    },
+    {
+      "id": "2026-09-29-local-handoff",
+      "date": "2026-09-29",
+      "title": "Local controller handoff — the walk's 1:1 push (2026-09-29)"
+    },
+    {
+      "id": "2026-09-29-web-sprint-3-multiplayer",
+      "date": "2026-09-29",
+      "title": "Web sprint 3 — \"the round\" — implementation plan"
+    },
+    {
+      "id": "2026-09-30-web-sprint-4-arsenal",
+      "date": "2026-09-30",
+      "title": "Web sprint 4 — \"the arsenal\" — implementation plan"
+    },
+    {
+      "id": "2026-09-30-web-sprint-5-armory",
+      "date": "2026-09-30",
+      "title": "Web sprint 5 — \"the armory\" — implementation plan"
+    },
+    {
+      "id": "2026-10-01-repo-restructure",
+      "date": "2026-10-01",
+      "title": "The repo restructure -- redotcom becomes the repo, the desktop a pinned reference"
+    },
+    {
+      "id": "2026-10-01-web-sprint-6-foundations",
+      "date": "2026-10-01",
+      "title": "Web sprint 6 — \"foundations and the four spikes\" — implementation plan"
+    },
+    {
+      "id": "2026-10-02-contributor-integration-v5",
+      "date": "2026-10-02",
+      "title": "Contributor integration -- the second developer's browser beta v5 -- implementation plan"
+    },
+    {
+      "id": "2026-10-02-online-path-target",
+      "date": "2026-10-02",
+      "title": "The online path: the roadmap retargeted (2026-10-02)"
+    },
+    {
+      "id": "2026-10-02-test-architecture",
+      "date": "2026-10-02",
+      "title": "The test architecture -- speed, coverage, and a test holding every established parity"
+    },
+    {
+      "id": "2026-10-02-web-sprint-7-dialog-runtime",
+      "date": "2026-10-02",
+      "title": "Web sprint 7 — \"the dialog runtime, and the harness that scores it\" — implementation plan"
+    },
+    {
+      "id": "2026-10-02-web-sprint-9-screens-widgets",
+      "date": "2026-10-02",
+      "title": "Web sprint 9 — \"screens, widgets, input, popups, the keyboard, the movie player, the decoder\" — implementation plan"
+    },
+    {
+      "id": "2026-10-03-shared-agent-conventions",
+      "date": "2026-10-03",
+      "title": "Shared conventions for Claude and Codex sessions -- implementation plan"
+    },
+    {
+      "id": "2026-10-03-startup-options",
+      "date": "2026-10-03",
+      "title": "redotcom startup options plan"
+    },
+    {
+      "id": "2026-10-04-crossroads-demolition-and-bridges",
+      "date": "2026-10-04",
+      "title": "Crossroads: Demolition and independent bridge destruction"
+    },
+    {
+      "id": "2026-10-04-future-capacity-and-modern-identity",
+      "date": "2026-10-04",
+      "title": "Future unscheduled plans -- capacity testing and modern identity"
+    },
+    {
+      "id": "2026-10-04-multiplayer-map-parity",
+      "date": "2026-10-04",
+      "title": "Multiplayer map parity: all-map implementation plan"
+    },
+    {
+      "id": "2026-10-04-online-path-handoff",
+      "date": "2026-10-04",
+      "title": "The online path: handoff after web sprint 16 (for the next controller)"
+    },
+    {
+      "id": "2026-10-04-three-maps-and-feel",
+      "date": "2026-10-04",
+      "title": "The three maps and the feel -- plan (web sprints 25-32, proposed)"
+    },
+    {
+      "id": "2026-10-05-original-weapon-exchange",
+      "date": "2026-10-05",
+      "title": "Original Weapon Exchange -- local playtest plan"
+    },
+    {
+      "id": "2026-10-06-hostage-and-modes",
+      "date": "2026-10-06",
+      "title": "Hostage and the other modes -- plan (web sprints 31-32, proposed)"
+    },
+    {
+      "id": "2026-10-06-original-settings",
+      "date": "2026-10-06",
+      "title": "Original Options and Chat Menu completion -- plan"
+    },
+    {
+      "id": "2026-10-06-original-taunts",
+      "date": "2026-10-06",
+      "title": "Original taunts -- local feature plan"
+    },
+    {
+      "id": "2026-10-06-web-sprint-33-recording-and-the-room",
+      "date": "2026-10-06",
+      "title": "Web sprint 33 -- \"the recording and the room\" -- plan"
+    },
+    {
+      "id": "2026-10-07-actions-on-the-menu-match",
+      "date": "2026-10-07",
+      "title": "The actions part on the menu-launched match -- plan (between web sprints 31 and 32, the gameplay track)"
+    },
+    {
+      "id": "2026-10-07-original-gameplay-audio",
+      "date": "2026-10-07",
+      "title": "Original gameplay audio -- plan"
+    },
+    {
+      "id": "2026-10-07-original-victory-dances",
+      "date": "2026-10-07",
+      "title": "Original victory dances — plan"
+    },
+    {
+      "id": "2026-10-07-quick-prone-cancel-research",
+      "date": "2026-10-07",
+      "title": "Quick-prone / dive-to-prone cancel research task"
+    },
+    {
+      "id": "2026-10-07-web-sprint-34-the-session-and-the-briefing",
+      "date": "2026-10-07",
+      "title": "Web sprint 34 -- \"the session and the briefing\" -- plan"
+    },
+    {
+      "id": "2026-10-08-all-map-validation",
+      "date": "2026-10-08",
+      "title": "All-map feature validation -- plan"
+    },
+    {
+      "id": "2026-10-08-web-sprint-15-the-cards-data",
+      "date": "2026-10-08",
+      "title": "Web sprint 15 -- The card's data: libmc, the saves and the personas, as JSON over the virtual card -- plan"
+    },
+    {
+      "id": "2026-10-08-web-sprint-20-voice",
+      "date": "2026-10-08",
+      "title": "Web sprint 20 -- \"voice: lobby and match push-to-talk\" -- plan (ADOPTED, pending landing)"
+    },
+    {
+      "id": "2026-10-08-web-sprint-35-the-replay-viewer-and-the-loop",
+      "date": "2026-10-08",
+      "title": "Web sprint 35 -- \"the replay viewer and the loop\" -- plan"
+    },
+    {
+      "id": "2026-10-08-web-sprint-36-every-match-recorded",
+      "date": "2026-10-08",
+      "title": "Web sprint 36 -- \"every match, recorded\" -- plan"
+    },
+    {
+      "id": "2026-10-08-web-sprint-parity",
+      "date": "2026-10-08",
+      "title": "PARITY -- both match paths and the gameplay feel (web sprint PARITY-1, after ACT and before sprint 32)"
+    },
+    {
+      "id": "2026-10-08-web-sprint-parity-2",
+      "date": "2026-10-08",
+      "title": "PARITY-2 -- the follow-on half: movement, root motion, the seat ARMORY, touch, the warm-up, the convergence"
+    },
+    {
+      "id": "2026-10-09-modern-ui-parallel",
+      "date": "2026-10-09",
+      "title": "The modern UI -- a parallel tree's plan and handoff"
+    },
+    {
+      "id": "2026-10-09-web-graphics-upscale-pack",
+      "date": "2026-10-09",
+      "title": "The model-upscaled texture pack (graphics slice 3) -- plan"
+    },
+    {
+      "id": "2026-10-09-web-sprint-10-the-services",
+      "date": "2026-10-09",
+      "title": "Web sprint 10 -- Services: the stats record, clans, the ladder, chat, moderation -- plan"
+    },
+    {
+      "id": "2026-10-09-web-sprint-37-the-playtest-tooling",
+      "date": "2026-10-09",
+      "title": "Web sprint 37 -- \"the playtest tooling\" -- plan"
+    },
+    {
+      "id": "2026-10-09-web-sprint-playtest-batch",
+      "date": "2026-10-09",
+      "title": "The playtest batch -- the owner's playtest findings carried onto main"
+    },
+    {
+      "id": "2026-10-09-web-sprint-playtest-batch-2",
+      "date": "2026-10-09",
+      "title": "The playtest batch 2 -- plan"
+    },
+    {
+      "id": "2026-10-10-web-graphics-slice-4-packs",
+      "date": "2026-10-10",
+      "title": "Graphics slice 4 -- texture packs as a library, and the next experimental settings -- plan"
+    },
+    {
+      "id": "2026-10-10-web-sprint-22-the-results-and-the-lobbys-text",
+      "date": "2026-10-10",
+      "title": "Web sprint 22 -- the results, the ladder's guards, ONLINE OPTIONS, the filters and the lobby's text -- plan"
+    },
+    {
+      "id": "2026-10-10-web-sprint-38-the-replay-engine",
+      "date": "2026-10-10",
+      "title": "Web sprint 38: the replay engine -- plan"
+    },
+    {
+      "id": "2026-10-11-console-launcher",
+      "date": "2026-10-11",
+      "title": "The Console launcher -- plan"
+    },
+    {
+      "id": "2026-10-11-disc-access",
+      "date": "2026-10-11",
+      "title": "Disc access: a real disc and a remembered disc -- plan"
+    },
+    {
+      "id": "2026-10-11-web-parity-harness",
+      "date": "2026-10-11",
+      "title": "The parity harness -- the port against the original, through the recomp client -- plan"
+    },
+    {
+      "id": "2026-10-11-web-sprint-18-the-carried-and-the-players-pages",
+      "date": "2026-10-11",
+      "title": "Web sprint 18 (the players' half) -- sprint 22's carried items, then friends, ignore, the rankings, PLAYER INFO, the medals and the round's chat -- plan"
+    },
+    {
+      "id": "2026-10-11-web-sprint-39-the-replay-viewer-to-release",
+      "date": "2026-10-11",
+      "title": "Web sprint 39: the replay viewer to release -- plan"
+    },
+    {
+      "id": "2026-10-12-forge",
+      "date": "2026-10-12",
+      "title": "The forge -- plan"
+    },
+    {
+      "id": "2026-10-12-nightly-deploy",
+      "date": "2026-10-12",
+      "title": "The nightly (nightly.socom2legacy.com) -- plan"
+    },
+    {
+      "id": "2026-10-12-the-test-rooms-maps",
+      "date": "2026-10-12",
+      "title": "The test room's maps -- plan"
+    },
+    {
+      "id": "2026-10-13-modern-ui-polish-and-overlay",
+      "date": "2026-10-13",
+      "title": "The modern UI: the polish pass, the hold-SELECT overlay, the replay UI to release -- plan"
+    },
+    {
+      "id": "2026-10-13-next-update-checklist",
+      "date": "2026-10-13",
+      "title": "The next update's checklist (the owner's, 2026-10-13) -- plan"
+    },
+    {
+      "id": "2026-10-13-web-sprint-18-the-clans-pages",
+      "date": "2026-10-13",
+      "title": "Web sprint 18, the clans' half -- the clans' pages -- plan"
+    },
+    {
+      "id": "2026-10-13-web-sprint-19-clan-games-and-the-clans-ladder",
+      "date": "2026-10-13",
+      "title": "Web sprint 19, the clans' half -- clan games and the clans' ladder -- plan"
+    },
+    {
+      "id": "2026-10-14-web-sprint-19-watch-game-and-leaving",
+      "date": "2026-10-14",
+      "title": "Web sprint 19, the second half -- WATCH GAME and leaving a game -- plan"
+    },
+    {
+      "id": "2026-10-15-research-inventory-checkpoint",
+      "date": "2026-10-15",
+      "title": "Initial research inventory checkpoint — 2026-10-15"
+    },
+    {
+      "id": "2026-10-15-web-sprint-19-the-clans-finish",
+      "date": "2026-10-15",
+      "title": "Web sprint 19, the third part -- the clans' finish -- plan"
+    },
+    {
+      "id": "2026-10-15-web-sprint-40-the-reconciliation-adopted",
+      "date": "2026-10-15",
+      "title": "Web sprint 40 -- the research reconciliation adopted -- plan"
+    },
+    {
+      "id": "2026-10-16-front-end-pad-and-disc",
+      "date": "2026-10-16",
+      "title": "The front end's pad and disc -- plan"
+    },
+    {
+      "id": "2026-10-16-hostage-follow-pathing",
+      "date": "2026-10-16",
+      "title": "Hostage follow pathing -- plan"
+    },
+    {
+      "id": "2026-10-16-map-grenade-callouts",
+      "date": "2026-10-16",
+      "title": "Map-specific grenade callouts -- verification branch"
+    },
+    {
+      "id": "2026-10-16-scope-rendering",
+      "date": "2026-10-16",
+      "title": "Zoomed scope rendering -- plan"
+    },
+    {
+      "id": "2026-10-16-vote-kick",
+      "date": "2026-10-16",
+      "title": "Teammate vote kicking through the Chat menu"
+    },
+    {
+      "id": "2026-10-16-web-sprint-41-the-owners-lobby-batch",
+      "date": "2026-10-16",
+      "title": "Web sprint 41 -- the owner's lobby batch -- plan"
+    },
+    {
+      "id": "2026-10-17-c4-barricades",
+      "date": "2026-10-17",
+      "title": "C4 barricades -- plan"
+    },
+    {
+      "id": "2026-10-17-iphone-disc-extraction",
+      "date": "2026-10-17",
+      "title": "iPhone disc extraction -- manager handoff and plan"
+    },
+    {
+      "id": "2026-10-17-iphone-iso-picker",
+      "date": "2026-10-17",
+      "title": "Mobile ISO file selection -- manager handoff"
+    },
+    {
+      "id": "2026-10-17-mobile-layout-settings",
+      "date": "2026-10-17",
+      "title": "Mobile touch layout settings -- plan"
+    },
+    {
+      "id": "2026-10-17-mobile-menu-controls",
+      "date": "2026-10-17",
+      "title": "Mobile controls at ISO start -- plan"
+    },
+    {
+      "id": "2026-10-17-server-split",
+      "date": "2026-10-17",
+      "title": "The server split: one central service, community hosts, a match server per game -- plan"
+    },
+    {
+      "id": "2026-10-18-c4-breach-reliability",
+      "date": "2026-10-18",
+      "title": "C4 breach reliability -- plan"
+    },
+    {
+      "id": "2026-10-18-disc-share",
+      "date": "2026-10-18",
+      "title": "Disc share: your own disc's copy, sent to your other device on your network (first target: Edge on Xbox) -- plan"
+    },
+    {
+      "id": "2026-10-18-grenade-flow-playtest",
+      "date": "2026-10-18",
+      "title": "Grenade hold strength: manager handoff"
+    },
+    {
+      "id": "2026-10-18-launcher-menu-and-history",
+      "date": "2026-10-18",
+      "title": "The launcher's menu consolidated, and its pages in the browser's history -- plan"
+    },
+    {
+      "id": "2026-10-18-lobby-links",
+      "date": "2026-10-18",
+      "title": "Lobby links and their previews -- plan"
+    },
+    {
+      "id": "2026-10-18-mobile-screen-fit",
+      "date": "2026-10-18",
+      "title": "Mobile screen fit and bottom controls -- plan"
+    },
+    {
+      "id": "2026-10-18-pwa-install",
+      "date": "2026-10-18",
+      "title": "The page as an installable app (PWA) -- plan"
+    },
+    {
+      "id": "2026-10-18-test-room-launch-ui",
+      "date": "2026-10-18",
+      "title": "The test room's launch, rebuilt as one panel -- plan"
+    },
+    {
+      "id": "2026-10-18-test-room-shared",
+      "date": "2026-10-18",
+      "title": "The test room's SHARED, on this site's server -- plan"
+    },
+    {
+      "id": "2026-10-18-trello-board-skill",
+      "date": "2026-10-18",
+      "title": "The Trello board skill -- plan"
+    },
+    {
+      "id": "2026-10-18-turret-map-validation",
+      "date": "2026-10-18",
+      "title": "Turret map validation -- 2026-10-18"
+    },
+    {
+      "id": "2026-10-20-frostfire-bots",
+      "date": "2026-10-20",
+      "title": "Frostfire multiplayer bots -- plan"
+    },
+    {
+      "id": "2026-10-20-prone-pop-in-game",
+      "date": "2026-10-20",
+      "title": "The prone-pop in the game (OT.R67) -- plan"
+    },
+    {
+      "id": "2026-10-21-mic-tcm-select",
+      "date": "2026-10-21",
+      "title": "Local microphone-ready cue"
+    },
+    {
+      "id": "2026-10-21-respawn-audit",
+      "date": "2026-10-21",
+      "title": "Original multiplayer respawn -- audit plan"
+    },
+    {
+      "id": "2026-10-21-respawn-fixes",
+      "date": "2026-10-21",
+      "title": "Original multiplayer respawn -- confirmed-gap fixes"
+    },
+    {
+      "id": "2026-10-22-bots-respawn-integration",
+      "date": "2026-10-22",
+      "title": "Bots and respawn together -- local integration plan"
+    },
+    {
+      "id": "2026-10-22-extensibility",
+      "date": "2026-10-22",
+      "title": "Extensibility: one pack framework for content, behaviour and engine systems -- plan"
+    },
+    {
+      "id": "2026-10-22-fear-frostfire-bots",
+      "date": "2026-10-22",
+      "title": "F.E.A.R. tactical bots on Frostfire -- research and implementation plan"
+    },
+    {
+      "id": "2026-10-22-forge-agent-workflow",
+      "date": "2026-10-22",
+      "title": "Your agent in the Forge: an MCP creator workflow -- plan"
+    },
+    {
+      "id": "2026-10-22-menu-render-performance",
+      "date": "2026-10-22",
+      "title": "Native menu drawing performance -- plan"
+    },
+    {
+      "id": "2026-10-22-playtest-195-debrief",
+      "date": "2026-10-22",
+      "title": "The game 195 playtest's findings -- plan"
+    },
+    {
+      "id": "2026-10-22-public-status",
+      "date": "2026-10-22",
+      "title": "A public status page (/status) -- plan"
+    },
+    {
+      "id": "2026-10-22-test-host",
+      "date": "2026-10-22",
+      "title": "A separate test host for the online test room and the Forge -- plan"
+    },
+    {
+      "id": "2026-10-22-xbox-adaptive-resolution",
+      "date": "2026-10-22",
+      "title": "Xbox adaptive-resolution recovery"
+    },
+    {
+      "id": "2026-10-22-xbox-render-performance",
+      "date": "2026-10-22",
+      "title": "Xbox rendering performance investigation"
+    },
+    {
+      "id": "2026-10-23-bot-passages-grenades",
+      "date": "2026-10-23",
+      "title": "Frostfire passages and tactical throws -- plan"
+    },
+    {
+      "id": "2026-10-23-bot-respawn-local-test",
+      "date": "2026-10-23",
+      "title": "Frostfire tactical bots with local respawn -- test handoff"
+    },
+    {
+      "id": "2026-10-23-bot-roster-personalities",
+      "date": "2026-10-23",
+      "title": "Named bots, doors and four special opponents -- plan"
+    },
+    {
+      "id": "2026-10-23-controller-options",
+      "date": "2026-10-23",
+      "title": "CONTROLLER OPTIONS, every row working -- plan"
+    },
+    {
+      "id": "2026-10-23-frostfire-bot-combat",
+      "date": "2026-10-23",
+      "title": "Frostfire bot traffic and combat -- plan"
+    },
+    {
+      "id": "2026-10-23-mobile-edge-antialias",
+      "date": "2026-10-23",
+      "title": "Mobile edge antialiasing"
+    },
+    {
+      "id": "2026-10-23-mobile-touch-overlay",
+      "date": "2026-10-23",
+      "title": "Mobile full-screen touch picture and edge smoothing"
+    },
+    {
+      "id": "2026-10-23-native-settings-and-lobbies",
+      "date": "2026-10-23",
+      "title": "Native Settings, equipment slots and lobby reliability -- plan"
+    },
+    {
+      "id": "2026-10-23-net-resilience",
+      "date": "2026-10-23",
+      "title": "Network resilience: a short drop is a blip -- plan"
+    },
+    {
+      "id": "2026-10-23-releases-only-deploy",
+      "date": "2026-10-23",
+      "title": "Releases-only deploy -- versioned bundles in S3, host images by digest, no repository access on the boxes -- plan"
+    },
+    {
+      "id": "2026-10-23-tactical-bot-upgrade",
+      "date": "2026-10-23",
+      "title": "Smoother movement and varied tactical bots -- plan"
+    },
+    {
+      "id": "2026-10-23-vigilance-respawn-and-late-join",
+      "date": "2026-10-23",
+      "title": "Vigilance respawn and joining a running match -- plan"
+    },
+    {
+      "id": "2026-10-24-bots-land",
+      "date": "2026-10-24",
+      "title": "BOTS-LAND -- the bot chain's landing on main -- plan"
+    },
+    {
+      "id": "2026-10-24-flashbang-investigation",
+      "date": "2026-10-24",
+      "title": "Frostfire flashbang visual and sound correction"
+    },
+    {
+      "id": "2026-10-24-forge-agent-webrtc",
+      "date": "2026-10-24",
+      "title": "Forge and solo test-room MCP over WebRTC -- implementation plan"
+    },
+    {
+      "id": "2026-10-24-forge-creator-wishlist",
+      "date": "2026-10-24",
+      "title": "Forge creator wishlist -- sprint programme and delivery plan"
+    },
+    {
+      "id": "2026-10-24-forge-npc-brains",
+      "date": "2026-10-24",
+      "title": "Forge NPC brains -- plan"
+    },
+    {
+      "id": "2026-10-24-launcher-polish",
+      "date": "2026-10-24",
+      "title": "Launcher UI polish -- plan"
+    },
+    {
+      "id": "2026-10-25-forge-daynight",
+      "date": "2026-10-25",
+      "title": "Forge's shared day and night lighting -- plan"
+    },
+    {
+      "id": "2026-10-26-aws-gate-runner",
+      "date": "2026-10-26",
+      "title": "AWS gate runner -- plan"
+    },
+    {
+      "id": "2026-10-26-bot-name-initial",
+      "date": "2026-10-26",
+      "title": "Bot name initials -- plan"
+    },
+    {
+      "id": "2026-10-26-dispatch-process",
+      "date": "2026-10-26",
+      "title": "The dispatch process -- plan"
+    },
+    {
+      "id": "2026-10-26-launcher-redesign",
+      "date": "2026-10-26",
+      "title": "The launcher redesign (LR) -- plan"
+    },
+    {
+      "id": "2026-10-26-performance-profiling",
+      "date": "2026-10-26",
+      "title": "Performance profiling -- plan"
+    },
+    {
+      "id": "2026-10-27-agent-invitation-copy",
+      "date": "2026-10-27",
+      "title": "Agent invitation copy recovery -- plan"
+    },
+    {
+      "id": "2026-10-27-ff-human-team-balance",
+      "date": "2026-10-27",
+      "title": "Human team balance in the 24/7 bot lobby"
+    },
+    {
+      "id": "2026-10-27-ff-respawn-247-lobby",
+      "date": "2026-10-27",
+      "title": "The FF Respawn 24/7 lobby -- plan"
+    },
+    {
+      "id": "2026-10-27-smoke-visibility-investigation",
+      "date": "2026-10-27",
+      "title": "Smoke visibility investigation"
+    },
+    {
+      "id": "2026-10-28-bot-collision-optimization",
+      "date": "2026-10-28",
+      "title": "Bot collision optimization: draft implementation"
+    },
+    {
+      "id": "2026-10-28-bot-contact-validity",
+      "date": "2026-10-28",
+      "title": "Bot contact-route validity (2026-10-28)"
+    },
+    {
+      "id": "2026-10-28-bot-performance",
+      "date": "2026-10-28",
+      "title": "Bot performance -- plan"
+    },
+    {
+      "id": "2026-10-28-bot-performance-sprint-2",
+      "date": "2026-10-28",
+      "title": "Bot performance, sprint 2 -- capacity, memory and the 16-player lobby -- plan"
+    },
+    {
+      "id": "2026-10-28-bot-profiling-compare",
+      "date": "2026-10-28",
+      "title": "Bot profiling compare (BCMP) -- plan"
+    },
+    {
+      "id": "2026-10-28-bot-server-performance-investigation",
+      "date": "2026-10-28",
+      "title": "Bot match stalls: local investigation"
+    },
+    {
+      "id": "2026-10-28-bot-session-matrix",
+      "date": "2026-10-28",
+      "title": "Extended bot session matrix (2026-10-28)"
+    },
+    {
+      "id": "2026-10-28-bot-sprint-3",
+      "date": "2026-10-28",
+      "title": "Bot sprint 3 -- the second developer's queue: the next bot work, highest priority first -- plan"
+    },
+    {
+      "id": "2026-10-28-bot-validation-followup",
+      "date": "2026-10-28",
+      "title": "Bot validation follow-up (2026-10-28)"
+    },
+    {
+      "id": "2026-10-28-pad-support",
+      "date": "2026-10-28",
+      "title": "Controller support for pads read without the standard mapping -- plan"
+    },
+    {
+      "id": "2026-10-29-crossroads-map-rotation",
+      "date": "2026-10-29",
+      "title": "Crossroads repeats after a completed match"
+    },
+    {
+      "id": "2026-10-29-crouch-ramp",
+      "date": "2026-10-29",
+      "title": "Crouch locomotion changes unexpectedly on a ramp"
+    },
+    {
+      "id": "2026-10-29-lobby-switch-recovery",
+      "date": "2026-10-29",
+      "title": "Lobby team-switch recovery"
+    },
+    {
+      "id": "2026-10-29-mobile-fullscreen",
+      "date": "2026-10-29",
+      "title": "Movable mobile fullscreen -- plan"
+    },
+    {
+      "id": "2026-10-29-vigilance-bots",
+      "date": "2026-10-29",
+      "title": "Vigilance bots using the Frostfire foundation"
+    },
+    {
+      "id": "2026-10-30-community-host-tier",
+      "date": "2026-10-30",
+      "title": "Community host tier (single-user, unranked hosts) -- plan"
+    },
+    {
+      "id": "2026-10-30-demolition-blast",
+      "date": "2026-10-30",
+      "title": "Demolition bomb explosion -- plan"
+    },
+    {
+      "id": "2026-10-30-overnight-bugfix",
+      "date": "2026-10-30",
+      "title": "Overnight bug-fix sprint (OBF) -- plan"
+    },
+    {
+      "id": "2026-10-30-stance-modes-and-emulator-harness",
+      "date": "2026-10-30",
+      "title": "The two stance modes, and the emulator parity harness -- plan"
+    },
+    {
+      "id": "2026-10-31-hd-texture-pack-parity",
+      "date": "2026-10-31",
+      "title": "HD texture pack parity -- plan"
+    },
+    {
+      "id": "2026-10-31-ps2-controller-pressure",
+      "date": "2026-10-31",
+      "title": "PS2 controller pressure -- plan"
+    },
+    {
+      "id": "2026-10-31-xbox-match-black",
+      "date": "2026-10-31",
+      "title": "Xbox multiplayer black screen -- investigation"
+    },
+    {
+      "id": "2026-11-01-gpu-menus",
+      "date": "2026-11-01",
+      "title": "GPU menus (GM) -- plan"
+    },
+    {
+      "id": "2026-11-02-replay-viewer-redesign",
+      "date": "2026-11-02",
+      "title": "RV2 -- the replay viewer redesign -- plan"
+    }
+  ],
+  "issues": {
+    "included": false,
+    "open": [],
+    "openCount": 0,
+    "closedCount": 0
+  },
+  "journey": {
+    "start": {
+      "date": "2026-09-20",
+      "source": "docs/plans/2026-09-20-web-map-viewer.md"
+    },
+    "maps": {
+      "count": 22,
+      "source": "docs/DATA_SOURCES.md, Containers (RUN/MP*.ZDB); packages/archive/test/mapIndex.test.ts"
+    },
+    "checks": null,
+    "scores": [
+      {
+        "screen": "LOGIN",
+        "score": 99.8,
+        "reference": "a capture of the original game running (PCSX2)",
+        "scoring": "after the 4:3 correction",
+        "exact": false,
+        "source": "docs/research/144-login-to-socom-ii-online.md §7; tools/test/netLoginScore.test.ts"
+      }
+    ],
+    "chapters": [
+      {
+        "id": "map-viewer",
+        "from": "2026-09-20",
+        "to": "2026-09-28",
+        "source": "docs/plans/2026-09-20-web-map-viewer.md, docs/plans/2026-09-28-web-sprint-1.md"
+      },
+      {
+        "id": "playable",
+        "from": "2026-09-28",
+        "to": "2026-10-01",
+        "source": "docs/plans/2026-09-28-web-sprint-2-cloud.md, docs/plans/2026-09-28-web-sprint-2.md, docs/plans/2026-09-29-web-sprint-3-multiplayer.md, docs/plans/2026-09-30-web-sprint-4-arsenal.md, docs/plans/2026-09-30-web-sprint-5-armory.md"
+      },
+      {
+        "id": "own-project",
+        "from": "2026-10-01",
+        "to": "2026-10-02",
+        "source": "docs/plans/2026-10-01-repo-restructure.md, docs/plans/2026-10-01-web-sprint-6-foundations.md, docs/plans/2026-10-02-test-architecture.md"
+      },
+      {
+        "id": "menus",
+        "from": "2026-10-01",
+        "to": "2026-10-29",
+        "source": "docs/plans/2026-10-02-online-path-target.md, docs/plans/2026-10-02-web-sprint-7-dialog-runtime.md, docs/plans/2026-10-02-web-sprint-9-screens-widgets.md, docs/plans/2026-10-04-online-path-handoff.md, docs/plans/2026-10-08-web-sprint-15-the-cards-data.md, docs/plans/2026-10-08-web-sprint-20-voice.md"
+      },
+      {
+        "id": "legacy",
+        "from": "2026-10-03",
+        "to": "2026-10-10",
+        "source": "docs/plans/2026-10-03-startup-options.md, docs/plans/2026-10-09-modern-ui-parallel.md"
+      },
+      {
+        "id": "three-maps",
+        "from": "2026-10-04",
+        "to": "2026-10-27",
+        "source": "docs/plans/2026-10-04-three-maps-and-feel.md, docs/plans/2026-10-06-hostage-and-modes.md, docs/plans/2026-10-07-actions-on-the-menu-match.md, docs/plans/2026-10-08-web-sprint-parity.md, docs/plans/2026-10-09-web-sprint-playtest-batch.md"
+      },
+      {
+        "id": "replays",
+        "from": "2026-10-06",
+        "to": "2026-10-09",
+        "source": "docs/plans/2026-10-06-web-sprint-33-recording-and-the-room.md, docs/plans/2026-10-07-web-sprint-34-the-session-and-the-briefing.md, docs/plans/2026-10-08-web-sprint-35-the-replay-viewer-and-the-loop.md, docs/plans/2026-10-08-web-sprint-36-every-match-recorded.md"
+      }
+    ],
+    "now": {
+      "inProgress": [],
+      "next": [
+        "The browser's video settings page: render scale, performance options, FPS overlay, no-GPU notice"
+      ],
+      "inDevelopment": [
+        {
+          "label": "A modern launcher and lobby browser beside the original screens: a browser adaptation, not part of the original game",
+          "source": "docs/plans/2026-10-09-modern-ui-parallel.md"
+        }
+      ],
+      "source": "docs/roadmap/SPRINTS.md (the states as this generator reads them); the plans' Logs"
+    }
+  },
+  "news": [
+    {
+      "date": "2026-10-31",
+      "id": "2026-10-31-hd-texture-pack-parity",
+      "title": "HD texture pack parity",
+      "summary": "a texture pack made for PCSX2 (the community \"SOCOM II HD Textures\" pack, SCUS-97275, 4,172 files) applies in the test room's Experimental view to every texture it replaces -- world, props, characters, weapons, effects, HUD and UI -- with…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-31-hd-texture-pack-parity.md, ## Log, 2026-10-31"
+    },
+    {
+      "date": "2026-10-18",
+      "id": "2026-10-17-server-split",
+      "title": "The server split: one central service, community hosts, a match server per game",
+      "summary": "the one Node process that today serves the page, the maps, every match and every account on one box becomes three tiers -- the page on a CDN with no game data in it; one central service we run (accounts, the lobby, friends, clans, chat, th…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-17-server-split.md, ## Log, 2026-10-18"
+    },
+    {
+      "date": "2026-10-17",
+      "id": "2026-10-11-console-launcher",
+      "title": "The Console launcher",
+      "summary": "the modern launcher as the design's console home -- a PlayStation-style crossbar over one authored backdrop, driven by a pad, a keyboard (dev) or a mouse, that shows what the server and the emulator report and hands over to the game at STA…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-11-console-launcher.md, ## Log, 2026-10-17"
+    },
+    {
+      "date": "2026-10-17",
+      "id": "2026-10-13-modern-ui-polish-and-overlay",
+      "title": "The modern UI: the polish pass, the hold-SELECT overlay, the replay UI to release",
+      "summary": "the modern UI layer brought to release quality with hardened tests, then a hold-SELECT overlay of that layer over every page but the home console, in sync with the signed-in persona and the disc, then the replay UI to release.",
+      "state": "closed",
+      "source": "docs/plans/2026-10-13-modern-ui-polish-and-overlay.md, ## Log, 2026-10-17"
+    },
+    {
+      "date": "2026-10-16",
+      "id": "2026-10-16-web-sprint-41-the-owners-lobby-batch",
+      "title": "Web sprint 41 -- the owner's lobby batch",
+      "summary": "the owner's four lobby items -- the online ARMORY's selections kept, CREATE GAME's four maps, the GAME LOBBY's invite link with its login-to-join flow, and the clan roster's online dot centred and live.",
+      "state": "landed",
+      "source": "docs/plans/2026-10-16-web-sprint-41-the-owners-lobby-batch.md, ## Log, 2026-10-16"
+    },
+    {
+      "date": "2026-10-15",
+      "id": "2026-10-13-next-update-checklist",
+      "title": "The next update's checklist (the owner's, 2026-10-13)",
+      "summary": "the eight items of the owner's \"Next Update Checklist\" built on the match server's room and the page alike, each a reading of the original with its citation, so that the next nightly he asks for carries them.",
+      "state": "landed",
+      "source": "docs/plans/2026-10-13-next-update-checklist.md, ## Log, 2026-10-15"
+    },
+    {
+      "date": "2026-10-15",
+      "id": "2026-10-14-web-sprint-19-watch-game-and-leaving",
+      "title": "Web sprint 19, the second half -- WATCH GAME and leaving a game",
+      "summary": "the original's WATCH GAME gaps (the spectator password, the host's \"Too many spectators\", the late watcher into the round in progress, the rank checked for a player only, the spectator camera's three corrections) and the ways out of a game…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-14-web-sprint-19-watch-game-and-leaving.md, ## Log, 2026-10-15"
+    },
+    {
+      "date": "2026-10-15",
+      "id": "2026-10-15-web-sprint-19-the-clans-finish",
+      "title": "Web sprint 19, the third part -- the clans' finish",
+      "summary": "the clan pages' last named gaps closed -- the own record's clan post, PLAYER INFO's CLAN origin, the invitations' ticketless branch, CLAN RANKING's stalled reply chain, the spectator's clan tag (if the read finds a gap), the clan dialogs r…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-15-web-sprint-19-the-clans-finish.md, ## Log, 2026-10-15"
+    },
+    {
+      "date": "2026-10-14",
+      "id": "2026-10-08-web-sprint-parity-2",
+      "title": "PARITY-2 -- the follow-on half: movement, root motion, the seat ARMORY, touch, the warm-up, the convergence",
+      "summary": "first the handoff's owed gameplay reads -- the Frostfire box glitch's reading re-read at the source and its probe flipped, MP6's scaffold, main's two browser reds diagnosed, the bomb's plant clip settled -- then the rest of research 230's…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-08-web-sprint-parity-2.md, ## Log, 2026-10-14"
+    },
+    {
+      "date": "2026-10-14",
+      "id": "2026-10-13-web-sprint-19-clan-games-and-the-clans-ladder",
+      "title": "Web sprint 19, the clans' half -- clan games and the clans' ladder",
+      "summary": "the original's clan games online -- a clan game's joining and its sides, the swap after each match, the clan stats and the clans' ladder posted after a game -- and CLAN RANKING drawn over that ladder, each value cited, at the reading level…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-13-web-sprint-19-clan-games-and-the-clans-ladder.md, ## Log, 2026-10-14"
+    },
+    {
+      "date": "2026-10-13",
+      "id": "2026-10-13-web-sprint-18-the-clans-pages",
+      "title": "Web sprint 18, the clans' half -- the clans' pages",
+      "summary": "the original's clan pages online -- create a clan, the roster for members and for the leader, the invitations both ways, and the clan messages under MESSAGES -- drawn from the disc's dialogs over the clan services already built, each value…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-13-web-sprint-18-the-clans-pages.md, ## Log, 2026-10-13"
+    },
+    {
+      "date": "2026-10-12",
+      "id": "2026-10-11-web-sprint-39-the-replay-viewer-to-release",
+      "title": "Web sprint 39: the replay viewer to release",
+      "summary": "a player signed in to a server opens the launcher's Replays, sees the matches their account played there, watches one with controls that work by pad, mouse and touch, and every seek -- forward and back, across the bomb's pickup -- shows th…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-11-web-sprint-39-the-replay-viewer-to-release.md, ## Log, 2026-10-12"
+    },
+    {
+      "date": "2026-10-12",
+      "id": "2026-10-12-the-test-rooms-maps",
+      "title": "The test room's maps",
+      "summary": "the test room picks its map from a dropdown on its bar, and its LOCAL online play says plainly when the server does not play the room's map.",
+      "state": "closed",
+      "source": "docs/plans/2026-10-12-the-test-rooms-maps.md, ## Log, 2026-10-12"
+    },
+    {
+      "date": "2026-10-11",
+      "id": "2026-10-10-web-sprint-22-the-results-and-the-lobbys-text",
+      "title": "Web sprint 22 -- the results, the ladder's guards, ONLINE OPTIONS, the filters and the lobby's text",
+      "summary": "the match's results reach the services as research 155 §4 reads the original's -- the room counts and hands over, the services apply once and in order, the rating moves per round and the record folds at the match's end -- with the ladder's…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-10-web-sprint-22-the-results-and-the-lobbys-text.md, ## Log, 2026-10-11"
+    },
+    {
+      "date": "2026-10-11",
+      "id": "2026-10-11-disc-access",
+      "title": "Disc access: a real disc and a remembered disc",
+      "summary": "a player starts the game from a disc in a drive or a mounted image as well as from an.iso, and does not have to choose the disc again on the next visit.",
+      "state": "landed",
+      "source": "docs/plans/2026-10-11-disc-access.md, ## Log, 2026-10-11"
+    },
+    {
+      "date": "2026-10-10",
+      "id": "2026-10-09-web-sprint-10-the-services",
+      "title": "Web sprint 10 -- Services: the stats record, clans, the ladder, chat, moderation",
+      "summary": "the lobby's data behind the screens the online path already draws: the stats record the original keeps per account (its arithmetic, its 256 bytes, its store), clan identity, membership and messages, the ladder with its ranks and medals and…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-09-web-sprint-10-the-services.md, ## Log, 2026-10-10"
+    },
+    {
+      "date": "2026-10-10",
+      "id": "2026-10-10-web-sprint-38-the-replay-engine",
+      "title": "Web sprint 38: the replay engine",
+      "summary": "a replay's seek shows the whole state at the target -- the hostages, a running dance, the placed charges, the clocks -- and every piece of it is seen rendered. The server's records are kept honestly. The test room's replay mode is a sound…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-10-web-sprint-38-the-replay-engine.md, ## Log, 2026-10-10"
+    },
+    {
+      "date": "2026-10-09",
+      "id": "2026-10-08-web-sprint-15-the-cards-data",
+      "title": "Web sprint 15 -- The card's data: libmc, the saves and the personas, as JSON over the virtual card",
+      "summary": "the simulated card below its screens, over PLAT-25's two virtual slots: libmc's remaining commands and result codes over the slot's file table; the options save performing the original's 12 files, names, nominal sizes and op sequence with…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-08-web-sprint-15-the-cards-data.md, ## Log, 2026-10-09"
+    },
+    {
+      "date": "2026-10-09",
+      "id": "2026-10-08-web-sprint-36-every-match-recorded",
+      "title": "Web sprint 36 -- \"every match, recorded\"",
+      "summary": "every online match the hosted server runs is kept as a replay within a budget the owner sets. A participant can list and fetch their own matches' replays and watch one from the test room by its URL, and nothing personal enters a file or th…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-08-web-sprint-36-every-match-recorded.md, ## Log, 2026-10-09"
+    },
+    {
+      "date": "2026-10-09",
+      "id": "2026-10-08-web-sprint-parity",
+      "title": "PARITY -- both match paths and the gameplay feel (web sprint PARITY-1, after ACT and before sprint 32)",
+      "summary": "close the known differences between /testroom and the menu-launched match through shared parts, and repair the audited gameplay mechanisms against their cited original rules, with owner-visible exemptions and a menu-path gate on the three…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-08-web-sprint-parity.md, ## Log, 2026-10-09"
+    },
+    {
+      "date": "2026-10-09",
+      "id": "2026-10-09-web-sprint-37-the-playtest-tooling",
+      "title": "Web sprint 37 -- \"the playtest tooling\"",
+      "summary": "a playtest starts with one command and one printed link and records what it plays; a session's words and decisions survive its close and its death; a replay's seek shows the state at the target; the replay's untried paths are seen in a bro…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-09-web-sprint-37-the-playtest-tooling.md, ## Log, 2026-10-09"
+    },
+    {
+      "date": "2026-10-09",
+      "id": "2026-10-09-web-sprint-playtest-batch",
+      "title": "The playtest batch -- the owner's playtest findings carried onto main",
+      "summary": "every finding of the owner's playtests of 2026-10-06/07/08 that is not on main is a row here with its source, fixed on both matches where the original is read, and held for the owner where only the original running can settle it -- nothing…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-09-web-sprint-playtest-batch.md, ## Log, 2026-10-09"
+    },
+    {
+      "date": "2026-10-09",
+      "id": "2026-10-09-web-sprint-playtest-batch-2",
+      "title": "The playtest batch 2",
+      "summary": "the plant's own feedback the owner found missing on Crossroads -- the hold's progress bar, on the plant and the defuse alike, on both pages -- and the plant zone's marking once the original's rule is known.",
+      "state": "closed",
+      "source": "docs/plans/2026-10-09-web-sprint-playtest-batch-2.md, ## Log, 2026-10-09"
+    },
+    {
+      "date": "2026-10-08",
+      "id": "2026-10-07-web-sprint-34-the-session-and-the-briefing",
+      "title": "Web sprint 34 -- \"the session and the briefing\"",
+      "summary": "a playtest is a conversation with a controller that preserves everything, and what it produced lands in the repository's own evidence and task system: the shared playtest skill, observations that merge a mark with the player's words, the l…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-07-web-sprint-34-the-session-and-the-briefing.md, ## Log, 2026-10-08"
+    },
+    {
+      "date": "2026-10-08",
+      "id": "2026-10-08-web-sprint-20-voice",
+      "title": "Web sprint 20 -- \"voice: lobby and match push-to-talk\"",
+      "summary": "the original's push-to-talk from the game lobby into a round (one speaker per channel; the channel map, with sides, the dead zone, spectators, radio and mute), carried by our match server's room as Opus narrowband. It works in both the men…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-08-web-sprint-20-voice.md, ## Log, 2026-10-08"
+    },
+    {
+      "date": "2026-10-08",
+      "id": "2026-10-08-web-sprint-35-the-replay-viewer-and-the-loop",
+      "title": "Web sprint 35 -- \"the replay viewer and the loop\"",
+      "summary": "close the playtest loop: a recorded segment plays back in the test room as a spectator sees a match (play, pause, speed, step, seek, the original's three spectator modes), embedded in the session's report with a seek per observation; a \"fi…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-08-web-sprint-35-the-replay-viewer-and-the-loop.md, ## Log, 2026-10-08"
+    },
+    {
+      "date": "2026-10-07",
+      "id": "2026-10-06-web-sprint-33-recording-and-the-room",
+      "title": "Web sprint 33 -- \"the recording and the room\"",
+      "summary": "a room's match recorded authoritatively on both paths into one replay format, the playtest room's instruments (the badge, Mark this moment, the video ring), and the session service that launches a playtest, keeps what the page sends and pr…",
+      "state": "closed",
+      "source": "docs/plans/2026-10-06-web-sprint-33-recording-and-the-room.md, ## Log, 2026-10-07"
+    },
+    {
+      "date": "2026-10-06",
+      "id": "2026-10-02-online-path-target",
+      "title": "The online path: the roadmap retargeted (2026-10-02)",
+      "summary": "",
+      "state": "closed",
+      "source": "docs/plans/2026-10-02-online-path-target.md, ## Log, 2026-10-06"
+    },
+    {
+      "date": "2026-10-06",
+      "id": "2026-10-04-three-maps-and-feel",
+      "title": "The three maps and the feel",
+      "summary": "Frostfire (MP2, SUPPRESSION), Crossroads (MP72, DEMOLITION) and Vigilance (MP51, SUPPRESSION) play as the original and feel as the original -- then the hostage and the other modes -- in eight sequential sprints, each closing on its own gat…",
+      "state": "landed",
+      "source": "docs/plans/2026-10-04-three-maps-and-feel.md, ## Log, 2026-10-06"
+    },
+    {
+      "date": "2026-09-28",
+      "id": "2026-09-28-web-sprint-1",
+      "title": "Web sprint 1 — \"the engine's world\"",
+      "summary": "the viewer holds the engine's world as the engine holds it — grid, regions, LOD fades, ground, disc spawns, the detail pass — so a person walks Frostfire from A's spawn to B's at the SEAL's eye height over the game's floors.",
+      "state": "closed",
+      "source": "docs/plans/2026-09-28-web-sprint-1.md, ## Log, 2026-09-28"
+    },
+    {
+      "date": "2026-09-28",
+      "id": "2026-09-28-web-sprint-2",
+      "title": "Web sprint 2 — \"the SEAL in the world\"",
+      "summary": "the walk becomes the game's player as far as a TypeScript re-implementation carries it — the game's third-person camera with a stand-in body in the frame, the game's speeds and ramp and fall, the game's reticle, a hitscan shot that marks t…",
+      "state": "closed",
+      "source": "docs/plans/2026-09-28-web-sprint-2.md, ## Log, 2026-09-28"
+    },
+    {
+      "date": "2026-09-28",
+      "id": "2026-09-28-web-sprint-2-cloud",
+      "title": "Web sprint 2 — \"the player\"",
+      "summary": "a SEAL body that is the player -- the real mesh, the game's motions, the game's jump, the shot from the game's fire point with the game's recoil -- seen as the game shows it.",
+      "state": "closed",
+      "source": "docs/plans/2026-09-28-web-sprint-2-cloud.md, ## Log, 2026-09-28"
+    }
+  ],
+  "milestones": [
+    {
+      "id": "round-feel",
+      "status": "In progress",
+      "source": "docs/roadmap/SPRINTS.md: sprints 23, 19; the plans' Logs: 2026-09-28-web-sprint-2, 2026-09-30-web-sprint-4-arsenal, 2026-10-04-three-maps-and-feel, 2026-10-08-web-sprint-parity, 2026-10-08-web-sprint-parity-2"
+    },
+    {
+      "id": "map-rules",
+      "status": "In progress",
+      "source": "the plans' Logs: 2026-10-04-three-maps-and-feel, 2026-10-06-hostage-and-modes, 2026-10-04-multiplayer-map-parity, 2026-10-08-all-map-validation"
+    },
+    {
+      "id": "online-flow",
+      "status": "In progress",
+      "source": "docs/roadmap/SPRINTS.md: sprints 8, 11, 16, 17, 15, 20, 10, 22, 18"
+    },
+    {
+      "id": "look-sound-controls",
+      "status": "In progress",
+      "source": "docs/roadmap/SPRINTS.md: sprints 7, 9, 24, 21, 12, 13, 14"
+    }
+  ]
+}

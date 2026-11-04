@@ -1,0 +1,9 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). STM-3 (a): crouched, a full Triangle (the drop), a light Triangle released 300 ms into the drop (the bounce).
+# Starts from the saved state standing (--state). One trial per run: run it three times (STM-3: three repeats).
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351).
+500 triangle 0.2
+600 triangle 0
+3000 triangle 1.0
+3150 triangle 0
+3200 triangle 0.2
+3300 triangle 0

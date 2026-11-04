@@ -1,0 +1,188 @@
+/*
+ * FORGE (FG-27; FG.R22, a browser adaptation with no original): the lobby popup -- a window over the forge's toolbar
+ * and docks (z-index above `.fx-top` 3 and `.fx-dock` 2), on the forge's `--fx-*` tokens (`../forge.css`). Its own file,
+ * imported by `./window.ts`, so the forge's stylesheet is not edited by this task. Laid out to stay legible from
+ * 480 x 360 (the window's minimum) to 1280 x 720: the lists and the chat scroll, the buttons wrap; on a smaller screen
+ * (a phone) the window takes the screen's width (and its height below 360 px; LATER 68), the two teams side by side,
+ * a long name ellipsised.
+ * FUI-7 (FUI.R4): every colour, radius, shadow and stacking step is an alias in `../tokens.css` (read by `../forge.css`;
+ * the window is only drawn inside the Forge's body), with no fallback of its own; the focus ring is the Forge's one rule.
+ */
+.fx-window {
+  position: fixed;
+  z-index: var(--fx-z-window);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* LATER 68: the floor yields to a smaller screen (a phone), as `clampRect` does (`./window.ts`). */
+  min-width: min(480px, 100vw);
+  min-height: min(360px, 100dvh);
+  background: var(--fx-panel);
+  color: var(--fx-text);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+  font: var(--fx-type-body);
+  overflow: hidden;
+}
+/* FG-44: `display: flex` above beats the attribute's own `display: none`; hidden (START, "Hide the lobby"), not drawn. */
+.fx-window[hidden] { display: none; }
+.fx-window-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2u-space-2);
+  height: 30px;
+  padding: 0 var(--s2u-space-1) 0 10px;
+  background: linear-gradient(var(--fx-panel), var(--fx-bar));
+  border-bottom: 1px solid var(--fx-edge);
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+.fx-window-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: var(--fx-type-caption);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fx-gold);
+}
+.fx-window-close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--fx-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-window-close:hover { color: var(--fx-text); border-color: var(--fx-control-edge); }
+.fx-window-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.fx-window-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--fx-edge-hi) 50%, var(--fx-edge-hi) 60%, transparent 60%, transparent 70%, var(--fx-edge-hi) 70%, var(--fx-edge-hi) 80%, transparent 80%);
+}
+
+/* ---------- the lobby view ---------- */
+.fx-lobby { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: var(--s2u-space-2); box-sizing: border-box; }
+.fx-lobby[hidden], .fx-lobby-armory-view[hidden] { display: none; }
+.fx-lobby-head { flex: none; display: flex; align-items: baseline; gap: 10px; }
+.fx-lobby-title { font-family: var(--s2u-font-display); color: var(--fx-gold); font-size: 16px; letter-spacing: 0.06em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fx-lobby-map { color: var(--fx-dim); font: var(--fx-type-caption); letter-spacing: 0.1em; }
+.fx-lobby-head .fx-lobby-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.fx-lobby-main { flex: 1 1 auto; min-height: 60px; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.fx-lobby-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fx-lobby-list { background: var(--fx-bg); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); min-width: 0; }
+.fx-lobby-list-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px var(--s2u-space-2);
+  font: var(--fx-type-caption);
+  letter-spacing: 0.14em;
+  border-bottom: 1px solid var(--fx-edge);
+}
+.fx-lobby-seal .fx-lobby-list-head { color: var(--fx-side-seal); }
+.fx-lobby-terrorist .fx-lobby-list-head { color: var(--fx-side-terrorist); }
+.fx-lobby-spectator .fx-lobby-list-head { color: var(--fx-dim); }
+.fx-lobby-rows { list-style: none; margin: 0; padding: 2px 0; }
+.fx-lobby-row { display: flex; align-items: center; gap: 6px; padding: 2px var(--s2u-space-2); }
+.fx-lobby-row.is-me { background: var(--fx-panel-2); box-shadow: inset 2px 0 0 var(--fx-gold); }
+.fx-lobby-name { flex: 1 1 auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The roster's ready mark, scoped to its row: the READY button's class is `fx-lobby-ready` too (FG-48's look). */
+.fx-lobby-row .fx-lobby-ready { flex: none; width: 12px; text-align: center; color: var(--fx-dim); }
+.fx-lobby-row.is-ready .fx-lobby-ready { color: var(--fx-ready); }
+.fx-lobby-host { flex: none; width: 12px; text-align: center; color: var(--fx-gold); }
+.fx-lobby-countdown { flex: none; text-align: center; color: var(--fx-gold); font-family: var(--s2u-font-label); letter-spacing: 0.12em; }
+.fx-lobby-countdown[hidden], .fx-lobby-refused[hidden], .fx-lobby-btn[hidden] { display: none; }
+.fx-lobby-refused { flex: none; color: var(--fx-alert); font: var(--fx-type-control); }
+
+/* the talker bar */
+.fx-lobby-voice { flex: none; display: flex; align-items: center; gap: var(--s2u-space-2); }
+.fx-lobby-talker {
+  flex: 1 1 auto; min-height: 18px; padding: 2px var(--s2u-space-2); background: var(--fx-bg); border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+
+/* the chat */
+.fx-lobby-chat { flex: 0 1 150px; min-height: 70px; display: flex; flex-direction: column; gap: var(--s2u-space-1); }
+.fx-lobby-lines {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: var(--s2u-space-1) var(--s2u-space-2);
+  background: var(--fx-bg); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); font: var(--fx-type-control);
+}
+.fx-lobby-line { overflow-wrap: anywhere; }
+.fx-lobby-line.is-team { color: var(--fx-ready); }
+.fx-lobby-line.is-notice { color: var(--fx-dim); font-size: 13px; font-style: italic; }
+.fx-lobby-chat-form { flex: none; display: flex; gap: var(--s2u-space-1); }
+.fx-lobby-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  color: var(--fx-text);
+  background: var(--fx-bg);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  padding: 3px 6px;
+  user-select: text;
+}
+.fx-lobby-input:hover { border-color: var(--fx-gold); }
+
+/* the buttons */
+.fx-lobby-buttons { flex: none; display: flex; flex-wrap: wrap; gap: var(--s2u-space-1); }
+.fx-lobby-btn, .fx-lobby-team, .fx-lobby-say, .fx-lobby-talk {
+  font: var(--fx-type-control);
+  font-family: var(--s2u-font-label);
+  letter-spacing: 0.1em;
+  color: var(--fx-text);
+  background: var(--fx-panel-2);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  padding: var(--s2u-space-1) 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* Never below its text (FG-48's look: nine controls left no spare width): the row wraps onto a second line instead. */
+.fx-lobby-btn { flex: 1 1 auto; min-width: max-content; }
+.fx-lobby-btn:hover:not(:disabled), .fx-lobby-team:hover, .fx-lobby-say:hover, .fx-lobby-talk:hover { background: var(--fx-hover); border-color: var(--fx-gold); }
+.fx-lobby-btn:disabled { cursor: default; }
+.fx-lobby-btn.is-on, .fx-lobby-team.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-lobby-launch { color: var(--fx-gold); }
+.fx-lobby-talk { flex: none; touch-action: none; user-select: none; }
+.fx-lobby-talk.is-on { color: var(--fx-on-accent); background: var(--fx-ready); border-color: var(--fx-ready); }
+
+/* FG-48: the host's cards over the controls (the password's), and the create card's password field */
+.fx-lobby { position: relative; }
+.fx-lobby-card {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: var(--fx-z-local);
+  display: flex; flex-direction: column; gap: var(--s2u-space-2); width: min(320px, calc(100% - 24px)); box-sizing: border-box; padding: var(--s2u-space-3);
+  background: var(--fx-panel); border: 1px solid var(--fx-gold); border-radius: var(--fx-radius); box-shadow: var(--fx-lift);
+}
+.fx-lobby-card[hidden] { display: none; }
+.fx-lobby-card-title { font-family: var(--s2u-font-label); letter-spacing: 0.1em; color: var(--fx-gold); }
+.fx-lobby-card-note { margin: 0; font: var(--fx-type-body); color: var(--fx-dim); }
+.fx-lobby-card-buttons { display: flex; gap: 6px; }
+/* FG-48b: the kick card's seats, one button a seat, wrapped and scrolled past a few rows (a forge lobby holds up to 32). */
+.fx-lobby-card-seats { flex-wrap: wrap; max-height: 160px; overflow-y: auto; }
+.fx-card .fx-lobby-password { display: flex; flex-direction: column; gap: var(--s2u-space-1); margin-top: 10px; font: var(--fx-type-control); color: var(--fx-text); }
+
+/* the ARMORY in the window: its 640 x 448 frame fitted (ArmoryView letterboxes inside the canvas's buffer) */
+.fx-lobby-armory-view { flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; display: block; background: var(--fx-deep); touch-action: none; }
+
+@media (max-width: 640px), (max-height: 420px) {
+  .fx-window { font-size: 12px; }
+  .fx-lobby { gap: var(--s2u-space-1); padding: 6px; }
+  .fx-lobby-chat { flex-basis: 110px; }
+  .fx-lobby-btn, .fx-lobby-team, .fx-lobby-say, .fx-lobby-talk { padding: 3px 6px; letter-spacing: 0.06em; }
+}

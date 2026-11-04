@@ -1,0 +1,37 @@
+{
+ "_source": "disc RUN/READERC.ZAR motion.rdr animations (playback) and RUN/MOTION_P.ZAR (clip duration, parseMotionZar in packages/scene/src/motion.ts); frames = duration x 30; read 2026-10-02",
+ "clips": {
+  "seal_throwgrenade": {
+   "playback": 1.6,
+   "frames": 28
+  },
+  "seal_tossgrenade": {
+   "playback": 1.6,
+   "frames": 30
+  },
+  "seal_crouch_throwgrenade": {
+   "playback": 1.1,
+   "frames": 19
+  },
+  "seal_prone_throwgrenade": {
+   "playback": 1.6,
+   "frames": 27
+  },
+  "seal_prone_tossgrenade": {
+   "playback": 1.1,
+   "frames": 27
+  },
+  "seal_toss_rlean": {
+   "playback": 1.25,
+   "frames": 35
+  },
+  "seal_toss_llean": {
+   "playback": 1.2,
+   "frames": 28
+  },
+  "seal_place_claymore": {
+   "playback": 2.7,
+   "frames": 55
+  }
+ }
+}

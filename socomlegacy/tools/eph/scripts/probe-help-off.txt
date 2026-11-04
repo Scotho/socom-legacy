@@ -1,0 +1,24 @@
+# EPH probe script (tools/eph/probe.ts, PCSX2 alone; grammar <t_ms> <input> <pressure>). Seat ac, 2026-11-01, for 6d before the cancel reruns.
+# Not a probe case: sets the pause menu HELP to OFF (START, down x4 to HELP, X toggles, up x4 to RESUME, X), for a state saved with --save-after.
+500 start 1
+650 start 0
+1500 down 1
+1600 down 0
+2000 down 1
+2100 down 0
+2500 down 1
+2600 down 0
+3000 down 1
+3100 down 0
+3600 cross 1
+3750 cross 0
+4500 up 1
+4600 up 0
+5000 up 1
+5100 up 0
+5500 up 1
+5600 up 0
+6000 up 1
+6100 up 0
+6600 cross 1
+6750 cross 0

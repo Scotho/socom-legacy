@@ -1,0 +1,63 @@
+# 367 -- SocomMapBuilder (FatalityDevelopment), surveyed against redotcom's readers and the forge
+
+Written 2026-10-25 in the owner's seat, at his ask ("check out how this project is doing forge and how it compares to
+ours"). **Confidence: source inspection of a third-party tool, plus our own readers' notes it is compared with. Nothing
+here is a reading of the original; nothing is cited from the tool as evidence of the game.** What was read: the
+repository https://github.com/FatalityDevelopment/SocomMapBuilder at `master` 2a90555f (one squashed commit dated
+2026-10-25, 164 files, no licence file), its `docs/formats/` (545 lines) and its server and page sources.
+
+## 1. What it is
+
+A local editor for the game's own package files, not a port. A .NET 8 server owns an opened `.ZDB` in memory, every
+edit is an `ASSET_*` command with undo, and a React plus three.js page previews and sends commands. Save writes a new
+`.ZDB`, or a `.CDB` pack its own cheat-code loader mounts from the memory card (§3). Its Map Builder page edits GEO
+instances (move, duplicate, delete; `worldmodel` refused), `CLUTTER.ZAR` placements (move, add, delete) and the AIMAPS
+named points (move, §3); it imports a prop, vehicle, weapon or character from another package with its textures and
+palettes. Beyond the map: a model editor, an animation editor for `MOTION_S.ZAR`, an asset browser, and SOCOM 3,
+Combined Assault and GTA San Andreas converters. The README credits "Code Designer AI" for the research and the build.
+
+## 2. Against the forge
+
+Different questions. Theirs changes the disc's files so the original game draws them; ours keeps the disc untouched
+and composes a layout (a recipe, FG.R3) for our own engine and match server. Theirs writes every format we only read;
+ours has everything after placement (Play as the offline match, lobbies on central, NPCs, objectives, settings, saves,
+share links, the pad, the map check), which theirs lacks. Neither edits world nodes (their refusal; our FG.R5, FG-3,
+FG-6 open). Theirs edits clutter; §4 says how much of that the forge already has.
+
+## 3. Their format claims against our readers
+
+| Their claim | Ours | Verdict |
+|---|---|---|
+| `nparams` word 22: 7 on a model root, 1 elsewhere | `sceneGraph.ts` `NODE_MODEL` = 7, `NODE_GENERIC` = 1 (reCOM `znode.h`) | agrees |
+| `nparams` word 23 flags `0x80800051`, `+0x40000` on visual owners; zeros leave the model unbound in game | we name bits 1-3, 5, 6 and 8-9 (facade); bits 0, 4, 18, 23, 31 unnamed | a histogram over the archives would name nothing we act on; the "unbound" claim is loader behaviour, a `derive-from-desktop` candidate only if GEO is ever written. Not pursued (the owner, 2026-10-25). |
+| texture header `+0x08` = TEX0.TBP0 | `loadMap.ts` keys a library's textures by `gsaddr`, the TBP0 and MIPTBP1 space | agrees; already ours |
+| `vparams` flag `0x20000` selects int16/32768 (weapons) over /16 | `mesh/interpret.ts` reads the VIF command (`0x70` ITOF15, `0x68` ITOF4; research 15 §0) | the microcode's command is authoritative; the GEO bit can only confirm it. Not pursued. |
+| clutter `params`: a matrix layout and a quaternion layout | `scene/clutter.ts` reads both | agrees |
+| a `.CDB` pack is mounted natively from `mc0:/BASCUS-97275<NAME>/<NAME>.CDB` | the ELF's string tables (`SCUS_972.75.strings.txt`, `socom2_game.elf.strings.txt` on the owner's host) hold one matching string, the save directory `BASCUS-97275SOCOMII`; no `mc0:`, `.CDB` or `loadpack` | **not native**: their "confirmed in game with loadpack" is their own cheat-code loader (`cds/pack_stream`). Dropped as a reading candidate. |
+| AIMAPS named points: `count`, "one more u32", then 24-byte records `{name[16], team u8, kind u8, 2 pad, packed cell u32}`; a move rewrites the cell | research 75 §5.1 and `scene/aimaps.ts`: `count`, then 24-byte records `{u32 loc; char name[16]; u32 word}`, parsed to the last byte on all 22 files; Frostfire's bytes at 0x159d0 read count 6, loc, `PlayerStart`, word, the next loc | **their layout is shifted one word** (`MPS/MapPoints.cs:31-45`): their "one more u32" is the first point's `loc`, their "packed cell" at `+0x14` is the *next* point's `loc`, their team and kind bytes are our `word`'s bytes 0-1 (kind in byte 1 agrees with 75 §5.1). Their move rewrites the following point's cell and the last point reads past the table. Their own doc says the move is unconfirmed in game. The owner passes it on. |
+| facade trees turned by the name pattern `*_facade*` | `facadeOf(flags)`, bits 8-9 of the node flags (reCOM) | ours is the engine's rule; nothing to take |
+
+## 4. Clutter in the forge: what is already there, what is not
+
+By source inspection (a browser check on MP2 is owed before any of this is relied on): `loadMap.ts` joins
+`CLUTTER.ZAR`'s placements into `LoadedMap.props` (lines 1340-1396, grid cells of kind `clutter`); `forge/library.ts`
+`palette()` offers every prototype with geometry bar the world facade model, so bushes and clutter trees are already
+placeable pieces; `hidden` keys a placement by model and place, so a disc bush can already be hidden; facade turning is
+the view's (`world.ts` `turnFacade` on `facadeOf`), so a placed facade tree turns; clutter has no `di`, so a placed bush
+is not solid, as the walk never reaches clutter.
+
+What they have that the forge lacks, filed as LATER 462-464 under the scope ruling of 2026-10-25 (S1-S3 nailed, S4
+cut): a uniform scale per piece (the v2 row is yaw-only, FG.R10, while the disc scales clutter per placement through
+`scale_inverse`); a scatter tool (N copies on the surface under a brush, random yaw, a scale range, one undo step);
+a clutter filter in the assets dock (`clutterPlaced` tells the disc's clutter apart).
+
+## 5. For the MC plan's command layer
+
+A modest help, folded into `plans/2026-10-22-forge-agent-workflow.md` "Research and recommendations" (pass 3): four
+plumbing details of their `POST /api/command` worth MC-3's brief. The command vocabulary stays MC-3's.
+
+## 6. Deferred by the owner (2026-10-25)
+
+A layout-to-package bridge (their `moveInstance` / `duplicateInstance` ops describe the same thing as a v2 piece) and
+the reverse check (their edited package opened by our loader); their cheat-code loader (`lib_models`, `place_lib`,
+`free_guard`) as prior art on what the retail client can load at runtime, beside the extensibility plan.

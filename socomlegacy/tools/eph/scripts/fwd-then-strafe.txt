@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Two-axis case, case fwd-then-strafe (EPH-TILT follow-up; run alone, with strafe-then-fwd and the back-then-strafe pair).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: whether the lateral axis reaches the game while forward is already held: lup alone 1 s, then lleft added 1 s, then both released.
+# Look: stickForward and stickLateral of the lup=1+lleft=1 segment on each side (PCSX2 actor+0x240 / +0x244, FUN_00586570 D:L444830-444832; the page Walker.cutStick), and headingDeg. PCSX2's +0x244 at 0 while the page reads the push is the injector or PCSX2's key combination, a harness issue, not parity (analyze.ts notes it).
+# Route: as asked (lup then lleft). At yaw 180 lup runs +z, where no replay sampled the ground from the start (every run's pcsx2.csv near x 937 stops at z 858), and lleft runs +x toward the dip at x 950-980 (y -148 to -150, the ditch of the 2026-10-31 divergence). The axis values do not depend on the ground; the heading and the path past the first second may, so read them with that. back-then-strafe / strafe-then-back are the same two-axis test on sampled flat ground.
+# Evidence (2026-10-31 runs, C:/Projects/eph-run/runs/*/pcsx2.csv, the lowest y per 10 u cell): x 920-950, z 810-855 lie at y -145 to -147 (flat); +x 950-980 dips to -150; -x of 910 climbs the bank (y -144 at x 910, -137 at x 880).
+500 lup 1      # forward alone
+1500 lleft 1   # lateral added, forward held
+2500 lup 0
+2500 lleft 0

@@ -1,0 +1,35 @@
+{
+  "purpose": "Original-authored browser adaptation fixture source; not a runtime or pack contract",
+  "name": "signal-crate",
+  "license": "GPL-3.0-only",
+  "provenance": "Original geometry and colors authored for redotcom FCW-09; no disc or third-party payload",
+  "coordinates": {
+    "unit": "metre",
+    "handedness": "right",
+    "up": "+Y",
+    "markerFace": "+Z",
+    "origin": "bottom centre",
+    "validVariantTransforms": "identity; all dimensions baked into vertices",
+    "placement": "translation and yaw about +Y only; unit positive scale",
+    "faceWinding": "counterclockwise viewed from outside"
+  },
+  "vertices": [
+    [-1, 0, -0.5], [1, 0, -0.5], [1, 0, 0.5], [-1, 0, 0.5],
+    [-1, 1.5, -0.5], [1, 1.5, -0.5], [1, 1.5, 0.5], [-1, 1.5, 0.5]
+  ],
+  "faces": [
+    {"name": "bottom", "indices": [0, 1, 2, 3], "rgba": [0.25, 0.125, 0.5, 1]},
+    {"name": "orange-top", "indices": [4, 7, 6, 5], "rgba": [1, 0.5, 0, 1]},
+    {"name": "cyan-marker", "indices": [3, 2, 6, 7], "rgba": [0, 0.75, 1, 1]},
+    {"name": "back", "indices": [0, 4, 5, 1], "rgba": [0.5, 0.25, 0.75, 1]},
+    {"name": "left", "indices": [0, 3, 7, 4], "rgba": [0.5, 0.25, 0.75, 1]},
+    {"name": "right", "indices": [1, 5, 6, 2], "rgba": [0.5, 0.25, 0.75, 1]}
+  ],
+  "variants": [
+    {"name": "solid", "collision": "convex", "scale": [1, 1, 1], "externalImage": false},
+    {"name": "visual-only", "collision": "none", "scale": [1, 1, 1], "externalImage": false},
+    {"name": "degenerate-hull", "collision": "collapsed-y", "scale": [1, 1, 1], "externalImage": false},
+    {"name": "mirrored-transform", "collision": "convex", "scale": [-1, 1, 1], "externalImage": false},
+    {"name": "external-uri", "collision": "convex", "scale": [1, 1, 1], "externalImage": true}
+  ]
+}

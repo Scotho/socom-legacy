@@ -1,0 +1,10 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Two-key gap case, case fwd-left-same (MV-PARITY (c), EPH-TILT round 5; run alone, with fwd-left-same, fwd-then-left-half, strafe-then-fwd, turn-fwd-then-left and turn-fwd-then-right).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180).
+# Tests: (b) W and A pressed on the same frame from rest, held 1.0 s.
+# Look: stickForward / stickLateral of the two-key segment per side, and on PCSX2 ctlForward / ctlLateral (the controller object, FUN_00551ec0 D:L418613-418615), padMoveA/B and padRaw0..3 (the pad, FUN_002da930) and padFlag0 (FUN_005966a0 D:L453768); analyze.ts names the stage that lost an axis: the pad bytes, the controller object, or after the copy.
+# Why: in the 2026-10-31 captures every lost W+A had the second key 1.0 s after the first and every kept pair 0.5 s or less; the W runs were also in water (+0x105e 0x80 from z about 871) with top action 3 or 67.
+# Ground: as asked, at yaw 180: W runs +z and reaches the water near z 871 after about 0.25 s (the 2026-10-31 runs' flags105e); the diagonal keeps part of it +x.
+500 lup 1
+500 lleft 1
+1500 lup 0
+1500 lleft 0

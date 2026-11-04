@@ -1,0 +1,11 @@
+{
+  "sourceCommit": "fb2c33b1d041eeffa757f78482d52f92f50b98ad",
+  "sourceFile": "src/experimentalPass.ts",
+  "description": "Both shader stages of the synthetic postShader fixture, three.js r186; no normalization needed for these unskinned shaders, no GPU.",
+  "hashes": {
+    "GLSL/false": "14ff58f0806b25e52213c7fe8d8fbf66ea27351dfd2e4462c90ce9af7cf8e332",
+    "GLSL/true": "8915b2399f2a7c6b197612603a12c9d75e796f707921d93175e3e42806040164",
+    "WGSL/false": "5677e2d6f4ad1049d29e0dd8c631129adede53d6b9414992a5582abc17e1f118",
+    "WGSL/true": "2c5b3fbac4239dc8d2ef30e92d03e7b1193b68c19cab7a82b05e4aa986862d5f"
+  }
+}

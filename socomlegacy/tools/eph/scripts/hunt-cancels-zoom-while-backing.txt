@@ -1,0 +1,18 @@
+# EPH script (tools/eph/script.ts grammar: <t_ms> <input> <pressure>). Animation cancels hunt, case zoom-while-backing (seat ac, 2026-11-01; tools/eph/scripts/hunt-cancels-*.txt).
+# Starts from the saved standing state (--state 8 on r0001, M51's insertion point: PCSX2 936.9,-145.5,855.0, the page 939.4,-145.9,857.1, facing +z = yaw 180; the runner refuses two sides in different start stances). One trial per run: run it three times.
+# Tests: backing at half push (ldown 0.5) 2.8 s: d-pad Up at 1.3 s (first person) and 2.0 s (the scope), d-pad Down at 2.7 and 2.9 s (back to third person).
+# Look: steadySpeed of each zoom level's segment: whether aiming (first person, the scope) slows the walk on either side (the zoom steps: FUN_005445b0, research 84 section 7, packages/viewer/src/gamepad.ts PAD_LAYOUT); topActionId for an aim stance or clip; whether a zoom press is refused while moving.
+# Ground: ldown runs -z on the flat strip (back-then-strafe 20261031T162801Z: z 855 -> 843 in 0.5 s at full, both together; incline-prone segment 3: 37.0 vs 36.7 u/s); the strip runs to z 810, 45 u. At half push backing is slower than the full 37 u/s, so 2.8 s stays short of z 810 unless half push is over 16 u/s; read the z.
+# Every case: read actionId and topActionId in pcsx2.csv frame by frame from the second press (a clip the original plays that the page's action_name never shows is the finding), beside posture / stanceRequest and the page's stance, action_name, action_t and action_reversed.
+# Owner (Craig, 2026-11-01): "try every strange movement combination and look for the small animations we could have missed. directions, momentum, dives, animation cancels, everything you can think of."
+# A full Triangle acts when its pressure crosses 0.3; a light one (0.2) acts at its release (FUN_00594cf0 D:L453336-453351). The page: Prone on Triangle, Crouch on L3 held 3 frames before a light release (tools/eph/pageMap.ts); Square is the jump.
+500 ldown 0.5      # back at half push
+1300 up 1          # zoom in: first person
+1400 up 0
+2000 up 1          # zoom in: the scope
+2100 up 0
+2700 down 1        # zoom out
+2800 down 0
+2900 down 1        # zoom out: third person
+3000 down 0
+3300 ldown 0
