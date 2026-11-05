@@ -179,14 +179,17 @@ test('walks Frostfire from A\'s spawn to B\'s floor, and the door leaf stops it'
   }
 
   // The door leaf `door_slab` (research 24 sections 0.3 and 7.2: x 576-589, z 1117-1118, y 142-165, closed): from
-  // B's side, squarely in front of it, straight at it. It stops the feet a body's radius short of its face.
+  // B's side, squarely in front of it, straight at it. It stops the feet short of its face -- SEGMENT-BODY (re-judged; was
+  // a body's radius, 3.5, the disc's): where the centre line (1.1 x 1.4 r = 5.39, `FUN_0054aa30` D:L415166, D:L415235)
+  // first crosses it, plus at most a tick's move -- the band of `walk.test.ts`'s unit twin. The original's square
+  // stand-off is 5.34-5.40 (ac's r0004 capture, 2026-11-04, `climb-angle/RESULTS.md` ca-0-t1/t2); the port's 0.2-0.6
+  // beyond it is LATER 681 (open). Measured: 1123.21 in Node, 1123.95 in the browser (B203 part 10).
   expect(await steer(page, 582.5, 1140)).not.toBeNull();
   await page.evaluate(() => window.__viewer.setCamera({ yaw: 0, pitch: 0 }));
   const door = await page.evaluate(() => { window.__viewer.walkFor(3, { forward: 1 }); return window.__viewer.feet(); });
-  expect(door![2]).toBeGreaterThan(1118);
-  expect(door![2]).toBeLessThan(1118 + 3.5 + 1);
+  expect(door![2]).toBeGreaterThan(1118 + 4.5);
+  expect(door![2]).toBeLessThan(1118 + 7.5);
   expect(door![1]).toBeCloseTo(142, 3);
-  expect(Math.abs(door![2] - 1117)).toBeLessThan(6);                 // "stops it at z ~ 1117" (the plan)
   await settle(page);
   await page.screenshot({ path: join(SCREENS, 'frostfire-walk-door.png') });
 

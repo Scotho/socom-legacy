@@ -74,12 +74,15 @@ describe('a synthetic crate of zero-thickness faces', () => {
     return w;
   };
 
-  it('a run into a long thin face stops at the class radius and does not cross', () => {
+  // SEGMENT-BODY (re-judged throughout; research 217 s2.9): the disc's stand-off (`BODY_RADIUS`, research 359's stood-off
+  // centre) is gone; the invariant kept is the one this file is for -- the centre never crosses the face. A run stops where
+  // the centre line (1.1 x 1.4 x 3.5 = 5.39; the head line takes the muzzle only prone) first crosses it, plus a move.
+  it('a run into a long thin face stops at the segments\' reach and does not cross', () => {
     const w = face();
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
     expect(w.state.x).toBeLessThan(WALL);
-    expect(WALL - w.state.x).toBeGreaterThanOrEqual(BODY_RADIUS - 0.05);
-    expect(WALL - w.state.x).toBeLessThan(BODY_RADIUS + 0.15);
+    expect(WALL - w.state.x).toBeGreaterThanOrEqual(1.1 * 1.4 * 3.5 - 0.05);
+    expect(WALL - w.state.x).toBeLessThan(1.1 * 1.4 * 3.5 + 65 / 60 + 0.05);
     expect(w.state.y).toBeCloseTo(0, 3);
   });
 
@@ -102,7 +105,7 @@ describe('a synthetic crate of zero-thickness faces', () => {
     }
     const across = WALL_PROBE_READING.prone.r * PRONE_FAN_READING.across;
     expect(nearest).toBeGreaterThanOrEqual(across - 0.25);
-    expect(nearest).toBeLessThan(12);
+    expect(nearest).toBeLessThan(17);                                  // the prone head line's 15.94 and the move
   });
 
   it('one large tick (a tab stall) at run speed does not step through', () => {
@@ -134,16 +137,16 @@ describe('a synthetic crate of zero-thickness faces', () => {
     const w = new Walker(crate());
     expect(w.place(WALL, 10, 0)).toBe(true);
     w.glide(2, 0);
-    expect(w.state.x).toBeLessThan(WALL);
-    expect(WALL - w.state.x).toBeGreaterThanOrEqual(BODY_RADIUS - 0.05);
+    // Its records start on the face and end behind it: a hit at their start, the move's part along it taken -- held there.
+    expect(w.state.x).toBeLessThanOrEqual(WALL);
   });
 
   it('a centre already inside the radius, whose step would finish past the face, is stood off', () => {
     const w = new Walker(crate());
     expect(w.place(WALL - 0.4, 10, 0)).toBe(true);
     w.glide(1, 0);
-    expect(w.state.x).toBeLessThan(WALL);
-    expect(WALL - w.state.x).toBeGreaterThanOrEqual(BODY_RADIUS - 0.05);
+    expect(w.state.x).toBeLessThan(WALL);                              // held where it was: not stood off, not through
+    expect(w.state.x).toBeCloseTo(WALL - 0.4, 6);
   });
 
   it('a step through the shared vertex of two triangles does not tunnel', () => {
@@ -151,7 +154,6 @@ describe('a synthetic crate of zero-thickness faces', () => {
     expect(w.place(WALL - 0.4, 10, 0)).toBe(true);
     w.glide(1, 0);
     expect(w.state.x).toBeLessThan(WALL);
-    expect(WALL - w.state.x).toBeGreaterThanOrEqual(BODY_RADIUS - 0.05);
   });
 
   it('a run aimed at that vertex stops on the near side', () => {
@@ -163,13 +165,15 @@ describe('a synthetic crate of zero-thickness faces', () => {
     expect(WALL - w.state.x).toBeGreaterThanOrEqual(BODY_RADIUS - 0.05);
   });
 
-  it('a face that ends on the 6.5 line is climbed, not a wall: the kerb of exactly step_height (walk.test.ts)', () => {
+  it('a face that ends on the 6.5 line is a wall: its top edge on the line is a hit (walk.test.ts, the 6.4 kerb)', () => {
+    // Was "climbed, not a wall" (the disc's band missed a face ending on its line). A segment crossing the polygon on its
+    // edge is inside it, edges included (`segment.ts` `inside`, micro 336-361).
     const w = new Walker(makeGrid([floor(-80, -80, 80, 80, 0), wallX(WALL, -20, 20, 0, wallProbeHeights('stand')[0]), floor(WALL, -20, 80, 20, wallProbeHeights('stand')[0])]));
     w.place(20, 10, 0);
     w.state.yaw = facing(20, 0, WALL, 0);
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
-    expect(w.state.x).toBeGreaterThan(WALL + 2);
-    expect(w.state.y).toBeCloseTo(wallProbeHeights('stand')[0], 3);
+    expect(w.state.x).toBeLessThan(WALL);
+    expect(w.state.y).toBe(0);
   });
 
   it('a face that ends under the 6.5 line is walked through: the original segment misses it too (research 217 s2.2)', () => {
@@ -293,7 +297,9 @@ function assertAgainst(grid: Grid, polys: readonly WorldPoly[], spot: Spot, labe
     nearest = Math.min(nearest, d);
     expect(d, `${label} run ${spot.path}`).toBeGreaterThan(0.05);
   }
-  expect(nearest, `${label} reached ${spot.path} at (${spot.x.toFixed(1)}, ${spot.y.toFixed(1)}, ${spot.z.toFixed(1)})`).toBeLessThan(BODY_RADIUS + 1.5);
+  // SEGMENT-BODY (re-judged; was within BODY_RADIUS + 1.5): reached where the segments stop the run, the head line's 9.46
+  // plus a move at most (a face under the head line, the centre's 5.39).
+  expect(nearest, `${label} reached ${spot.path} at (${spot.x.toFixed(1)}, ${spot.y.toFixed(1)}, ${spot.z.toFixed(1)})`).toBeLessThan(1.1 * 8.599 + 1.5);
   expect(nearest).toBeGreaterThanOrEqual(BODY_RADIUS - 0.3);
 
   const stall = new Walker(grid);
@@ -311,10 +317,16 @@ function assertAgainst(grid: Grid, polys: readonly WorldPoly[], spot: Spot, labe
   const diver = new Walker(gridDive);
   const traversal = new Traversal(gridDive, polys);
   diver.driver = traversal;
-  expect(diver.place(spot.x, spot.y + 30, spot.z)).toBe(true);
-  diver.state.yaw = facing(spot.x, spot.z, spot.px, spot.pz);
-  for (let i = 0; i < 80 && Math.hypot(diver.state.vx, diver.state.vz) < 36; i++) diver.tick(FORWARD);
-  expect(traversal.dive(diver), `${label} dive`).toBe(true);
+  // SEGMENT-BODY: the run up starts further off the face than the stand spot (the first of 30, 20, 40 that reaches the dive's
+  // speed): the segments stop a run 9.5 off it, before the dive's 30 a second is reached from nearer.
+  let dove = false;
+  for (const back of [30, 20, 40]) {
+    if (!diver.place(spot.px + ux * back, spot.y + 30, spot.pz + uz * back)) continue;
+    diver.state.yaw = facing(diver.state.x, diver.state.z, spot.px, spot.pz);
+    for (let i = 0; i < 80 && Math.hypot(diver.state.vx, diver.state.vz) < 36; i++) diver.tick(FORWARD);
+    if ((dove = traversal.dive(diver))) break;
+  }
+  expect(dove, `${label} dive`).toBe(true);
   let diveNear = Infinity;
   for (let i = 0; i < 400 && traversal.inDive(); i++) {
     diver.tick(FORWARD);
@@ -323,7 +335,8 @@ function assertAgainst(grid: Grid, polys: readonly WorldPoly[], spot: Spot, labe
     diveNear = Math.min(diveNear, d);
     expect(d, `${label} dive ${spot.path}`).toBeGreaterThan(0.05);
   }
-  expect(diveNear, `${label} dive reached`).toBeLessThan(12);
+  // SEGMENT-BODY: the prone head line's 15.94 and a dive tick's move (was under 12).
+  expect(diveNear, `${label} dive reached`).toBeLessThan(18);
   expect(diveNear).toBeGreaterThanOrEqual(WALL_PROBE_READING.prone.r * PRONE_FAN_READING.across - 0.4);
 }
 

@@ -182,6 +182,12 @@ export function buildBody(body: LoadedBody, map: Pick<LoadedMap, 'textures' | 't
   /** The material colour a part is drawn with before the rig: unity for the skin, the fitting's own lane. */
   const colour = (count: number, material: Float32Array | null): BufferAttribute =>
     new BufferAttribute(material ? Float32Array.from(material) : new Float32Array(count * 4).fill(UNITY), 4);
+  // WEBGPU-BLACK (2026-11-05, live v0.4.7): the meshes this body built, the only ones `dispose` frees. Whatever is hung
+  // under the group later -- the page's held weapons (`./play` `hangHeld`, `setBody`), the world's one object per model
+  // whose geometry every remote body's `cloneHeld` copy shares (`./world` `held`), a grenade on a prop -- is someone
+  // else's: disposing it with the body destroyed the shared buffers under every cached remote clone, and under WebGPU
+  // the world's submit was rejected every frame from the next draw of one ("[Buffer] used in submit while destroyed").
+  const ownMeshes: Mesh[] = [];
   for (const sub of body.subMeshes) {
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new BufferAttribute(sub.positions, 3));
@@ -194,6 +200,7 @@ export function buildBody(body: LoadedBody, map: Pick<LoadedMap, 'textures' | 't
     const mesh = new SkinnedMesh(geometry, materialFor(sub.textureName, sub.fog, CULL));
     mesh.name = `${body.model} ${sub.textureName ?? 'untextured'}`;
     group.add(mesh);
+    ownMeshes.push(mesh);
     mesh.bind(skeleton, new Matrix4());         // bound at the model origin: the bind pose is the identity pose
     // CPS H9, the body cull: culled by a bound that follows the pose (`./bodyCullBound`), not the bind pose's bounds;
     // unculled, as before, when the mesh is outside what the bound covers. A CPU-side browser adaptation: no pixel changes.
@@ -214,6 +221,7 @@ export function buildBody(body: LoadedBody, map: Pick<LoadedMap, 'textures' | 't
         materialFor(m.textureName, m.fog, m.cull));
       mesh.name = `${fitting.name} ${m.textureName ?? 'untextured'}`;
       holder.add(mesh);
+      ownMeshes.push(mesh);
     }
   }
 
@@ -285,7 +293,7 @@ export function buildBody(body: LoadedBody, map: Pick<LoadedMap, 'textures' | 't
     },
     dispose: () => {
       stopExperimentalUpdates();
-      group.traverse((o) => { if (o instanceof Mesh) o.geometry.dispose(); });
+      for (const m of ownMeshes) m.geometry.dispose();   // the body's own, never a child hung on it (WEBGPU-BLACK)
       for (const m of materials.values()) m.dispose();
       for (const t of textures.values()) t.dispose();
       skeleton.dispose();

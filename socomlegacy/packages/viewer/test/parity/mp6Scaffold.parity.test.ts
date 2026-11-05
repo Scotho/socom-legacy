@@ -281,7 +281,10 @@ describe.skipIf(!HAVE)(`MP6's X-braced scaffold: deck_climbers' hang (PB-3, rese
   });
 
   it("(e) the deck's stair is still walked up: di_top1's ramp from the ground ends on the deck (research 281 s1, polygon 2293)", () => {
-    const stair = approach(1800, 5, 1616, 0, 240);
+    // SEGMENT-BODY part 2 (the weapon line, research 86 s3.8): 120 ticks -- on the deck at 30 by tick 71. Walked on to 240,
+    // the body comes within the line's 22.93 of the sandbags (`sausage_climber_dis`, 1380) and their hang is offered, a
+    // face of its own, not the stair. *Was:* 240 ticks.
+    const stair = approach(1800, 5, 1616, 0, 120);
     expect(stair.offered).toBe(false);                              // a ramp, not a climb face
     expect(stair.end[1]).toBeCloseTo(DECK_TOP, 0);                  // on the deck at 30
   });

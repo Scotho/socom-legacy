@@ -4,6 +4,7 @@ import { Button, groundGrid, packGround, PROTOCOL_VERSION, STANCE_CODES, type Co
 import { Room, type Conn } from '../src/room';
 import { MatchBots } from '../src/bots/matchBots';
 import type { NavigationData } from '../src/bots/navigation';
+import { WEAPON_LINE_BOTS_READING } from '../../viewer/src/weaponLine';
 
 /**
  * COMBINED-CUT (OT.R93; research 80 section 6f): the room's mark of the controller's `IsAi` (slot +0x30, research 191
@@ -104,6 +105,20 @@ describe('COMBINED-CUT: the room marks IsAi on a seat\'s mover', () => {
     bots.adopt(2);
     bots.dispose();
     expect(room.player(2)!.sim.ai).toBe(false);
+  });
+
+  it('SEGMENT-BODY (fresh review 2 F3): dispose gives an adopted human seat its weapon line back, as release does', () => {
+    // The AI's controller answers vtable +0x2c with 0 (`WEAPON_LINE_BOTS_READING`), a human's casts: a seat the bots
+    // drove and then let go of by `dispose` casts again, so the room's copy and its page store the same contacts.
+    for (const end of ['release', 'dispose'] as const) {
+      const { room, bots } = respawnRoom();
+      expect(room.player(1)!.sim.walker.weaponLineCast, end).toBe(true);
+      bots.adopt(1);
+      expect(room.player(1)!.sim.walker.weaponLineCast, end).toBe(WEAPON_LINE_BOTS_READING === 'cast');
+      if (end === 'release') bots.release(1); else bots.dispose();
+      expect(room.player(1)!.sim.ai, end).toBe(false);
+      expect(room.player(1)!.sim.walker.weaponLineCast, end).toBe(true);
+    }
   });
 
   it('MOVE fold F3: a seat its human left in SEPARATE, adopted, drives as a bot does (no cut, no SEPARATE)', () => {

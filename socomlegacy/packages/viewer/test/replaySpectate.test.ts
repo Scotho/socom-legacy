@@ -483,3 +483,18 @@ describe('F2: the animation on the replay\'s clock (dtScale; research 244 §3)',
     net.close();
   });
 });
+
+
+describe('WALL-CAM: NetPage carries the live follow callback', () => {
+  it('hands the followed replicated body and frame time to the shared rig and resets it on turnover', () => {
+    const followed: [SpectatorBody, number][] = []; let resets = 0;
+    const r = livePage({ spectateFollow: (b, dt) => { followed.push([b, dt]); }, spectateFollowReset: () => { resets++; } });
+    const b = { ...body(3, 0), feet: [0, 0, 3.5] as [number, number, number] };
+    vi.spyOn(r.net.client, 'bodies').mockReturnValue([b]);
+    r.net.spectator.key({ type: 'keyup', code: 'ArrowRight', repeat: false, preventDefault() {} });
+    r.net.spectator.frame(undefined, 1 / 60);
+    expect(followed.at(-1)).toEqual([b, 1 / 60]);
+    const before = resets; r.net.spectator.reset(); expect(resets).toBe(before + 1);
+    r.net.close();
+  });
+});

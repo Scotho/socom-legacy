@@ -33,7 +33,11 @@ import { nextFollow } from './net/rules';
 export type SpectatorMode = 'follow' | 'free' | 'scenic';
 
 /** A body as the room sends it (`./net/protocol` `BodyState`): what the camera and the cycle read. */
-export interface SpectatorBody { id: number; feet: readonly number[]; yaw: number; flags: number }
+export interface SpectatorBody {
+  id: number; feet: readonly number[]; yaw: number; flags: number;
+  /** The replicated actor look/stance. Optional only for old non-rendering hosts. */
+  pitch?: number; stance?: number; peek?: number; travRootY?: number;
+}
 
 /** A camera pose for `NetPageDeps.spectate` (`./camera` `Pose`): world units, degrees. */
 export interface SpectatorPose { x: number; y: number; z: number; yaw: number; pitch: number }
@@ -57,6 +61,10 @@ export interface SpectatorHost {
   seat(): SpectatorSeat;
   /** Stand the fly camera at a pose, or leave it free (null). */
   spectate(pose: SpectatorPose | null): void;
+  /** WALL-CAM: the live actor's camera, including its obstruction pass (research 382 §2). */
+  follow?(body: SpectatorBody, dt: number): void;
+  /** A new binding starts a fresh pass; leaving follow discards the old obstruction hold. */
+  resetFollow?(): void;
   /** The dead player's first cycle: the camera leaves the own body (the walk to the fly camera). */
   leaveSelf(): void;
   /**
@@ -540,6 +548,7 @@ export class SpectatorView {
    * cycle, the jump or a scenic view.
    */
   reset(): void {
+    this.host.resetFollow?.();
     this.benchedNow = false;
     this.watchingNow = null;
     if (this.host.seat().role !== 'spectator') {
@@ -600,7 +609,7 @@ export class SpectatorView {
       // AD-8's bookkeeping is a spectator's only (a player follows no one): a player's frame reads the room's bodies no
       // more often than before AD-8 (RE-3's live digest, `netPageClock.test.ts`).
       this.retireAndDelete();
-      if (this.modeNow === 'follow') this.follow();
+      if (this.modeNow === 'follow') this.follow(dt);
       else if (this.modeNow === 'scenic') {
         if (dt > 0) {
           this.look = scenicLook(this.look, dt, this.sticks.lookX, this.sticks.lookY, this.host.pitchSign?.() ?? 1);   // D:L140414-140439
@@ -613,7 +622,8 @@ export class SpectatorView {
       // R314.1): an adaptation's guard so the walker's view is never left magnified -- the initialiser's 1 (D:L141671).
       this.setMagnification(SCENIC_ZOOM.min);
     }
-    if (this.benchedNow && this.watchingNow !== null) this.followWatched();
+    if (this.benchedNow && this.watchingNow !== null) this.followWatched(dt);
+    else if (this.host.seat().role !== 'spectator' || this.modeNow !== 'follow') this.host.resetFollow?.();
   }
 
   /** W6: the magnification, the page told when it changes (`SpectatorHost.magnify`). */
@@ -706,10 +716,13 @@ export class SpectatorView {
    * rebound, D:L141363-141376); a leaver at its retired body (FOLLOW_RETIRED_BODY_PLACEHOLDER); once deleted, no pose
    * (FOLLOW_AFTER_DELETE_PLACEHOLDER).
    */
-  private follow(): void {
+  private follow(dt = 0): void {
     const id = this.targetNow;
     const body = this.host.bodies().find((b) => b.id === id) ?? this.retiredNow.find((b) => b.id === id);
-    if (body) this.host.spectate(followPose(body));
+    if (body) {
+      if (this.host.follow) this.host.follow(body, dt);
+      else this.host.spectate(followPose(body)); // Compatibility for non-rendering hosts without a world.
+    }
   }
 
   /**
@@ -767,6 +780,7 @@ export class SpectatorView {
     if (next === null) return;
     if (next === self) {
       this.watchingNow = null;
+      this.host.resetFollow?.();
       this.host.returnSelf?.();
       return;
     }
@@ -784,8 +798,11 @@ export class SpectatorView {
    * where the last one stood it (FOLLOW_RETIRED_BODY_PLACEHOLDER, FOLLOW_AFTER_DELETE_PLACEHOLDER's stand-in).
    * (Was NU-11's: on to the next living teammate when the watched one died.)
    */
-  private followWatched(): void {
+  private followWatched(dt = 0): void {
     const body = this.host.bodies().find((b) => b.id === this.watchingNow);
-    if (body) this.host.spectate(followPose(body));
+    if (body) {
+      if (this.host.follow) this.host.follow(body, dt);
+      else this.host.spectate(followPose(body)); // Compatibility for non-rendering hosts without a world.
+    }
   }
 }

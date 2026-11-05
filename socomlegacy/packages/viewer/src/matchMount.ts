@@ -94,6 +94,7 @@ import { warmMapEffects } from './matchWarm';
 import { AdaptiveRatio, pixelRatioCap, watchViewport, type ViewportWindow } from './matchViewport';
 import { renderCapFor, videoSettingsKeeper } from './videoSettings';
 import { pageFrameSampler } from './frameSampler';
+import { beaconMatchBegan, beaconMatchEnded } from './clientErrorBeacon';   // CLIENT_ERROR_BEACON_ADAPTATION: the match's own lifecycle for its reports
 import { wantsTouchControls } from './touch';
 import { resolveRules } from './rules';
 import { ScoreboardKeys } from './scoreboardKeys';
@@ -433,6 +434,8 @@ export interface MatchWindowHook {
   /** MATCH-01 / MATCH-02 (`./startMenu`): the START menu and its confirm, the labels as drawn -- a test aid, read only. */
   startMenu(): StartMenuState & { labels: string[] };
   settings(): ReturnType<NativeSettings['state']> | null;
+  /** GM-09: the Settings overlay's frame as its canvas shows it (`NativeSettings.readFrame`), null while closed -- a test aid. */
+  settingsFrame(): ReturnType<NativeSettings['readFrame']>;
   /** OPTIONS (research 302 §4): what the match applies of the stored options this frame. */
   options(): PlayOptions & { pitchInverted: boolean; bob: boolean };
   /** PB.R2's goldens: `./main`'s `ownBody()` -- the own body as drawn (`./play` `ownBodyRead`), a development instrument. */
@@ -667,7 +670,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const side = (): Side => matchSide(net, o.client ?? { team: o.side?.() ?? null });
   const ownBody = new OwnBody<BodyView>({
     build: (b) => buildBody(b, map!, lighting),
-    dispose: (v) => { scene.remove(v.group); v.dispose(); },
+    // WEBGPU-BLACK (2026-11-05): the held weapons off the old view before it goes (`Play.setWeapon(null)` detaches them), as
+    // `./remotePlayers` `remove` does; `follow`'s `hang` and a new map's own hang put them on the new view.
+    dispose: (v) => { play.setWeapon(null, []); play.setSidearm(null, []); scene.remove(v.group); v.dispose(); },
     attach: (v, b) => { if (v) scene.add(v.group); play.setBody(v, b); warmShadow(); },   // PAR-6: a new body's shadow programs
     hang: () => firearm.hangKit(true),             // `./main`'s `ownBody.hang`: `hangKit(true)`
   });
@@ -1320,6 +1325,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const teardown = (): void => {
     normalInput?.end('The private match ended');
     gone = true;
+    beaconMatchEnded();                                // CLIENT_ERROR_BEACON_ADAPTATION: no elapsed outside a match
     tellReady(false);                                  // IP3: a prepare still waiting on this mount ends with it
     offHeard();
     offPicture();                                      // OT.R79: the picture no longer followed
@@ -1536,6 +1542,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         voice: () => voice.state(),
         startMenu: () => ({ ...startMenu.state(), labels: startMenu.labels() }),   // MATCH-01 / MATCH-02: the START menu, read only
         settings: () => o.settings?.state() ?? null,
+        settingsFrame: () => o.settings?.readFrame() ?? null,    // GM-09: the overlay's frame (a test aid, read only)
         options: () => ({ ...playOptions.current(), pitchInverted: fly.lookOptions().invertPitch, bob: fly.originalHeadBob }),
         ownBody: () => ownBodyRead(play, throws.throwPose),   // PB.R2's goldens: `./main`'s, the own body as drawn (read-only)
         aimAt: (id, aimHeight) => {
@@ -1605,6 +1612,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     }) : null;
     adopt({ normalInput, taunts, startMenu, voice, touch, keepClear, touchTaps, offTip, playOptions, lanes, typed });
     attached = true;                                   // the hand-off's parts in: the frame and `padFrame` reach them from here
+    beaconMatchBegan();                                // CLIENT_ERROR_BEACON_ADAPTATION: a report's matchElapsedMs counts from here
     if (placed) { gameLines(placed.map); soundLines(placed); }   // `place`'s hand-off lines, when the world came first
     reseat();                                          // the hand-off's client's side, should the lobby's last read differ
 

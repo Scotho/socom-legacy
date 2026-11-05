@@ -269,9 +269,13 @@ describe("LATER 109: the release's reversed clip carries the body by its root's 
     while (!travel.step(travelled, 1 / 60));
     expect(travelled.state.z, 'through the wall at z 2').toBeGreaterThan(3);
     expect(travelled.state.y).toBe(0);
+    // SEGMENT-BODY: the wall faces +z (Newell), and a hull face is met only from its front (research 281 s4.3), so the walk
+    // comes from +z. The glide's whole move into it: four lines hit over 1 deep, more than two, and the move is put back
+    // (`FUN_005483d0` D:L413602-413611) -- it stays at 10, off the wall's front. Was: from -z (the face's back), the
+    // disc's 3.5 stand-off.
     const walked = new Walker(grid);
-    walked.place(0, 1, -10);
-    walked.glide(0, 13);
-    expect(walked.state.z, "the walk's own move stops 3.5 off it").toBeLessThan(-1.4);
+    walked.place(0, 1, 10);
+    walked.glide(0, -13);
+    expect(walked.state.z, "the walk's own move stops off it, on its front").toBeGreaterThan(5.5);
   });
 });

@@ -979,3 +979,23 @@ describe('DEAD-CYCLE (LATER 78, 79): the own body a stop of the dead player\'s c
     expect([nextFollow(4, []), spectatorModule.previousFollow(4, [])]).toEqual([null, null]);
   });
 });
+
+
+describe('WALL-CAM follow host routing', () => {
+  it.each(['spectator', 'player'] as const)('routes %s actor follow through the rig, including a dead followed body, and resets when leaving', (role) => {
+    const bodies = [{ id: 2, feet: [0, 0, 3.5], yaw: 0, flags: ALIVE, pitch: -70, stance: 1, peek: 1 }];
+    const followed: { id: number; pitch?: number; dt: number }[] = []; let resets = 0; let poses = 0;
+    const v = new SpectatorView({ bodies: () => bodies,
+      seat: () => ({ role, self: 1, team: 'seal', teams: new Map([[1, 'seal'], [2, 'seal']]), rules: 'classic', ghost: false }),
+      spectate: () => { poses++; }, leaveSelf: () => {}, follow: (b, dt) => followed.push({ id: b.id, pitch: b.pitch, dt }),
+      resetFollow: () => { resets++; },
+    });
+    if (role === 'player') v.bench();
+    v.key({ code: 'ArrowRight', type: 'keyup', repeat: false, preventDefault() {} });
+    v.frame(undefined, 1 / 60);
+    expect(followed.at(-1)).toEqual({ id: 2, pitch: -70, dt: 1 / 60 }); expect(poses).toBe(0);
+    bodies[0]!.flags = 0; v.frame(undefined, 1 / 30);
+    expect(followed.at(-1)).toEqual({ id: 2, pitch: -70, dt: 1 / 30 });
+    v.reset(); expect(resets).toBeGreaterThan(0);
+  });
+});

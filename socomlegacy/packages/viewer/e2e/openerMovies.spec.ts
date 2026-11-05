@@ -23,13 +23,15 @@ test.skip(!HAVE, 'the served tree with its movies, or the built wasm, absent');
 interface Sample { t: number; luma: number; lit: number; changed: number | null }
 
 /**
- * The front end's canvas sampled (every 4th pixel): its mean luma (Rec. 601, 0..255), the share of pixels with a luma
- * above 32 (`lit`, %), and the mean change per channel since the last sample.
+ * The front end's frame sampled (every 4th pixel): its mean luma (Rec. 601, 0..255), the share of pixels with a luma
+ * above 32 (`lit`, %), and the mean change per channel since the last sample. GM-09: the frame through the page's
+ * presenter (`FrontEndSession.readFrame`, what the canvas shows), not the canvas's 2D context, which a GPU canvas has not.
  */
 async function sample(page: Page): Promise<Sample> {
   return page.evaluate(() => {
-    const c = document.getElementById('front-end') as HTMLCanvasElement;
-    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    const f = (window as unknown as { __frontEnd?: { session: { readFrame(): { data: Uint8ClampedArray } | null } } }).__frontEnd?.session.readFrame();
+    if (!f) throw new Error('the front end has drawn no frame');
+    const d = f.data;
     const w = window as unknown as { __mwLast?: Uint8ClampedArray };
     const last = w.__mwLast;
     let y = 0, lit = 0, diff = 0, n = 0;

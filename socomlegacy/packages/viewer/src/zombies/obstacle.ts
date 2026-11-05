@@ -5,6 +5,7 @@
 import { segmentHit, type Grid } from '@s2u/scene';
 import { Walker, type WalkInput } from '../mover';
 import { Traversal } from '../traversal';
+import { WEAPON_LINE_BOTS_READING } from '../weaponLine';
 import type { PlayClips } from '../play';
 
 type Point = readonly number[];
@@ -45,6 +46,7 @@ export function planObstacle(w: Walker, goal: Point, clips: PlayClips | null): O
   for (const jump of [false, true]) {
     if (jump && wallDistance > 30) continue;
     const probe = new Walker(w.grid);
+    probe.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY (review 2 F3): the zombie's own body's
     if (!probe.place(s.x, s.y + 5, s.z)) return null;
     Object.assign(probe.state, s);
     const moves = botTraversal(w.grid, clips);

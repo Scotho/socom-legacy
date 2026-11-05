@@ -23,7 +23,10 @@ import { describe, expect, it } from 'vitest';
  * Both read the TypeScript syntax tree (`ts.createSourceFile`, no program), so a comment or a string cannot fake a
  * call. What today's tree holds is `KNOWN`, each with the sweep's task that retires it (P1..P33, or S5 -- the sweep's
  * section 5 docs task, "ledger rows for departures stated as fact"); a found case not listed fails, and so does a listed
- * one no longer found (the retiring task removes its line).
+ * one no longer found (the retiring task removes its line). A row kept at `count: 0` is the other case: the detector
+ * has gone blind on the page side (the page no longer passes the argument it compared against), while the room still
+ * hands the literal, so the departure stays owed to its task -- the row is not deleted, and a page call that returns
+ * raises its count again.
  */
 
 const root = resolve(import.meta.dirname, '../..');
@@ -227,8 +230,9 @@ const KNOWN: Record<string, Known> = {
   'maxThrowDistance#0 "stand"': { count: 1, task: 'P22', why: 'TB-9: throwLaunchAllowed bounds over both stances in place of the page\'s one' },
   'maxThrowDistance#0 "crouch"': { count: 2, task: 'P22', why: 'TB-9: as above' },
   'headEye#3 () => true': {
-    count: 4, task: 'S5',
-    why: 'new (P34): the room\'s start heads take every polygon, the page\'s camera isCameraSurface -- said in cameraRig.ts headEye\'s doc, no named constant or ledger row',
+    count: 0, task: 'S5',
+    why: 'new (P34): the room\'s start heads take every polygon, the page\'s camera isCameraSurface -- said in cameraRig.ts headEye\'s doc, no named constant or ledger row. '
+      + 'Found 0 since WALL-CAM (research 382 §1): playerCamera\'s draw() replaced its two headEye(.., accept) calls, so the page hands position 3 nothing to compare; the departure stands (S5)',
   },
   'canMount#3 false': { count: 1, task: null, why: 'equal: the room refuses an occupied turret as \'occupied\' before it asks canMount' },
 };

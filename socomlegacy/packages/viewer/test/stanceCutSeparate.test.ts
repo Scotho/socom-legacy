@@ -336,7 +336,9 @@ describe('SEP-POP / COMBINED-CUT: the bots are byte-for-byte main (a pin of main
   /**
    * SEPARATE on the same script since MOVE-1 and MOVE-2 (B196; a regression pin, not a capture, recorded on agent/move):
    * row 80 on, x 20.4 where COMBINED's is 20.705 -- the drop's two ticks on top carry the push's 8 / T (0.305 u along
-   * the facing's back); every later row follows from that place.
+   * the facing's back); every later row follows from that place. Since LATER 678 (SEGMENT-BODY B203, re-measured
+   * 2026-11-04): the full-stick crouch run let go at tick 180 plays `Stand -> Crouch` (`CROUCH_RUN_RETURN_READING`,
+   * SEPARATE only), rows 190-210, its root carrying the body back about 1.3 u; every later row follows from there.
    */
   const SEPARATE_MOVE = [
     [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
@@ -345,16 +347,17 @@ describe('SEP-POP / COMBINED-CUT: the bots are byte-for-byte main (a pin of main
     [100, 20.4, 0.809, 'prone', '-'], [110, 20.4, 1.084, 'prone', '-'], [120, 20.4, 1.359, 'prone', '-'],
     [130, 20.4, 1.634, 'prone', '-'], [140, 20.4, 1.909, 'prone', '-'], [150, 20.4, 10.088, 'crouch', '-'],
     [160, 20.4, 20.921, 'crouch', '-'], [170, 20.4, 31.755, 'crouch', '-'], [180, 20.4, 42.588, 'crouch', '-'],
-    [190, 20.4, 42.588, 'crouch', '-'], [200, 20.4, 42.588, 'crouch', '-'], [210, 20.4, 42.588, 'crouch', '-'],
-    [220, 22.377, 42.588, 'stand', '-'], [230, 24.543, 42.588, 'stand', '-'], [240, 26.71, 42.588, 'stand', '-'],
-    [250, 28.877, 42.588, 'stand', '-'], [260, 31.043, 42.588, 'stand', '-'],
-    [270, 31.645, 42.308, 'prone', 'standToProne'], [280, 32.246, 42.027, 'prone', 'standToProne'],
-    [290, 32.847, 41.747, 'prone', 'standToProne'], [300, 33.449, 41.467, 'prone', 'standToProne'],
-    [310, 34.05, 41.186, 'prone', 'standToProne'], [320, 34.29, 41.14, 'prone', '-'],
-    [330, 34.29, 41.25, 'prone', '-'], [340, 33.689, 41.531, 'stand', 'standToProne'],
-    [350, 33.088, 41.811, 'stand', 'standToProne'], [360, 32.487, 42.091, 'stand', 'standToProne'],
-    [370, 31.885, 42.372, 'stand', 'standToProne'], [380, 31.284, 42.652, 'stand', 'standToProne'],
-    [390, 35.257, 42.82, 'stand', '-'], [400, 46.09, 42.82, 'stand', '-'], [410, 56.923, 42.82, 'stand', '-']];
+    [190, 20.084, 42.29, 'crouch', 'standToCrouch'], [200, 19.733, 41.958, 'crouch', 'standToCrouch'],
+    [210, 19.382, 41.626, 'crouch', 'standToCrouch'], [220, 21.358, 41.626, 'stand', '-'],
+    [230, 23.525, 41.626, 'stand', '-'], [240, 25.692, 41.626, 'stand', '-'], [250, 27.858, 41.626, 'stand', '-'],
+    [260, 30.025, 41.626, 'stand', '-'], [270, 30.626, 41.346, 'prone', 'standToProne'],
+    [280, 31.228, 41.065, 'prone', 'standToProne'], [290, 31.829, 40.785, 'prone', 'standToProne'],
+    [300, 32.43, 40.504, 'prone', 'standToProne'], [310, 33.031, 40.224, 'prone', 'standToProne'],
+    [320, 33.272, 40.178, 'prone', '-'], [330, 33.272, 40.288, 'prone', '-'],
+    [340, 32.671, 40.568, 'stand', 'standToProne'], [350, 32.069, 40.849, 'stand', 'standToProne'],
+    [360, 31.468, 41.129, 'stand', 'standToProne'], [370, 30.867, 41.409, 'stand', 'standToProne'],
+    [380, 30.266, 41.69, 'stand', 'standToProne'], [390, 34.238, 41.858, 'stand', '-'],
+    [400, 45.071, 41.858, 'stand', '-'], [410, 55.905, 41.858, 'stand', '-']];
 
   it('COMBINED: main\'s rows 10-70, then the cut\'s from row 80 (the first cut); the bots\' trace stays main\'s', () => {
     const t = trace('combined');

@@ -249,7 +249,7 @@ export function snapshotLabel(at: Date): string {
 }
 
 /** The site emblem (`shared/ds/emblem.svg`), inlined. Geometric; no disc mark. */
-function emblem(): string {
+export function emblem(): string {
   return `<g transform="translate(48 40)">
     <rect x="2" y="2" width="60" height="60" rx="6" fill="#000e11" stroke="#c4a04a" stroke-width="3"/>
     <circle cx="32" cy="32" r="21" fill="none" stroke="#786e3b" stroke-width="2.5" stroke-dasharray="26 7"/>
@@ -258,7 +258,7 @@ function emblem(): string {
   </g>`;
 }
 
-function topo(width: number, height: number): string {
+export function topo(width: number, height: number): string {
   const lines: string[] = [];
   for (let i = 0; i < 16; i++) {
     const y0 = 24 + i * (height / 17);
@@ -272,7 +272,7 @@ function topo(width: number, height: number): string {
   return lines.join('');
 }
 
-function crosshair(x: number, y: number): string {
+export function crosshair(x: number, y: number): string {
   return `<g stroke="#786e3b" stroke-width="1.5" fill="none" opacity="0.65">
     <path d="M${x - 16} ${y}h32M${x} ${y - 16}v32"/>
     <circle cx="${x}" cy="${y}" r="9"/>

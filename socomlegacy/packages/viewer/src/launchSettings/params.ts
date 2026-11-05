@@ -109,8 +109,8 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     readIn: ['modelPack.ts'],
   },
   {
-    key: 'renderer', group: 'where', kind: 'enum', values: ['auto', 'webgl2', 'xbox'], sheet: false, pages: ['testroom', 'front end', 'console', 'forge'],
-    meaning: 'The graphics mode for this load only, over Settings > Display > Graphics mode (#627; a browser adaptation): auto picks the renderer, webgl2 is Compatibility (WebGL2, for a black screen), xbox is the Xbox preset (WebGL2 with edge smoothing off). The saved choice is not changed; Graphics mode shows the row locked while it is in the address.',
+    key: 'renderer', group: 'where', kind: 'enum', values: ['auto', 'webgl2', 'xbox', 'webgpu'], sheet: false, pages: ['testroom', 'front end', 'console', 'forge'],
+    meaning: 'The graphics mode for this load only, over Settings > Display > Graphics mode (#627; a browser adaptation): auto is Automatic (WebGL2 for now, WEBGL2-DEFAULT, LATER 708), webgl2 is Compatibility (WebGL2, for a black screen), xbox is the Xbox preset (WebGL2 with edge smoothing off), webgpu asks for WebGPU (WebGL2 when no adapter answers in time). The saved choice is not changed; Graphics mode shows the row locked while it is in the address.',
     absent: 'the saved Graphics mode, Automatic when none is saved',
     readIn: ['graphicsBackend.ts'],
   },
@@ -311,9 +311,45 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
   },
   {
     key: 'hdMenuScale', group: 'instruments', kind: 'number', sheet: false, pages: ['front end'],
-    meaning: 'Under the HD (GoE Soul) picture, a lower cap (1-4) on the scale the menus are drawn at; 1 draws the original menus (HD-3, HD.R8).',
+    meaning: 'Under the HD (GoE Soul) picture (or uiPerfHd, GM-02), a lower cap (1-4) on the scale the menus are drawn at; 1 draws the original menus (HD-3, HD.R8).',
     absent: "the HD pack's own scale (4x)",
     readIn: ['hdMenuTextures.ts'],
+  },
+  {
+    key: 'uiGpu', group: 'instruments', kind: 'enum', values: ['off', 'shadow', 'on'], sheet: false, pages: ['front end', 'testroom'],
+    meaning: 'The GPU menus switch for this load (GM-10, a browser adaptation; works without devmode, O9): off draws the menus in software as today, shadow draws both and compares, on shows the GPU frame. Over the stored support kill and the per-surface table.',
+    absent: 'the per-surface table (UI_GPU_SURFACES_ADAPTATION; every surface off until its flip lands), after the stored kill s2u.uiGpu=off',
+    readIn: ['uiGpuSwitch.ts'],
+  },
+  {
+    key: 'uiGpuSurface', group: 'instruments', kind: 'string', sheet: false, pages: ['front end', 'testroom'],
+    meaning: 'Limits uiGpu to the surfaces named, comma-separated: front, armory, overlay, loading (GM-10). Unknown names are dropped.',
+    absent: 'uiGpu applies to every surface',
+    readIn: ['uiGpuSwitch.ts'],
+  },
+  {
+    key: 'uiGpuAllowSoftwareAdapter', group: 'instruments', kind: 'enum', values: ['1'], sheet: false, pages: ['front end', 'testroom'],
+    meaning: 'Lets the GPU menus run on a software adapter (SwiftShader, llvmpipe, the Microsoft Basic Render Driver), for the test harness (GM-10).',
+    absent: 'a software adapter keeps the menus in software',
+    readIn: ['uiGpuSwitch.ts'],
+  },
+  {
+    key: 'uiGpuBlend', group: 'instruments', kind: 'enum', values: ['ff', 'exact'], sheet: false, needsDevmode: true, pages: ['front end', 'testroom'],
+    meaning: 'The GPU menus\' blend mode for every surface (GM.R6, dev and test only): ff fixed-function, exact the programmable path.',
+    absent: 'the blend table (UI_GPU_BLEND_ADAPTATION): exact at scale 1, ff at HD',
+    readIn: ['uiGpuSwitch.ts'],
+  },
+  {
+    key: 'uiPerf', group: 'instruments', kind: 'flag', sheet: false, needsDevmode: true, pages: ['front end'],
+    meaning: 'The menus\' frame-time ring for the GPU menus\' browser baseline (GM-02, an instrument; a development build with devmode only): window.__uiGpuPerf.',
+    absent: 'no ring; the loop as always',
+    readIn: ['uiPerfRequest.ts'],
+  },
+  {
+    key: 'uiPerfHd', group: 'instruments', kind: 'flag', sheet: false, needsDevmode: true, pages: ['front end'],
+    meaning: 'The ring, and the menus\' HD path on for the measurement whatever the picture, at the pack\'s scale capped by hdMenuScale (GM-02; a development build with devmode only; HD-HOLD still keeps HD (GoE Soul) from every player).',
+    absent: 'the menus\' HD path follows the picture (off while HD-HOLD holds)',
+    readIn: ['uiPerfRequest.ts'],
   },
   // ---- the pages that are not the test room
   {

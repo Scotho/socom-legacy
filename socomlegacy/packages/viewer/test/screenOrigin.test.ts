@@ -33,7 +33,7 @@ describe('SCREEN POSITION: the origin moves the drawn frame (SCREEN_ORIGIN_ADAPT
   it('names its adaptation and its placeholder: Y one frame line a step until the unit is read', () => {
     expect(SCREEN_ORIGIN_ADAPTATION).toMatch(/frame pixels at the drawn scale/);
     expect(SCREEN_ORIGIN_Y_LINES_PLACEHOLDER).toBe(1);
-    expect(SCREEN_ORIGIN_CANVASES).toEqual(['#front-end', '#view', 'canvas.s2u-match']);
+    expect(SCREEN_ORIGIN_CANVASES).toEqual(['#front-end', '#front-end-gpu', '#view', 'canvas.s2u-match']);   // GM-12b: the GPU twin too
   });
 
   it('the frame\'s drawn scale is object-fit contain of 640 x 448; the origin is frame pixels at that scale', () => {
@@ -77,6 +77,6 @@ describe('SCREEN POSITION: the origin moves the drawn frame (SCREEN_ORIGIN_ADAPT
     expect(fe).toContain('screenOrigin: (x, y) => { o.screenOrigin?.(x, y); }');     // OptionsCommands -> the session's option
     expect(fe).toContain('screenOrigin: (x, y) => { screenOrigin.set(x, y); }');     // the mount's session -> the keeper
     expect(fe).toMatch(/canvas\.hidden = true; screenOrigin\.layLater\(\)/);         // the match's canvas shown: re-laid
-    expect(src('styles.css')).toContain('#view, #front-end, canvas.s2u-match { translate: var(--s2u-origin-x, 0px) var(--s2u-origin-y, 0px); }');
+    expect(src('styles.css')).toContain('#view, #front-end, #front-end-gpu, canvas.s2u-match { translate: var(--s2u-origin-x, 0px) var(--s2u-origin-y, 0px); }');
   });
 });

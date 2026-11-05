@@ -233,15 +233,15 @@
     },
     {
       "id": "movement.body.probe-prone",
-      "claim": "Prone the probe stands at the feet + 3.0 (the class (8.0, 6.0) height x 0.5) and the head line at 5.637; a crawl into a wall stops 8.0 off it along the travel, the same on the page and in the room; the low line ahead rises with the root's tilt (PRONE_PROBE_TILT_READING 'root'; the head line stays level, WALL_HEAD_LINE_READING); on a level tread the root is level. A riser standing over the probe within 8.0 ahead stops a crawl: stairs of 2/4, 3/6 and 4/8 rise/run stop it, 1/4 and 2/8 and a 2.9 kerb are crawled, a 3.1 kerb stops it.",
+      "claim": "Prone the probe stands at the feet + 3.0 (the class (8.0, 6.0) height x 0.5) and the head line at 5.637; a crawl into a wall stops 8.0 off it along the travel, the same on the page and in the room; the low line ahead rises with the root's tilt (PRONE_PROBE_TILT_READING 'root'; the head line's end is lifted through the root too, FUN_0054aa30 D:L415531-415535); on a level tread the root is level. A riser standing over the probe within 8.0 ahead stops a crawl: stairs of 2/4, 3/6 and 4/8 rise/run stop it, 1/4 and 2/8 and a 2.9 kerb are crawled, a 3.1 kerb stops it.",
       "level": "reading",
-      "source": "FUN_0054aa30 D:L415110-415133, D:L415231-415233, D:L415426-415431, FUN_0054ecd0 D:L416972-417027 (the tilt through the root's matrix, PRONE-TILT-2 (3), research 217 s7.8; level on a tread, s2.5); ruling PF.R44",
+      "source": "FUN_0054aa30 D:L415110-415133, D:L415231-415233, D:L415426-415431, D:L415531-415535, FUN_0054ecd0 D:L416972-417027 (the tilt through the root's matrix, PRONE-TILT-2 (3), research 217 s7.8; level on a tread, s2.5); ruling PF.R44",
       "note": "docs/research/217-the-body-as-built.md",
       "tests": [
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone meets a wall at 8.0 along the travel and no nearer; the 13-wide doorway and the 7.5-wide corridor of walk.test.ts still pass (the fan is cast along the travel, PRONE_FAN_READING)", "data": "none" },
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone at stairs: the level probe at 3.0 stops a crawl whose next riser stands over it within 8.0 ahead (2/4, 3/6, 4/8 rise/run) and passes 1/4, 2/8 and a 2.9 kerb; a 3.1 kerb stops it (PRONE_PROBE_TILT_READING; research 217 s2.5)", "data": "none" },
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone low line follows the root tilt (PRONE_PROBE_TILT_READING \"root\", FUN_0054ecd0 D:L416972-417027): up a 20-degree slope a fin 1.5 over the ground is crawled over, one 2.9 over it stops the crawl 8 short", "data": "none" },
-        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone head line stays level on a slope (WALL_HEAD_LINE_READING: the idle head, not lifted by FUN_0054ecd0)", "data": "none" },
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone head line is lifted on a slope too (FUN_0054ecd0 at D:L415531-415535): down a slope it passes under a bar 6 over the ground", "data": "none" },
         { "file": "packages/viewer/test/bodyGates.test.ts", "name": "prone into a wall at 8: the page and the room agree (stopped at 8)", "data": "none" },
         { "file": "packages/central/test/roomGates.test.ts", "name": "prone into a wall at 8: the page and the room agree (stopped at 8)", "data": "none" }
       ]
@@ -289,7 +289,7 @@
       "tests": [
         { "file": "packages/viewer/test/jump.parity.test.ts", "name": "Jump land hard holds 55 ticks (0.903 s) and gives way to the stick past NoInterrupt 0.35: tick 20, not 19", "data": "none" },
         { "file": "packages/viewer/test/walk.test.ts", "name": "stepping off a 42-unit deck falls under 235 a second squared, lands hard after ~0.60 s, and runs on after the clip", "data": "none" },
-        { "file": "packages/viewer/test/walk.test.ts", "name": "walking off the 142 deck east of A's spawn falls 42 onto the 100 floor in ~0.60 s (W2.2b)", "data": "fixture" }
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the 142 deck east of A's spawn: its pipeworks rail stops the walk on the deck; a fall of 42 off an open edge takes ~0.60 s (W2.2b)", "data": "fixture" }
       ]
     },
     {
@@ -864,14 +864,14 @@
     },
     {
       "id": "movement.climb.contact-from-hits",
-      "claim": "The climb's contact is the move's best wall hit met from its front (normal y at or under 0.6428, not VOLUMETRIC or LIQUID), climbable or not, and a plain wall's contact offers nothing; a climbable one is cleared when another hit of the move, on another polygon, turns its horizontal normal more than acos 0.9 (about 25.8 degrees) from it, so an inside corner offers nothing.",
+      "claim": "The climb's contact is the move's best wall hit met from its front (normal y at or under 0.6428, not VOLUMETRIC or LIQUID), climbable or not, and a plain wall's contact offers nothing; a climbable one is cleared when another hit of the move, on another polygon, turns its horizontal normal more than acos 0.9 (about 25.8 degrees) from it, so an inside corner where the centre meets a face offers nothing. With no record hit the weapon line's slot (the facing, 2 x the held model's x extent) becomes the contact by three rules, and a tick whose only hits are side records stores nothing and keeps the contact (SEGMENT-BODY part 2).",
       "level": "reading",
-      "source": "FUN_005483d0 D:L413426-413457, D:L413823-413866, D:L413867-413901 (the literal 0.9 at D:L413894, the polygon word at D:L413884); FUN_005b0d30 D:L467394-467420; FUN_005b3ce0 D:L469131-469132",
+      "source": "FUN_005483d0 D:L413426-413457, D:L413618-413671, D:L413823-413866, D:L413867-413901 (the literal 0.9 at D:L413894, the polygon word at D:L413884); FUN_0054d9a0 D:L416434, D:L416630-416687; FUN_0054e8f0 D:L416858-416910; FUN_005b0d30 D:L467394-467420; FUN_005b3ce0 D:L469131-469132",
       "note": "docs/research/281-mp6-scaffold.md",
       "tests": [
         { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C1: a crate face met, then a coplanar plain wall met on a later move -- the plain wall is the contact, no climb offered (RED: the crate kept)", "data": "none" },
-        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: an inside corner of two crate faces -- turned 20 degrees the climb is offered, 30 and 90 nothing (the 0.9; RED: 90 and 30 offered)", "data": "none" },
-        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: a crate's outside corner walked into on its edge offers the climb (CORNER_HITS_READING 'span'; with 'any', nothing)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: an inside corner of two crate faces -- turned 20, 30 or 90 degrees, only side records meet them, the weapon line's contact holds and the climb is offered", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: a crate's outside corner walked into on its edge: the disc arm's 'span' keeps it, 'any' clears it; the segment body clears it", "data": "none" },
         { "file": "packages/viewer/test/climbFacing.test.ts", "name": "(e2) PAR-21a C2: held in the inside corner with prop01, both faces met, nothing is offered (RED before C2: offered)", "data": "fixture" },
         { "file": "packages/viewer/test/parity/mp6Scaffold.parity.test.ts", "name": "(c) from under the deck, facing +z, nothing is offered: held 3.5 off noclimb_invis, the walk meets only noclimb_invis (appflags 0), its contact, which offers nothing", "data": "fixture" }
       ]
@@ -1089,12 +1089,13 @@
     },
     {
       "id": "movement.dive",
-      "claim": "The full stance press dives from 30 a second or more: the run kept, a 0.2 s hold, the root falling at gravity to the prone's 2.2, the speed bled at 150 a second each second.",
+      "claim": "The full stance press dives from 30 a second or more: the run kept, a 0.2 s hold, then a hidden timer seeded from the stance's root falls (one airborne frame at 235, then 98.100006 a second on the ground) to the prone's 2.2, about 0.56 s from a stand, after which the speed is bled at 150 a second each second; the body draws seal_dive2prone's own root.",
       "level": "reading",
-      "source": "FUN_00584b00 D:L443977-444010; FUN_0057e540 D:L440870-440920; FUN_0059b870 D:L456585-456600",
+      "source": "FUN_00584b00 D:L443977-444010; FUN_0057e540 D:L440870-440920; FUN_0059b870 D:L456585-456603; FUN_005af930 D:L466797-466802; FUN_0059b440 D:L456496, D:L456552-456557",
       "note": "docs/research/86-traversal.md",
       "tests": [
-        { "file": "packages/viewer/test/traversal.test.ts", "name": "dives from a run into prone: the run kept, the root down at gravity after 0.2 s, the speed bled at 150", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "dives from a run into prone: the timer down at the hold + its fall at the seed and 98.1 (about 0.56 s), the speed bled at 150 after (RED: 235 from rest, 0.48 s)", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "DIVE-ROOT: the new constants are the reads -- 98.100006 on the ground, one airborne tick of 235 at the hold's end", "data": "none" },
         { "file": "packages/viewer/test/traversal.test.ts", "name": "is refused walking (under 30 a second), prone, or in water over 2 deep", "data": "none" }
       ]
     },

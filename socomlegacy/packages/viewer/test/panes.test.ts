@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { segmentHits, type CollisionOwner, type EffectProgram, type GridParams, type WorldPoly } from '@s2u/scene';
+import { polygonNormal, segmentHits, type CollisionOwner, type EffectProgram, type GridParams, type WorldPoly } from '@s2u/scene';
 import { forkGround, GLASS_FRAGMENTS_PLACEHOLDER, SCENE_DEATH_ON_WIRE_READING, SCENE_SOUND_PLACE_READING, WorldState } from '../src/worldState';
 import { DoorSet, type DoorSpec } from '../src/doors';
 import { groundGrid, packGround, Walker, type GroundData, type WalkInput } from '../src/mover';
@@ -250,14 +250,22 @@ describe("SUP-02: a door's breakable pane on the page and in the room", () => {
     run(doors, 1.5);
     const paneNow = doors.leaf(0)[1]!;
     const z = (paneNow[2]! + paneNow[8]!) / 2;
-    const walk = (): Walker => {
+    // SEGMENT-BODY: a hull face is met only from its front (research 281 s4.3), and the pane is one quad, so the walk comes
+    // from the side the swung pane faces (its normal's x), along x through the pane's centre. `past` is how far beyond the
+    // pane's plane, on its back side, the walker ended (negative: held on its front). Was: always from -x, which the swung
+    // single-quad pane faces away from. Whether the disc's door panes are single quads (and the original lets a body
+    // through one from its back) is not read here.
+    const cx = (paneNow[0]! + paneNow[3]! + paneNow[6]! + paneNow[9]!) / 4;
+    const front = Math.sign(polygonNormal(paneNow)![0]);
+    expect(front, 'the swung pane faces along x').not.toBe(0);
+    const walk = (): { past: number } => {
       const w = new Walker(grid);
-      expect(w.place(-30, 0, z)).toBe(true);
-      w.state.yaw = -90;
+      expect(w.place(cx + front * 30, 0, z)).toBe(true);
+      w.state.yaw = front > 0 ? 90 : -90;                                      // facing the pane: -x from +x, +x from -x
       for (let k = 0; k < 120; k++) w.tick(FORWARD);
-      return w;
+      return { past: front * (cx - w.state.x) };
     };
-    expect(walk().state.x).toBeLessThan(0);
+    expect(walk().past).toBeLessThan(0);
     // Break it mid-swing: the door shuts, the pane stays off.
     expect(doors.use(0)).toBe(true);
     run(doors, 0.5);
@@ -270,14 +278,14 @@ describe("SUP-02: a door's breakable pane on the page and in the room", () => {
     // Open again: the walker passes where the pane would stand (the moving set gated, MAP-02's revision).
     expect(doors.use(0)).toBe(true);
     run(doors, 1.5);
-    expect(walk().state.x).toBeGreaterThan(10);
+    expect(walk().past).toBeGreaterThan(10);
     // The round's reset with the door left open: the pane back where its leaf stands, and in the mover's way again.
     const revision = grid.revision;
     world.reset();
     expect(grid.revision).toBe(revision + 1);
     expect(world.isActive(PANE)).toBe(true);
     expect(world.health.hp(0)).toBe(1);
-    expect(walk().state.x).toBeLessThan(0);
+    expect(walk().past).toBeLessThan(0);
     // The doors' own reset shuts it; the pane is across the shut frame again.
     doors.reset();
     expect(through(-10, 10)).toEqual([PANE]);

@@ -21,7 +21,7 @@ import { forkGround, ROOM_SKIP_EFFECTS_READING, WorldState } from '../src/worldS
 import { crossing, doorFixture, swingToRest } from './helpers/doorFixture';
 import { CLAYMORE, type ThrowableRecord } from '@s2u/scene';
 import { GrenadeThrower } from '../src/grenade';
-import type { PlaySnapshot } from '../src/walk';
+import { Walker, type PlaySnapshot } from '../src/walk';
 
 /**
  * SUP-03 (research 210 s8; research 176 s7, 203 s7, 174 s3): Vigilance's five access barriers. Each `accessN` is a
@@ -603,5 +603,33 @@ describe.skipIf(!HAVE_MP51)(`Vigilance's five access barriers on the disc${HAVE_
     const at: V3 = [a.at[0], a.at[1] + 1, a.at[2]];
     f.w.health.blastAt(at, C4.rating, C4.radius, (to, target) => segmentHits(f.grid, at, to).every((h) => under(h.owner.path, target)));
     expect(f.hits(0)).toBe(0);
+  }, 120_000);
+
+  // SEGMENT-BODY part 11 (the e2e twin is c4Barricades.spec.ts's MP51 block). Captured: r0004, ac, 2026-11-04
+  // (agent-mail evidence eph-hunt-2026-11-01/segment-body/mp51-barricade/RESULTS.md, 2 trials each way): every wall of
+  // access1's di_good faces +z and its collider's +0x80 reads 0x41 (bit 1 clear: one-sided, FUN_002d2890
+  // D:L174831-174837; research 281 s4.3). From inside wc16 the original walks out through the intact planks (z 1046.4 ->
+  // 1050.7 at 65 u/s); from outside (-z) it stops at z 1054.375-1054.417. The tolerance is LATER 681's stand-off residue
+  // (0.6); the port stood at 1054.708 when this was written. Caveat: the walking client may have been a terrorist.
+  it('access1 intact: walked out of wc16 the body passes the planks; walked in from outside it stops at the captured 1054.4; opened, it walks in', async () => {
+    const m = await load();
+    const walk = (grid: ReturnType<typeof groundGrid>, x: number, y: number, z: number, yaw: number, ticks: number): Walker => {
+      const w = new Walker(grid);
+      expect(w.place(x, y, z)).toBe(true);
+      w.state.yaw = yaw;
+      for (let i = 0; i < 18; i++) w.tick({ forward: 0, right: 0, boost: false });
+      for (let i = 0; i < ticks; i++) w.tick({ forward: 1, right: 0, boost: false });
+      return w;
+    };
+    const f = fresh(m);
+    expect(f.w.isActive('worldmodel/access1=access1/good_parts/di_good')).toBe(true);
+    expect(walk(f.grid, 1493.0955, 63.4, 1036.6, 180, 42).state.z, 'out from inside: through').toBeGreaterThan(1049.2);
+    for (const x of [1488, 1493.0955, 1498]) {
+      const z = walk(f.grid, x, 50, 1065, 0, 150).state.z;
+      expect(Math.abs(z - 1054.4), `in from outside at x ${x}: z ${z.toFixed(3)}`).toBeLessThanOrEqual(0.6);
+    }
+    f.blast(0, C4);
+    expect(f.w.isActive('worldmodel/access1=access1/good_parts/di_good')).toBe(false);
+    expect(walk(f.grid, 1493.0955, 50, 1065, 0, 150).state.z, 'opened: in from outside').toBeLessThan(1048);
   }, 120_000);
 });

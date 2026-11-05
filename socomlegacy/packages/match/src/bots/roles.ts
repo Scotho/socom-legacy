@@ -22,14 +22,32 @@ export const STANCE_ADAPTATION = { moving: 0.1, phaseStep: 47,
 /** OT.R81 (BTL.R3): the port's invention, no original value -- a bot decision, not an unknown of the game's. A sniper's switch to its sidearm: the contact range that keeps the sidearm out, and the one that draws it. */
 export const WEAPON_SWAP_ADAPTATION = { sniperKeepSidearm: 100, sniperDrawSidearm: 65 } as const;
 
-/** Authored CPU posture policy; the wire and mover still apply the original stance rules. */
+/**
+ * The body speed (units a second, horizontal) at and above which a prone request is the dive: the original's own dive
+ * test, `FUN_00584b00` D:L443998-444001 (speed^2 >= 900; the port's `Traversal` takes it on vx/vz as here). Only the
+ * threshold is the original's; using it to gate the bot's choice is OT.R81's, below.
+ */
+export const BOT_DIVE_SPEED = 30;
+
+/**
+ * Authored CPU posture policy; the wire and mover still apply the original stance rules.
+ *
+ * Product track, OT.R81 (BTL.R3; the port's invention, online SOCOM II has no SEAL bots): the policy is the port's own
+ * and changes nothing the original does. `moving` is the bot's steering this tick, not its body's motion, so a bot
+ * whose steering dropped to 0 (yielding, spacing) while its body still carries the run reads as still; prone is
+ * allowed only while `speed` (the walker's horizontal speed) is under `BOT_DIVE_SPEED`, so the bot never asks a stance
+ * the original's applier would turn into a dive (B202, after DIVE-ROOT). The dive's own length and root are DIVE-ROOT's
+ * simulation-track reading (viewer `traversal.ts`, research 86 section 6.1), untouched here. The original AI's own
+ * prone path (delayed, demoted, gated) is LATER 672.
+ */
 export function chooseBotStance(role: BotRole, action: string | null, moving: number, distance: number,
-  tick: number, id: number, hiding: boolean): 0 | 1 | 2 {
+  tick: number, id: number, hiding: boolean, speed = 0): 0 | 1 | 2 {
   const s = STANCE_ADAPTATION, phase = tick + id * s.phaseStep;
   if (moving > s.moving) return 0;
   if (hiding) return 1;
   if (action !== 'fire' && action !== 'suppress' && action !== 'patrol') return 0;
-  if (role === 'marksman' && distance > s.marksman.beyond && phase % s.marksman.period < s.marksman.active) return 2;
+  if (role === 'marksman' && speed < BOT_DIVE_SPEED && distance > s.marksman.beyond
+    && phase % s.marksman.period < s.marksman.active) return 2;
   if (role === 'rusher' && distance < s.rusher.within && phase % s.rusher.period < s.rusher.active) return 1;
   if (role === 'support' && distance < s.support.within && phase % s.support.period < s.support.active) return 1;
   return 0;

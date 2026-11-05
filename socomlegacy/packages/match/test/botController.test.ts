@@ -6,6 +6,7 @@ import { MatchBots } from '../src/bots/matchBots';
 import type { NavigationData } from '../src/bots/navigation';
 import { friendlyOnRay } from '../src/bots/shot';
 import type { SimKits } from '../../viewer/src/loadout';
+import { solidWalls } from './helpers/solidWalls';
 
 /** Authored multiplayer-bot integration, no recovered retail AI claim. A synthetic room exercises the normal wire. */
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
@@ -15,8 +16,10 @@ function flat(wall = false): SimMap {
   const polys = [floor];
   if (wall) polys.push({ ...floor, path: 'worldmodel/wall', ditype: 2,
     points: Float32Array.from([0, 0, -400, 0, 60, -400, 0, 60, 400, 0, 0, 400]) });
-  const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: 'worldmodel', path: p.path, first: i, count: 1 }));
-  const ground = packGround(PARAMS, polys, owners);
+  // SEGMENT-BODY: each wall quad given its back face (`solidWalls`), a solid as a hull's is.
+  const solid = solidWalls(polys);
+  const owners: CollisionOwner[] = solid.map((p, i) => ({ modelName: 'worldmodel', path: p.path, first: i, count: 1 }));
+  const ground = packGround(PARAMS, solid, owners);
   const slots: SpawnSlot[] = [0, 1].flatMap((side) => Array.from({ length: 8 }, (_, index) => ({ side, index,
     position: [side ? 100 : -100, 0, -140 + index * 40], onFloor: true, step: side ? 6 : 2,
     facing: side ? [-1, 0] : [1, 0], loc: { map: 0, x: 0, z: 0 } } as SpawnSlot)));

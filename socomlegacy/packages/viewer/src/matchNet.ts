@@ -1,11 +1,13 @@
-import type { Loadout, Side } from '@s2u/scene';
+import type { Grid, Loadout, Side } from '@s2u/scene';
 import type { FlyCamera } from './camera';
 import type { LoadedMap } from './loadMap';
 import { kitRecords, wireLoadout, type PlayerLoadout } from './loadout';
 import type { MatchCapabilities } from './matchCore';
 import { sideLoadoutOf } from './matchCore';
 import type { MatchFirearm } from './matchFirearm';
-import type { Team } from './net/protocol';
+import { STANCE_CODES, type Team } from './net/protocol';
+import { rootY } from './mover';
+import { GAME_ASPECT, INIT_AIM_PITCH, PlayerCamera } from './playerCamera';
 import type { NetPageDeps } from './netPage';
 import type { PlayClips } from './play';
 import { scenicViews } from './spectatorView';
@@ -26,7 +28,7 @@ export interface MatchNetParts {
   remote: NetPageDeps['remote'];
   hud: NetPageDeps['hud'];
   /** SPECTATOR-VIEW W6: `setMagnification` and `lookOptions` (INVERT PITCH) optional for the stand-ins with no projection. */
-  fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions'>>;
+  fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect'>>;
   loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit'>>;
   firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt'>> & {
     /** NET-REFILL: `setNetRefill` optional for the stand-ins that build no `Fire`. */
@@ -139,6 +141,10 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
     defaults.newRound = () => { clear(); };
     defaults.abandoned = () => { clear(); };
   }
+  // FUN_002998f0 kind 2 -> FUN_00296f10 -> FUN_0029bf70: a followed actor uses the same pass as a player.
+  // Kept across frames; neither a target switch nor a different map inherits the previous obstruction (research 382 §2).
+  let following: { id: number; grid: Grid | null; map: LoadedMap | null; camera: PlayerCamera } | null = null;
+  const resetFollow = (): void => { following = null; };
   const shared: NetPageDeps = {
     walk: p.walk, remote: p.remote, hud: p.hud, clips: () => p.clips(),
     // The live kit's records for the page's own; another side's type's kit on the map for a team's.
@@ -163,7 +169,26 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
       if (l) h.answered(l);
     },
     menuOpen: () => p.menuOpen(),
-    spectate: (pose) => { if (pose) p.fly.setPose(pose); },
+    spectate: (pose) => { resetFollow(); if (pose) p.fly.setPose(pose); },
+    spectateFollowReset: resetFollow,
+    spectateFollow: (body, dt) => {
+      const grid = p.walk.gridOfGround?.() ?? null, map = p.map();
+      if (!following || following.id !== body.id || following.grid !== grid || following.map !== map) {
+        following = { id: body.id, grid, map, camera: new PlayerCamera(grid) };
+      }
+      const camera = following.camera;
+      camera.nearAspect = p.fly.aspect?.() ?? GAME_ASPECT;
+      camera.peek = body.peek ?? 0;
+      // The remote body was posed immediately before SpectatorView.frame. The no-mesh fallback is the player's
+      // existing measured stance/traversal root, not the old fixed standing offset (FUN_0029a950, research 382 §2).
+      const posed = p.remote.cameraRoot?.(body.id) ?? null;
+      const traversal = body.travRootY;
+      const root = posed ?? (traversal !== undefined && Number.isFinite(traversal) ? traversal : rootY(STANCE_CODES[body.stance ?? 0] ?? 'stand'));
+      camera.tick(body.feet, body.yaw, body.pitch ?? INIT_AIM_PITCH, root, Math.max(0, dt), posed !== null);
+      const view = camera.view(1), dx = view.target[0] - view.eye[0], dy = view.target[1] - view.eye[1], dz = view.target[2] - view.eye[2];
+      p.fly.setPose({ x: view.eye[0], y: view.eye[1], z: view.eye[2],
+        yaw: Math.atan2(-dx, -dz) * 180 / Math.PI, pitch: Math.atan2(dy, Math.hypot(dx, dz)) * 180 / Math.PI });
+    },
     spectateMagnify: (m) => p.fly.setMagnification?.(m),   // W6: the scenic zoom on the page's projection (`FlyCamera.setMagnification`)
     spectatePitchSign: () => (p.fly.lookOptions?.().invertPitch ? -1 : 1),   // review B1: INVERT PITCH (DAT_003df198), the camera's own option
     scenicViews: () => scenicViews(p.map() ?? {}),   // PF-31: mission.rdr's Scenic_Views (the map may load after the page)

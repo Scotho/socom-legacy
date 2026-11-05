@@ -53,6 +53,7 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u.startup.v1.pad.extras',       // padExtras.ts PAD_EXTRAS_PREFIX: a pad profile's extra binds, `.pad.extras.<id JSON>` (h59U9CLb, a browser adaptation)
   's2u.startup.v1.mic',              // gameMicrophone.ts MIC_DEVICE_KEY: the chosen input device
   's2u.startup.v1.mic.enabled',      // gameMicrophone.ts MIC_ENABLED_KEY: use in game
+  's2u.uiGpu',                       // uiGpuSwitch.ts UI_GPU_KILL_STORAGE_KEY: the GPU menus' support-only kill, 'off' (GM-10, GM.R13)
   's2u.launch.v1.testroom',          // launchSettings/presets.ts presetKey: /testroom's launch presets (PTT-9, a development build's)
   's2u.launch.v1.playtest',          // launchSettings/presets.ts presetKey: /playtest's launch presets (PTT-9, a development build's)
   LAST_MAP_KEY,

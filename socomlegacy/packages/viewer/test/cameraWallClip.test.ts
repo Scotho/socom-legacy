@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildGrid, materialTable, polygonNormal, segmentHits, type CollisionOwner, type Grid, type GridParams, type WorldPoly,
+  buildGrid, isWallSurface, materialTable, polygonNormal, segmentHits, surfaceMaterial, type CollisionOwner, type Grid, type GridParams, type WorldPoly,
 } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
-  localCamera, lookHeight, pitchLimits, PlayerCamera, CAM_MARGIN, INIT_AIM_PITCH, type Vec3,
+  localCamera, nearRectCorners, lookHeight, pitchLimits, PlayerCamera, CAM_MARGIN, INIT_AIM_PITCH, type Vec3,
 } from '../src/playerCamera';
 import { simMapFromBytes } from '../src/simMap';
-import { isCameraClassSurface, STANCE } from '../src/mover';
+import { isCameraClassSurface, STANCE, wallProbeHeights, Walker } from '../src/mover';
 
 /**
  * LATER 279: the third-person eye stays on the player's side of a camera wall (`FUN_0029bf70`,
@@ -18,7 +18,8 @@ import { isCameraClassSurface, STANCE } from '../src/mover';
 
 const STAND = STANCE.stand.rootY;
 const PRONE = STANCE.prone.rootY;
-/** The body's stand-off the wall probes keep (`FUN_0054aa30`, research 217 §2): stand/crouch 3.5, prone beside a wall 0.39×8. */
+/** Fixed camera-stress offsets based on the class radius and the prone side probe (research 217 §2).
+ * Camera stress positions only: the original body's direction-dependent reach is the body work's, not these. */
 const STAND_CLEAR = STANCE.stand.probe.r;
 const PRONE_BESIDE = STANCE.prone.probe.r * 0.39;
 const TYPE_ONE_CLEAR = 2.75;
@@ -47,6 +48,28 @@ const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const scale = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k];
 const len = (a: Vec3): number => Math.hypot(a[0], a[1], a[2]);
+const dot = (a: Vec3, b: readonly number[]): number => a[0] * b[0]! + a[1] * b[1]! + a[2] * b[2]!;
+
+/**
+ * A centroid offset may land INSIDE a solid's thickness. At both standing probe heights, opposed outward faces
+ * enclose the axis (the normal points away from it at both exits). This does not reject a narrow passage whose
+ * faces point into the passage, or a body merely closer than 3.5 to one face. Research 382 §5.
+ */
+function embeddedStandingAnchor(grid: Grid, feet: Vec3, faceNormal: readonly number[], defaultMaterial = ''): boolean {
+  const l = Math.hypot(faceNormal[0]!, faceNormal[2]!);
+  if (l === 0) return false;
+  const n: Vec3 = [faceNormal[0]! / l, 0, faceNormal[2]! / l];
+  const solid = (p: WorldPoly): boolean => {
+    const m = surfaceMaterial(p.material, defaultMaterial);
+    return isWallSurface(p) && !m.volumetric && !m.liquid;
+  };
+  return [n, [-n[2], 0, n[0]] as Vec3].some((axis) => wallProbeHeights('stand').every((height) => {
+    const p: Vec3 = [feet[0], feet[1] + height, feet[2]];
+    const a = segmentHits(grid, p, add(p, scale(axis, STAND_CLEAR)), solid)[0];
+    const b = segmentHits(grid, p, add(p, scale(axis, -STAND_CLEAR)), solid)[0];
+    return a && b && a.t > 1e-4 && b.t > 1e-4 && dot(axis, a.normal) > .999 && dot(axis, b.normal) < -.999;
+  }));
+}
 
 /** Yaw whose behind-direction (+local z, `toWorld`) is `back` on the ground. */
 function yawToward(back: Vec3): number {
@@ -197,7 +220,7 @@ describe('the eye stays this side of a wall (LATER 279)', () => {
   });
 
   it('the 0.75 minimum (a reading) places the eye past a face the target is already inside (research 180 §2.3)', () => {
-    // Not a clearance the body probes allow (stand 3.5, prone beside 3.12). The formula is the original's:
+    // Deliberately embedded camera target, beyond ordinary body contact. The formula is the original's:
     // D = max(0.75, |h - target| - 0.75), then the same 0.75 clamp. A hit 0.4 from the target puts the eye at 0.75.
     const grid = world([wallZ(0, -40, 40)]);
     const cam = new PlayerCamera(grid);
@@ -297,19 +320,20 @@ describe('where a legal stand meets the hull', () => {
               const into = add(c, scale(dir, -0.25));
               const approach = segmentHits(grid, far, into, isCameraClassSurface)[0];
               if (!approach || approach.poly !== poly) continue;
-              tried++;
               const stand = add(c, scale(dir, STAND_CLEAR));
               const feet: Vec3 = [stand[0], stand[1] - lookHeight(STAND), stand[2]];
+              if (embeddedStandingAnchor(grid, feet, n, map.defaultMaterial)) continue;
+              tried++;
               const cam = new PlayerCamera(grid);
               settle(cam, feet, yawToward(scale(dir, -1)), 0, STAND, 3);
               const v = cam.view(1);
               const hit = pastWall(grid, v.target, v.eye);
-              if (hit) failures.push(`${poly.path} eye ${v.eye.map((x) => x.toFixed(1)).join(',')} past ${hit.path}`);
+              if (hit) failures.push(`${poly.path} feet ${feet} yaw ${yawToward(scale(dir, -1))} eye ${v.eye} past ${hit.path}`);
             }
           }
         }
       }
-      expect(tried).toBeGreaterThan(0);
+      expect(tried).toBe(80);
       expect(failures, failures.slice(0, 12).join('\n')).toEqual([]);
     }, 180_000);
   }
@@ -322,3 +346,129 @@ function centroid(points: Float32Array): Vec3 {
   }
   return [x / n, y / n, z / n];
 }
+
+describe('the hull sweep excludes solid interiors, not close walls (research 382 §5)', () => {
+  it('distinguishes opposed outward slab faces from a passage and a single nearby wall', () => {
+    // wallX has normal -x. Reversing the second face closes a solid whose outward normals enclose the axis.
+    const left = wallX(0, -40, 40), right = wallX(1.5, 40, -40);
+    expect(embeddedStandingAnchor(world([left, right]), [.5, 0, 0], [0, 0, 1])).toBe(true);
+    expect(embeddedStandingAnchor(world([left]), [.5, 0, 0], [0, 0, 1])).toBe(false);
+    const passage = world([wallX(0, 40, -40), wallX(1.5, -40, 40)]);
+    expect(embeddedStandingAnchor(passage, [.5, 0, 0], [0, 0, 1])).toBe(false);
+    for (const face of [left, right]) face.material = 0;
+    expect(embeddedStandingAnchor(world([left, right]), [.5, 0, 0], [0, 0, 1], 'STONE')).toBe(true);
+  });
+
+  it.each(['LEAFY_TREE', 'WATER', 'camera-only'])('does not reject paired %s sheets as solid body interiors', (kind) => {
+    const faces = [wallX(0, -40, 40), wallX(1.5, 40, -40)];
+    if (kind === 'camera-only') for (const face of faces) face.cameratype = 1;
+    else {
+      const material = materialTable().findIndex((m) => m.name === kind);
+      expect(material).toBeGreaterThan(0);
+      for (const face of faces) face.material = material;
+    }
+    expect(embeddedStandingAnchor(world(faces), [.5, 0, 0], [0, 0, 1])).toBe(false);
+    if (kind !== 'camera-only') {
+      for (const face of faces) face.material = 0;
+      expect(embeddedStandingAnchor(world(faces), [.5, 0, 0], [0, 0, 1], kind)).toBe(false);
+    }
+  });
+
+  const bytes = fixture('RUN/MP7.ZDB');
+  it.skipIf(!bytes)(`MP7 slab interiors are excluded; reachable approaches on both sides keep their camera clear${bytes ? '' : ` -- ${FIXTURES_ABSENT}`}`, () => {
+    const map = simMapFromBytes(bytes!, 'RUN/MP7.ZDB'), grid = map.grid;
+    // Exact centroid-generated RED samples. Bounds are the paired outward faces decoded by worldCollision.
+    const samples: { feet: Vec3; bounds: [number, number]; fromY: number }[] = [
+      { feet: [1229, 113.84192090599919, 1431.3627369674994], bounds: [1228.5, 1230], fromY: 114 },
+      { feet: [1229, 105.63648111248736, 1425.8152928180411], bounds: [1228.5, 1230], fromY: 106 },
+      { feet: [1174.5, 109.49626019368301, 1393.7653656982516], bounds: [1174, 1175.5], fromY: 150 },
+    ];
+    for (const { feet, bounds, fromY } of samples) {
+      expect(embeddedStandingAnchor(grid, feet, [0, 0, 1], map.defaultMaterial), `${feet}`).toBe(true);
+      for (const height of wallProbeHeights('stand')) {
+        const p: Vec3 = [feet[0], feet[1] + height, feet[2]];
+        for (const sign of [-1, 1]) {
+          const h = segmentHits(grid, p, add(p, [sign * STAND_CLEAR, 0, 0]), isWallSurface)[0]!;
+          expect(h.point[0]).toBeCloseTo(bounds[sign === -1 ? 0 : 1], 6);
+          expect(h.normal[0]).toBe(sign);
+        }
+      }
+      for (const sign of [-1, 1]) {
+        const w = new Walker(grid), startX = feet[0] + sign * 8;
+        if (fromY === 150) expect(w.place(startX, feet[1], feet[2])).toBe(false); // Fabricated feet lie below support.
+        expect(w.place(startX, fromY, feet[2])).toBe(true);
+        w.state.yaw = sign === -1 ? 270 : 90;
+        const cameras = [-70, -45, 0, 60].map((pitch) => ({ pitch, cam: new PlayerCamera(grid) }));
+        for (let i = 0; i < 120; i++) {
+          w.tick({ forward: 1, right: 0, boost: false });
+          if (sign === -1) expect(w.state.x).toBeLessThan(bounds[0]);
+          else expect(w.state.x).toBeGreaterThan(bounds[1]);
+          for (const { pitch, cam } of cameras) {
+            cam.tick([w.state.x, w.state.y, w.state.z], w.state.yaw, pitch, STAND);
+            const v = cam.view(1);
+            // The translated look target can lie beyond a visible wall, and the body's vertical extension at
+            // camera height can be inside an eave. The actual body-height focus and near rectangle must be clear.
+            const focus: Vec3 = [w.state.x, w.state.y + lookHeight(STAND), w.state.z];
+            expect(pastWall(grid, focus, v.eye), `${feet}/${sign}/${i}/${pitch} body`).toBeNull();
+            for (const c of nearRectCorners(v.eye, v.target) ?? []) {
+              expect(pastWall(grid, v.eye, c), `${feet}/${sign}/${i}/${pitch} near`).toBeNull();
+            }
+          }
+        }
+      }
+    }
+  }, 120_000);
+});
+
+
+describe('WALL-CAM: ordinary downward targets and interpolated frames', () => {
+  it.each([-45, -70])('keeps the drawn eye and near rectangle outside at pitch %s while preserving game aim', (pitch) => {
+    const grid = world([wallZ(0, -200, 200)]);
+    const cam = new PlayerCamera(grid); cam.nearAspect = 16 / 9;
+    cam.tick([0, 0, STAND_CLEAR], 0, pitch, STAND);
+    const v = cam.view(1);
+    expect(v.eye[2]).toBeGreaterThan(0);
+    for (const corner of nearRectCorners(v.eye, v.target, 16 / 9) ?? []) expect(corner[2]).toBeGreaterThan(0);
+    expect(v.aim.eye[2]).toBeLessThan(0); // H337 stays unresolved: only the drawn pose is protected.
+  });
+  it('rechecks the chord between two clear orbit endpoints around a finite pillar', () => {
+    const grid = world([wallZ(12, -2, 2), wallZ(16, -2, 2), wallX(-2, 12, 16), wallX(2, 12, 16)]);
+    const cam = new PlayerCamera(grid);
+    cam.tick([0, 0, 0], -45, 0, STAND); const a = cam.view(1);
+    cam.tick([0, 0, 0], 45, 0, STAND); const b = cam.view(1);
+    const axis: Vec3 = [0, a.eye[1], 0];
+    expect(pastWall(grid, axis, a.eye)).toBeNull(); expect(pastWall(grid, axis, b.eye)).toBeNull();
+    const chord = scale(add(a.eye, b.eye), .5);
+    expect(pastWall(grid, axis, chord)).not.toBeNull(); // Lerp alone really crosses this finite obstruction.
+    expect(pastWall(grid, axis, cam.view(.5).eye)).toBeNull();
+  });
+  it('keeps every rendered sample outside both faces during a corner orbit', () => {
+    const grid = world([wallZ(0, -200, 200), wallX(0, -200, 200)]);
+    const cam = new PlayerCamera(grid); cam.nearAspect = 32 / 9;
+    for (const yaw of [0, 40, 80, 120, 160, 200, 240, 280, 320, 360]) {
+      cam.tick([STAND_CLEAR, 0, STAND_CLEAR], yaw, -60, STAND);
+      for (const alpha of [0, .1, .3, .5, .7, .9, 1]) {
+        const v = cam.view(alpha);
+        for (const c of [v.eye, ...(nearRectCorners(v.eye, v.target, 32 / 9) ?? [])]) {
+          expect(c[0], `${yaw}/${alpha}: x`).toBeGreaterThan(0);
+          expect(c[2], `${yaw}/${alpha}: z`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
+
+describe('WALL-CAM: downward lead uses movement mode, FUN_0029cbb0', () => {
+  it('skips camera type 1 and reads type 2 before the normal camera pass', () => {
+    const pose = (cameratype: number | null) => {
+      const wall = wallZ(-10, -200, 200); wall.cameratype = cameratype ?? 0;
+      const c = new PlayerCamera(world(cameratype === null ? [] : [wall]));
+      c.tick([0, 0, 0], 0, -70, STAND);
+      return c.view(1).aim.target;
+    };
+    expect(pose(1)).toEqual(pose(null));
+    expect(pose(2)).toEqual(pose(0));
+    expect(pose(2)[2]).not.toBe(pose(null)[2]);
+  });
+});

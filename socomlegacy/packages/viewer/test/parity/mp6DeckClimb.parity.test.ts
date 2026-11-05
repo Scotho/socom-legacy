@@ -62,12 +62,14 @@ const PLATFORM = 30, LEDGE = 60;
 const DECK_TOP = 30, BRACE_MIN_Z = 1439.8;
 
 interface Approach {
-  /** The first climb prompt shown, and where the feet stood then; null when none showed. */
+  /** The climb prompt shown as the walk ended, where the press is made; null when none showed. */
   prompt: string | null;
   automatic: boolean | null;
+  /** SEGMENT-BODY part 2: how far off the face's plane the feet stood when a prompt first showed on the walk; null when none did. */
+  firstOff: number | null;
   /** The walls the walk met on its last moving tick. */
   met: Set<string>;
-  /** Where the feet stood when the walk stopped (the prompt's tick, or the last). */
+  /** Where the feet stood when the walk stopped (its last tick). */
   at: [number, number, number];
   hung: boolean;
   events: string[];
@@ -79,7 +81,13 @@ describe.skipIf(!HAVE)(`MP6's deck into the hostage room: the sandbags' climb, t
   let sandbags: WorldPoly[], stopper: WorldPoly[];
   const runs = new Map<string, Approach>();
 
-  /** From (x, fromY, z) at `yaw`: the stick ahead until a prompt shows (at most `ticks`); on one, the press and the climb. */
+  /**
+   * From (x, fromY, z) at `yaw`: the stick ahead for `ticks`, then the press, the climb if one starts. SEGMENT-BODY part 2
+   * (the weapon line, research 86 s3.8): the walk is no longer stopped at the first prompt -- the weapon line offers the
+   * sandbags from the start, 8 out (`firstOff`), before any segment record meets them -- so the press is made where the
+   * walk ends, as ac's capture of the original stages its presses (walk, stop, press). *Was:* the stick ahead until a
+   * prompt showed.
+   */
   function approach(x: number, fromY: number, z: number, yaw: number, ticks = 120): Approach {
     const w = new Walker(grid), t = new Traversal(grid, polys);
     w.driver = t;
@@ -90,15 +98,16 @@ describe.skipIf(!HAVE)(`MP6's deck into the hostage room: the sandbags' climb, t
     t.on((e) => events.push(e));
     expect(w.place(x, fromY, z)).toBe(true);
     w.state.yaw = yaw;
-    let met = new Set<string>();
-    for (let i = 0; i < ticks && t.climbPrompt() === null; i++) {
+    let met = new Set<string>(), firstOff: number | null = null;
+    for (let i = 0; i < ticks; i++) {
       w.tick(FORWARD);
       const hits = w.wallHits();
       if (hits.length) met = new Set(hits.map((h) => h.poly.path));
+      if (firstOff === null && t.climbPrompt() !== null) firstOff = w.state.z - SANDBAGS.z;
     }
     const p = t.climbPrompt();
     const out: Approach = {
-      prompt: p?.kind ?? null, automatic: p?.automatic ?? null, met, at: [w.state.x, w.state.y, w.state.z], hung: false, events: [], end: [0, 0, 0],
+      prompt: p?.kind ?? null, automatic: p?.automatic ?? null, firstOff, met, at: [w.state.x, w.state.y, w.state.z], hung: false, events: [], end: [0, 0, 0],
     };
     t.action();                                                         // pressed whether or not a prompt showed
     for (let i = 0; i < 400 && t.state().kind !== 'hang' && (i < 2 || t.state().kind !== 'none'); i++) w.tick(STILL);
@@ -156,6 +165,8 @@ describe.skipIf(!HAVE)(`MP6's deck into the hostage room: the sandbags' climb, t
   it('(2) the port as built: walked straight in mid-face the hang is offered (on the press, not the walk) and the climb ends on the ledge at 60', () => {
     for (const label of ['mid 1803', 'mid 1795']) {
       const r = runs.get(label)!;
+      // SEGMENT-BODY part 2: offered from the start, 7.7 out, by the weapon line (its 22.93 reaches the face from there).
+      expect(r.firstOff, label).toBeGreaterThan(7.5);
       expect(r.prompt, label).toBe('high');
       expect(r.automatic, label).toBe(false);
       expect(r.met.has('worldmodel/sausage_climber_dis'), label).toBe(true);
@@ -168,14 +179,25 @@ describe.skipIf(!HAVE)(`MP6's deck into the hostage room: the sandbags' climb, t
   });
 
   it('(3) the port as built, the original as read (FUN_005483d0 D:L413867-413901): wedged in the east corner against stop1_2, nothing is offered and the press climbs nothing', () => {
-    for (const label of ['corner 1814', 'corner 1808 ne']) {
+    // SEGMENT-BODY (re-measured 2026-11-04): walked in north-east, the side lines (1.2 r across) also meet g451 beside the
+    // wedge, and the diagonal walk-in stands 6.7 off the face (1814's square one 6.1).
+    // SEGMENT-BODY part 2 (the weapon line): walked in square at 1814 the sandbags are offered on the way (the weapon
+    // line, from 7.7 out) until the wedge, where the centre's hit is stored and the side line's hit on stop1_2 (a normal
+    // 49.6 degrees off) drops it (the corner drop, now in `Walker.storeContact`); the still body's side line keeps
+    // meeting stop1_2, so the weapon line's slot is never consulted (D:L413618) and nothing re-forms. North-east from
+    // 1808 the weapon line meets stop1_2 first (appflags 0): stored, nothing offered.
+    const corners = { 'corner 1814': { also: [] as string[], off: 6.1 }, 'corner 1808 ne': { also: ['worldmodel/g451'], off: 6.7 } };
+    for (const [label, c] of Object.entries(corners)) {
       const r = runs.get(label)!;
       expect(r.prompt, label).toBeNull();
-      expect(r.met, label).toEqual(new Set(['worldmodel/stop1_2', 'worldmodel/sausage_climber_dis']));
+      expect(r.met, label).toEqual(new Set(['worldmodel/stop1_2', 'worldmodel/sausage_climber_dis', ...c.also]));
       expect(r.at[0], label).toBeGreaterThan(1811.5);                  // in the wedge, x about 1812.3-1812.7
       expect(r.at[0], label).toBeLessThan(1813.5);
       expect(r.at[1], label).toBeCloseTo(PLATFORM, 2);
-      expect(r.at[2], label).toBeCloseTo(SANDBAGS.z + 3.5, 1);         // the slide's stand-off from the face
+      // SEGMENT-BODY: the centre line's reach, 1.1 x 1.4 r = 5.39, plus a tick, less the 1 of the deep-hit rule (D:L415166,
+      // D:L415235, D:L413602-413614): 6.1 off the face [reading, pending a capture; r0004's head-on stand-off 6.78]. Was the
+      // disc's slide stand-off, 3.5.
+      expect(r.at[2], label).toBeCloseTo(SANDBAGS.z + c.off, 1);
       expect(r.events, label).toEqual([]);
       expect(r.end[1], label).toBeCloseTo(PLATFORM, 2);
     }

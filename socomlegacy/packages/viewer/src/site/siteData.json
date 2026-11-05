@@ -1,5 +1,5 @@
 {
-  "commit": "381ada82f",
+  "commit": "0dd49950f",
   "sprints": [
     {
       "number": 6,
@@ -1021,6 +1021,11 @@
       "title": "Bot validation follow-up (2026-10-28)"
     },
     {
+      "id": "2026-10-28-client-performance-compare",
+      "date": "2026-10-28",
+      "title": "Client performance compare (CPF) -- plan"
+    },
+    {
       "id": "2026-10-28-pad-support",
       "date": "2026-10-28",
       "title": "Controller support for pads read without the standard mapping -- plan"
@@ -1091,9 +1096,39 @@
       "title": "GPU menus (GM) -- plan"
     },
     {
+      "id": "2026-11-02-client-performance-sprint",
+      "date": "2026-11-02",
+      "title": "Client performance sprint (CPS) -- plan"
+    },
+    {
       "id": "2026-11-02-replay-viewer-redesign",
       "date": "2026-11-02",
       "title": "RV2 -- the replay viewer redesign -- plan"
+    },
+    {
+      "id": "2026-11-02-wall-parity",
+      "date": "2026-11-02",
+      "title": "Wall and camera collision -- plan"
+    },
+    {
+      "id": "2026-11-03-open-source-client",
+      "date": "2026-11-03",
+      "title": "The open-source client (\"SOCOM Legacy Client\") -- plan"
+    },
+    {
+      "id": "2026-11-04-gate-diet",
+      "date": "2026-11-04",
+      "title": "The gate diet -- plan"
+    },
+    {
+      "id": "2026-11-04-web-sprint-43-the-stats-api-and-the-discord-live-channels",
+      "date": "2026-11-04",
+      "title": "Web sprint 43 -- the stats API and the Discord LIVE channels -- plan"
+    },
+    {
+      "id": "2026-11-05-client-error-beacon",
+      "date": "2026-11-05",
+      "title": "The client error beacon -- plan"
     }
   ],
   "issues": {

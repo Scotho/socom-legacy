@@ -2,7 +2,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isGroundSurface, isWallSurface, probeGround, segmentHits, selectFloor, upNormal, type Grid, type WorldPoly } from '@s2u/scene';
+import { buildGrid, isGroundSurface, isWallSurface, probeGround, segmentHits, selectFloor, upNormal, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
 import { groundGrid, groundPolygons, STEP_PROBE_LIFT_READING, Walker, type WalkInput } from '../src/mover';
 import { simMapFromBytes } from '../src/simMap';
 import { Traversal } from '../src/traversal';
@@ -25,6 +25,30 @@ const ON = !!process.env.OBF21_LEDGE_SWEEP && !!DISC;
 const MAPS = (process.env.OBF21_MAPS ?? 'MP1,MP2,MP5,MP6,MP7,MP8,MP9,MP10,MP11,MP12,MP51,MP52,MP53,MP61,MP62,MP64,MP71,MP72,MP73,MP81,MP82,MP83').split(',');
 const PER_CLASS = Number(process.env.OBF21_PER_CLASS ?? 40);
 const OUT = process.env.OBF21_OUT ?? '';
+/**
+ * OBF21_OUT_ALL=1: every attempted start is written to OBF21_OUT -- the clean walks and the `startStuck` skips too, each
+ * `{ map, cfg, edge, startStuck, flags }` (a walk's `end`, `past` and `wallTicks` as before). Unset: only the flagged walks.
+ */
+const OUT_ALL = !!process.env.OBF21_OUT_ALL;
+/**
+ * OBF21_STARTS=<jsonl>: the starts (map, cfg, edge) are that file's rows instead of the generated ones, and the
+ * `startStuck` filter is not asked of them -- two walkers walk the same starts (a row without `edge` is ignored; one
+ * `startStuck` row is a start like any other).
+ */
+const STARTS = process.env.OBF21_STARTS ?? '';
+interface StartRow { map: string; cfg: string; edge?: { x: number; z: number; out: [number, number]; top: number; drop: number } }
+function listedStarts(): Map<string, StartRow[]> {
+  const byMap = new Map<string, StartRow[]>();
+  if (!STARTS) return byMap;
+  for (const line of readFileSync(STARTS, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line) as StartRow;
+    if (!row.edge) continue;                                     // a row twice is walked twice, as the generated set has it
+    if (!byMap.has(row.map)) byMap.set(row.map, []);
+    byMap.get(row.map)!.push(row);
+  }
+  return byMap;
+}
 /** OBF21_NEAR="x,z,r": only the edges whose midpoint is within r of (x, z) (0 per class = no cap). */
 /** OBF21_ALL_STARTS=1: steep tops' edges too, and a start inside a wall's radius or walled in kept (only one that cannot move is skipped). */
 const ALL_STARTS = !!process.env.OBF21_ALL_STARTS;
@@ -94,6 +118,20 @@ function edgesOf(grid: Grid, polys: readonly WorldPoly[]): Edge[][] {
 }
 
 const input = (forward: number, right = 0): WalkInput => ({ forward, right, boost: false });
+
+/**
+ * `proneGateRefused`, written on every row when OBF21_OUT_ALL or OBF21_STARTS is set: for a prone row, whether the
+ * port's own prone gate refuses going prone at the start, the body placed and facing the edge -- the gate a player's
+ * prone press from stand runs (`Walker.stanceRefused('stand', 'prone')` -> `proneRefused`, `PRONE_GATE_READING`: a
+ * wall 11.2 ahead or 8.0 behind at the feet + 3.25). The probe sets prone directly, so it still walks a refused start;
+ * the field only marks it. False for a stand or crouch row; null for a prone row whose start was not placed. It reads
+ * the grid and moves nothing.
+ */
+function proneGateAt(w: Walker, stance: string): boolean {
+  return stance === 'prone' && w.stanceRefused('stand', 'prone');
+}
+/** The field rides only with the new modes: unset, the rows are today's byte for byte. */
+const GATE_FIELD = OUT_ALL || !!STARTS;
 
 function enclosed(grid: Grid, x: number, y: number, z: number): boolean {
   for (let k = 0; k < 8; k++) {
@@ -188,10 +226,37 @@ describe.skipIf(!ON || !process.env.OBF21_POLYWALK)('OBF-21 polygon walk (probe)
   });
 });
 
+describe('OBF-21 ledge sweep: proneGateRefused (synthetic, no disc)', () => {
+  // A level floor and the body at the origin facing +x; the wall is given both windings so it is met from either side.
+  const wallAtX = (x: number): WorldPoly[] => [z0z1(x, -150, 150), z0z1(x, 150, -150)];
+  function z0z1(x: number, za: number, zb: number): WorldPoly {
+    return { modelName: 'worldmodel', path: 'worldmodel/wall', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
+      points: Float32Array.from([x, 0, za, x, 0, zb, x, 30, zb, x, 30, za]) };
+  }
+  const flat: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]) };
+  const startIn = (walls: WorldPoly[]): Walker => {
+    const polys = [flat, ...walls];
+    const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
+    const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
+    const w = new Walker(buildGrid(params, [], [], polys, owners));
+    w.place(0, 2, 0);
+    w.state.yaw = -90;                                           // facing +x (forward = (-sin yaw, -cos yaw))
+    return w;
+  };
+  it('a wall 6 behind refuses the prone start; open ground does not; a stand or crouch row is false', () => {
+    expect(proneGateAt(startIn(wallAtX(-6)), 'prone')).toBe(true);
+    expect(proneGateAt(startIn([]), 'prone')).toBe(false);
+    expect(proneGateAt(startIn(wallAtX(-10)), 'prone')).toBe(false);          // past the gate's 8.0 behind
+    expect(proneGateAt(startIn(wallAtX(-6)), 'crouch')).toBe(false);
+  });
+});
+
 describe.skipIf(!ON)('OBF-21 ledge sweep (probe)', () => {
   it('walks off every sampled ledge edge of each map', { timeout: 590_000 }, () => {
     if (OUT) writeFileSync(OUT, '');
     const summary: string[] = [];
+    const starts = listedStarts();
     for (const name of MAPS) {
       const path = resolve(DISC!, `RUN/${name}.ZDB`);
       if (!existsSync(path)) { summary.push(`${name}: absent`); continue; }
@@ -205,14 +270,30 @@ describe.skipIf(!ON)('OBF-21 ledge sweep (probe)', () => {
       const classes = edgesOf(grid, polys);
       const counts: Record<string, number> = {};
       let runs = 0;
-      for (let c = 0; c < classes.length; c++) for (const e of classes[c]!) for (const cfg of CONFIGS) {
+      // The starts: the listed ones (OBF21_STARTS) or every sampled edge in every configuration.
+      const listed = STARTS ? (starts.get(name) ?? []) : null;
+      const pairs: { e: Edge; cfg: (typeof CONFIGS)[number]; listed: boolean }[] = [];
+      if (listed) {
+        for (const row of listed) {
+          const cfg = CONFIGS.find((c) => c.name === row.cfg), g = row.edge!;
+          if (cfg) pairs.push({ e: { x: g.x, z: g.z, ox: g.out[0], oz: g.out[1], top: g.top, drop: g.drop }, cfg, listed: true });
+        }
+      } else for (let c = 0; c < classes.length; c++) for (const e of classes[c]!) for (const cfg of CONFIGS) pairs.push({ e, cfg, listed: false });
+      const gateOf = (v: boolean | null) => (GATE_FIELD ? { proneGateRefused: v } : {});
+      const edgeOut = (e: Edge) => ({ x: +e.x.toFixed(2), z: +e.z.toFixed(2), out: [+e.ox.toFixed(3), +e.oz.toFixed(3)], top: +e.top.toFixed(2), drop: +e.drop.toFixed(2) });
+      for (const { e, cfg, listed: isListed } of pairs) {
         const w = new Walker(grid), t = new Traversal(grid, polys);
         w.driver = t;
-        if (!w.place(e.x - e.ox * 6, e.top + STEP_PROBE_LIFT_READING, e.z - e.oz * 6)) continue;
-        if (Math.abs(w.state.y - e.top) > 1.5) continue;
+        const unplaced = !w.place(e.x - e.ox * 6, e.top + STEP_PROBE_LIFT_READING, e.z - e.oz * 6) || Math.abs(w.state.y - e.top) > 1.5;
+        if (unplaced) {
+          if (OUT && OUT_ALL) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: edgeOut(e), startStuck: true, flags: ['unplaced'], ...gateOf(cfg.stance === 'prone' ? null : false) })}
+`);
+          continue;
+        }
         w.stance = cfg.stance;
         const yaw = (Math.atan2(-e.ox, -e.oz) * 180) / Math.PI;
         w.state.yaw = yaw;
+        const gate = proneGateAt(w, cfg.stance);                   // at the start and heading, before any walk
         let startBest = 0;
         w.driver = null;
         for (let k = 0; k < 8 && startBest < 1; k++) startBest = Math.max(startBest, moves(w, t, k * 45));
@@ -221,7 +302,11 @@ describe.skipIf(!ON)('OBF-21 ledge sweep (probe)', () => {
         const W = w as unknown as Record<string, (...a: number[]) => [number, number]>;
         const held = W.slide!.call(w, w.state.x, w.state.z, w.state.x, w.state.z);
         const inRadius = Math.hypot(held[0] - w.state.x, held[1] - w.state.z) > 0.01;
-        if (startBest < 1 || (!ALL_STARTS && (inRadius || enclosed(grid, w.state.x, w.state.y, w.state.z)))) { counts.startStuck = (counts.startStuck ?? 0) + 1; continue; }
+        if (!isListed && (startBest < 1 || (!ALL_STARTS && (inRadius || enclosed(grid, w.state.x, w.state.y, w.state.z))))) {
+          counts.startStuck = (counts.startStuck ?? 0) + 1;
+          if (OUT && OUT_ALL) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: edgeOut(e), startStuck: true, flags: [], ...gateOf(gate) })}\n`);
+          continue;
+        }
         runs++;
         const flags: string[] = [];
         let hung = 0, maxHung = 0, lastY = w.state.y, wallTicks = 0, traversal = '';
@@ -234,7 +319,12 @@ describe.skipIf(!ON)('OBF-21 ledge sweep (probe)', () => {
         }
         const busy = () => (w as unknown as { action_: unknown }).action_ !== null || w.airborne;
         for (let i = 0; i < 300 && !traversal && busy(); i++) { w.tick(input(0)); if (t.active) traversal = t.state().kind; }
-        if (traversal) { counts[`traversal:${traversal}`] = (counts[`traversal:${traversal}`] ?? 0) + 1; continue; }
+        if (traversal) {
+          counts[`traversal:${traversal}`] = (counts[`traversal:${traversal}`] ?? 0) + 1;
+          if (OUT && OUT_ALL) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: edgeOut(e), startStuck: false, flags: [`traversal:${traversal}`], ...gateOf(gate) })}
+`);
+          continue;
+        }
         const s = w.state;
         const past = (s.x - e.x) * e.ox + (s.z - e.z) * e.oz;
         if (maxHung >= 10) flags.push(`hung${maxHung}`);
@@ -252,10 +342,9 @@ describe.skipIf(!ON)('OBF-21 ledge sweep (probe)', () => {
           if (edge) flags.push('noGroundBeyond');
           if (enclosed(grid, s.x, s.y, s.z)) flags.push('enclosed');
         }
-        if (flags.length) {
-          for (const fl of flags) { const key = fl.replace(/[-\d.]+$/, ''); counts[key] = (counts[key] ?? 0) + 1; }
-          if (OUT) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: { x: +e.x.toFixed(2), z: +e.z.toFixed(2), out: [+e.ox.toFixed(3), +e.oz.toFixed(3)], top: +e.top.toFixed(2), drop: +e.drop.toFixed(2) }, end: [+s.x.toFixed(2), +s.y.toFixed(2), +s.z.toFixed(2)], past: +past.toFixed(2), wallTicks, flags })}\n`);
-        }
+        if (flags.length) for (const fl of flags) { const key = fl.replace(/[-\d.]+$/, ''); counts[key] = (counts[key] ?? 0) + 1; }
+        if (OUT && OUT_ALL) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: edgeOut(e), startStuck: false, end: [+s.x.toFixed(2), +s.y.toFixed(2), +s.z.toFixed(2)], past: +past.toFixed(2), wallTicks, flags, ...gateOf(gate) })}\n`);
+        else if (flags.length && OUT) appendFileSync(OUT, `${JSON.stringify({ map: name, cfg: cfg.name, edge: edgeOut(e), end: [+s.x.toFixed(2), +s.y.toFixed(2), +s.z.toFixed(2)], past: +past.toFixed(2), wallTicks, flags, ...gateOf(gate) })}\n`);
       }
       summary.push(`${name}: edges ${classes.map((l) => l.length).join('/')} runs ${runs} ${JSON.stringify(counts)}`);
       console.log(summary[summary.length - 1]);

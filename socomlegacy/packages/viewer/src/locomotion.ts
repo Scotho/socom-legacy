@@ -32,6 +32,18 @@ import type { MotionEntry, MotionTable } from './motionTable';
 
 /** `FUN_00287620`: the cross-fade into a motion whose entry has no `BlendTime` (`puStack_8[8] = 0x3ecccccd`). */
 export const BLEND_TIME_DEFAULT = 0.4;
+
+/**
+ * The cross-fade's weight at `s` of its length: the ease the game's node blend traced (research 17 §4.2, `FUN_0028e040`
+ * blending a snapshot into the current pose, "a clean symmetric smoothstep": 0.020, 0.080, 0.180, 0.319, 0.499, 0.681,
+ * 0.819 at even steps), 2s^2 up to the middle and its mirror after. Between two keys `MOTION_BLEND` (77 §7) still
+ * holds: rotations slerp on the shorter arc, translations lerp.
+ */
+export function blendWeight(s: number): number {
+  if (!(s > 0)) return 0;
+  if (s >= 1) return 1;
+  return s < 0.5 ? 2 * s * s : 1 - 2 * (1 - s) * (1 - s);
+}
 /** `FUN_0028aa20`: a looped motion whose root travels no further than this a cycle keeps K = 1. */
 const TRAVEL_FLOOR = 0.2;
 /** `FUN_00583350`: a forward or lateral axis within this of 0 is none (`DAT_003f3428`, 0.03). */

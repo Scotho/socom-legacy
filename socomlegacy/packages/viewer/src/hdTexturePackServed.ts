@@ -14,6 +14,8 @@ import {boundedBytes,hashString,sha256} from './texturePack';
  */
 export const HD_ROOT='/experimental-packs/hd/';
 type Fetch=(url:string,init?:RequestInit)=>Promise<Response>;
+/** A PNG payload's decode (`png.ts` `decodePngAsync` by default; GM-13b: the menus' pack passes their worker's). */
+export type HdPngDecode=(bytes:Uint8Array,maxEdge:number)=>Promise<Rgba>;
 const reasonOf=(e:unknown)=>e instanceof HdRefusal?e.reason:e instanceof Error?e.message:String(e);
 
 export class HdServedPack {
@@ -31,7 +33,7 @@ export class HdServedPack {
   private imported=false;
   ready:Promise<void>=Promise.resolve();
   constructor(private fetcher:Fetch=(u,i)=>fetch(u,i),private status:(text:string)=>void=()=>undefined,registry:HdTextureRegistry=hdTextures,
-    private store:HdStore|null=null){
+    private store:HdStore|null=null,private decodePng:HdPngDecode=decodePngAsync){
     this.runtime=new HdPackRuntime(registry,e=>this.load(e),()=>this.say());
   }
   /**
@@ -105,6 +107,6 @@ export class HdServedPack {
       const b=await this.store!.file(e.file);if(!b)throw new Error(`${e.file} is not in the imported pack`);
       if(b.length>e.bytes+1024)throw new Error(`${e.file} is over its entry's size`);bytes=b;
     }else bytes=await this.bytes(`${HD_ROOT}${id}/${e.file}`,max,signal,'default');
-    return e.format==='dds'?decodeDds(bytes,{width:e.outWidth,height:e.outHeight}):decodePngAsync(bytes,HD_LIMITS.outputEdge);
+    return e.format==='dds'?decodeDds(bytes,{width:e.outWidth,height:e.outHeight}):this.decodePng(bytes,HD_LIMITS.outputEdge);
   }
 }

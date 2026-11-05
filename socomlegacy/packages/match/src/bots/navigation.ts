@@ -9,6 +9,7 @@ import { BODY_RADIUS, Walker } from '../../../viewer/src/mover';
 import { SEAL_TUNING_DEFAULTS } from '../../../viewer/src/physics';
 import { Traversal } from '../../../viewer/src/traversal';
 import { MoverSim } from '../../../viewer/src/net/moverSim';
+import { WEAPON_LINE_BOTS_READING } from '../../../viewer/src/weaponLine';
 import { TICK_HZ } from '../../../viewer/src/net/protocol';
 import { wrapYaw } from '../../../viewer/src/yaw';
 import type { SimMap,SimClips } from '../../../viewer/src/simMap';
@@ -285,6 +286,7 @@ export class WalkingNavigation {
   private connectLadders(): void {
     const polys = this.map.grid.objects.flatMap(o => o.kind === 'collision' ? [...o.polys] : []);
     const walker = new Walker(this.map.grid), moves = new Traversal(this.map.grid, polys), sim = new MoverSim(walker, moves);
+    walker.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY part 4: a bot's body casts no weapon line
     const parents = new Map<number, number>();
     const root = (c: number): number => { let next: number | undefined; while ((next = parents.get(c)) !== undefined) c = next; return c; };
     for (const ladder of moves.ladders) {

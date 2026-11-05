@@ -1,12 +1,12 @@
 import {
-  findLadders, ladderFrame, probeFloor, probeGround, probeWater, segmentHits, selectFloor, surfaceWord, APP_LADDER, SEAL_TUNING, SURFACE_SIDE, SURFACE_SKIP,
+  findLadders, ladderFrame, probeFloor, probeGround, probeWater, segmentHits, selectFloor, surfaceWord, APP_LADDER, GAME_FRAME_DT, SEAL_TUNING, SURFACE_SIDE, SURFACE_SKIP,
   type Grid, type Ladder, type MotionClip, type WorldPoly,
 } from '@s2u/scene';
 import type { TraversalPose } from './animator';
-import { entryOf, loopScale, oneShotSeconds, rootTravel } from './locomotion';
+import { BLEND_TIME_DEFAULT, blendWeight, entryOf, loopScale, oneShotSeconds, rootTravel, SEAL_ANIMS } from './locomotion';
 import { blendShapes, ClipPath, clipShape, reverseShape, rootAt, shapeTravel, STEER_RATE, straightShape, truncateShape, type ClipShape, type PathPoint } from './clipPath';
 import {
-  CLIMB_TOP_FLOOR_READING, CLIMBABLE, contactFromHits, contactHolds, cornerDrop, floorUnder, obstacleRay, planClimb, topFloor, type ClimbClass, type ClimbContact, type ClimbPlan, type WalkHit,
+  CLIMB_TOP_FLOOR_READING, CLIMBABLE, contactFromHits, contactHolds, contactOf, cornerDrop, floorUnder, obstacleRay, planClimb, topFloor, type ClimbClass, type ClimbContact, type ClimbPlan, type WalkHit,
 } from './climb';
 
 export { CLIMB_TOP_FLOOR_READING } from './climb';
@@ -15,7 +15,8 @@ import { OneShotSteer } from './net/emplacement';
 import { CROUCH_HEIGHT, PRONE_HEIGHT, STANDING_HEIGHT } from './stature';
 import { shortTurn } from './yaw';
 import {
-  BODY_RADIUS, holdFamily, RELOAD_PUSH_LAG, rootY as stanceRootY, STEP_PROBE_LIFT_READING, TICK,
+  BODY_RADIUS, holdFamily, RELOAD_PUSH_LAG, rootY as stanceRootY, STEP_PROBE_LIFT_READING, STICK_SNAP_BLEND, TICK,
+  WALL_BODY_READING,
   type HoldPass, type PopOutcome, type Stance, type TraversalHooks, type TraversalKept, type Walker, type WalkInput,
 } from './mover';
 
@@ -147,6 +148,14 @@ export class TraversalShapes {
     if (!f) return straightShape(name, 0.5, 11.484, 0, 0, 2);
     const looped = name === TRAVERSAL_CLIP.ladder || name === TRAVERSAL_CLIP.slide || name === TRAVERSAL_CLIP.hang;
     return straightShape(name, looped ? f[0] : oneShotSeconds(f[0], f[4]), f[1], f[2], f[3], f[4]);
+  }
+
+  /**
+   * The cross-fade into the clip as the animator plays it (`./locomotion` `motionOf`): `motion.rdr`'s `BlendTime`, else
+   * `FUN_00287620`'s 0.4.
+   */
+  blendTime(name: string): number {
+    return entryOf(name, this.table)?.blendTime ?? BLEND_TIME_DEFAULT;
   }
 
   /** Whether the clip's own shape is in hand. */
@@ -325,8 +334,43 @@ const HANG_PUSH = 0.2;
 export const BODY_TOP: Readonly<Record<Stance, number>> = { stand: STANDING_HEIGHT, crouch: CROUCH_HEIGHT, prone: PRONE_HEIGHT };
 /** `FUN_00584b00`: the dive wants the body moving at 30 a second (speed^2 900) or more, and water no deeper than 2. */
 const DIVE_SPEED2 = 900, DIVE_WATER = 2;
-/** `FUN_0057e540`: the dive holds its height 0.2 s; `FUN_0059b870` drops the root at gravity to the prone's 2.2. */
+/**
+ * `FUN_0057e540`: the dive holds 0.2 s (`+0x1360` = 0x3e4ccccd, D:L440906); `FUN_0059b870` lowers its hidden timer
+ * (`+0xfac`, seeded from the stance's root, D:L440911) by `+0x133c` x dt and clamps it at the prone's 2.2, the bleed's
+ * signal (bit 0x20 of `+0x105e` cleared, D:L456590-456603). The timer is not the drawn root: nothing in the dive writes
+ * the root node (`FUN_0059afd0` D:L456346-456352, `FUN_0057a330` D:L439149), so `seal_dive2prone` draws its own (DIVE-ROOT).
+ */
 const DIVE_HOLD = 0.2, DIVE_ROOT = 2.2;
+/**
+ * DIVE_ROOT_FALL_READING (DIVE-ROOT, B201; research 86 section 6.1; reading, pending review): the timer's speed
+ * `+0x133c` grows by dt x 98.100006 a game frame once the dive has landed -- a literal in `FUN_0059b440`'s dive branch
+ * (D:L456552-456557: `+0x133c` = the frame's start value + `+0x2e0` x 98.100006, the table's 235 that D:L456496 added
+ * thrown away), not the table's gravity. *Was:* the table's 235 (`SEAL_TUNING.gravity`) from rest, the superseded
+ * reading of research 86 section 6.1. Same in r0004 (`FUN_0059b440`'s twin at 0x5a0f60: the fields moved 4, the
+ * literal and the order kept).
+ */
+export const DIVE_ROOT_FALL_READING = 98.100006;
+/**
+ * DIVE_ROOT_SEED_READING (DIVE-ROOT, B201; research 86 section 6.1; reading, pending review): the timer's speed at the
+ * hold's end -- one airborne frame of the table's gravity. `FUN_005af930` resets `+0x133c` to `+0x1364` (0 from the
+ * dive's start, D:L440907) on the frame the hold runs out (D:L466797-466802), and `FUN_0059b440` then adds 235 x dt
+ * before its dive branch (D:L456496); the dive is still airborne (`+0x1061` bit 0x2, D:L440909), so the ground's
+ * D:L456554-456557 waits for `FUN_0059ad30`'s landing (D:L456314-456322). Taken at `GAME_FRAME_DT` (the original's
+ * frame); the page then integrates the ground's 98.1 continuously (R8). What would settle it beyond a frame: the order
+ * of `FUN_005af930` (D:L466809), `FUN_005b0420`'s landing (D:L467105) and `FUN_0057a330`'s timer (D:L439149) inside
+ * one frame, and whether the hold runs 6 or 7 frames (0.2 against 525/15734 in single precision).
+ */
+export const DIVE_ROOT_SEED_READING = SEAL_TUNING.gravity * GAME_FRAME_DT;
+/**
+ * DIVE_END_BLEND_READING (DIVE-ROOT, B201; a placeholder, research 86 section 6.1): the hand-off from the dive's play to
+ * the prone base at rest. The original pops the play there (`FUN_00589aa0`, D:L418158-418163) and the prone base's play
+ * comes back; the blend that follows is unread. The port leaves it to the animator's own end of a traversal play (the
+ * next play's cross-fade from the pose on screen, `seal_prone`'s `BlendTime`, none in `motion.rdr`: 0.4), and the
+ * seam -- `Traversal.rootY`, the hit volume, the shot's eye, the bots' aim -- follows the same blend (`diveEnd`, the
+ * review's F2). Settled by the pop's blend read (`FUN_00589aa0` -> the play stack) or a capture of the root from rest
+ * to prone.
+ */
+export const DIVE_END_BLEND_READING = "the animator's own end" as const;
 /**
  * DIVE_PRONE_TAKE_READING (LATER 414's review; research 87 1.13, 101): when the dive's prone is taken, raising the stance
  * word's bit. The original takes the request (`+0x374` = 2, D:L440912) in `FUN_00552d60` once `FUN_00552ec0` accepts it:
@@ -738,8 +782,26 @@ export class Traversal implements TraversalHooks {
   /** The water line over the feet (`actor+0xf88`), and whether the mover was in the air last tick. */
   private depth_ = 0;
   private ripple_: Ripple | null = null;
-  /** The dive under way: its saved velocity, its clock, the virtual root falling to the prone's. */
-  private diving: { vx: number; vz: number; t: number; root: number; vy: number } | null = null;
+  /**
+   * The dive under way: its saved velocity (`+0x1350`), its clock, the hidden timer (`+0xfac`, not drawn) and the timer's
+   * speed (`+0x133c`, down; null before the hold's end seeds it).
+   */
+  private diving: {
+    vx: number; vz: number; t: number; root: number; fall: number | null;
+    /** The seam's root at the press (the stance's) and the cross-fade's clock: null before the first tick (weight 0). */
+    from: number; fade: number | null;
+  } | null = null;
+  /**
+   * DIVE-ROOT's F2: the dive's end blend, on the clock of the play the animator draws next (`DIVE_END_BLEND_READING`):
+   * the root it fades from, its clock and length, that play's key (`diveEndPlay`), the root at the last tick's end
+   * (`last`, what a new play freezes), whether the last tick's play is still to be read (`fresh`), that tick's turn
+   * (`Walker.turn` not 0) and the stick's snap count it last saw.
+   */
+  private diveEnd: {
+    from: number; t: number; seconds: number; key: string; last: number; fresh: boolean; turn: boolean; snaps: number;
+  } | null = null;
+  /** The walker the end blend reads its play off (`rootY` has none). */
+  private endWalker: Walker | null = null;
   private wasAirborne = false;
   /** The jump down's clock, through its fall. */
   private dropTime = 0;
@@ -874,8 +936,9 @@ export class Traversal implements TraversalHooks {
       return { clip: TRAVERSAL_CLIP.turn180, frame: Math.min(shape.keys - 1, (this.turn.time / this.turn.seconds) * (shape.keys - 1)), loop: false, rootY: null, holdRootTurn: true };
     }
     if (this.kind_ === 'dive' && this.diving) {
+      // DIVE-ROOT: the clip draws its own root (null), cross-faded in over its BlendTime; the timer is not drawn.
       const shape = this.shapes.get(TRAVERSAL_CLIP.dive);
-      return { clip: TRAVERSAL_CLIP.dive, frame: Math.min(shape.keys - 1, (this.diving.t / shape.seconds) * (shape.keys - 1)), loop: false, rootY: this.diving.root };
+      return { clip: TRAVERSAL_CLIP.dive, frame: Math.min(shape.keys - 1, (this.diving.t / shape.seconds) * (shape.keys - 1)), loop: false, rootY: null };
     }
     if (this.kind_ === 'hangDropFall') {
       const shape = this.shapes.get(TRAVERSAL_CLIP.hangDown);
@@ -1075,7 +1138,29 @@ export class Traversal implements TraversalHooks {
   /** The root's height over the feet the camera should stand on while a move runs, or null for the stance's. */
   rootY(): number | null {
     const pose = this.pose();
+    // DIVE-ROOT: the dive's is the root drawn -- the clip's own at the drawn key, cross-faded in from the press and out
+    // into the prone base at rest as the animator does it (review F2) -- so the camera, the shot and the hit volume
+    // follow the drawn body.
+    if (pose && this.kind_ === 'dive' && this.diving) return this.diveRoot(this.diving);
+    if (!pose && this.diveEnd) {
+      // The third review's F2: a read changes nothing -- the play is settled at the next tick's start whoever reads.
+      const e = this.endWalker ? this.settled(this.diveEnd, this.endWalker) : this.diveEnd;
+      return e ? this.diveEndRoot(e) : null;
+    }
     return pose ? pose.rootY : null;
+  }
+
+  /**
+   * The dive's drawn root (F2): `seal_dive2prone`'s root at its key, cross-faded in over its `BlendTime` from the seam's
+   * root at the press with the animator's weight (`blendWeight`; the first frame at 0, `Animator.start`). The animator
+   * fades from the pose it drew, the run's; the seam from the stance's root, which is what it held for the run.
+   */
+  private diveRoot(d: { t: number; from: number; fade: number | null }): number {
+    const shape = this.shapes.get(TRAVERSAL_CLIP.dive);
+    const clip = rootAt(shape, Math.min(shape.keys - 1, (d.t / shape.seconds) * (shape.keys - 1)))[1];
+    if (d.fade === null) return d.from;
+    const seconds = this.shapes.blendTime(TRAVERSAL_CLIP.dive);
+    return d.from + (clip - d.from) * blendWeight(seconds > 0 ? d.fade / seconds : 1);
   }
 
   private key(r: Running): number {
@@ -1127,6 +1212,7 @@ export class Traversal implements TraversalHooks {
   }
 
   tick(w: Walker, input: WalkInput, dt: number = TICK): boolean {
+    this.diveEndTick(w, dt);
     const owned = this.step(w, input, dt);
     this.easePeek(dt);                                           // the camera's, after the actor's tick
     return owned;
@@ -1307,15 +1393,28 @@ export class Traversal implements TraversalHooks {
    * press would run (none prone, `FUN_005b4340`), for a climbable contact only. [Named, not built (research 281 s4.1):
    * the original's drop check runs on a moving tick only (D:L413624, D:L413860); the port's every tick, as other
    * per-tick paths drop the contact too (`FUN_0054a3d0` D:L414380).]
+   *
+   * SEGMENT-BODY part 2 (`WALL_BODY_READING` 'segments'; research 86 s3.8): the original keeps one contact, `+0x1090`,
+   * and the offer reads it (`FUN_005b3ce0` D:L469121-469127) -- so the offer reads the Walker's stored contact
+   * (`Walker.storedContact`: the segment records' hit, its corner drop, and the weapon line's slot, `FUN_005483d0`
+   * D:L413618-413671 and D:L413823-413901), its per-tick drop asked as before (`Walker.holdContact`), and the climb's
+   * geometry taken at its point (`contactOf`). *Was:* a second contact of the port's own, from the walk's centre and
+   * head-line hits (`contactFromHits`), which an oblique walk-in or a still body never formed. The disc arm keeps it.
    */
   private keepContact(w: Walker): void {
     const s = w.state, a = axes(s.yaw);
-    const hits = w.wallHits();
-    // PAR-21a C1: the move's best hit is stored, climbable or not (D:L413866); C2: a climbable one is cleared at once when
-    // another hit of the move turns more than acos 0.9 from it (D:L413867-413901).
-    const touched = contactFromHits(hits, s.x, s.z);
-    if (touched) this.contact = cornerDrop(hits, touched, s.x, s.z) ? null : touched;
-    if (this.contact && !contactHolds(this.contact, s.x, s.z, a.fx, a.fz)) this.contact = null;
+    if (WALL_BODY_READING === 'segments') {
+      w.holdContact();
+      const k = w.storedContact();
+      this.contact = k ? contactOf(k.poly, k.poly.appflags ?? 0, s.x, s.z, [k.x, k.y, k.z]) : null;
+    } else {
+      const hits = w.wallHits();
+      // PAR-21a C1: the move's best hit is stored, climbable or not (D:L413866); C2: a climbable one is cleared at once
+      // when another hit of the move turns more than acos 0.9 from it (D:L413867-413901).
+      const touched = contactFromHits(hits, s.x, s.z);
+      if (touched) this.contact = cornerDrop(hits, touched, s.x, s.z) ? null : touched;
+      if (this.contact && !contactHolds(this.contact, s.x, s.z, a.fx, a.fz)) this.contact = null;
+    }
     // PAR-21a C1: the offer asks the stored contact's own appflags first (`FUN_005b3ce0` D:L469131-469132, per type), so
     // a plain wall's contact offers nothing and its obstacle ray is never cast (`FUN_0054e430`'s one caller, D:L469246).
     // [Named departure, research 281 s4.1 (PAR-21a F1): in the original the ray's hit IS stored -- `FUN_0054e430` calls
@@ -1474,9 +1573,11 @@ export class Traversal implements TraversalHooks {
    * The dive (`FUN_0057e540`, decomp 440870-440920), in place of going prone: a full press of the stance button
    * (Triangle past 0.3, `FUN_00594cf0` 453331-453390) from a stand or a crouch passing `FUN_00584b00` (443977-444010) --
    * moving at 30 a second or more, in water no deeper than 2, no action holding the body. The world velocity is kept
-   * (`+0x1350`), the clip's own root travel is not applied (decomp 416510-416514); the height holds 0.2 s, then the
-   * root falls at gravity to the prone's 2.2 (`FUN_0059b870` 456585-456600); on the ground the speed runs down at 150 a
-   * second each second (416527-416545) and the dive ends at rest, prone. `dive_prone` sounds at 0.45 (`motion.rdr`).
+   * (`+0x1350`), the clip's own root travel is not applied (decomp 416510-416514); the clip draws its own root
+   * (DIVE-ROOT); a hidden timer holds 0.2 s, then falls from one airborne frame of gravity (`DIVE_ROOT_SEED_READING`)
+   * gaining 98.1 a second (`DIVE_ROOT_FALL_READING`) to the prone's 2.2 (`FUN_0059b870` 456585-456603); then the speed
+   * runs down at 150 a second each second (416527-416545) and the dive ends at rest, prone. `dive_prone` sounds at 0.45
+   * (`motion.rdr`).
    * PAR-19 (research 251 section 3): refused while a weapon swap owns the actor, the moving swap's overlay too
    * (`FUN_005a7980(actor, 1)`, D:L443995-444001: `Walker.swapping`) -- the moving reload's overlay is no swap and dives.
    * PARITY-1 close (research 251 section 9): not refused by the victory dance -- the full press runs `FUN_0057e540` when
@@ -1489,7 +1590,9 @@ export class Traversal implements TraversalHooks {
     const s = w.state;
     if (!this.canDive(w)) return false;
     w.stopVictoryMotion('replaced');                             // FUN_0057e540 D:L440882-440885: the stack popped
-    this.diving = { vx: s.vx, vz: s.vz, t: 0, root: stanceRootY(w.posture), vy: 0 };
+    const from = stanceRootY(w.posture);
+    this.diving = { vx: s.vx, vz: s.vz, t: 0, root: from, fall: null, from, fade: null };
+    this.diveEnd = null;
     this.leanOn = null;
     this.popped = null;
     this.kind_ = 'dive';
@@ -1533,19 +1636,101 @@ export class Traversal implements TraversalHooks {
     return 'dive';
   }
 
+  /**
+   * F2 and the reviews after it: the end blend's clock as the animator runs it (`Animator.step`). At each tick's start
+   * -- the one fixed point, whoever reads `rootY` and when (the third review's F2) -- the last tick's play is settled,
+   * the root then drawn kept (`last`), the clock advanced, and this tick's turn taken from `Walker.turn`, the rate the
+   * animator's `turn:prone` is chosen on (`MoverSnapshot.turnRate`, `Animator.wanted`): the page sets it from the look
+   * before the tick (`WalkMode`), the room from the look gate's turn, which it also sends the others (`MoverSim`). It
+   * ends with its fade, or once the body no longer plays a prone ground play: another move, the stance left, an action.
+   */
+  private diveEndTick(w: Walker, dt: number): void {
+    if (!this.diveEnd) return;
+    this.endWalker = w;
+    const e = this.settled(this.diveEnd, w);
+    this.diveEnd = e;
+    if (!e) return;
+    if (e.t >= e.seconds) { this.diveEnd = null; return; }
+    e.last = this.diveEndRoot(e);
+    e.t += dt;
+    e.turn = w.turn !== 0;
+    e.fresh = true;
+  }
+
+  /**
+   * The play the animator draws after the dive, as `Animator.wanted` picks it for a prone body with no action: the
+   * ground word's (`loco:stand` while it is still the press's; a crawl or a strafe, `pronePlay`'s clip), else the turn's
+   * (`turn:prone`, `seal_prone_turn`), else the prone base's. Its key, and the clip whose `BlendTime` the cross-fade
+   * takes. Null once the body leaves the prone ground plays.
+   */
+  private diveEndPlay(w: Walker, turn: boolean): { key: string; clip: string } | null {
+    if (w.action || w.posture !== 'prone' || this.kind_ !== 'none' || this.running) return null;
+    const g = w.ground;
+    if (g.state === 'stand') return { key: 'loco:stand', clip: '' };
+    if (g.state !== 'idle' && g.cls !== -1) {
+      if (g.state === 'crouch') return { key: `loco:crouch:${g.cls}`, clip: '' };
+      const crawl = g.cls === 1 || g.cls === 3;
+      return { key: `loco:prone:${g.cls}`, clip: crawl ? SEAL_ANIMS.proneCrawl : g.right >= 0 ? SEAL_ANIMS.proneRight : SEAL_ANIMS.proneLeft };
+    }
+    if (turn && !w.airborne) return { key: 'turn:prone', clip: SEAL_ANIMS.proneTurn };
+    return { key: 'idle:prone', clip: SEAL_ANIMS.prone };
+  }
+
+  /**
+   * The end blend with the last tick's play read (`fresh`), as a new value (a read of `rootY` keeps none of it): a new
+   * play starts its cross-fade from the root drawn at the last tick's end, over its clip's `BlendTime`
+   * (`Animator.start`); the same play with the stick's snap counted again, over `STICK_SNAP_BLEND` (`Animator.snapshot`,
+   * `FUN_00586c10`); null once the body plays no prone ground play.
+   */
+  private settled(e: NonNullable<Traversal['diveEnd']>, w: Walker): Traversal['diveEnd'] {
+    if (!e.fresh) return e;
+    const play = this.diveEndPlay(w, e.turn);
+    if (!play) return null;
+    const out = { ...e, fresh: false, snaps: w.stickSnaps };
+    if (play.key !== e.key) Object.assign(out, { key: play.key, from: e.last, t: 0, seconds: this.shapes.blendTime(play.clip) });
+    else if (w.stickSnaps !== e.snaps) Object.assign(out, { from: e.last, t: 0, seconds: STICK_SNAP_BLEND });
+    return out;
+  }
+
+  /** The end blend's root: from where it started toward the stance's prone root, by the animator's weight. */
+  private diveEndRoot(e: { from: number; t: number; seconds: number }): number {
+    return e.from + (stanceRootY('prone') - e.from) * blendWeight(e.seconds > 0 ? e.t / e.seconds : 1);
+  }
+
+  /**
+   * The dive's step at the page's rate (R8: the per-second totals are the original's; the dive is no trajectory). Each
+   * step is split where the dive's phases meet inside it and each part integrated exactly, so the travel does not hang
+   * on the step: the hold at the kept speed; the timer's fall from `DIVE_ROOT_SEED_READING` gaining
+   * `DIVE_ROOT_FALL_READING` to `DIVE_ROOT`, the speed still kept; then down, the speed bled at `DIVE_BLEED`.
+   */
   private diveTick(w: Walker, dt: number): boolean {
     const d = this.diving!, s = w.state;
+    const shown = this.diveRoot(d);                               // the root drawn last frame: the end blend's start
+    d.fade = d.fade === null ? 0 : d.fade + dt;
+    const held = Math.min(dt, Math.max(0, DIVE_HOLD - d.t));      // the step's part still in the hold
     d.t += dt;
-    if (d.t > DIVE_HOLD && d.root > DIVE_ROOT) {
-      d.vy -= SEAL_TUNING.gravity * dt;
-      d.root = Math.max(DIVE_ROOT, d.root + d.vy * dt);
+    let kept = held, left = dt - held;                            // seconds at the kept speed; seconds after the hold
+    if (left > 0 && d.root > DIVE_ROOT) {
+      const g = DIVE_ROOT_FALL_READING;
+      const v = (d.fall ??= DIVE_ROOT_SEED_READING);             // the hold's end: one airborne frame of gravity
+      const reach = (Math.sqrt(v * v + 2 * g * (d.root - DIVE_ROOT)) - v) / g;   // seconds to 2.2
+      const f = Math.min(left, reach);
+      d.root = f >= reach ? DIVE_ROOT : Math.max(DIVE_ROOT, d.root - v * f - 0.5 * g * f * f);
+      d.fall = v + g * f;
+      kept += f; left -= f;
     }
-    if (d.root <= DIVE_ROOT) {                                    // down: the carried speed bleeds off
-      const v = Math.hypot(d.vx, d.vz), cut = DIVE_BLEED * dt;
-      if (v <= cut) { d.vx = 0; d.vz = 0; } else { d.vx -= (d.vx / v) * cut; d.vz -= (d.vz / v) * cut; }
+    let dx = d.vx * kept, dz = d.vz * kept;
+    if (left > 0 && d.root <= DIVE_ROOT) {                        // down: the carried speed bleeds off
+      const v = Math.hypot(d.vx, d.vz);
+      if (v > 0) {
+        const stop = v / DIVE_BLEED, b = Math.min(left, stop), along = v * b - 0.5 * DIVE_BLEED * b * b;
+        const ux = d.vx / v, uz = d.vz / v;
+        dx += ux * along; dz += uz * along;
+        if (b >= stop) { d.vx = 0; d.vz = 0; } else { d.vx = ux * (v - DIVE_BLEED * b); d.vz = uz * (v - DIVE_BLEED * b); }
+      }
     }
     s.vx = d.vx; s.vz = d.vz;
-    w.glide(d.vx * dt, d.vz * dt);
+    w.glide(dx, dz);
     s.yaw = this.lock ?? s.yaw;
     if (w.airborne || (d.vx === 0 && d.vz === 0 && d.root <= DIVE_ROOT)) {   // off an edge, or down and at rest: prone (decomp 418158-418167)
       this.diving = null;
@@ -1555,6 +1740,18 @@ export class Traversal implements TraversalHooks {
       // once FUN_00552ec0 accepts it, raising the word's bit -- here, down and at rest (DIVE_PRONE_TAKE_READING). Off an
       // edge the take is the landing's (not modelled: a named gap; the word shows at the next take).
       if (!w.airborne) w.markStanceTaken();
+      // F2 (`DIVE_END_BLEND_READING`): at rest the seam fades from the root drawn last on the clock of the play the
+      // animator draws next (the prone base's, a crawl's, a turn's: `diveEndPlay`); off an edge the fall's own.
+      if (!w.airborne) {
+        // This tick the animator plays the ground word as it stands -- still the press's, the dive owned every tick
+        // (`Walker.ground`) -- frozen at the root drawn last, at weight 0; the prone play takes over on the next.
+        const play = this.diveEndPlay(w, false);
+        this.diveEnd = play && {
+          from: shown, t: 0, seconds: this.shapes.blendTime(play.clip), key: play.key, last: shown, fresh: false, turn: false,
+          snaps: w.stickSnaps,
+        };
+        this.endWalker = w;
+      }
       return w.airborne ? false : true;
     }
     return true;
@@ -2053,6 +2250,8 @@ export class Traversal implements TraversalHooks {
     this.hangRoot = null;
     this.turn = null;
     this.diving = null;
+    this.diveEnd = null;
+    this.endWalker = null;
     this.actionHeld = false;
     if (w) w.setAirborne(false);
   }

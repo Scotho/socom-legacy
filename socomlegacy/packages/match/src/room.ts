@@ -34,7 +34,8 @@ import { holdFamily, holdOf,
 import { fourthArmoryTypeOpen } from '@s2u/scene';
 import { readProfile, type ArmoryProfile } from '../../viewer/src/armoryState';
 import { equipmentLimit, equipmentLimitKit, equipmentLimitValves } from '../../viewer/src/equipmentLimit';
-import { firearmSlotPresent, initialFirearmSlot } from '../../viewer/src/loadout';
+import { firearmSlotPresent, heldWeaponModels, initialFirearmSlot } from '../../viewer/src/loadout';
+import { WEAPON_LINE_BOTS_READING } from '../../viewer/src/weaponLine';
 import { startLines, startWalled } from '../../viewer/src/net/startLine';   // LATER 366 (OT.R80): the start lines, one source
 import { detonationOf } from '../../viewer/src/smoke';
 import { bodyVolumes, rayBody, stanceVolumes, BODY_REACH, BODY_TOP, type StanceVolumes, type V3 } from '../../viewer/src/net/hitVolumes';
@@ -308,8 +309,9 @@ export interface RoomOptions {
   onLoadHold?: () => void;
   /**
    * IP3 (card bbXnSJNH; a measurement instrument with no original, product track): each step of the launch's load hold
-   * told -- the hold, every `loaded` (counted or not, with its ticks after the hold began) and the barrier's pass (every
-   * seat in, or the ceiling, with the seats it did not wait for). The game's process logs them. Absent: nothing is
+   * told -- the hold, each seat's first `loaded` since it began (counted or not, with its ticks after the hold began;
+   * none before a hold, no repeat: a bot sends one every step) and the barrier's pass (every seat in, or the ceiling,
+   * with the seats it did not wait for). The game's process logs them. Absent: nothing is
    * built; the room's frames are the same either way.
    */
   onLoadEvent?: (e: RoomLoadEvent) => void;
@@ -3356,6 +3358,7 @@ export class Room {
     this.votesAll.delete(id); this.voteAllMarks.delete(id);
     for (const set of this.voteAllMarks.values()) set.delete(id);
     this.preTold.delete(id);
+    this.loadTold.delete(id);                                    // IP3: a page back under this id is told again
     this.renamedAt.delete(id);
     this.lateMembers.delete(id);                                 // LATER 85
     this.joinedLate.delete(id);                                  // RC4
@@ -3503,6 +3506,9 @@ export class Room {
     if (this.clips) moves.setClips(this.clips.clips, this.clips.table);
     const sim = new MoverSim(w, moves);
     sim.ai = ai;
+    // SEGMENT-BODY part 4 (`WEAPON_LINE_BOTS_READING`): an AI seat's body casts no weapon line -- the AI controller's
+    // vtable +0x2c answers 0 (D:L416630-416633) -- a respawn's new mover included (`spawn` passes the seat's `ai`).
+    if (ai) w.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';
     return sim;
   }
 
@@ -4803,6 +4809,9 @@ export class Room {
       sim.weapon = p.weapon; sim.walker.hand = p.weapon;
       p.cone = new ShotCone(p.records[p.weapon]);
     }
+    // SEGMENT-BODY part 4 (fresh review 1's F1): the weapon line's length is the kit's held model's (`FUN_0054e8f0`
+    // D:L416869-416870), so the new body holds the kit's two firearm models (`heldWeaponModels`, by `slotModel`).
+    sim.walker.heldModels = heldWeaponModels(this.kits?.table ?? null, p.loadout);
     p.lastHurt = null;                                           // NET-RES.R11 (a): a new body has taken no damage
     this.broadcast({ type: 'spawn', id: p.id, ...this.botMark(p.id), at: [s.x, s.y, s.z], yaw, after, kit: [...p.loadout], char: p.char, ...(this.botCharacter(p.id) ? { character: this.botCharacter(p.id)! } : {}) });
     if (back) this.send(p.id, this.resumeEvent(p));              // NET-RES.R11 (b): the page's health, kit, rounds and pouch
@@ -6978,6 +6987,8 @@ export class Room {
   private readonly preTold = new Set<number>();
   /** IP3 (`RoomOptions.onLoadEvent`): the tick the launch's load hold began, for the instrument's `sinceHold`; null before one. */
   private loadHoldAt: number | null = null;
+  /** IP3 (the load-log flood, 2026-11-04): the seats whose `loaded` the instrument has told since the hold began. */
+  private readonly loadTold = new Set<number>();
 
   /**
    * ROUND_START_PROJECTILES_READING (research 95 §8): a round's start is a fresh level -- everything thrown, fired or
@@ -8515,6 +8526,7 @@ export class Room {
     this.state = { phase: 'waiting', hold: { until: this.tick + Math.round(ceiling * TICK_HZ), pending: new Set(this.players.keys()), loading, away: new Map() } };
     this.preTold.clear();
     this.loadHoldAt = this.tick;                                     // IP3: the instrument's clock
+    this.loadTold.clear();
     this.opts.onLoadEvent?.({ kind: 'hold', tick: this.tick, seats: [...this.players.keys()], ceilingTicks: Math.round(ceiling * TICK_HZ) });
     this.opts.onLoadHold?.();
   }
@@ -8550,7 +8562,11 @@ export class Room {
     const st = this.state;
     const counted = st.phase === 'waiting' && !!st.hold && st.hold.startAt === undefined && st.hold.pending.has(id);
     const tell = (): void => {   // IP3 (`onLoadEvent`): told after the count, so `pending` is what is left
-      const hold = st.phase === 'waiting' ? st.hold : undefined;
+      // The load-log flood (2026-11-04): a CPU seat's controller sends `loaded` every step (`MatchBots.step`); only a
+      // seat's first since the hold began is a step of the hold -- none before a hold, no repeat -- told.
+      if (this.loadHoldAt === null || this.loadTold.has(id)) return;
+      if (this.opts.onLoadEvent) this.loadTold.add(id);
+      const hold = st.phase === 'waiting' ? st.hold : undefined;   // `loadHoldAt` is set here; its null arm is the type's
       this.opts.onLoadEvent?.({ kind: 'loaded', seat: id, tick: this.tick, sinceHold: this.loadHoldAt === null ? null : this.tick - this.loadHoldAt, counted, pending: hold ? hold.pending.size : 0 });
     };
     if (st.phase !== 'waiting' || !st.hold || !st.hold.pending.delete(id)) { tell(); return; }

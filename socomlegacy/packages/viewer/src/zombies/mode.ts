@@ -8,6 +8,7 @@ import type { Scene } from 'three';
 import type { FireEvent } from '../fire';
 import type { PlayClips } from '../play';
 import { Walker } from '../mover';
+import { WEAPON_LINE_BOTS_READING } from '../weaponLine';
 import { modOverrideBytes } from '../mods/override';
 import { ZOMBIE_TYPES, ZombiePursuit, zombieKind, type ZombieKind } from './evolution';
 import { waveLiveLimit, waveSize } from './crowd';
@@ -241,6 +242,7 @@ export function installZombies(deps: ZombieDeps) {
     const chosen = spawnMap?.choose(player, zombies.filter((z) => z.hp > 0).map((z) => [z.walker.state.x, z.walker.state.y, z.walker.state.z] as Point), Math.random, camera ? [camera[0]!, camera[1]!, camera[2]!] : undefined, population().live > 10 ? 14 : 100);
     if (!chosen) return false;
     const w = new Walker(grid);
+    w.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY (review 2 F3): a bot's body, the AI's +0x2c 0
     if (!w.place(chosen.point[0], chosen.point[1] + 5, chosen.point[2])) return false;
     const kind = zombieKind(wave, waveSpawned);
     const moves = botTraversal(grid, deps.clips());

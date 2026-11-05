@@ -22,7 +22,13 @@ html, body { margin: 0; height: 100%; background: var(--s2u-ground); color: var(
  * SCREEN POSITION (`./screenOrigin.ts` SCREEN_ORIGIN_ADAPTATION, a browser adaptation): the origin the card's valves hold
  * moves the drawn frame -- `translate`, which composes with the PS2 picture's own `transform` below.
  */
-#view, #front-end, canvas.s2u-match { translate: var(--s2u-origin-x, 0px) var(--s2u-origin-y, 0px); }
+#view, #front-end, #front-end-gpu, canvas.s2u-match { translate: var(--s2u-origin-x, 0px) var(--s2u-origin-y, 0px); }
+/*
+ * GM-12b (`./uiGpuFront.ts` UI_GPU_STANDBY_CLASS, a browser adaptation): the front end's GPU canvas while the software's
+ * frame shows on `#front-end` beneath it -- out of sight and out of the pointer's way, its box kept laid out (SCREEN
+ * POSITION reads it). Made only when the GPU switch asks `front` of the GPU; every player's page has no such canvas.
+ */
+#front-end-gpu.s2u-ui-gpu-standby { visibility: hidden; }
 /*
  * OT.R79's PS2 picture on the front end's match (`./picture` PICTURE_PS2_CLASS, a browser adaptation): the 640x448 frame
  * on a 4:3 box, the biggest that fits, as `body.ps2-look #view` -- on the match's canvas alone (its placement is inline,

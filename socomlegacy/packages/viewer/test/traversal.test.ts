@@ -3,20 +3,24 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { FsAssetSource } from '@s2u/archive/node';
-import { buildGrid, findLadders, polygonNormal, PROBE_LIFT, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
+import { parseZdb, Zar, zdbMember } from '@s2u/archive';
+import { buildGrid, findLadders, GAME_FRAME_DT, polygonNormal, PROBE_LIFT, readSkeleton, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { loadMap } from '../src/loadMap';
 import { clipsFromPack, motionTableFromArchive } from '../src/motionTable';
 import { CLIMB_COLUMN_END_READING, contactFromHits, CORNER_HITS_READING, cornerDrop, planClimb, type ClimbContact } from '../src/climb';
-import { ACTION_CLIPS, ACTION_SECONDS, EYE_HEIGHT, groundGrid, groundPolygons, TICK, Walker, type Stance, type WalkInput } from '../src/walk';
-import { STANCE_WORD_ACTION_CROUCH_READING, STANCE_WORD_CROUCH_FALLBACK_READING, STANCE_WORD_DIVE_REQUEST_READING } from '../src/mover';
+import { ACTION_CLIPS, ACTION_SECONDS, EYE_HEIGHT, groundGrid, groundPolygons, moverSnapshot, TICK, Walker, type Stance, type WalkInput } from '../src/walk';
+import { rootY as stanceRootY, STANCE_WORD_ACTION_CROUCH_READING, STANCE_WORD_CROUCH_FALLBACK_READING, STANCE_WORD_DIVE_REQUEST_READING } from '../src/mover';
+import { Animator, blendWeight, PLAY_CLIPS } from '../src/animator';
+import { BLEND_TIME_DEFAULT } from '../src/locomotion';
+import { rootAt } from '../src/clipPath';
 import { simClipsFromBytes } from '../src/simMap';
 import { MoverSim } from '../src/net/moverSim';
 import { Button, type Command } from '../src/net/protocol';
 import { OneShotSteer, oneShotPhase, seatTurn, steerWeight } from '../src/net/emplacement';
 import {
   CLIMB_CROUCH_END_READING, CLIMB_STEER_READING, CLIMB_STEP_UP_STICK_READING, CLIMB_TOP_FLOOR_READING, CLIMB_CUT_READING, CLIMB_NO_INTERRUPT, CLIMB_RESUME_STICK_READING, LADDER_STANDOFF, PISTOL_CLIMB_CLIPS_READING, rippleAnimation,
-  Traversal, TRAVERSAL_CLIPS, type TraversalEvent,
+  DIVE_END_BLEND_READING, DIVE_ROOT_FALL_READING, DIVE_ROOT_SEED_READING, Traversal, TRAVERSAL_CLIPS, type TraversalEvent,
   CLIMB_BODY_CLIPS, CLIMB_HIT_CANCELS_READING, CLIMB_OFFER_GATE_READING, CLIMB_PENDING_STANCE_READING, CLIMB_USEVELY_READING, climbOffered,
 } from '../src/traversal';
 
@@ -372,11 +376,16 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
     expect(w.state.y).toBeCloseTo(36, 6);
   });
 
+  // SEGMENT-BODY part 4 (the r0004 jump-near-wall capture, 2026-11-04; `JUMP_CONTACT_PROVEN` 'none'): the running jump
+  // reads no stored contact, so pressed 16 out, the weapon line already holding the face, it launches. *Was* (part 2,
+  // the r0001 reading, `FUN_0057e1b0` D:L440815-440819): pressed 25 out, beyond the line's reach, and 16 out the standing
+  // jump.
   it('the jump-grab off the walk own running jump (79.9 up, research 80): a 36 ledge climbed from the air', () => {
     const { grid, polys } = climbWorld(36, 1);
     const { w, t, events } = climber(polys, grid, 40);
     run(w, FORWARD, () => Math.hypot(w.state.vx, w.state.vz) > 60, 60);
     run(w, FORWARD, () => w.state.z < 16, 60);
+    expect(w.storedContact()?.poly.appflags, 'the weapon line holds the face 16 out').toBe(1);
     expect(w.jump()).toBe(true);
     expect(w.action?.name).toBe('launch');
     run(w, FORWARD, () => t.climbPrompt() !== null && w.airborne, 90);
@@ -432,16 +441,28 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
     const along: WalkInput = { forward: 1, right: 1, boost: false };     // yaw 0: right is +x, along the face, pressed into it
     run(w, along, () => w.state.x >= 14.5, 200);
     expect(w.state.x).toBeGreaterThanOrEqual(14.5);
-    expect(w.state.z).toBeLessThan(3.6);                                // against the plain wall, 4.5 past the crate's corner
+    // Against the plain wall, 4.5 past the crate's corner: SEGMENT-BODY (re-judged; was within 3.6, the disc's stand-off)
+    // where the segments hold it -- the head line along the facing, 9.46, plus the move.
+    expect(w.state.z).toBeLessThan(11);
     w.tick(along);
-    expect(t.climbPrompt()).toBeNull();                                 // RED before C1: 'low', the crate's contact kept
+    // SEGMENT-BODY checkpoint 4 (re-judged): held 6.2 off the plain wall, only a side line meets it (the centre's 5.39 runs
+    // diagonally, 3.8 toward it), and a side record's hit is never the stored contact (D:L413823-413848); the crate's
+    // contact holds by `FUN_005b3890`'s rules (within 24, in front, faced) and the climb stays offered. Was null: the
+    // head line's muzzle reach met the plain wall (checkpoints 1-3), the disc's before.
+    expect(t.climbPrompt()?.kind).toBe('low');
   });
 
   // PAR-21a C2 (research 281 s4.1; reading, pending review): with the stored hit climbable (`FUN_0059d9f0`), any other
   // hit of the move on another polygon whose horizontal normal is off by more than acos 0.9 (about 25.8 degrees) drops
   // the contact (`FUN_005483d0` D:L413867-413901, the literal at D:L413894, the polygon word at D:L413884). Two crate
-  // faces in an inside corner: the second turned 20 degrees from the first offers the climb (dot 0.94), 30 and 90 do not.
-  it('PAR-21a C2: an inside corner of two crate faces -- turned 20 degrees the climb is offered, 30 and 90 nothing (the 0.9; RED: 90 and 30 offered)', () => {
+  // faces in an inside corner: the second turned 20 degrees from the first offers the climb (dot 0.94), 30 and 90 did not.
+  // SEGMENT-BODY part 2 (the weapon line; research 86 s3.8; reading, pending review): the corner drop runs only on a
+  // tick that stores a record hit of the centre or the head line (D:L413864-413901). Settled in this corner only the side
+  // records meet the faces (the centre's 5.39 falls short of A, 6.7 off), so no record hit is stored, a moving tick asks
+  // only `FUN_005b3890`'s drop (D:L413859-413862: within 24, in front, faced -- held), and the contact the weapon line
+  // stored on the way in stands: offered at 30 and 90 too. The 0.9 itself is held where the centre meets a face in a
+  // corner (`climbFacing.test.ts` (e2), `mp6DeckClimb.parity.test.ts` (3)). *Was:* 30 and 90 nothing.
+  it('PAR-21a C2: an inside corner of two crate faces -- turned 20, 30 or 90 degrees, only side records meet them, the weapon line\'s contact holds and the climb is offered', () => {
     const corner = (deg: number): string | null => {
       const a = (deg * Math.PI) / 180, dx = Math.cos(a), dz = Math.sin(a);
       // A: z 0 from x -10 to 4, facing +z. B: from (4, 0) along (cos, sin) for 20, facing (-sin, cos), toward the walker.
@@ -458,20 +479,28 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
       const along: WalkInput = { forward: 1, right: 0.3, boost: false };  // into the corner
       for (let i = 0; i < 90; i++) w.tick(along);
       // Settled in the corner: the last move met both faces (B alone, on the way in, is a climb face of its own).
-      expect(new Set(w.wallHits().map((h) => h.poly.path)), `${deg}: both faces met`).toEqual(new Set(['worldmodel/a', 'worldmodel/b']));
+      // SEGMENT-BODY (re-judged): at 30 and 90 the last move meets both; at 20 the segments hold the body 9.4 off A where
+      // B is out of their reach, and the move meets A alone (B met on the way in) -- the offer is A's either way.
+      const met = new Set(w.wallHits().map((h) => h.poly.path));
+      expect(met, `${deg}: the faces met`).toEqual(deg === 20 ? new Set(['worldmodel/a']) : new Set(['worldmodel/a', 'worldmodel/b']));
       return t.climbPrompt()?.kind ?? null;
     };
     expect(corner(20)).toBe('low');
-    expect(corner(30)).toBeNull();                                      // RED before C2: 'low'
-    expect(corner(90)).toBeNull();                                      // RED before C2: 'low'
+    expect(corner(30)).toBe('low');                                     // part 2: was null (no contact formed on the way in)
+    expect(corner(90)).toBe('low');                                     // part 2: was null
   });
 
   // PAR-21a C2, `CORNER_HITS_READING` 'span' (research 281 s4.1, s6): at an outside corner the slide's disc meets both
   // faces at their shared end; walked in on the corner a still body's segment records meet only the centre's face, a
   // moving one's side record the other face too (two readings, unsettled: research 281 s4.1, PAR-21a F2; HUMAN_TASKS
   // H229). Under 'span' a face met only at its end is not another hit, and the outside corner offers the climb; under
-  // 'any' the same hits clear the contact (`cornerDrop`'s mode, PAR-21a F3).
-  it("PAR-21a C2: a crate's outside corner walked into on its edge offers the climb (CORNER_HITS_READING 'span'; with 'any', nothing)", () => {
+  // 'any' the same hits clear the contact (`cornerDrop`'s mode, PAR-21a F3) -- the disc arm's stand-in.
+  // SEGMENT-BODY part 2 (reading, pending review): the corner drop is the Walker's now, over its own segment records
+  // (`Walker.storeContact`, D:L413864-413901), and a side record's hit is a crossing of the other face's polygon -- inside
+  // its span by construction, so the stand-in's question does not arise. Walked in on this edge, the centre's hit on the
+  // near face is stored and the moving side record crosses the end face (a normal 90 degrees off): cleared, nothing
+  // offered while held there. *Was:* offered ('span'). H229's capture (Frostfire's prop02 corner) still settles it.
+  it("PAR-21a C2: a crate's outside corner walked into on its edge: the disc arm's 'span' keeps it, 'any' clears it; the segment body clears it", () => {
     const { grid, polys } = climbWorld(12, 4);
     for (const yaw of [-40, -45, -50]) {
       const { w, t } = climber(polys, grid);
@@ -489,7 +518,7 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
         expect(cornerDrop(hits, c, w.state.x, w.state.z), `yaw ${yaw}, tick ${i}: the default is the reading's`).toBe(false);
       }
       expect(both, `yaw ${yaw}: moves that met both faces`).toBeGreaterThan(0);
-      expect(t.climbPrompt()?.kind, `yaw ${yaw}`).toBe('low');
+      expect(t.climbPrompt()?.kind ?? null, `yaw ${yaw}: the segment body's corner drop`).toBeNull();   // part 2: was 'low'
     }
     expect(CORNER_HITS_READING).toBe('span');
   });
@@ -529,8 +558,13 @@ describe("NU-1c B10: the climb's steer concurrent with its clip (FUN_005b3340, r
     const { grid, polys } = climbWorld(h, 4);
     const { w, t } = climber(polys, grid);
     w.place(x, 10, 12);
-    w.state.yaw = yaw;
+    // SEGMENT-BODY (re-judged; was walked in at `yaw`): the move's stored contact is the centre's or the head line's hit
+    // (D:L413823-413848); walked in at 60 degrees the side line (1.05 to 4.2 across) meets the face first and the body
+    // slides along it, no contact and no offer. So it walks in square (yaw 0), then turns to `yaw` still -- a still body
+    // keeps its contact (`FUN_005b3890` runs on a moving tick, D:L413861) -- and the offer is asked there.
+    w.state.yaw = 0;
     run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    if (yaw !== 0) { w.state.yaw = yaw; w.tick(STILL); }
     expect(t.climbPrompt(), `h ${h} from x ${x} at ${yaw}`).not.toBeNull();
     if (aligned) {
       const plan = (t as unknown as { plan: { target: [number, number, number]; yaw: number } }).plan;
@@ -569,7 +603,9 @@ describe("NU-1c B10: the climb's steer concurrent with its clip (FUN_005b3340, r
     const twin = climbRows(12, 0, 0, true).rows;
     expect(twin.length).toBe(pressed.length);
     const offset = pressed[0]!.z - twin[0]!.z;                            // the feet short of the aligned start
-    expect(offset).toBeLessThan(-4);
+    // SEGMENT-BODY (re-judged; was under -4, the disc's 3.5 against the start's 8.92): the press is made where the
+    // segments stop the walk, 9.46 or more off the face, so the feet stand short of the aligned start the other way.
+    expect(Math.abs(offset)).toBeGreaterThan(0.3);
     let open = 1;
     for (let i = 2; i < pressed.length && pressed[i]!.kind === 'climb'; i++) {
       open *= 1 - weight(t, i - 1);
@@ -1093,6 +1129,12 @@ describe.skipIf(!READERC)(`NU-1b review F3: the climb clips' motion.rdr rows${RE
   });
 });
 
+// SEGMENT-BODY (re-judged; research 217 s2.9): from x 938 the walk -z runs 3.55 off the east side face of the crate
+// beside the lane (`crates1/prop01=prop01`, x 934.45, z 778.11-795.21); the body's -x side line (1.05 to 4.2 across)
+// crosses it from its front, and with that hit the contact branch's look-ahead (`FUN_005483d0` D:L413686-413756: the feet
+// + 6.5 along the move for the muzzle's 8.6 plus the move) meets the 11.9 crate's face first and zeroes the move 9.7 off
+// it -- out of the centre's reach, so no contact and no offer. From x 939.3, 4.85 off the side face, the side line
+// misses it and the centre meets the crate's face: the offer, as before. Owed: a capture of the walk up that lane.
 describe.skipIf(!MP2)(`Frostfire climbables${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
   it("NU-1b B1: a crouched still reload's hold at the 11.9 crate refuses the offer; the hold over, the crate is offered", async () => {
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
@@ -1100,7 +1142,7 @@ describe.skipIf(!MP2)(`Frostfire climbables${MP2 ? '' : ` (${FIXTURES_ABSENT})`}
     const w = new Walker(grid);
     const t = new Traversal(grid, groundPolygons(map.ground!));
     w.driver = t;
-    expect(w.place(938, 115, 790)).toBe(true);
+    expect(w.place(939.3, 115, 790)).toBe(true);                     // SEGMENT-BODY: 4.85 off prop01's side face (was 938)
     w.state.yaw = 0;
     w.stance = 'crouch';
     run(w, FORWARD, () => t.climbPrompt() !== null, 240);
@@ -1123,7 +1165,7 @@ describe.skipIf(!MP2)(`Frostfire climbables${MP2 ? '' : ` (${FIXTURES_ABSENT})`}
     const w = new Walker(grid);
     const t = new Traversal(grid, polys);
     w.driver = t;
-    expect(w.place(938, 115, 790)).toBe(true);
+    expect(w.place(939.3, 115, 790)).toBe(true);                     // SEGMENT-BODY: 4.85 off prop01's side face (was 938)
     expect(w.state.y).toBe(100);
     w.state.yaw = 0;                                                 // facing -z, the crate side at z 778.1
     run(w, FORWARD, () => t.climbPrompt() !== null, 120);
@@ -1923,9 +1965,10 @@ describe('the climb, as the game weighs it (research 86 section 3.3)', () => {
     const { w, t } = climber(polys, grid);
     w.stance = 'crouch';
     const creep: WalkInput = { forward: 0.6, right: 0, boost: false };
-    run(w, creep, () => w.state.z < 3.6, 400);
-    run(w, creep, () => false, 20);
-    expect(w.state.z).toBeLessThan(3.6);                                    // against the crate's face
+    run(w, creep, () => false, 420);
+    // Against the crate's face: SEGMENT-BODY (re-judged; was within 3.6, the disc's stand-off) the crouched centre's 9.43
+    // (x 1.75, the body-frame z under 0 crouched) plus the move.
+    expect(w.state.z).toBeLessThan(1.1 * 1.4 * 3.5 * 1.75 + 0.5);
     expect(t.climbPrompt()).toBeNull();
     expect((t as unknown as { plan: unknown }).plan).toBeNull();
   });
@@ -1934,8 +1977,9 @@ describe('the climb, as the game weighs it (research 86 section 3.3)', () => {
   // 188-210) and research 86 line 294 (s3.3, "The obstacle ray"): when the
   // ray's nearest hit is steep, not VOLUMETRIC or LIQUID and on another collider (D:L416775-416792), `FUN_0054e430`
   // STORES it as the contact (`FUN_005b0d30` at D:L416793). The port uses it for that tick's offer only and keeps the
-  // crate's face stored. The assertion is the original's, so the test fails today; it closes with C3's segment records
-  // (PAR-21, WALL_PROBE_READING). The stored contact is read through the private field, as climbFacing reads `plan`.
+  // crate's face stored. The assertion is the original's, so the test fails today. The stored contact is read through the
+  // private field, as climbFacing reads `plan`. (SEGMENT-BODY checkpoints 1-3 met the wall with the head line's muzzle
+  // reach and passed it; checkpoint 4's standing head line runs along the travel, `HEAD_LINE_MUZZLE_READING`.)
   it.fails('the obstacle ray stores its wall as the contact: after a tick at the ledge the stored contact is the wall behind it, as FUN_0054e430 stores it (D:L416793) [drift: the port keeps the crate\'s face]', () => {
     const wall = quad([-10, 12, -0.2, 10, 12, -0.2, 10, 40, -0.2, -10, 40, -0.2], 2, 0, 'worldmodel/wall');
     const polys = [floor(-100, -100, 100, 100, 0), ...box(-10, -30, 10, 0, 12, 4), wall];
@@ -2028,22 +2072,295 @@ describe("LATER 111: a climb face's top at the hit's column (FUN_002dbfb0, resea
 describe('the dive (research 86 section 6.1)', () => {
   const plain = (): { grid: Grid; polys: WorldPoly[] } => { const polys = [floor(-200, -200, 200, 200, 0)]; return { grid: world(polys), polys }; };
 
-  it('dives from a run into prone: the run kept, the root down at gravity after 0.2 s, the speed bled at 150', () => {
+  // DIVE-ROOT (B201; research 86 section 6.1; reading, pending review). The hidden timer (`+0xfac`, seeded from the
+  // stance's root by `FUN_0057e540` D:L440911) holds 0.2 s; at the hold's end `FUN_005af930` resets its speed `+0x133c`
+  // to `+0x1364` (0, D:L466797-466802) and `FUN_0059b440` adds one airborne tick of gravity (D:L456496,
+  // `DIVE_ROOT_SEED_READING`); landed by `FUN_0059ad30` (D:L456314-456322), the speed then grows by dt x 98.100006 a
+  // tick on the ground (D:L456552-456557, `DIVE_ROOT_FALL_READING`), and `FUN_0059b870` lowers the timer by it to 2.2
+  // (D:L456590-456603). Down, the carried speed bleeds at 150 (`FUN_0054d9a0` D:L416524-416547). *Was:* the timer fell
+  // from rest at the table's 235 (research 86 section 6.1's old line), down at about 0.48 s, so the dive came to rest
+  // 30-100 ms early and 1-4 u short against r0004 (DIVE-CHECK, seat ac, 2026-11-03).
+  const diveRig = (input: WalkInput, crouch = false, place: [number, number] = [0, 150]): { w: Walker; t: Traversal } => {
     const { grid, polys } = plain();
     const w = new Walker(grid);
     const t = new Traversal(grid, polys);
     w.driver = t;
-    w.place(0, 10, 100); w.state.yaw = 0;
-    run(w, FORWARD, () => Math.hypot(w.state.vx, w.state.vz) > 60, 60);
-    const v0 = Math.hypot(w.state.vx, w.state.vz), z0 = w.state.z;
+    w.place(place[0], 10, place[1]); w.state.yaw = 0;
+    if (crouch) w.stance = 'crouch';
+    run(w, input, () => false, 90);
+    return { w, t };
+  };
+  /** The dive from where the rig stands: its speed at the press, its ticks to rest, its travel, the timer's touchdown. */
+  const diveOut = (w: Walker, t: Traversal, dt = TICK, input: WalkInput = STILL): { v0: number; rest: number; travel: number; down: number; roots: number[] } => {
+    const v0 = Math.hypot(w.state.vx, w.state.vz), x0 = w.state.x, z0 = w.state.z;
     expect(t.dive(w)).toBe(true);
+    const timer = (): number => (t as unknown as { diving: { root: number } | null }).diving?.root ?? 0;
+    let n = 0, down = -1;
+    const roots: number[] = [];
+    while (t.state().kind === 'dive' && n < 2000) {
+      w.tick(input, dt); n++;
+      roots.push(t.rootY() ?? NaN);
+      if (down < 0 && timer() <= 2.2 + 1e-9) down = n * dt;
+    }
+    return { v0, rest: n * dt, travel: Math.hypot(w.state.x - x0, w.state.z - z0), down, roots };
+  };
+  /** The timer's touchdown after the hold: 9.284 (11.484 - 2.2) at the seed, gaining 98.1 a second. */
+  const touchdown = (from: number): number => {
+    const seed = SEAL_TUNING.gravity * GAME_FRAME_DT, g = 98.100006, h = from - 2.2;
+    return 0.2 + (-seed + Math.sqrt(seed * seed + 2 * g * h)) / g;
+  };
+
+  it('DIVE-ROOT: the new constants are the reads -- 98.100006 on the ground, one airborne tick of 235 at the hold\'s end', () => {
+    expect(DIVE_ROOT_FALL_READING).toBeCloseTo(98.100006, 5);
+    expect(DIVE_ROOT_SEED_READING).toBeCloseTo(235 * (525 / 15734), 6);       // 7.841, one game frame of the table's 235
+    expect(DIVE_END_BLEND_READING).toBe('the animator\'s own end');
+  });
+
+  it('dives from a run into prone: the timer down at the hold + its fall at the seed and 98.1 (about 0.56 s), the speed bled at 150 after (RED: 235 from rest, 0.48 s)', () => {
+    const { w, t } = diveRig(FORWARD);
+    const out = diveOut(w, t);
     expect(w.stance).toBe('prone');
-    expect(t.pose()?.clip).toBe('seal_dive2prone');
-    const ticks = run(w, FORWARD, () => t.state().kind === 'none', 200);
-    const fall = Math.sqrt((2 * (11.484 - 2.2)) / 235);
-    expect(ticks * TICK).toBeCloseTo(0.2 + fall + v0 / 150, 1);
-    expect(z0 - w.state.z).toBeCloseTo(v0 * (0.2 + fall) + (v0 * v0) / 300, -1);
-    expect(w.stance).toBe('prone');
+    const that = touchdown(11.484);
+    expect(that).toBeCloseTo(0.5624, 3);
+    expect(out.down).toBeCloseTo(that, 1);
+    expect(Math.abs(out.down - that)).toBeLessThanOrEqual(TICK + 1e-9);
+    expect(Math.abs(out.rest - (that + out.v0 / 150))).toBeLessThanOrEqual(TICK + 1e-9);
+    expect(out.travel).toBeCloseTo(out.v0 * that + (out.v0 * out.v0) / 300, 0);
+  });
+
+  // The press speeds are the original's on those runs, its carried `+0x1350` (`diveVel` in DIVE-CHECK's `pcsx2.csv`):
+  // about 40 forward (38.7-41.8; the crouched runs 39.8) and about 34 backward (33.6-34.5). The forward runs did reach
+  // the full run's 65; the speed fell to about 40 a frame or two before the dive because the run had reached the strip's
+  // rise at x 992-997 (floor normal y 0.75-0.80), where the ground driver scales the stick to 0.59-0.64
+  // (`FUN_00586570` -> `FUN_005b56c0`, D:L444865; review F1) -- the slope's, not the dive's: `FUN_0057e540` copies the
+  // velocity as it is (`+0x38` to `+0x1350`, D:L440899-440901). The one run that dived before the rise carried 65.1.
+  it('DIVE-CHECK bands (r0004, 24 runs): forward 24.7-28.8 u and backward 20.0-24.4 u, at rest 754-840 ms (RED: short and early)', () => {
+    const fwd = diveRig(FORWARD);
+    fwd.w.state.vx = 0; fwd.w.state.vz = -40;
+    const f = diveOut(fwd.w, fwd.t);
+    const bwd = diveRig(BACK, false, [0, -150]);
+    bwd.w.state.vx = 0; bwd.w.state.vz = 34;
+    const b = diveOut(bwd.w, bwd.t);
+    expect(f.travel).toBeGreaterThanOrEqual(24.7); expect(f.travel).toBeLessThanOrEqual(28.8);
+    expect(b.travel).toBeGreaterThanOrEqual(20.0); expect(b.travel).toBeLessThanOrEqual(24.4);
+    for (const r of [f.rest, b.rest]) { expect(r * 1000).toBeGreaterThanOrEqual(754 - 17); expect(r * 1000).toBeLessThanOrEqual(840 + 17); }
+  });
+
+  it('from a full-stick crouch the dive is the standing dive: the crouch runs on the standing body (posture stand), the same timer, the same slide', () => {
+    const stand = diveRig(FORWARD), crouch = diveRig(FORWARD, true);
+    expect(crouch.w.stance).toBe('crouch');
+    expect(crouch.w.posture).toBe('stand');
+    // The same speed laid on both, so only the stance differs at the press.
+    crouch.w.state.vx = stand.w.state.vx; crouch.w.state.vz = stand.w.state.vz;
+    const a = diveOut(stand.w, stand.t), b = diveOut(crouch.w, crouch.t);
+    expect(b.down).toBeCloseTo(a.down, 9);
+    expect(b.rest).toBeCloseTo(a.rest, 9);
+    expect(b.travel).toBeCloseTo(a.travel, 6);
+    expect(b.roots).toEqual(a.roots);
+  });
+
+  it('R8 (the page\'s rate): the same dive at 30, 60 and 144 Hz page steps travels the same within 0.5 u and comes down together', () => {
+    const outs = [1 / 30, 1 / 60, 1 / 144].map((dt) => {
+      const { w, t } = diveRig(FORWARD);
+      w.state.vx = 0; w.state.vz = -40;                                  // the same press speed on each
+      return diveOut(w, t, dt);
+    });
+    for (const o of outs.slice(1)) {
+      expect(Math.abs(o.travel - outs[0]!.travel)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(o.down - outs[0]!.down)).toBeLessThanOrEqual(1 / 30 + 1e-9);
+      expect(Math.abs(o.rest - outs[0]!.rest)).toBeLessThanOrEqual(1 / 30 + 1e-9);
+    }
+    expect(outs[2]!.travel).toBeCloseTo(40 * touchdown(11.484) + (40 * 40) / 300, 0);
+  });
+
+  it('the camera\'s and the shot\'s root (Traversal.rootY) follows the drawn dive clip\'s root, and the pose hands the root to the clip (rootY null)', () => {
+    const { w, t } = diveRig(FORWARD);
+    const from = stanceRootY(w.posture);                                // the seam before the press
+    expect(t.dive(w)).toBe(true);
+    expect(t.rootY()).toBeCloseTo(from, 9);
+    const fade = t.shapes.blendTime('seal_dive2prone');
+    expect(fade).toBe(BLEND_TIME_DEFAULT);                              // no table: the animator's default too
+    for (let i = 1; i <= 40; i++) {
+      w.tick(STILL);
+      const pose = t.pose()!;
+      expect(pose.clip).toBe('seal_dive2prone');
+      expect(pose.rootY).toBeNull();                                     // the animator draws the clip's own root
+      const clip = rootAt(t.shapes.get('seal_dive2prone'), pose.frame)[1];
+      // F2: the animator's cross-fade, first frame at weight 0 (`Animator.start`), then its clock by the frame.
+      expect(t.rootY()).toBeCloseTo(from + (clip - from) * blendWeight(((i - 1) * TICK) / fade), 6);
+    }
+  });
+
+  const DIVE_READERC = fixture('RUN/READERC.ZAR');
+  const diveData = PACK !== null && DIVE_READERC !== null && MP2 !== null;
+  describe.skipIf(!diveData)(`the drawn root against r0004 (DIVE-CHECK)${diveData ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+    // The original's root over the feet at 200 / 400 / 600 / 800 / 1000 / 1200 ms after the press, the ranges over
+    // twelve runs (agent-mail evidence eph-hunt-2026-11-01/dive-check RESULTS.md, finding 1); 0.3 u of margin. 1000 ms
+    // is held loosely: the dive has come to rest by then and its play's hand-off to the prone base is
+    // `DIVE_END_BLEND_READING` (unread, the animator's own end).
+    const BANDS: [ms: number, lo: number, hi: number][] = [
+      [200, 8.41, 9.38], [400, 6.87, 7.37], [600, 6.12, 6.25], [800, 4.92, 5.35], [1000, 2.6, 4.6], [1200, 2.17, 2.18],
+    ];
+    const MARGIN = 0.3;
+
+    // The second review's finding: at rest the body's next play is the ground word's -- a crawl with the stick held
+    // (`loco:prone:<cls>`, the crawl's BlendTime, none: 0.4) or a turn (`turn:prone`, `seal_prone_turn`'s 0.9) -- and
+    // the seam's end blend runs on the animator's clock for that play. What is left between them is the play's own root
+    // against the stance's prone 2.168 (the crawl's 2.289, the turn's 2.266), as for any prone body crawling or turning.
+    /** The look at rest, `k` frames past the dive's end: the yaw's step and the walker's turn rate (`Walker.turn`). */
+    type Look = (k: number) => { dyaw: number; turn: number };
+    const NO_LOOK: Look = () => ({ dyaw: 0, turn: 0 });
+    const endCase = (after: WalkInput, look: Look = NO_LOOK): { drawn: number[]; seam: number[]; blend: number[]; plays: (string | undefined)[]; end: number } => {
+      const table = motionTableFromArchive(DIVE_READERC!)!;
+      const toc = parseZdb(MP2!);
+      const sk = readSkeleton(Zar.parse(zdbMember(MP2!, toc, 'CLIB_GEO.ZED')), 'seal_A_scuba');
+      const anim = new Animator(sk, clipsFromPack(PACK!, [...PLAY_CLIPS, ...TRAVERSAL_CLIPS]), table);
+      const { w, t } = diveRig(FORWARD);
+      t.setClips(PACK_CLIPS(), table);
+      for (let i = 0; i < 30; i++) anim.step(TICK, moverSnapshot(w, t, 0, 0));
+      w.state.vx = 0; w.state.vz = -40;
+      expect(t.dive(w)).toBe(true);
+      const drawn: number[] = [], seam: number[] = [], blend: number[] = [], plays: (string | undefined)[] = [];
+      let end = -1;
+      for (let i = 0; i < 110; i++) {
+        // The page and the room set the look's yaw and the walker's turn before the tick (`walk.ts`, `net/moverSim.ts`).
+        const l = end >= 0 ? look(i - end) : { dyaw: 0, turn: 0 };
+        w.state.yaw += l.dyaw;
+        w.turn = l.turn;
+        w.tick(after);
+        if (end < 0 && t.state().kind === 'none') end = i;
+        anim.step(TICK, moverSnapshot(w, t, 0, w.turn));
+        drawn.push(anim.rootY()!);
+        seam.push(t.rootY() ?? stanceRootY(w.posture));
+        blend.push(anim.stats().blend);
+        plays.push(anim.stats().play ?? undefined);
+      }
+      return { drawn, seam, blend, plays, end };
+    };
+    /**
+     * The seam on the animator's own clock from the dive's end: each play the animator starts restarts the fade from the
+     * seam's last value, at the animator's weight, to the stance's prone root -- whichever play it chose.
+     */
+    const followsAnimator = (r: ReturnType<typeof endCase>, plays: string[]): void => {
+      expect(r.end).toBeGreaterThan(0);
+      for (const p of plays) expect(r.plays.slice(r.end), `the animator plays ${p}`).toContain(p);
+      let from = r.seam[r.end - 1]!;
+      expect(Math.abs(from - r.drawn[r.end - 1]!)).toBeLessThanOrEqual(0.02);
+      for (let i = r.end; i < r.end + 60; i++) {
+        if (r.plays[i] !== r.plays[i - 1]) from = r.seam[i - 1]!;
+        expect(r.seam[i]!, `seam ${i - r.end} frames into the rest (${r.plays[i]})`).toBeCloseTo(from + (stanceRootY('prone') - from) * r.blend[i]!, 4);
+      }
+    };
+
+    it('second review: the stick held through the rest -- the crawl\'s play next, its BlendTime 0.4 as the idle\'s -- the seam on its clock', () => {
+      followsAnimator(endCase(FORWARD), ['loco:prone:1']);
+    });
+
+    it('a turn at rest (the walker\'s turn rate) -- `turn:prone`, seal_prone_turn\'s 0.9 -- the seam on its clock', () => {
+      followsAnimator(endCase(STILL, () => ({ dyaw: 1.5 * TICK, turn: 1.5 })), ['turn:prone']);
+    });
+
+    it('third review F1: the room\'s turn rate trails the yaw by its 4-tick average -- the body stays in the turn after the yaw stops, and so does the seam (RED: the yaw\'s change)', () => {
+      const r = endCase(STILL, (k) => ({ dyaw: k <= 10 ? 1.5 * TICK : 0, turn: k <= 14 ? 1.5 : 0 }));
+      followsAnimator(r, ['turn:prone', 'idle:prone']);
+    });
+
+    it('third review F1: a yaw turned with no turn rate (the raw mouse look) leaves the body idle, and the seam (RED: the yaw\'s change)', () => {
+      const r = endCase(STILL, () => ({ dyaw: 1.5 * TICK, turn: 0 }));
+      expect(r.plays.slice(r.end)).not.toContain('turn:prone');
+      followsAnimator(r, ['idle:prone']);
+      for (let i = r.end; i < r.end + 60; i++) expect(Math.abs(r.drawn[i]! - r.seam[i]!)).toBeLessThanOrEqual(0.02);
+    });
+
+    it('the idle at rest: the seam is the drawn body through the end blend (the first fold\'s F2)', () => {
+      const r = endCase(STILL);
+      followsAnimator(r, ['idle:prone']);
+      for (let i = r.end; i < r.end + 60; i++) expect(Math.abs(r.drawn[i]! - r.seam[i]!)).toBeLessThanOrEqual(0.02);
+    });
+
+    it("seal_dive2prone's own root (MOTION_P.ZAR, motion.rdr 1.6 -> 1.406 s): 9.76 at key 0, 2.13 at key 15", () => {
+      const table = motionTableFromArchive(DIVE_READERC!)!;
+      const t = new Traversal(world([floor(-10, -10, 10, 10, 0)]), []);
+      t.setClips(PACK_CLIPS(), table);
+      const shape = t.shapes.get('seal_dive2prone');
+      expect(shape.keys).toBe(16);
+      expect(shape.seconds).toBeCloseTo(1.6 * (15 / 16) ** 2, 6);
+      expect(rootAt(shape, 0)[1]).toBeCloseTo(9.76, 2);
+      expect(rootAt(shape, 15)[1]).toBeCloseTo(2.13, 2);
+    });
+
+    it('the drawn root (the animator, which the camera stands on) and the seams\' root are within the capture\'s bands (RED: 2.2 by 600 ms)', () => {
+      const table = motionTableFromArchive(DIVE_READERC!)!;
+      const toc = parseZdb(MP2!);
+      const sk = readSkeleton(Zar.parse(zdbMember(MP2!, toc, 'CLIB_GEO.ZED')), 'seal_A_scuba');
+      const anim = new Animator(sk, clipsFromPack(PACK!, [...PLAY_CLIPS, ...TRAVERSAL_CLIPS]), table);
+      const { w, t } = diveRig(FORWARD);
+      t.setClips(PACK_CLIPS(), table);
+      for (let i = 0; i < 30; i++) anim.step(TICK, moverSnapshot(w, t, 0, 0));   // the run's play settled
+      w.state.vx = 0; w.state.vz = -40;                                   // the capture's press speed (above)
+      const before = anim.rootY()!, from = stanceRootY(w.posture);        // the drawn run's root; the seam's
+      expect(t.dive(w)).toBe(true);
+      const fade = t.shapes.blendTime('seal_dive2prone');
+      expect(fade).toBeCloseTo(0.2, 6);                                    // motion.rdr's BlendTime
+      const drawn: number[] = [], seam: number[] = [];
+      for (let i = 1; i <= 78; i++) {                                     // 1300 ms at 60 Hz
+        w.tick(STILL);
+        anim.step(TICK, moverSnapshot(w, t, 0, 0));
+        drawn.push(anim.rootY()!);
+        seam.push(t.rootY() ?? stanceRootY(w.posture));
+      }
+      // Review F2: the seam (the hit volume, the shot's eye, the bots' aim) is the drawn body through the blend-in and
+      // the end blend into prone. In the blend-in the one difference left is where each starts: the drawn body from the
+      // run's posed root, the seam from the stance's (the server has no posed root: the seam a runner has always had),
+      // faded out by the same weight.
+      for (let i = 1; i <= 78; i++) {
+        const left = 1 - blendWeight(((i - 1) * TICK) / fade);
+        expect(Math.abs(seam[i - 1]! - drawn[i - 1]! - left * (from - before)), `seam at ${Math.round(i * TICK * 1000)} ms`).toBeLessThanOrEqual(0.02);
+      }
+      for (const [ms, lo, hi] of BANDS) {
+        const k = Math.round(ms / 1000 / TICK) - 1;
+        expect(drawn[k], `drawn at ${ms} ms`).toBeGreaterThanOrEqual(lo - MARGIN);
+        expect(drawn[k], `drawn at ${ms} ms`).toBeLessThanOrEqual(hi + MARGIN);
+        expect(seam[k], `seam at ${ms} ms`).toBeGreaterThanOrEqual(lo - MARGIN);
+        expect(seam[k], `seam at ${ms} ms`).toBeLessThanOrEqual(hi + MARGIN);
+      }
+    });
+  });
+
+  // The capture's one run that dived at 65.1 (move stand-fwd t3) pressed before the rise but crossed the 0.754 slope during
+  // the dive (y -148.3 to -135.5, peaking at 97.7 u/s): its 49.95 u agrees with the flat model's 50.6 by coincidence,
+  // not as a flat-ground match. F1 stands on `FUN_0057e540`'s copy (D:L440899-440901) and the slope's stick scale.
+  it('review F1: the dive carries the speed at the press -- from a full run on the flat (about 65) it slides v0 x 0.562 + v0^2 / 300, about 50.6 u', () => {
+    const { w, t } = diveRig(FORWARD);
+    const out = diveOut(w, t);
+    expect(out.v0).toBeGreaterThan(60);
+    expect(out.travel).toBeCloseTo(out.v0 * touchdown(11.484) + (out.v0 * out.v0) / 300, 0);
+    expect(out.travel).toBeCloseTo(50.6, 0);
+  });
+
+  it('third review F2: the seam does not hang on when it is read -- every tick against now and then, a stance change between ticks (RED: a lazy first read)', () => {
+    const play = (every: number): Map<string, number | null> => {
+      const { w, t } = diveRig(FORWARD);
+      w.state.vx = 0; w.state.vz = -40;
+      expect(t.dive(w)).toBe(true);
+      const reads = new Map<string, number | null>();
+      let end = -1;
+      for (let i = 0; i < 120; i++) {
+        w.state.yaw += i % 3 === 0 ? 0.02 : 0;
+        w.turn = i % 5 === 0 ? 1 : 0;
+        w.tick(STILL);
+        if (end < 0 && t.state().kind === 'none') end = i;
+        if (i % every === 0) reads.set(`tick ${i}`, t.rootY());
+        if (end >= 0 && i === end + 5) {
+          w.changeStance('crouch');                                       // between ticks: the body leaves prone
+          reads.set('after the change', t.rootY());
+        }
+      }
+      return reads;
+    };
+    const often = play(1), seldom = play(7);
+    expect(seldom.size).toBeGreaterThan(10);
+    for (const [at, v] of seldom) expect(often.get(at), at).toBe(v);
   });
 
   it('is refused walking (under 30 a second), prone, or in water over 2 deep', () => {

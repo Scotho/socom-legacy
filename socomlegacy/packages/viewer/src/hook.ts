@@ -84,6 +84,8 @@ export interface ViewerHook {
   startMenu(): StartMenuState & { labels: string[] };
   /** Read-only state of the native in-match Options adaptation. */
   settings(): ReturnType<NativeSettings['state']>;
+  /** GM-09: the Settings overlay's frame as its canvas shows it (`NativeSettings.readFrame`), null while closed -- a test aid. */
+  settingsFrame(): ReturnType<NativeSettings['readFrame']>;
   /** The stored Options and the camera values this frame, like the front-end match's read-only hook. */
   options(): PlayOptions & { pitchInverted: boolean; bob: boolean };
   /** `?devmode`'s SETUP TAUNTS button pressed (a development build's; nothing otherwise). */

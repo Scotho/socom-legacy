@@ -25,11 +25,15 @@ import { LEAD_PROBE_START_PLACEHOLDER } from '../src/playerCamera';
  *
  * The rendered run at b7e29e69b (SwiftShader) showed no lever prompt at pitch -30..+30. Fuse's stand
  * (1491.2, 172.2, 1892.25) was measured under his camera lead probe (LATER 308, reverted from #427). The walker stood
- * there settles at x 1492.09 (the hull puts it 0.89 east), and the spec faced the panel from the nominal stand, yaw
+ * there settles at x 1492.06 (the hull puts it 0.86 east), and the spec faced the panel from the nominal stand, yaw
  * 176.77: from the walker's feet that look passes 0.45 east of the panel's plane (x 1490.2, facing +x), so the ray
  * never meets the panel's front and its first face is `worldmodel/g4440`, the wall at z 1917.76 behind it, at every
  * pitch to +24 (none above). The panel is met only for a yaw of about 173-174.5 from those feet, looking down 15-30.
- * The spec now stands at the feet the walker reaches, facing the panel from them (yaw 173.87), at pitch -21.
+ * The spec now stands at the feet the walker reaches, facing the panel from them (yaw 173.07), at pitch -21.
+ * SEGMENT-BODY (re-derived 2026-11-04 on the merged tree; the port's own measurement, no capture of this stand): a still
+ * body casts along its facing (`FUN_0054aa30` D:L415135-415161), so where it settles depends on the yaw -- stood at
+ * the disc's (1492.1, 172.4) facing the panel it moved 0.19; stood again at each settled point facing the panel from
+ * there, it reaches (1492.35, 172.465) and stays (0.0000). Fuse's stand settles at x 1492.0586 (was 1492.09).
  */
 
 const DISC = process.env.SOCOM_DISC;
@@ -38,8 +42,8 @@ type V3 = [number, number, number];
 
 /** `epanel_di2`'s one polygon's middle (x 1490.2, y 184.3-189.9, z 1907.3-1912.6, facing +x; research 174 §5). */
 const PANEL: V3 = [1490.2, 187.1, 1909.95];
-/** The spec's stand: the feet the walker reaches when stood at Fuse's (1491.2, 172.2, 1892.25). */
-const STAND: V3 = [1492.1, 172.4, 1892.25];
+/** The spec's stand: the feet the walker reaches, stood there facing the panel (the header's SEGMENT-BODY note). */
+const STAND: V3 = [1492.35, 172.46, 1892.25];
 /** The pitch the spec looks down at: the middle of the window this test finds (-15..-30). */
 const PITCH = -21;
 /** Fuse's stand, as the spec had it. */
@@ -98,7 +102,7 @@ describe.skipIf(!HAVE)(`#427: the Enowapi lever stand, the page's use ray off th
   it("from the spec's stand, facing the panel at pitch -21, the prompt is epanel_di2's lever, in reach, and the room's head line is not walled", async () => {
     const r = await page();
     const yaw = facing(STAND);
-    expect(yaw).toBeCloseTo(173.87, 2);
+    expect(yaw).toBeCloseTo(173.07, 2);
     const [got] = look(r, STAND, yaw, [PITCH]);
     const feet = r.walk.feet()!;
     expect(Math.hypot(feet[0] - STAND[0], feet[2] - STAND[2]), 'the walker stays where it is stood').toBeLessThan(0.05);
@@ -122,7 +126,7 @@ describe.skipIf(!HAVE)(`#427: the Enowapi lever stand, the page's use ray off th
     expect(yaw).toBeCloseTo(176.77, 2);
     const sweep = look(r, FUSE, yaw, PITCHES);
     const feet = r.walk.feet()!;
-    expect(feet[0], 'the hull stands the walker 0.89 east of Fuse\'s x').toBeCloseTo(1492.09, 2);
+    expect(feet[0], 'the hull stands the walker 0.86 east of Fuse\'s x').toBeCloseTo(1492.06, 2);
     expect(sweep.filter((s) => s.target !== null)).toEqual([]);
     for (const s of sweep) {
       if (s.pitch <= 24) {

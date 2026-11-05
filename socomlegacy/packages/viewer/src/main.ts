@@ -90,6 +90,7 @@ import { hotkey } from './kit';
 import { ownBodyRead, Play, playActions, StanceButton } from './play';
 import { FrameTime } from './frameTime';
 import { pageFrameSampler } from './frameSampler';
+import { installClientErrorBeacon, pageClientErrorBeacon } from './clientErrorBeacon';   // CLIENT_ERROR_BEACON_ADAPTATION, part A (2026-11-05)
 import { PlayUi, readPlayChoice, writePlayChoice } from './features';
 import { devOverlayDrawn, devPanelLoadingKey, devToolsEnabled, spawnOverlayOn } from './devTools';
 import type { DevPanel } from './devPanel';
@@ -302,6 +303,7 @@ function startInWalk(mapName: string): void {
   attempt();
 }
 /** The play's markup, taken out and put back with the mode (`setPlayMode`); everything is wired while it is on the page. */
+installClientErrorBeacon(window, pageClientErrorBeacon());   // CLIENT_ERROR_BEACON_ADAPTATION, part A: a no-op after `./entry`'s install (one a window); kept for a page served without it
 const playUi = new PlayUi();
 const ui = new Ui();
 const scene = new Scene();
@@ -2796,6 +2798,7 @@ window.__viewer = {
   voice: () => voice.state(),                                  // SVC-20b-page (`./voice/voiceClient`)
   startMenu: () => ({ ...startMenu.state(), labels: startMenu.labels() }),   // MATCH-01 (`./startMenu`): the START menu, read only
   settings: () => nativeSettings.state(),
+  settingsFrame: () => nativeSettings.readFrame(),             // GM-09: the overlay's frame (a test aid, read only)
   options: () => ({ ...playOptions.current(), pitchInverted: fly.lookOptions().invertPitch, bob: fly.originalHeadBob }),
   openTauntEditor: () => { tauntDev?.button.click(); },
   weaponSelectKey: (code) => { refreshExchange(); return exchange.key(code, exchangeGate()); },

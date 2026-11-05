@@ -30,10 +30,13 @@ function mapsRequests(page: Page): string[] {
   return urls;
 }
 
-/** The front end's canvas, its mean luma (Rec. 601 weights) over the 640 x 448 frame. */
+/**
+ * The front end's frame, its mean luma (Rec. 601 weights) over the frame. GM-09: read through the page's presenter
+ * (`FrontEndSession.readFrame`, the frame the canvas shows), not the canvas's 2D context, which a GPU canvas has not;
+ * -1 before the session's first frame.
+ */
 const luma = (page: Page): Promise<number> => page.evaluate(() => {
-  const c = document.getElementById('front-end') as HTMLCanvasElement | null;
-  const d = c?.getContext('2d')?.getImageData(0, 0, 640, 448).data;
+  const d = (window as Hooked).__frontEnd?.session.readFrame()?.data;
   if (!d) return -1;
   let sum = 0;
   for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i]! + 0.587 * d[i + 1]! + 0.114 * d[i + 2]!;

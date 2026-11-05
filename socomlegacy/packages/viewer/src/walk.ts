@@ -1733,6 +1733,7 @@ export class WalkMode {
     if (!grid) return false;
     const w = new Walker(grid);
     w.actionRoots = this.actionRoots;
+    if (this.heldModels) w.heldModels = { ...this.heldModels };   // SEGMENT-BODY part 4 (F1): the kit's models
     // LATER 410 (Fuse's #339): placed before it replaces the standing walker -- a point with no floor (the port's
     // refusal: `place` over the ground grid; the original's spawn rebuild `FUN_00599b60` D:L455604 has no such branch)
     // returns false with the standing walker, its kept state and its moves as they were. Was: swapped first, the new
@@ -2376,6 +2377,17 @@ export class WalkMode {
     return s;
   }
 
+  /**
+   * SEGMENT-BODY part 4 (fresh review 1's F1): the kit's firearm models (`./loadout` `heldWeaponModels`, from
+   * `./matchFirearm`'s `spawnKit` and `takeKit`), the weapon line's length (`Walker.heldModels`; `FUN_0054e8f0`
+   * D:L416869-416870): laid on the mover now and on every mover the walk makes after (`respawn`, `stand`).
+   */
+  setHeldModels(models: { rifle: string | null; pistol: string | null }): void {
+    this.heldModels = { ...models };
+    if (this.walker) this.walker.heldModels = { ...models };
+  }
+  private heldModels: { rifle: string | null; pistol: string | null } | null = null;
+
   /** The action clips' root keys, by clip name (`./play` hands them over from the pack): `Walker.actionRoots`. */
   setActionRoots(roots: ReadonlyMap<string, Float32Array> | null): void {
     this.actionRoots = roots;
@@ -2686,6 +2698,7 @@ export class WalkMode {
     if (!this.walker && this.ground) {
       this.walker = new Walker(this.gridOfGround()!);
       this.walker.actionRoots = this.actionRoots;
+      if (this.heldModels) this.walker.heldModels = { ...this.heldModels };   // SEGMENT-BODY part 4 (F1): the kit's models
       this.player = new PlayerCamera(this.walker.grid);
       this.attachMoves(this.walker);                              // TRAVERSAL SEAM
     }

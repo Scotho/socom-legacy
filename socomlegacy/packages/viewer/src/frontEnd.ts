@@ -12,8 +12,11 @@ import {
   type CaptionSource, type DialogDesign, type Launch, type MoviePicture, type OpenerEvent, type PadButtonName, type RawImage, type RawName,
   type TextFace, type UiDrawItem, type UiSoundCues, type WidgetPad, type ZAnimRtSet, type LobbyClient, type LobbyService, lobbyEventInto,
   mountCreateGame, type MissionRecord, NO_PAD, OnlineFiltersCommands, OptionGlobals, OptionsCommands, initSystemTuners, seedNumMultiMissions, type ValveEntry,
-  type RoundQueueLine, lobbyBotsGate, syncLobbyBots, withLobbyBots, type MenuInputSource, recoverLobbyControls,
+  type RoundQueueLine, lobbyBotsGate, syncLobbyBots, withLobbyBots, type MenuInputSource, recoverLobbyControls, setComposeScreenProbe,
 } from '@s2u/ui';
+import { devToolsEnabled } from './devTools';
+import { UI_PERF_WINDOW_HOOK, uiPerfRequest } from './uiPerfRequest';
+import type { UiPerfProbe, UiPerfRenderProbe } from './uiGpuPerf';
 import { MUSIC_VOLUME_DEFAULT } from '@s2u/sound';
 import { GameAudio, WebAudioOut, type TunerVars } from './audio';
 import { screenOriginKeeper } from './screenOrigin';
@@ -65,7 +68,10 @@ import { connectMenuRoutes } from './menuRoutes';
 import { MoviePlayerHost } from './moviePlayerHost';
 import type { MovieSoundOut } from './movieSound';
 import { connectSoftKeyboard, readUiParams } from './softKeyboardKeys';
-import { rasterizeUiDrawList, presentUiFrame, type RasterOptions, type UiCanvasTarget, type UiTextures } from './uiCompositorView';
+import type { RasterOptions, UiCanvasTarget, UiTextures } from './uiCompositorView';
+import { CpuUiPresenter, isUiPresenter, type UiPresenter } from './uiPresenter';
+import { FrontEndGpu } from './uiGpuFront';
+import { pageUiGpuSwitch, type UiGpuSwitch } from './uiGpuSwitch';
 import { pageUiSounds, type FrontEndAudio } from './uiSoundHost';
 import type { SourceRequest } from './worker';
 import { tauntTexts } from './tauntSettings';
@@ -379,6 +385,8 @@ export class FrontEndSession<P = BlackPicture> {
   get lobby(): LobbyClient | null { return this.connect?.lobby ?? null; }
   /** The last tick's draw list. */
   last: UiDrawItem[] = [];
+  /** GM-02 (`./uiGpuPerf`, an instrument; null but on a development build under `?devmode&uiPerf`): `render`'s raster and present times. */
+  perf: UiPerfRenderProbe | null = null;
   /**
    * A test's pad record for the next frame (research 116 §1's states per button), or null; `press` fills it and the
    * opener's step-4 call reads it (`tap`). The page's pad is PLAT-11's reader (`input.read`), from the browser's keys,
@@ -712,21 +720,34 @@ export class FrontEndSession<P = BlackPicture> {
    * The last frame onto a canvas target (PLAT-14's drawer); what it could not draw comes back. `hd` (HD-3, a browser
    * adaptation under HD (GoE Soul), `./hdMenuTextures`): the frame's scale and the HD pack's lookup; absent, the original.
    */
-  render(target: UiCanvasTarget, uiSampling?: UiSamplingSettings, hd?: Pick<RasterOptions, 'scale' | 'hd' | 'quadCache'>): { undrawn: string[] } {
+  render(target: UiCanvasTarget | UiPresenter, uiSampling?: UiSamplingSettings, hd?: Pick<RasterOptions, 'scale' | 'hd' | 'quadCache'>): { undrawn: string[] } {
     const textures = this.lobbyArmory?.hosting() ? this.lobbyArmory.textures : this.textures;
-    const { frame, undrawn } = rasterizeUiDrawList(this.last, textures, { movie: this.moviePicture, uiSampling, ...hd });
-    presentUiFrame(target, frame);
-    return { undrawn };
+    // GM-09 (a browser adaptation that changes nothing drawn): the frame goes through a presenter -- the one handed in,
+    // or today's software path (`CpuUiPresenter`) onto a 2D canvas target, one per target, kept while the target is.
+    const presenter = isUiPresenter(target) ? target
+      : this.presenter instanceof CpuUiPresenter && this.presenter.target === target ? this.presenter : new CpuUiPresenter(target);
+    this.presenter = presenter;
+    return { undrawn: presenter.present(this.last, textures, { movie: this.moviePicture, uiSampling, ...hd }, this.perf).undrawn };
   }
+
+  /** GM-09: the presenter the last frame went through (null before the first render). */
+  presenter: UiPresenter | null = null;
+  /** GM-09: the frame the page last showed (straight RGBA, top row first, at its scale), or null before the first. */
+  readFrame(): Rgba | null { return this.presenter?.readFrame() ?? null; }
+  /** GM-09: what the last frame shown left undrawn (empty before the first). */
+  undrawn(): readonly string[] { return this.presenter?.undrawn() ?? []; }
 }
 
 /**
  * HD-3 review F1 (a browser adaptation): whether the page draws the menus' frame this tick. At an HD scale a frame is
  * 2560 x 1792 in software, so it is not drawn while a match holds the menus (the match's canvas is over it); the next
  * tick after the return draws it. At scale 1 the page draws every tick, held or not -- except under the Xbox preset,
- * where `./frontEndSleep` `menuRasterWanted` rests it for the whole lobby match (PR #631).
+ * where `./frontEndSleep` `menuRasterWanted` rests it for the whole lobby match (PR #631). `gpu` (GM-12b, GM.R17): the
+ * frame goes through the front end's GPU surface (`./uiGpuFront`), which draws no hidden frame at any scale.
  */
-export function drawsMenuFrame(session: { menusHidden: boolean }, scale: number): boolean {
+export function drawsMenuFrame(session: { menusHidden: boolean }, scale: number, gpu = false): boolean {
+  // GM.R17 (GM-12b): on the GPU path a hidden frame is not drawn at any scale; the software path draws it as it always has.
+  if (gpu) return !session.menusHidden;
   return scale <= 1 || !session.menusHidden;
 }
 
@@ -788,6 +809,8 @@ export interface FrontEndMountOptions {
   movies?: (() => MovieWorkerHandle) | null;
   /** PLAT-20's output for the movies' sound; absent, `webAudioMovieOut` over the front end's own audio's context (when it made the audio). */
   movieSound?: () => MovieSoundOut | null;
+  /** GM-12b: the GPU switch the front end reads; absent, the page's (`pageUiGpuSwitch`). A test's own. */
+  uiGpu?: UiGpuSwitch;
 }
 
 /**
@@ -842,6 +865,22 @@ export function frontEndMatchSound(o: {
 }
 
 /**
+ * The front end's canvases' placement (`#front-end` and GM-12b's `#front-end-gpu`: the same CSS box). Placement only
+ * (the design system owns colour and type, `test/chrome_classes.test.ts`): over the whole window, the 640 x 448 frame
+ * scaled to fit; the frame itself is opaque.
+ */
+export function placeFrontEndCanvas(el: HTMLCanvasElement): void {
+  el.style.position = 'fixed';
+  el.style.inset = '0';
+  el.style.left = 'var(--tw-l, 0px)';
+  el.style.top = 'var(--tw-t, 0px)';
+  el.style.width = 'calc(100vw - var(--tw-l, 0px) - var(--tw-r, 0px))';
+  el.style.height = 'var(--mobile-picture-height, calc(100dvh - var(--tw-t, 0px) - var(--tw-b, 0px)))';
+  el.style.objectFit = 'contain';
+  el.style.zIndex = '1000';
+}
+
+/**
  * The page's hook (`./pageEntry`'s one line, OT.R12; it was `main.ts`'s until 2026-10-03; since OT.R19 it mounts with
  * or without `FRONT_END_PARAM`, the page's entry deciding): a 640 x 448 canvas over the page, the front end read from `source` -- the
  * visitor's disc image (`{ kind: 'iso', file }`, OT.R14: `@s2u/archive`'s `IsoAssetSource` over the file, the reader
@@ -857,16 +896,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   canvas.id = 'front-end';
   canvas.width = 640;
   canvas.height = 448;
-  // Placement only (the design system owns colour and type, `test/chrome_classes.test.ts`): over the whole window, the
-  // 640 x 448 frame scaled to fit; the frame itself is opaque.
-  canvas.style.position = 'fixed';
-  canvas.style.inset = '0';
-  canvas.style.left = 'var(--tw-l, 0px)';
-  canvas.style.top = 'var(--tw-t, 0px)';
-  canvas.style.width = 'calc(100vw - var(--tw-l, 0px) - var(--tw-r, 0px))';
-  canvas.style.height = 'var(--mobile-picture-height, calc(100dvh - var(--tw-t, 0px) - var(--tw-b, 0px)))';
-  canvas.style.objectFit = 'contain';
-  canvas.style.zIndex = '1000';
+  placeFrontEndCanvas(canvas);
   doc.body.append(canvas);
   frameCanvas(canvas);   // OPT-11 (research 358): the original's BRIGHTNESS pass scales this frame
   const win = doc.defaultView;
@@ -887,6 +917,22 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   let matchLoading: MatchLoaderSlot<MatchLoader> | null = null;    // ONL-18c: the match's loader, once a match loads; PR #631: let go at the return
   let matchUp = false;                                             // PR #631 (`./frontEndSleep`, a browser adaptation): a lobby-mounted match up, `leave` to `returned`
   let matchGraphics = 'auto';                                      // PR #631: the graphics preset read at `leave` (not a read a tick)
+  // GM-12a (a browser adaptation; the GPU menus plan, "Canvases and contexts"): the front end's GPU surface
+  // (`./uiGpuPresenter` `UiGpuSurfacePresenter`, reached by `import()` only) -- its context let go at the match's `leave`
+  // and asked back lazily after `returned`, let go for good at `stop` and at the session's close. Null while the switch
+  // keeps `front` off; GM-12b makes it beside `#front-end-gpu` (`./uiGpuFront` `FrontEndGpu`, `gpuFront` below).
+  let uiGpuFront: { release(): void; returned(): void; dispose(): void } | null = null;
+  let gpuFront: FrontEndGpu | null = null;                         // GM-12b: `#front-end-gpu`, its swap and its surface
+  // GM-12a review F5: the session's close lets the GPU surface go as the page's stop does (both come through here).
+  const closeSession = (): void => { session_?.close(); uiGpuFront?.dispose(); uiGpuFront = null; };
+  // GM-02 (`./uiGpuPerf`, an instrument, a browser adaptation): a development build under `?devmode` only -- `?uiPerf` the
+  // frame ring, `?uiPerfHd` the menus' HD path on for the measurement too (below); every player's page has neither.
+  const uiPerf = uiPerfRequest(search, devBuild() && devToolsEnabled(search));
+  let perf: UiPerfProbe | null = null;
+  // Review F2: the instrument's module, loaded with `import()` beside the disc's read only when the ring is asked for.
+  const perfLoad = uiPerf.ring
+    ? import('./uiGpuPerf').catch((e: unknown) => { console.warn('[uiPerf] instrument:', e); return null; })
+    : null;
   const ctx = canvas.getContext?.('2d') ?? null;
   const say = (text: string): void => {
     mount.status = text;
@@ -918,11 +964,18 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
       mount.music?.stop();                                           // the music's streams stopped (MENU-MUSIC)
       screenOriginStop?.();                                          // SCREEN POSITION's resize listener off
       for (const off of pictureOff.splice(0)) off();                 // HD-4: this mount's picture observers off
-      session_?.close();                                             // the lobby's keep-alive stopped, its session logged out (review (5))
+      closeSession();                                                // the lobby's keep-alive stopped, its session logged out (review (5)); GM-12a: the GPU surface let go
       matchLoading?.release();                                       // ONL-18c: the match's worker ended
+      gpuFront?.remove();                                            // GM-12b: #front-end-gpu off the page
       canvas.remove();
       clearMenuSampling();
       void hdMenus?.set(false);                                      // HD-3: the menus' pack let go
+      if (perf) {                                                    // GM-02: the instrument off with its page (review F4: all three)
+        setComposeScreenProbe(null);
+        if (session_) session_.perf = null;
+        if (win) delete (win as unknown as Record<string, unknown>)[UI_PERF_WINDOW_HOOK];
+        perf = null;
+      }
     },
   };
   if (!source) {
@@ -943,7 +996,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   })))).get();
   const assets = opts.assets ?? assetSourceFor(source);   // FE-ISO: the image, a picked folder (DA-3) or the served tree
   const invite = win ? pageInvite(search, win, { dev: devBuild() }) : null;                                // INVITE_LINK_ADAPTATION
-  const handedOff = (h: InviteHanded): null => { running = false; if (frameId) win?.cancelAnimationFrame(frameId); session_?.close(); mount.movies?.stop(); mount.music?.stop(); say(endHandOff(invite, h)); return null; };   // the address kept unless taken (review 7)
+  const handedOff = (h: InviteHanded): null => { running = false; if (frameId) win?.cancelAnimationFrame(frameId); closeSession(); mount.movies?.stop(); mount.music?.stop(); say(endHandOff(invite, h)); return null; };   // the address kept unless taken (review 7)
   // The mission's ARMORY data (`./armoryData`, with its world), read in the lobby (`./lobbyArmory`) and kept for its
   // mission: the match's round screens take their two bitmaps from the same decode (PAR-3, research 255 s3).
   const armoryRead = keepMissionRead((mission: string): Promise<ArmoryData | null> => {
@@ -956,14 +1009,43 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   const screenOrigin = screenOriginKeeper(doc, win ?? null);   // SCREEN POSITION (SCREEN_ORIGIN_ADAPTATION): the card's origin on the canvases
   screenOriginStop = () => screenOrigin.stop();
   pictureOff.push(picture.observe(() => { screenOrigin.layLater(); }));         // OT.R79: the match's box changes with the picture; the origin re-laid on it
+  // GM-12b (a browser adaptation; `./uiGpuFront`): `#front-end-gpu` beside this canvas, made only when the GPU switch asks
+  // `front` of the GPU (every cell `off` until a landed flip: every player's page has none). The same box, BRIGHTNESS
+  // (`frameCanvas`, in `FrontEndGpu`), SCREEN POSITION and the page's keys and taps; its surface imported after the
+  // first software frame (GM.R15), its software fallback the 2D canvas beneath, sized to each frame it draws.
+  // The switch itself is read on every page, players' included (GM-12b review F2): built once from the address and the
+  // stored setting, resolved for `front`, and published as the non-enumerable `window.__uiGpu` read-out -- nothing of
+  // the game; with every cell `off` it makes no canvas, no context and imports nothing.
+  const uiGpu = opts.uiGpu ?? pageUiGpuSwitch();
+  if (ctx && win) {
+    gpuFront = FrontEndGpu.mount({
+      doc, twin: canvas, sw: uiGpu, place: placeFrontEndCanvas, laid: () => screenOrigin.lay(),
+      load: (c) => import('./uiGpuPresenter').then((m) => new m.UiGpuSurfacePresenter({
+        canvas: c, transparent: false, surface: 'front', host: uiGpu,
+        software: new CpuUiPresenter(ctx, { fit: (w, h) => { if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; } } }),
+        clock: { now: () => win.performance.now(), setTimeout: (fn, ms) => win.setTimeout(fn, ms), clearTimeout: (t) => { win.clearTimeout(t as number); } },
+        blend: (scale) => uiGpu.blend('front', scale), allowSoftwareAdapter: uiGpu.readout().url.allowSoftwareAdapter,
+        shown: (w) => { gpuFront?.want(w); }, log: (line) => { console.warn(line); },
+        hdKeys: () => hdMenus?.keys() ?? null,                                  // GM-14a: HD images keyed by the pack's key, on every build
+      })),
+    });
+    if (gpuFront) {
+      uiGpuFront = gpuFront;
+      menuInput?.also(gpuFront.canvas);                                         // PLAT-11 on both canvases: a tap lands on the same frame point
+      screenOrigin.lay();
+    }
+  }
   // HD-3 (OT.R92, HD.R8; `./hdMenuTextures`, a browser adaptation): under HD (GoE Soul) the menus sample the HD pack's
   // images and are drawn at its scale; its module (and three, which the pack's module imports) is loaded only then.
   // MODERN and PS2 load and fetch nothing, and draw the original frame.
+  // GM-02: `?uiPerfHd` (a development build under `?devmode` only) turns the menus' path on whatever the picture, so the
+  // baseline can measure scales 2 and 4 while HD-HOLD keeps HD (GoE Soul) from every player; the world's picture is untouched.
+  const menusHd = (): boolean => uiPerf.hd || pictureExperimentalSettings(picture.get()).hdPack;
   const applyHdMenus = (): void => {
-    const on = pictureExperimentalSettings(picture.get()).hdPack;
+    const on = menusHd();
     if (!on && !hdMenusLoad) return;
     hdMenusLoad ??= import('./hdMenuTextures').then((m) => (hdMenus = m.pageHdMenus(m.parseHdMenuScale(search))));
-    void hdMenusLoad.then((h) => h.set(running && pictureExperimentalSettings(picture.get()).hdPack)).catch((e) => { console.warn('[hd] menus:', e); });
+    void hdMenusLoad.then((h) => h.set(running && menusHd())).catch((e) => { console.warn('[hd] menus:', e); });
   };
   pictureOff.push(picture.observe(applyHdMenus));
   applyHdMenus();
@@ -1006,13 +1088,13 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   const prepared = async () => {
     const handed = await handOff;
     if (handed) return { handed } as const;
-    const [disc, ui, reply] = await Promise.all([readFrontEndDisc(assets).then((d) => withMenuArt(assets, d)), sounds, universeReply]);
-    return { handed: null, disc, ui, reply } as const;
+    const [disc, ui, reply, perfLib] = await Promise.all([readFrontEndDisc(assets).then((d) => withMenuArt(assets, d)), sounds, universeReply, perfLoad]);
+    return { handed: null, disc, ui, reply, perfLib } as const;
   };
   const session = prepared().then((r) => {
     if (!running) return null;
     if (r.handed) return handedOff(r.handed);
-    const { disc, ui, reply } = r;
+    const { disc, ui, reply, perfLib } = r;
     if (!ctx || !win) { say('no 2D canvas'); return null; }
     const createGameServiceTarget = accountServiceBase(search, win.location, devBuild());
     const events: OpenerEvent[] = [];
@@ -1124,10 +1206,10 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
         // MATCH-SOUND: the menus' music held from the match's loading screen to the return.
         // PR #631 (`./frontEndSleep`, a browser adaptation scoped to the Xbox preset): the menus' raster skipped while the
         // match is up and, with no movie open, the movie worker ended; every other player keeps both.
-        leave: () => { matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); },
+        leave: () => { matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); uiGpuFront?.release(); gpuFront?.commit(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); },
         settled: (r) => { matchSound.settled(r); },
         // PR #631 (`./matchLoaderSlot`): under the Xbox preset the match's worker and decoded mission let go at the return.
-        returned: () => { roundLine = null; if (releasesMatchOnReturn(readGraphicsBackend())) matchLoading?.release(); matchSound.returned(); canvas.hidden = false; screenOrigin.layLater(); menuHold.returned(); matchUp = false; loadingHide.release(); },
+        returned: () => { roundLine = null; if (releasesMatchOnReturn(readGraphicsBackend())) matchLoading?.release(); matchSound.returned(); canvas.hidden = false; screenOrigin.layLater(); menuHold.returned(); uiGpuFront?.returned(); matchUp = false; loadingHide.release(); },
       },
       onLaunch: (l) => console.info('front end: LoadExecPS2', l.elf, l.argv),
       onEvent: (e) => { events.push(e); console.info('front end:', e); },
@@ -1144,6 +1226,22 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     if (disc.missing.length) console.warn('front end: not read', disc.missing);
     if (ui.missing.length) console.warn('front end: no sound', ui.missing.join('; '));
     (win as unknown as Record<string, unknown>)[FRONT_END_WINDOW_HOOK] = { session: s, movies, press: (n: PadButtonName) => s.press(n), events, music } satisfies FrontEndWindowHook;
+    if (uiPerf.ring && perfLib) {
+      // GM-02: the ring, the session's render probe, composeScreen's probe, and the page's hook for `e2e/uiGpuPerf.spec.ts`.
+      const { UiPerfProbe, dialogSwitches, summarizeUiPerf } = perfLib;
+      const probe = new UiPerfProbe(() => win.performance.now());
+      perf = probe;
+      s.perf = probe;
+      setComposeScreenProbe(probe);
+      (win as unknown as Record<string, unknown>)[UI_PERF_WINDOW_HOOK] = {
+        now: () => win.performance.now(),
+        samples: () => probe.ring.samples(),
+        summary: (from: number, to: number) => summarizeUiPerf(probe.ring.samples(), from, to),
+        switches: () => dialogSwitches(probe.ring.samples()),
+        hd: () => { const o = hdMenus?.options(); return { scale: o?.scale ?? 1, version: o?.version ?? -1, forced: uiPerf.hd, decoder: hdMenus?.decoderMode() ?? null }; },
+        hdSettled: () => hdMenus?.settled() ?? Promise.resolve(),
+      };
+    }
     mount.status = `front end on ${router.plan.stack.length ? s.machine.menu.startDialog : 'the opener (the loader screens, then dlgIntroScreen.rdr)'}`;
     menuInput?.connect(s.input);                                   // PLAT-11: the keys, pad and taps are the menus'
     // PLAT-17: UiParams.rdr, the physical typing -- in a release build too, but only while the soft keyboard's text entry
@@ -1155,10 +1253,20 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
       setBrightness(brightnessOfVars(session_?.uiVars));         // OPT-11 (research 358): OPTIONS' BRIGHTNESS on the picture
       const hd = hdMenus?.options() ?? { scale: 1 };                  // HD-3: 640 x 448 unless HD (GoE Soul)'s pack is on
       // The session advances every tick (the lobby and the match tick through it); PR #631: the Xbox preset's raster rests under a match.
-      if (s.advance(now) > 0 && drawsMenuFrame(s, hd.scale) && menuRasterWanted(matchUp, matchGraphics)) {
-        if (canvas.width !== 640 * hd.scale) { canvas.width = 640 * hd.scale; canvas.height = 448 * hd.scale; }
-        s.render(ctx, menuSampling ?? undefined, hd);
+      perf?.begin(now);                                              // GM-02: the instrument's frame (null on every player's page)
+      const ticks = s.advance(now);
+      perf?.advanced(ticks);
+      const gpu = gpuFront?.drawsOn(hd.scale) ?? false;              // GM-12b: the front end's GPU surface draws this scale (never on a player's page)
+      if (ticks > 0 && drawsMenuFrame(s, hd.scale, gpu) && menuRasterWanted(matchUp, matchGraphics)) {
+        if (gpu) s.render(gpuFront!.surface!, menuSampling ?? undefined, hd);
+        else {
+          if (canvas.width !== 640 * hd.scale) { canvas.width = 640 * hd.scale; canvas.height = 448 * hd.scale; }
+          s.render(ctx, menuSampling ?? undefined, hd);
+        }
+        gpuFront?.drawn(gpu);
       }
+      gpuFront?.commit();                                            // GM-12b: the canvas swap at the tick boundary, after the frame is on its canvas
+      perf?.end(s.clock.lostSeconds, s.last, (hd as { version?: number }).version ?? -1, hd.scale, s.machine.shell()?.currentName ?? '');
       frameId = win.requestAnimationFrame(loop);
     };
     frameId = win.requestAnimationFrame(loop);

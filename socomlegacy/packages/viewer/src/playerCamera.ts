@@ -1,11 +1,11 @@
 import { Vector3, type Camera } from 'three';
-import { isCameraSurface, segmentHit, segmentHits, SEAL_TUNING, type Grid, type WorldPoly } from '@s2u/scene';
+import { segmentHit, segmentHits, SEAL_TUNING, type Grid, type WorldPoly } from '@s2u/scene';
 import type { Stance } from './walk';
 import { MAP_FOV } from './accuracy';
 import { ACTION_SECONDS, isCameraClassSurface, STANCE } from './mover';
 import { deathEye, deathFar, orbit, type DeathCamera } from './deathCamera';
 import {
-  CAM_BACK, CAM_CLOSE, CAM_FAR, CAM_MARGIN, headEye, localCamera, lookHeight, peekShift, ramp, scopeEyeHeight, scopePeekShift, toWorld,
+  CAM_BACK, CAM_CLOSE, CAM_FAR, CAM_MARGIN, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, lookHeight, peekShift, ramp, scopeEyeHeight, scopePeekShift, toWorld,
   LEAD_DOWN, CAM_HOLD, CAM_REGROW, cameraPass, isPeekCameraSurface, newPassState, TYPE_ONE_CLEAR, type LocalCamera, type PassState, type Vec3,
 } from './cameraRig';
 
@@ -121,8 +121,7 @@ export type { LocalCamera, PassState, Vec3 };
  * **Not modelled:** the skeleton root's own x and z (0 here, as in the game: `FUN_0057a330` zeroes them after each
  * update, decomp 439147-439148), and the two camera modes above. The lead probe `FUN_0029cbb0` casts in mode 0 (it sets
  * it itself, `FUN_002d4fd0(0)` D:L143678: bit 18 skipped, bit 19 tested, no material) and its hits pass
- * `FUN_0029cd20`'s cameratype-1 picker (D:L143689); the port's probe below uses mode 1's bit test without that picker,
- * as before LATER 279 -- LATER 341.
+ * `FUN_0029cd20`'s cameratype-1 picker (D:L143689); the port's probe uses that mode and picker (research 382 §3).
  *
  * **The near rectangle, after the pass.** `FUN_0029bf70` stops the eye 0.75 short of a face (research 180 §2.3, the
  * minimum at `0x29cab0`). The projection's near plane stays the map's 4 (research 90 §5). A live match fits the
@@ -361,12 +360,11 @@ function shiftEye(grid: Grid, target: Vec3, from: Vec3, to: Vec3, accept: (p: Wo
  *
  * The look span (`target - eye` on entry) is fixed. A resolved eye and that span are the drawn look: the caller
  * places the look target at `eye + span`, so a lateral slide (the only step that clears a face parallel to the view)
- * translates the camera and does not yaw it off the aim. The focus `target` stays the one the pass measured from:
- * the crossing test, the 0.75 separation and the type-1 filter are still against it.
+ * translates the camera and does not yaw it off the aim. The focus `target` is the body-side target supplied by the
+ * presentation guard; the crossing test, the 0.75 separation and the type-1 filter use it.
  */
-function clearNearRect(grid: Grid | null, target: Vec3, eye: Vec3, accept: (p: WorldPoly) => boolean, aspect: number): Vec3 {
+function clearNearRect(grid: Grid | null, target: Vec3, eye: Vec3, accept: (p: WorldPoly) => boolean, aspect: number, span = sub(target, eye)): Vec3 {
   if (!grid) return eye;
-  const span = sub(target, eye);
   const along = unit(span);
   const back = scale(along, -1);
   let out = eye;
@@ -418,12 +416,12 @@ function clearNearRect(grid: Grid | null, target: Vec3, eye: Vec3, accept: (p: W
 /**
  * The camera between two ticks. `eye` and `target` are the DRAWN camera's (the frame's view); `aim` is the game's: the
  * pass's eye and target (`FUN_0029bf70`), the shot's and the order's (`WalkMode.placed`). They differ only by the drawn
- * camera's presentation (#479's review F1): a peek's pull-backs (`HEAD_EYE_WALL_BACK_PLACEHOLDER`) and the near clearance
+ * camera's presentation (#479's review F1, research 382): body-side pull-backs (`HEAD_EYE_WALL_BACK_PLACEHOLDER`) and the near clearance
  * (`NEAR_CLEARANCE_ADAPTATION`, H309). A clearance slide moves `eye` and `target` by the same vector, so the drawn view
  * stays parallel to the aim and the reticle stays at the frame's centre.
  */
 export interface CameraView { eye: Vec3; target: Vec3; far: Vec3; aim: { eye: Vec3; target: Vec3 } }
-type TickView = { eye: Vec3; target: Vec3; far: Vec3; aimEye: Vec3; aimTarget: Vec3 };
+type TickView = { eye: Vec3; target: Vec3; far: Vec3; aimEye: Vec3; aimTarget: Vec3; feet: Vec3; peek: number };
 
 /**
  * LEAD_PROBE_START_PLACEHOLDER (LATER 308; research 201 section 14, research 83 section 8.1): where the downward lead
@@ -490,8 +488,9 @@ export class PlayerCamera {
     if (local.probe && this.grid) {
       const from = LEAD_PROBE_START_PLACEHOLDER === 'lastOutput' ? this.leadFrom ?? lead : lead;
       const a = world([local.target[0], local.target[1], from]), b = world([local.target[0], local.target[1], from + LEAD_DOWN]);
-      // FUN_0029cbb0 casts in mode 0 (the header; LATER 341): this keeps main's bit test, not yet the original's.
-      const h = segmentHit(this.grid, a, b, isCameraSurface);
+      // FUN_0029cbb0 D:L143678 casts in mode 0, then FUN_0029cd20 picks (D:L143689; research 382 §3).
+      const h = segmentHits(this.grid, a, b, isPeekCameraSurface)
+        .find((hit) => hit.poly.cameratype !== 1 || length(sub(hit.point, a)) > TYPE_ONE_CLEAR);
       if (h) lead += Math.hypot(b[0] - h.point[0], b[2] - h.point[2]);
     }
     this.leadFrom = lead;
@@ -512,18 +511,11 @@ export class PlayerCamera {
     const target = add(eye0, scale(unit(sub(far, eye0)), local.dist));
     // The game's eye: FUN_0029bf70's pass alone, at every aspect -- the one the shot and the order are claimed from.
     const passed = cameraPass(this.grid, target, eye0, this.pass, dt, accept);
-    // The drawn camera only (#479's review F1: presentation, never the game's eye), at every aspect (H309: "no see through
-    // anywhere"): a peek's target, off the body axis, and the passed eye kept on the body's side of a camera face by
-    // `headEye` (HEAD_EYE_WALL_BACK_PLACEHOLDER, research 90 §10), then the near clearance (NEAR_CLEARANCE_ADAPTATION).
-    const live = Number.isFinite(this.nearAspect) ? this.nearAspect : GAME_ASPECT;
-    const drawTarget = this.peek !== 0 ? headEye(this.grid, feet, target, accept) : target;
-    const pulled = this.peek !== 0 ? headEye(this.grid, feet, passed, accept) : passed;
-    // The span is the look before the clearance. `clearNearRect` resolves the eye against that fixed span; the look
-    // target takes the same slide, so a lateral push does not yaw the view off the aim (research 90 §10).
-    const span = sub(drawTarget, pulled);
-    const drawEye = clearNearRect(this.grid, drawTarget, pulled, accept, live);
-    const drawLook = add(drawEye, span);
-    const next = { eye: drawEye, target: drawLook, far, aimEye: passed, aimTarget: target };
+    // H309's drawn-camera protection also covers an ordinary downward target beyond a wall (research 382 §1).
+    // Neither the target nor the pass's eye is a safe anchor: each is pulled back from the body's axis.
+    const draw = this.draw(feet, target, passed, accept, this.peek !== 0);
+    const next = { eye: draw.eye, target: draw.target, far, aimEye: passed, aimTarget: target,
+      feet: [feet[0]!, feet[1]!, feet[2]!] as Vec3, peek: this.peek };
     this.prev = this.cur ?? next;
     this.cur = next;
   }
@@ -538,10 +530,33 @@ export class PlayerCamera {
     const cur = this.cur, prev = this.prev ?? cur;
     if (!cur || !prev) return { eye: [0, 0, 0], target: [0, 0, -1], far: [0, 0, -CAM_FAR], aim: { eye: [0, 0, 0], target: [0, 0, -1] } };
     const t = Math.max(0, Math.min(1, alpha));
+    const eye = lerp(prev.eye, cur.eye, t), target = lerp(prev.target, cur.target, t);
+    // Safe endpoints need not have a safe chord around a corner. Recheck the frame actually drawn, without
+    // advancing the pass's timers or touching the interpolated game aim (H309, research 382 §1).
+    const draw = this.draw(lerp(prev.feet, cur.feet, t), target, eye,
+      (t < 1 ? prev.peek : cur.peek) !== 0 ? isPeekCameraSurface : isCameraClassSurface,
+      (t < 1 ? prev.peek : cur.peek) !== 0);
     return {
-      eye: lerp(prev.eye, cur.eye, t), target: lerp(prev.target, cur.target, t), far: lerp(prev.far, cur.far, t),
+      eye: draw.eye, target: draw.target, far: lerp(prev.far, cur.far, t),
       aim: { eye: lerp(prev.aimEye, cur.aimEye, t), target: lerp(prev.aimTarget, cur.aimTarget, t) },
     };
+  }
+
+  /** Presentation only: preserve the ordinary look span and the existing peek correction; never change the game pass. */
+  private draw(feet: readonly number[], target: Vec3, eye: Vec3, accept: (p: WorldPoly) => boolean, peek: boolean): { eye: Vec3; target: Vec3 } {
+    const bodySide = (point: Vec3): Vec3 => {
+      if (!this.grid) return point;
+      const axis: Vec3 = [feet[0]!, point[1], feet[2]!];
+      const hit = segmentHits(this.grid, axis, point, accept).find((h) => stopsCamera(h, target));
+      return hit ? add(hit.point, scale(unit(sub(axis, point)), HEAD_EYE_WALL_BACK_PLACEHOLDER)) : point;
+    };
+    const focus = bodySide(target);
+    const pulled = bodySide(eye);
+    // Keep the existing peek's two-anchor presentation; ordinary poses preserve their original look span.
+    const span = peek ? sub(focus, pulled) : sub(target, eye);
+    const aspect = Number.isFinite(this.nearAspect) && this.nearAspect > 0 ? this.nearAspect : GAME_ASPECT;
+    const out = clearNearRect(this.grid, focus, pulled, accept, aspect, span);
+    return { eye: out, target: add(out, span) };
   }
 
   /** The pass's distance, `DAT_003de268`. */

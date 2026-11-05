@@ -271,6 +271,22 @@ export function segmentHit(
   return segmentHits(grid, a, b, accept, layers)[0] ?? null;
 }
 
+/** The pad on `segmentHits`' box reject: wider than `crossing`'s own tolerances (its t range, `inside`'s 1e-7). */
+const BOX_PAD = 1e-3;
+const polyBoxes = new WeakMap<WorldPoly, Float32Array>();
+/** A static polygon's box (min x, y, z, max x, y, z), computed once. */
+function polyBox(poly: WorldPoly): Float32Array {
+  let b = polyBoxes.get(poly);
+  if (b) return b;
+  const p = poly.points;
+  b = Float32Array.from([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+  for (let i = 0; i < p.length; i += 3) {
+    for (let k = 0; k < 3; k++) { b[k] = Math.min(b[k]!, p[i + k]!); b[k + 3] = Math.max(b[k + 3]!, p[i + k]!); }
+  }
+  polyBoxes.set(poly, b);
+  return b;
+}
+
 /**
  * Every polygon the segment a->b crosses, nearest `a` first (`segmentHit`'s candidates). `frontOnly` (LATER 250): only a
  * face entered from its front (`crossing`) -- the hull's one-sided test, asked by the throw clearance alone
@@ -298,6 +314,13 @@ export function segmentHits(
       const polys = object.polys;
       for (let i = 0; i < polys.length; i++) {
         const poly = polys[i]!;
+        // A polygon whose box misses the segment's cannot be crossed: rejected before the plane test (SEGMENT-BODY's cost;
+        // the same hits in the same order). A moving owner (no cache) has its points changed in place, so its boxes are not kept.
+        if (cache) {
+          const pb = polyBox(poly);
+          if (pb[0]! > box.maxX + BOX_PAD || pb[3]! < box.minX - BOX_PAD || pb[2]! > box.maxZ + BOX_PAD || pb[5]! < box.minZ - BOX_PAD
+            || pb[1]! > Math.max(a[1], b[1]) + BOX_PAD || pb[4]! < Math.min(a[1], b[1]) - BOX_PAD) continue;
+        }
         if (!accept(poly)) continue;
         const n = cache ? cache.normals[i]! : polygonNormal(poly.points);
         const t = crossing(poly, n, a, d, frontOnly);

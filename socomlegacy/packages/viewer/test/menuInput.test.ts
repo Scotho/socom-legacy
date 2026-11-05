@@ -387,6 +387,36 @@ describe('attachMenuInput: the page\'s source on the session\'s input', () => {
     vi.restoreAllMocks();
   });
 
+  it("GM-12b: `also` takes a second canvas (#front-end-gpu): a tap on it lands on the same frame point, nothing bubbles; the detach lets both go", () => {
+    const input = new MenuInput({ machine: () => { throw new Error('unused'); }, parts: { current: null } as never });
+    const tap = vi.spyOn(input, 'tap').mockReturnValue(null);
+    const box = { left: 20, top: 10, width: 1280, height: 896, right: 1300, bottom: 906, x: 20, y: 10, toJSON: () => ({}) } as DOMRect;
+    const a2d = document.createElement('canvas'), gpu = document.createElement('canvas');
+    document.body.append(a2d, gpu);
+    vi.spyOn(a2d, 'getBoundingClientRect').mockReturnValue(box);
+    vi.spyOn(gpu, 'getBoundingClientRect').mockReturnValue(box);
+    const seen: string[] = [];
+    const viewer = (e: Event) => { seen.push(e.type); };
+    document.addEventListener('pointerdown', viewer);
+    const a = attachMenuInput(a2d, window);
+    a.connect(input);
+    a.also(gpu);
+    const at = { clientX: 20 + 300, clientY: 10 + 200, bubbles: true, cancelable: true };
+    a2d.dispatchEvent(new MouseEvent('pointerdown', at));
+    gpu.dispatchEvent(new MouseEvent('pointerdown', at));
+    expect(tap.mock.calls).toEqual([[150, 100], [150, 100]]);           // the same frame point from either canvas
+    expect(seen).toEqual([]);
+    a.page.keyDown('KeyX');                                               // one source: the keys are not doubled
+    expect([...input.source.read().down]).toEqual(['CROSS']);
+    a.detach();
+    gpu.dispatchEvent(new MouseEvent('pointerdown', at));
+    expect(seen).toEqual(['pointerdown']);
+    expect(tap).toHaveBeenCalledTimes(2);
+    document.removeEventListener('pointerdown', viewer);
+    a2d.remove(); gpu.remove();
+    vi.restoreAllMocks();
+  });
+
   it('mountFrontEnd keeps the keys and the pointer from the viewer from the moment its canvas is up (review round finding 2)', () => {
     const seen: string[] = [];
     const viewer = (e: Event) => { seen.push(`${e.type} ${(e as KeyboardEvent).code ?? ''}`.trim()); };

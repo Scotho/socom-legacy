@@ -7,6 +7,7 @@ import type { DropWire, ServerEvent } from '../../viewer/src/net/protocol';
 import { launcherKitRounds, pickupKitOf, PICKUP_REACH_READING, PICKUP_SPEED_READING } from '../../viewer/src/net/pickupRules';
 import { claimWeapon, dropsOf, transferAmmo, type DropSpec } from './pickups';
 import { equipmentSlotsOf, type EquipmentSlots } from '../../viewer/src/equipment';
+import { heldWeaponModels } from '../../viewer/src/loadout';
 
 /**
  * PF-34 (ruling PF.R54; web research 234 s1-s4): the room's world drops -- the entities, their stable ids, the claims and
@@ -89,7 +90,11 @@ export interface DropSeat {
   readonly cone: { frame(seq: number): AimFrame | undefined; setWeapon(record: WeaponRecord): void };
   readonly sim: {
     readonly seq: number;
-    readonly walker: { readonly state: { x: number; y: number; z: number; yaw: number }; readonly action: { readonly name: string } | null };
+    readonly walker: {
+      readonly state: { x: number; y: number; z: number; yaw: number }; readonly action: { readonly name: string } | null;
+      /** SEGMENT-BODY part 4 (F1): the kit's firearm models, the weapon line's length (`heldWeaponModels`). */
+      heldModels: { rifle: string | null; pistol: string | null };
+    };
   };
 }
 
@@ -259,6 +264,7 @@ export class WorldDrops {
     this.lying.splice(at, 1);
     seat.loadout = got.loadout;
     seat.records = got.records;
+    seat.sim.walker.heldModels = heldWeaponModels(table, got.loadout);   // SEGMENT-BODY part 4 (F1): the weapon line's length
     if (got.slot !== null && got.ring) {
       seat.mags[got.slot] = got.ring;
       if (seat.weapon === got.slot) seat.cone.setWeapon(got.records[got.slot]);   // PICKUP_HAND_READING: the hand kept

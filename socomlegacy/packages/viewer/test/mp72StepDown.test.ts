@@ -28,9 +28,13 @@ describe.skipIf(MP72 === null)(`MP72 step-down at (2156, 89.25, 1574)${MP72 === 
     expect(w.state.y).toBeCloseTo(89.25, 2);
     w.state.yaw = Math.atan2(-1, 0) * 180 / Math.PI;
     for (let i = 0; i < 180; i++) w.tick({ forward: 1, right: 0, boost: false });
-    expect(w.state.x - START.x).toBeGreaterThan(20);
-    expect(w.state.x).toBeCloseTo(2180.99, 1);
-    expect(2184.49 - w.state.x).toBeCloseTo(BODY_RADIUS, 1);
+    // SEGMENT-BODY (re-judged; was 3.5 off it, x 2180.99, the disc's): stopped where the centre line (5.39; the head
+    // line takes the muzzle only prone, `HEAD_LINE_MUZZLE_READING`) first crosses the next wall at x 2184.49, plus at
+    // most a tick's move.
+    expect(w.state.x - START.x).toBeGreaterThan(15);
+    expect(2184.49 - w.state.x).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
+    expect(2184.49 - w.state.x).toBeLessThan(1.1 * 1.4 * 3.5 + 65 / 60 + 0.01);
+    expect(BODY_RADIUS).toBe(3.5);
     expect(w.state.z).toBeCloseTo(START.z, 1);                    // straight on: no corner turns it (was 1572.58)
     expect(w.airborne).toBe(false);
   });

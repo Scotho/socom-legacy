@@ -60,11 +60,13 @@ describe.skipIf(!MP2)(`Frostfire's doors${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, 
       w.state.yaw = facing(582.5, 1135, 582.5, 1000);
       return w;
     };
-    // Shut: the leaf stops it a body's radius short (walk.test.ts's check).
+    // Shut: the leaf stops it short (walk.test.ts's check) -- SEGMENT-BODY (re-judged; was a body's radius): where the
+    // centre line (5.39; the head line takes the muzzle only prone) first crosses it, plus at most a tick's move.
     let w = walkAt();
     for (let k = 0; k < 120; k++) w.tick(FORWARD);
-    expect(w.state.z).toBeGreaterThan(1118);
-    expect(w.state.z).toBeLessThan(1118 + BODY_RADIUS + 1);
+    expect(w.state.z).toBeGreaterThan(1118 + 4.5);
+    expect(w.state.z).toBeLessThan(1118 + 7.5);
+    expect(BODY_RADIUS).toBe(3.5);
     expect(doors.state(i).open).toBe(false);
 
     // The action, from where the SEAL stands: the swing runs, then the door is open and at rest.

@@ -208,14 +208,24 @@ item says which:
   (D:L416775-416791, `moveHit`; was `|n_y|` and water only), held by `traversal.test.ts`'s foliage case (a BUSH_VOL
   wall at the ledge's top is refused, the crate's climb offered) and overhang case (a face at normal y -0.68 behind the
   ledge is admitted, no plan) -- PAR-21a F6, each red on the old filter.
-- **The branch with no steep hit is the weapon line's, not the move's wall -- named, not built.** With no steep hit
+- **The branch with no steep hit is the weapon line's, not the move's wall -- built 2026-11-04 on the segment arm
+  (SEGMENT-BODY part 2, `agent/segment-body`; reading, pending review; research 86 s3.8).** *Was:* "named, not built".
+  With no steep hit
   (D:L413618-413671) the candidate is the slot at `actor+0x1140`, which `FUN_005b0c70` writes (D:L467345-467365):
   `FUN_0054d9a0` clears it as the tick begins (D:L416434) and, for the local player while `+0x1340` is 0, fills it with
   the nearest non-VOLUMETRIC, non-LIQUID polygon of any slope on `FUN_0054e8f0`'s segment -- along the facing, twice the
   held weapon's length, plus the velocity (D:L416858-416910) -- through `FUN_0031e160` (D:L416630-416687). That slot
   replaces the contact when it climbs (or is a ladder, D:L413634-413636), when the old contact does not, or when the old
   is more than 24 away across the ground (D:L413644-413668); with no slot, a moving tick runs the drop check
-  (D:L413624). The port has no weapon line: a tick with no wall hit keeps the contact under `contactHolds`.
+  (D:L413624). Built: `Walker.weaponLine` casts the slot before the records, on the tick's unresolved displacement --
+  from the feet at the stance's root (the `skel_root` part's height, `*(+0x2e8)+4`, D:L416877-416880: the capture's
+  point 11.486 over the feet, the stand's root 11.484), along the facing (D:L416886-416891), `WEAPON_LINE_LENGTH_READING`
+  long by the held model (D:L416892-416902; the M4A1 SD's 22.930 proven by ac's RDRAM read), plus the displacement
+  (D:L416904), level (D:L416905), the nearest non-VOLUMETRIC, non-LIQUID polygon at any slope; `Walker.storeContact`
+  takes it by the three rules (D:L413627-413668), and the climb's offer reads the Walker's one stored contact
+  (`Traversal.keepContact`). Named: `WEAPON_LINE_ONE_SIDED_PLACEHOLDER`, `WEAPON_LINE_POLYGON_SET_PLACEHOLDER`,
+  `WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` and `WEAPON_LINE_BOTS_READING` (was `WEAPON_LINE_BOTS_PLACEHOLDER`; research 86
+  s7.2). *Was:* "The port has no weapon line: a tick with no wall hit keeps the contact under `contactHolds`."
 - **The corner drop -- built (PAR-21a C2).** When the stored hit is climbable (`FUN_0059d9f0`: appflags 1, 3, 4, 5,
   D:L457424-457426), any other hit of the move -- of every record, the side segments too (the loop at D:L413880) -- on
   a different polygon (the slot's polygon word `+0xc`, D:L413884) whose horizontal normal (y zeroed, renormalised,
@@ -250,6 +260,13 @@ item says which:
   different polygon whose horizontal normal is off by more than about 25.8 degrees (dot < 0.9) drops the contact
   (D:L413867-413897, `FUN_005b0d30(actor, 0)` -> `FUN_005b3890(actor, 1)`): at an inside corner the original offers no
   climb. The port asks no other hit (climbFacing's inside-corner case with `prop01` climbs; the port's, measured)."
+  **On the segment arm (SEGMENT-BODY part 2, 2026-11-04; reading, pending review):** the corner drop is the Walker's,
+  over its own segment records' hits (`Walker.storeContact`, D:L413864-413901) -- the faithful rule this item handed
+  to PAR-21 -- and a side record's hit is a crossing of the other face's polygon, inside its span by construction, so
+  `CORNER_HITS_READING` (and `cornerDrop`) stays the disc arm's alone. Walked in on a synthetic crate's outside corner
+  the moving side record crosses the end face and the contact is cleared (`traversal.test.ts`); in an inside corner
+  where only the side records meet the faces no record hit is stored, so no corner drop runs and the weapon line's
+  contact holds (D:L413859-413862). H229's capture still settles Frostfire's -120 corner.
 - **The drop check on a moving tick only -- named, not built.** The original runs `FUN_005b3890(actor, 0)` (24 across
   the ground, behind the stored normal, faced away) only on a moving tick (`bVar7`: the velocity's square over 2e-5,
   D:L413459-413461) with no steep hit and no weapon-line slot (D:L413624) or with steep hits but none from the first two
@@ -259,6 +276,15 @@ item says which:
   velocity (D:L414380); and `FUN_00582540` at the end of clip 0x2c (D:L443005) and the climb's end handler
   `FUN_00589aa0` (D:L446721, D:L446724) run the check too. The other callers clear it unconditionally on a climb's start
   or a state change (D:L431148, D:L431251, D:L431617, D:L446556, D:L469275, D:L469665, D:L514584, D:L514589).
+  **Its reach since SEGMENT-BODY part 2** (fresh review 1's F6, 2026-11-04; named, the code unchanged): the stored
+  contact is now the Walker's one (`Walker.storedContact`), and this every-tick drop (`Walker.holdContact`, asked by
+  `Traversal.keepContact`) runs after `storeContact`'s slot branch, on ticks where the source runs no drop check
+  (D:L413618-413671): a moving tick with no record hit and the slot set but not climbable, an older climbable contact
+  within 24 kept by the source, is dropped by the port when its facing or side test fails, and the climb's offer goes
+  with it. The capture's "`+0x10ac` clear whenever the offer is off" (r0004, ac, 2026-11-04) makes this mostly
+  harmless. The review also found it governing the running jump's contact (`JUMP_CONTACT_READING`); the jump-near-wall
+  capture (r0004, ac, 2026-11-04 11:30-11:50Z) then proved the running jump reads no contact (`JUMP_CONTACT_PROVEN`
+  'none', research 217 s2.9), so that half no longer applies.
 - **The reach -- not built (handed to PAR-21 with `WALL_PROBE_READING`).** The original's segments meet a wall before
   the body does (the centre 5.39 ahead still, 9.43 moving, the head line `r x 1.4` = 4.9 plus the velocity, research 217
   s2.1), and a record's hit is the slide itself: every steep hit's horizontalised normal takes the velocity's part along
@@ -393,6 +419,20 @@ spot is reached from the map's play area (the rays only refuse a closed solid). 
 thousands of faces on every map: it is not built without a capture first (a body walked into the back of one of
 these, MP6's window quads the first), PAR-21's call (D16's owner) on the controller's word.
 
+*SEGMENT-BODY part 11, 2026-11-04 (proven, on one barrier): captured.* The capture this census asked for was made, on
+MP51's `access1` rather than MP6's windows: r0004 on PCSX2 against our local Horizon copy, Craig's word of 2026-11-04,
+ac (`agent-mail/evidence/eph-hunt-2026-11-01/segment-body/mp51-barricade/RESULTS.md`, two trials each way, a memory
+trace of every guest frame). Every wall of `access1=access1/good_parts/di_good` faces +z. Walked out of wc16 (+z,
+from (1493.1, 48, 1036.6)) into the intact planks, the original passes them at full speed (z 1046.4 -> 1050.7 at
+65 u/s, no contact stored). Walked in (-z, from (1493.1, 43.26, 1065)), it stops at z 1054.375-1054.417, 5.8 off the
+1048.6 plank, the contact on the plank with normal +z. The collider the stored contact names reads `+0x80` = 0x41:
+bit 0 set, bit 1 clear, the one-sided start word under `FUN_002d2890` D:L174831-174837 (the slot-to-collider mapping
+and the r0004 offset are the capture's own UNVERIFIED note). So the segment body's one-sided hit is the original's on
+this face; the port stops the walk in at 1054.708 (the residue is LATER 681). Held by `accessBarriers.test.ts` (disc)
+and `c4Barricades.spec.ts`. Caveat: the walking client joined and switched teams, so it may have been a terrorist,
+not the SEAL asked for; a SEAL's walk is not separately captured. The census's wider count (3,016 faces) is not
+re-scored by one barrier.
+
 *MV-PARITY (b2), 2026-10-31 (reading, pending review):* the one-sided test is now built for a face's END only (viewer
 `WALL_END_CONTACT_READING`, research 217 §2.3): an end met from behind its face's own normal is no hit. Backed by the
 emulator parity harness's capture of M51's ditch (EPH runs 20261031T154035Z, 154148Z, 154254Z and the live run 014055Z,
@@ -425,8 +465,10 @@ PB-3 and PB-3b added no constant. PAR-21a (2026-10-17) adds one reading and one 
 The values pinned by the probe are readings of the disc through the repository's readers (s1) and the port's measured
 behaviour (s3); the original's offer is the reading of s2, pending review. s4.1 and s4.2 are built (PB-3b, reading,
 pending review); of the departures s4.1 names, any hit replacing the contact and the corner drop are built (PAR-21a,
-reading, pending review); the weapon line's slot, the moving tick's drop check and the reach are named, not built, and
-the reach and s4.3's one-sided walk are PAR-21's. Was: "No constant is added (PB-3b adds none either). ... the
+reading, pending review); the weapon line's slot is built (SEGMENT-BODY part 2, 2026-11-04; reading, pending review; its
+constants `WEAPON_LINE_LENGTH_READING`, `WEAPON_LINE_ONE_SIDED_PLACEHOLDER`, `WEAPON_LINE_POLYGON_SET_PLACEHOLDER`,
+`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` and `WEAPON_LINE_BOTS_READING` are listed in research 86 s7.2), the moving tick's drop check is named, not built, and the reach and s4.3's one-sided walk are
+PAR-21's. *Was:* "the weapon line's slot, the moving tick's drop check and the reach are named, not built". Was: "No constant is added (PB-3b adds none either). ... the
 departures s4.1 names (any hit replacing the contact, the corner drop, the reach) and s4.3's one-sided walk are
 PAR-21's."
 

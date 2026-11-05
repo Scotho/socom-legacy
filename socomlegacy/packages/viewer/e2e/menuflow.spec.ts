@@ -46,13 +46,19 @@ async function frontEndAlone(page: Page, address: string): Promise<void> {
   expect(urls.filter((u) => MAIN.test(u))).toEqual([]);
   expect(urls.filter((u) => /maps\/index\.json|\/rooms(\?|$)/.test(u))).toEqual([]);
   expect(rooms).toBe(0);
+  // GM-16b: on the Vite dev server the front end runs the GPU path in shadow (`front.hd: 'shadow'`, development builds
+  // only), which mounts `#front-end-gpu` beside `#front-end` in standby -- never shown, never presented. It is the front
+  // end's own sibling, not the viewer: listed apart, and held to standby (hidden) whenever it is there. A release build
+  // mounts none (every surface `off`), so its absence passes too.
   expect(await page.evaluate(() => ({
     view: document.getElementById('view'),
     hook: typeof (window as unknown as { __viewer?: unknown }).__viewer,
-    children: [...document.body.children].map((e) => `${e.tagName.toLowerCase()}#${e.id}`),
+    children: [...document.body.children].filter((e) => e.id !== 'front-end-gpu').map((e) => `${e.tagName.toLowerCase()}#${e.id}`),
     black: document.body.classList.contains('ps2-look') && getComputedStyle(document.body).backgroundColor,
     size: (() => { const c = document.getElementById('front-end') as HTMLCanvasElement; return [c.width, c.height]; })(),
   }))).toEqual({ view: null, hook: 'undefined', children: ['canvas#front-end', 'div#menu-touch'], black: 'rgb(0, 0, 0)', size: [640, 448] });
+  const twin = await page.evaluate(() => { const g = document.getElementById('front-end-gpu'); return g ? { standby: g.classList.contains('s2u-ui-gpu-standby'), visibility: getComputedStyle(g).visibility } : 'absent'; });
+  expect([JSON.stringify('absent'), JSON.stringify({ standby: true, visibility: 'hidden' })], `#front-end-gpu absent or in standby: ${JSON.stringify(twin)}`).toContain(JSON.stringify(twin));
   await expect(page.locator('#menu-touch')).toBeHidden(); // a desktop without touch keeps its controller input
   expect(errors).toEqual([]);
 }

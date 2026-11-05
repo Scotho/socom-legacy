@@ -1,6 +1,6 @@
 import { partMatrix, partMatrixInto, sampleClip, SEAL_TUNING, type MotionClip, type PartPose, type Skeleton } from '@s2u/scene';
 import {
-  BLEND_TIME_DEFAULT, LAUNCHER_ANIMS, PISTOL_ANIMS, MOTION_CLIPS, SEAL_ANIM_SET, SEAL_ANIMS, SEAL_SETS, crouchPlay, entryOf, motionOf, nodeSpeed, setsOf,
+  BLEND_TIME_DEFAULT, blendWeight, LAUNCHER_ANIMS, PISTOL_ANIMS, MOTION_CLIPS, SEAL_ANIM_SET, SEAL_ANIMS, SEAL_SETS, crouchPlay, entryOf, motionOf, nodeSpeed, setsOf,
   type AnimSet,
   phaseRate, pronePlay, standPlay, type DirectionClass, type Motion, type MotionSets, type PlayNode,
 } from './locomotion';
@@ -258,17 +258,8 @@ export interface AnimatorOptions {
   anims?: AnimSet;
 }
 
-/**
- * The cross-fade's weight at `s` of its length: the ease the game's node blend traced (research 17 §4.2, `FUN_0028e040`
- * blending a snapshot into the current pose, "a clean symmetric smoothstep": 0.020, 0.080, 0.180, 0.319, 0.499, 0.681,
- * 0.819 at even steps), 2s^2 up to the middle and its mirror after. Between two keys `MOTION_BLEND` (77 §7) still
- * holds: rotations slerp on the shorter arc, translations lerp.
- */
-export function blendWeight(s: number): number {
-  if (!(s > 0)) return 0;
-  if (s >= 1) return 1;
-  return s < 0.5 ? 2 * s * s : 1 - 2 * (1 - s) * (1 - s);
-}
+/** The cross-fade's weight (`./locomotion` `blendWeight`, moved there for `./traversal`'s dive seam, DIVE-ROOT's F2). */
+export { blendWeight };
 
 /**
  * `FUN_0028c7c0(t, from, to)`: whether a callback at phase `t` fires on a step from `from` to `to`: forward, `from <= t

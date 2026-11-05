@@ -11,6 +11,7 @@ import { sitePageRoutes } from '../ui/src/routes/sitePaths';
 import { devLocalProxy } from './devProxy';
 import { pwaPlugin } from './pwaPlugin';
 import { releaseVersion } from './releaseVersion';
+import { releaseBuiltAt } from '../match/src/releaseStamp';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const webRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -49,8 +50,16 @@ function viewerVersion(): string {
   return releaseVersion((...args: string[]) => execFileSync('git', args, { cwd: webRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }), process.env, pkg.version);
 }
 
-/** When the build ran, UTC, `YYYY-MM-DD HH:MM:SS` -- the s2u site's footer stamp. */
-const buildStamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+/**
+ * NCW-13 (a deploy adaptation): the release's one build stamp, `BUILT_AT` (`YYYY-MM-DDTHH:MMZ`), set once by the release
+ * scripts BEFORE the page build (deploy/nightly.sh, deploy/release.sh, deploy/host/update-host.sh) and written as the
+ * same string into release.env's RELEASE_BUILT_AT and the web image's release.json `builtAt`; unset or of another form
+ * (a development build): the clock, to the minute. `__BUILT_AT__` carries it into the page.
+ */
+const builtAt = releaseBuiltAt(process.env['BUILT_AT']) ?? `${new Date().toISOString().slice(0, 16)}Z`;
+
+/** When the build ran, UTC, `YYYY-MM-DD HH:MM:SS` -- the s2u site's footer stamp: the release's stamp when one is set. */
+const buildStamp = releaseBuiltAt(process.env['BUILT_AT']) !== null ? `${builtAt.slice(0, 10)} ${builtAt.slice(11, 16)}:00` : new Date().toISOString().replace('T', ' ').slice(0, 19);
 
 /**
  * The viewer is its own Vite root inside the workspace. `publicDir` points at `socomlegacy/public`, so the
@@ -122,7 +131,7 @@ export default defineConfig(({ command, isPreview }) => {
     } },
   },
   worker: { format: 'es' },
-  define: { __VIEWER_REV__: JSON.stringify(release), __VIEWER_COMMIT__: JSON.stringify(commit), __BUILD_STAMP__: JSON.stringify(buildStamp), __VIEWER_VERSION__: JSON.stringify(viewerVersion()) },
+  define: { __VIEWER_REV__: JSON.stringify(release), __VIEWER_COMMIT__: JSON.stringify(commit), __BUILD_STAMP__: JSON.stringify(buildStamp), __BUILT_AT__: JSON.stringify(builtAt), __VIEWER_VERSION__: JSON.stringify(viewerVersion()) },
   resolve: { alias: [dsAlias, fontsAlias] },
   plugins: [pwaPlugin({ release }), shipFontLicences(), fmvPlugin(fmvWasm), lobbyLinkHeadPlugin(), sonyNoticePlugin(join(here, 'src/assets/sony/NOTICE.txt')), {
     name: 'project-page-routes',

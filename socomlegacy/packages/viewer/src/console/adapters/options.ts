@@ -13,7 +13,7 @@ import type { ExtractBackend } from '../../discExtractStore';
 import { DETAIL_DISTANCE_MODERN_DEFAULT, DETAIL_DISTANCE_VALUES, detailDistanceIndex, detailDistanceKeeper, detailDistanceOfIndex } from '../../detailDistance';
 import { pagePicture } from '../../picture';
 import { RENDER_SCALE_DEFAULT_ADAPTATION, RENDER_SCALE_WORDS, RENDER_SCALES, VIDEO_SETTINGS_DEFAULTS, videoSettingsKeeper } from '../../videoSettings';
-import { graphicsBackendOverride, readGraphicsBackend, saveGraphicsBackend } from '../../graphicsBackend';
+import { graphicsBackendOverride, readGraphicsBackend, saveGraphicsBackend, type GraphicsBackendPreference } from '../../graphicsBackend';
 import type { IconName } from '../icons';
 import { BACKEND_WORDS } from '../render/extract';
 import { APPEARANCE, THEMES, hex } from '../render/theme';
@@ -26,6 +26,9 @@ import { INSTALL_APP_ROW, KEPT_DISC_ROW, REMAP_ROW, SHARE_SEND_ROW, THEME_PANEL_
 import { SHARE_SEND_ROW_ABOUT, SHARE_SEND_ROW_ACTION, SHARE_SEND_ROW_LABEL, SHARE_SEND_ROW_NOTE } from '../../discShareWords';
 import type { LivePad } from './pad';
 import { SKIP_MENU_HINT, SKIP_MENU_LABEL, SKIP_MENU_ROW, setSkipMenu, skipMenuOn } from '../skipMenu';
+
+/** Graphics mode's values in row order (Automatic, Compatibility, Xbox, WebGPU). */
+const GRAPHICS_BACKEND_VALUES: readonly GraphicsBackendPreference[] = ['auto', 'webgl2', 'xbox', 'webgpu'];
 
 /**
  * The console launcher's Options (slice 2, part i; CX-5): the options that really exist, and none of the prototype's
@@ -499,11 +502,13 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   };
   const graphicsBackend: Spec = {
     row: { id: 'graphics-backend', label: 'Graphics mode',
-      about: 'Use Compatibility if the game loads to a black screen. Xbox also turns off edge smoothing for better performance.',
+      about: 'Automatic uses WebGL2 for now, the same as Compatibility. WebGPU asks for WebGPU where the browser offers it; if the game loads to a black screen, use Automatic or Compatibility. Xbox also turns off edge smoothing for better performance.',
       note: 'Saved to this browser. Reload the page to apply.' },
-    values: () => ['Automatic', 'Compatibility', 'Xbox'], get: () => readGraphicsBackend() === 'xbox' ? 2 : readGraphicsBackend() === 'webgl2' ? 1 : 0,
-    def: () => 0, lock: () => graphicsBackendOverride() === null ? undefined : `Selected by address: ${readGraphicsBackend() === 'xbox' ? 'Xbox' : readGraphicsBackend() === 'webgl2' ? 'Compatibility' : 'Automatic'}`,
-    set: (i) => { if (i !== 0 && i !== 1 && i !== 2) return false; saveGraphicsBackend(i === 2 ? 'xbox' : i === 1 ? 'webgl2' : 'auto'); return true; },
+    // WEBGL2-DEFAULT (the owner's word, 2026-11-05; a browser adaptation): Automatic is WebGL2 (DEFAULT_GRAPHICS_BACKEND_ADAPTATION,
+    // LATER 708); WebGPU is its own value, last, so the saved words and the first three indices are unchanged.
+    values: () => ['Automatic', 'Compatibility', 'Xbox', 'WebGPU'], get: () => GRAPHICS_BACKEND_VALUES.indexOf(readGraphicsBackend()),
+    def: () => 0, lock: () => graphicsBackendOverride() === null ? undefined : `Selected by address: ${['Automatic', 'Compatibility', 'Xbox', 'WebGPU'][GRAPHICS_BACKEND_VALUES.indexOf(readGraphicsBackend())]}`,
+    set: (i) => { const v = GRAPHICS_BACKEND_VALUES[i]; if (v === undefined) return false; saveGraphicsBackend(v); return true; },
   };
   const detailKeeper = detailDistanceKeeper();
   const detailDistance: Spec = {

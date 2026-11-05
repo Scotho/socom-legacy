@@ -3,14 +3,14 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FsAssetSource } from '@s2u/archive/node';
-import { GAME_FRAME_DT, isCameraSurface, SEAL_TUNING, segmentHit, type Grid, type WorldPoly } from '@s2u/scene';
+import { buildGrid, GAME_FRAME_DT, isCameraSurface, SEAL_TUNING, segmentHit, segmentHits, type Grid, type WorldPoly } from '@s2u/scene';
 import { FlyCamera } from '../src/camera';
 import { loadMap } from '../src/loadMap';
 import { buildPageWorld } from '../src/matchWorld';
 import { WalkMode } from '../src/walk';
-import { cameraPass, isPeekCameraSurface, LEAD_DOWN, localCamera, newPassState, toWorld, type PassState } from '../src/cameraRig';
-import { isCameraClassSurface } from '../src/mover';
-import { CAM_FAR, LEAD_PROBE_START_PLACEHOLDER, pitchLimits, viewFar, type PlayerCamera } from '../src/playerCamera';
+import { cameraPass, isPeekCameraSurface, LEAD_DOWN, localCamera, newPassState, toWorld, TYPE_ONE_CLEAR, type PassState } from '../src/cameraRig';
+import { isCameraClassSurface, STANCE } from '../src/mover';
+import { CAM_FAR, LEAD_PROBE_START_PLACEHOLDER, pitchLimits, PlayerCamera, viewFar } from '../src/playerCamera';
 
 /**
  * H337 / LATER 308: the port's predictions for the capture of the original at a steep look against a surface (research
@@ -19,8 +19,8 @@ import { CAM_FAR, LEAD_PROBE_START_PLACEHOLDER, pitchLimits, viewFar, type Playe
  *
  * The page's `PlayerCamera` holds the candidate as a module constant, so each candidate is replayed here from the port's
  * own pieces in `PlayerCamera.tick`'s order (`../src/playerCamera.ts`; no peek, no death camera): `localCamera`
- * (`FUN_0029a950`), the lead probe (`segmentHit` with `isCameraSurface`, from this call's target or from the last
- * call's lead), `toWorld` (`FUN_00297410`), the target re-placed on the eye-to-far line, `cameraPass` (`FUN_0029bf70`)
+ * (`FUN_0029a950`), the lead probe (mode-0 `segmentHits` and the cameratype-1 picker, from this call's target or from
+ * the last call's lead), `toWorld` (`FUN_00297410`), the target re-placed on the eye-to-far line, `cameraPass` (`FUN_0029bf70`)
  * and `viewFar` (LATER 305: the use and fire aim). Under `'target'` the replay is checked against the page's own camera
  * (`WalkMode.gameCamera`, `lookAim`), so the `'lastOutput'` replay is the same code with the other start.
  *
@@ -34,11 +34,13 @@ import { CAM_FAR, LEAD_PROBE_START_PLACEHOLDER, pitchLimits, viewFar, type Playe
  * re-placed target (`target`), `cam+0xd8` the passed eye (`passed`); the actor's `+0x1c` the feet. `H337_REPORT=1`
  * prints each stand's last two calls under both starts (the numbers section 14.1 records).
  *
- * **The lead probe's filter** (LATER 341): the port's probe tests `isCameraSurface` (bit 19 skipped, bit 18 hit), the
- * camera pass's mode 1. The original's `FUN_0029cbb0` sets mode 0 itself (`FUN_002d4fd0(0)`, D:L143678), so
+ * **The lead probe's filter** (research 382 §3; LATER 341): the merged `PlayerCamera` follows the original's
+ * `FUN_0029cbb0`, which sets mode 0 itself (`FUN_002d4fd0(0)`, D:L143678), so
  * `FUN_002d2890` skips bit 18 and hits bit 19, with no material check -- `isPeekCameraSurface`'s test, `MODE0` here.
- * Each stand is replayed under both: what the original would show is the `MODE0` replay. `FUN_0029cd20`'s
- * cameratype-1 picker (D:L143689) is not modelled; the stands' probes meet cameratype 0 and 2 only.
+ * `FUN_0029cd20`'s cameratype-1 picker (D:L143689) then selects the first surviving hit, as in the merged camera.
+ * The explicit `legacyMode1` comparison preserves the old port's `segmentHit` / `isCameraSurface` predictions
+ * (bit 19 skipped, bit 18 hit, no picker). These are port predictions, not measurements of the original running;
+ * the two start candidates remain unresolved. The synthetic case checks the current default without disc data.
  */
 
 /** `FUN_002d2890` under `DAT_0044d758` = 0 (LATER 341): bit 1 set and bit 18 clear -- `isPeekCameraSurface`'s test. */
@@ -47,8 +49,8 @@ const MODE0 = isPeekCameraSurface;
 const DISC = process.env.SOCOM_DISC;
 type V3 = [number, number, number];
 type Start = 'target' | 'lastOutput';
-/** The lead probe's surface test: `isCameraSurface` (the port's) or `MODE0` (the original's, LATER 341). */
-type Probe = (p: WorldPoly) => boolean;
+/** Current mode 0 plus the picker, or the historical mode-1 port without that picker. */
+type Probe = 'current' | 'legacyMode1';
 const TICK = 1 / 60;
 
 interface Tick { pitch: number; lead: number; eye0: V3; target: V3; passed: V3; aimDown: number }
@@ -58,8 +60,8 @@ const minus = (a: readonly number[], b: readonly number[]): V3 => [a[0]! - b[0]!
 const dist = (a: readonly number[], b: readonly number[]): number => Math.hypot(...minus(a, b));
 const fmt = (v: readonly number[]): string => v.map((x) => x.toFixed(2)).join(', ');
 
-/** `PlayerCamera.tick`'s game side, with the lead probe's start and surface test given; one call per `step`. */
-function replay(grid: Grid, start: Start, dt: number, probe: Probe = isCameraSurface) {
+/** `PlayerCamera.tick`'s game side, with the lead probe's start and query version given; one call per `step`. */
+function replay(grid: Grid, start: Start, dt: number, probe: Probe = 'current') {
   const pass: PassState = newPassState();
   let leadFrom: number | null = null;
   return (feet: V3, yaw: number, pitch: number, root: number): Tick => {
@@ -69,7 +71,8 @@ function replay(grid: Grid, start: Start, dt: number, probe: Probe = isCameraSur
     if (local.probe) {
       const from = start === 'lastOutput' ? leadFrom ?? lead : lead;
       const a = world([local.target[0], local.target[1], from]), b = world([local.target[0], local.target[1], from + LEAD_DOWN]);
-      const h = segmentHit(grid, a, b, probe);
+      const h = probe === 'legacyMode1' ? segmentHit(grid, a, b, isCameraSurface)
+        : segmentHits(grid, a, b, MODE0).find((hit) => hit.poly.cameratype !== 1 || dist(hit.point, a) > TYPE_ONE_CLEAR);
       if (h) lead += Math.hypot(b[0] - h.point[0], b[2] - h.point[2]);
     }
     leadFrom = lead;
@@ -83,6 +86,29 @@ function replay(grid: Grid, start: Start, dt: number, probe: Probe = isCameraSur
   };
 }
 
+describe('H337 replay matches the merged camera lead query', () => {
+  it.each([0, 2])('matches the game pass with a cameratype-%i wall inside the downward lead probe', (cameratype) => {
+    const wall: WorldPoly = {
+      modelName: 'worldmodel', path: 'lead-wall', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype,
+      points: Float32Array.from([-20, 0, -10, 20, 0, -10, 20, 60, -10, -20, 60, -10]),
+    };
+    const grid = buildGrid({ atomCount: 64, posts: 4, cellDim: 100, cellsX: 2, cellsZ: 2, originX: -100, originZ: -100 },
+      [], [], [wall], [{ modelName: wall.modelName, path: wall.path, first: 0, count: 1 }]);
+    const feet: V3 = [0, 0, 0], pitch = -70, root = STANCE.stand.rootY;
+    const camera = new PlayerCamera(grid);
+    camera.tick(feet, 0, pitch, root, TICK, true);
+    const actual = camera.view(1), predicted = replay(grid, 'target', TICK)(feet, 0, pitch, root);
+    expect(dist(predicted.target, actual.aim.target)).toBeLessThan(1e-9);
+    expect(dist(predicted.passed, actual.aim.eye)).toBeLessThan(1e-9);
+    expect(Math.abs(predicted.aimDown - down(minus(viewFar(actual.aim.eye, actual.aim.target, actual.far), actual.aim.eye))))
+      .toBeLessThan(1e-9);
+    if (cameratype === 2) {
+      const legacy = replay(grid, 'target', TICK, 'legacyMode1')(feet, 0, pitch, root);
+      expect(dist(predicted.target, legacy.target)).toBeGreaterThan(5); // The fixture distinguishes the two filters.
+    }
+  });
+});
+
 /** The capture's approach: `init_aim_pitch` 1 s, look-down at the full `pitch_rate` to `limit`, held 10 s; game frames. */
 function approach(limit: number): number[] {
   const frames = (s: number): number => Math.round(s / GAME_FRAME_DT);
@@ -94,7 +120,7 @@ function approach(limit: number): number[] {
 }
 
 /** Both candidates along the approach to `limit`, the lead probe testing `probe`: the last two calls of each. */
-function predict(grid: Grid, feet: V3, yaw: number, root: number, limit: number, probe: Probe = isCameraSurface): Record<Start, [Tick, Tick]> {
+function predict(grid: Grid, feet: V3, yaw: number, root: number, limit: number, probe: Probe = 'current'): Record<Start, [Tick, Tick]> {
   const run = (start: Start): [Tick, Tick] => {
     const step = replay(grid, start, GAME_FRAME_DT, probe);
     const ticks = approach(limit).map((pitch) => step(feet, yaw, pitch, root));
@@ -142,8 +168,12 @@ function checkAgainstPage(s: Stood, pitch: number): void {
   const step = replay(s.grid, 'target', TICK);
   let t: Tick | null = null;
   for (let i = 0; i < 600; i++) t = step(s.feet, s.yaw, pitch, s.root);
+  // Compare the game pass, not PlayerCamera.view().eye/target (the presentation's wall clearance).
+  const camera = (s.walk as unknown as { player: PlayerCamera }).player.view(1);
   const page = s.walk.gameCamera()!, look = s.walk.lookAim()!;
   expect(dist(s.walk.startBody()!.feet, s.feet), 'the walker held its feet').toBeLessThan(1e-3);
+  expect(dist(t!.passed, camera.aim.eye)).toBeLessThan(1e-3);
+  expect(dist(t!.target, camera.aim.target)).toBeLessThan(1e-3);
   expect(dist(t!.passed, page.eye)).toBeLessThan(1e-3);
   expect(dist(t!.target, page.target)).toBeLessThan(1e-3);
   expect(Math.abs(t!.aimDown - down(minus(look.far, look.eye)))).toBeLessThan(0.01);
@@ -170,22 +200,24 @@ function split(p: Record<Start, [Tick, Tick]>, apart: number): void {
 /**
  * The numbers research 201 section 14 records as the capture's prediction (two decimals; the eye before the pass,
  * `cam+0x2c`, and the target, `cam+0x38`): `'target'`'s one still eye, `'lastOutput'`'s two (in either order), under the
- * port's probe filter; and `mode0`, `'lastOutput'`'s two under `MODE0` (the original's filter, LATER 341) where they
- * differ -- `'target'` is the same under both at every stand here.
+ * historical mode-1 port filter; and `currentOrbit`, `'lastOutput'`'s two under `MODE0` where they differ.
+ * The recorded stands meet cameratype 0 and 2 only, so the merged picker does not change these recorded numbers.
+ * `'target'` is the same under both at every stand here. These existing predictions have not been remeasured
+ * against the original; a changed map/stand or a disc-run failure requires recalculation, not a guessed new pin.
  */
-interface Pin { eye: V3; target: V3; orbit: [V3, V3] | null; mode0?: [V3, V3] }
+interface Pin { eye: V3; target: V3; legacyMode1Orbit: [V3, V3] | null; currentOrbit?: [V3, V3] }
 const PINS: Record<string, Pin> = {
-  'MP11 gate stand -45': { eye: [1127.56, -65.72, 432.13], target: [1128.35, -78.52, 419.35], orbit: null },
-  'MP11 gate stand -70': { eye: [1128.15, -64.57, 422.56], target: [1128.46, -78.52, 417.50], orbit: null },
-  'MP11 back stand -45': { eye: [1127.68, -65.72, 440.79], target: [1128.06, -78.52, 428.00], orbit: [[1127.78, -65.72, 437.49], [1127.69, -65.72, 440.44]] },
-  'MP11 back stand -70': { eye: [1127.91, -64.57, 433.07], target: [1128.06, -78.52, 428.00], orbit: [[1127.95, -64.57, 431.75], [1128.03, -64.57, 428.88]] },
+  'MP11 gate stand -45': { eye: [1127.56, -65.72, 432.13], target: [1128.35, -78.52, 419.35], legacyMode1Orbit: null },
+  'MP11 gate stand -70': { eye: [1128.15, -64.57, 422.56], target: [1128.46, -78.52, 417.50], legacyMode1Orbit: null },
+  'MP11 back stand -45': { eye: [1127.68, -65.72, 440.79], target: [1128.06, -78.52, 428.00], legacyMode1Orbit: [[1127.78, -65.72, 437.49], [1127.69, -65.72, 440.44]] },
+  'MP11 back stand -70': { eye: [1127.91, -64.57, 433.07], target: [1128.06, -78.52, 428.00], legacyMode1Orbit: [[1127.95, -64.57, 431.75], [1128.03, -64.57, 428.88]] },
   'M51 stage A -45': {
-    eye: [948.19, -106.19, 696.00], target: [960.99, -118.99, 696.00], orbit: [[952.51, -106.19, 696.00], [948.55, -106.19, 696.00]],
-    mode0: [[947.09, -106.19, 696.00], [948.55, -106.19, 696.00]],
+    eye: [948.19, -106.19, 696.00], target: [960.99, -118.99, 696.00], legacyMode1Orbit: [[952.51, -106.19, 696.00], [948.55, -106.19, 696.00]],
+    currentOrbit: [[947.09, -106.19, 696.00], [948.55, -106.19, 696.00]],
   },
   'M51 stage A -70': {
-    eye: [955.92, -105.04, 696.00], target: [960.99, -118.99, 696.00], orbit: [[957.24, -105.04, 696.00], [961.12, -105.04, 696.00]],
-    mode0: [[957.24, -105.04, 696.00], [955.71, -105.04, 696.00]],
+    eye: [955.92, -105.04, 696.00], target: [960.99, -118.99, 696.00], legacyMode1Orbit: [[957.24, -105.04, 696.00], [961.12, -105.04, 696.00]],
+    currentOrbit: [[957.24, -105.04, 696.00], [955.71, -105.04, 696.00]],
   },
 };
 
@@ -194,16 +226,16 @@ const pair = (name: string, what: string, [a, b]: readonly [V3, V3], [x, y]: rea
   expect((near(a, x) && near(b, y)) || (near(a, y) && near(b, x)), `${name}: ${what} (${fmt(a)}) (${fmt(b)})`).toBe(true);
 };
 
-/** `p` under the port's filter, `m` under `MODE0`: both against the stand's pin. */
-function pinned(name: string, p: Record<Start, [Tick, Tick]>, m: Record<Start, [Tick, Tick]>): void {
+/** Current replay `p` and historical mode-1 replay `legacy`: each against its recorded prediction. */
+function pinned(name: string, p: Record<Start, [Tick, Tick]>, legacy: Record<Start, [Tick, Tick]>): void {
   const pin = PINS[name]!;
   expect(near(p.target[1].eye0, pin.eye), `${name}: 'target' eye (${fmt(p.target[1].eye0)})`).toBe(true);
   expect(near(p.target[1].target, pin.target), `${name}: 'target' target (${fmt(p.target[1].target)})`).toBe(true);
-  expect(near(m.target[0].eye0, pin.eye) && near(m.target[1].eye0, pin.eye), `${name}: 'target' under MODE0 (${fmt(m.target[1].eye0)})`).toBe(true);
-  expect(near(m.target[1].target, pin.target), `${name}: 'target' target under MODE0 (${fmt(m.target[1].target)})`).toBe(true);
-  const orbit = pin.orbit ?? [pin.eye, pin.eye];
-  pair(name, "'lastOutput' eyes", [p.lastOutput[0].eye0, p.lastOutput[1].eye0], orbit);
-  pair(name, "'lastOutput' eyes under MODE0", [m.lastOutput[0].eye0, m.lastOutput[1].eye0], pin.mode0 ?? orbit);
+  expect(near(legacy.target[0].eye0, pin.eye) && near(legacy.target[1].eye0, pin.eye), `${name}: 'target' under legacy mode 1 (${fmt(legacy.target[1].eye0)})`).toBe(true);
+  expect(near(legacy.target[1].target, pin.target), `${name}: 'target' target under legacy mode 1 (${fmt(legacy.target[1].target)})`).toBe(true);
+  const orbit = pin.legacyMode1Orbit ?? [pin.eye, pin.eye];
+  pair(name, "'lastOutput' eyes under current mode 0", [p.lastOutput[0].eye0, p.lastOutput[1].eye0], pin.currentOrbit ?? orbit);
+  pair(name, "'lastOutput' eyes under legacy mode 1", [legacy.lastOutput[0].eye0, legacy.lastOutput[1].eye0], orbit);
 }
 
 /** MP11 Death Trap, gate 1 (`enowapiStandDisc.test.ts`): the panel `epanel_di1` on the wall `g342_1` (z 420). */
@@ -226,11 +258,11 @@ describe.skipIf(!MP11)(`H337: the capture's prediction at MP11 gate 1${MP11 ? ''
   it('at the gate stand (1128, -100, 425) the two starts give one still eye: the target already lies past the wall', async () => {
     const s = await stand('MP11', MP11_GATE, toward(MP11_GATE));
     for (const limit of [-45, -70]) {
-      const p = predict(s.grid, s.feet, s.yaw, s.root, limit), m = predict(s.grid, s.feet, s.yaw, s.root, limit, MODE0);
-      if (process.env.H337_REPORT) console.log(report('MP11 gate stand', s.feet, s.yaw, limit, p), '\n', report('MP11 gate stand MODE0', s.feet, s.yaw, limit, m));
+      const p = predict(s.grid, s.feet, s.yaw, s.root, limit), legacy = predict(s.grid, s.feet, s.yaw, s.root, limit, 'legacyMode1');
+      if (process.env.H337_REPORT) console.log(report('MP11 gate stand current mode 0', s.feet, s.yaw, limit, p), '\n', report('MP11 gate stand legacy mode 1', s.feet, s.yaw, limit, legacy));
       same(p);
-      same(m);
-      pinned(`MP11 gate stand ${limit}`, p, m);
+      same(legacy);
+      pinned(`MP11 gate stand ${limit}`, p, legacy);
     }
   }, 120000);
 
@@ -238,11 +270,11 @@ describe.skipIf(!MP11)(`H337: the capture's prediction at MP11 gate 1${MP11 ? ''
     const s = await stand('MP11', MP11_BACK, toward(MP11_BACK));
     checkAgainstPage(s, -70);
     for (const limit of [-45, -70]) {
-      const p = predict(s.grid, s.feet, s.yaw, s.root, limit), m = predict(s.grid, s.feet, s.yaw, s.root, limit, MODE0);
-      if (process.env.H337_REPORT) console.log(report('MP11 back stand', s.feet, s.yaw, limit, p), '\n', report('MP11 back stand MODE0', s.feet, s.yaw, limit, m));
+      const p = predict(s.grid, s.feet, s.yaw, s.root, limit), legacy = predict(s.grid, s.feet, s.yaw, s.root, limit, 'legacyMode1');
+      if (process.env.H337_REPORT) console.log(report('MP11 back stand current mode 0', s.feet, s.yaw, limit, p), '\n', report('MP11 back stand legacy mode 1', s.feet, s.yaw, limit, legacy));
       split(p, 1);
-      split(m, 1);
-      pinned(`MP11 back stand ${limit}`, p, m);
+      split(legacy, 1);
+      pinned(`MP11 back stand ${limit}`, p, legacy);
     }
   }, 120000);
 });
@@ -252,9 +284,10 @@ describe.skipIf(!MP11)(`H337: the capture's prediction at MP11 gate 1${MP11 ? ''
  * stand is on the flat strip toward +x and -z of the spawn, the terrain rising gently to it along the straight line.
  * Facing +x (yaw 270), the map's boundary wall `worldmodel/boundary1`, cameratype 2 (bit 19), stands 3.58 ahead
  * (x 963.58), and a cameratype-0 surface 8.99 ahead (x 968.99) at the target's height.
- * - The port's lead probe (`isCameraSurface`) skips `boundary1` and meets the x 968.99 surface: `'lastOutput'` orbits
+ * - The historical mode-1 port lead probe (`isCameraSurface`) skips `boundary1` and meets the x 968.99 surface: `'lastOutput'` orbits
  *   between leads 2.31 and 6.20 ahead at -70.
- * - The original's probe (`MODE0`, LATER 341) hits `boundary1`: `'lastOutput'` orbits between 2.31 and 0.78 ahead at
+ * - The merged port uses the original's mode-0 probe (`MODE0`, LATER 341) and picker, hitting `boundary1`: the recorded
+ *   `'lastOutput'` prediction orbits between 2.31 and 0.78 ahead at
  *   -70 (the eyes 1.53 apart, 1.46 at -45). `'target'` starts past the wall (5.66 ahead at -45, 7.52 at -70) and is the
  *   same under both, so the stand still separates the two starts.
  * - The stand is kept (the review's second option): no M51 stand with a clear probe reach is a short walk from the
@@ -275,11 +308,11 @@ describe.skipIf(!M51)(`H337: the stage-A stand on M51${M51 ? '' : ' (SOCOM_DISC 
     expect(Math.hypot(s.feet[0] - M51_SPAWN[0], s.feet[2] - M51_SPAWN[2])).toBeCloseTo(162.4, 1);
     checkAgainstPage(s, -70);
     for (const limit of [-45, -70]) {
-      const p = predict(s.grid, s.feet, s.yaw, s.root, limit), m = predict(s.grid, s.feet, s.yaw, s.root, limit, MODE0);
-      if (process.env.H337_REPORT) console.log(report('M51 stage A', s.feet, s.yaw, limit, p), '\n', report('M51 stage A MODE0', s.feet, s.yaw, limit, m));
+      const p = predict(s.grid, s.feet, s.yaw, s.root, limit), legacy = predict(s.grid, s.feet, s.yaw, s.root, limit, 'legacyMode1');
+      if (process.env.H337_REPORT) console.log(report('M51 stage A current mode 0', s.feet, s.yaw, limit, p), '\n', report('M51 stage A legacy mode 1', s.feet, s.yaw, limit, legacy));
       split(p, 1);
-      split(m, 1);
-      pinned(`M51 stage A ${limit}`, p, m);
+      split(legacy, 1);
+      pinned(`M51 stage A ${limit}`, p, legacy);
     }
   }, 120000);
 });

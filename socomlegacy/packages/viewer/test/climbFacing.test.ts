@@ -56,13 +56,25 @@ const forward = (yaw: number): [number, number] => [-Math.sin((yaw * Math.PI) / 
 
 /** From (x, z) on the floor at `yaw`, `move` held until the icon shows (at most `ticks`), `pre` still ticks, the press, the move to its end. */
 async function approach(x: number, z: number, yaw: number, move: WalkInput, ticks = 120, pre = 0): Promise<Approach> {
+  return run(x, z, yaw, move, ticks, pre, true);
+}
+
+/**
+ * Staged as ac's capture of the original was (r0004, 2026-11-04, `climb-angle/`): `move` held for `walk` ticks whatever
+ * the icon shows, then `still` ticks standing, then the press -- the press is never timed to the icon's first frame.
+ */
+async function staged(x: number, z: number, yaw: number, move: WalkInput, walk: number, still: number): Promise<Approach> {
+  return run(x, z, yaw, move, walk, still, false);
+}
+
+async function run(x: number, z: number, yaw: number, move: WalkInput, ticks: number, pre: number, untilPrompt: boolean): Promise<Approach> {
   const { grid, polys } = await frostfire();
   const w = new Walker(grid), t = new Traversal(grid, polys);
   w.driver = t;
   if (PACK) { const sim = simClipsFromBytes(PACK, fixture('RUN/READERC.ZAR')); t.setClips(sim.clips, sim.table); w.actionRoots = sim.roots; }
   expect(w.place(x, 115, z)).toBe(true);
   w.state.yaw = yaw;
-  for (let i = 0; i < ticks && t.climbPrompt() === null; i++) w.tick(move);
+  for (let i = 0; i < ticks && (!untilPrompt || t.climbPrompt() === null); i++) w.tick(move);
   for (let i = 0; i < pre; i++) w.tick(STILL);
   const out: Approach = { climbed: false, pushedOnPress: false, offs: [], end: [w.state.x, w.state.y, w.state.z] };
   const prompt = t.climbPrompt();
@@ -93,6 +105,15 @@ const WEST_X = 922.8, MID_Z = 769.5, TOP = 111.85, WEST = -90;
  * branch): within 0.993 (6.8 degrees) as the clip started, the body moved only along its facing through the clip.
  */
 const FACED_AT_END = 2;
+
+/**
+ * The staging of (d) and (f) (`staged`), the capture's shape (walk, stop, press): from 10 back across x (7 at 60 degrees,
+ * where 10 back starts the walk across prop01's corner), walked 12 ticks -- onto the face's stand-off and stopped inside
+ * its 17 of width (the capture's face is 126 wide; this one is passed in under a second of sliding) -- then 48 still
+ * ticks (the capture's 0.8 s) and the press. Staging only: no value of the original rides on these counts.
+ */
+const obliqueBack = (a: number): number => (Math.abs(a) > 45 ? 7 : 10);
+const OBLIQUE_WALK = 12, OBLIQUE_STILL = 48;
 
 /** Where to start at `yaw` so a walk of `back` across x meets the west face at z `at`. */
 function startFor(yaw: number, back = 5.5, at = MID_Z): [number, number] {
@@ -135,10 +156,13 @@ describe.skipIf(!MP2)(`the climb's facing on Frostfire's crate (research 86 sect
     expect((await approach(WEST_X - 5.5, MID_Z, 180, input(0, -1))).climbed, 'strafing left').toBe(false);
   });
 
+  // SEGMENT-BODY part 2 (the weapon line; research 86 s3.8): staged as the capture of the original (`staged`): walked in
+  // from `obliqueBack` for `OBLIQUE_WALK` ticks, stood `OBLIQUE_STILL` ticks, then pressed -- at 30 and 60 degrees off
+  // square the original offers CLIMB and climbs (r0004, ac 2026-11-04: 16 runs, every press climbed).
   it('(d) at 30 and 60 degrees to the face the SEAL turns to it the short way and climbs; at 85 nothing is offered', async () => {
     for (const a of [30, -30, 60, -60]) {
-      const [x, z] = startFor(WEST + a, 5.5, Math.abs(a) > 45 ? 765 : MID_Z);   // clear of prop01 (z >= 778.1) at 60
-      climbsRight(await approach(x, z, WEST + a, input(1)), `${a} degrees`);
+      const [x, z] = startFor(WEST + a, obliqueBack(a), Math.abs(a) > 45 ? 765 : MID_Z);   // clear of prop01 (z >= 778.1) at 60
+      climbsRight(await staged(x, z, WEST + a, input(1), OBLIQUE_WALK, OBLIQUE_STILL), `${a} degrees`);
     }
     for (const a of [85, -85]) {
       expect((await approach(WEST_X - 3.6, MID_Z, WEST + a, STILL, 10)).climbed, `${a} degrees`).toBe(false);
@@ -180,21 +204,25 @@ describe.skipIf(!MP2)(`the climb's facing on Frostfire's crate (research 86 sect
       for (let i = 0; i < 120; i++) w.tick(input(1, right));
       return { prompt: t.climbPrompt()?.kind ?? null, met: new Set(w.wallHits().map((h) => h.poly.path)) };
     };
-    const both = new Set(['worldmodel/crates1/prop02', 'worldmodel/crates1/prop01']);
+    // The walls' paths as the hull names them now, `node=model` (the branch's traversal.test reads them so).
+    const both = new Set(['worldmodel/crates1/prop02=prop02', 'worldmodel/crates1/prop01=prop01']);
     for (const [yaw, right] of [[0, -0.3], [30, 0]] as const) {
       const r = held(yaw, right);
       expect(r.met, `yaw ${yaw}, right ${right}: both faces met`).toEqual(both);
       expect(r.prompt, `yaw ${yaw}, right ${right}: nothing offered in the corner`).toBeNull();
     }
-    const straight = held(0, 0);                                         // the named departure, the port's
-    expect(straight.met).toEqual(new Set(['worldmodel/crates1/prop02']));
-    expect(straight.prompt).toBe('low');
+    // SEGMENT-BODY (re-measured 2026-11-04): walked straight in, the -x side line (1.05 to 4.2 across) meets prop01 too, so
+    // both faces are met and nothing is offered, as in the corner cases above (C2). Was the port's named departure: only
+    // prop02 met under the disc, and the low climb offered.
+    const straight = held(0, 0);
+    expect(straight.met).toEqual(both);
+    expect(straight.prompt).toBeNull();
   });
 
   it('(f) the look wound round (the page\'s camera yaw is never wrapped: 360 k + a): the same climb as at a', async () => {
     for (const wind of [360, 720, 1080, -360, -720]) for (const a of [0, -30, 30, 60, -60]) {
-      const [x, z] = startFor(WEST + a, 5.5, Math.abs(a) > 45 ? 765 : MID_Z);
-      climbsRight(await approach(x, z, wind + WEST + a, input(1)), `yaw ${wind} + ${WEST + a}`);
+      const [x, z] = startFor(WEST + a, obliqueBack(a), Math.abs(a) > 45 ? 765 : MID_Z);
+      climbsRight(await staged(x, z, wind + WEST + a, input(1), OBLIQUE_WALK, OBLIQUE_STILL), `yaw ${wind} + ${WEST + a}`);
     }
   });
 

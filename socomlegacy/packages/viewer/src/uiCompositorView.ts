@@ -1,6 +1,13 @@
 import type { Rgba } from '@s2u/gs';
 import { sharpenBitmap, type UiSamplingSettings } from './experimentalUiSampling';
 import { UI_FRAME, composeScreen, type MoviePicture, type UiClip, type UiDrawItem, type UiModelTriangle, type UiModelVertex, type UiScreen } from '@s2u/ui';
+import {
+  MOVIE_NO_PICTURE_BLEND, blendAfterBind, clearPacker, columnAxis, coverageBounds, pickBitmap, rasterScale, rowAxis, scaleAt, scaleClip, wrap,
+  type RowAxis,
+} from './uiRasterRules';
+
+// GM-05: the raster rules live in `uiRasterRules.ts` (shared with the GPU planner); these two stay importable from here.
+export { HD_MENU_SCALE_LIMIT, rasterScale } from './uiRasterRules';
 
 /**
  * PLAT-14's viewer drawer (web research 112 §6): `@s2u/ui`'s draw list rasterised into the 640 x 448 frame the way the
@@ -35,6 +42,12 @@ export interface RasterOptions {
   quadCache?: UiQuadRasterCache;
   /** Browser adaptation: native panels composited over a live match, with no menu background. */
   transparent?: boolean;
+  /**
+   * GM-09 (a browser adaptation, the transparent overlay's; no original behind it): a transparent frame handed back
+   * before its divide to straight RGB -- RGB premultiplied by its alpha, what a premultiplied GPU buffer holds (P14,
+   * P22; research 380). Absent: today's straight frame. No effect on an opaque frame, which is never divided.
+   */
+  preDivide?: boolean;
   /** Explicit dev menu experiment only; absent/off is the original bilinear path (research 260). */
   uiSampling?: UiSamplingSettings;
   /** A movie picture's pixels (the decoder's frame, top row first); without it a picture draws black. */
@@ -165,7 +178,6 @@ export const UI_MESH_BIND_READING = 'a drawn triangle binds' as const;
 function sample(t: Rgba, u: number, v: number, out: number[]): void {
   const x = u - 0.5, y = v - 0.5;
   const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
-  const wrap = (i: number, n: number): number => ((i % n) + n) % n;
   const xa = wrap(x0, t.width), xb = wrap(x0 + 1, t.width), ya = wrap(y0, t.height), yb = wrap(y0 + 1, t.height);
   const d = t.data;
   for (let c = 0; c < 4; c++) {
@@ -197,7 +209,10 @@ function blendCachedQuad(frame: Uint8ClampedArray, W: number, samples: Float64Ar
   }
 }
 
-/** One quad into the frame: `uv` in texels (null: untextured); `blend` the `ALPHA_1` it is drawn under. */
+/**
+ * One quad into the frame: `uv` in texels (null: untextured); `blend` the `ALPHA_1` it is drawn under. The blend is
+ * Float64, stored by the clamped byte view (`GS_BLEND_ROUNDING_READING`); a quad has no depth (`UI_2D_QUAD_Z_READING`).
+ */
 function fillQuad(
   frame: Uint8ClampedArray, W: number, H: number, x0: number, y0: number, x1: number, y1: number,
   tex: Rgba | null, uv: [number, number, number, number] | null, rgba: readonly number[], clip: UiClip | null, blend: UiBlend,
@@ -205,11 +220,10 @@ function fillQuad(
 ): void {
   const nearest = sampling?.enabled && sampling.mode !== 'bilinear';
   if (tex && sampling?.enabled && sampling.mode === 'sharpen') tex = sharpenBitmap(tex, sampling.sharpness);
-  let xs = Math.ceil(Math.min(x0, x1)), xe = Math.ceil(Math.max(x0, x1)), ys = Math.ceil(Math.min(y0, y1)), ye = Math.ceil(Math.max(y0, y1));
-  xs = Math.max(xs, 0, clip ? clip.x0 : 0); ys = Math.max(ys, 0, clip ? clip.y0 : 0);
-  xe = Math.min(xe, W, clip ? clip.x1 + 1 : W); ye = Math.min(ye, H, clip ? clip.y1 + 1 : H);
-  if (xs >= xe || ys >= ye) return;
-  const red = rgba[0]!, green = rgba[1]!, blue = rgba[2]!, alpha = rgba[3]! / 128;
+  const bounds = coverageBounds(x0, y0, x1, y1, W, H, clip);
+  if (!bounds) return;
+  const { xs, ys, xe, ye } = bounds;
+  const red = rgba[0]!, green = rgba[1]!, blue = rgba[2]!, alpha = rgba[3]! / 128;   // UI_QUAD_ALPHA_RANGE_READING: unclamped
   const additive = blend === 'additive';
   if (!tex || !uv) {
     // Bind state belongs to the draw-list caller, so skipping an invisible quad cannot discard a texture bind. An
@@ -250,13 +264,7 @@ function fillQuad(
   // Screen-aligned quads reuse each horizontal sample for every row. Float64 preserves the original arithmetic;
   // do not replace multiply-then-divide with a reciprocal or increment u, which can change rounded colour bytes.
   const left = new Float64Array(count), right = new Float64Array(count), fraction = new Float64Array(count);
-  for (let k = 0, x = xs; x < xe; k++, x++) {
-    const u = uv[0] + (du * (x - x0)) / dx;
-    const tx = nearest ? u : u - 0.5, base = Math.floor(tx);
-    left[k] = (((base % width) + width) % width) * 4;
-    right[k] = ((((base + 1) % width) + width) % width) * 4;
-    fraction[k] = tx - base;
-  }
+  columnAxis(xs, xe, x0, dx, uv[0], du, width, nearest, left, right, fraction);
   // The two source rows usually recur across several screen rows (especially the stretched 16x16 UI panels).
   // Cache only their horizontal interpolation for this quad. This is bounded scratch, not a bitmap/frame cache:
   // a later draw always sees the current texture bytes, and models retain the original sample() above.
@@ -271,11 +279,9 @@ function fillQuad(
       row[i + 3] = data[l + 3]! * ix + data[r + 3]! * fx;
     }
   };
+  const axis: RowAxis = { top: 0, bottom: 0, fy: 0, iy: 0 };
   for (let y = ys; y < ye; y++) {
-    const v = uv[1] + (dv * (y - y0)) / dy;
-    const ty = nearest ? v : v - 0.5, base = Math.floor(ty), fy = ty - base, iy = 1 - fy;
-    const top = (((base % height) + height) % height) * width * 4;
-    const bottom = ((((base + 1) % height) + height) % height) * width * 4;
+    const { top, bottom, fy, iy } = rowAxis(y, y0, dy, uv[1], dv, height, width, nearest, axis);
     if (!nearest) {
       if (top !== topIndex) {
         if (top === bottomIndex) {
@@ -320,46 +326,31 @@ function fillQuad(
   if (remembered) cache.remember(key, data, remembered);
 }
 
-/**
- * HD-3: the scale a caller asked for as a whole factor of at least 1 (`RasterOptions.scale`); anything else is 1.
- * HD_MENU_SCALE_LIMIT bounds it: a browser budget (the frame's software raster costs its pixel count), not a game value.
- */
-export const HD_MENU_SCALE_LIMIT = 4;
-export function rasterScale(scale: number | undefined): number {
-  return scale !== undefined && Number.isInteger(scale) && scale > 1 ? Math.min(scale, HD_MENU_SCALE_LIMIT) : 1;
-}
-
 /** The draw list into a fresh 640 x 448 RGBA frame (alpha 255; times `o.scale` under HD-3), and what it left undrawn. */
 export function rasterizeUiDrawList(items: readonly UiDrawItem[], textures: UiTextures, o: RasterOptions = {}): { frame: Rgba; undrawn: string[] } {
   const s = rasterScale(o.scale);
   const W = UI_FRAME.width * s, H = UI_FRAME.height * s;
   const data = new Uint8ClampedArray(W * H * 4);
-  // Pack through the clamped byte view, so fractional/out-of-range RGB keeps exactly the same conversion and
-  // Uint32.fill uses this host's byte order (no assumption that alpha is the high byte). A transparent frame
-  // starts all zero, as allocated.
-  const pixel = new Uint8ClampedArray([0, 0, 0, 255]);
-  const packedPixel = new Uint32Array(pixel.buffer), words = new Uint32Array(data.buffer);
-  if (!o.transparent) words.fill(packedPixel[0]!);
+  // Pack through the clamped byte view (`clearPacker`), so fractional/out-of-range RGB keeps exactly the same
+  // conversion and Uint32.fill uses this host's byte order. A transparent frame starts all zero, as allocated.
+  const pack = clearPacker(), words = new Uint32Array(data.buffer);
+  if (!o.transparent) words.fill(pack(0, 0, 0));
   const undrawn: string[] = [];
   // HD-3: at scale 1 every position and clip is passed as it stands (no arithmetic), so the frame is the original's.
-  const at = s === 1 ? (v: number): number => v : (v: number): number => v * s;
-  const clipAt = (c: UiClip | null): UiClip | null => (s === 1 || !c ? c : { ...c, x0: c.x0 * s, y0: c.y0 * s, x1: (c.x1 + 1) * s - 1, y1: (c.y1 + 1) * s - 1 });
+  const at = scaleAt(s);
+  const clipAt = scaleClip(s);
   /** The bitmap to sample and the factors on a texel coordinate: its HD replacement when the pack has one. */
-  const pick = (tex: UiBitmap): { tex: UiBitmap; su: number; sv: number } => {
-    const r = o.hd?.(tex) ?? null;
-    return r ? { tex: { width: r.width, height: r.height, data: r.data, ...(tex.blend ? { blend: tex.blend } : {}) }, su: r.width / tex.width, sv: r.height / tex.height } : { tex, su: 1, sv: 1 };
-  };
+  const pick = (tex: UiBitmap): { tex: UiBitmap; su: number; sv: number } => pickBitmap(o.hd, tex);
   let alpha: UiBlend = GS_ALPHA_FRAME_START_READING;           // the GS's ALPHA_1 as the draws leave it, in order
   for (const it of items) {
     switch (it.kind) {
       case 'clear':
         // Every clear leaves each pixel (rgb, 255), as one packed fill.
-        pixel[0] = it.rgb[0]; pixel[1] = it.rgb[1]; pixel[2] = it.rgb[2];
-        words.fill(packedPixel[0]!);
+        words.fill(pack(it.rgb[0], it.rgb[1], it.rgb[2]));
         break;
       case 'movie': {
         const pic = it.picture ? o.movie?.(it.picture) ?? null : null;
-        if (!pic) { fillQuad(data, W, H, at(it.x0), at(it.y0), at(it.x1), at(it.y1), null, null, [0, 0, 0, 128], null, 'source'); break; }   // no picture: black there, not a GS quad
+        if (!pic) { fillQuad(data, W, H, at(it.x0), at(it.y0), at(it.x1), at(it.y1), null, null, [0, 0, 0, 128], null, MOVIE_NO_PICTURE_BLEND); break; }   // no picture: black there, not a GS quad
         // HD-3: at a scale each picture pixel covers s x s (the movie has no HD replacement).
         for (let y = 0; y < Math.min(H, pic.height * s); y++) {
           const sy = s === 1 ? y : Math.floor(y / s);
@@ -375,7 +366,7 @@ export function rasterizeUiDrawList(items: readonly UiDrawItem[], textures: UiTe
         if (it.texture === null) { fillQuad(data, W, H, at(it.x0), at(it.y0), at(it.x1), at(it.y1), null, null, it.rgba, clipAt(it.clip), alpha); break; }   // no bind: the register as it stands
         const bitmap = textures(it.texture);
         if (!bitmap) { undrawn.push(`${it.node}: no bitmap ${it.texture}`); break; }
-        alpha = bitmap.blend ?? 'source';
+        alpha = blendAfterBind(bitmap);
         const { tex } = pick(bitmap);
         fillQuad(data, W, H, at(it.x0), at(it.y0), at(it.x1), at(it.y1), tex, [it.u0 * tex.width, it.v0 * tex.height, it.u1 * tex.width, it.v1 * tex.height], it.rgba, clipAt(it.clip), alpha, o.uiSampling, o.quadCache);
         break;
@@ -384,7 +375,7 @@ export function rasterizeUiDrawList(items: readonly UiDrawItem[], textures: UiTe
         for (const q of it.quads) {
           const bitmap = textures(q.texture);
           if (!bitmap) { undrawn.push(`${it.node}: no bitmap ${q.texture}`); continue; }
-          alpha = bitmap.blend ?? 'source';
+          alpha = blendAfterBind(bitmap);
           const { tex, su, sv } = pick(bitmap);
           const uv: [number, number, number, number] = su === 1 && sv === 1 ? [q.u0, q.v0, q.u1, q.v1] : [q.u0 * su, q.v0 * sv, q.u1 * su, q.v1 * sv];
           fillQuad(data, W, H, at(q.left), at(q.top), at(q.right), at(q.bottom), tex, uv, q.rgba, clipAt(it.clip), alpha, o.uiSampling, o.quadCache);
@@ -400,7 +391,7 @@ export function rasterizeUiDrawList(items: readonly UiDrawItem[], textures: UiTe
     }
   }
   // The software pass accumulates premultiplied RGB over black. Canvas ImageData expects straight RGB.
-  if (o.transparent) for (let i = 0; i < data.length; i += 4) {
+  if (o.transparent && !o.preDivide) for (let i = 0; i < data.length; i += 4) {
     const a = data[i + 3]! / 255;
     if (a > 0 && a < 1) { data[i] = data[i]! / a; data[i + 1] = data[i + 1]! / a; data[i + 2] = data[i + 2]! / a; }
   }
@@ -429,22 +420,22 @@ function drawModels(frame: Uint8ClampedArray, W: number, H: number, scale: numbe
     const bitmap = t.texture === null ? null : textures(t.texture);
     const tex = bitmap && hd ? hd(bitmap) : bitmap;
     if (t.texture !== null && !tex) { if (!missing.has(t.node)) { missing.add(t.node); undrawn.push(`${t.node}: no bitmap ${t.texture}`); } continue; }
-    if (tex) alpha = tex.blend ?? 'source';
+    if (tex) alpha = blendAfterBind(tex);
     const additive = alpha === 'additive';
     const xs = Math.max(0, Math.ceil(Math.min(a.x, b.x, c.x))), xe = Math.min(W, Math.ceil(Math.max(a.x, b.x, c.x)));
     const ys = Math.max(0, Math.ceil(Math.min(a.y, b.y, c.y))), ye = Math.min(H, Math.ceil(Math.max(a.y, b.y, c.y)));
     const inv = 1 / area;
     for (let y = ys; y < ye; y++) {
       for (let x = xs; x < xe; x++) {
-        // Barycentric weights at the pixel's integer centre.
+        // Barycentric weights at the pixel's integer centre; every edge inclusive (UI_MODEL_EDGE_RULE_READING).
         let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv;
         let w1 = ((c.x - x) * (a.y - y) - (a.x - x) * (c.y - y)) * inv;
         let w2 = 1 - w0 - w1;
         if (w0 < 0 || w1 < 0 || w2 < 0) continue;
         const invW = w0 * a.invW + w1 * b.invW + w2 * c.invW;
         const i = y * W + x;
-        if (depth[i]! > 0 && invW <= depth[i]!) continue;     // something nearer already drawn
-        // Perspective-correct: each attribute over w, divided back.
+        if (depth[i]! > 0 && invW <= depth[i]!) continue;     // something nearer already drawn (UI_MODEL_DEPTH_FORMAT_READING)
+        // Perspective-correct: each attribute over w, divided back -- the colour too (UI_MODEL_GOURAUD_READING).
         w0 *= a.invW / invW; w1 *= b.invW / invW; w2 *= c.invW / invW;
         const lerp = (k: 'u' | 'v'): number => w0 * a[k] + w1 * b[k] + w2 * c[k];
         const rgba = [0, 1, 2, 3].map((ch) => w0 * a.rgba[ch]! + w1 * b.rgba[ch]! + w2 * c.rgba[ch]!);

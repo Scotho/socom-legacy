@@ -129,7 +129,10 @@ describe('OBF-1: the view from the head against a wall (synthetic)', () => {
         pressAndScope(fly, mode, [20, 0, 0], facing(20, 0, 100, 0), stance, turn);
         const grid = mode.grid()!;
         const feet = mode.feet()!;
-        expect(feet[0]).toBeGreaterThan(46);                       // pressed: BODY_RADIUS off the face at x 50
+        // Pressed: SEGMENT-BODY (re-judged; was BODY_RADIUS off) where its segments stop it -- the centre line, 5.39, x 1.75
+        // crouch-walking (9.43); the head line takes the muzzle only prone (`HEAD_LINE_MUZZLE_READING`); plus a move.
+        expect(feet[0]).toBeGreaterThan(50 - 10.5);
+        expect(feet[0]).toBeLessThan(50 - 5.3);
         expect(drawnNearCut(grid, fly)).toBeNull();                // RED before the fix: the near plane (4) cut the wall
         expect(fly.camera.near).toBeGreaterThanOrEqual(HEAD_VIEW_NEAR_MIN);
         // The shot is unchanged: its eye is the head's (`follow`), on the body's side, and its ray meets the wall.

@@ -105,6 +105,17 @@ export function slotModel(table: KitTable | null, loadout: Loadout, slot: Firear
   return table.arsenal.items.get(loadout[slot])?.model ?? null;
 }
 
+/**
+ * SEGMENT-BODY part 4 (fresh review 1's F1): the kit's two firearm models as the mover holds them (`./mover`
+ * `Walker.heldModels`) -- each slot's `slotModel`, the kit entry the hand byte `+0xf79` picks, whose model gives the
+ * weapon line's length (`FUN_0054e8f0` D:L416869-416870, D:L416892-416902; `./weaponLine`). Set at each spawn and pickup,
+ * the room's body (match `room.ts` `spawn`, `worldDrops.ts` `take`) and the page's (`./matchFirearm` `spawnKit`,
+ * `takeKit` -> `WalkMode.setHeldModels`).
+ */
+export function heldWeaponModels(table: KitTable | null, loadout: Loadout): { rifle: string | null; pistol: string | null } {
+  return { rifle: slotModel(table, loadout, 0), pistol: slotModel(table, loadout, 1) };
+}
+
 /** The HUD weapon box's icon of a firearm slot: the item's `IconTextureName` (research 94 §C9), lower case as the HUD keys it. */
 export function slotIcon(table: KitTable | null, loadout: Loadout, slot: FirearmSlot): string | null {
   if (!table) return BAKED_ICONS[slot];

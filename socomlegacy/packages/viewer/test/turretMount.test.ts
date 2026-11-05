@@ -173,24 +173,35 @@ function steeredOnGround(sim: SimMap, t: TurretPlacement, shape: MountShape): nu
 
 /**
  * T81-4's scope, both edges (the merge controller's condition): the walk outside the mount clip still meets the turret's
- * own hull. Before the mount, a walk from 12 behind straight at the hold's place stops short of it (the hull 3.5 off,
- * `BODY_RADIUS`); after the release, a still tick of the walk (its push-out, `Walker.glide(0, 0)`) moves a body left at the
- * hold's place back out of the hull's radius. Each would read 0 if the no-collision move leaked into the walk.
+ * own hull. Before the mount, a walk from 12 behind straight at the hold's place stops short of it; after the release (the
+ * hold's place at the turret's facing, then the release's reversed clip, `ReleaseTravel`), the same walk back toward the
+ * hold's place stops short of it again. Each would read 0 if the no-collision move leaked into the walk.
+ * SEGMENT-BODY (the pin pass's push-out table): was a still tick after the hold (`glide(0, 0)`) expected to push the body
+ * out of the hull -- the disc body's push from every side, the port's own reading; under the segment body a still body
+ * casts along its facing only (`FUN_0054aa30` D:L415135-415166) and is moved only by a front-face hit deeper than 1
+ * (`FUN_005483d0` D:L413602-413614), so no push. The grid-cell push after the move (D:L413920-413941) stays unread
+ * (`TURRET_HOLD_PUSH_READING`). The release walker also had yaw 0, not the turret's facing (`holdPlace(t, 0)`).
  */
-function hullOutsideTheClip(sim: SimMap, t: TurretPlacement): { before: number; after: number } {
-  const f = (t.facing * Math.PI) / 180, hold = holdPlace(t, t.facing), w = new Walker(sim.grid);
+function hullOutsideTheClip(sim: SimMap, t: TurretPlacement, shape: NonNullable<ReturnType<typeof mountShape>>): { before: number; after: number } {
+  const f = (t.facing * Math.PI) / 180, hold = holdPlace(t, t.facing);
+  const walkToHold = (w: Walker): number => {
+    for (let i = 0; i < 40; i++) {
+      const dx = hold[0] - w.state.x, dz = hold[2] - w.state.z, d = Math.hypot(dx, dz);
+      if (d < 1e-6) break;
+      w.glide((dx / d) * Math.min(1, d), (dz / d) * Math.min(1, d));
+    }
+    return Math.hypot(w.state.x - hold[0], w.state.z - hold[2]);
+  };
+  const w = new Walker(sim.grid);
   w.place(t.origin[0] + 12 * Math.sin(f), t.origin[1] + STEP_PROBE_LIFT_READING, t.origin[2] + 12 * Math.cos(f));
-  for (let i = 0; i < 40; i++) {
-    const dx = hold[0] - w.state.x, dz = hold[2] - w.state.z, d = Math.hypot(dx, dz);
-    if (d < 1e-6) break;
-    w.glide((dx / d) * Math.min(1, d), (dz / d) * Math.min(1, d));
-  }
-  const before = Math.hypot(w.state.x - hold[0], w.state.z - hold[2]);
+  const before = walkToHold(w);
   const r = new Walker(sim.grid);
   r.place(hold[0], t.origin[1] + STEP_PROBE_LIFT_READING, hold[2]);
+  r.state.yaw = t.facing;
   holdStep(t, r);                                                   // where the hold leaves it, as the release finds it
-  r.glide(0, 0);                                                    // the walk's next still tick
-  return { before, after: Math.hypot(r.state.x - hold[0], r.state.z - hold[2]) };
+  const travel = ReleaseTravel.start(shape)!;
+  for (let n = 0; n < 100 && !travel.step(r, 1 / 60); n++);         // the release's reversed clip carries it out
+  return { before, after: walkToHold(r) };
 }
 
 describe('the seat and its steer (no game data)', () => {
@@ -477,9 +488,9 @@ describe.skipIf(!READY)(`the mount's clips and seat on the fixture${READY ? '' :
     const shape = mountShape(clips(), table(), 0)!;
     for (const t of sim.turrets!) {
       expect(steeredOnGround(sim, t, shape), `${t.name}: the clip's end from the hold's place`).toBeCloseTo(LANDED_60, 2);
-      const edges = hullOutsideTheClip(sim, t);
+      const edges = hullOutsideTheClip(sim, t, shape);
       expect(edges.before, `${t.name}: a walk before the mount stops short of the hold's place`).toBeGreaterThan(2);
-      expect(edges.after, `${t.name}: the walk after the release pushes out of the hull`).toBeGreaterThan(1);
+      expect(edges.after, `${t.name}: the walk back after the release stops short of the hold's place`).toBeGreaterThan(2);
     }
   });
 
@@ -526,9 +537,9 @@ describe.skipIf(!HAVE_MP51)(`Vigilance's four seats on the disc${HAVE_MP51 ? '' 
     const shape = mountShape(parseMotionZar(Zar.parse(PACK!)).filter((c) => TURRET_CLIPS.includes(c.name)), motionTableFromArchive(READERC!), 0)!;
     for (const t of sim.turrets!) {
       expect(steeredOnGround(sim, t, shape), `${t.name}: the clip's end from the hold's place`).toBeCloseTo(LANDED_60, 2);
-      const edges = hullOutsideTheClip(sim, t);
+      const edges = hullOutsideTheClip(sim, t, shape);
       expect(edges.before, `${t.name}: a walk before the mount stops short of the hold's place`).toBeGreaterThan(2);
-      expect(edges.after, `${t.name}: the walk after the release pushes out of the hull`).toBeGreaterThan(1);
+      expect(edges.after, `${t.name}: the walk back after the release stops short of the hold's place`).toBeGreaterThan(2);
     }
   });
 

@@ -3,6 +3,7 @@ import {decodeDds} from '../packages/viewer/src/dds';
 import {validateHdManifest,type HdEntry,type HdManifest,type HdTier} from '../packages/viewer/src/hdTexturePack';
 import {pcsx2Names,PSM,TEXA_TRIES,texBytes,clutBytes,xxh3,type Texa} from './pcsx2Names';
 import type {DiscTextureRecord} from './discTextureRecords';
+import type {PlacedFile} from './hdPlacements';
 import {decodePng,encodePng} from './png';
 import {recolour,uniformTexels} from './hdRecolour';
 
@@ -76,10 +77,13 @@ export async function resolveFiles(records:readonly DiscTextureRecord[],files:re
 export interface BuiltHdPack {manifest:HdManifest;manifestBytes:Uint8Array;id:string;payloads:Map<string,string|Uint8Array>;below:BelowBar[]}
 /**
  * The manifest from the bound files: one entry per decoded image, its best-tier file (ties by name); payloads named
- * `<n>.<ext>`. A tier C entry of a paletted record is its file recoloured for that record, one PNG per entry.
+ * `<n>.<ext>`. A tier C entry of a paletted record is its file recoloured for that record, one PNG per entry. HD.R9:
+ * each placed file (`./hdPlacements`, its name re-derived at its placement) adds a placement entry to each of its
+ * targets, its rectangles scaled to its image (a whole, square scale of its read, or it is refused into `below`); a
+ * key's whole entry first, then its placements, larger first (a narrower read drawn over a wider one).
  */
 export function buildHdManifest(records:readonly DiscTextureRecord[],files:readonly PackFile[],bound:Map<string,Resolution>,below:BelowBar[],
-  meta:{name:string;method:string;game:string}):BuiltHdPack{
+  meta:{name:string;method:string;game:string},placed:readonly PlacedFile[]=[]):BuiltHdPack{
   const best=new Map<string,{file:string;tier:HdTier;rec:DiscTextureRecord}>();
   for(const [file,r] of [...bound].sort(([a],[b])=>a<b?-1:a>b?1:0))for(const i of r.targets){
     const rec=records[i]!,cur=best.get(rec.rgbaSha256);
@@ -102,7 +106,22 @@ export function buildHdManifest(records:readonly DiscTextureRecord[],files:reado
     const img=recolour(decode(b.file),b.rec),out=`${n++}.png`;payloads.set(out,encodePng(img.width,img.height,img.data));
     own.set(key,{file:out,format:'png',outWidth:img.width,outHeight:img.height,bytes:img.data.length,sha256:sha(img.data)});
   }
-  const entries:HdEntry[]=[...best].sort(([a],[b])=>a<b?-1:1).map(([key,b])=>({key,width:b.rec.width,height:b.rec.height,...(own.get(key)??decl.get(b.file)!),tier:b.tier,source:b.file}));
+  const placedEntries:HdEntry[]=[];
+  for(const p of placed){
+    let d=decl.get(p.file);
+    if(!d){
+      const ext=p.file.toLowerCase().endsWith('.png')?'png':'dds',img=decode(p.file);
+      d={file:`${n}.${ext}`,format:ext,outWidth:img.width,outHeight:img.height,bytes:img.data.length,sha256:sha(img.data)};
+    }
+    const k=d.outWidth/p.read[0];
+    if(!Number.isInteger(k)||k<1||d.outHeight!==p.read[1]*k){below.push({file:p.file,why:`placement refused: its image ${d.outWidth}x${d.outHeight} is not its read ${p.read[0]}x${p.read[1]} at a whole scale`});continue;}
+    if(!decl.has(p.file)){decl.set(p.file,d);payloads.set(d.file,p.file);n++;}
+    const placements=p.placements.map(q=>({dst:q.dst,src:[q.src[0]*k,q.src[1]*k,q.src[2]*k,q.src[3]*k] as [number,number,number,number]}));
+    for(const t of p.targets)placedEntries.push({key:t.sha256,width:t.width,height:t.height,...d,tier:'A',source:p.file,placements,placementKind:p.kind});
+  }
+  const area=(e:HdEntry)=>e.placements?e.placements.reduce((a,q)=>a+q.dst[2]*q.dst[3],0):Infinity;
+  const entries:HdEntry[]=[...[...best].map(([key,b])=>({key,width:b.rec.width,height:b.rec.height,...(own.get(key)??decl.get(b.file)!),tier:b.tier,source:b.file})),...placedEntries]
+    .sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:area(b)-area(a)||(a.source<b.source?-1:a.source>b.source?1:0));
   const totalBytes=[...decl.values(),...own.values()].reduce((t,d)=>t+d.bytes,0);
   const manifest=validateHdManifest({format:'s2u-hd-texture-pack',version:1,localOnly:true,game:meta.game,name:meta.name,method:meta.method,entries,totalBytes});
   const manifestBytes=new TextEncoder().encode(JSON.stringify(manifest));

@@ -3,6 +3,7 @@ import type { Command } from '../src/net/protocol';
 import {
   SLIDE_DISC_SURFACE_KIND, SLIDE_SPAN_MEASURE_READING, SLIDE_SPAN_MIN, slideEligible, slideSpanOf, slideStep, steepGroundFrame,
 } from '../src/steepSlide';
+import { JUMP_SPEED_SLIDE_READING, RUNNING_JUMP_SPEED } from '../src/mover';
 import { SEAL_TUNING_DEFAULTS } from '../src/physics';
 import { poly, scene, still } from './parity/world';
 
@@ -135,22 +136,44 @@ describe('steep-ground slide (research 201 §3, §27.3)', () => {
     const wallX = 8;
     const s = scene([
       poly('slope', [0, 0, -20, run, height, -20, run, height, 20, 0, 0, 20], 1),
-      poly('wall', [wallX, -10, -30, wallX, -10, 30, wallX, 80, 30, wallX, 80, -30], 2),
+      // Wound to face +x, toward the body sliding -x: a hull face is met only from its front (research 281 s4.3; SEGMENT-BODY).
+      poly('wall', [wallX, -10, -30, wallX, 80, -30, wallX, 80, 30, wallX, -10, 30], 2),
     ]);
-    const x = run * 0.75, y = x * Math.tan(degrees * Math.PI / 180);
+    // SEGMENT-BODY: laid 0.95 up the ramp, not 0.75. Sliding down backwards (facing uphill, yaw -90) the body's centre line
+    // takes the backing reach, 1.1 x 1.75 x 1.4 r = 9.43 (`SEGMENT_BODY_READING`, D:L415354-415371): laid 9.32 off the
+    // wall at 0.75, it was held on its first tick and never slid. From 0.95 it slides, then the wall stops it.
+    const x = run * 0.95, y = x * Math.tan(degrees * Math.PI / 180);
     expect(s.walker.place(x, y + 1, 0)).toBe(true);
     s.walker.state.yaw = -90;
     for (let i = 0; i < 180; i++) s.walker.tick(still);
     const stopped = s.walker.state.x;
     expect(stopped).toBeGreaterThan(wallX);
     expect(stopped).toBeLessThan(x);
+    expect(stopped - wallX, 'held at the backing reach, off the wall').toBeGreaterThan(9.43);
     // FUN_005483d0 zeroes the speed when the resolved y is in [0, 0.01), so it does not keep climbing.
     expect(s.walker.slideSpeed).toBe(0);
     const yStopped = s.walker.state.y;
     for (let i = 0; i < 60; i++) s.walker.tick({ forward: 1, right: 0, boost: false });
-    expect(s.walker.state.x).toBeCloseTo(stopped, 4);
-    expect(s.walker.state.y).toBeCloseTo(yStopped, 4);
+    // It does not climb: neither x nor y rises. (SEGMENT-BODY: the first uphill tick lets the slide take one more step
+    // down, -0.0099 in x and -0.017 in y, still 9.435 off the wall; then nothing moves. Was: equal to 4 digits.)
+    expect(s.walker.state.x).toBeLessThanOrEqual(stopped + 1e-4);
+    expect(s.walker.state.y).toBeLessThanOrEqual(yStopped + 1e-4);
+    expect(s.walker.state.x - wallX).toBeGreaterThan(9.43);
     expect(s.walker.swapWeapon('pistol')).not.toBeNull();
+  });
+
+  it('LATER 676 (JUMP_SPEED_SLIDE_READING): a body sliding over 15 with the stick idle is refused the jump by the slope first', () => {
+    // The speed test reads the clip velocity before the slide (`'clip'`); which arm is the original's is unread. A disc
+    // surface (kind 4) slides only steeper than `max_slope`, where `FUN_0057e1b0`'s slope test (`+0x1348`) refuses the
+    // jump before the speed is read, so neither arm decides a press here.
+    expect(JUMP_SPEED_SLIDE_READING).toBe('clip');
+    for (const degrees of [52, 60]) {
+      const s = ramp(40, degrees, 1);
+      for (let i = 0; i < 25; i++) s.walker.tick(still);
+      expect(s.walker.slideSpeed).toBeGreaterThan(RUNNING_JUMP_SPEED);
+      expect(s.walker.jump()).toBe(false);
+      expect(s.walker.airborne).toBe(false);
+    }
   });
 
   it('a grenade throw started mid-slide keeps moving downhill', () => {

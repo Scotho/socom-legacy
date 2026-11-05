@@ -17,8 +17,8 @@ import { CompileQueue, firstOfEachKind } from './compileQueue';
 import { LinkLog, type PipelineBackend } from './linkLog';
 import { positionGeometry, texture as textureNode, uniform, uv, vec2, vec4 } from 'three/tsl';
 import { webgpuAnswers, type GpuLike } from './adapterWait';
-import { readGraphicsBackend } from './graphicsBackend';
-import { watchGraphicsLost } from './graphicsLost';
+import { asksForWebGPU, readGraphicsBackend } from './graphicsBackend';
+import { watchGraphicsErrors, watchGraphicsLost } from './graphicsLost';
 import { glowGain, glowHalfSize } from './flash';
 import { GlowFrame, mainPassOf, type RendererLike } from './glowTarget';
 import { bindVisualPostSeam, createPostSlot, type VisualPostPass } from './visualPostSeam';
@@ -139,8 +139,9 @@ interface BackendFlags { isWebGPUBackend?: boolean }
 const BACKGROUND = 0x14161a;
 
 /**
- * three's `WebGPURenderer`, on WebGPU when the browser offers an adapter within `WEBGPU_ADAPTER_WAIT_MS_ADAPTATION`
- * and on WebGL2 otherwise (LATER 128: the wait bounded, so a stalled adapter request no longer leaves the page
+ * three's `WebGPURenderer`, on WebGPU when the choice asks for it (`asksForWebGPU`: WebGPU, or Automatic while
+ * `DEFAULT_GRAPHICS_BACKEND_ADAPTATION` is 'webgpu') and the browser offers an adapter within
+ * `WEBGPU_ADAPTER_WAIT_MS_ADAPTATION`, and on WebGL2 otherwise (LATER 128: the wait bounded, so a stalled adapter request no longer leaves the page
  * undrawn) -- headless Chromium usually lands on WebGL2 through SwiftShader. The viewer asks for nothing
  * WebGPU-specific, so the two paths draw the same scene; only the reported backend differs.
  */
@@ -152,13 +153,15 @@ const BACKGROUND = 0x14161a;
 export interface RendererOptions { trackTimestamp?: boolean }
 
 export async function createRenderer(canvas: HTMLCanvasElement, options: RendererOptions = {}): Promise<ViewerRenderer> {
-  // Compatibility bypasses WebGPU entirely, including its adapter request (browser adaptation).
+  // Only a choice that asks for WebGPU requests an adapter; Compatibility, Xbox and (WEBGL2-DEFAULT, LATER 708) Automatic
+  // bypass WebGPU entirely (browser adaptation).
   const graphics = readGraphicsBackend();
-  const webgpu = graphics === 'auto' && await webgpuAnswers((globalThis.navigator as Navigator & { gpu?: GpuLike } | undefined)?.gpu);
+  const webgpu = asksForWebGPU(graphics) && await webgpuAnswers((globalThis.navigator as Navigator & { gpu?: GpuLike } | undefined)?.gpu);
   // An opaque WebGPU canvas; the WebGL2 fallback ignores it (three's WebGLBackend forces alpha on), so
   // the real fix is that no world draw writes alpha (`blendFactorsFor`, `world.ts`).
   const renderer = new WebGPURenderer({ canvas, antialias: graphics !== 'xbox', forceWebGL: !webgpu, alpha: false, trackTimestamp: options.trackTimestamp === true });
   watchGraphicsLost(renderer);                          // PR #631: a lost context or device names its reason on the page (browser adaptation)
+  watchGraphicsErrors(renderer);                        // 2026-11-05: an uncaptured GPU error kept, counted and named on the page (the same adaptation)
   // The GS wrote its 8-bit result straight to the framebuffer, so the shader's product goes out
   // unconverted; the textures are read the same way (`world.ts`, `makeTexture`). Set this before init:
   // three chooses the WebGL context's immutable antialias flag from currentSamples. With its default

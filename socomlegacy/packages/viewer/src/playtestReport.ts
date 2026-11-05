@@ -167,7 +167,7 @@ const NOTES = [
   'Samples are taken about once a second; a connection drop shorter than that may be missed.',
   'Unavailable values are null, not zero. The server\'s tick rate and step cost are not measured by the page (the host\'s /metrics has them).',
   'No disc bytes, player names or server addresses are recorded. At most one hour of samples is kept.',
-  'perfLine is the performance line Options > Display copies: the build, the browser\'s name, major version and OS, the WebGL renderer the browser reports, the screen, the video settings and the latest frame times.',
+  'perfLine is the performance line Options > Display copies: the build, the browser\'s name, major version and OS, the WebGL renderer the browser reports, the screen, the video settings, the latest frame times, and the graphics record: the first uncaptured GPU error\'s message (200 characters at most) with its count, a lost device, and the errors the page kept by kind.',
 ];
 
 /** The combat section's notes (research 127 §1-§3, §5), added only with the section. */

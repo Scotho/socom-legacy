@@ -15,10 +15,11 @@ import type { Room } from '../room';
 import { encodeCommands } from '../../../viewer/src/net/codec';
 import { faceToward, pointSegment, targetHeight, type AimFrame } from '../../../viewer/src/net/shotCone';
 import { friendlyOnRay, sampledClaim } from './shot';
-import { BODY_RADIUS, EYE_HEIGHT, reloadHold, rootY, WALL_END_CONTACT_READING, type HoldClip, type Stance, type WallHit } from '../../../viewer/src/mover';
+import { BODY_RADIUS, EYE_HEIGHT, reloadHold, rootY, WALL_BODY_READING, WALL_END_CONTACT_READING, type HoldClip, type Stance, type WallHit } from '../../../viewer/src/mover';
 import { shortTurn, wrapYaw } from '../../../viewer/src/yaw';
 import { doorInReach } from '../../../viewer/src/doors';
 import { LADDER_STANDOFF, Traversal } from '../../../viewer/src/traversal';
+import { WEAPON_LINE_BOTS_READING } from '../../../viewer/src/weaponLine';
 import { BotFirePolicy, botFireFrames, chooseBotStance, chooseBotWeapon, chooseRole, framesInTicks, ROLE_ADAPTATION, type BotRole } from './roles';
 import { botLoadout } from './armory';
 import { firearmSlotPresent, type SimKits } from '../../../viewer/src/loadout';
@@ -254,6 +255,16 @@ const STEERING_ADAPTATION = { stickRate: 5, response: 20, lookResponse: 12, clea
  */
 const CORNER_SLIDE_ADAPTATION = { reach: 0.5, faceCosine: 0.999 };
 /**
+ * SEGMENT-BODY (OT.R81, a bot adaptation: the port's invention, no original value -- a bot decision, not an unknown of
+ * the game's). Under the walker's segment body (viewer `WALL_BODY_READING` 'segments', research 217 s2.9) a face is met
+ * by the body's segments, the side lines 1.05 to 4.2 across the travel: a bot whose leg passes a block's corner within
+ * 4.2 of its next face meets that face with a side line, the walker takes the move's whole part along its normal, and
+ * a wish straight into it is left with nothing (it stood at MP51-like corners until its stall recovery). When a hit's
+ * face takes all but `along` of the wish, the bot steers along the face, away from the hit's side, at the wish's
+ * length, until its segments clear the face. The players' walker is untouched: this is the bot's stick only.
+ */
+const SIDE_SLIDE_ADAPTATION = { along: 0.3 };
+/**
  * BOT-CORNER (`CORNER_SLIDE_ADAPTATION`): the wish (dx, dz) less its parts toward the face ends the walker's last move
  * touched, at its length; a wish straight at an end turns along it to the bot's `side`. A contact on a face (its
  * direction the face's normal) is left to the walker, which slides along it already. `endContact` is the walker's
@@ -275,10 +286,26 @@ export function cornerSlide(hits: readonly WallHit[], x: number, z: number, dx: 
     const into = wx * cx + wz * cz;
     if (into < 0) { wx -= into * cx; wz -= into * cz; turned = true; ux = cx; uz = cz; }
   }
-  if (!turned) return [dx, dz];
+  if (!turned) return WALL_BODY_READING === 'segments' ? sideSlide(hits, x, z, dx, dz, side) : [dx, dz];
   const left = Math.hypot(wx, wz);
   if (left < 1e-6 * length) { wx = -uz * side; wz = ux * side; return [wx * length, wz * length]; }
   return [wx / left * length, wz / left * length];
+}
+/** SEGMENT-BODY (`SIDE_SLIDE_ADAPTATION`): the wish turned along a face the walker's last move met that leaves it under `along`. */
+function sideSlide(hits: readonly WallHit[], x: number, z: number, dx: number, dz: number, side: number): [number, number] {
+  const length = Math.hypot(dx, dz);
+  for (const h of hits) {
+    const n = polygonNormal(h.poly.points);
+    const nl = n ? Math.hypot(n[0], n[2]) : 0;
+    if (!n || nl < 1e-6) continue;
+    const nx = n[0] / nl, nz = n[2] / nl, into = dx * nx + dz * nz;
+    if (into >= 0) continue;
+    if (Math.hypot(dx - into * nx, dz - into * nz) >= SIDE_SLIDE_ADAPTATION.along * length) continue;
+    const along = (x - h.x) * -nz + (z - h.z) * nx;                // from the hit to the body, along the face
+    const sign = Math.abs(along) > 1e-6 ? Math.sign(along) : side;
+    return [-nz * sign * length, nx * sign * length];
+  }
+  return [dx, dz];
 }
 /** OT.R81 (BTL.R3): the port's invention, no original value -- a bot decision, not an unknown of the game's. A bot's schedule: the tick stagger its seats share expensive checks over, the wait before a failed opening
  * leg is tried again, the least ticks between reload requests, the least distance a sampled claim is made at, and the
@@ -532,7 +559,13 @@ export class MatchBots {
     this.squad.reset('disposed');
     this.tactics.dispose();
     const ids = [...this.actors.keys()].filter((id) => !this.adopted.has(id));
-    for (const id of this.adopted) { const p = this.room.player(id); if (p) { p.raise = false; p.sim.ai = this.adoptedAi.get(id) ?? false; } }   // OBF-14, COMBINED-CUT: as `release`
+    for (const id of this.adopted) {
+      const p = this.room.player(id);
+      if (p) {
+        p.raise = false; p.sim.ai = this.adoptedAi.get(id) ?? false;                               // OBF-14, COMBINED-CUT: as `release`
+        p.sim.walker.weaponLineCast = !p.sim.ai || WEAPON_LINE_BOTS_READING === 'cast';           // SEGMENT-BODY part 4 (review 2 F3): as `release`
+      }
+    }
     this.actors.clear(); this.adopted.clear(); this.adoptedAi.clear();
     for (const id of ids) this.room.leave(id);
   }
@@ -582,6 +615,7 @@ export class MatchBots {
     const sim = this.room.player(id)!.sim;
     this.adoptedAi.set(id, sim.ai); sim.ai = true;               // COMBINED-CUT: IsAi while driven (a respawn's mover carries it)
     sim.walker.stanceCut = false; sim.walker.stanceSeparate = false;   // MOVE fold F3: the bots' words, not the human's last mode
+    sim.walker.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY part 4: the AI casts no weapon line (+0x2c 0)
     return (event) => this.hear(id, event);
   }
 
@@ -591,6 +625,7 @@ export class MatchBots {
     const p = this.room.player(id);
     if (p) p.raise = false;                                      // OBF-14 review F1: the raise was the bots', not the seat's
     if (p) p.sim.ai = this.adoptedAi.get(id) ?? false;           // COMBINED-CUT: the seat's own controller again
+    if (p) p.sim.walker.weaponLineCast = !p.sim.ai || WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY part 4: and its weapon line
     this.adoptedAi.delete(id);
     this.squad.release(id, 'released'); this.removeActor(id);
   }
@@ -2183,7 +2218,8 @@ export class MatchBots {
       const reloadClip = reloading && tick - b.lastReload === 1 ? reloadHold(p.sim.walker.posture, p.sim.weapon === 1) : null;
       if (reloadClip) buttons |= holdBits(reloadClip);
       if (startedEquipment) buttons |= holdBits(throwAnim(b.equipment!.power, 0, 'stand').clip as HoldClip);
-      desiredStance = b.equipment ? 0 : chooseBotStance(b.role, action, moving, enemyDistance, tick, b.id, desiredStance === 1);
+      desiredStance = b.equipment ? 0 : chooseBotStance(b.role, action, moving, enemyDistance, tick, b.id, desiredStance === 1,
+        Math.hypot(s.vx, s.vz));
       const pronePop = p.sim.walker.stance === 'prone' && desiredStance === 0 && b.target !== null
         && enemyDistance < DODGE_ADAPTATION.pronePopRange && !b.equipment && !reloading;
       if ((p.sim.walker.stance === 'prone' ? 2 : p.sim.walker.stance === 'crouch' ? 1 : 0) !== desiredStance) {

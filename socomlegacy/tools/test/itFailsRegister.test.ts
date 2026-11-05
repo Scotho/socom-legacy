@@ -94,6 +94,12 @@ export const REGISTER: Record<string, Waits> = {
     { row: 'combatfx.effects.sound.unfound-names', why: 'TA.R6 drift, ruled departure (SOUND_FALLBACKS)' },
   'packages/viewer/test/look.parity.test.ts::the right stick at byte 176 turns 0 after a 1 s hold, as research 22 read it on both runs [drift: the port 0.005]':
     { row: 'movement.look.byte176', why: 'TA.R6 drift: the pad block gives 0.0048 at byte 176' },
+  'tools/test/harnessTrace.test.ts::GAP (LATER 680): the Frostfire box scenario walked from x 938 reaches the climb':
+    { row: 'LATER 680', why: 'SEGMENT-BODY: walked -z from x 938 the side line meets prop01, no contact is stored, no climb offered; unsettled at the source, an r0004 capture of the walk owed (research 86 s3.8)' },
+  'packages/viewer/test/weaponLine.test.ts::GAP (LATER 681): (iii) the closest approach walking in square: 5.24-5.50 (the capture 5.34-5.40)':
+    { row: 'LATER 681', why: 'SEGMENT-BODY: walked in square on M51 g19733 the segment body stops a whole step short, 5.66 from the plane; the original closes to 5.34-5.40 (r0004 climb-angle ca-0)' },
+  'packages/viewer/test/m51DitchBlock.disc.test.ts::GAP (LATER 690): from the capture start, the running jump lands back in the ditch, apex 13.17 +- 0.5':
+    { row: 'LATER 690', why: 'SEGMENT-BODY: on 25 of the 70 push ticks the move meets no segment, so the take-off carries 65 -x over the ditch log and lands at x 932, where r0004 (ac ditch capture) stalls with the contact set and lands back at x 984; the causes (DITCH-ESCAPE-READ): the 60 Hz wall step (H404) and the take-off carry, zeroed on a jam where the original keeps +0x38 (from +0x64, writer unread); the follow-up branch for the next release steps the walls at 30 Hz per the owner H404 (b) ruling, plus the carry' },
   "packages/viewer/test/parity/actionStack.test.ts::the standing swap cut forward carries the stack's phase onto the overlay's clock":
     { row: 'unrowed', why: 'research 251 s10.5 owed: the cut\'s carry-over moves the room\'s swap life; "waits for a row that checks the room with it"' },
   "packages/viewer/test/parity/actionStack.test.ts::the standing swap cut reversed carries the stack's phase onto the overlay's clock, counting down":
@@ -102,18 +108,18 @@ export const REGISTER: Record<string, Waits> = {
     { row: 'movement.climb.place-interrupt', why: 'TA.R6 drift; PB-7 (b), issue #96' },
   "packages/viewer/test/parity/climbInterrupt.parity.test.ts::the body does not end on the top: under it, inside the hull's span (research 230 s3.3)":
     { row: 'movement.climb.place-interrupt', why: 'TA.R6 drift; PB-7 (b), issue #96 (MP2)' },
+  'packages/viewer/test/parity/climbInterrupt.parity.test.ts::GAP (LATER 680): an ordinary climb ends on the 111.85 top':
+    { row: 'LATER 680', why: 'SEGMENT-BODY: walked -z from x 938 only a side line meets prop01, no contact is stored and the weapon line\'s slot is never consulted, so no climb is offered; an r0004 capture of the walk owed (research 86 s3.8)' },
+  'packages/viewer/test/parity/climbInterrupt.parity.test.ts::GAP (LATER 680): the place is accepted mid-climb':
+    { row: 'LATER 680', why: 'SEGMENT-BODY: no climb to cut from x 938, as above' },
   'packages/viewer/test/parity/movement.test.ts::`refuses jump at speed ${speed} with a solid hit in the posed-head ray`':
     { row: 'PAR-21', why: 'research 230 D13 (movement-01, -02): the jump\'s posed-head ray' },
-  'packages/viewer/test/parity/movement.test.ts::keeps the inward carry removed after contact ends':
-    { row: 'PAR-21', why: 'research 230 D14 (movement-03): the inward carry kept removed' },
   "packages/viewer/test/traversal.parity.test.ts::drift: the hang's pull-up stand-in rises 22.59 and goes 5.24 ahead, as the table has seal_hang2climbup":
     { row: 'movement.traversal.fallback-shapes', why: 'TA.R6 drift: the FALLBACK shape before the pack arrives' },
   'packages/viewer/test/traversal.parity.test.ts::drift: TRAVERSAL_CLIP.rleanStep (seal_rlean_rstep) is a clip in MOTION_P.ZAR':
     { row: 'movement.traversal.clip-names', why: 'TA.R6 drift: a clip name MOTION_P.ZAR does not hold' },
   "packages/viewer/test/traversal.test.ts::the obstacle ray stores its wall as the contact: after a tick at the ledge the stored contact is the wall behind it, as FUN_0054e430 stores it (D:L416793) [drift: the port keeps the crate's face]":
     { row: 'movement.climb.obstacle-ray', why: 'TA.R6 drift; closes with C3\'s segment records (PAR-21, WALL_PROBE_READING)' },
-  "packages/viewer/test/wallEndContact.test.ts::GAP (WALL_PROBE_READING): no tick's sideways move outruns the walk itself (65 / 60)":
-    { row: 'LATER 283', why: 'MV-PARITY (b2) F1 (1276296e2, on main by B195 f41a97007): the disc stand-off\'s sideways pop, until the probe is the original\'s segments' },
   'tools/test/uiCommandTable.parity.test.ts::DRIFT: for every byte 0x80..0xFF, uiCommandFold adds 0x20 (mod 256) exactly where the pinned bit 0 is set, as the signed index does':
     { row: 'frontend.commands.lookup.fold-high', why: 'TA.R6 drift: the signed fold of the high bytes' },
 };

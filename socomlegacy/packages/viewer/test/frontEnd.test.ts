@@ -392,6 +392,28 @@ describe("mountFrontEnd's stop ends the lobby session (review (5), LOBBY_CLOSE_A
     m.stop();
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  it("GM-02 (review F4): stop() takes the instrument's page hook and the session's render probe off with composeScreen's", async () => {
+    vi.stubEnv('DEV', true);                                         // the instrument is a development build's only
+    try {
+      const ctx = new Proxy({}, { get: () => () => {}, set: () => true });
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+      vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(console, 'info').mockImplementation(() => {});
+      const nothing: AssetSource = { list: async () => [], read: async (p) => { throw new Error(`no ${p}`); } };
+      const hook = (): unknown => (window as unknown as Record<string, unknown>)['__uiGpuPerf'];
+      const m = mountFrontEnd('?menuflow&devmode&uiPerf', { kind: 'http', baseUrl: '/maps' }, document, { assets: nothing, audio: new GameAudio(new SilentOut()), movies: null })!;
+      const s = (await m.session)!;
+      expect(hook()).toBeDefined();
+      expect(s.perf).not.toBeNull();
+      m.stop();
+      expect(hook()).toBeUndefined();
+      expect(s.perf).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 // The dev disc (W6.R8): `SOCOM_DISC`, else `<SOCOM_PC_ROOT>/game/disc`; skipped without one.

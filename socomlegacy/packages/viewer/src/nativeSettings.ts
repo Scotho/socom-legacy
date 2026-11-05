@@ -1,4 +1,5 @@
 import type { AssetSource } from '@s2u/archive';
+import type { Rgba } from '@s2u/gs';
 import type { PadSlotName, UiDrawItem, UiSoundCues } from '@s2u/ui';
 import type { GamepadLike, PadButton } from './gamepad';
 import { padSnapshot } from './menuInput';
@@ -6,7 +7,8 @@ import { claimSettingsEditor } from './settingsEditorOwnership';
 import { readFrontEndDisc, type FrontEndDisc } from './frontEnd';
 import { pageUiTextures, type PageUiTextures } from './frontEndAssets';
 import { NATIVE_OPTIONS_DIALOGS, NativeOptionsHost, nativeOptionsMissing, type NativeOptionsAssets, type NativeOptionsState } from './nativeOptionsHost';
-import { presentUiFrame, rasterizeUiDrawList, type RasterOptions } from './uiCompositorView';
+import type { RasterOptions } from './uiCompositorView';
+import { CpuUiPresenter } from './uiPresenter';
 import { frameCanvas } from './brightness';
 
 /** Load from the current game source; a served tree with these files is sufficient. No ISO-selection flow. */
@@ -81,7 +83,17 @@ export class NativeSettings {
   private disposed = false;
   /** HD-4 review F1: what the canvas shows under an HD scale (null at scale 1, where every frame is drawn). */
   private shown: ShownFrame | null = null;
+  /** GM-09: today's software path onto the canvas (one per canvas; null while closed). */
+  private presenter: CpuUiPresenter | null = null;
   constructor(private readonly o: NativeSettingsOptions) {}
+
+  /**
+   * GM-09 (a test seam, a browser adaptation): the frame the overlay's canvas shows -- transparent, straight RGBA, top
+   * row first, at its scale -- or null while closed or before its first frame. Read-only: the presenter's own.
+   */
+  readFrame(): Rgba | null { return this.phase === 'open' ? this.presenter?.readFrame() ?? null : null; }
+  /** GM-09: what the frame shown left undrawn (empty while closed). */
+  undrawn(): readonly string[] { return this.phase === 'open' ? this.presenter?.undrawn() ?? [] : []; }
 
   isOpen(): boolean { return this.phase !== 'closed'; }
   loading(): boolean { return this.phase === 'loading'; }
@@ -213,11 +225,13 @@ export class NativeSettings {
         try { items = structuredClone(editor.last as UiDrawItem[]); } catch { items = null; }   // a list it cannot copy is drawn every frame
         this.shown = items === null ? null : { items, scale, hd: hd.hd, version };
       } else this.shown = null;
-      const { frame } = rasterizeUiDrawList(editor.last, editor.assets.textures, got ? { transparent: true, ...hd, scale } : { transparent: true });
-      // HD-4: the canvas follows the frame's size (its CSS box, and so the taps' 640 x 448 mapping, are unchanged).
+      // GM-09: through the presenter (today's software path, byte for byte). HD-4: the canvas follows the frame's size
+      // (its CSS box, and so the taps' 640 x 448 mapping, are unchanged), set before the put.
       const canvas = this.canvas!;
-      if (canvas.width !== frame.width || canvas.height !== frame.height) { canvas.width = frame.width; canvas.height = frame.height; }
-      presentUiFrame(ctx, frame);
+      if (this.presenter?.target !== ctx) {
+        this.presenter = new CpuUiPresenter(ctx, { fit: (w, h) => { if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; } } });
+      }
+      this.presenter.present(editor.last, editor.assets.textures, got ? { transparent: true, ...hd, scale } : { transparent: true });
     }
   }
 
@@ -238,6 +252,7 @@ export class NativeSettings {
       this.editor = null;
       this.canvas?.remove(); this.canvas = null;
       this.shown = null;
+      this.presenter = null;
       this.releasing = true;
       try { this.releaseCapture?.(); } finally {
         this.releaseCapture = null;

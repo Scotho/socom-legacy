@@ -2,6 +2,7 @@ import { pageVersion } from './console/pageVersion';
 import { pageFrameSampler, type FrameStats } from './frameSampler';
 import { probeSoftwareRenderer, type SoftwareProbe } from './softwareRenderer';
 import { readVideoSettings, type RenderScale } from './videoSettings';
+import { pageBeaconText } from './clientErrorBeacon';
 
 /**
  * CPS-5 (product track, **a browser adaptation with no original**): the player's performance line -- one line a player
@@ -16,7 +17,9 @@ import { readVideoSettings, type RenderScale } from './videoSettings';
  * renderer string (`./softwareRenderer` `probeSoftwareRenderer`, "SOFTWARE RENDERER" after it when it names one), the
  * page renderer's backend, the device pixel ratio, the drawing buffer and the canvas's CSS size, the display's refresh
  * (`refreshOf`), the video settings (`./videoSettings`), where the frames were drawn (`placeOf`) and the sampler's
- * statistics (`./frameSampler`). A part not known prints "?"; nothing here throws. It reads the page and changes nothing
+ * statistics (`./frameSampler`), and last the graphics record (`./graphicsLost` `graphicsText`: "ok", or the first
+ * uncaptured GPU error with its count and the lost device -- the tag-trails instrument, 2026-11-05). A part not known
+ * prints "?"; nothing here throws. It reads the page and changes nothing
  * the game does. It names no player, address or disc file.
  */
 
@@ -40,6 +43,8 @@ export interface PerfParts {
   place?: string | null;
   stats?: FrameStats | null;
   longTasks?: number | null;
+  /** `graphicsText` of the page's record: "ok", or its first uncaptured error, count and lost device. */
+  graphics?: string | null;
 }
 
 const num = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
@@ -70,6 +75,7 @@ export function perfLine(p: PerfParts): string {
     p.video ? `${p.video.renderScale}, shadows ${p.video.shadows ? 'on' : 'off'}` : '?',
     p.place ? oneLine(p.place) : '?',
     `${frames}, long tasks ${num(p.longTasks) ? p.longTasks : '?'}`,
+    `graphics ${p.graphics ? oneLine(p.graphics) : '?'}`,
   ].join(' | ');
 }
 
@@ -151,5 +157,6 @@ export function pagePerfLine(o: PagePerfOptions = {}): string {
     place: placeOf(src, now),
     stats,
     longTasks: stats ? frames.longTasks(now - stats.span_ms) : frames.longTasks(0),
+    graphics: part(() => pageBeaconText()),
   });
 }

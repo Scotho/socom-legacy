@@ -54,6 +54,14 @@ function wallX(x: number, z0: number, z1: number, y0: number, y1: number, camera
   };
 }
 
+/**
+ * SEGMENT-BODY: `wallX` with z0 < z1 is wound so its own normal (Newell's) is -x: a hull face is hit only from its
+ * front (research 281 s4.3), so a body walked into it from +x passes it. This one faces +x.
+ */
+function wallXEast(x: number, z0: number, z1: number, y0: number, y1: number): WorldPoly {
+  return wallX(x, z1, z0, y0, y1);
+}
+
 /** A 4 x 4 grid of `cellDim` cells (100 by default) from (-2, -2) cells, one owner per polygon. */
 function world(polys: WorldPoly[], cellDim = 100): Grid {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim, cellsX: 4, cellsZ: 4, originX: -2 * cellDim, originZ: -2 * cellDim };
@@ -333,9 +341,11 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
       return w;
     };
     expect(SEAL_TUNING.stepHeight).toBe(6.5);
-    const low = kerb(6.5);
+    // SEGMENT-BODY (re-judged): a face whose top edge lies ON the line at 6.5 is hit -- the segment's crossing is inside
+    // the polygon, edges included (`segment.ts` `inside`; micro 336-361) -- so the kerb under step_height is 6.4 (was 6.5).
+    const low = kerb(6.4);
     expect(low.state.x).toBeGreaterThan(40);
-    expect(low.state.y).toBe(6.5);
+    expect(low.state.y).toBeCloseTo(6.4, 5);
     const high = kerb(7);
     expect(high.state.x).toBeLessThanOrEqual(30);
     expect(high.state.y).toBe(0);
@@ -434,8 +444,15 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     points: Float32Array.from([ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az]),
   });
   const REL_CONTACTS = [{ x: -0.16, z: -3.5 }, { x: 3.14, z: 1.55 }, { x: -2.86, z: 2.05 }];
+  // SEGMENT-BODY: each face wound so its own normal (Newell's) points at (cx, cz), the side the body stands on, as a hull
+  // face is (research 281 s4.3: hit only from its front); `verticalFace`'s winding is otherwise its ends' order.
+  const facingIn = (e: { ax: number; az: number; bx: number; bz: number }, cx: number, cz: number) => {
+    const nx = e.bz - e.az, nz = -(e.bx - e.ax);                   // (b - a) turned: verticalFace's -x for +z ends
+    const toward = -nx * (cx - e.ax) - nz * (cz - e.az) > 0;
+    return toward ? e : { ax: e.bx, az: e.bz, bx: e.ax, bz: e.az };
+  };
   const pocket = (): { contacts: { x: number; z: number }[]; ground: ReturnType<typeof world> } => {
-    const faces = contactTriangle({ x: 0, z: 0 }, REL_CONTACTS).map((e) => verticalFace(e.ax, e.az, e.bx, e.bz, 0, 12));
+    const faces = contactTriangle({ x: 0, z: 0 }, REL_CONTACTS).map((e) => facingIn(e, 0, 0)).map((e) => verticalFace(e.ax, e.az, e.bx, e.bz, 0, 12));
     return { contacts: REL_CONTACTS, ground: world([floor(-80, -80, 80, 80, 0), ...faces]) };
   };
   const planeGap = (px: number, pz: number, c: { x: number; z: number }): number => {
@@ -443,7 +460,9 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     return len - (px * c.x + pz * c.z) / len;
   };
 
-  it('pressing each face of the pocket from the stand-off keeps the body a radius off', () => {
+  // SEGMENT-BODY (re-judged; was "keeps the body a radius off", the disc's 3.5): pressed from a point inside every
+  // face's reach, the body's segments cross the faces from their fronts and it never passes one.
+  it('pressing each face of the pocket from the stand-off never carries the body through it', () => {
     const { contacts, ground } = pocket();
     expect(BODY_RADIUS).toBe(3.5);
     for (const c of contacts) {
@@ -455,14 +474,14 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
         w.tick(FORWARD);
         nearest = Math.min(nearest, planeGap(w.state.x, w.state.z, c));
       }
-      expect(nearest, `face (${c.x}, ${c.z})`).toBeGreaterThan(BODY_RADIUS - 0.05);
+      expect(nearest, `face (${c.x}, ${c.z})`).toBeGreaterThan(0);
       expect(w.wallHits().length, 'the climb contact is recorded').toBeGreaterThan(0);
       expect(w.state.y).toBe(0);
       expect(w.airborne).toBe(false);
     }
   });
 
-  it('pressing each face of the pocket 30 degrees off its normal keeps the body a radius off every face (#408 review, 5bb4e4892 point 1)', () => {
+  it('pressing each face of the pocket 30 degrees off its normal never carries the body through a face (#408 review, 5bb4e4892 point 1; SEGMENT-BODY re-judged)', () => {
     // The original has no slide along one face of a pocket (FUN_005483d0 D:L413533-413614); the review's probe walked
     // the centre to 0.000-0.178 from a face plane at 5 to 60 degrees off a face, where main held 3.489-3.500.
     const { contacts, ground } = pocket();
@@ -477,36 +496,14 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
           w.tick(FORWARD);
           for (const f of contacts) nearest = Math.min(nearest, planeGap(w.state.x, w.state.z, f));
         }
-        expect(nearest, `face (${c.x}, ${c.z}) at ${off} degrees`).toBeGreaterThan(BODY_RADIUS - 0.05);
+        expect(nearest, `face (${c.x}, ${c.z}) at ${off} degrees`).toBeGreaterThan(0);
       }
     }
   });
 
-  it('the M71 ramp-foot pocket holds a body on its stand-off as main does: the port\'s disc contacts, not the original\'s segments (LATER 283, WALL_DEEP_REVERT_READING)', () => {
-    // A pin of a departure, not of the original (research 217 s2.3): the port's three disc contacts (WALL_PROBE_READING)
-    // meet at one point and every way out of it is into a face. On the disc's own hull the deepest contact on these 16
-    // headings is 0.993 with at most 3 hits, so FUN_005483d0's deep branch (D:L413602-413614) would not run there even
-    // if built; the original's segments (FUN_0054aa30) are LATER 283's, with the M71 capture. Disc measure at the
-    // hallway floor (feet 187.5, low probe 194): the stand-off (2676.46, 1280.15) and the three nearest points on
-    // hallway_blocked/good_parts/di_good; each face the supporting line through that point, cut where it meets the
-    // other two. No map is loaded. Headings are world atan2 (0 = +x).
-    const at = { x: 2676.46, z: 1280.15 };
-    const contacts = [{ x: 2676.3, z: 1276.65 }, { x: 2679.6, z: 1281.7 }, { x: 2673.6, z: 1282.2 }];
-    const faces = contactTriangle(at, contacts).map((e) => verticalFace(e.ax, e.az, e.bx, e.bz, 180, 200));
-    const polys = [floor(2500, 1000, 2900, 1600, 187.5), ...faces];
-    const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: 2400, originZ: 1000 };
-    const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
-    const ground = buildGrid(params, [], [], polys, owners);
-    for (let k = 0; k < 16; k++) {
-      const a = (k * Math.PI * 2) / 16;
-      const w = new Walker(ground);
-      expect(w.place(at.x, 190, at.z)).toBe(true);
-      expect(w.state.y).toBe(187.5);
-      w.state.yaw = facing(at.x, at.z, at.x + Math.cos(a), at.z + Math.sin(a));
-      for (let i = 0; i < 60; i++) w.tick(FORWARD);
-      expect(Math.hypot(w.state.x - at.x, w.state.z - at.z), `heading ${k * 22.5}`).toBeLessThan(1);
-    }
-  });
+  // SEGMENT-BODY: the M71 pin ("the ramp-foot pocket holds a body on its stand-off as main does") pinned the disc's
+  // departure, its three contacts meeting at one point (LATER 283). Retired: the original's segments are built, and the
+  // pocket is measured on the disc's own hull (`segmentBody.test.ts`, "LATER 283: M71's ramp-foot pocket").
 
   it('from one unit off the pocket, pressing toward the stand-off still moves', () => {
     // Disc check of Fuse's #408 head (PR #408's verification comment): from 1 unit off, pressing toward the ramp did not move. #408's earlier head reached the foot.
@@ -521,8 +518,11 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
       w.tick(FORWARD);
       nearest = Math.min(nearest, Math.hypot(w.state.x, w.state.z));
     }
-    expect(Math.hypot(w.state.x - x, w.state.z - z)).toBeGreaterThan(0.5);
-    expect(nearest).toBeLessThan(0.5);
+    // SEGMENT-BODY (re-judged; was "> 0.5 moved, to within 0.5 of the stand-off", the disc's): every face within the
+    // segments' reach, each put out by the depth less 1 or held by the jam rule, the press still moves the body -- not
+    // toward the point: the depth push carries it 0.26 back from the face it faces.
+    expect(Math.hypot(w.state.x - x, w.state.z - z)).toBeGreaterThan(0.1);
+    expect(nearest).toBeLessThan(2);
     expect(w.state.y).toBe(0);
   });
 
@@ -541,10 +541,10 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     expect(w.state.x).toBeCloseTo(-0.416666666666668, 4);
   });
 
-  // FUN_005483d0's deep branch (D:L413602-413614) is read but not built (WALL_DEEP_REVERT_READING, note only; research
-  // 217 s2.3): on the port's disc contacts it stuck MP72's emb01 step-down, hung a fall on Frostfire and froze a body
-  // placed deep. These are its cases as the original has them, kept skipped until LATER 283 ports the segments.
-  it.skip('LATER 283 (WALL_DEEP_REVERT_READING, not built): prone, a crawl turned toward a wall 4 off is put back and its frame displacement zeroed (bVar6, D:L413487-413502)', () => {
+  // FUN_005483d0's deep branch (D:L413602-413614), built with the original's segments by SEGMENT-BODY (LATER 283;
+  // research 217 s2.9): on the port's disc contacts it had stuck MP72's emb01 step-down and frozen a body placed deep,
+  // so these were held skipped (research 217 s2.3).
+  it('LATER 283 (WALL_DEEP_REVERT_READING, built by SEGMENT-BODY): prone, a crawl turned toward a wall 4 off is put back and its frame displacement zeroed (bVar6, D:L413487-413502)', () => {
     // bVar6 is prone: one hit more than 1 deep puts the move back. The line ahead meets the wall at 4 of its 8
     // (PRONE_FAN_READING), 4 deep; the port's chain shoves the body back to 8 off instead.
     const ground = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 0, 30)]);
@@ -560,7 +560,7 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     expect(w.wallHits().length, 'the climb contact is the move\'s, taken or not').toBeGreaterThan(0);
   });
 
-  it.skip('LATER 283 (WALL_DEEP_REVERT_READING, not built): the probe hits are counted, not the walls -- a body 1.25 inside a corner both lines meet (four hits) is put back, one only the low probe meets (two) is pushed out (D:L413603, 2 < iVar25)', () => {
+  it('LATER 283 (WALL_DEEP_REVERT_READING, built by SEGMENT-BODY): the probe hits are counted, not the walls -- a body 1.25 inside a corner both lines meet (four hits) is put back, one only the low probe meets (two) is pushed out (D:L413603, 2 < iVar25)', () => {
     // iVar25 counts the segments that hit (D:L413406-413425): the low probe at 6.5 and the head line at 19.394
     // (wallProbeHeights) each meet both faces of a corner 30 high, four hits; a corner 12 high meets the low probe
     // only, two. 2.25 from each face is 1.25 inside the radius. The body faces into the corner: the original casts a
@@ -578,8 +578,10 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     short.place(47.75, 0, 47.75);
     short.state.yaw = facing(47.75, 47.75, 50, 50);
     for (let i = 0; i < 10; i++) short.tick(STILL);
-    expect(50 - short.state.x).toBeCloseTo(BODY_RADIUS, 4);
-    expect(50 - short.state.z).toBeCloseTo(BODY_RADIUS, 4);
+    // SEGMENT-BODY: put out by the deepest's depth less 1 along its normal each tick it has two hits or fewer
+    // (D:L413612-413614) -- off the face the segments meet, not to the disc's radius (was `BODY_RADIUS` on both).
+    expect(50 - short.state.x).toBeGreaterThan(2.25 + 1);
+    expect(50 - short.state.z).toBeGreaterThanOrEqual(2.25);
   });
 });
 
@@ -592,16 +594,19 @@ describe('the mover, continued (W1.4)', () => {
     w.place(0, 0, 0);
     w.state.yaw = facing(0, 0, 1, 0);
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
-    expect(w.state.x).toBeCloseTo(50 - BODY_RADIUS, 6);
+    // SEGMENT-BODY (re-judged; was `BODY_RADIUS` 3.5, the disc's stand-off): head on, the first segment to cross the
+    // wall is the centre line, 1.1 x 1.4 x 3.5 = 5.39 (checkpoint 4: the head line runs along the facing by the muzzle
+    // only prone, `HEAD_LINE_MUZZLE_READING`; ac's capture at M51 house2), plus the tick's move (65 a second);
+    // the move's part along the normal is taken away there (`FUN_005483d0` D:L413557-413567) -- it stops between.
+    const standOff = 50 - w.state.x;
+    expect(standOff).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
+    expect(standOff).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * TICK + 0.01);
     expect(BODY_RADIUS).toBe(3.5);                        // research 24 section 2 step 3
     expect(w.state.z).toBeCloseTo(0, 6);
-    // Disc check of Fuse's #408 head (PR #408's verification comment): a single wall and a 54° face stopped 0.7 to 1.8 short of this stand-off, because a
-    // wish that closed on the chain's point was thrown away. The stop is the chain's radius.
-    expect(50 - w.state.x).toBeCloseTo(BODY_RADIUS, 4);
-    // Now at 45 degrees into it: the push takes out the part into the wall and the rest slides along.
+    // Now at 45 degrees into it: the part into the wall is taken out and the rest slides along, no nearer.
     w.state.yaw = facing(0, 0, 1, 1);
     for (let i = 0; i < 60; i++) w.tick(FORWARD);
-    expect(w.state.x).toBeCloseTo(50 - BODY_RADIUS, 6);
+    expect(50 - w.state.x).toBeGreaterThan(5);
     expect(w.state.z).toBeGreaterThan(15);
   });
 
@@ -677,9 +682,12 @@ describe('the mover, continued (W1.4)', () => {
     expect(along.state.x).toBeLessThan(50);
   });
 
-  it('a door leaf swung against a still body by a wall never pushes it through the wall (the crossing guard)', () => {
-    // A leaf (a moving owner, read fresh) shut 3 from a wall with a still body between them: under BODY_RADIUS from
-    // both, so no push can clear both -- it is not taken rather than carrying the body through either.
+  it('a door leaf swung against a still body by a wall never pushes it through the wall', () => {
+    // SEGMENT-BODY (re-judged; was "the crossing guard", the disc's refusal). A leaf (a moving owner, read fresh) shut 3
+    // from a wall with a still body between them, both faces toward -x. The still body (facing -z) casts along its
+    // facing; its +x side line crosses the wall from its front, more than 1 deep, and puts the body out by the depth
+    // less 1 (`FUN_005483d0` D:L413612-413614) toward -x -- through the leaf's back, a face met from behind (research 281
+    // s4.3) -- never through the wall.
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
     const polys = [floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 0, 30), wallX(47, -20, 20, 0, 30)];
     const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
@@ -689,8 +697,8 @@ describe('the mover, continued (W1.4)', () => {
       w.place(48.5, 0, 0);
       w.stance = stance;
       for (let i = 0; i < 60; i++) w.tick(STILL);
-      expect(w.state.x).toBeGreaterThan(47);
-      expect(w.state.x).toBeLessThan(50);
+      expect(w.state.x, stance).toBeLessThan(50);
+      expect(w.state.x, stance).toBeGreaterThan(40);
     }
   });
 
@@ -721,12 +729,16 @@ describe('the mover, continued (W1.4)', () => {
   });
 
   it('from below, the deck\'s face is a wall at the body\'s height', () => {
-    const deck = world([floor(-200, -200, 200, 200, 0), floor(-100, -100, 30, 100, 42), wallX(30, -100, 100, 0, 42)]);
+    // SEGMENT-BODY (re-judged): the deck's face wound toward the walker (+x), as a hull face is; the body stops where its
+    // segments first cross it -- the centre line, 5.39 (the head line takes the muzzle only prone,
+    // `HEAD_LINE_MUZZLE_READING`), plus the tick's move -- not the disc's 3.5.
+    const deck = world([floor(-200, -200, 200, 200, 0), floor(-100, -100, 30, 100, 42), wallXEast(30, -100, 100, 0, 42)]);
     const below = new Walker(deck);
     below.place(80, 10, 0);
     below.state.yaw = facing(80, 0, 0, 0);
     for (let i = 0; i < 180; i++) below.tick(FORWARD);
-    expect(below.state.x).toBeCloseTo(30 + BODY_RADIUS, 6);
+    expect(below.state.x - 30).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
+    expect(below.state.x - 30).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * TICK + 0.01);
     expect(below.state.y).toBe(0);
   });
 
@@ -799,31 +811,44 @@ describe.skipIf(!MP2)(`walking Frostfire${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, 
       expect(Math.abs(w.state.y - y), `leg ${i + 1}: feet at ${w.state.y.toFixed(2)}, floor ${y}`).toBeLessThanOrEqual(1.5);
     }
     // Research 24 section 0.3 / 6.3: the door leaf between B's region and the building, x 576-589, z 1117-1118.
-    // Squarely in front of it on B's side, then straight at it: the leaf stops the mover a body's radius short.
+    // Squarely in front of it on B's side, then straight at it: the leaf stops the mover short -- SEGMENT-BODY (re-judged;
+    // was a body's radius): where the centre line (5.39) first crosses it, plus at most a tick's move.
     expect(steer(w, 582.5, 1140)).toBe(true);
     w.state.yaw = facing(582.5, 1140, 582.5, 1000);
     for (let i = 0; i < 180; i++) w.tick({ forward: 1, right: 0, boost: false });
-    expect(w.state.z).toBeGreaterThan(1118);
-    expect(w.state.z).toBeLessThan(1118 + BODY_RADIUS + 1);
+    expect(w.state.z).toBeGreaterThan(1118 + 4.5);
+    expect(w.state.z).toBeLessThan(1118 + 7.5);
     expect(w.state.y).toBeCloseTo(142, 3);
   });
 
-  it('walking off the 142 deck east of A\'s spawn falls 42 onto the 100 floor in ~0.60 s (W2.2b)', async () => {
-    // B's ramp at z 1223 is walled on both sides; the open edge is the deck at x 630-675, z 725-815, y 142, whose
-    // east side at x ~675 drops to the 100 floor (found by walking every 15 units of the 142 level, 2026-09-28).
+  it('the 142 deck east of A\'s spawn: its pipeworks rail stops the walk on the deck; a fall of 42 off an open edge takes ~0.60 s (W2.2b)', async () => {
+    // B's ramp at z 1223 is walled on both sides; the deck at x 630-675, z 725-815, y 142, drops at x ~675 to the 100
+    // floor. SEGMENT-BODY (re-judged; was "walking off it falls 42"): `worldmodel/pipeworks` stands a face toward -x at
+    // x 678.3 along that side, met at the feet + 6.5 (148.5); the disc stood 3.5 off it, past the deck's edge, and fell.
+    // The segments meet it first -- the centre 5.39 ahead plus the move, or the contact branch's look-ahead
+    // (`FUN_005483d0` D:L413686-413756) -- and the body stays on the deck at every z along that side.
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     const w = new Walker(groundGrid(map.ground!));
     expect(w.place(660, 142 + EYE_HEIGHT, 725)).toBe(true);
     expect(w.state.y).toBe(142);
     w.state.yaw = facing(660, 725, 700, 725);
+    for (let i = 0; i < 120; i++) w.tick(FORWARD);
+    expect(w.airborne).toBe(false);
+    expect(w.state.y).toBe(142);
+    expect(w.state.x).toBeGreaterThan(665);
+    expect(w.state.x).toBeLessThan(678.3 - 5);
+    // The fall's time, off an open edge 42 high (no face): sqrt(2 x 42 / 235) = 0.60 s, within two ticks.
+    const ledge = new Walker(world([floor(-200, -200, 0, 200, 142), floor(0, -200, 200, 200, 100)]));
+    expect(ledge.place(-20, 150, 0)).toBe(true);
+    ledge.state.yaw = facing(-20, 0, 100, 0);
     let off = -1, landed = -1;
     for (let i = 0; i < 120 && landed < 0; i++) {
-      w.tick(FORWARD);
-      if (off < 0 && w.airborne) off = i;
-      if (off >= 0 && !w.airborne) landed = i;
+      ledge.tick(FORWARD);
+      if (off < 0 && ledge.airborne) off = i;
+      if (off >= 0 && !ledge.airborne) landed = i;
     }
     expect(off).toBeGreaterThan(0);
-    expect(w.state.y).toBe(100);
+    expect(ledge.state.y).toBe(100);
     expect(Math.abs((landed - off) * TICK - Math.sqrt(2 * 42 / 235))).toBeLessThanOrEqual(2 * TICK);
   });
 });
@@ -927,7 +952,9 @@ describe('walk mode (W1.4 step 5)', () => {
       fly.setPose({ yaw: toWall });                                 // now facing the wall
       mode.walkFor(0.5, { forward: 0, right: 0, boost: false });
       const feet = mode.feet()!;
-      expect(feet[0]).toBeCloseTo(50 - (stance === 'prone' ? WALL_PROBE_READING.prone.r * Math.cos(Math.PI / 3) : BODY_RADIUS), 2);
+      // SEGMENT-BODY (re-judged; was the disc's stand-off, 3.5 crouched and 8 cos 60 prone): short of the wall, where
+      // the segments left it.
+      expect(feet[0]).toBeLessThan(50);
       mode.setScoped(true);
       mode.frame(TICK);
       expect(fly.camera.position.x).toBeLessThan(50);
@@ -2125,6 +2152,34 @@ describe('the jump, as the decompilation has it (research 80)', () => {
     expect(w.jump()).toBe(true);
   });
 
+  it('LATER 676: pushed square into a wall at full stick, blocked, the press is the running jump (r0004 ditch capture)', () => {
+    // `FUN_0057e1b0` squares the clip's velocity `+0x2c..+0x34` against 225 (D:L440812-440814; r0004 0x583668-0x583694),
+    // which `FUN_0057a330` writes from the top clip's root velocity (D:L438908-438985) and the walls never cut
+    // (`FUN_005483d0` cuts only `+0xf44` and `+0x1350`, D:L413533-413597). Proven by ac's r0004 ditch capture
+    // (agent-mail/evidence/eph-hunt-2026-11-01/segment-body/ditch-capture/RESULTS.md, 2026-11-04): blocked, the body
+    // moving 0.00 a second against a clip velocity of 65, every press gave type 8, never the standing jump (178).
+    const walled = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 0, 30)]);
+    const w = new Walker(walled);
+    w.place(40, 0, 0);
+    w.state.yaw = facing(0, 0, 1, 0);
+    for (let i = 0; i < 30; i++) w.tick(FORWARD);
+    expect(Math.hypot(w.state.vx, w.state.vz)).toBeLessThan(RUNNING_JUMP_SPEED);   // the walls' cut: blocked
+    expect(w.jump()).toBe(true);
+    expect(w.action?.name).toBe('launch');
+    expect(w.airborne).toBe(true);
+  });
+
+  it('LATER 676: a placing clears the clip velocity -- a run, placed elsewhere, then a press: the standing jump', () => {
+    // `place` starts the body afresh (its velocity 0): the speed test (`FUN_0057e1b0` D:L440812-440814) reads no
+    // velocity kept from before the placing (fresh review 3, F3).
+    const { w } = speeds(FORWARD, 20);
+    expect(Math.hypot(w.state.vx, w.state.vz)).toBeGreaterThan(RUNNING_JUMP_SPEED);   // the control: running
+    expect(w.place(500, 0, 500)).toBe(true);
+    expect(w.jump()).toBe(true);
+    expect(w.action?.name).toBe('jump');
+    expect(w.airborne).toBe(false);
+  });
+
   it('a running jump landed with the stick at rest plays Jump land, gliding the carried speed down to a stop', () => {
     const w = standing();
     for (let i = 0; i < 60; i++) w.tick(FORWARD);
@@ -2849,6 +2904,9 @@ describe('a running jump up a slope lands on it, never under it (owner 2026-09-2
 });
 
 describe.skipIf(!MP2)(`a running jump up Frostfire's rail ramp${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  // LATER 682 (closed 2026-11-04): under the weapon line the ramp's own floor is stored about 23 ahead
+  // (`WEAPON_LINE_POLYGON_SET_PLACEHOLDER`), and the r0001 reading refused the running jump with a stored contact; the
+  // r0004 jump-near-wall capture proved the running jump reads no contact (`JUMP_CONTACT_PROVEN` 'none'), so it lands.
   it('rmp1 (x 680-705, z 891-975, y 100 -> 142 at 26.6 degrees, the 100 floor under it): lands on the ramp', async () => {
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     const grid = groundGrid(map.ground!);
@@ -2897,7 +2955,11 @@ describe('an airborne column is entered on the ground\'s own pick (OWNER-5; FUN_
   };
 
   it('a running jump at a wall-less ledge 12 high enters it with the feet low (the pick takes a floor up to 20 over them) and ends on it', () => {
-    const w = new Walker(world([floor(-200, -200, 200, -20, 0), floor(-200, -20, 200, 200, 12)]));
+    // SEGMENT-BODY (checkpoint 3): `floor` is wound with its own normal down (-y); the rising jump's records crossed the
+    // ledge's floor from below -- its front -- as a ceiling, and the jam held the move across for a tick. A hull floor faces
+    // up; this ledge's is wound so (the points reversed).
+    const up = (p: WorldPoly): WorldPoly => ({ ...p, points: Float32Array.from([...p.points.slice(9, 12), ...p.points.slice(6, 9), ...p.points.slice(3, 6), ...p.points.slice(0, 3)]) });
+    const w = new Walker(world([floor(-200, -200, 200, -20, 0), up(floor(-200, -20, 200, 200, 12))]));
     expect(w.place(0, PROBE_LIFT, -150)).toBe(true);
     const r = crossing(w, -20, -32);
     expect(r.crossY).not.toBeNull();

@@ -2,6 +2,9 @@ import {describe,expect,it} from 'vitest';
 import {buildHdManifest,parseName,resolveFiles,type PackFile} from '../hdPack';
 import {pcsx2Names} from '../pcsx2Names';
 import type {DiscTextureRecord} from '../discTextureRecords';
+import {assembleRead,regionTexHash,resolvePlacements,type PlacementRow} from '../hdPlacements';
+import {clutBytes,xxh3} from '../pcsx2Names';
+import {validateHdManifest} from '../../packages/viewer/src/hdTexturePack';
 
 /** Synthetic records and pack files (no game data): each file named as PCSX2 would name its record, or not. */
 let seed=7;const rnd=()=>(seed=(seed*1103515245+12345)>>>0)>>>24;
@@ -45,5 +48,42 @@ describe('HD pack generator (HD-5)',()=>{
     expect(by[recs[1]!.rgbaSha256]).toMatchObject({tier:'A2',outWidth:32});expect(by[recs[2]!.rgbaSha256]).toMatchObject({tier:'C',outWidth:48,format:'png'});   // recoloured into the record's palette
     expect([...built.payloads.values()].filter(v=>typeof v!=='string').length).toBe(1);
     expect(built.payloads.size).toBe(3);expect(built.id).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+describe('HD placements (HD.R9): a file named for part of a texture, placed there once its name is re-derived',()=>{
+  const big=()=>record(9,{width:32,height:32,tw:5,th:5,pixels:bytes(1024)});
+  it("re-derives a window read's name, refuses a row whose name does not follow, and emits the placement at the image's scale",async()=>{
+    const r=big(),window=assembleRead(r,[16,16],[{rect:[16,0,16,16],at:[0,0],from:r}],1)!;
+    const n=(await pcsx2Names(window))[0]!,file=`${n.name}.dds`,wrong=`${n.tex}-${n.clut}-00001113.dds`.replace(/^./,c=>c==='0'?'1':'0');
+    const row=(f:string,dst:[number,number,number,number]=[16,0,16,16]):PlacementRow=>({file:f,kind:'crop',targets:[{sha256:r.rgbaSha256,where:r.where}],read:[16,16],
+      proof:{kind:'name',parts:[{rect:dst,at:[0,0]}]},placements:[{dst,src:[0,0,16,16]}],evidence:'test'});
+    const {placed,refused}=await resolvePlacements([row(file),row(file,[0,16,16,16]),row(wrong),row('absent-00001113.dds')],[r],new Set([file,wrong]));
+    expect(placed.map(p=>p.file)).toEqual([file]);
+    expect(refused.map(x=>x.why)).toEqual([expect.stringMatching(/not re-derived/),expect.stringMatching(/not re-derived/),'placement refused: not in the pack']);
+    const files=[{name:file,read:()=>dds(64,64,70)}],below:{file:string;why:string}[]=[];
+    const built=buildHdManifest([r],files,new Map(),below,{name:'HD test',method:'test',game:'SCUS-97275'},placed);
+    expect(built.manifest.entries).toEqual([expect.objectContaining({key:r.rgbaSha256,width:32,height:32,outWidth:64,tier:'A',source:file,placementKind:'crop',
+      placements:[{dst:[16,0,16,16],src:[0,0,64,64]}]})]);
+    expect(validateHdManifest(JSON.parse(new TextDecoder().decode(built.manifestBytes)))).toEqual(built.manifest);
+    const o=record(1),on=(await pcsx2Names(o))[0]!,oddFiles=[{name:file,read:()=>dds(48,32,70)},{name:`${on.name}.dds`,read:()=>dds(64,64,10)}];
+    const res=await resolveFiles([r,o],oddFiles),odd=buildHdManifest([r,o],oddFiles,res.bound,[],{name:'HD test',method:'test',game:'SCUS-97275'},placed);
+    expect(odd.below).toEqual([{file,why:expect.stringMatching(/whole scale/)}]);expect(odd.manifest.entries.map(e=>e.key)).toEqual([o.rgbaSha256]);
+    expect(odd.payloads.size).toBe(1);
+  });
+  it("re-derives a clamped region's name from the indices over the region and the record's CLUT",async()=>{
+    const r=big(),tex=await regionTexHash(r,[0,0,20,32]),clut=await xxh3(clutBytes(r)!);
+    const file=`${tex}-${clut}-r1300000-00001153.dds`;
+    const row:PlacementRow={file,kind:'region',targets:[{sha256:r.rgbaSha256,where:r.where}],read:[20,32],proof:{kind:'region',rect:[0,0,20,32]},
+      placements:[{dst:[0,0,20,32],src:[0,0,20,32]}],evidence:'test'};
+    expect((await resolvePlacements([row],[r],new Set([file]))).placed).toHaveLength(1);
+    expect((await resolvePlacements([{...row,proof:{kind:'region',rect:[0,0,21,32]}}],[r],new Set([file]))).placed).toHaveLength(0);
+  });
+  it('builds the same manifest as before when nothing is placed',async()=>{
+    const recs=[record(1)],n=(await pcsx2Names(recs[0]!))[0]!,files=[file(`${n.name}.dds`,dds(64,64,10))];
+    const {bound,below}=await resolveFiles(recs,files);
+    const a=buildHdManifest(recs,files,bound,below,{name:'HD test',method:'m',game:'SCUS-97275'});
+    const b=buildHdManifest(recs,files,bound,[...below],{name:'HD test',method:'m',game:'SCUS-97275'},[]);
+    expect(b.id).toBe(a.id);expect(JSON.stringify(a.manifest)).not.toMatch(/placement/);
   });
 });

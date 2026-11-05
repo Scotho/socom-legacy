@@ -1,8 +1,11 @@
-import {describe,expect,it} from 'vitest';
+import {describe,expect,it,vi} from 'vitest';
+import {readFileSync} from 'node:fs';
 import type {Rgba} from '@s2u/gs';
-import {HdTextureRegistry,type HdManifest,type HdEntry} from '../src/hdTexturePack';
+import {HdTextureRegistry,HD_UI_SAMPLING,upscaleRgba,type HdManifest,type HdEntry} from '../src/hdTexturePack';
 import {HdServedPack,HD_ROOT} from '../src/hdTexturePackServed';
-import {HdMenuTextures,HdMenus,hdMenuScale,parseHdMenuScale,menuStatusKey} from '../src/hdMenuTextures';
+import {HdMenuDecoder,HdMenuTextures,HdMenus,hdMenuScale,pageHdMenus,parseHdMenuScale,menuStatusKey} from '../src/hdMenuTextures';
+import {UiGpuLoadBudget} from '../src/uiGpuLoadBudget';
+import {encodePng} from '../../../tools/png';
 import {flipRows} from '../src/hudAssets';
 import {sha256} from '../src/texturePack';
 
@@ -37,6 +40,32 @@ describe('HD-3: the menus\' scale from the pack',()=>{
     expect(hdMenuScale({entries:[entry(64,64,128,128),entry(32,32,64,64),entry(8,8,32,32)]})).toBe(2);
     expect(hdMenuScale({entries:[entry(8,8,128,128),entry(8,8,128,128)]})).toBe(4);   // 16x, capped
     expect(hdMenuScale({entries:[entry(10,10,15,15),entry(8,8,8,16)]})).toBe(1);      // no whole, square ratio
+  });
+});
+
+describe('HD.R9: placements in the menus',()=>{
+  it('a placement entry counts at its placement\'s scale, not its image\'s ratio to the target',()=>{
+    const placed=(w:number,ow:number,k:number):HdEntry=>({...entry(w,w,ow,ow),placementKind:'crop',placements:[{dst:[0,0,1,1],src:[0,0,k,k]}]});
+    expect(hdMenuScale({entries:[entry(64,64,128,128),placed(8,32,2),placed(8,32,2),placed(16,64,2)]})).toBe(2);   // 4 by size, 2 by placement
+  });
+  it('a bitmap with a placement takes the composite: the pack\'s art on its part, the bitmap\'s own texels elsewhere, top row first',async()=>{
+    const decode=pattern(4,4,3,128),hd=pattern(8,8,9,128),bitmap=flipRows(decode);
+    const manifest:HdManifest={format:'s2u-hd-texture-pack',version:1,localOnly:true,game:'SCUS-97275',name:'HD test',method:'test',totalBytes:hd.data.length,
+      entries:[{key:await hashOf(decode.data),width:4,height:4,file:'0.dds',format:'dds',outWidth:8,outHeight:8,bytes:hd.data.length,sha256:await hashOf(hd.data),
+        tier:'A',source:'x-y-00001113.dds',placementKind:'crop',placements:[{dst:[2,0,2,2],src:[0,0,8,8]}]}]};
+    const mbytes=new TextEncoder().encode(JSON.stringify(manifest)),id=await sha256(mbytes);
+    const files=new Map<string,Uint8Array>([[HD_ROOT+'current.json',new TextEncoder().encode(JSON.stringify({version:1,packId:id}))],[`${HD_ROOT}${id}/manifest.json`,mbytes],[`${HD_ROOT}${id}/0.dds`,dds(hd)]]);
+    const fetcher=async(url:string)=>{const f=files.get(url);return f?new Response(f.slice().buffer as ArrayBuffer):new Response('',{status:404});};
+    const pack=new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false));await pack.setEnabled(true);
+    const menus=new HdMenuTextures(pack.runtime);menus.lookup(bitmap);await menus.settled();
+    const got=menus.lookup(bitmap)!;
+    expect([got.width,got.height]).toEqual([16,16]);
+    const at=(img:Rgba,x:number,y:number)=>[...img.data.subarray((y*img.width+x)*4,(y*img.width+x)*4+4)];
+    // the decode's rows 0-1, columns 2-3 (the composite's 8..15 x 0..7, turned: rows 8..15) are the pack's art
+    expect(at(got,8,15)).toEqual([...at(hd,0,0).slice(0,3),255]);expect(at(got,15,8)).toEqual([...at(hd,7,7).slice(0,3),255]);
+    // elsewhere the bitmap as the compositor samples it (bilinear, repeating), turned alike
+    const own=flipRows({width:16,height:16,data:upscaleRgba(decode,16,16,HD_UI_SAMPLING)});
+    for(const [x,y] of [[0,0],[7,7],[3,12],[12,3]] as const)expect(at(got,x,y),`${x},${y}`).toEqual(at(own,x,y));
   });
 });
 
@@ -92,6 +121,34 @@ describe('HD-3: the front end\'s switch',()=>{
     const {fetcher}=await served(pattern(4,4,3),pattern(16,16,9));
     const hd=new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false)),2);
     await hd.set(true);expect(hd.options().scale).toBe(2);expect(hd.options().quadCache).toBeDefined();
+  });
+});
+
+describe('GM-14a (GM-13 review F3): the menus\' HD keys for the GPU surface',()=>{
+  it('keys(): null while off, the lookup itself while on (its pack, version and gpuKeyOf), null again when off',async()=>{
+    const {fetcher}=await served(pattern(4,4,3),pattern(16,16,9));
+    const hd=new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false)));
+    expect(hd.keys()).toBeNull();
+    await hd.set(true);
+    const k=hd.keys();
+    expect(k).toBeInstanceOf(HdMenuTextures);
+    expect(typeof k!.pack).toBe('number');expect(k!.version).toBe(0);expect(k!.gpuKeyOf(pattern(1,1,1))).toBeNull();
+    expect(hd.options().hd).toBe(k!.lookup);
+    await hd.set(true);
+    expect(hd.keys()).not.toBe(k);expect(hd.keys()!.pack).not.toBe(k!.pack);   // a new lookup, a new pack number
+    await hd.set(false);
+    expect(hd.keys()).toBeNull();
+  });
+});
+
+describe('GM-13 review F2: a lookup replaced is closed (its queued loads dropped)',()=>{
+  it('HD off, and HD on again, close the lookup they replace',async()=>{
+    const {fetcher}=await served(pattern(4,4,3),pattern(16,16,9));
+    const hd=new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false)));
+    const current=()=>(hd as unknown as {textures:HdMenuTextures|null}).textures;
+    await hd.set(true);const first=current()!;expect(first.closed).toBe(false);
+    await hd.set(true);const second=current()!;expect(first.closed).toBe(true);expect(second.closed).toBe(false);
+    await hd.set(false);expect(second.closed).toBe(true);
   });
 });
 
@@ -166,5 +223,123 @@ describe('HD-4: the lookup\'s version',()=>{
     hd.options().hd!(flipRows(decode));await hd.settled();
     expect(hd.options().version).toBe(1);
     await hd.set(false);expect(hd.options()).toEqual({scale:1});
+  });
+});
+
+// GM-13b (plan 2026-11-01-gpu-menus, row GM-13b): the menus' decode off the main thread. The lookup's turn of a
+// replacement (`reverseRows`) goes through the menus' decoder (`HdMenuDecoder`: the worker, else the main thread spread),
+// inside the load's budget slot (`hdLoadBytes` counts the turned copy), and the menus' pack decodes its PNG payloads
+// through the same decoder. PRODUCT TRACK, a browser adaptation: the bytes kept are today's. Unit tests only.
+describe('GM-13b: the menus\' HD decode through their decoder',()=>{
+  /** A served pack whose one entry is a PNG payload (`encodePng`, the rows as stored). */
+  async function servedPng(decode:Rgba,hd:Rgba){
+    const png=encodePng(hd.width,hd.height,hd.data);
+    const manifest:HdManifest={format:'s2u-hd-texture-pack',version:1,localOnly:true,game:'SCUS-97275',name:'HD test',method:'test',totalBytes:hd.data.length,
+      entries:[{key:await hashOf(decode.data),width:decode.width,height:decode.height,file:'0.png',format:'png',outWidth:hd.width,outHeight:hd.height,bytes:hd.data.length,sha256:await hashOf(hd.data),tier:'A',source:'x-y-00001113.png'}]};
+    const mbytes=new TextEncoder().encode(JSON.stringify(manifest)),id=await sha256(mbytes);
+    const files=new Map<string,Uint8Array>([[HD_ROOT+'current.json',new TextEncoder().encode(JSON.stringify({version:1,packId:id}))],[`${HD_ROOT}${id}/manifest.json`,mbytes],[`${HD_ROOT}${id}/0.png`,png]]);
+    return async(url:string)=>{const f=files.get(url);return f?new Response(f.slice().buffer as ArrayBuffer):new Response('',{status:404});};
+  }
+  /** A decoder whose requests are recorded and whose turn can be held (`gate`) or refused (`refuse`). */
+  function recordingDecoder(opts:{gate?:Promise<void>;refuse?:boolean;during?:()=>void}={}){
+    const calls:string[]=[];
+    const d=new HdMenuDecoder(()=>null,async()=>undefined);
+    const png=d.png,turn=d.turn.bind(d);
+    Object.assign(d,{
+      png:(b:Uint8Array,e:number)=>{calls.push('png');return png(b,e);},
+      turn:async(r:Rgba)=>{calls.push('turn');opts.during?.();if(opts.gate)await opts.gate;if(opts.refuse)throw new Error('the worker died');return turn(r);},
+    });
+    return {d,calls};
+  }
+  const imageOf=(img:Rgba)=>[img.width,img.height,Buffer.from(img.data.buffer,img.data.byteOffset,img.data.byteLength).toString('hex')];
+
+  it('the kept image is today\'s bytes: the replacement turned top row first, through the decoder',async()=>{
+    const decode=pattern(4,4,3),hd=pattern(16,16,9,120),{fetcher}=await served(decode,hd);
+    const pack=new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false));await pack.setEnabled(true);
+    const today=new HdMenuTextures(pack.runtime),{d,calls}=recordingDecoder();
+    const viaDecoder=new HdMenuTextures(pack.runtime,undefined,undefined,null,d);
+    const bitmap=flipRows(decode);
+    today.lookup(bitmap);viaDecoder.lookup(bitmap);await today.settled();await viaDecoder.settled();
+    expect(calls).toEqual(['turn']);
+    const got=viaDecoder.lookup(bitmap)!;
+    expect(imageOf(got)).toEqual(imageOf(today.lookup(bitmap)!));
+    expect(viaDecoder.version).toBe(1);expect(viaDecoder.replaced).toBe(1);
+    expect(viaDecoder.gpuKeyOf(got)).toMatch(/^hd\|\d+\|[0-9a-f]{64}$/);
+  });
+  it('the turn runs inside the load\'s budget slot (its bytes still in flight while it turns)',async()=>{
+    const decode=pattern(4,4,3),hd=pattern(16,16,9),{fetcher}=await served(decode,hd);
+    const pack=new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false));await pack.setEnabled(true);
+    const budget=new UiGpuLoadBudget(1000);let inFlight=-1;
+    const {d}=recordingDecoder({during:()=>{inFlight=budget.bytesInFlight;}});
+    const menus=new HdMenuTextures(pack.runtime,undefined,undefined,{budget,cost:()=>777},d);
+    menus.lookup(flipRows(decode));await menus.settled();
+    expect(inFlight).toBe(777);
+    expect(budget.bytesInFlight).toBe(0);
+    expect(menus.replaced).toBe(1);
+  });
+  it('a refused turn keeps nothing and gives its bytes back: the next key fits the budget it left',async()=>{
+    const a=pattern(4,4,3),b=pattern(4,4,50),hd=pattern(16,16,9);
+    const replacer={calls:0,async replacement(){this.calls++;return {width:16,height:16,data:new Uint8ClampedArray(hd.data)};}};
+    let refuse=true;
+    const d=new HdMenuDecoder(()=>null,async()=>undefined),turn=d.turn.bind(d);
+    Object.assign(d,{turn:async(r:Rgba)=>{if(refuse){refuse=false;throw new Error('the worker died');}return turn(r);}});
+    const menus=new HdMenuTextures(replacer,hd.data.length,undefined,null,d);           // room for exactly one image
+    const first=flipRows(a);menus.lookup(first);await menus.settled();
+    expect(menus.lookup(first)).toBeNull();expect(menus.replaced).toBe(0);expect(menus.version).toBe(0);
+    // The same object asked again: a new object's first ask answers null while its key hashes (box run, 7fdcb143d).
+    const second=flipRows(b);menus.lookup(second);await menus.settled();
+    expect(menus.lookup(second)?.width).toBe(16);expect(menus.replaced).toBe(1);
+  });
+  it('closed while the turn runs: nothing kept, nothing counted',async()=>{
+    const decode=pattern(4,4,3),{fetcher}=await served(decode,pattern(16,16,9));
+    const pack=new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false));await pack.setEnabled(true);
+    let open!:()=>void;const gate=new Promise<void>(r=>{open=r;});
+    const {d,calls}=recordingDecoder({gate});
+    const menus=new HdMenuTextures(pack.runtime,undefined,undefined,null,d);
+    menus.lookup(flipRows(decode));
+    await expect.poll(()=>calls.length).toBe(1);
+    menus.close();open();await menus.settled();
+    expect(menus.replaced).toBe(0);expect(menus.version).toBe(0);expect(menus.lookup(flipRows(decode))).toBeNull();
+  });
+  it('the menus\' pack decodes a PNG payload through the decoder; the image is today\'s; off closes the decoder',async()=>{
+    const decode=pattern(4,4,3),hd=pattern(16,16,9,100),fetcher=await servedPng(decode,hd);
+    const today=new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false)));
+    const {d,calls}=recordingDecoder();let closed=0;const close=d.close.bind(d);d.close=()=>{closed++;close();};
+    const made:unknown[]=[];
+    const via=new HdMenus((dec)=>{made.push(dec);return new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false),null,dec?.png);},4,d);
+    await today.set(true);await via.set(true);
+    expect(made).toEqual([d]);
+    const bitmap=flipRows(decode);
+    today.options().hd!(bitmap);via.options().hd!(bitmap);await today.settled();await via.settled();
+    expect(calls).toEqual(['png','turn']);
+    expect(imageOf(via.options().hd!(bitmap)!)).toEqual(imageOf(today.options().hd!(bitmap)!));
+    await via.set(false);expect(closed).toBe(1);
+  });
+});
+
+// GM-13b review F2: where the menus' decode ran is said -- once on the page's `[hd] menus:` line when it falls to the main
+// thread, and on the perf hook (`__uiGpuPerf.hd().decoder`), so a perf run records whether the worker ran.
+describe('GM-13b review F2: the decoder\'s mode surfaced',()=>{
+  it('HdMenus.decoderMode(): null without a decoder; the decoder\'s mode and failure with one',async()=>{
+    const {fetcher}=await served(pattern(4,4,3),pattern(16,16,9));
+    expect(new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false))).decoderMode()).toBeNull();
+    const d=new HdMenuDecoder(()=>null,async()=>undefined);
+    const hd=new HdMenus((dec)=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false),null,dec?.png),4,d);
+    expect(hd.decoderMode()).toEqual({mode:'idle',failure:null});
+    await d.png(encodePng(2,2,pattern(2,2,1).data),8192);
+    expect(hd.decoderMode()).toEqual({mode:'main',failure:d.failure});
+  });
+  it('the page\'s menus say the fall to the main thread once on their [hd] menus: line',async()=>{
+    const info=vi.spyOn(console,'info').mockImplementation(()=>undefined);
+    try{
+      const hd=pageHdMenus(4),d=(hd as unknown as {decoder:HdMenuDecoder}).decoder;
+      await d.png(encodePng(2,2,pattern(2,2,1).data),8192);await d.png(encodePng(2,2,pattern(2,2,2).data),8192);
+      const lines=info.mock.calls.map(c=>String(c[0])).filter(l=>l.startsWith('[hd] menus:'));
+      expect(lines).toHaveLength(1);expect(lines[0]).toMatch(/main thread/);expect(lines[0]).toContain(d.failure!);
+    }finally{info.mockRestore();}
+  });
+  it('the perf hook\'s hd() carries it (frontEnd.ts)',()=>{
+    const src=readFileSync(new URL('../src/frontEnd.ts',import.meta.url),'utf8');
+    expect(src).toMatch(/forced: uiPerf\.hd, decoder: hdMenus\?\.decoderMode\(\) \?\? null/);
   });
 });

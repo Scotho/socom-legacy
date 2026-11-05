@@ -66,8 +66,9 @@ function syntheticWalkingMap(wall = false): SimMap {
     material: 25, ptcount: 4, cameratype: 0,
     points: Float32Array.from([-20, 0, -20, 38, 0, -20, 38, 0, 60, -20, 0, 60]) };
   const polys = [floor];
+  // Wound to face -x, toward a walk from x 0: a hull face is met only from its front (research 281 s4.3; SEGMENT-BODY).
   if (wall) polys.push({ ...floor, path: 'synthetic-wall', ditype: 2,
-    points: Float32Array.from([20, 0, -20, 20, 50, -20, 20, 50, 60, 20, 0, 60]) });
+    points: Float32Array.from([20, 0, -20, 20, 0, 60, 20, 50, 60, 20, 50, -20]) });
   const ground = packGround({ atomCount: 64, posts: 4, cellDim: 20, cellsX: 4, cellsZ: 2,
     originX: 0, originZ: 0 }, polys,
   polys.map((poly, index) => ({ modelName: poly.modelName, path: poly.path, first: index, count: 1 })));

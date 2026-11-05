@@ -27,7 +27,12 @@ describe.skipIf(!MP72)(`Crossroads tower ramp crouch movement${MP72 ? '' : ` (${
     it.each([0.5, 0.8, 1])(`${downhill ? 'downhill' : 'uphill'}, lane x=${x}, push=%s retains the right posture and reaches the landing`, (push) => {
       const w = new Walker(grid);
       w.driver = new Traversal(grid, polys);
-      const target = downhill ? 1280 : 1333;
+      // SEGMENT-BODY (re-judged): down the west lane (x 1591) the crouched head line, run along the facing by 1.1 x the
+      // crouched muzzle's forward part (12.58, `HEAD_LINE_MUZZLE_READING`) at the feet + 12.138, meets
+      // `worldmodel/tower/di_door_tower` at z 1276.4 and stops the walk on the ramp's foot (z about 1289, y about 92.7);
+      // the disc stood 3.5 off it, over the landing. The other lanes miss it.
+      const blocked = downhill && x === 1591;
+      const target = downhill ? (blocked ? 1276.4 + 1.1 * 11.438 + 1 : 1280) : 1333;
       expect(w.place(x, downhill ? 121 : 92, downhill ? 1333 : 1280)).toBe(true);
       w.state.yaw = downhill ? 0 : 180;
       w.stance = 'crouch';
@@ -43,7 +48,8 @@ describe.skipIf(!MP72)(`Crossroads tower ramp crouch movement${MP72 ? '' : ` (${
       }
       expect(inclineTicks).toBeGreaterThan(0);
       expect(downhill ? w.state.z <= target : w.state.z >= target).toBe(true);
-      expect(w.state.y).toBeCloseTo(downhill ? 89.250 : 119.250, 2);
+      if (blocked) expect(w.state.y).toBeLessThan(95);
+      else expect(w.state.y).toBeCloseTo(downhill ? 89.250 : 119.250, 2);
       for (let i = 0; i < 90; i++) w.tick(still);
       expect(w.posture).toBe('crouch');
       w.changeStance('stand');

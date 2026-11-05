@@ -219,6 +219,32 @@ wrong is where the bomb lies:
   round is still the planters' (state 5, PF-14b). Open, for H371 to settle: whether the original's tent burns at all
   (if it does, one of the target's midpoint, the `+0x94` skip on `healthy`'s subtree or the post's place in the
   explosion's query is misread); the SEAL tent has no post and falls from every spot.
+- *Under the segment body the premise fails (parity clause 7; SEGMENT-BODY, 2026-11-04; LATER 677; reading, pending
+  review -- an investigator's unit probe on MP7 at `cbc65f7f3`, re-run on `agent/segment-body`).* The bullet above is
+  the disc body's reading: its `BODY_RADIUS` held the feet 3.5 off every face, and the premise -- no reachable stand
+  puts the hand over the post -- held. `di_wood_post` has 4 side faces, 1.94 from its centre to a face and 2.75 to a
+  corner, turned so that its face normals lie at 22.4 / 112.4 / 202.4 / 292.4 degrees (the test's yaw convention, 0
+  facing -z). Under the segment body (research 217 §2.9) a walker turned to face the post's centre from 12 u out and
+  walked in at full stick meets a face 22.4 degrees off square and slides along it, and the fan's side line -- 1.05
+  across at the feet (`FUN_0054aa30` D:L415171-415220: the travel's perpendicular x r x 0.3) -- passes 0.04-0.09 outside
+  a corner: the feet come 4.77 off the centre from the 0 / 90 / 180 / 270 family of approaches (5.45 from the 30-degree
+  family, 6.52 from the 60), and are never inside the footprint. From the slide-past spots (from 90 degrees the feet
+  about (0.27 .. 2.44, -4.77) off the centre) `bombPlantHand`'s rifle hand lies over the post at yaws 265-315 (the
+  pistol's never), and the next tick's spot, (-0.81, -4.77), at 305-335; each family the same turned by 90. A still body
+  stopped there is stable (a still body's lines run along its facing, D:L415135-415161), so the stand is reachable.
+  **The two readings**: the disc body's (the premise holds, nothing is reachable inside 5.44) and the segment body's (it
+  fails: a SEAL who slides past the post and turns to 265-315 has his hand over it). **What settles it**: an r0004
+  capture of a SEAL walking into a narrow rotated post -- this one, or any square column turned off the axes -- and
+  planting beside it (the feet's closest approach and where the bomb lies), or a reading of whether the original's plant
+  tests the hand against the post (as transcribed above, `FUN_005c2430` casts the column at the hand's x and z,
+  D:L477211, and keeps a surface from it, D:L477228-477249; whether anything refuses a hand inside a solid is not
+  read). H371's capture covers the
+  same tent. **The branch's interim rule** (`central/test/roomBombNightStalker.parity.test.ts`): the feet are never
+  inside the post and come no nearer its centre than 4.77 (the segment body's, reading, pending review; was the disc's
+  5.4); the hand is checked at every tick's feet of the walk, not only where it ends (the test before walked while the
+  turn was still running, so the 0-degree approach passed by walking away); and the premise is held as `it.fails`
+  ("GAP (LATER 677)", `tools/test/itFailsRegister.test.ts`), not loosened. `BLAST_SKIP_GROUP_READING`'s fallback is
+  untouched: under it the base falls from every spot either way.
 - *The fallback: the skip covers the target's damage group (`BLAST_SKIP_GROUP_READING`, `viewer/src/sceneHealth.ts`;
   reading, pending review; 2026-11-01, on the merge controller's standing decision for a question the source does not
   settle -- the original's known behaviour has both bases blow).* The reach gate passes the struck node and every node

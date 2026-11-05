@@ -44,6 +44,7 @@ const OUT = opt('--out') ?? fileURLToPath(new URL('../test-fixtures/screens/rele
 const index = JSON.parse(readFileSync(fileURLToPath(new URL('../public/maps/index.json', import.meta.url)), 'utf8')) as { maps: { archive: string; name: string }[] };
 const MAPS = opt('--maps')?.split(',') ?? index.maps.map((m) => m.archive);
 const LOOKS = (opt('--looks') ?? 'modern,ps2').split(',') as ('modern' | 'ps2')[];
+// WEBGL2-DEFAULT (LATER 708): the page's Automatic is WebGL2, so a webgpu leg asks with &renderer=webgpu (`run`).
 const BACKENDS = (opt('--backends') ?? 'webgpu,webgl2').split(',') as ('webgpu' | 'webgl2')[];
 /**
  * The browser: the installed Chrome by default. Playwright's bundled headless shell offers a WebGPU adapter but fails its
@@ -174,7 +175,7 @@ async function sweep(browser: Browser, map: string, name: string, look: 'modern'
     if (backend === 'webgl2') await p.addInitScript(HIDE_GPU);
     await p.addInitScript(INIT);
     const t0 = Date.now();
-    await p.goto(`${testRoomUrl(BASE)}?map=${map}&mode=play&fly&devmode`);
+    await p.goto(`${testRoomUrl(BASE)}?map=${map}&mode=play&fly&devmode${backend === 'webgpu' ? '&renderer=webgpu' : ''}`);
     await p.waitForFunction(() => (window.__viewer?.stats().triangles ?? 0) > 0 && (window.__viewer?.stats().collisionPolys ?? 0) > 0, undefined, { timeout: 180_000 });
     r.loadWallMs = Date.now() - t0;
     await p.waitForFunction(() => document.getElementById('loading')?.hidden === true, undefined, { timeout: 180_000 });

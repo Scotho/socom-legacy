@@ -1,15 +1,24 @@
 import {polygonNormal,type WorldPoly} from '@s2u/scene';
-import {BODY_RADIUS,Walker,groundPolygons} from '../../../viewer/src/mover';
+import {BODY_RADIUS,SEGMENT_BODY_READING,Walker,groundPolygons} from '../../../viewer/src/mover';
 import {Traversal} from '../../../viewer/src/traversal';
 import {MoverSim} from '../../../viewer/src/net/moverSim';
+import {WEAPON_LINE_BOTS_READING} from '../../../viewer/src/weaponLine';
 import {CLIMBABLE} from '../../../viewer/src/climb';
 import type {SimClips,SimMap} from '../../../viewer/src/simMap';
 import {TICK_HZ} from '../../../viewer/src/net/protocol';
 import {BotClimbDrive,type BotClimbLink} from './climbDrive';
 import type {Point} from './navigationShape';
 
-/** Authored search schedule (OT.R81), not retail climb dimensions. Every edge completes the native move. */
-const CLIMB_SEARCH_ADAPTATION={bucket:50,approach:BODY_RADIUS+1,column:5,probeTicks:20*TICK_HZ};
+/**
+ * Authored search schedule (OT.R81), not retail climb dimensions. Every edge completes the native move.
+ * SEGMENT-BODY (OT.R81, a bot adaptation, no original value): `approach`, the entry's stand-off from the face, lies past
+ * the walker's centre line (`SEGMENT_BODY_READING`: centre x ahead x r, 5.39), plus 1, so the probe's glide (`canWalk`,
+ * the real walker) can reach it -- at r + 1 the centre met the face first and the glide never arrived. `inset`, the
+ * entry's column kept that far inside the face's ends (the side line's reach across, sideFar x r, 4.2): nearer an end
+ * only a side line meets the face, and a side line stores no contact (`FUN_005483d0` D:L413823-413848), so no offer.
+ */
+const CLIMB_SEARCH_ADAPTATION={bucket:50,approach:SEGMENT_BODY_READING.centre*SEGMENT_BODY_READING.ahead*BODY_RADIUS+1,
+ inset:SEGMENT_BODY_READING.sideFar*BODY_RADIUS,column:5,probeTicks:20*TICK_HZ};
 type Face={poly:WorldPoly;nx:number;nz:number;ax:number;az:number;bx:number;bz:number;top:number};
 export class BotClimbDiscovery {
  private readonly faces:Face[]=[];
@@ -45,7 +54,9 @@ export class BotClimbDiscovery {
   const size=CLIMB_SEARCH_ADAPTATION.bucket;
   for(const id of this.buckets.get(`${Math.floor(at[0]/size)},${Math.floor(at[2]/size)}`)??[]){
    const face=this.faces[id]!,dx=face.bx-face.ax,dz=face.bz-face.az,length=dx*dx+dz*dz;
-   const t=Math.max(0,Math.min(1,((at[0]-face.ax)*dx+(at[2]-face.az)*dz)/length));
+   // The column kept `inset` inside the face's ends (the middle of a face narrower than twice that).
+   const edge=Math.min(0.5,CLIMB_SEARCH_ADAPTATION.inset/Math.sqrt(length));
+   const t=Math.max(edge,Math.min(1-edge,((at[0]-face.ax)*dx+(at[2]-face.az)*dz)/length));
    const x=face.ax+dx*t,z=face.az+dz*t;
    if(Math.hypot(x-at[0],z-at[2])>size||at[1]>=face.top)continue;
    const key=`${id}:${Math.round(x/CLIMB_SEARCH_ADAPTATION.column)}:${Math.round(z/CLIMB_SEARCH_ADAPTATION.column)}:${Math.round(at[1])}`;
@@ -62,6 +73,7 @@ export class BotClimbDiscovery {
    if(!this.walk(nodes[job.node]!.at,job.entry))return;
    const walker=new Walker(this.map.grid),moves=new Traversal(this.map.grid,groundPolygons(this.map.ground));
    moves.setClips(this.clips.clips,this.clips.table);walker.actionRoots=this.clips.roots;
+   walker.weaponLineCast=WEAPON_LINE_BOTS_READING==='cast'; // SEGMENT-BODY part 4: a bot's body casts no weapon line
    if(!walker.place(...job.entry))return;
    const yaw=Math.atan2(job.face.nx,job.face.nz)*180/Math.PI;walker.state.yaw=yaw;
    const link:BotClimbLink={entry:[walker.state.x,walker.state.y,walker.state.z],exit:job.exit,yaw,path:job.face.poly.path,kind:'low'};

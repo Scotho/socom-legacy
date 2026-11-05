@@ -680,6 +680,13 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     for (let i = 0; i < 300; i++) step({ forward: 1 });
     for (let i = 0; i < 30; i++) step({ yaw });                              // then turns to face the wall
     expect(s.room.player(2)!.sim.walker.posture).toBe('prone');
+    // SEGMENT-BODY: the crawl stops where the prone side lines (3.12 across, 11.2 ahead, D:L415582-415621) reach the wall
+    // aslant, 8.31 off (600 - 8.31); was the disc fan's 8 cos 60 = 4.0 off. The eye is then short of the wall, so the
+    // guarded case -- the eye past it -- is re-staged by placing the prone body at the old x 596 facing the wall (a prone
+    // still body's deep hit is the jam, never a push, D:L413602-413611).
+    expect(s.feet(2)[0]).toBeCloseTo(591.69, 2);
+    s.room.player(2)!.sim.walker.place(596, 20, s.feet(2)[2]);
+    for (let i = 0; i < 10; i++) step({ yaw });
     const [x, , z] = s.feet(2);
     expect(x).toBeCloseTo(600 - 8 * Math.cos(Math.PI / 3), 2);
     s.room.takeDrops();

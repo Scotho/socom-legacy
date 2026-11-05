@@ -169,8 +169,28 @@ function walk(out: UiDrawItem[], node: UiNode, parent: Matrix, top: number): voi
   for (const child of node.children) walk(out, child, m, f);
 }
 
+/**
+ * GM-02 (plan 2026-11-01-gpu-menus, "Performance"): a timing probe around `composeScreen` -- an instrument of the
+ * browser baseline (`packages/viewer/src/uiGpuPerf.ts`, set only on a development build under `?devmode&uiPerf`), a
+ * browser adaptation with no original. It reads its own clock before and after the walk and changes nothing the walk
+ * returns; null (the default) times nothing.
+ */
+export interface ComposeScreenProbe { now(): number; composed(ms: number): void }
+let composeProbe: ComposeScreenProbe | null = null;
+/** GM-02: sets (or, with null, clears) the probe `composeScreen` reports each call's time to. */
+export function setComposeScreenProbe(probe: ComposeScreenProbe | null): void { composeProbe = probe; }
+
 /** The screen's draw list this frame. The walk writes the alphas `FUN_0036d8b0` writes (`drawnAlpha`), as the engine's does. */
 export function composeScreen(screen: UiScreen): UiDrawItem[] {
+  const probe = composeProbe;
+  if (!probe) return composeItems(screen);
+  const t0 = probe.now();
+  const out = composeItems(screen);
+  probe.composed(probe.now() - t0);
+  return out;
+}
+
+function composeItems(screen: UiScreen): UiDrawItem[] {
   const out: UiDrawItem[] = [{ kind: 'clear', rgb: [...FRAME_CLEAR_READING] }];
   if (screen.movie) {
     const picture = screen.movie.picture();

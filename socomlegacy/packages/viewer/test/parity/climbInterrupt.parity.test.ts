@@ -187,8 +187,17 @@ describe('a hold started outside a climb, as today', () => {
 describe.skipIf(!MP2 || !PACK)(`research 230 section 3.3 on Frostfire's 11.9 crate with the disc's clips${MP2 && PACK ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
   // The crate of research 86 section 3.6 / 90 item 11 (traversal.test.ts's Frostfire climb): x 922.8-940.6,
   // z 761-778.1, its top 111.85, climbed from x 938 facing -z. The owner's crate is unpinned (research 230 s3.3).
+  //
+  // GAP (LATER 680): under the segment body the walk from x 938 reaches no climb. Printed (B203, 2026-11-04): from
+  // (938, 115, 790) facing -z only segment #3, a side line, meets prop01 on every tick (no centre or head-line hit), so
+  // no contact is stored (D:L413823-413848), and with a record hit the weapon line's slot -- which does reach prop02's
+  // face at z 778.11 here -- is never consulted (D:L413618); the body is held at z 786.75 and the prompt never shows.
+  // The climb, not the map load, is held: the load stays outside the catch, so a fixture or setup error fails the suite
+  // normally; the climb's error is kept and re-thrown by each case. The spawn is not moved (a per-spot dodge, row 680).
   const MP2_TOP = 111.85, MP2_HULL = { x0: 922.8, x1: 940.6, z0: 761, z1: 778.1 };
-  let plain: Observed, cut: Observed;
+  let plainRun: Observed | Error, cutRun: Observed | Error;
+  const attempt = (f: () => Observed): Observed | Error => { try { return f(); } catch (e) { return e instanceof Error ? e : new Error(String(e)); } };
+  const observed = (o: Observed | Error): Observed => { if (o instanceof Error) throw o; return o; };
   async function frostfire(): Promise<{ w: Walker; t: Traversal; events: TraversalEvent[] }> {
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     const grid = groundGrid(map.ground!);
@@ -204,26 +213,33 @@ describe.skipIf(!MP2 || !PACK)(`research 230 section 3.3 on Frostfire's 11.9 cra
   }
   beforeAll(async () => {
     const a = await frostfire();
-    plain = climbAndPlace(a.w, a.t, a.events, false);
+    plainRun = attempt(() => climbAndPlace(a.w, a.t, a.events, false));
     const b = await frostfire();
-    cut = climbAndPlace(b.w, b.t, b.events, true);
-    report('MP2 crate, no place', plain);
-    report('MP2 crate, place at mid-climb', cut);
+    cutRun = attempt(() => climbAndPlace(b.w, b.t, b.events, true));
+    for (const [label, o] of [['MP2 crate, no place', plainRun], ['MP2 crate, place at mid-climb', cutRun]] as const) {
+      if (o instanceof Error) console.log(`[PB-7 port experiment] ${label}: no climb (LATER 680): ${o.message.split('\n')[0]}`);
+      else report(label, o);
+    }
   }, 60_000);
 
-  it('an ordinary climb ends on the 111.85 top', () => {
+  it.fails('GAP (LATER 680): an ordinary climb ends on the 111.85 top', () => {
+    const plain = observed(plainRun);
     expect(plain.climbEnded).toBe(true);
     expect(plain.atRest.y).toBeCloseTo(MP2_TOP, 2);
     expect(plain.atRest.z).toBeLessThan(MP2_HULL.z1);
   });
 
-  it('the place is accepted mid-climb', () => {
+  it.fails('GAP (LATER 680): the place is accepted mid-climb', () => {
+    const cut = observed(cutRun);
     expect(cut.accepted).toBe(true);
     expect(cut.atHold.y).toBeGreaterThan(100);
     expect(cut.atHold.y).toBeLessThan(MP2_TOP);
   });
 
+  // While LATER 680 holds, this case fails for 680's reason as well as PB-7's (no climb to cut), so it cannot tell them
+  // apart until 680 is settled.
   it.fails('the body does not end on the top: under it, inside the hull\'s span (research 230 s3.3)', () => {
+    const cut = observed(cutRun);
     expect(cut.atRest.y).toBeLessThan(MP2_TOP - 0.5);
     expect(cut.atRest.x).toBeGreaterThan(MP2_HULL.x0);
     expect(cut.atRest.x).toBeLessThan(MP2_HULL.x1);

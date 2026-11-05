@@ -20,9 +20,10 @@ import { TeamTactics, type TacticalIntent } from '../src/bots/teamTactics';
  *
  * The reviewer's starts (his probe `approach.mts`): each door's shut leaf, the bot `r` along its normal on either side
  * and `lat` along it, walking to 40 past the leaf on the other side; the bot's own planner, nothing forced. A start with
- * no floor within 6 of the leaf's foot is not listed, as the probe skipped it. `BASE` is eca29fc99's time through for
- * each start (this file run with that tree's `matchBots.ts` and `navigation.ts`, 2026-11-02, the owner's host); a start
- * may take `SLACK` more.
+ * no floor within 6 of the leaf's foot is not listed, as the probe skipped it. `BASE` is each start's time through
+ * under the segment body (SEGMENT-BODY, `WALL_BODY_READING` 'segments'), re-measured on agent/segment-body with main
+ * 3bb5197aa merged (2026-11-04, the owner's host: one press each, every start); it was eca29fc99's under the disc body
+ * (2026-11-02), which the segment body moves (its side lines meet the jambs). A start may take `SLACK` more.
  */
 const FIXTURES = process.env.S2U_TEST_FIXTURES ? resolve(process.env.S2U_TEST_FIXTURES) : resolve(import.meta.dirname, '../../../test-fixtures');
 const DISC = process.env.SOCOM_DISC;
@@ -100,60 +101,60 @@ async function walkThrough(stem: string, node: string, sign: number, r: number, 
 }
 
 /**
- * eca29fc99's time through (ticks from the round's start) for each start with floor -- 52 here, the reviewer's probe
+ * The time through (ticks from the round's start) for each start with floor -- 52 here, the reviewer's probe
  * counted 51 -- less MP71 door_ft_5's three starts 64 off on side -1: the base does not get through from them in 20 s, its
  * walk never reaching the door, so they hold nothing about a press.
  */
 const BASE: Record<string, number> = {
-  'MP2 bdoor_4 1 24 -12': 150,
-  'MP2 bdoor_4 1 24 0': 157,
-  'MP2 bdoor_4 1 24 12': 150,
-  'MP2 bdoor_4 1 40 -12': 165,
-  'MP2 bdoor_4 1 40 0': 171,
-  'MP2 bdoor_4 1 64 -12': 193,
-  'MP2 bdoor_4 1 64 0': 193,
-  'MP2 bdoor_4 1 64 12': 213,
-  'MP2 bdoor_4 -1 24 -12': 176,
-  'MP2 bdoor_4 -1 24 0': 159,
-  'MP2 bdoor_4 -1 24 12': 169,
-  'MP2 bdoor_4 -1 40 -12': 177,
+  'MP2 bdoor_4 1 24 -12': 144,
+  'MP2 bdoor_4 1 24 0': 159,
+  'MP2 bdoor_4 1 24 12': 253,
+  'MP2 bdoor_4 1 40 -12': 160,
+  'MP2 bdoor_4 1 40 0': 182,
+  'MP2 bdoor_4 1 64 -12': 188,
+  'MP2 bdoor_4 1 64 0': 189,
+  'MP2 bdoor_4 1 64 12': 208,
+  'MP2 bdoor_4 -1 24 -12': 160,
+  'MP2 bdoor_4 -1 24 0': 147,
+  'MP2 bdoor_4 -1 24 12': 147,
+  'MP2 bdoor_4 -1 40 -12': 169,
   'MP2 bdoor_4 -1 40 0': 162,
-  'MP2 bdoor_4 -1 40 12': 179,
-  'MP2 bdoor_4 -1 64 -12': 201,
-  'MP2 bdoor_4 -1 64 0': 199,
-  'MP2 bdoor_4 -1 64 12': 205,
-  'MP51 door_ft_1 1 24 -12': 242,
-  'MP51 door_ft_1 1 24 0': 243,
-  'MP51 door_ft_1 1 24 12': 246,
-  'MP51 door_ft_1 1 40 -12': 255,
-  'MP51 door_ft_1 1 40 0': 187,
-  'MP51 door_ft_1 1 40 12': 183,
-  'MP51 door_ft_1 -1 24 -12': 158,
-  'MP51 door_ft_1 -1 24 0': 165,
-  'MP51 door_ft_1 -1 24 12': 159,
-  'MP51 door_ft_1 -1 40 -12': 174,
-  'MP51 door_ft_1 -1 40 0': 176,
-  'MP51 door_ft_1 -1 40 12': 175,
-  'MP51 door_ft_1 -1 64 -12': 195,
-  'MP51 door_ft_1 -1 64 0': 192,
-  'MP51 door_ft_1 -1 64 12': 198,
-  'MP51 door_ft_4 1 24 -12': 251,
-  'MP51 door_ft_4 1 24 0': 168,
-  'MP51 door_ft_4 1 24 12': 241,
-  'MP51 door_ft_4 1 40 -12': 176,
-  'MP51 door_ft_4 1 40 0': 172,
-  'MP51 door_ft_4 1 40 12': 187,
-  'MP51 door_ft_4 1 64 -12': 217,
-  'MP51 door_ft_4 1 64 0': 202,
-  'MP51 door_ft_4 1 64 12': 194,
-  'MP51 door_ft_4 -1 24 -12': 163,
-  'MP51 door_ft_4 -1 24 0': 147,
-  'MP51 door_ft_4 -1 24 12': 153,
-  'MP51 door_ft_4 -1 40 -12': 171,
-  'MP51 door_ft_4 -1 40 0': 153,
-  'MP71 door_ft_5 -1 24 -12': 147,
-  'MP71 door_ft_5 -1 24 0': 142,
-  'MP71 door_ft_5 -1 24 12': 141,
+  'MP2 bdoor_4 -1 40 12': 176,
+  'MP2 bdoor_4 -1 64 -12': 193,
+  'MP2 bdoor_4 -1 64 0': 194,
+  'MP2 bdoor_4 -1 64 12': 191,
+  'MP51 door_ft_1 1 24 -12': 233,
+  'MP51 door_ft_1 1 24 0': 229,
+  'MP51 door_ft_1 1 24 12': 178,
+  'MP51 door_ft_1 1 40 -12': 237,
+  'MP51 door_ft_1 1 40 0': 184,
+  'MP51 door_ft_1 1 40 12': 188,
+  'MP51 door_ft_1 -1 24 -12': 184,
+  'MP51 door_ft_1 -1 24 0': 190,
+  'MP51 door_ft_1 -1 24 12': 184,
+  'MP51 door_ft_1 -1 40 -12': 180,
+  'MP51 door_ft_1 -1 40 0': 180,
+  'MP51 door_ft_1 -1 40 12': 196,
+  'MP51 door_ft_1 -1 64 -12': 215,
+  'MP51 door_ft_1 -1 64 0': 190,
+  'MP51 door_ft_1 -1 64 12': 255,
+  'MP51 door_ft_4 1 24 -12': 207,
+  'MP51 door_ft_4 1 24 0': 199,
+  'MP51 door_ft_4 1 24 12': 229,
+  'MP51 door_ft_4 1 40 -12': 173,
+  'MP51 door_ft_4 1 40 0': 180,
+  'MP51 door_ft_4 1 40 12': 185,
+  'MP51 door_ft_4 1 64 -12': 246,
+  'MP51 door_ft_4 1 64 0': 242,
+  'MP51 door_ft_4 1 64 12': 214,
+  'MP51 door_ft_4 -1 24 -12': 158,
+  'MP51 door_ft_4 -1 24 0': 158,
+  'MP51 door_ft_4 -1 24 12': 156,
+  'MP51 door_ft_4 -1 40 -12': 172,
+  'MP51 door_ft_4 -1 40 0': 157,
+  'MP71 door_ft_5 -1 24 -12': 150,
+  'MP71 door_ft_5 -1 24 0': 149,
+  'MP71 door_ft_5 -1 24 12': 140,
 };
 const ready = (stem: string): boolean => (stem === 'MP2' ? HAVE_MP2 : onDisc(stem));
 

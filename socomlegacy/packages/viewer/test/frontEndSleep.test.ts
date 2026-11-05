@@ -133,7 +133,8 @@ describe('the page\'s wiring (frontEnd.ts)', () => {
   it('the loop keeps advancing and asks menuRasterWanted before the render', () => {
     const loop = src.slice(src.indexOf('const loop = (now: number): void => {'));
     const body = loop.slice(0, loop.indexOf('frameId = win.requestAnimationFrame(loop);'));
-    expect(body).toMatch(/s\.advance\(now\) > 0 && drawsMenuFrame\(s, hd\.scale\) && menuRasterWanted\(matchUp, matchGraphics\)/);
+    // GM-02: the advance's tick count is kept in `ticks` (the instrument reads it); GM-12b: the GPU path's word (GM.R17).
+    expect(body).toMatch(/const ticks = s\.advance\(now\);[\s\S]*?if \(ticks > 0 && drawsMenuFrame\(s, hd\.scale, gpu\) && menuRasterWanted\(matchUp, matchGraphics\)\)/);
   });
 
   it('leave raises the flag and sleeps the movie worker under the Xbox preset; returned lowers the flag', () => {

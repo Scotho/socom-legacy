@@ -120,6 +120,8 @@ export class LoadingPanel implements LoadingSurface {
   private started = 0;
   /** HD-4: the scale the canvas was last drawn at (1: the original's 640 x 448). */
   private scale = 1;
+  /** GM-09: what the last frame drawn left undrawn: a quad whose bitmap the screen does not hold. */
+  private left: string[] = [];
 
   constructor(private readonly doc: Document, private readonly hd?: LoadingHd) {
     this.root = doc.createElement('div');
@@ -163,7 +165,21 @@ export class LoadingPanel implements LoadingSurface {
     this.doc.defaultView?.cancelAnimationFrame?.(this.frame);
     this.bitmaps = new Map();
     this.tinted = new Map();
+    this.left = [];
   }
+
+  /**
+   * GM-09 (a test seam, a browser adaptation): the frame the panel's canvas shows, read back whole (straight RGBA, top
+   * row first, at its scale), or null while hidden or with no 2D context. A read of the canvas, not of the draw.
+   */
+  readFrame(): Rgba | null {
+    if (this.root.hidden || !this.ctx) return null;
+    const { width, height } = this.canvas;
+    const img = this.ctx.getImageData(0, 0, width, height);
+    return { width: img.width, height: img.height, data: img.data };
+  }
+  /** GM-09: what the last frame drawn left undrawn (`no bitmap <name>`, in draw order; empty while hidden). */
+  undrawn(): readonly string[] { return this.root.hidden ? [] : this.left; }
 
   /** Draws the frame now, at the time since `show` (the page draws on every animation frame; the tests call it). */
   redraw(): void {
@@ -187,6 +203,7 @@ export class LoadingPanel implements LoadingSurface {
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
     }
     const lookup = scale > 1 ? o?.hd : undefined;
+    this.left = [];
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, FRAME_W, FRAME_H);
@@ -203,7 +220,7 @@ export class LoadingPanel implements LoadingSurface {
   private quad(ctx: CanvasRenderingContext2D, q: ArmoryQuad, lookup?: RasterOptions['hd']): void {
     if (lookup) { this.hdQuad(ctx, q, lookup); return; }
     const image = this.image(q.texture, q.rgb);
-    if (!image) return;
+    if (!image) { this.missed(q.texture); return; }
     ctx.globalAlpha = Math.min(1, q.alpha / 128);
     const sw = q.u1 - q.u0, sh = q.v1 - q.v0;
     if (sw <= 0 || sh <= 0) return;
@@ -215,12 +232,18 @@ export class LoadingPanel implements LoadingSurface {
     const original = this.bitmaps.get(q.texture);
     const hd = original ? lookup(original) : null;
     const image = hd ? this.image(q.texture, q.rgb, hd) : this.image(q.texture, q.rgb);
-    if (!image || !original) return;
+    if (!image || !original) { this.missed(q.texture); return; }
     ctx.globalAlpha = Math.min(1, q.alpha / 128);
     const sw = q.u1 - q.u0, sh = q.v1 - q.v0;
     if (sw <= 0 || sh <= 0) return;
     const kx = hd ? hd.width / original.width : 1, ky = hd ? hd.height / original.height : 1;
     ctx.drawImage(image, q.u0 * kx, q.v0 * ky, sw * kx, sh * ky, q.x, q.y, q.w, q.h);
+  }
+
+  /** GM-09: a quad not drawn -- its bitmap not held, or no 2D context to tint it on -- named once a frame. */
+  private missed(texture: string): void {
+    const why = `${this.bitmaps.has(texture) ? 'no canvas' : 'no bitmap'} ${texture}`;
+    if (!this.left.includes(why)) this.left.push(why);
   }
 
   private image(texture: string, rgb: Rgb, hd?: Rgba): HTMLCanvasElement | null {

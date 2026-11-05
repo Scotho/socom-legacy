@@ -171,7 +171,9 @@ export function scopeEye(stance: Stance, root: number, peek = 0, terms: Readonly
  * (D:L142565-142624) before the constant can be retired; the tests that take `headEye` out go red (research 217 §2.4).
  * Also the third-person drawn camera's peek target and eye, at every aspect (`./playerCamera` `PlayerCamera.tick`, H309;
  * #479's takeover and re-review F3): presentation only, the game's eye stays the pass's (`CameraView.aim`); unsourced
- * there too (`FUN_0029bf70` has no such pull).
+ * there too (`FUN_0029bf70` has no such pull). Since WALL-CAM (research 382 §1) it also pulls back the ordinary (not
+ * peeking) drawn view's eye and focus, and is re-applied to the interpolated frame (`./playerCamera`
+ * `PlayerCamera.draw`): presentation only, the game's eye still the pass's (research 101's row).
  */
 export const HEAD_EYE_WALL_BACK_PLACEHOLDER = 0.1;
 

@@ -171,10 +171,13 @@ const OBSTACLE_REACH = 21.1;
 /** `DAT_0044c268`: `max_slope`'s cosine, 0.6428. */
 const MAX_SLOPE_COS = Math.cos((SEAL_TUNING.maxSlopeDeg * Math.PI) / 180);
 
-/** A wall the walk's slide met (`./mover` `WallHit`): its polygon, its probe line (0 low, 1 the head line), the point. */
+/**
+ * A wall the walk's slide met (`./mover` `WallHit`): its polygon, its probe line (0 low, 1 the head line; 2 a side line,
+ * SEGMENT-BODY: never the contact `contactFromHits` takes, D:L413823-413848), the point.
+ */
 export interface WalkHit {
   poly: WorldPoly;
-  line: 0 | 1;
+  line: 0 | 1 | 2;
   x: number; y: number; z: number;
 }
 

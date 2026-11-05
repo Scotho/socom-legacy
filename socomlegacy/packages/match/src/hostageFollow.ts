@@ -5,6 +5,7 @@ import { ACTION_FAMILY, Walker, type MoverAction } from '../../viewer/src/mover'
 import type { TiltQuat } from '../../viewer/src/rootTilt';
 import { applyKnock, type Knock } from '../../viewer/src/net/blast';
 import { HOSTAGE_TOP_SPEED_READING } from '../../viewer/src/locomotion';
+import { WEAPON_LINE_BOTS_READING } from '../../viewer/src/weaponLine';
 import { HostageObstacleRecord, recoveryRequest, recoverySuffix, recoveryTarget, selectRecoveryRay, HOSTAGE_AVOIDANCE_READING, type RecoveryRay, HostageRouteProbe, type RouteProbeSample } from './hostageAvoidance';
 import { HostageSteering, HOSTAGE_STEERING_READING, passedRoutePoint, routeProjection, steeringDirection } from './hostageSteering';
 import { HOSTAGE_YIELD_SEED_PLACEHOLDER, HostageYieldRandom, actorProbeEligible, resolveProbeActor, type HostageActorWorld } from './hostageActors';
@@ -137,6 +138,7 @@ export class HostageFollow {
   constructor(private readonly planner: FollowPlanner, grid: Grid, feet: V3, yaw: number, private readonly defaultMaterial = '', clips: SimClips | null = null,
     private readonly actorWorld?: HostageActorWorld) {
     this.walker = new Walker(grid);
+    this.walker.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY (review 2 F3): an AI body (`CSealCtrlAi`, +0x2c 0)
     // FUN_005b2620 D:L468322–468347 requires these six anim-set motions before dispatch.
     const required = HOSTAGE_CLIMB_READING.required;
     const available = (name: string) => !!clips?.table?.has(name) && clips.clips.some(c => c.name === name);

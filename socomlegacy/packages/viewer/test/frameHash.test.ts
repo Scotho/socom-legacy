@@ -299,7 +299,7 @@ describe('cps-frame-hash-3: the bodies in the hashed frame', () => {
     const main = src('main.ts');
     expect(main).toMatch(/remote\.applyZoneGate\([^\n]*\n[^\n]*\n {6}render\(scene, fly\.camera\);/);   // the frame's world render
     expect(main).toMatch(/hashFrame\(created\.renderer as unknown as FrameHashRenderer, scene, fly\.camera, size, options\)/);
-    expect(src('matchNet.ts')).toMatch(/spectate: \(pose\) => \{ if \(pose\) p\.fly\.setPose\(pose\); \},/);
+    expect(src('matchNet.ts')).toMatch(/spectate: \(pose\) => \{ resetFollow\(\); if \(pose\) p\.fly\.setPose\(pose\); \},/);
     expect(main).toMatch(/\n {2}if \(import\.meta\.en[v]\.DEV && devToolsEnabled\(SEARCH\)\) window\.__viewer\.followSeat = \(n\) => \(net \? followSeat\(net\.spectator, n\) : null\);/);
     expect(main).toMatch(/\n {2}if \(import\.meta\.en[v]\.DEV && devToolsEnabled\(SEARCH\)\) window\.__viewer\.bodiesInView = \(\) => bodiesInView\(fly\.camera, remote\.seenForDev\(\)\.bodies\);/);
     expect(main.indexOf('window.__viewer.followSeat')).toBeGreaterThan(main.indexOf('window.__viewer.holdFrame'));

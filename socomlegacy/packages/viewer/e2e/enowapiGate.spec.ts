@@ -35,13 +35,14 @@ const WAIT_S = 0.24;
  * Where the walker stands, and the pitch it looks down at: found off the browser by `test/enowapiStandDisc.test.ts`
  * (the dev disc, the page's own map, world, walk and use ray). `epanel_di2`'s one polygon -- x 1490.2, y 184.3-189.9,
  * z 1907.3-1912.6, facing +x -- is met edge-on from the south, so the look must cross its plane. Fuse's stand
- * (1491.2, 172.2, 1892.25; the PR's r7, measured under his camera lead probe, LATER 308) settles 0.89 east on the hull,
+ * (1491.2, 172.2, 1892.25; the PR's r7, measured under his camera lead probe, LATER 308) settles 0.86 east on the hull,
  * and faced from the nominal stand the ray passed east of the panel to `worldmodel/g4440` at every pitch (the rendered
  * run at b7e29e69b: no prompt at -30..+30). Stood at the feet the walker reaches, facing the panel from them
- * (yaw 173.87), pitch -15..-30 names the lever; -21 is the middle. The ground-plane distance, about 17.7, is inside the
- * action's range of 20 (research 174 §5).
+ * (yaw 173.07), pitch -15..-30 names the lever; -21 is the middle. The ground-plane distance, about 17.7, is inside the
+ * action's range of 20 (research 174 §5). SEGMENT-BODY (2026-11-04): those feet are (1492.35, 172.46) under the segment
+ * body, where the walker stood facing the panel stays; under the disc they were (1492.1, 172.4).
  */
-const STAND: [number, number, number] = [1492.1, 172.4, 1892.25];
+const STAND: [number, number, number] = [1492.35, 172.46, 1892.25];
 const PITCH = -21;
 const PANEL: [number, number, number] = [1490.2, 187.1, 1909.95];
 /** A test tolerance (headless frame scheduling against the wall clock), no game value. */

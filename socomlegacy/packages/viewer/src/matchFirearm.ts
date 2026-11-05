@@ -13,7 +13,7 @@ import { RangeFinder, type Hud, type HudSources } from './hud';
 import { Kit, pressShoulder, type Firearm } from './kit';
 import type { LensRows } from './lensFx';
 import type { LoadedMap } from './loadMap';
-import { firearmSlotPresent, initialFirearmSlot, type FirearmSlot, type PlayerLoadout } from './loadout';
+import { firearmSlotPresent, heldWeaponModels, initialFirearmSlot, type FirearmSlot, type PlayerLoadout } from './loadout';
 import { MarkClipper } from './markClip';
 import { pitchStickInView } from './look';
 import { fireWeaponOf, type NetPage } from './netPage';
@@ -696,6 +696,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     fireModes[kitItem] = fireMode;                       // the mode in the hand kept with its firearm
     const before = kitRecs;
     loadouts.spawn(side, { network: d.network?.() ?? true, kit: given, type });
+    walk.setHeldModels?.(heldWeaponModels(loadouts.tables(), loadouts.loadout()));   // SEGMENT-BODY part 4 (F1): the weapon line
     kitRecs = loadouts.records();
     kitRounds = new KitRounds(loadouts.tables(), loadouts.loadout());   // M4: every round slot full (FUN_00599f00)
     hands?.spawned(kitRounds);                          // M7: the equipment slots; the inventory's shoulders (FUN_00599b60)
@@ -986,6 +987,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     // The mode in the hand kept with its firearm first (`spawnKit`'s first line): `renew` re-reads it after a claim.
     takeKit: (l, s, r, f, resumed) => {
       fireModes[kitItem] = fireMode; takeRoomKit(kitTaker, l, s, r, f);
+      walk.setHeldModels?.(heldWeaponModels(loadouts.tables(), loadouts.loadout()));   // SEGMENT-BODY part 4 (F1): the pickup's kit
       // OT.R59 (condition 4 (a)): the room's firearm in the hand at once, no swap clip -- the Fire record, the HUD's box and
       // the hung model with it; then the room's pouch and launcher (`hands.resumed`).
       if (resumed?.weapon !== undefined) {

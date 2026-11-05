@@ -130,12 +130,15 @@ universally fixed world-space distance and height; the branch condition belongs 
 For spectator follow specifically, `FUN_00294b40` D:L139269-139343 accumulates the local controller's two input
 values at **2 * dt**, wraps angles, clamps relative and absolute pitch to [-1,1] radians if the target is null or
 its `+0xf7a == 1`, otherwise [-1,-0.2], and forms an orbit matrix. The semantic name of `+0xf7a` is not established
-here. The original follow path can therefore orbit; the port's `followPose` uses target yaw and fixed pitch.
+here. The original follow path can therefore orbit. The port originally used target yaw and a fixed pitch; WALL-CAM (2026-11-02, research 382 section 2) now uses the shared player rig with the target actor's pitch, stance, peek and posed root. The independent spectator orbit remains unimplemented.
 
 **F4: `FOLLOW_BEHIND=24.906`, `FOLLOW_OVER=25.709`, `FOLLOW_PITCH=-9.167` are the earlier standing-rest
 approximation** (research 83/88; `spectatorView.ts:152-158,271-273`). This reading supplies no replacement triple.
 The conditional node-position setup, orbit, transition smoothing and camera obstruction must be understood together before
-a parity claim. PT-19 may reuse the shared approximation as recorded; a replay-only camera fork would conceal the gap.
+a complete parity claim. WALL-CAM (2026-11-02; research 382 section 2) supplies the shared actor-relative rig and
+obstruction pass to both live pages and their replay watcher, with state retained across frames and reset at a target/map
+change. The fixed triple remains only for non-rendering compatibility hosts. Orbit and transition smoothing remain
+open; this is a source reading of obstruction handling, not measured complete spectator parity.
 
 ## 4. Free and scenic motion, bounds, and map data
 

@@ -9,8 +9,23 @@ import {shortTurn,wrapYaw} from '../../../viewer/src/yaw';
 import type {Point} from './navigationShape';
 
 export interface BotClimbLink {entry:Point;exit:Point;yaw:number;path:string;kind:ClimbClass}
-/** Authored pad policy (OT.R81). Native offer, clips, root motion, hang and landing remain authoritative. */
-const CLIMB_INPUT_ADAPTATION={alignDegrees:2,entryTolerance:0.25,entrySpeed:1,approachGain:0.15,approachDamping:0.03,timeoutTicks:20*TICK_HZ,runup:16};
+/**
+ * Authored pad policy (OT.R81). Native offer, clips, root motion, hang and landing remain authoritative.
+ * SEGMENT-BODY (OT.R81, a bot adaptation, no original value): `runup`, how far the bot backs off a face it is refused
+ * at before it runs and jumps, takes the feet past 24 from the hit -- the original keeps the stored contact within 24
+ * (`FUN_005b3890` D:L468975-469012, 576 = 24 squared) and refuses the running jump while a contact is stored
+ * (`FUN_0057e1b0` D:L440812-440818). At 16 the feet stopped about 22 off the hit, the contact held and no jump came.
+ * `jumpFrom`, the fraction of the run-up the feet come back in before the jump is pressed: pressed the first tick the
+ * speed reached `RUNNING_JUMP_SPEED`, the jump carried 16.76 u/s from 24.4 off the face and landed 12.7 off it, short;
+ * pressed later in the run it carries the run's speed (37.9 u/s at 23.5 off) and meets the face in the air (the unit
+ * probe of 2026-11-04 on botClimbNavigation's 40-high crate: launches from 6.0 to 23.5 off all reached the hang).
+ * Part 4 (2026-11-04): the r0004 jump-near-wall capture proved the running jump reads no stored contact
+ * (`JUMP_CONTACT_PROVEN` 'none'), so the contact refusal `runup` was sized against is r0001's, rejected; `runup` is kept
+ * as measured (not re-measured without it). `jumpFrom` still carries the 40-high climb: at 1 (pressed the first tick
+ * the speed is reached) botClimbNavigation's 40/4 move and link fail, at 0.5 they pass, the bots casting the weapon line
+ * or not.
+ */
+const CLIMB_INPUT_ADAPTATION={alignDegrees:2,entryTolerance:0.25,entrySpeed:1,approachGain:0.15,approachDamping:0.03,timeoutTicks:20*TICK_HZ,runup:20,jumpFrom:0.5};
 export class BotClimbDrive {
  private body:MoverSim|null=null;
  private approached=false;
@@ -21,6 +36,8 @@ export class BotClimbDrive {
  private jumped=false;
  private airborneSeen=false;
  private runup:Point|null=null;
+ /** Where the face refused the walk-in: the run-up's far end is measured from it, and the jump's point. */
+ private refusedAt:Point|null=null;
  private running=false;
  constructor(readonly link:BotClimbLink,private readonly started:number,private readonly canExit:(at:Point,to:Point)=>boolean){}
  invalidate():void{this.invalid=true;}
@@ -72,7 +89,8 @@ export class BotClimbDrive {
     }
    }
    const yaw=this.link.yaw*Math.PI/180,toward=-Math.sin(yaw)*s.vx-Math.cos(yaw)*s.vz;
-   if(toward>=RUNNING_JUMP_SPEED){this.jumped=true;return {command:command(1,0,Button.Jump|Button.ActionHeld,turn),done:false,failed:false};}
+   const from=this.refusedAt!,back=(s.x-from[0])*Math.sin(yaw)+(s.z-from[2])*Math.cos(yaw);   // how far back of the refusal
+   if(toward>=RUNNING_JUMP_SPEED&&back<=CLIMB_INPUT_ADAPTATION.runup*CLIMB_INPUT_ADAPTATION.jumpFrom){this.jumped=true;return {command:command(1,0,Button.Jump|Button.ActionHeld,turn),done:false,failed:false};}
    return {command:command(1,0,0,turn),done:false,failed:false};
   }
   // The move's contact is consumed by Traversal on its next tick. Do not reject the first wall-hit frame.
@@ -81,7 +99,7 @@ export class BotClimbDrive {
    if(!sim.walker.airborne&&sim.walker.wallHits().some(hit=>hit.poly.path===this.link.path&&CLIMBABLE.has(hit.poly.appflags??0))){
     const yaw=this.link.yaw*Math.PI/180;
     const from:Point=[s.x,s.y,s.z],back:Point=[s.x+Math.sin(yaw)*CLIMB_INPUT_ADAPTATION.runup,s.y,s.z+Math.cos(yaw)*CLIMB_INPUT_ADAPTATION.runup];
-    if(this.canExit(from,back)){this.runup=back;return {command:command(-1,0,0,turn),done:false,failed:false};}
+    if(this.canExit(from,back)){this.runup=back;this.refusedAt=from;return {command:command(-1,0,0,turn),done:false,failed:false};}
    }
    return {command:command(),done:true,failed:true};
   }

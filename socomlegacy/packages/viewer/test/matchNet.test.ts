@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { FRONT_END_CAPABILITIES, TESTROOM_CAPABILITIES, type MatchCapabilities } from '../src/matchCore';
 import { matchNetDeps, PART_DEPS, PART_HOOKS, type MatchNetHooks, type MatchNetParts } from '../src/matchNet';
+import { buildGrid, type Grid, type WorldPoly } from '@s2u/scene';
+import { type SpectatorPose } from '../src/spectatorView';
+import { PlayerCamera } from '../src/playerCamera';
+import { STANCE } from '../src/mover';
 import type { NetPageDeps } from '../src/netPage';
 
 /**
@@ -358,5 +362,44 @@ describe('one deps builder: both pages build NetPage\'s deps with it', () => {
     }
     expect(src('matchSound.ts')).toMatch(/escorteeVoice: \(_id, cue, at\) => \{ if \(cue === 'yes' && at && !screens\(\)\) audio\.play\(HOSTAGE_YES_CUE_READING\.sound, at, 'voice'\); \},/);
     for (const f of ['main.ts', 'matchMount.ts']) expect(src(f), f).not.toMatch(/escorteeVoice: \(/);
+  });
+});
+
+
+describe('WALL-CAM: both pages share the spectator obstruction rig', () => {
+  const wall: WorldPoly = { modelName: 'worldmodel', path: 'wall', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([-200, 0, 0, 200, 0, 0, 200, 80, 0, -200, 80, 0]) };
+  const grid = (): Grid => buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 8, cellsZ: 8, originX: -400, originZ: -400 }, [], [], [wall], [{ modelName: 'worldmodel', path: 'wall', first: 0, count: 1 }]);
+  it.each([TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES])('uses live hull, stance, pitch and peek, resetting on target and map changes', (caps) => {
+    const { p } = parts(caps); let hull = grid(); let pose: SpectatorPose | null = null;
+    const map = p.map(); p.map = () => map;
+    p.walk = { gridOfGround: () => hull } as never;
+    p.fly = { setPose: (v: SpectatorPose) => { pose = v; }, aspect: () => 16 / 9 } as never;
+    const rest = { ...everyPart } as Partial<NetPageDeps>; if (!caps.replay) delete rest.client;
+    const d = matchNetDeps(p, { ...everyHook }, rest as never);
+    const b = { id: 1, feet: [0, 0, -3.5], yaw: 0, flags: 64, pitch: -9, stance: 1, peek: 0 };
+    const follow = (d as unknown as { spectateFollow: (body: typeof b, dt: number) => void }).spectateFollow;
+    expect(follow).toBeTypeOf('function'); follow(b, 1 / 60);
+    expect(pose!.z).toBeLessThan(0);
+    const expected = new PlayerCamera(hull); expected.nearAspect = 16 / 9;
+    expected.tick(b.feet, b.yaw, b.pitch, STANCE.crouch.rootY, 1 / 60);
+    expect(pose!.y).toBeCloseTo(expected.view(1).eye[1], 8);
+    const moved = { ...b, feet: [0, 0, 100] };
+    follow(moved, 1 / 60); expected.tick(moved.feet, moved.yaw, moved.pitch, STANCE.crouch.rootY, 1 / 60);
+    expect(pose!.z).toBeCloseTo(expected.view(1).eye[2], 8); // Same id keeps the obstruction hold.
+    const open = { ...b, id: 2, feet: [0, 0, 100], pitch: -45, stance: 2, peek: 1 };
+    follow(open, 1 / 60);
+    const fresh = new PlayerCamera(hull); fresh.nearAspect = 16 / 9; fresh.peek = 1;
+    fresh.tick(open.feet, open.yaw, open.pitch, STANCE.prone.rootY, 1 / 60);
+    expect(pose!.z).toBeCloseTo(fresh.view(1).eye[2], 8);
+    hull = grid(); follow(open, 1 / 60);
+    expect(pose!.z).toBeCloseTo(fresh.view(1).eye[2], 8); // Same id on a new grid starts a new rig.
+    p.remote = { cameraRoot: () => 15 } as never;
+    follow(open, 1 / 60); fresh.tick(open.feet, open.yaw, open.pitch, 15, 1 / 60, true);
+    expect(pose!.y).toBeCloseTo(fresh.view(1).eye[1], 8);
+    d.spectate(null); follow(open, 1 / 60);
+    const reset = new PlayerCamera(hull); reset.peek = 1; reset.nearAspect = 16 / 9;
+    reset.tick(open.feet, open.yaw, open.pitch, 15, 1 / 60, true);
+    expect(pose!.z).toBeCloseTo(reset.view(1).eye[2], 8);
   });
 });

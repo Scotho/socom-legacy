@@ -139,7 +139,10 @@ export const GATE_ROWS: readonly GateRow[] = [
   },
   { // the prone class (8.0, 6.0): the probe at the feet + 3.0 meets the wall 8.0 along the travel (PRONE_FAN_READING)
     name: 'prone into a wall at 8', world: [gateWallX(30, 0, 30)], body: { at: [0, 0], yaw: EAST, stance: 'prone' },
-    motion: { forward: 1, right: 0, ticks: 180 }, input: { kind: 'walk', wall: 30 }, expect: 'stopped at 8',
+    // SEGMENT-BODY (re-judged; was 'stopped at 8', the disc's line ahead): prone, the head line runs along the facing by
+    // 1.1 x the muzzle's forward part, 15.94 (`HEAD_LINE_MUZZLE_READING`), and one hit over 1 deep is the jam (research
+    // 217 s2.9): it stops where that line first crosses the wall, plus the tick's move.
+    motion: { forward: 1, right: 0, ticks: 180 }, input: { kind: 'walk', wall: 30 }, expect: 'stopped at 16.1',
   },
   // PF-17 (research 218 s1; ruling PF.R36): the playing motion's NoFire, FUN_005a7de0 D:L462695-462705 through FUN_0058a8c0.
   { // seal_stand2prone NoFire bare (194 A02): no round through the whole clip

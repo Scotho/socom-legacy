@@ -9,6 +9,18 @@ it('uses the native stand, crouch and prone codes only while stationary, with ro
   expect(chooseBotStance('rusher', 'fire', 0, 80, 0, 1, false)).toBe(1);
 });
 
+// B202 (DIVE-ROOT): a bot whose steering dropped to 0 while its body still runs is not still -- prone at 30 a
+// second or more is the dive (FUN_00584b00 D:L443998-444001: speed^2 >= 900), so the policy never asks it there.
+it('never asks prone of a body still moving at the dive speed, whatever its steering', () => {
+  expect(chooseBotStance('marksman', 'fire', 0, 300, 0, 1, false, 30)).not.toBe(2);
+  expect(chooseBotStance('marksman', 'fire', 0, 300, 0, 1, false, 58.3)).not.toBe(2);
+  // Under the dive speed the choice is today's.
+  expect(chooseBotStance('marksman', 'fire', 0, 300, 0, 1, false, 29.9)).toBe(2);
+  expect(chooseBotStance('marksman', 'fire', 0, 300, 0, 1, false, 0)).toBe(2);
+  expect(chooseBotStance('rusher', 'fire', 0, 80, 0, 1, false, 58.3)).toBe(1);
+  expect(chooseBotStance('support', 'hold-cover', 0, 120, 0, 1, true, 58.3)).toBe(1);
+});
+
 it('switches to a loaded sidearm when a sniper is rushed, with range hysteresis and finite ammo', () => {
   expect(chooseBotWeapon('sniper', 0, 50, 20, 6)).toBe(1);
   expect(chooseBotWeapon('sniper', 1, 80, 20, 6)).toBe(1);

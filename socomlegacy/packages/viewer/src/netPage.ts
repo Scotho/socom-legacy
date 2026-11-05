@@ -33,7 +33,7 @@ import type { WorldState } from './worldState';
 import type { Input } from './gamepad';
 import type { VoiceDown } from './net/voiceWire';
 import type { ScenicView } from './mapMeta';
-import { cameraEye, SpectatorView } from './spectatorView';
+import { cameraEye, SpectatorView, type SpectatorBody } from './spectatorView';
 import { applyJoinState, type JoinSinks, type ProjectilePhase } from './joinState';
 import { spectatorVoteLine, teamVoteLine, voteRowsOpen } from './spectatorVote';
 
@@ -113,6 +113,9 @@ export interface NetPageDeps {
   detonateProjectile?(pid: number): void;
   /** The spectator's camera: the pose to stand the fly camera at (follow), or null to leave it free. */
   spectate(pose: { x: number; y: number; z: number; yaw: number; pitch: number } | null): void;
+  /** WALL-CAM: actor follow uses the live map's shared player rig/pass (research 382 §2). */
+  spectateFollow?(body: SpectatorBody, dt: number): void;
+  spectateFollowReset?(): void;
   /** SPECTATOR-VIEW W6 (`./spectatorView` SCENIC_ZOOM): the scenic view's magnification for the page's projection; 1 outside it. */
   spectateMagnify?(magnification: number): void;
   /** SPECTATOR-VIEW review B1: INVERT PITCH's sign for the scenic look (`DAT_003df198`: 1 off, -1 on); absent, 1. */
@@ -836,6 +839,8 @@ export class NetPage {
     if (deps.room && (deps.game || !isRoomSeatOf(deps.room.seat, deps.room.provider?.room))) throw new TypeError('a standing room\'s socket needs its pinned room door (pinnedRoomDoor) and its pass\'s token');
     this.spectator = new SpectatorView({
       bodies: () => this.client.bodies(), spectate: (pose) => this.deps.spectate(pose), views: () => this.deps.scenicViews?.() ?? [],
+      follow: deps.spectateFollow ? (body, dt) => this.deps.spectateFollow!(body, dt) : undefined,
+      resetFollow: () => this.deps.spectateFollowReset?.(),
       magnify: (m) => this.deps.spectateMagnify?.(m), pitchSign: () => this.deps.spectatePitchSign?.() ?? 1,
       seat: () => ({ role: this.client.role, self: this.client.id, team: this.client.team, teams: this.teams, rules: this.rules, ghost: this.ghostSince !== null }),
       leaveSelf: () => { this.deps.walk.setMode('fly'); },

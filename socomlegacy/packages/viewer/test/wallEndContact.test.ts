@@ -12,8 +12,8 @@ import { BODY_RADIUS, PRONE_FAN_READING, PRONE_PROBE_TILT_READING, WALL_END_CONT
  * parallel to it, and it walks on at the clearance it had. So the pop is the disc stand-off's, named in
  * `WALL_PROBE_READING`'s ledger row; a stand-off taken along the end's normal (tried in this fold) smoothed it but left
  * M51's capture-backed ditch hold (`m51DitchBlock.disc.test.ts`) jittering in and out of contact, the velocity unclipped
- * (65) every third tick. The smoothness case below is held as `it.fails` until the stand-off is the original's
- * (LATER 283's segment probe). A free-standing slab: two faces back to back on z 0 from x 10 to 60.
+ * (65) every third tick. The smoothness case was held as `it.fails` until the stand-off was the original's (LATER 283's
+ * segment probe); SEGMENT-BODY builds it (below). A free-standing slab: two faces back to back on z 0 from x 10 to 60.
  */
 const quad = (pts: number[], ditype: number, path: string): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from(pts),
@@ -42,19 +42,24 @@ function walkPast(z0: number) {
   return { w, worst };
 }
 
+/**
+ * SEGMENT-BODY (re-judged; research 217 s2.9): the disc's end clip and its stand-off pop are gone. Walking past the slab
+ * the side line on its side, from 0.3 r to 1.2 r across the travel (1.05 to 4.2, D:L415171-415220, D:L415549-415577),
+ * crosses the slab's near face from in front once the body is within 4.2 of it; the hit takes nothing from a move along
+ * the face (its normal is across it) and, more than 1 deep, puts the body out by the depth less 1 (D:L413612-413614):
+ * it walks on 4.2 - 1 = 3.2 off (was `BODY_RADIUS`). From z 3 that is 0.2 out; from 2, 1.2 in one tick.
+ */
+const SIDE_HOLD = 1.2 * BODY_RADIUS - 1;
 describe("MV-PARITY (b2) F1: walking past a face's end with less than the radius to spare", () => {
   for (const z0 of [2, -2, 3]) {
-    it(`at z ${z0}: walks on along the slab, on its own side, at the stand-off; the pop is r less the clearance`, () => {
+    it(`at z ${z0}: walks on along the slab, on its own side, put out to its side line's reach less 1`, () => {
       const { w, worst } = walkPast(z0);
       expect(w.state.x).toBeGreaterThan(30);
-      expect(Math.abs(w.state.z)).toBeCloseTo(BODY_RADIUS, 3);
+      expect(Math.abs(w.state.z)).toBeCloseTo(SIDE_HOLD, 3);
       expect(Math.sign(w.state.z)).toBe(Math.sign(z0));
-      expect(worst).toBeCloseTo(BODY_RADIUS - Math.abs(z0), 3);    // WALL_PROBE_READING's gap, named
+      expect(worst).toBeCloseTo(SIDE_HOLD - Math.abs(z0), 3);
     });
   }
-  it.fails("GAP (WALL_PROBE_READING): no tick's sideways move outruns the walk itself (65 / 60)", () => {
-    expect(walkPast(2).worst).toBeLessThan(65 / 60);
-  });
 });
 
 /**
@@ -87,7 +92,11 @@ describe('the B194 merge seam: a tilted prone push and a face end in the same pa
     return buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], polys, owners);
   };
 
-  it('the clipped move: the crawl along A into B\'s end, A\'s part taken first', () => {
+  // SEGMENT-BODY (re-judged): the seam was the disc's (`faceOfPush`, the end clip); under the segment body the crawl is held
+  // where its head line along the facing (1.1 x 14.49 = 15.94, lifted through the root, D:L415531-415535) first crosses A
+  // -- prone, one hit over 1 deep is the jam (D:L413602-413611) -- and the turn toward +z slides it along A to B, through
+  // neither face. Was: held 8 out (the disc's line ahead), the port's own positions after the turn pinned.
+  it('the clipped move: the crawl held off A, then along A to B, through neither', () => {
     expect(WALL_END_CONTACT_READING).toBe('face-normal');
     expect(PRONE_PROBE_TILT_READING).toBe('root');
     const disc = WALL_PROBE_READING.prone.r * PRONE_FAN_READING.across;
@@ -105,21 +114,15 @@ describe('the B194 merge seam: a tilted prone push and a face end in the same pa
     const q = w.rootTilt.q!;
     expect(q.some((v, i) => Math.abs(v) > 0.05 && i < 3)).toBe(true);              // tilted: on the slope
     for (let i = 0; i < 4; i++) expect(q[i]).toBeCloseTo(q0[i]!, 6);              // and settled
-    expect(w.state.x).toBeCloseTo(42, 3);                          // held 8 out from A along the travel
-    let nearest = Infinity;
-    const at: number[][] = [];
-    for (let i = 0; i < 180; i++) {                                // the turn toward +z, along A into B's end
+    expect(50 - w.state.x).toBeGreaterThan(1.1 * 14.49 - 0.5);    // held off A by the head line
+    expect(50 - w.state.x).toBeLessThan(1.1 * 14.49 + 0.5);
+    const bSide = (x: number, z: number): number => (x - END[0]) * Math.sin(PHI) + (z - END[1]) * Math.cos(PHI);
+    const side0 = Math.sign(bSide(w.state.x, w.state.z));
+    for (let i = 0; i < 180; i++) {                                // the turn toward +z, along A toward B
       w.state.yaw -= 0.25;
       w.tick({ forward: 1, right: 0, boost: false });
-      nearest = Math.min(nearest, Math.hypot(w.state.x - END[0], w.state.z - END[1]));
-      if (i === 11 || i === 179) at.push([w.state.x, w.state.z]);
+      expect(w.state.x).toBeLessThan(50);                          // never through A
+      if (w.state.z > END[1]) expect(Math.sign(bSide(w.state.x, w.state.z))).toBe(side0);   // nor through B
     }
-    expect(nearest).toBeLessThan(disc);                            // B's end within the prone disc
-    // The first tick the tilted push and B's end share a pass (the turn's 12th), and where the crawl ends: the port's
-    // own output with the seam (reading, pending review). Without it: about (41.998, -2.113), then 0.52 away at the end.
-    expect(at[0]![0]).toBeCloseTo(42.0006, 3);
-    expect(at[0]![1]).toBeCloseTo(-2.1121, 3);
-    expect(at[1]![0]).toBeCloseTo(44.3431, 3);
-    expect(at[1]![1]).toBeCloseTo(14.6883, 3);
   });
 });

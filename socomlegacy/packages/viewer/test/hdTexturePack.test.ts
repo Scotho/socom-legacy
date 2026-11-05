@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {DataTexture,LinearFilter,LinearMipmapLinearFilter,NearestFilter} from 'three';
-import {HdPackRuntime,HdTextureRegistry,HD_LIMITS,HD_CONCURRENT_LOADS,hdTextures,markDerived,validateHdManifest,type HdEntry,type HdManifest} from '../src/hdTexturePack';
+import {HdPackRuntime,HdTextureRegistry,HD_LIMITS,HD_CONCURRENT_LOADS,HD_UI_SAMPLING,drawPlacements,fullAlpha,hdCompositeSize,hdKeyPeak,hdTextures,markDerived,upscaleRgba,validateHdManifest,
+ type HdEntry,type HdManifest,type HdPlacement,type HdSampling} from '../src/hdTexturePack';
 import {sha256} from '../src/texturePack';
 import {flipRows} from '../src/hudAssets';
 
@@ -170,5 +171,239 @@ describe('a 2D drawer\'s replacement larger than its unmipmapped bilinear origin
   t.minFilter=LinearFilter;t.generateMipmaps=false;registry.register(t,src);
   await new HdPackRuntime(registry,async()=>hd).setPack(manifest([await entry(src,hd)]));
   expect(t.generateMipmaps).toBe(false);expect(t.minFilter).toBe(LinearFilter);
+ });
+});
+
+// HD placements (OT.R92, plan 2026-10-31-hd-texture-pack-parity, HD.R9): a pack file PCSX2 named for a part of a texture
+// (a window read, a region, a block patch, an overlapped half) is drawn on that part of its target only.
+describe('HD placements: a pack image drawn into a sub-rectangle of its target',()=>{
+ type Img={width:number;height:number;data:Uint8ClampedArray};
+ const px=(img:{width:number;data:unknown},x:number,y:number)=>Array.from((img.data as Uint8ClampedArray).subarray((y*img.width+x)*4,(y*img.width+x)*4+4));
+ const two=()=>({width:2,height:2,data:new Uint8ClampedArray([10,0,0,255, 20,0,0,255, 30,0,0,255, 40,0,0,255])});
+ const placed=(src:Img,hd:Img,file:string,placements:HdPlacement[],over:Partial<HdEntry>={})=>
+  entry(src as ReturnType<typeof image>,hd as ReturnType<typeof image>,file,{placements,placementKind:'crop',...over});
+ it('accepts placement entries, several to a key, beside a whole entry; an old manifest is unchanged',async()=>{
+  const src=two(),a=await placed(src,image(4,4,[1,2,3,128]),'0.png',[{dst:[1,0,1,1],src:[0,0,4,4]}]);
+  const b=await placed(src,image(8,4,[4,5,6,128]),'1.png',[{dst:[0,1,1,1],src:[0,0,4,4]},{dst:[1,1,1,1],src:[4,0,4,4]}],{placementKind:'blocks'});
+  const w=await entry(src,image(8,8,[7,8,9,128]),'2.png');
+  const m=manifest([w,a,b]);
+  expect(validateHdManifest(JSON.parse(JSON.stringify(m)))).toEqual(m);
+  expect(Object.keys(validateHdManifest(manifest([w])).entries[0]!)).not.toContain('placements');
+ });
+ it('refuses a placement outside its target or its image, at an uneven scale, or without its kind',async()=>{
+  const src=two(),ok=await placed(src,image(4,4,[1,2,3,128]),'0.png',[{dst:[1,0,1,1],src:[0,0,4,4]}]);
+  const bad=(p:Partial<HdEntry>)=>()=>validateHdManifest(manifest([{...ok,...p}]));
+  expect(bad({placements:[{dst:[2,0,1,1],src:[0,0,4,4]}]})).toThrow(/outside its target/);
+  expect(bad({placements:[{dst:[0,0,1,1],src:[1,0,4,4]}]})).toThrow(/outside its image/);
+  expect(bad({placements:[{dst:[0,0,1,1],src:[0,0,4,2]}]})).toThrow(/scale/);
+  expect(bad({placements:[{dst:[0,0,2,2],src:[0,0,3,3]}]})).toThrow(/scale/);
+  expect(bad({placements:[]})).toThrow(/placements/);
+  expect(bad({placementKind:undefined})).toThrow(/kind/);
+  expect(bad({placementKind:'nope' as HdEntry['placementKind']})).toThrow(/kind/);
+  expect(()=>validateHdManifest(manifest([ok,{...ok,file:'1.png',width:4,height:1}]))).toThrow(/size/);
+  const w=await entry(src,image(8,8,[7,8,9,128]),'2.png');
+  expect(()=>validateHdManifest(manifest([w,{...w,file:'3.png'}]))).toThrow(/duplicate key/);   // two whole entries: still refused
+ });
+ it('composites a 1x1 placement at 4x into a 2x2 nearest target: 8x8, the placement\'s texels there, the original\'s elsewhere',async()=>{
+  const src=two(),hd=image(4,4,[1,2,3,64]),registry=new HdTextureRegistry(),t=texture(src);t.magFilter=NearestFilter;registry.register(t,src);
+  const runtime=new HdPackRuntime(registry,async()=>hd);
+  const r=await runtime.setPack(manifest([await placed(src,hd,'0.png',[{dst:[1,0,1,1],src:[0,0,4,4]}])]));
+  expect(r).toEqual({applied:1,skipped:[]});
+  const out=t.image as Img,orig=[[10,20],[30,40]];
+  expect([out.width,out.height]).toEqual([8,8]);
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++)
+   expect(px(out,x,y),`${x},${y}`).toEqual(x>=4&&y<4?[1,2,3,128]:[orig[y>>2]![x>>2]!,0,0,255]);   // the pack's 64 of 0x80 rescaled
+  expect(runtime.appliedBytes).toBe(8*8*4);
+ });
+ it('upscales a linear target\'s other texels bilinearly (as the GPU sampled the original), clamped where it clamps',async()=>{
+  const src=two(),hd=image(4,4,[1,2,3,128]),registry=new HdTextureRegistry(),t=texture(src);t.magFilter=LinearFilter;registry.register(t,src);   // clamped (the default wrap)
+  await new HdPackRuntime(registry,async()=>hd).setPack(manifest([await placed(src,hd,'0.png',[{dst:[1,1,1,1],src:[0,0,4,4]}])]));
+  const out=t.image as Img;
+  expect(px(out,0,0)).toEqual([10,0,0,255]);    // the clamped corner
+  expect(px(out,3,0)).toEqual([14,0,0,255]);    // u = 3.5/4 - 0.5 = 0.375 of the way from 10 to 20
+  expect(px(out,5,5)).toEqual([1,2,3,255]);     // the placement
+ });
+ it('combines several placements and entries on one target, over the whole replacement where there is one, and restores',async()=>{
+  const src=two(),whole=image(8,8,[5,5,5,128]),a=image(4,4,[1,1,1,128]);
+  const b:Img={width:8,height:4,data:new Uint8ClampedArray([...Array(32)].flatMap((_,i)=>(i%8)<4?[2,2,2,128]:[3,3,3,128]))};
+  const payloads=new Map<string,Img>([['0.png',whole],['1.png',a],['2.png',b]]);
+  const registry=new HdTextureRegistry(),t=texture(src);t.magFilter=NearestFilter;registry.register(t,src);const original=t.image;
+  const runtime=new HdPackRuntime(registry,async e=>payloads.get(e.file)!);
+  const r=await runtime.setPack(manifest([await entry(src,whole,'0.png'),await placed(src,a,'1.png',[{dst:[0,0,1,1],src:[0,0,4,4]}]),
+   await placed(src,b,'2.png',[{dst:[0,1,1,1],src:[0,0,4,4]},{dst:[1,1,1,1],src:[4,0,4,4]}],{placementKind:'blocks'})]));
+  expect(r).toEqual({applied:1,skipped:[]});
+  const out=t.image as Img;
+  expect([out.width,out.height]).toEqual([8,8]);
+  expect(px(out,1,1)).toEqual([1,1,1,255]);expect(px(out,6,1)).toEqual([5,5,5,255]);expect(px(out,1,6)).toEqual([2,2,2,255]);expect(px(out,6,6)).toEqual([3,3,3,255]);
+  await runtime.setPack(null);expect(t.image).toBe(original);expect(runtime.applied).toBe(0);
+ });
+ it('keeps the other placements when one payload fails its hash, and the original when every one fails',async()=>{
+  const src=two(),a=image(4,4,[1,1,1,128]),c=image(4,4,[9,9,9,128]);
+  const registry=new HdTextureRegistry(),t=texture(src);t.magFilter=NearestFilter;registry.register(t,src);
+  const ea=await placed(src,a,'0.png',[{dst:[0,0,1,1],src:[0,0,4,4]}]),ec={...await placed(src,c,'1.png',[{dst:[1,1,1,1],src:[0,0,4,4]}]),sha256:'f'.repeat(64)};
+  const r=await new HdPackRuntime(registry,async e=>e.file==='0.png'?a:c).setPack(manifest([ea,ec]));
+  expect(r.applied).toBe(1);expect(r.skipped.map(s=>s.reason)).toEqual(['payload hash does not match its entry']);
+  expect(px(t.image as Img,0,0)).toEqual([1,1,1,255]);expect(px(t.image as Img,7,7)).toEqual([40,0,0,255]);
+  const r2=new HdTextureRegistry(),u=texture(src);r2.register(u,src);
+  expect((await new HdPackRuntime(r2,async()=>c).setPack(manifest([ec]))).applied).toBe(0);expect(u.image.width).toBe(2);
+ });
+ it('reserves the composite at the larger of the whole\'s and every placement\'s scale (a whole 2x, a placement 4x; review F2)',async()=>{
+  // The whole fails its hash, so build makes the composite from the original at the placement's 4x: 8x8, not the whole's 4x4.
+  const src=two(),whole=image(4,4,[5,5,5,128]),a=image(4,4,[1,1,1,128]);
+  const registry=new HdTextureRegistry(),t=texture(src);t.magFilter=NearestFilter;registry.register(t,src);
+  let seen=-1;
+  const runtime=new HdPackRuntime(registry,async e=>{seen=Math.max(seen,(runtime as unknown as {reserved:number}).reserved);return e.file==='0.png'?whole:a;});
+  const ew={...await entry(src,whole,'0.png'),sha256:'f'.repeat(64)},ea=await placed(src,a,'1.png',[{dst:[0,0,1,1],src:[0,0,4,4]}]);
+  const r=await runtime.setPack(manifest([ew,ea]));
+  expect(r.applied).toBe(1);expect([t.image.width,t.image.height]).toEqual([8,8]);
+  expect(seen).toBe(8*8*4+2*a.data.length);   // the 8x8 composite and the largest payload with its hash copy (GM-13c review F3)
+ });
+ it('a flipped bitmap takes the composite turned top row first',async()=>{
+  const src=two(),hd=image(4,4,[1,2,3,128]),registry=new HdTextureRegistry(),t=texture(flipRows(src) as ReturnType<typeof image>);t.magFilter=NearestFilter;registry.register(t,flipRows(src),true);
+  await new HdPackRuntime(registry,async()=>hd).setPack(manifest([await placed(src,hd,'0.png',[{dst:[1,0,1,1],src:[0,0,4,4]}])]));
+  const out=t.image as Img;
+  expect(px(out,5,7)).toEqual([1,2,3,255]);expect(px(out,5,0)).toEqual([40,0,0,255]);
+ });
+ it('replacement() (the menus\') composites the same placements, bilinear and repeating (the UI\'s reading)',async()=>{
+  const src=two(),hd=image(4,4,[1,2,3,128]);
+  const runtime=new HdPackRuntime(new HdTextureRegistry(false),async()=>hd);
+  await runtime.setPack(manifest([await placed(src,hd,'0.png',[{dst:[1,0,1,1],src:[0,0,4,4]}])]));
+  const got=(await runtime.replacement(src))!;
+  expect([got.width,got.height]).toEqual([8,8]);expect(px(got,5,1)).toEqual([1,2,3,255]);
+  expect(px(got,0,7)).toEqual([26,0,0,255]);   // (-0.375, 1.375) wraps: 33.75 (row 1) x 0.625 + 13.75 (row 0) x 0.375
+ });
+});
+
+// GM-13c (plan 2026-11-01-gpu-menus, row GM-13c; agent/hd-subrect review F3, GM-13b review F6): a key's payloads are
+// decoded and composited in turn -- each decoded, checked, drawn and let go before the next is asked for -- so one key's
+// decoded bytes never pass its composite plus its largest payload (font_titlebar_01: 8 regions and its whole, ~120 MB
+// decoded at once before). PRODUCT TRACK: the composite is byte for byte the one drawn all at once.
+describe('GM-13c: a key\'s payloads decoded in turn',()=>{
+ type Img={width:number;height:number;data:Uint8ClampedArray};
+ /** Deterministic bytes, alpha over the whole 0..255 (over 0x80 too: `fullAlpha` clamps). */
+ const noise=(w:number,h:number,seed:number):Img=>({width:w,height:h,data:new Uint8ClampedArray(Array.from({length:w*h*4},(_,i)=>(i*37+seed*101+((i*i)>>3))%256))});
+ const as=(r:Img)=>r as ReturnType<typeof image>;
+ const placedEntry=(src:Img,hd:Img,file:string,placements:HdPlacement[],over:Partial<HdEntry>={})=>entry(as(src),as(hd),file,{placements,placementKind:'crop',...over});
+ /**
+  * The fake decoder. Each load hands out a fresh copy of its file's pixels. Retention (review F4): when the next load is
+  * asked for, every copy handed out before it is overwritten with a sentinel, so a build that still reads an earlier
+  * payload after asking for the next -- one holding several at once -- draws the sentinel or fails its hash, and the
+  * byte-identity checks catch it. Overlap: a payload counts live from its load until a later load is asked for after it
+  * arrived, so a build that asks for several before any arrives shows them all live at once (`peak`).
+  */
+ const SENTINEL=0x5a;
+ const ledger=(files:Map<string,Img>)=>{
+  const held:{bytes:number;arrived:boolean}[]=[],handed:Uint8ClampedArray[]=[];let peak=0,loads=0;
+  const load=async(e:HdEntry):Promise<Img>=>{
+   loads++;
+   for(const d of handed.splice(0))d.fill(SENTINEL);
+   for(let i=held.length-1;i>=0;i--)if(held[i]!.arrived)held.splice(i,1);
+   const h={bytes:e.bytes,arrived:false};held.push(h);peak=Math.max(peak,held.reduce((n,x)=>n+x.bytes,0));
+   await new Promise(r=>setTimeout(r,2));h.arrived=true;
+   const f=files.get(e.file);if(!f)throw new Error(`no ${e.file}`);
+   const copy={width:f.width,height:f.height,data:new Uint8ClampedArray(f.data)};handed.push(copy.data);return copy;
+  };
+  return {load,peak:()=>peak,loads:()=>loads};
+ };
+ /** Today's build, the ordering the composite is held to: the passing whole's alpha copy (or the original carried to the
+  * passing placements' scale), then each passing placement drawn over it in manifest order from its alpha copy. */
+ const reference=(src:Img,whole:{e:HdEntry;image:Img}|null,layers:{e:HdEntry;image:Img}[],s:HdSampling):Img|null=>{
+  if(!layers.length)return whole?{width:whole.image.width,height:whole.image.height,data:fullAlpha(whole.image.data)}:null;
+  const size=hdCompositeSize(src.width,src.height,whole?.e,layers.map(l=>l.e));
+  const out={width:size.width,height:size.height,data:whole?fullAlpha(whole.image.data):upscaleRgba(src,size.width,size.height,s)};
+  for(const l of layers)drawPlacements(out,src.width,src.height,{width:l.image.width,height:l.image.height,data:fullAlpha(l.image.data)},l.e.placements!);
+  return out;
+ };
+ const same=(got:Img|null,want:Img|null)=>{
+  expect(got&&[got.width,got.height]).toEqual(want&&[want.width,want.height]);
+  if(got&&want)expect(Buffer.from(got.data.buffer,got.data.byteOffset,got.data.byteLength).equals(Buffer.from(want.data.buffer,want.data.byteOffset,want.data.byteLength))).toBe(true);
+ };
+
+ // font_titlebar_01's shape, small: a 4x2 target, its whole at 4x and eight regions at 4x, each region's image larger
+ // than the whole (as the 512 x 512 regions are), overlapping one another.
+ const titlebar=async()=>{
+  const src=noise(4,2,1),whole=noise(16,8,2),files=new Map<string,Img>([['0.png',whole]]);
+  const entries:HdEntry[]=[await entry(as(src),as(whole),'0.png')];
+  for(let i=0;i<8;i++){
+   const hd=noise(8,8,10+i);files.set(`${i+1}.png`,hd);
+   entries.push(await placedEntry(src,hd,`${i+1}.png`,[{dst:[i%3,0,2,2],src:[0,0,8,8]}]));
+  }
+  return {src,whole,files,entries,largest:Math.max(...entries.map(e=>e.bytes)),composite:16*8*4};
+ };
+ it('replacement() holds one payload at a time: never more than the largest, 9 loads, the same composite',async()=>{
+  const k=await titlebar(),l=ledger(k.files);
+  const runtime=new HdPackRuntime(new HdTextureRegistry(false),l.load);
+  await runtime.setPack(manifest(k.entries));
+  const got=await runtime.replacement(as(k.src));
+  expect(l.loads()).toBe(9);
+  expect(l.peak()).toBeLessThanOrEqual(k.largest);           // with the composite: composite + max(payload), not the sum
+  same(got,reference(k.src,{e:k.entries[0]!,image:k.whole},k.entries.slice(1).map(e=>({e,image:k.files.get(e.file)!})),HD_UI_SAMPLING));
+ });
+ it('a texture (the match\'s pack) the same: one payload at a time, and its reservation is the composite plus the largest payload',async()=>{
+  const k=await titlebar(),l=ledger(k.files),registry=new HdTextureRegistry(),t=texture(as(k.src));t.magFilter=NearestFilter;registry.register(t,as(k.src));
+  let seen=-1;
+  const runtime=new HdPackRuntime(registry,async e=>{seen=Math.max(seen,(runtime as unknown as {reserved:number}).reserved);return l.load(e);});
+  const r=await runtime.setPack(manifest(k.entries));
+  expect(r).toEqual({applied:1,skipped:[]});
+  expect(l.peak()).toBeLessThanOrEqual(k.largest);
+  // the composite, the largest payload and its hash copy (`texturePack.ts` `sha256`, review F3: as `hdLoadBytes`
+  // counts it); was the composite plus every placement's payload
+  expect(seen).toBe(k.composite+2*k.largest);
+  same(t.image as Img,reference(k.src,{e:k.entries[0]!,image:k.whole},k.entries.slice(1).map(e=>({e,image:k.files.get(e.file)!})),{filter:'nearest',repeatS:false,repeatT:false}));
+ });
+ it('a whole alone (every entry before HD.R9) reserves as before: its composite only, so the match admits it as before',async()=>{
+  const src=noise(4,2,1),whole=noise(16,8,2),registry=new HdTextureRegistry(),t=texture(as(src));registry.register(t,as(src));
+  let seen=-1;
+  const runtime=new HdPackRuntime(registry,async()=>{seen=Math.max(seen,(runtime as unknown as {reserved:number}).reserved);return whole;});
+  expect((await runtime.setPack(manifest([await entry(as(src),as(whole),'0.png')]))).applied).toBe(1);
+  expect(seen).toBe(16*8*4);
+ });
+
+ // Odd sizes and overlaps: a 5x3 target; A at 3x over 3x3 texels, B at 2x in two 2x2 rectangles (one over A's), E at 4x
+ // over one texel (the composite's largest scale), W the whole at 2x (so A and E draw finer than it: averaged cells or
+ // bilinear). Each composite is held byte for byte to today's ordering.
+ const odd=async()=>{
+  const src=noise(5,3,3),W=noise(10,6,4),A=noise(9,9,5),B=noise(4,6,6),E=noise(4,4,7);
+  const files=new Map<string,Img>([['0.png',W],['1.png',A],['2.png',B],['3.png',E]]);
+  const w=await entry(as(src),as(W),'0.png');
+  const a=await placedEntry(src,A,'1.png',[{dst:[1,0,3,3],src:[0,0,9,9]}]);
+  const b=await placedEntry(src,B,'2.png',[{dst:[0,1,2,2],src:[0,0,4,4]},{dst:[3,1,2,2],src:[0,2,4,4]}],{placementKind:'blocks'});
+  const e=await placedEntry(src,E,'3.png',[{dst:[4,2,1,1],src:[0,0,4,4]}]);
+  return {src,files,w,a,b,e,img:(x:HdEntry)=>files.get(x.file)!};
+ };
+ const run=async(src:Img,files:Map<string,Img>,entries:HdEntry[])=>{
+  const l=ledger(files),runtime=new HdPackRuntime(new HdTextureRegistry(false),l.load);
+  await runtime.setPack(manifest(entries));
+  return {got:await runtime.replacement(as(src)),l,runtime};
+ };
+ it('byte-identical over odd sizes and overlaps: the whole and every placement',async()=>{
+  const o=await odd(),{got,l}=await run(o.src,o.files,[o.w,o.a,o.b,o.e]);
+  expect(l.peak()).toBeLessThanOrEqual(Math.max(o.w.bytes,o.a.bytes,o.b.bytes,o.e.bytes));
+  same(got,reference(o.src,{e:o.w,image:o.img(o.w)},[o.a,o.b,o.e].map(e=>({e,image:o.img(e)})),HD_UI_SAMPLING));
+ });
+ it('byte-identical without a whole: the original carried to the placements\' 4x',async()=>{
+  const o=await odd(),{got}=await run(o.src,o.files,[o.a,o.b,o.e]);
+  expect([got!.width,got!.height]).toEqual([20,12]);
+  same(got,reference(o.src,null,[o.a,o.b,o.e].map(e=>({e,image:o.img(e)})),HD_UI_SAMPLING));
+ });
+ it('byte-identical when the largest-scale placement is refused: the composite at the passing ones\' 3x, as before',async()=>{
+  const o=await odd(),bad={...o.e,sha256:'f'.repeat(64)},{got,runtime}=await run(o.src,o.files,[o.a,o.b,bad]);
+  expect([got!.width,got!.height]).toEqual([15,9]);
+  same(got,reference(o.src,null,[o.a,o.b].map(e=>({e,image:o.img(e)})),HD_UI_SAMPLING));
+  expect(runtime.skipped().map(s=>s.reason)).toContain('payload hash does not match its entry');
+ });
+ it('byte-identical when the whole is refused, and when every placement is (the whole alone)',async()=>{
+  const o=await odd(),badW={...o.w,sha256:'f'.repeat(64)};
+  same((await run(o.src,o.files,[badW,o.a,o.b])).got,reference(o.src,null,[o.a,o.b].map(e=>({e,image:o.img(e)})),HD_UI_SAMPLING));
+  const badA={...o.a,sha256:'f'.repeat(64)},badB={...o.b,sha256:'f'.repeat(64)};
+  same((await run(o.src,o.files,[o.w,badA,badB])).got,reference(o.src,{e:o.w,image:o.img(o.w)},[],HD_UI_SAMPLING));
+  expect((await run(o.src,o.files,[badA,badB])).got).toBeNull();
+ });
+ it('the key\'s peak: the composite (the larger of the whole\'s and the placements\' scale) and its largest payload',()=>{
+  const p=(dst:HdPlacement['dst'],s:HdPlacement['src'])=>({bytes:s[2]*s[3]*4,placements:[{dst,src:s}]});
+  // a whole at 2x (10x6) and placements at 3x and 4x: the composite at 4x, 20x12
+  expect(hdKeyPeak(5,3,{outWidth:10,outHeight:6,bytes:10*6*4},[p([1,0,3,3],[0,0,9,9]),p([4,2,1,1],[0,0,4,4])])).toEqual({composite:20*12*4,payload:9*9*4});
+  // a whole alone: its own size (or the target's, if larger), its payload
+  expect(hdKeyPeak(5,3,{outWidth:20,outHeight:12,bytes:20*12*4},[])).toEqual({composite:20*12*4,payload:20*12*4});
  });
 });

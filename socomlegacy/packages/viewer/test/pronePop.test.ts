@@ -177,7 +177,7 @@ describe('OT.R67: the pop out of the dive (Traversal.cancelDive)', () => {
       r.press('prone');
       expect(r.moves.state().kind).toBe('dive');
       for (let i = 0; i < offset; i++) r.tick();
-      expect(r.moves.pose()!.rootY).toBeGreaterThan(2.2);
+      expect(r.moves.rootY()).toBeGreaterThan(2.2);                     // DIVE-ROOT: the drawn clip's root, still up
       const before = { ...r.w.state };
       expect(popStance(r.w, r.moves)).toBe('dive');
       expect(r.w.stance).toBe('stand');

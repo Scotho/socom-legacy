@@ -2,6 +2,7 @@
 
 - Date: 2026-10-05 (web sprint 28). PF-15 writes §1, §5 and §6; PF-16 (§2), PF-20 (§3, its §6 rows) and PF-21 (§4, its §6 rows) add theirs.
   PRONE-TILT (2026-10-31, the gameplay lane) adds §7, its §6 rows and a note in §2.5.
+  SEGMENT-BODY (2026-11-02, the gameplay lane) adds §2.9 and its §6 rows, and resolves `WALL_DEEP_REVERT_READING`.
 - Status: **reading, pending review.** Every value below is a read of the decompilation (`D:L<n>` of
   `socom2_game.elf.decomp.c` r0001) or of the disc through the port's own parsers; nothing here is a capture. Research
   180 grades several of these PROVEN or STRONG; under AGENTS.md a source read is a reading until reviewed (research 206).
@@ -581,6 +582,368 @@ on `worldmodel/wc13A/di_bridge_wc13_sides` at y 23.4-26.1 (n_y 0.518-0.533, colu
 every step, whole and split by axis, rises onto the next `_sides` polygon (n_y 0.518, taller than 6.5) and is refused
 by the interim steep-rise rule (section 2.7, `STEEP_RISE_FACE_MIN_READING`; LATER 590, which has no source in the
 original). That is LATER 590's, not this push's (no floor there is under n_y 0.1); not changed here.
+### 2.9 The segment body (SEGMENT-BODY, 2026-11-02; `WALL_BODY_READING`; LATER 283, LATER 620)
+
+*Reading, pending review* (the gameplay lane, on 5d's decision between readings, OT.R53: "the port's disc body with
+two-sided faces is the departure; the original's segment body with front-face-only hits is the reading"; the owner's
+"Fix this", Q4's default "from the reading, no interim escape"). Transcribed from r0001 (`socom2_game.elf.decomp.c`) and
+checked against r0004, the spec (OT.R97), by the parallel reader's `agent-mail/evidence/segment-body/R0004-SEGMENTS.md`
+(itself a reading, pending review); measured headless on the fixtures and the disc. Nothing here is a capture.
+
+**The body.** `FUN_0054aa30`, the controlled body's branch (the controller's vtable +0x2c answers, D:L415341 on):
+- *The class* (D:L415113-415133): standing and crouched r 3.5, prone (`bVar5`) r 8.0; the height `fVar22` the feet +
+  `step_height` 6.5 (`DAT_0044c26c`), prone the class height x 0.5 = 3.0 (D:L415231-415233).
+- *The direction* `fStack_10` (D:L415134-415166): the frame displacement `+0xf44` normalised in three axes, or the
+  facing (the matrix row +0x20 negated) when every component is under 0.0005 (`bVar7`, D:L415135-415150); times r x 1.4.
+- *The side* `fStack_20` (D:L415171-415220): (-dz, 0, dx) of the displacement (of `fStack_10` when still), normalised,
+  times r; `uStack_30` 0.3 of it, `uStack_40` 1.2 of it.
+- *The records, in order* (each `FUN_0054f410`, D:L417251-417272):
+  1. the centre: the feet + h to the feet + 1.1 `fStack_10` (`uStack_60`, D:L415235) + the displacement + h
+     (D:L415401-415433); x 1.75 more (`DAT_0064fce8`) while the stance word is 0 or 1 and the body-frame velocity's z
+     `+0x34` is over 0.01, or crouched and under 0 with `+0x21c` bit 2 clear (D:L415354-415371). **Forward is -z in that
+     frame** (`FUN_0057a330` D:L438978-438984: `+0x34 = -stick x speed`): the 1.75 is a standing body BACKING and a
+     crouched one moving either way -- §2.1's "a moving standing body's centre reaches 9.43" read +0x34 as forward;
+     standing and running forward the centre reaches 5.39;
+  2. the head line: the feet + the head node's y + 2 (D:L415441-415443) to `fStack_10` + the displacement while the
+     `firepoint` node `+0x14bc` is clear (D:L415444-415456); with it set (D:L415457-415523), when the row +0x20 (the
+     BACK) dotted with the direction is under 0 -- the body moving FORWARD -- or the body is still, and the top play's
+     looped bit with `FUN_00286c90(+0x458)` over 0 and the stance word not 5, or prone, or the actions 0x11 / 0x13 /
+     0x19, the end is the row x (the row . 1.1 x `+0x14b0`): along the facing by 1.1 x the muzzle's forward part --
+     9.46 standing, 12.58 crouched, 15.94 prone (`SEGMENT_FIREPOINT_READING`, §1.3's table) -- plus the displacement;
+     §2.1's note had the condition the other way round (the row taken for the facing);
+  3. standing and crouched, the side lines: the feet + `uStack_30` + h to the feet + `uStack_40` + `fStack_10` + the
+     displacement + h (D:L415549-415577), mirrored (D:L415789-415817);
+  4. prone (not turning, not strafing) the side lines: the feet + 1.3 `uStack_30` - `fStack_10` to the feet + 1.3
+     `uStack_30` + `fStack_10` + the displacement, at h (D:L415582-415621), mirrored (D:L415822-415861).
+  Prone, each record's end is lifted through the root (`FUN_0054ecd0`, D:L416972-417027): the centre (D:L415426-415431),
+  **the head line too** (D:L415531-415535; `PRONE_PROBE_TILT_READING`'s doc and `wallProbes.test.ts` had it level), and
+  the side lines split over both ends (D:L415617-415620).
+
+**A hit.** Each record's hits are the hull's one-sided crossings (research 281 §4.3: a start in front of the polygon's
+own normal and an end behind it), over the movement's surfaces (bit 1 set, bit 18 clear). r0001 keeps a record's
+nearest hit (`FUN_002d4cc0`) and drops the record when that hit's normal y is over `max_slope` or its material is flagged
+in bit 0 or 1 (D:L413406-413457); **r0004 keeps the nearest hit that passes** (R0004-SEGMENTS (A)), and in the knock's
+falls (`FUN_00588030`) skips the slope drop (B). Built: r0004's (`SEGMENT_HIT_PICK_READING` `'nearest-passing'`).
+
+**The resolution** (`FUN_005483d0`, every tick, airborne or not, D:L417822-417826): in the list's order, each hit's normal
+levelled (y under `max_slope` made 0) and normalised (D:L413538-413541); in the jump's and the knock's actions (`FUN_00587f50`
+8 / 9, `FUN_00587f10` 10 / 11, `FUN_00588030`) the displacement is put out by the record end's depth behind the face
+(D:L413543-413556), otherwise it loses its whole part along the normal (D:L413557-413567); the carried velocity
+`+0x1350` its part into it (D:L413588-413594). The depth |(end - hit) . n| of the controlled body's hits, the deepest kept
+(D:L413571-413585). **The jam** (D:L413602-413611): the deepest over 1 with the body prone (the actions 0x1a / 0x1b /
+0x1c, the prone strafes, or the stance word 2) or with more than two hits puts it back where the tick began (the
+displacement zeroed; the copy is the orientation, §2.11); otherwise the depth less 1 is added along the deepest's normal
+(D:L413612-413614). **The look-ahead** (D:L413673-413800), with a hit and no slide speed: prone and turning (`+0x23c`)
+jams; else from the feet + `step_height` along the resolved displacement, its horizontal length plus 11.46 prone, or plus
+the larger of 5.25 (crouched 10.5) and the `firepoint` offset dotted with the direction; a steep unflagged hit zeroes the
+displacement; then from each hit 0.1 of the way back to its record's start (`FUN_00308fc0`), along the displacement made 2
+long when its horizontal length is under 2, the same. The new position is the start plus what is left (D:L413918).
+
+**How it maps onto the walker** (`mover.ts`, `WALL_BODY_READING` `'segments'`): `Walker.move` resolves the tick's whole
+move once (`resolveSegments` over `bodySegments`), then walks what is left in sub-steps for the floors; `fall` builds the
+airborne tick's displacement (the carried move across and the game frames' fall) and resolves it before its floor pick.
+Every `Walker` body is the controlled body's -- the page's, the room's players and bots (bots are the port's own seats):
+the depth, the jam and the look-ahead run for all; `glideAi` (the hostages, an AI controller answering 0) keeps its
+centre line. The port's tick is 60 Hz (PF.R8): the records add the tick's displacement, half a 30 Hz frame's.
+
+**What replaces the disc for walls**: nothing of `r`: the stand-off is where a record first crosses a face -- head on
+standing 9.46 to 9.46 + the move, at a face under the head line 5.39 to 5.39 + the move, crouched 9.43 or 12.58, prone
+15.94 (the head line) or 12.32. **The floors and steps keep their own rules** (`step`, `groundEndpoint`, `selectFloor`, the
+`[dx, 0] / [0, dz]` retry and the steep-rise bound of §2.7): `FUN_005b0840`'s pick is not the wall pass, and none of them
+reads a wall. **What replaces `crosses`**: the look-ahead (`SEGMENT_LOOK_AHEAD_READING`) and the records' own reach past the
+move; `pushOut` is gone with it -- a still body is resolved by its records along its facing. **b2's end clip** has no place:
+a face's end is met by a record crossing the face inside its edges, with the face's own normal, as any hit
+(`WALL_END_CONTACT_READING`, `AIR_WALL_HEIGHTS_READING`, `PRONE_FAN_READING` and `WALL_PROBE_READING`'s `r` serve the
+`'disc'` arm only). **The running jump and the stored contact (proven, 2026-11-04; `JUMP_CONTACT_PROVEN` 'none'):** the
+running jump launches on its speed alone (225 or more squared, `FUN_0057e1b0` D:L440812-440814); the stored contact
+refuses nothing. ac's jump-near-wall capture (r0004, PCSX2, offline, 2026-11-04 11:30-11:50Z,
+`segment-body/jump-near-wall/RESULTS.md`, two identical trials a case) ran square at M51 g19733's face at full stick:
+pressed 17.43 from the plane with `+0x10ac` set and CLIMB offered (`+0xed0` 4) it launched type 8 and carried 64.5 u at
+62.3 u/s over the 14-u top (a standing jump carries nothing); pressed 6.95 out, contact set, type 8; pressed 28 out
+(contact clear) and the parallel control, type 8. Held by `weaponLine.test.ts` (capture-scored on M51; a synthetic twin).
+**The rejected reading**, kept with its evidence: "the running jump wants no stored contact besides its speed
+(`FUN_0057e1b0` D:L440815-440819: while `+0x10ac` is set it takes `DAT_003deae8`'s standing jump;
+`JUMP_CONTACT_READING` 'stored-contact')" -- a transcription of the r0001 decompilation, whose addresses are r0001's:
+on r0004 the word at 0x3deae8 is code (`0x00431023`, the capture's RDRAM read), so the branch is an older build's, and
+the r0004 capture overrides it. The r0004 code agrees (reading, re-read 2026-11-04 by fresh review 2 and its fold):
+r0004's jump, 0x583490 (the desktop recompilation's r0004 output, `sub_00583490_0x583490.cpp`), loads no `+0x10ac`
+at all, where r0001's (its r0001 output, `sub_0057E1B0_0x57e1b0.cpp`, the load at 0x57e348) does -- the test is
+deleted (the r0004 investigation's G3, `cluster-wall-slide-fix.md` s2.1); LATER 614 closed by it.
+**The speed the test reads (proven, 2026-11-04; LATER 676 closed as faithful):** `FUN_0057e1b0` squares the clip's
+velocity `+0x2c..+0x34` (D:L440812-440814; r0004 0x583668-0x583694, `0x43610000` = 225.0), which `FUN_0057a330` writes
+from the top clip's root velocity (`FUN_0028c250` D:L438908, the projection D:L438911-438958, the scale D:L438985); the
+wall cut `FUN_005483d0` touches only `+0xf44` and `+0x1350` (D:L413533-413597), never `+0x2c`. So a body blocked at
+full stick is offered the running jump. ac's r0004 ditch capture (PCSX2, offline, 2026-11-04 14:08-14:30Z,
+`segment-body/ditch-capture/RESULTS.md`, case 1 x3 at M51 (990, -140, 841.5) facing 180 held right; case 2 x2 square at
+g19733): blocked at (982.40, -150.84, 841.50), the body moving 0.00 a second against a clip velocity of 65 and
+`+0x10ac` set, every press gave type 8 (then 10, 2, 1), never the standing jump's 178 (the halfword at 0x409cb8). The port
+reads the tick's velocity before the walls (`Walker.jump`, `bodyVelocity_`, written at the start of `slideOrMove`): M51's
+ditch offers it on 70 of 70 ticks (`m51DitchBlock.disc.test.ts`; 49 before), a body pushed square into a wall launches
+(`walk.test.ts`). The carry stays the cut velocity (`+0x1350 = +0x38`, D:L440823-440825; `takeOff`) (the port's; on a jam the original's differs, LATER 690). *The rejected
+reading*, kept with its evidence: MV-PARITY (b2)'s ditch block -- "every jump there leaves it where it was" -- rested on
+the EPH replays 20261031T154035Z, 154148Z, 154254Z and the live run 014055Z, whose `record.json` files read `build`
+r0001 (and `revision.detected` r0001); r0001's stored-contact branch (D:L440815-440819) makes the jump standing there,
+so they say nothing of r0004. Where the capture's jump lands -- back in the ditch, +13.17 up, at x 984.03 -- the port
+does not on 25 of the 70 ticks (LATER 690). **The carry on a jam (proven, 2026-11-04; LATER 690, no code):** ac's
+second r0004 ditch capture (offline, M51 slot 5, from (990, -146.02, 841.5) at yaw 180, held right, Square once; two
+trials, `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/ditch-capture-2/RESULTS.md`, every guest frame). At the
+press the body is jammed at (982.405, -150.844, 841.5), moving 0, with `+0x38` = `+0x64` = (-65, 0, 0). The first air
+frame (type 8) does not move horizontally, `+0x38` still (-65, 0, 0). On the next, `+0x38` and `+0x64`'s level part
+become (-4.3026, 0, -16.1603) (|v| 16.72), and the body snaps 4.0 out of the wall (+x) and 1.76 along -z; the flight
+carries that vector (-0.144 x, -0.539 z a frame), its vertical starting 72.06 and falling 7.841 a frame (235 u/s^2), to
+land back in the ditch at (983.98-984.03, -145.6, 830.2-830.6). Where (-4.30, -16.16) comes from is unread (`+0x1350`'s
+y holds -4.3026 from the first air frame; the z is unexplained; `+0x64`'s writer needs a debugger write watch). The
+rule planned as `JUMP_CARRY_READING` (the carry the clip velocity less its into-face part) is NOT supported: neither
+-65 nor the clip velocity nor the jammed displacement (0) is carried. The port's carry stays the cut velocity until the
+source of the 16.72 vector is read (LATER 690, the next branch). The slide's case is `JUMP_SPEED_SLIDE_READING` (the readings table). Under it
+(SEGMENT-BODY part 2) a running jump within the weapon line's reach of a face
+was the standing jump: MP2's walk launches fell from 312 to 217, the Frostfire rail-ramp jump was refused (LATER 682),
+the bots' 40-tall app-4 climb failed (LATER 683). The move's stored contact stays built for the climb's offer
+(`Walker.storeContact`). The standing jump's own type on r0004 is unread (r0004's twin of `DAT_003deae8`); the port's
+standing jump is unchanged for a press under the speed.
+
+**r0004.** The build, its constants, the resolution and the jam are unchanged (R0004-SEGMENTS); (A) and (B) are built;
+(C) -- no records during Stand -> Turret without flag 0x20, the prone peek's shape and strafe flag, a prone body moving
+mostly sideways taken as strafing (and its `+0x2c` written) -- is not: the port models neither the turret mount nor the
+prone strafe's records (`bVar4`'s branch, D:L415640-415790), LATER 622. The prone side lines are the same in r0001 and r0004
+(R0004-SEGMENTS, its follow-up): the x 1.3 is at D:L415582 (mirrored D:L415822) -- 0.39 r = 3.12 across -- from S - 11.2
+dir to S + 11.2 dir + the frame's displacement, dir normalised in three axes, at the feet + 3.0 with the start lowered and
+the end raised by half `FUN_0054ecd0`'s lift (D:L415616-415620; the lift is `PRONE_PROBE_TILT_READING`'s, its size
+unread), cast by a still local body along its facing too; the port's `bodySegments` builds exactly that. Not settled
+there: the body-vs-body lines (D:L417619-417626) and the turning-prone single line's reach (D:L415701-415788).
+
+**Measured** (headless; dev-disc and fixture tests, `segmentBody.test.ts`, `segmentBridgeWedge.test.ts` -- named `bridgeWedge.test.ts` before the merge of main):
+- Crossroads' slot (LATER 620): placed where the playtest's body stood (1675.8, 57.6, 1422.8), it walks out +x and -z
+  through the fin's back. The fall itself (§2.11) no longer lands in the slot: over the slot dia's face, met from in
+  front, puts the airborne displacement out by its depth (D:L413543-413556) and back through the fin's back; it lands at
+  (1667.5, 57.48, 1418.1), before the fin.
+- M71's ramp-foot pocket (LATER 283) on the disc's hull: 7 of 16 headings walk out (the disc held all 16).
+- DOOR-PIN, MP51 `door_ft_2` (the investigator's case): facing -x, -z or +z the swing never wedges the body and it walks
+  out in 6 of 8 headings; **facing +x (away from the leaf) the leaf crosses the body's +z side line from its front and
+  carries it by the depth less 1 into the angle between the open leaf and `wc17A/di_intbasement_hint_01` at (953.97,
+  925.15), where it is held while the leaf is open** -- the investigator expected "no segment meets the leaf" there. That
+  the leaf's polygons are in the records' query at all is the reading (they are hull colliders the grid holds); a capture
+  of a body in a door's arc settles both.
+- The sweep's cases (BRIDGE-WEDGE's review): MP9 (1081.96, 1206.1), MP1 (2140.72, 1968.24) and MP51 (1349.15, 409.6)
+  walk-offs come free (6 of 8 headings or more; the disc: 0); the rim at 10 caught in a fall lands on it from feet 6 up,
+  and from feet 4 at 2.9 short the slanted record's end crosses the rim's face and the body falls short of it.
+- M51's ditch (EPH replays): held 2 to 5 off the log's foot (x 981-986, the replays'), sliding -z; but on 5 of 70 ticks
+  the stored contact is dropped and the running jump is offered (LATER 676). *2026-11-04:* the r0004 ditch capture offers
+  it on every frame (§2.9, the speed the test reads): the port on 70 of 70; LATER 676 closed as faithful, the landing
+  LATER 690.
+- Prone stops at any flight whose riser spans the feet + 3.0 within 12.32 (1/4 and 2/8 now too); MP2's 142 deck's east
+  edge is a pipeworks rail at the feet + 6.5 and is no longer walked off; brushing a side face fires the look-ahead short
+  of a crate (Frostfire's 11.9 crate from x 938: no offer -- LATER 680; from 939.3, offered). These are the reading's
+  consequences, owed captures.
+- **The oblique climb, settled against the capture** (2026-11-04; research 86 s3.8; the weapon line built by SEGMENT-BODY
+  part 2, reading, pending review): the original offers CLIMB walked in at up to about 62 degrees and standing still
+  15 out (ac's r0004 capture, `climb-angle/RESULTS.md`), because the stored contact has a second source -- the weapon
+  line's slot `+0x1140`, cast each tick along the facing 2 x the held model's x extent (the M4A1 SD's 22.930, proven)
+  and copied into the contact when no record hits (`FUN_0054d9a0` D:L416630-416687, `FUN_0054e8f0` D:L416858-416910,
+  `FUN_005483d0` D:L413618-413671; ac's RDRAM read: the slot and the contact identical word for word). **The rejected
+  reading, kept with its evidence:** "a climb is offered only where the centre or the head line meets the face first --
+  walked in at 45 degrees the side line meets it first and the body slides along it" (the side lines' geometry,
+  D:L413823-413848, and the whole into-face part removed, D:L413557-413567): the side lines do take the move and give
+  the capture's stop distances (6.4 at 30, 6.2 at 60), but "no offer" is contradicted. Owed: the square walk-in's
+  stand-off, 5.66 here against the original's 5.34-5.40 (LATER 681).
+- The bots' graphs: nodes unchanged; MP2 57790 -> 59851 edges (+5227, -3166), MP51 104147 -> 104248 (+3650, -3549); no
+  node leaves its map's largest component (`navigationGraphIdentity.test.ts`). 25 match tests (bot synthetic worlds) are
+  red and not re-judged at this checkpoint.
+
+**Checkpoint 3 (the 22-map ledge sweep at 12e700ca4, f9's run; `agent-mail/evidence/gameplay/segment-body-cp2/`).**
+- *"hung" (81 walks, 0 at base): a defect, fixed.* Falling fast over a face steeper than `max_slope` (MP5's (671.33,
+  1531.46): `worldmodel/rdb3_1`), the records along the steep 3D displacement crossed it deep with more than two hits and
+  the jam zeroed the displacement -- the port took the height from it, so the fall stopped each frame while the fall
+  speed grew. The height is not the displacement's: `FUN_0059b440` steps the altitude `+0x2e4` by the fall speed itself
+  (D:L456496-456498) and `FUN_0059ad30` lands it on the floor's hit (D:L456313-456322); the jam stops the move across only
+  (`AIR_HEIGHT_READING` `'altitude'`). All 81 sweep cases replayed headless: none hangs 10 ticks, none ends airborne.
+- *Prone, 155 newly pinned (15 freed), classified* by the last move's hits after 120 ticks of the sweep's prone walk:
+  116 the side lines alone (e.g. MP1 (1360.21, 1368.16) on `bucket`, MP1 (1976.56, 1215.42) on `base`, MP1 (2226.02,
+  3242.22) on `di`); 17 the head line alone (MP1 (2308.92, 3294.78) `whats_left`, MP12 (772.41, 1350.8) `g365_1`, MP12
+  (1440, 1367.61) `g404_1`); 13 the low line on a face taller than 6.5 (MP1 (1637.63, 1328.07) `invisdi`, MP11 (1255.7,
+  708.14) `di2_8`, MP2 (493.66, 1123.44) `rmp2`); 6 a low face under 6.5 with no floor at its top (MP6 (1201.44, 1478.17) a
+  tire, MP62 (1623.74, 1393.36) `basedi`, MP64 (433.68, 693.66) sandbags); 1 a stair or kerb step (MP73 (1138.74, 1005.85)
+  `tower01`); 2 no wall hit (MP6 (1879.71, 1876.9), MP72 (563.77, 1548.16), unclassified). Prone, every hit over 1 deep is
+  the jam (bVar6, D:L413602-413611). The side-line class is the reading's at its scalar: the prone side lines run 22.4
+  long (11.2 behind to 11.2 ahead) at 0.3 x 1.3 r = 3.12 across (D:L415582-415621), and a face that crosses either --
+  clutter beside the body, or behind it facing away -- jams the crawl. The scalar is settled (the x 1.3 at D:L415582,
+  mirrored D:L415822, the same in r0001 and r0004: R0004-SEGMENTS's follow-up), so the class is the reading's; only a
+  capture can overturn it (ac's prone-near-clutter case). A prone body moving mostly sideways takes r0004's strafe records
+  instead, which cast no side lines (its hunk C3, LATER 622); the sweep's prone walks run forward, so C3 does not reach them.
+- *The segment pass's cost:* `segmentHits` rejects a static polygon whose box misses the segment's before its plane test
+  (the same hits in the same order: a headless bench of 12000 ticks on MP2 and 60 sweep walks on MP10 give byte-identical
+  positions); MP2 241 -> 143 ms (the disc 302), MP10 1010 -> 601 ms (the disc 780).
+- *Synthetic floors:* the tests' `floor` quads are wound with their own normal down; a record rising through one from
+  below meets it as a ceiling (walk.test's ledge jump, re-wound). A disc floor faces up.
+
+**Open: the centre line's reach, against a capture (2026-11-02).** ac's first capture (capture comparison, PCSX2 r0004,
+3 trials; `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/results/SEGMENT-BODY.md`): a SEAL standing, full stick,
+head on into `worldmodel/log1`'s face on M51 (centre (969.4, -141.8, 818.1), normal (-0.973, 0.054, 0.222), 12.2 tall --
+its top about 11.8 over the feet, so the head line passes over it and the centre line at the feet + 6.5 is what meets it)
+stands off **5.22-5.32** from the face's plane: about 5.21-5.31 across the ground at the line's height. The reading's
+centre reaches 1.1 x 1.4 x 3.5 = **5.39** (`SEGMENT_BODY_READING` `centre` x `ahead` x r; no 1.75 moving forward), and
+neither the frame's move (it can only stop the body further out) nor the depth push (it puts the body out, about 6.56
+under a held 30 Hz push) brings a stop inside it; the port, headless at the same face, stops at 5.43 walking and 5.70
+running (5.39 and part of a 60 Hz tick's move) -- the page's 5.5-5.9 in the capture. **The segments' origin is ruled
+out** (ac's PCSX2 read, at rest only: row +0x30 of the caster's matrix `*(actor+0x28)` equals `actor+0x1c` exactly,
+(938.226, -145.547, 858.236), and row +0x20 is (-0.089, 0, -0.996), the facing negated at yaw 185). So the gap points at
+the centre line's reach or another part of its geometry (`uStack_60`, D:L415235, and the 1.75's condition,
+D:L415354-415371). Not settled: no frame mid-run yet; the flat-wall stand-off (the head line along the facing, 9.46,
+`HEAD_LINE_MUZZLE_READING`), crouched into the log (the 1.75 crouched: 9.43) and backing into it (the 1.75 standing: 9.43)
+are queued on M51 (the village house, the church) and discriminate. Nothing is tuned meanwhile.
+
+**Checkpoint 4: the flat wall (ac's capture of M51 house2's west wall, `worldmodel/noreg_343344/g160_1`, plane x 5425;
+PCSX2 r0004, 3 trials, 2 and 3 equal to 0.01; 5d's decision).** The original: standing 6.78 (1.9 degrees off square),
+crouch-walking 9.48, the crouch's run 5.85, prone 16.04, backing 9.66, and going prone beside the wall moves the body
+about 3 out (3.10 -> 6.16, 4.50 -> 7.38). Read against it:
+- *The muzzle head line is prone's (and a transition's) only* (`HEAD_LINE_MUZZLE_READING` `'prone-or-transition'`,
+  D:L415457-415523): standing and crouched the head line runs along the travel (4.9 + the move, shorter than the centre),
+  so the centre line stops the body -- the envelope `FUN_00286c90(+0x458)` is taken at 0 or under in the locomotion
+  (reading, pending review). Standing 6.78 and crouch-walking 9.48 are the centre's (5.39, and 9.43 with the 1.75);
+  prone 16.04 the muzzle's 15.94. Checkpoints 1-3 took the muzzle reach on every looped play (9.46 standing, 12.58
+  crouched).
+- *The crouch's run takes no 1.75* (`CROUCH_RUN_FLAG_READING` `'set-while-running'`): the crouched forward 1.75 wants
+  `+0x21c` bit 2 clear (D:L415356-415358), so the bit is read set while the crouch runs (the stance word crouched, the
+  standing run playing) and clear crouch-walking.
+- *Backing confirms the 1.75 standing* (D:L415354-415355, the body-frame z over 0.01).
+- *The settle is the 30 Hz frame's, which R8 does not give* (not built; HUMAN_TASKS H404): with the depth push the
+  original settles at the reach plus a 30 Hz frame's move less 1 -- standing 5.39 + 2.17 - 1 = 6.56, backing 9.43 + 1.23
+  - 1 = 9.66 exactly. Under MISSION's owner ruling R8 (movement continuous at the page's rate) the port's 60 Hz move is
+  under 1, the push never runs, and the port stops anywhere from the reach to the reach plus one 60 Hz move.
+- The port, headless, on the same faces (feet to the plane):
+
+| case | the original | the port, checkpoint 4 | checkpoints 1-3 |
+|---|---|---|---|
+| house2 standing, full | 6.78 | 5.64 | 9.97 |
+| house2 crouch walk, half | 9.48 | 9.61 | 12.64 |
+| house2 crouch run, full | 5.85 | 5.81 | 10.14 |
+| house2 prone crawl | 16.04 | 16.10 | 16.10 |
+| house2 backing | 9.66 | 9.96 | 9.96 |
+| log1 standing, full | 5.22-5.32 | 5.70 (walking 5.43) | 5.70 |
+| log1 crouch walk / backing / prone | not captured | 9.18 / 9.57 / 15.79 | -- |
+
+- *Still open:* the residuals under the reach plus the push -- the log's 5.22-5.32 and the crouch run's 5.85 -- and the
+  prone drop's ~3 sideways (independent of the wall's distance, so not a wall rule by these numbers: most likely the
+  stand-to-prone clip's root; owed the same drop with the wall on the body's other side). The 116 side-line prone pins
+  stand until ac's prone-beside-clutter capture.
+
+**Checkpoint 4's sweep (f9's fixed starts, base `71f8789fb` against `42c2ed2d9`, the same 12,736 starts;
+`agent-mail/evidence/gameplay/segment-body-cp4/DIFF.txt`; reading, pending review).** Stuck 370 -> 410: 331 freed (stand
+run 106, walk 103, crouch 93, prone 29), 371 new, 361 of them prone. Replayed headless (a throwaway copy of the sweep's
+walk dumping each record and its hit; nothing kept): MP2 (381.99, 823.3), MP73 (1163.13, 1023.24), MP64 (910.13,
+2560.81), MP8 (965.21, 790) and MP2 (584.37, 1193.95). **Every one is the side-line class above, the rear half**: the
+prone side lines start 11.2 behind the feet (`FUN_0054aa30` D:L415586-415589 and D:L415599-415605: the feet + 1.3
+`uStack_30` `FUN_00309200` -- a subtract -- `fStack_10`, the travel x 1.4 r, D:L415162-415166), so a face within 11.2
+behind the body that faces AWAY from it -- the far side of a solid the body lies against or crawled off -- is crossed
+from its front (research 281 §4.3), at the record's first ~15 % (t 0.07-0.24); its depth |(end - hit) . n|
+(D:L413571-413585, `FUN_001b3620` a fabs) is the line's length past it, 12-15, and prone the jam holds the crawl every
+tick (D:L413602-413611). One or both side lines hit, the centre and the head line none. The faces:
+`worldmodel/twintanks2` (MP2), `mp73turret_2/RMG_turret`, `mossylog03` (MP64, a diagonal log beside), `land34/di_g3213`
+(MP8, a kerb 7.5 deep, its far face at x 972.7) and `barrel_single` (MP2). The candidates are gathered along the
+record's own two ends (`FUN_002d4780` -> `FUN_002d6800(.., start/end, 2, 1)`, D:L175760), so a face behind the body is
+in the original's query too. Nothing in the records' build departs from the decompilation (re-read here: the class
+D:L415113-415133, the direction and side D:L415134-415230, the prone records D:L415582-415625, the turning line
+D:L415701-415788 and `FUN_0054ecd0` D:L416974-417027); no constant is changed or added.
+- *Two shapes*, over the 325 distinct new prone pins (DIFF's 361 counts repeated starts; 12 more stop short of the edge,
+  not replayed). 151 never leave the start (past -6 to the edge, 120 wall ticks; three replayed): the sweep's fixed
+  starts are walked without its `startStuck` filter (`OBF21_STARTS`), so a start the head would itself skip is walked,
+  and the probe sets the stance without the prone gate -- the port's `proneRefused` (`FUN_00552ec0` D:L418935-418940,
+  `PRONE_GATE_READING` 8.0 behind) refuses four of the six such starts asked (both MP2 ones, MP73, MP51; MP64, the log
+  beside the body, and MP12 pass; MP12's and MP51's hits not dumped). 162 walk off the edge and are held past it (most
+  0-3 past, at its foot; two replayed): the solid they crawled off (a kerb, a barrel) is under 11.2 deep, so its far
+  face lies within the rear half once the feet are below its top.
+- *'short' on MP71 (11 -> 51) and MP81 (0 -> 8)* is not this: every stance, with no wall tick; the disc stopped 2-7
+  short on its own contact and the segments reach the edge (past about 0), where the floor's step rule holds the body.
+  Not re-judged here.
+- Pinned (the reading, not a capture): `segmentBody.test.ts` "the prone side lines start 11.2 behind the feet" (a face 9
+  behind facing away holds the crawl; 12 behind, or facing the body, does not) and "MP8's kerb" (dev-disc). A temporary
+  build starting the lines at the feet turns both held cases red (the crawl goes 22.0 and 15.99). Owed with ac's
+  prone-beside-clutter capture: a prone SEAL crawled off a kerb under 11.2 deep, and one crawling away from a crate
+  behind its feet.
+
+**The fence behind the feet (ac's capture of M51's `worldmodel/noreg_343344/g15582`, 2026-11-03T01:36-03:03Z; capture comparison,
+PCSX2 r0004, 3 trials each, all identical; `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/results/SEGMENT-BODY.md`,
+"For 6d", "01:36Z" and "02:56-03:03Z").** The fence is two faces in the plane x 5401.0, wound opposite ways (polygons
+0-2 facing -x, toward a body west of it; 3-5 facing +x, away); a slanted slab that at z 2330 spans y -113.6..-94.6 over
+feet at -107.9. The body stands west of it facing -x (yaw 90), away from it.
+- *The prone gate is proven at 8.0 behind.* Standing 7.00 / 7.50 / 7.75 u from the plane (measured the frame before
+  the press) the press is refused (posture 0, action 1, no stand2prone); at 8.00 / 8.25 / 8.50 u it is taken. The limit
+  lies between 7.75 and 8.00: `PRONE_GATE_READING`'s 8.0 behind (`FUN_00552ec0` D:L418935-418940 through `FUN_0054d620`)
+  is **proven** on this fence. The 11.2 ahead and the feet + 3.25 were not varied and stay a reading. The port, headless:
+  refused at 7.00-7.99, taken from 8.00 (`segmentBody.test.ts`, "M51's fence g15582" (a)).
+- *The back-crawl stops at 12.47.* Prone at 13.20 u, the stick full back 4 s: the original moves 0.73 u and holds at
+  **12.47 u** for the rest (action 27, no movement). Backward the travel `fStack_10` points at the fence and the prone
+  centre line reaches 1.1 x 1.4 x 8.0 = 12.32 along it (D:L415113-415166, D:L415401-415433); it meets the -x face from
+  its front, deeper than 1, and prone the jam keeps the body where the tick began (D:L413602-413611). The port,
+  headless, the same start: moves 0.733 u within its first 11 ticks and holds at **12.467 u**, one hit, the centre line on
+  g15582's -x face -- the capture to 0.003 (`segmentBody.test.ts` (b), ±0.3).
+- *The forward crawl is free from every start the original allows.* From 12.47 u the original crawls 33.01 u in 3 s
+  (to 45.48); the port 32.82 u (to 45.28). Forward, the prone side lines' rear half starts 11.2 behind the feet
+  (D:L415586-415605), 1.27 short of the plane. Every reachable start is past 11.2: the gate refuses below 8.0, the drop
+  from 8.0 leaves 11.52 (8.25: 11.79, 8.50: 12.04; 9.5: 13.20), and the back-crawl stops at 12.47.
+- *The held-forward case is unreachable on this fence.* A prone body 9-10 u in front of the fence's +x (away) face --
+  the side lines' rear half crossing it and the jam holding the forward crawl (the reading above, "Checkpoint 4's
+  sweep") -- cannot be set up from standing or by crawling; this capture neither confirms nor refutes it. Owed still:
+  a prone SEAL crawled off a kerb under 11.2 deep (MP8's case).
+- *The stand-to-prone drop's root travel, against the port (not changed here).* The original's drop is the clip's own
+  travel: at the fence (from 9.5 u) |3.924| (dx -3.705, dz +1.293), on open ground (house2, facing +x) |3.865|, the
+  mirror; the path about 0.6 back and to one side over the first 4 game frames, about 3 forward (the largest steps
+  0.6-1.1 a frame), then sideways drifting back, 26 game frames. The port with `MOTION_P.ZAR`'s `seal_stand2prone` keys
+  (`Walker.actionRoots`), headless: on open ground (house2's spot, and 30 u from the fence) |3.697| (3.352 forward, 1.561
+  sideways), the same shape over 28 game frames (back 0.75, the peak sideways 4.35 at frame 15, the capture's 4.31 at
+  frame 11; the largest step 0.78). At the fence the port's drop is **|4.325|** (4.069 forward): the stance word is prone
+  from the press (`changeStance`), and the body does not move for its first 8 ticks -- the clip's back steps, toward the
+  fence, which the prone centre line's 12.32 crosses from 9.5 (the likely cause, not traced here) -- where the original
+  takes them (+0.59 toward the fence) -- so the port's drop leaves the feet about
+  0.47 further out than the original's: 12.01 / 12.26 / 12.51 from 8.00 / 8.25 / 8.50 (the original 11.52 / 11.79 /
+  12.04) and 13.57 from 9.5 (13.20). Two departures, reported, not changed: the open-ground total (3.70 against 3.87)
+  and the records cast during action 25 (the original's records in a transition, D:L415457-415523's transition arm,
+  and which stance word they read during stand2prone are not settled here).
+
+**The crouch run's release (LATER 678; `CROUCH_RUN_RETURN_READING`, research 101; capture comparison of ac's r0004
+house2 capture, `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/cases/out/house/probe.csv`, case house-crouch,
+trials 2 and 3, identical; `results/SEGMENT-BODY.md`; reading, pending review).** Feet to the plane x 5425: the crouch
+run rests at 5.85 (action 2, the stick full, to 6605 ms); the stick is let go at 6638 ms and 0x11 (`Stand -> Crouch`)
+plays: 5.85 held for 4 frames (6638, 6671, 6705, 6738 ms), then 5.85 -> 10.85 in one 33 ms frame (6738 -> 6771 ms; an
+intermediate sample of the 6738 frame reads 10.46), while the velocity logged that frame is (-4.87, -10.70, -1.62), under
+0.4 u a frame -- a depth push-out, not a move; then about 2 u more to 12.80 (6905 ms) and 12.88 (7005 ms), held there to
+7188 ms while the logged x velocity reads -0.3 to -4.2, and 0x12 (crouch idle) from 7238 ms.
+- *The reading taken (B).* On a full-stick release the original's idle branch plays 0x11 then 0x12 (`FUN_00584c60`,
+  the branch from D:L444195: a turn axis `+0x23c` (D:L444116) past 0.025 takes the turn instead, the run's bit cleared
+  (D:L444196-444198); else 0x12 pushed at D:L444282, then 0x11 on top at D:L444316-444317 when `+0x21c` bit 2 is set --
+  set in the run branch, D:L444145-444172, cleared in the walk branch, D:L444150, and after the push, D:L444325). During 0x11 the head line takes the muzzle
+  reach (`FUN_0054aa30` D:L415457-415523, the transition clause at D:L415480 -- the 0x11 clause the branch already
+  grants, `HEAD_LINE_MUZZLE_READING` 'prone-or-transition'), which reaches past the wall from 5.85, and the deep-hit
+  rule (`FUN_005483d0` D:L413602-413614: two hits or fewer, the depth less 1 along the normal) puts the body out in one
+  frame; the clip's root carries the last 2 u. The port's fixed crouched muzzle reach gives 12.58 (checkpoints 1-3),
+  0.3 short of the 12.88.
+- *Rejected: A, the clip's root carry alone.* `Stand -> Crouch`'s root moves the body about 2 u over the clip (10.85 ->
+  12.80 above); it explains about 2 of the 7, not the 5.0 in one frame.
+- *Rejected: B's variant on a still body* (the muzzle head line and the push-out on any still crouched or standing body,
+  not only during 0x11). It would put the standing body at 8.46 and the crouch walk at 11.58 against the wall; the
+  captures hold them at 6.78 and 9.48 (checkpoint 4 above). So the muzzle reach is the transition's, as
+  `HEAD_LINE_MUZZLE_READING` reads.
+- *The port*, headless (`viewer/test/crouchRunRelease.test.ts`, a synthetic flat wall 40 tall), before LATER 678: the
+  crouch run rested at 5.81 and on the release went to crouch idle at once (`CROUCH_RUN_RETURN_READING` 'not ported'),
+  no `Stand -> Crouch`, the body left at 5.81 (held as `it.fails`, "GAP (LATER 678)").
+- *Built (LATER 678, 2026-11-04; reading, pending review).* `CROUCH_RUN_RETURN_READING` 'stand-to-crouch': the crouch
+  run let go (the port's crouch with its posture stand: the bit), not turning past 0.025, starts `standToCrouch`
+  forward at the idle branch (`Walker.locomote`) -- in SEPARATE only. The function reads no stance-button mode (the
+  original has one), but OT.R93 keeps COMBINED and the bots as main has them (`stanceCutSeparate.test.ts` pins the
+  bots' trace byte for byte, and built for every mode it moved from row 190), as MOVE-1 and MOVE-4 were kept (H392):
+  COMBINED's and the bots' release is the owner's question. The same test, now `it` in SEPARATE: rest 5.806; on the
+  release tick the transition's head line
+  reaches past the wall and the body goes out to 11.58 at once; the clip's root carries it to 12.846, held after the
+  clip ends (capture 12.88, within the test's 1). Two departures, named (`CROUCH_RUN_RELEASE_PUSH_READING`
+  'first-tick'): the port pushes on 0x11's first tick at the crouched firepoint's fixed reach, where the capture holds
+  5.85 for 4 frames and pushes to 10.85 -- the firepoint node moving through the clip; neither the delay nor the final
+  value is read (owed: `actor+0x14b0` through 0x11, RDRAM). Not ported still: the run's posture word 1 (the port's
+  `posture` stand through the run).
+
+**Owed.** A capture of a SEAL walked head on into a wall (the stand-off), backing into one (the 1.75), pressed to a crate
+at 45 degrees and squarely (the climb offer), crawled at a 1/4 stair, in a door's arc facing away from the leaf, in
+Crossroads' slot (research 213 §3 item 2, H94), and an RDRAM read of `+0x14b0`, `+0x14bc`, `+0x458` and `+0x10ac` while
+walking.
 ### 2.10 HF2-slim: the freeze in Crossroads' blown bridge (HOTFIX BRIDGE-WEDGE, 2026-11-03)
 
 *Reading, pending capture, and one adaptation* (the gameplay lane's implementer; the owner's word in the controller's
@@ -682,9 +1045,104 @@ on f9ffb6828's mover and, in lockstep against f9ffb6828 -- every spawn slot on 9
 **Freeze fixed:** MP72 with `terrorist_strike1` applied, every slot trajectory and both still drops land clear and walk
 out (`bridgeWedge.test.ts`).
 
-**Owed.** The captures of §2.8 (research 213 §3 item 2, extended; H94): a SEAL jumped into the slot behind the fin, where
+**Owed.** The captures of §2.11 (research 213 §3 item 2, extended; H94): a SEAL jumped into the slot behind the fin, where
 it lands and whether it walks out along x and back -z through the fin, and a SEAL dropped past a face's top edge. Then
 SEGMENT-BODY retires `WEDGE_PUSH_OUT_ADAPTATION`. f9's fixed-start sweep on this head.
+
+**On the merge with SEGMENT-BODY** (main 9eba0b195 into `agent/segment-body`, 2026-11-03; the lane's ruling, 6d; an
+adaptation's scope, not a reading). Which arm each map's walkers run: `WALL_BODY_READING` is one constant, `'segments'`,
+for every `Walker` on every map -- the players' and the bots' (the match's `matchBots.ts` imports it) alike; no map
+selects the `'disc'` arm, which is kept only as the switch's other arm for measurement (§2.9). On the segment path the
+segment body's one-sided hull hits carry the bridge case (research 281 §4.3: in the slot the segments along x meet
+nothing, and -z they cross the fin from behind, no hit; §2.9's Crossroads rows): `fall` resolves the tick's whole
+displacement through the segments and does not call `airWalls`, and `move` / `step` never consult `crosses` or
+`pushOut`, so neither the air clip (item 1) nor the push-out (item 2) acts there. HF2-slim -- `AIR_WALL_HEIGHTS_READING`'s
+`airWalls` (this section's version, main's, not BRIDGE-WEDGE's earlier one of §2.11) and `WEDGE_PUSH_OUT_ADAPTATION`'s
+`unwedge` -- acts only on the `'disc'` arm. `WEDGE_PUSH_OUT_ADAPTATION` stays defined and is not retired here; its
+retirement is its own reviewed step. The owner's condition (nobody running into the exploded bridge stuck) is held on
+the segment path by main's `bridgeWedge.test.ts` slot cases, run against the merged mover; SEGMENT-BODY's own
+bridge cases are `segmentBridgeWedge.test.ts`.
+
+### 2.11 The walls in the air, and Crossroads' rubble slot (`AIR_WALL_HEIGHTS_READING`; BRIDGE-WEDGE, 2026-11-02)
+
+*Superseded in the code by §2.10's HF2-slim* (the merge of main into `agent/segment-body`, 2026-11-03): this was
+§2.8 on `agent/bridge-wedge` and on this branch before the merge (main's §2.8 is the near-vertical floor). Its
+reading of the case and of the jam rule stands; its "What is built" -- the two-sided slide and push in `airWalls` --
+is not in the tree: the disc arm runs main's front-face clip (§2.10), the segment arm no `airWalls` (§2.9).
+
+*Reading, pending review* (the gameplay lane, on Trello c22ltqhr; transcribed from the decompilation and measured on
+the fixture's MP72 headless; nothing measured on the original running).
+
+**The case** (the playtest's replay `game_MP72_3201/2026-11-01T23-02-46.321Z.s2r`, player 6, ticks 95040-95116, read
+with the match package's replay reader): `terrorist_demo_1`'s arch destroyed, a running jump off the deck at y 89.5
+comes down at (1676.4, 84.3, 1419.3), v (8.9, -84.8, 64.4), and from tick 95116 stands at (1675.8, 57.6, 1422.8) for
+the next 150 s, jumping in place. The port's `Walker` on the fixture reproduces it to the hundredth (1675.87, 57.60,
+1422.82). The place is a slot along x (about 1658 to 1694) between the rubble's fin (`arch=arch/destroyed`, a single face
+on the plane z 1422.31, its own normal toward -z, no floor on its top, its top 80.5 at x 1676.8) and `destroyed/dia`'s
+face at z 1425.33 (normal -z), 3.02 apart, the floor 57.6 on both sides of the fin.
+
+**The reading.**
+- *The displacement carries the fall.* In `Jump launch` / `Jump fall` (actions 8, 9), or `FUN_00588030`, or the action
+  `DAT_003def08`, `FUN_0054d9a0` sets the body's local velocity to (0, -`+0x133c`, 0) -- the fall speed, up as positive
+  (D:L416501-416514) -- turns it to the world through the orientation `+0x70` (D:L416515), and writes the frame
+  displacement `+0xf44..+0xf4c` as it times dt (D:L416520); airborne, the carried velocity `+0x1350`/`+0x1358` times dt
+  is added across (D:L416524-416530). So `+0xf48` is the fall's vertical step.
+- *The segments run along it, from the feet as they are.* `FUN_0054aa30` normalises `+0xf44` in three axes for the
+  direction (D:L415157-415166) and casts the centre from the feet + `step_height` to the feet + the reach along that
+  direction + `+0xf44`, the same lift at its end (D:L415401-415410 and the lift at the two `fVar22` adds after them);
+  the head line and the fan alike (§2.1). A falling body's lines slant down along its path; a steep fall shortens their
+  reach across (the direction's horizontal part).
+- *Every tick, in the air too.* `FUN_005506a0` runs `FUN_005483d0` and then the ground probe `FUN_005b0840` on every
+  tick of a body (D:L417822-417826), with no airborne exception; the new position is the matrix's translation plus
+  the resolved displacement (D:L413918).
+- *The jam rule* (D:L413602-413611). When the deepest hit is over 1.0 and the body is in a prone action or has more than
+  two hits, `+0x70..+0x7c` is copied back from `+0x50..+0x5c` and the displacement zeroed. `+0x70` is the orientation
+  quaternion, not the position: `FUN_0054d9a0` starts it from `+0x50` and composes the tick's turn into it
+  (D:L416479-416490: the turn `+0x44` times dt / 2 made a quaternion and multiplied in), `FUN_00307170` makes the matrix from it (D:L413956), and `+0x50` is saved from it at the end of
+  each solve (D:L413959-413962). So the jam leaves the body where the tick began (translation + 0, D:L413918) with
+  the last tick's facing: the saved position that wins is the tick's start. Otherwise the displacement takes the
+  deepest hit's depth less 1 along its normal (D:L413613-413614). (§2.3's deep-contact bullet calls the copy "the
+  position saved at the end of the last solve"; read here, it is the orientation, and the position is unmoved because
+  the displacement is zero. The outcome is the same.)
+
+**What the reading says of the case.** The fall crosses the fin's plane on the tick its feet go 84.3 -> 81.2 (lines
+90.8 -> 87.7): the fin's top, 80.5, is under the feet, so no segment meets it (they start at the feet + 6.5) -- the
+original comes over the fin too and lands in the slot, at this reading. What differs is the slot: the original's
+body is its segments and a hull hit is one-sided (research 281 §4.3), so in the slot its lines along x meet nothing
+(or dia's face from in front, which takes only the move's z), and -z its lines cross the fin from behind, no hit;
+it walks out. The port's disc of 3.5 cannot stand in 3.02, every push out of one face carries the centre across the
+other, and the crossing guard (`crosses`) refuses each: it stands. That is LATER 283's (the segments as the wall
+probe) and the port's two-sided face contacts (LATER 620), not the airborne heights.
+
+**What is built** (`mover.ts` `fall` -> `airWalls`, `AIR_WALL_HEIGHTS_READING = 'start-and-end'`): every airborne tick,
+after the tick's game frames, the walls again at the lines over the feet as the frames left them: the tick's move from
+where the tick began that crosses a wall at those lines is not taken (the airborne sub-step's guard), then the body is
+pushed out as `slide` pushes, from where the tick began, unless that push crosses a wall or leaves the floor the tick's
+pick would find. A still airborne body is resolved too (`pushOut` still returns in the air; `airWalls` stands in). The
+crossing guard is kept: the jam rule's trigger is the segments' depth and hit count, which the port's disc does not
+have (§2.3; LATER 283, measured 2026-10-22: the branch on the disc stuck MP72's emb01 step-down and froze a body placed
+deep). Its outcome where it fires -- the body where the tick began -- is what the guard's refusal gives.
+
+**Measured** (`viewer/test/bridgeWedge.test.ts` on this branch then, `segmentBridgeWedge.test.ts` since the merge; synthetic and the MP72 fixture): a fin 20 tall crossed on the tick a
+frame drops the low line from 21.5 to 18.24 -- the body stays on its side and lands 3.5 off (was: 0.5 past the plane,
+landed behind); a fin 8 tall, under both lines, is passed over (both); a still airborne body 1 off a fin is put out to
+3.5 in the air on the tick its line drops under the top (was: at its landing). Crossroads: unchanged -- the fall still
+lands in the slot (1675.97, 57.60, 1422.82), as the reading says the original's does; the walk out of it is held
+skipped under LATER 283.
+
+**Not changed by r0004** (OT.R97; the r0004 investigation's movement-constants cluster, items and §2): `FUN_0054d9a0`
+and `FUN_0059b440` change by the struct's 4-byte shift only; `FUN_005483d0`'s hit filter skips walkable normals and the
+two material bits as r0001 does, with one exception added (a knocked-down body keeps walkable hits, item 14) -- the
+jam rule is not listed as changed; `FUN_0054aa30` adds a turret-mount flag clear and re-orders its segment code, its
+constants the same, **not read in full** there (a gap: whether the segments' build differs is not settled). r0004's
+MP72 collision patch adds 16 polygons, none at the slot (the nearest a floor at y 121 over x 1686-1706, z 1356-1446,
+above the deck; `scratch/pmc/transcription.json`).
+
+**Owed.** A capture (research 213 §3 item 2, extended; H94): on the original, with `terrorist_demo_1` destroyed, jump
+off the deck's railing into the slot behind the fin (from about (1667, 89.5, 1354) running +z), record where the SEAL
+lands and whether it walks out along x and back -z through the fin; and a SEAL dropped past a face's top edge (the
+synthetic fin's case). LATER 63 (the bridge's blast damage) is unchanged and still open.
+
 
 ## 3. The peek and the room's order (PF-20)
 
@@ -920,7 +1378,7 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | name | value | source | status |
 |---|---|---|---|
 | `CROUCH_GATE_READING` (`mover.ts`) | `{ scale: 1.2, pronePad: 0.5, behind: 7, lift: 1.2 }`: ahead `|v| x 1.2` (prone `|v| + 0.5`), 7.0 behind, at the feet + 7.8 | `FUN_00552ec0` D:L418952-418966 through `FUN_0054d620` D:L416194-416363 (§1.1) | a reading: the segments level (`FUN_00306d40` on `actor+0x410` taken as none) and `FUN_005ab590`'s material filter not transcribed, as `PRONE_GATE_READING`'s |
-| `CROUCH_GATE_REACH_READING` (`mover.ts`) | stand 9.03, prone 14.59 | `actor+0x14b0`, the `firepoint`'s offset (`FUN_005df930` D:L493889), measured on the port's pose (§1.3) | a reading: the port's pose, the idles' first keys, the M4 on `seal_A_scuba`; owed an RDRAM read of `+0x14b0` |
+| `CROUCH_GATE_REACH_READING` (`mover.ts`) | stand 9.03, prone 14.59 | `actor+0x14b0`, the `firepoint`'s offset (`FUN_005df450` D:L493889, its call to `FUN_005df930`), measured on the port's pose (§1.3) | a reading: the port's pose, the idles' first keys, the M4 on `seal_A_scuba`; owed an RDRAM read of `+0x14b0` |
 | `HEADROOM_HIPS_READING` (`mover.ts`) | `'idle'`: the foot at the stance's idle hips + 2 (7.504 crouched, 4.168 prone) on both ends | `FUN_0057efe0` D:L441190-441245 (§1.2) | a reading: the original's foot is the posed hips (11.33 crouch-walking); owed a capture, a crouch-run under a 12-unit lintel |
 | `HEADROOM_FROM_READING` (`mover.ts`, a comment) | was 14 | §1.2 | retired 2026-10-05 (PF-15): the foot is the hips + 2, `HEADROOM_HIPS_READING` |
 | `STANCE_REQUEST_RETRY_READING` | the port drops a refused press; the original keeps an obstacle-refused request and asks again each tick | D:L418991, D:L419011, `FUN_00552d60` D:L418875 (§1.4) | *note only*: owed a request word on the shared mover and a capture |
@@ -931,8 +1389,20 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `PRONE_FAN_READING` (`mover.ts`) | `{ count: 3, ahead: 1.4, centre: 1.1, across: 0.39 }`: built as 3.12 every way and 8.0 ahead along the travel | D:L415166, D:L415235, D:L415582-415621, D:L415822-415861 (§2.1) | a reading: the segments' lengths are not the stand-off; the standing fan's side lines taken as the disc; owed a capture, prone crawled in head-on and aslant |
 | `PRONE_PROBE_TILT_READING` (`mover.ts`) | `'root'` (was `'level'`): the prone low line ahead rises `(q d).y` a unit along the travel, `q` the root's tilt as the last tick left it | `FUN_0054ecd0` D:L416972-417027, called for each prone segment of `FUN_0054aa30` (D:L415426-415431 the centre; D:L415533-416013), the travel `fStack_190` D:L415341-415352 (§7.8) | a reading, pending review: the port's 3.12 disc (the side lines, also lifted in the original) and the crossing guard stay level, and the line is the port's 8.0, not the segments' reach; `'level'` the alternative; owed a capture of a prone crawl up M51's incline to a kerb |
 | `WALL_END_CONTACT_READING` (`mover.ts`) | a switch, `'face-normal'` (built) or `'radial'` (the corner push before b2). `'face-normal'`: at a face's end no push along the corner's direction; after the pass's face hits, the move's remainder (less its parts along those faces' normals) and the velocity lose their parts into the face along its own normal; an end met from behind its face's own normal, or behind the feet across the move, is no hit; the parts INTO the face only, where the original removes the whole part along the normal from `+0xf44` | `FUN_005483d0` D:L413538-413541, D:L413557-413567 (the list D:L413406-413425, refilled D:L413428-413457; D:L413588-413594 is the carried velocity `+0x1350`, not the port's); research 281 §4.3 (the polygon's own normal, one-sided); `FUN_0054aa30` D:L415341, D:L415549-415577 (§2.1, §2.3) | a reading, pending review (MV-PARITY b2, 2026-10-31): the port's disc meets any end within `r`, the original's fan only what its side lines cross; the order among walls is the port's; owed a capture of a SEAL pushed into a face's end and along a convex joint, and LATER 283 |
-| `AIR_WALL_HEIGHTS_READING` (`mover.ts`) | a switch, `'start-and-end'` (built) or `'start'` (main before HF2-slim). `'start-and-end'`: every airborne tick, after its game frames, a move from where the tick began that crosses a face at the lines over the feet the tick leaves (or over the floor the tick's pick lands them on) is not taken -- only a face met from in front of its own normal (three axes, at the line's height; a moving owner two-sided); clip only, no stand-off push | `FUN_0054d9a0` D:L416501-416530, `FUN_0054aa30` D:L415157-415166, D:L415401-415410, `FUN_005506a0` D:L417822-417826, `FUN_005483d0` D:L413557-413567 and the jam D:L413602-413611 with D:L413918 (the (depth - 1) push D:L413612-413614 not built); research 281 §4.3 (one-sided); §2.10 | a reading, pending capture (HF2-slim, 2026-11-03): the original's segment is one slanted line, the port's disc two level cuts; the ground's contacts stay two-sided (LATER 620); owed: a capture of a SEAL dropped past a face's top edge and of Crossroads' rubble slot (research 213 §3 item 2, H94) |
-| `WEDGE_PUSH_OUT_ADAPTATION` (`mover.ts`) | `{ on: true, headings: 16, step: 0.25, ticks: 30 }`: a body on the ground within 30 ticks of a landing, already inside geometry (deeper than `WEDGE_CLEAR` into a face at a probe line), whose push-out, or every try of a ground sub-step, the crossing guard refuses (never a floor refusal), put once at the nearest free point within the deepest penetration plus the radius, crossing no face from in front of its own normal, onto a floor at its own level. The bound: a body with no penetration is never touched (`bridgeWedge.test.ts`, identical on and off) | none: an adaptation (§2.10) | *note only*: not a reading of the original; SEGMENT-BODY's reading (§2.9 on `agent/segment-body`) supersedes it (LATER 283, LATER 620) |
+| `AIR_WALL_HEIGHTS_READING` (`mover.ts`) | a switch, `'start-and-end'` (built) or `'start'` (main before HF2-slim). `'start-and-end'`: every airborne tick, after its game frames, a move from where the tick began that crosses a face at the lines over the feet the tick leaves (or over the floor the tick's pick lands them on) is not taken -- only a face met from in front of its own normal (three axes, at the line's height; a moving owner two-sided); clip only, no stand-off push | `FUN_0054d9a0` D:L416501-416530, `FUN_0054aa30` D:L415157-415166, D:L415401-415410, `FUN_005506a0` D:L417822-417826, `FUN_005483d0` D:L413557-413567 and the jam D:L413602-413611 with D:L413918 (the (depth - 1) push D:L413612-413614 not built); research 281 §4.3 (one-sided); §2.10 | a reading, pending capture (HF2-slim, 2026-11-03): the original's segment is one slanted line, the port's disc two level cuts; the ground's contacts stay two-sided (LATER 620); the `'disc'` arm only -- on the segment path (`WALL_BODY_READING` 'segments', every map) `fall` does not call `airWalls` (§2.10's merge note); owed: a capture of a SEAL dropped past a face's top edge and of Crossroads' rubble slot (research 213 §3 item 2, H94) |
+| `WEDGE_PUSH_OUT_ADAPTATION` (`mover.ts`) | `{ on: true, headings: 16, step: 0.25, ticks: 30 }`: a body on the ground within 30 ticks of a landing, already inside geometry (deeper than `WEDGE_CLEAR` into a face at a probe line), whose push-out, or every try of a ground sub-step, the crossing guard refuses (never a floor refusal), put once at the nearest free point within the deepest penetration plus the radius, crossing no face from in front of its own normal, onto a floor at its own level. The bound: a body with no penetration is never touched (`bridgeWedge.test.ts`, identical on and off) | none: an adaptation (§2.10) | *note only*: not a reading of the original; on the segment path SEGMENT-BODY's reading (§2.9) carries the case and the adaptation does not act -- it acts only on the `'disc'` arm, kept defined, not retired (§2.10's merge note; LATER 283, LATER 620) |
+| `WALL_BODY_READING` (`mover.ts`) | a switch, `'segments'` (built) or `'disc'` (the port before SEGMENT-BODY: `slide`, `crosses`, `pushOut`, `airWalls`) | `FUN_0054aa30` D:L415134-415861, `FUN_005483d0` D:L413406-413800 with D:L413918; research 281 §4.3 (one-sided) (§2.9) | a reading, pending review (SEGMENT-BODY, 2026-11-02); owed the captures of §2.9 |
+| `SEGMENT_BODY_READING` (`mover.ts`) | `{ ahead: 1.4, centre: 1.1, backing: 1.75, sideNear: 0.3, sideFar: 1.2, proneAcross: 1.3, still: 0.0005, depth: 1, jamHits: 2 }` | D:L415135-415235, D:L415354-415371, D:L415549-415621; the jam D:L413602-413614; `+0x34` forward is -z, `FUN_0057a330` D:L438978-438984 (§2.9) | a reading, pending review: `+0x21c` bit 2 taken clear; the prone x 1.3 at D:L415582 (mirrored D:L415822), the same in r0004 (R0004-SEGMENTS's follow-up); owed a capture of a SEAL walked and backed into a wall |
+| `SEGMENT_LOOK_AHEAD_READING` (`mover.ts`) | `{ stand: 5.25, crouch: 10.5, prone: 11.46, from: 0.1, least: 2 }` | `FUN_005483d0` D:L413673-413800 (§2.9) | a reading, pending review: `FUN_0031e1d0`'s query taken as the hull's one-sided segment test with the records' pick; owed a capture of a SEAL sliding along a wall into a corner and walking past a crate's side |
+| `SEGMENT_FIREPOINT_READING` (`mover.ts`) | body-frame (x, z): stand (-2.750, -8.599), crouch (1.341, -11.438), prone (-1.728, -14.490) | `actor+0x14b0` (`FUN_005df450` D:L493889, its call `FUN_005df930(actor, actor+0x14bc, actor+0x14b0, 0)`), §1.3's table; used at D:L413699-413711 and D:L415457-415523 (§2.9) | a reading, pending review: the port's pose of the M4 at each idle's first key, as `CROUCH_GATE_REACH_READING`; owed an RDRAM read of `+0x14b0` walking |
+| `HEAD_LINE_MUZZLE_READING` (`mover.ts`) | `'prone-or-transition'` (checkpoint 4; was `'held'`): the head line along the facing by 1.1 x the muzzle's forward part only prone or in a transition; standing and crouched along the travel | `FUN_0054aa30` D:L415457-415523 (§2.9) | a reading, pending review: `FUN_00286c90(+0x458)` taken at 0 or under in the locomotion on ac's capture of M51 house2 (standing 6.78, crouch-walking 9.48 the centre's; prone 16.04 the muzzle's); `+0x458` not identified; `'held'` and `'none'` the alternatives |
+| `CROUCH_RUN_FLAG_READING` (`mover.ts`) | `'set-while-running'`: `+0x21c` bit 2 set while the crouch runs, so no crouched forward 1.75 then; clear crouch-walking | `FUN_0054aa30` D:L415354-415371 (§2.9) | a reading, pending review: the bit's writer not read; on ac's capture (the crouch's run 5.85, crouch-walking 9.48); `'clear'` the alternative |
+| `CROUCH_RUN_RELEASE_PUSH_READING` (`mover.ts`) | `'first-tick'`: a crouch run let go plays 0x11 (`CROUCH_RUN_RETURN_READING` 'stand-to-crouch', LATER 678) and its head line's push off a wall comes on the clip's first tick at the crouched firepoint's fixed reach (1.1 x 11.438 = 12.58): the port's body out to 11.58 at once, 12.846 at the clip's end | `FUN_0054aa30` D:L415480 (the 0x11 clause), `FUN_005483d0` D:L413602-413614; ac's r0004 capture house-crouch t2/t3 (§2.9, "The crouch run's release") | a reading, pending review: the capture holds 5.85 for 4 frames, then 10.85, then 12.88 -- neither the delay nor the final value read; owed `actor+0x14b0` through 0x11 (RDRAM) |
+| `PRONE_TURN_WORD_PLACEHOLDER` (`mover.ts`) | 0: never turning -- the look-ahead's prone-turning jam (D:L413678-413684) and the turned prone line (D:L415701-415788) not built | `+0x23c`, `actor+0x48` (§2.9) | placeholder: owed a read of `+0x23c`'s writer |
+| `SEGMENT_HIT_PICK_READING` (`mover.ts`) | `'nearest-passing'` (r0004, built) or `'nearest-then-drop'` (r0001); the knock's falls skip the slope drop | r0004 `FUN_005483d0` 0x54cf30 (R0004-SEGMENTS (A), (B)); r0001 D:L413406-413457 (§2.9) | a reading, pending review (OT.R97: r0004 the spec) |
+| `JUMP_CONTACT_READING` (`mover.ts`) | `'stored-contact'`: the running jump refused while the move's stored contact stands | `FUN_0057e1b0` D:L440815-440819 (r0001) | replaced 2026-11-04 by `JUMP_CONTACT_PROVEN` 'none' (`mover.ts`; proven, the r0004 jump-near-wall capture: the running jump launched with `+0x10ac` set, §2.9); the r0001 branch kept there as the rejected reading |
+| `JUMP_SPEED_SLIDE_READING` (`mover.ts`) | `'clip'` (built): on a sliding floor the jump's speed test reads the tick's velocity before the slide replaced it (the stick's), so a body sliding with the stick idle gets the standing jump; `'slide'`: the slide's displacement velocity, so a slide over 15 a second launches (the port before LATER 676's fix) | `FUN_0057e1b0` D:L440812-440814 reads `+0x2c..+0x34`, the top clip's root velocity (`FUN_0057a330` D:L438908-438985); whether the slide clip `FUN_0054f330` plays (research 201 s3) carries a root velocity there is unread; unreachable on the disc's surfaces (kind 4 slides only past `max_slope`, where the jump's slope test refuses first: `steepSlide.test.ts`) | open, a reading; a read of the slide clip's root channel, or an r0004 capture of `+0x2c..+0x34` on a steep slide with the stick idle |
+| `AIR_HEIGHT_READING` (`mover.ts`) | `'altitude'` (built) or `'displacement'` (checkpoints 1 and 2): an airborne body's height is the game frames' own step, not the resolved displacement's y | `FUN_0059b440` D:L456496-456498 (`+0x2e4`), `FUN_0059ad30` D:L456313-456322; the jam D:L413602-413611 (§2.9) | a reading, pending review: how the translation's y follows `+0x2e4` is not read (D:L459729 copies `+0x20` into it); owed a capture of a SEAL falling past a steep face |
 | `PRONE_TILT_EASE_BASIS_READING` (`rootTilt.ts`) | `'root-up'`: `DAT_0066acd0` the root's up as the last game frame left it, the prone body closing 0.2 of the remaining angle a 30 Hz game frame to the full slope | `FUN_005483d0` D:L413948-413952 copies the matrix of vtable +0x88's node (`skel_root`, `FUN_00553ea0` D:L419599-419607), the matrix `FUN_00548090` rebuilds (D:L413280-413282) (§7.3, §7.11) | **proven** (capture, 2026-10-31: the original's settling root is an exponential to the full slope, tiltOverSlope 1.00, closing 0.200 ± 0.0005 of the remaining angle a guest frame (`ease2.py`'s three-decimal figures; n = 4 runs × 13 frames after the transition, 52 frames, every one 0.200; re-derived 2026-10-31 by the implementer and the reviewer); runs 20261031T162022Z, 162058Z, 162130Z, 162310Z; `agent-mail/evidence/eph-tilt-measured-2026-10-31/FINDINGS.md` Q2); the ease's 0.2 (D:L413267) and its rate, once a game frame, proven with it; no harness spec or golden trace holds it yet -- `rootTilt.test.ts` and `remoteTiltClock.test.ts` hold the transcription |
 | `STAND_CROUCH_TILT_READING` (`rootTilt.ts`) | `'by-span'`: the rule as read, the clip's window decides -- no stand or crouch clip has a `Normalize` (the loader's (1, 1)), so none tilts | `FUN_00548090` D:L413225-413255 tests no stance; `FUN_00287620` D:L131523-131527; `motion.rdr` 345 of 398 records without (§7.2) | a reading, pending review: `'never'` the alternative; settled by the PCSX2 read of §7.5 standing on the incline |
 | `ROOT_TILT_UNWRITTEN_READING` (`rootTilt.ts`) | `'clip'`: on a tick the rule writes nothing the root is the clip's (identity on every clip but three, none windowed) | `FUN_005777d0` D:L437231-437289 samples the root with every tracked node; `FUN_0057a330` D:L439116-439124 writes the root's `+0x20` after the pass (§7.3) | a reading, pending review: `'held'` the alternative (the last tilt kept); settled by the PCSX2 read of §7.5 during a prone throw (`seal_prone_throwgrenade` has no `Normalize`) |
@@ -943,7 +1413,7 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `TILT_HIT_TEST_READING` (`rootTilt.ts`) | `'posed'`: the room's capsules (and the page's copies of them) turn with the root's tilt about the posed root | `FUN_005abbc0` hits the skeleton's nodes (research 91 §1.3); whether after this rule's write is not read (§7.4) | a reading, pending review: `'level'` the alternative; settled by a capture of a shot along a prone body on a slope |
 | `WALL_HEAD_LINE_READING` (`mover.ts`) | `'idle'`: the line at the stance's idle head + 2 (19.394, 12.138, 5.637) on both ends | D:L415441-415459 (§2.2) | a reading: the original's is the posed head; owed a capture, a SEAL walked and crouch-run under a lintel. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 |
 | `WALL_PROBE_ACTIONS_READING` | the actions that set `bVar5` standing or crouched (heights 9.55 / 7.5) | D:L415088-415111 (§2.1) | *note only*: none of 0x1a / 0x1b / `DAT_003dec58` / `DAT_003decc0..d0` is a port action yet; owed a read |
-| `WALL_DEEP_REVERT_READING` | not built: when the deepest contact is over 1.0 and `bVar6 || 2 < iVar25`, the body goes back to its saved position and its frame displacement `+0xf44..+0xf4c` is zeroed; otherwise `depth - 1` along the deepest normal | `FUN_005483d0` D:L413406-413614, saved D:L413959-413962 (§2.3) | *note only*: read, not built -- on the port's disc contacts it stuck MP72's emb01 step-down and froze a body placed deep (§2.3, measured 2026-10-22; a hung Frostfire fall measured too, from our review's `vy` error, not the branch); LATER 283 (the original's segments as the wall probe), owed the M71 and MP72 captures |
+| `WALL_DEEP_REVERT_READING` | when the deepest contact is over 1.0 and `bVar6 || 2 < iVar25`, the displacement is zeroed (the body where the tick began); otherwise `depth - 1` along the deepest normal | `FUN_005483d0` D:L413406-413614, saved D:L413959-413962 (§2.3, §2.8) | resolved 2026-11-02 (SEGMENT-BODY, §2.9): built on the original's segments (`SEGMENT_BODY_READING` `depth`, `jamHits`); was *note only* on the disc, where it stuck MP72's emb01 step-down and froze a body placed deep (§2.3) |
 | `CROUCH_TOP_READING` (`mover.ts`) | was 14 | §2 | retired 2026-10-05 (PF-16): no column; `WALL_PROBE_READING` and the head line |
 | `PRONE_TOP_READING` (`mover.ts`) | was 9 | §2 | retired 2026-10-05 (PF-16): no column; `WALL_PROBE_READING`, `PRONE_FAN_READING` |
 | `PEEK_STANCE_ENDS_PEEK_READING` (`traversal.ts`) | true: a stance press under a held peek ends it, no transition, the stance kept | `FUN_00581660` D:L442436-442477, `FUN_005817d0` D:L442479-442524, `FUN_00581c10` D:L442605-442648: no case for 3 (180 §1.12; §3.1) | a reading, re-documented by PF-20 (was: the transition played first); owed the PINE capture of 180 §1.12 |

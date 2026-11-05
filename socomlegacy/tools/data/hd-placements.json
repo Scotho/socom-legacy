@@ -1,0 +1,1331 @@
+{
+ "version": 1,
+ "about": "HD.R9: pack files placed on a part of their target, from the HD matching rounds (2026-11-01); tools/hd-placements-from-ledgers.ts wrote it, tools/hdPlacements.ts reads it",
+ "rows": [
+  {
+   "file": "167e4aa48d2e3550-6e4cf4ec0bcdc25c-00005553.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "15c0de4da1e58b3e0cf8357ea823314a0f4873b18d348a5eab5e6d9ad9261b5a",
+     "where": "M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       32,
+       64,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      32,
+      64,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 36 blocks (TBW 1) over M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif uploaded at its own TBW 2; that read is the rectangular window x 32..64, y 64..96 of the record; the CLUT hash is the"
+  },
+  {
+   "file": "2ea6f2f761098b11-37625a85dd855963-r16f0000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    367,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     367,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      367,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      367,
+      512
+     ]
+    }
+   ],
+   "evidence": "[step 3] region-clamped name (r16f0000): texel hash of UI/UI2D_TXR.ZED:font_titlebar_01.tif cropped to rect [0, 0, 367, 512] (expanded, row by row) and CLUT hash both equal the name (wf/s3_region.py); pcsx2name.py skipped \"-r\" names. Replac"
+  },
+  {
+   "file": "31f0f06b892166da-fc0193a008ccbe6e-00005953.dds",
+   "kind": "vram-top",
+   "targets": [
+    {
+     "sha256": "ab07a23ee0a383e6dfbf35bdf94d91062af6e979f389fe9fb35dcc2950010d82",
+     "where": "RUN/MP/MP54/FLIB_TXR.ZED:gear_vest_bag02_green.tif"
+    }
+   ],
+   "read": [
+    32,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     },
+     {
+      "where": "RUN/MP/MP54/FLIB_TXR.ZED:gear_vest_bag01_green.tif",
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       32
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[round 3 expB] Texel hash 31f0f06b892166da and CLUT hash fc0193a008ccbe6e both reproduced in one modelled pool [RUN/MP/MP54/FLIB_TXR.ZED]: T8 32x64 read at TBP0 = pool+56 (= gear_vest_bag02_green.tif's own address), TBW 1 (any TBW: the read"
+  },
+  {
+   "file": "334312f77b91abf4-37625a85dd855963-r1f60000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    502,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     502,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      502,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      502,
+      512
+     ]
+    }
+   ],
+   "evidence": "[step 3] region-clamped name (r1f60000): texel hash of UI/UI2D_TXR.ZED:font_titlebar_01.tif cropped to rect [0, 0, 502, 512] (expanded, row by row) and CLUT hash both equal the name (wf/s3_region.py); pcsx2name.py skipped \"-r\" names. Replac"
+  },
+  {
+   "file": "45a2a0da71c618e5-6e4cf4ec0bcdc25c-00005993.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "15c0de4da1e58b3e0cf8357ea823314a0f4873b18d348a5eab5e6d9ad9261b5a",
+     "where": "M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif"
+    }
+   ],
+   "read": [
+    64,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       0,
+       64,
+       64
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      64,
+      64
+     ],
+     "src": [
+      0,
+      0,
+      64,
+      64
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 0 blocks (TBW 1) over M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif uploaded at its own TBW 2; that read is the rectangular window x 0..64, y 0..64 of the record; the CLUT hash is the re"
+  },
+  {
+   "file": "4917e448313b6699-2f7dab6129837a2b-00005553.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "9420624458761181c9805df1b76d53f7feb789b9eff17bd1e0daf57e12ee35c5",
+     "where": "M51.ZDB/FLIB_TXR.ZED:battle_helmet_black.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       96,
+       32,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      96,
+      32,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 28 blocks (TBW 1) over M51.ZDB/FLIB_TXR.ZED:battle_helmet_black.tif uploaded at its own TBW 2; that read is the rectangular window x 96..128, y 32..64 of the record; the CLUT hash i"
+  },
+  {
+   "file": "5926405119779796-38d9fb63412b24ab-00005953.dds",
+   "kind": "vram-top",
+   "targets": [
+    {
+     "sha256": "cdd50e0f382b0964100b9028b9db9eadf9b44964ab0af3801dcddead1c787e19",
+     "where": "MP5.ZDB/CLIB_TXR.ZED:thai_ter01_bag02.tif"
+    }
+   ],
+   "read": [
+    32,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     },
+     {
+      "where": "MP5.ZDB/CLIB_TXR.ZED:thai_ter02_backpack.tif",
+      "sha256": "5df3851d66f594ecacc0ae4cac0ca5160c4f6c734734797a84cb9dc71d265190",
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       32
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[round 2 exp1, upheld by rv_exp1 (independent pool model + PCSX2 hash, wf2/rv_exp1.py)] texel hash 5926405119779796 and CLUT hash 38d9fb63412b24ab both reproduced in one modelled pool [MP5.ZDB/CLIB_TXR.ZED]: T8 32x64 read at TBP0 = pool+167"
+  },
+  {
+   "file": "6d7c226be2037f0-37625a85dd855963-r1c30000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    451,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     451,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      451,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      451,
+      512
+     ]
+    }
+   ],
+   "evidence": "[step 3] region-clamped name (r1c30000): texel hash of UI/UI2D_TXR.ZED:font_titlebar_01.tif cropped to rect [0, 0, 451, 512] (expanded, row by row) and CLUT hash both equal the name (wf/s3_region.py); pcsx2name.py skipped \"-r\" names. Replac"
+  },
+  {
+   "file": "7673d8e513078a23-6e4cf4ec0bcdc25c-00005553.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "15c0de4da1e58b3e0cf8357ea823314a0f4873b18d348a5eab5e6d9ad9261b5a",
+     "where": "M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       64,
+       96,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      64,
+      96,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 56 blocks (TBW 1) over M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif uploaded at its own TBW 2; that read is the rectangular window x 64..96, y 96..128 of the record; the CLUT hash is th"
+  },
+  {
+   "file": "7e3e8f71aa06375-fbcf0ba48ffca45e-00005113.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "aced09f48dc0c426a6c8ecc2017bbdf3cf10fb34219ce6763df78e7a91ac0136",
+     "where": "M83.ZDB/FLIB_TXR.ZED:gear_scuba_knife.tif"
+    }
+   ],
+   "read": [
+    16,
+    16
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       48,
+       64,
+       16,
+       16
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      48,
+      64,
+      16,
+      16
+     ],
+     "src": [
+      0,
+      0,
+      16,
+      16
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 37 blocks (TBW 1) over M83.ZDB/FLIB_TXR.ZED:gear_scuba_knife.tif uploaded at its own TBW 1; that read is the rectangular window x 48..64, y 64..80 of the record; the CLUT hash is th"
+  },
+  {
+   "file": "821ad50d2c3dead9-37625a85dd855963-r1b30000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    435,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     435,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      435,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      435,
+      512
+     ]
+    }
+   ],
+   "evidence": "[step 3] region-clamped name (r1b30000): texel hash of UI/UI2D_TXR.ZED:font_titlebar_01.tif cropped to rect [0, 0, 435, 512] (expanded, row by row) and CLUT hash both equal the name (wf/s3_region.py); pcsx2name.py skipped \"-r\" names. Replac"
+  },
+  {
+   "file": "89b0d3ee15ae09d-6e4cf4ec0bcdc25c-00005553.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "15c0de4da1e58b3e0cf8357ea823314a0f4873b18d348a5eab5e6d9ad9261b5a",
+     "where": "M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       64,
+       64,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      64,
+      64,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 48 blocks (TBW 1) over M73.ZDB/M73_TXR.ZED:stone_wall02_128.tif uploaded at its own TBW 2; that read is the rectangular window x 64..96, y 64..96 of the record; the CLUT hash is the"
+  },
+  {
+   "file": "8d701d78989f545-4be04117334aa905-00005553.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "bd10f795f574b24cb2cc697acc2ca586b88f5fe81e0f9bd6942c8a8de107b9ca",
+     "where": "M73.ZDB/M73_TXR.ZED:oldsidewalk1.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       96,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      96,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 40 blocks (TBW 1) over M73.ZDB/M73_TXR.ZED:oldsidewalk1.tif uploaded at its own TBW 2; that read is the rectangular window x 0..32, y 96..128 of the record; the CLUT hash is the rec"
+  },
+  {
+   "file": "c27d91fbc7134d65-47b011c994c66ca1-00005113.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "0b39e67e8b8f04ebb3342a9fe6c7e566e72896cc5a1efa552809669d8ec5f6ac",
+     "where": "M51.ZDB/FLIB_TXR.ZED:seal_scuba_gear02.tif"
+    }
+   ],
+   "read": [
+    16,
+    16
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       16,
+       48,
+       16,
+       16
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      16,
+      48,
+      16,
+      16
+     ],
+     "src": [
+      0,
+      0,
+      16,
+      16
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 11 blocks (TBW 1) over M51.ZDB/FLIB_TXR.ZED:seal_scuba_gear02.tif uploaded at its own TBW 1; that read is the rectangular window x 16..32, y 48..64 of the record; the CLUT hash is t"
+  },
+  {
+   "file": "ce295819316cf9a0-37625a85dd855963-r1df0000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    479,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     479,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      479,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      479,
+      512
+     ]
+    }
+   ],
+   "evidence": "[step 3] region-clamped name (r1df0000): texel hash of UI/UI2D_TXR.ZED:font_titlebar_01.tif cropped to rect [0, 0, 479, 512] (expanded, row by row) and CLUT hash both equal the name (wf/s3_region.py); pcsx2name.py skipped \"-r\" names. Replac"
+  },
+  {
+   "file": "db8a73d0746dd30d-906728dede62ff5f-00005953.dds",
+   "kind": "vram-top",
+   "targets": [
+    {
+     "sha256": "b873bc1e14db6b842963e422fcddbbc70ee6337a804291ab3f8576c7f0b491b5",
+     "where": "MP8.ZDB/CLIB_TXR.ZED:afg_ter02_grbag_1.tif"
+    }
+   ],
+   "read": [
+    32,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     },
+     {
+      "where": "MP8.ZDB/CLIB_TXR.ZED:afg_ter02_grbag_2.tif",
+      "sha256": "9ee40d1e4fd32fc0e7c1cedbc721d379d10637e574bb656a1ba9c20085647141",
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       32
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[round 2 exp1, upheld by rv_exp1 (independent pool model + PCSX2 hash, wf2/rv_exp1.py)] texel hash db8a73d0746dd30d and CLUT hash 906728dede62ff5f both reproduced in one modelled pool [MP8.ZDB/CLIB_TXR.ZED]: T8 32x64 read at TBP0 = pool+209"
+  },
+  {
+   "file": "de5f15ab6daf7941-7dc0532872db0d56-00005553.dds",
+   "kind": "blockwindow",
+   "targets": [
+    {
+     "sha256": "eb17530781d33781bb9e8f72df47697bbea98ec9e00f157c90559fc99bbffb05",
+     "where": "M51.ZDB/HUDW_TXR.ZED:IW80A2_icon.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       96,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      96,
+      0,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "hash-proven: CLUT hash 7dc0532872db0d56 is owned only by IW80A2_icon (128x32 PSMT8, TBW 2, CSM1, CT32, CLUT[0]=(0,0,0,0)); its GS blocks 20..23 (pixels x96..127, y0..31) are all index 0, so a TW=32 TH=32 T8 read at TBP0+20 gives 1024 zero b"
+  },
+  {
+   "file": "deaebfd94f95ef06-d748135c081ca650-00005553.dds",
+   "kind": "blocks",
+   "targets": [
+    {
+     "sha256": "4842d48e7c41a3c3a3420f02bc438226ecf2a5a4e8d1fcf3053a5cce5923ef17",
+     "where": "M72.ZDB/CM72_TXR.ZED:alger_sign06.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       16,
+       16,
+       16
+      ],
+      "at": [
+       0,
+       0
+      ]
+     },
+     {
+      "rect": [
+       16,
+       16,
+       16,
+       16
+      ],
+      "at": [
+       16,
+       0
+      ]
+     },
+     {
+      "rect": [
+       32,
+       0,
+       16,
+       16
+      ],
+      "at": [
+       0,
+       16
+      ]
+     },
+     {
+      "rect": [
+       48,
+       0,
+       16,
+       16
+      ],
+      "at": [
+       16,
+       16
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      16,
+      16,
+      16
+     ],
+     "src": [
+      0,
+      0,
+      16,
+      16
+     ]
+    },
+    {
+     "dst": [
+      16,
+      16,
+      16,
+      16
+     ],
+     "src": [
+      16,
+      0,
+      16,
+      16
+     ]
+    },
+    {
+     "dst": [
+      32,
+      0,
+      16,
+      16
+     ],
+     "src": [
+      0,
+      16,
+      16,
+      16
+     ]
+    },
+    {
+     "dst": [
+      48,
+      0,
+      16,
+      16
+     ],
+     "src": [
+      16,
+      16,
+      16,
+      16
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 2 blocks over M72.ZDB/CM72_TXR.ZED:alger_sign06.tif (TBW 2); the read is not one rectangle but whole 16x16 blocks of the record, placed per blockMap; the CLUT hash is the record's o"
+  },
+  {
+   "file": "e7c1503d6db707ce-58cce33c4f88631b-000059d3.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "2ee66fc069d64d2f7ffdf2174400523e1fddb7ef2198e44fd9bb4cd83031f0b7",
+     "where": "M51.ZDB/TRMG_TXR.ZED:kalashnikov_pkm.tif"
+    }
+   ],
+   "read": [
+    128,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       0,
+       128,
+       64
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      128,
+      64
+     ],
+     "src": [
+      0,
+      0,
+      128,
+      64
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 0 blocks (TBW 1) over M51.ZDB/TRMG_TXR.ZED:kalashnikov_pkm.tif uploaded at its own TBW 2; that read is the rectangular window x 0..128, y 0..64 of the record; the CLUT hash is the r"
+  },
+  {
+   "file": "eef24a9e08cddce5-80005102.dds",
+   "kind": "ct",
+   "targets": [
+    {
+     "sha256": "176a7489db14d4f4303bd5d83df225f812b000f7598f4a24ded64d4ea8954394",
+     "where": "UI/UI_TXR.ZED:203HE.tif"
+    },
+    {
+     "sha256": "dd9528adaa9918ffa56d011d0cdad25eee926c5dc489a37acf4bb11fd490de38",
+     "where": "UI/UI_TXR.ZED:203SMK.tif"
+    },
+    {
+     "sha256": "2142e3fb67a82fc45a9e04b2b593c04e6bf8c781830d282abb6d52d9b7df6818",
+     "where": "UI/UI_TXR.ZED:203FRAG.tif"
+    }
+   ],
+   "read": [
+    16,
+    16
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       32,
+       16,
+       16
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      32,
+      16,
+      16
+     ],
+     "src": [
+      0,
+      0,
+      16,
+      16
+     ]
+    }
+   ],
+   "evidence": "[round 2 exp4, upheld by rv_exp4 (own CT16 block model, wf2/rv_exp4.py)] Exact name reproduced: CT16 16x16 view at TBP0 + 16 blocks (block 16 of the CT16 page = x 0, y 32) of UI/UI_TXR 203FRAG.tif, 203HE.tif and 203SMK.tif (CT16 64x64, TBW "
+  },
+  {
+   "file": "f8250e26e6dce0f3-a9cd19b6cc3637ec-00005993.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "d2123cd04afeddf9ad03faeeeb693ce2e5c47f541759d7178bb397e9292d3da4",
+     "where": "M73.ZDB/M73_TXR.ZED:stonewall2.tif"
+    }
+   ],
+   "read": [
+    64,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       64,
+       64,
+       64
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      64,
+      64,
+      64
+     ],
+     "src": [
+      0,
+      0,
+      64,
+      64
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 32 blocks (TBW 1) over M73.ZDB/M73_TXR.ZED:stonewall2.tif uploaded at its own TBW 2; that read is the rectangular window x 0..64, y 64..128 of the record; the CLUT hash is the recor"
+  },
+  {
+   "file": "f9cc3da097384b26-2f7dab6129837a2b-00005553.dds",
+   "kind": "crop",
+   "targets": [
+    {
+     "sha256": "9420624458761181c9805df1b76d53f7feb789b9eff17bd1e0daf57e12ee35c5",
+     "where": "M51.ZDB/FLIB_TXR.ZED:battle_helmet_black.tif"
+    }
+   ],
+   "read": [
+    32,
+    32
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       32,
+       96,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      32,
+      96,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[step 4] texel hash = XXH3 of the GS blocks read at TBP0 + 44 blocks (TBW 1) over M51.ZDB/FLIB_TXR.ZED:battle_helmet_black.tif uploaded at its own TBW 2; that read is the rectangular window x 32..64, y 96..128 of the record; the CLUT hash i"
+  },
+  {
+   "file": "ffd0e579e6ea1391-2e5da1d509eb57d2-00005953.dds",
+   "kind": "vram-top",
+   "targets": [
+    {
+     "sha256": "3d70d78201c53c06961302cdcabf314bbab578782786a220329062045653df08",
+     "where": "MP5.ZDB/CLIB_TXR.ZED:thai_ter01_bag03.tif"
+    }
+   ],
+   "read": [
+    32,
+    64
+   ],
+   "proof": {
+    "kind": "name",
+    "parts": [
+     {
+      "rect": [
+       0,
+       0,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       0
+      ]
+     },
+     {
+      "where": "MP5.ZDB/CLIB_TXR.ZED:thai_ter01_bag01.tif",
+      "sha256": "385907b115121e2118dbbc78750c0e0ed6ac09fbc9a9611a46dd73859afa16c0",
+      "rect": [
+       0,
+       64,
+       32,
+       32
+      ],
+      "at": [
+       0,
+       32
+      ]
+     }
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      32,
+      32
+     ],
+     "src": [
+      0,
+      0,
+      32,
+      32
+     ]
+    }
+   ],
+   "evidence": "[round 2 exp1, upheld by rv_exp1 (independent pool model + PCSX2 hash, wf2/rv_exp1.py)] texel hash ffd0e579e6ea1391 and CLUT hash 2e5da1d509eb57d2 both reproduced in one modelled pool [MP5.ZDB/CLIB_TXR.ZED]: T8 32x64 read at TBP0 = pool+163"
+  },
+  {
+   "file": "258296fe444ab5de-37625a85dd855963-r19d0000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    413,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     413,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      413,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      413,
+      512
+     ]
+    }
+   ],
+   "evidence": "region step: texel and CLUT hash of the region reproduced from the record (bound by image, tier D, before)"
+  },
+  {
+   "file": "67adb3bea16ac8ca-37625a85dd855963-rce000000840000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    132,
+    206
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     132,
+     206
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      132,
+      206
+     ],
+     "src": [
+      0,
+      0,
+      132,
+      206
+     ]
+    }
+   ],
+   "evidence": "region step: texel and CLUT hash of the region reproduced from the record (bound by image, tier D, before)"
+  },
+  {
+   "file": "b95fade8494d6988-37625a85dd855963-r1c70000-00006654.dds",
+   "kind": "region",
+   "targets": [
+    {
+     "sha256": "f5704975c4053ba006be54f0064e56fa8b1c2f925227044fbd430c37b3dc056d",
+     "where": "UI/UI2D_TXR.ZED:font_titlebar_01.tif"
+    }
+   ],
+   "read": [
+    455,
+    512
+   ],
+   "proof": {
+    "kind": "region",
+    "rect": [
+     0,
+     0,
+     455,
+     512
+    ]
+   },
+   "placements": [
+    {
+     "dst": [
+      0,
+      0,
+      455,
+      512
+     ],
+     "src": [
+      0,
+      0,
+      455,
+      512
+     ]
+    }
+   ],
+   "evidence": "region step: texel and CLUT hash of the region reproduced from the record (bound by image, tier D, before)"
+  }
+ ]
+}

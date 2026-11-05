@@ -80,7 +80,8 @@ describe('research 230: movement gaps', () => {
     for (const speed of [0, 40])
         it.fails(`refuses jump at speed ${speed} with a solid hit in the posed-head ray`, () => expect(roofResults.get(speed)).toBe(false));
     // FUN_005483d0 D:L413588-413593, scalar confirmed at ELF 0x548ae0-0x548b40: remove inward carry persistently.
-    it.fails('keeps the inward carry removed after contact ends', () => {
+    // SEGMENT-BODY: built in `resolveSegments` (the carried velocity loses its part into the face, D:L413588-413594): a gap closed.
+    it('keeps the inward carry removed after contact ends', () => {
         expect(carry.vx).toBeCloseTo(0, 8);
         expect(carry.x).toBeCloseTo(carry.beforeX, 8);
     });

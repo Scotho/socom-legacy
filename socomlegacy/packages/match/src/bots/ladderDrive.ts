@@ -8,7 +8,7 @@ import { BOT_LADDER_ENTRY_TOLERANCE_ADAPTATION, type BotLadderLink, type Point }
 
 /** Authored CPU input policy (OT.R81), not retail AI or new ladder physics. */
 const LADDER_INPUT_ADAPTATION = { alignDegrees:2, timeoutTicks:60*TICK_HZ,
-  entrySpeed:1, approachGain:0.15, approachDamping:0.03 };
+  entrySpeed:1, approachGain:0.15, approachDamping:0.03, approachFloor:0.05 };
 
 /** Keeps ordinary pad input committed through the native mount, rung cycle and dismount. */
 export class BotLadderDrive {
@@ -45,8 +45,16 @@ export class BotLadderDrive {
       else {
         // Reach the selected approach, including its side offset, before pushing at the ladder plane.
         const r = (s.yaw + turn) * Math.PI / 180, fx = -Math.sin(r), fz = -Math.cos(r), rx = Math.cos(r), rz = -Math.sin(r);
-        const stick = (x:number,z:number): number => Math.max(-1,Math.min(1,
-          (dx*x + dz*z) * LADDER_INPUT_ADAPTATION.approachGain - (s.vx*x + s.vz*z) * LADDER_INPUT_ADAPTATION.approachDamping));
+        // SEGMENT-BODY (OT.R81, a bot adaptation): an axis still asking to close is pressed at least `approachFloor`, past
+        // the pad's 0.03 rest band (`FUN_00586f00`), so the approach closes to `BOT_LADDER_ENTRY_TOLERANCE_ADAPTATION`
+        // rather than settling where the gain times the distance falls under the band (0.25 off, outside the tolerance).
+        const stick = (x:number,z:number): number => {
+          const v = (dx*x + dz*z) * LADDER_INPUT_ADAPTATION.approachGain - (s.vx*x + s.vz*z) * LADDER_INPUT_ADAPTATION.approachDamping;
+          const along = dx*x + dz*z;
+          const floored = Math.abs(along) > 0.05 && Math.abs(v) < LADDER_INPUT_ADAPTATION.approachFloor && Math.sign(v) === Math.sign(along)
+            ? Math.sign(v) * LADDER_INPUT_ADAPTATION.approachFloor : v;
+          return Math.max(-1,Math.min(1, floored));
+        };
         forward = Math.abs(error) <= LADDER_INPUT_ADAPTATION.alignDegrees ? stick(fx,fz) : 0;
         right = Math.abs(error) <= LADDER_INPUT_ADAPTATION.alignDegrees ? stick(rx,rz) : 0;
       }

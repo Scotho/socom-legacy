@@ -310,10 +310,13 @@ describe('the walker runs the rule each tick, after its move, from its own floor
       if (parted < 0 && (on.state.z !== off.state.z || on.state.x !== off.state.x)) parted = i;
     }
     expect(parted).toBeGreaterThan(60);
-    expect(off.state.z).toBeCloseTo(-40 + 8, 4);                                     // level: stopped with the fin 8 ahead
+    // SEGMENT-BODY (re-judged; was stopped 8 short, the disc's line ahead): level, the prone head line along the facing
+    // (15.94, `HEAD_LINE_MUZZLE_READING`; lifted through the root only when tilted, D:L415531-415535) meets the fin first
+    // and the jam holds the body (research 217 s2.9) -- about 16 short; tilted, every line rises with the slope and it
+    // crawls over.
+    expect(off.state.z).toBeGreaterThan(-40 + 15.9);
+    expect(off.state.z).toBeLessThan(-40 + 16.3);
     expect(on.state.z).toBeLessThan(-50);                                            // tilted: over it
-    // where they parted, the level one was within 8 of the fin (its line met it), the tilted one's not yet stopped
-    expect(Math.abs(off.state.z - -40)).toBeLessThanOrEqual(8 + 1e-6);
   });
 
   it('costs: 16 walkers with the rule and with it switched off, running and prone (reported)', () => {

@@ -1,7 +1,7 @@
 import {
-  buildGrid, cellAt, isCameraSurface, isWallSurface, materialTable, modelGate, polygonNormal, probeGround, ringCells, segmentHit, segmentHits, selectFloor, surfaceWord, surfaceMaterial, upNormal,
-  GameFrameAccumulator, GAME_FRAME_DT, SEAL_LOCOMOTION, SEAL_TUNING,
-  type CollisionObject, type CollisionOwner, type MotionClip, type Grid, type GridParams, type Hit, type WorldPoly,
+  ALL_LAYERS, buildGrid, cellAt, isCameraSurface, isWallSurface, materialTable, modelGate, polygonNormal, probeGround, ringCells, segmentHit, segmentHits, selectFloor, surfaceWord, surfaceMaterial, upNormal,
+  GameFrameAccumulator, GAME_FRAME_DT, SEAL_LOCOMOTION, SEAL_TUNING, DEFAULT_SIDEARM, DEFAULT_WEAPON,
+  type CollisionObject, type CollisionOwner, type SegmentHit as SegmentHitOf, type MotionClip, type Grid, type GridParams, type Hit, type WorldPoly,
 } from '@s2u/scene';
 import type { GroundWish, Pose } from './camera';
 import { airBands, oneShotSeconds, SEAL_ANIMS } from './locomotion';
@@ -13,6 +13,8 @@ import { SCOPE_SLOW } from './zoom';
 import { wrapYaw } from './yaw';
 import { PRONE_HEIGHT } from './stature';
 import { OrderedBoundsIndex } from './orderedBoundsIndex';
+import { CLIMBABLE, CORNER_DOT } from './climb';
+import { weaponLineLengthOf, WEAPON_LINE_ONE_SIDED_PLACEHOLDER } from './weaponLine';
 import {
   actionClipOf, GROUND_PLAY_PHASE, groundClipOf, oneShotPhase, PRONE_TILT_EASE_BASIS_READING, rootTiltStart, rotateByQuat, stepRootTilt,
   tiltWindowOf, traversalPhase, worldToBody, type RootTiltState, type TiltQuat, type TiltTop,
@@ -306,7 +308,9 @@ export const WALL_END_CONTACT_READING: 'face-normal' | 'radial' = 'face-normal';
  * began, D:L413602-413611 with D:L413918). `'start'`: the port before the hotfix. [reading, pending capture: the
  * original's segment is one slanted line, the port's disc two level cuts at its ends; the port's contacts elsewhere stay
  * two-sided (LATER 620); whether `+0x133c` is this frame's fall speed or the last is not read; owed: a capture of a SEAL
- * dropped past a face's top edge and of Crossroads' rubble slot (research 213 s3 item 2, H94)].
+ * dropped past a face's top edge and of Crossroads' rubble slot (research 213 s3 item 2, H94)]. The `'disc'` arm only
+ * (`WALL_BODY_READING`): on the segment path -- every map's walkers -- `fall` resolves the fall through the segments
+ * and calls no `airWalls` (research 217 s2.10, the merge note).
  */
 export const AIR_WALL_HEIGHTS_READING = 'start-and-end' as 'start-and-end' | 'start';
 /**
@@ -326,9 +330,126 @@ export const AIR_WALL_HEIGHTS_READING = 'start-and-end' as 'start-and-end' | 'st
  * tread stays wedged, as on main); a body with no penetration is never touched (held by `bridgeWedge.test.ts`: a healthy
  * body's state is identical with it on and off, on open slots and beside steep faces), and a body set inside the walls (a
  * spawn, a test's origin) is left as before.
- * SEGMENT-BODY's reading (research 217 s2.9) supersedes it. `on: false` is main before the hotfix.
+ * SEGMENT-BODY's reading (research 217 s2.9) supersedes it. `on: false` is main before the hotfix. It acts only on the
+ * `'disc'` arm of `WALL_BODY_READING`: on the segment path (every map's walkers, the players' and the bots') the segment
+ * body's one-sided hull hits carry the bridge case (research 281 s4.3) -- `move` and `step` consult neither `pushOut`
+ * nor `crosses`, so `unwedge` is never asked there. Kept defined, not retired (research 217 s2.10, the merge note).
  */
 export const WEDGE_PUSH_OUT_ADAPTATION = { on: true, headings: 16, step: 0.25, ticks: 30 };
+/**
+ * SEGMENT-BODY (research 217 s2.9; LATER 283, LATER 620): what the body meets walls with. `'segments'` (built): the
+ * original's -- the segments `FUN_0054aa30` casts each tick from the feet along the frame displacement `+0xf44`
+ * (D:L415157-415166, the controlled body's branch D:L415341-415459, the side lines D:L415549-415577 and D:L415789-415817,
+ * prone D:L415582-415621 and D:L415822-415861), each hit only from the front of the polygon's own normal (the hull's
+ * one-sided VU0 test, research 281 s4.3), one hit a segment (the nearest, `FUN_002d4cc0`), walkable normals and the
+ * flagged materials dropped (D:L413426-413457), and `FUN_005483d0`'s resolution in the list's order (D:L413533-413614)
+ * and its look-ahead (D:L413673-413800); the new position the start plus what is left (D:L413918). `'disc'`: the port's
+ * disc of the class radius on two level lines before SEGMENT-BODY (`slide`, `crosses`, `pushOut`, `airWalls`), kept as
+ * the switch's other arm for measurement. [reading, pending review]
+ */
+export const WALL_BODY_READING = 'segments' as 'segments' | 'disc';
+/**
+ * The segments' shape and the resolution's two numbers (`WALL_BODY_READING` 'segments'; research 217 s2.9):
+ * `ahead` -- the direction `fStack_10` is the displacement normalised in three axes (the facing, the matrix row +0x20
+ * negated, when every component is under `still`, D:L415135-415161) times r x 1.4 (D:L415166); `centre` -- the centre
+ * segment reaches 1.1 of it (`uStack_60`, D:L415235), x `backing` (`DAT_0064fce8` 1.75) more while the stance word
+ * `+0x174` is stand or crouch and the body-frame velocity's z `+0x34` is over 0.01 -- forward is -z there
+ * (`FUN_0057a330` D:L438978-438984 writes `+0x34 = -stick x speed`), so a stand BACKING -- or crouched with it under 0
+ * and `+0x21c` bit 2 clear (taken clear) (D:L415354-415371); `sideNear` / `sideFar` -- the side lines from 0.3 r to
+ * 1.2 r across the travel turned a quarter (`fStack_20` = (-dz, 0, dx) normalised x r, D:L415171-415220) to `ahead`
+ * further; `proneAcross` -- prone, the side lines 0.3 x 1.3 r across, from `ahead` behind to `ahead` ahead
+ * (D:L415582-415621); `depth` -- the deepest hit (|the segment's end less the hit point| along the levelled normal,
+ * D:L413571-413585) over it puts the body back where the tick began (the displacement zeroed) when prone or the hits
+ * number more than `jamHits`, else adds the depth less 1 along that normal (D:L413602-413614).
+ */
+export const SEGMENT_BODY_READING = {
+  ahead: 1.4, centre: 1.1, backing: 1.75, sideNear: 0.3, sideFar: 1.2, proneAcross: 1.3, still: 0.0005, depth: 1, jamHits: 2,
+} as const;
+/**
+ * `FUN_005483d0`'s look-ahead once the move has a hit and no slide speed (`+0x1340` 0, D:L413673-413678): from the feet +
+ * `step_height` (`DAT_0044c26c`, prone too) along the resolved displacement normalised, its horizontal length plus
+ * `prone` 11.46, or the larger of `stand` 5.25 / `crouch` 10.5 (by the stance word) and the `firepoint` offset dotted
+ * with the direction (D:L413686-413711); a steep unflagged hit zeroes the displacement (D:L413712-413756). Then from
+ * each hit, `from` 0.1 of the way back to its segment's start (`FUN_00308fc0`, a lerp), along the displacement made
+ * `least` 2 long when its horizontal length is under 2 (D:L413758-413800): a steep unflagged hit zeroes it too.
+ */
+export const SEGMENT_LOOK_AHEAD_READING = { stand: 5.25, crouch: 10.5, prone: 11.46, from: 0.1, least: 2 } as const;
+/**
+ * The `firepoint`'s offset from the feet `actor+0x14b0` (body frame x, z; +x right, -z forward), research 217 s1.3's
+ * table: the M4 on `seal_A_scuba` at each idle's first key, as `CROUCH_GATE_REACH_READING` [reading: the port's pose,
+ * not the console's; the pistol and the posed clip not followed]. The look-ahead dots it with the direction, and the
+ * head line runs along the facing by 1.1 x its forward part (`HEAD_LINE_MUZZLE_READING`).
+ */
+export const SEGMENT_FIREPOINT_READING: Readonly<Record<Stance, readonly [number, number]>> = {
+  stand: [-2.750, -8.599], crouch: [1.341, -11.438], prone: [-1.728, -14.490],
+};
+/**
+ * The head line's end while `+0x14bc` (the `firepoint` node) is set (D:L415457-415523): when the matrix row +0x20 (the
+ * BACK; the facing is it negated) dotted with the direction is under 0 -- the body moving forward -- or the body is
+ * still, and the top play's looped bit with `FUN_00286c90(+0x458)` over 0 and the stance word not 5, or prone, or an
+ * action 0x11 / 0x13 / 0x19 (the transitions), the end is the start + the row x (the row . 1.1 x `+0x14b0`): along the
+ * facing by 1.1 x the muzzle's forward part (9.46 standing, 12.58 crouched, 15.94 prone); else the start +
+ * `fStack_10`; the displacement added either way. `'prone-or-transition'` (built, checkpoint 4): the rifle held, the
+ * envelope `FUN_00286c90` (a ramp-in / hold / ramp-out weight over `+0x458`, not identified) taken at 0 or under in the
+ * locomotion -- so only prone (the stance word 2) or a transition (0x11 / 0x13 / 0x19) takes the muzzle -- on ac's
+ * capture of M51 house2's west wall (r0004: standing 6.78 and crouch-walking 9.48 are the centre's, prone 16.04 the
+ * muzzle's; research 217 s2.9). `'held'` (checkpoints 1-3): the envelope over 0 on every looped play. `'none'`: the end
+ * always `fStack_10`. [reading, pending review: `+0x458` is not identified; owed an RDRAM read of `+0x458` walking]
+ */
+export const HEAD_LINE_MUZZLE_READING = 'prone-or-transition' as 'prone-or-transition' | 'held' | 'none';
+/**
+ * The crouched centre's x 1.75 forward wants `+0x21c` bit 2 clear (D:L415356-415358). `'set-while-running'` (built,
+ * checkpoint 4): the bit is set while the crouch runs (the stance word crouched, the standing run playing: the port's
+ * posture `stand`), clear crouch-walking -- ac's capture of M51 house2's west wall (r0004): crouch-walking 9.48 (the
+ * 1.75), the crouch's run 5.85 (none). `'clear'`: never set (checkpoints 1-3). [reading, pending review: the writer of
+ * `+0x21c` bit 2 is not read; the run's 5.85 sits 0.7 under the reach plus a 30 Hz move less 1, open with the log's
+ * 5.22-5.32 (research 217 s2.9)]
+ */
+export const CROUCH_RUN_FLAG_READING = 'set-while-running' as 'set-while-running' | 'clear';
+/**
+ * Prone and turning (`bVar8`: `+0x23c` over 1e-6), a move with a hit is put back where it began (D:L413678-413684);
+ * and turning prone (`actor+0x48`) the side lines are swapped for one turned line (D:L415701-415788). `+0x23c` is not
+ * identified: 0 (never turning), the two not built. Owed: a read of `+0x23c`'s writer.
+ */
+export const PRONE_TURN_WORD_PLACEHOLDER = 0;
+/**
+ * A segment's hit (OT.R97, r0004 the spec; `agent-mail/evidence/segment-body/R0004-SEGMENTS.md` (A), reading, pending
+ * review): `'nearest-passing'` (r0004 `FUN_005483d0` 0x54cf30) -- the nearest hit that passes the drop (a normal's y over
+ * `max_slope`, a material flagged in bit 0 or 1), none counted when none does; `'nearest-then-drop'` (r0001
+ * D:L413409-413457) -- the nearest hit, the segment dropped when it fails. While `FUN_00588030` holds (the knock's falls)
+ * r0004 skips the slope drop; the material drop always applies (R0004-SEGMENTS (B)).
+ */
+export const SEGMENT_HIT_PICK_READING = 'nearest-passing' as 'nearest-passing' | 'nearest-then-drop';
+/**
+ * PROVEN (a capture of the original running: r0004, ac, 2026-11-04 11:30-11:50Z, `segment-body/jump-near-wall/RESULTS.md`,
+ * two identical trials a case): the running jump is NOT refused by the move's stored contact. Run square at M51 g19733's
+ * face at full stick and Jump pressed 17.43 from the plane with `+0x10ac` set and CLIMB offered (`+0xed0` 4), the
+ * original launched type 8 and carried 64.5 u at 62.3 u/s over the 14-u top -- a standing jump carries nothing; pressed
+ * 6.95 out, contact set, type 8 too; the 28-out press (contact clear) and the parallel control, type 8. `'none'`:
+ * `Walker.jump` takes the running jump on the speed alone (225 or more squared, D:L440812-440814), as before
+ * SEGMENT-BODY. *Was* `JUMP_CONTACT_READING` `'stored-contact'` (now the rejected reading, research 217 s2.9): the r0001
+ * decompilation's `FUN_0057e1b0` D:L440815-440819 refuses the launch while `+0x10ac` is set and takes `DAT_003deae8`'s
+ * standing jump -- r0001's addresses; on r0004 0x3deae8 holds code (the capture's RDRAM read, `0x00431023`), so the
+ * reading is an older build's, which the r0004 capture overrides. The r0004 code agrees (reading): r0004's jump, 0x583490
+ * (the desktop recompilation's r0004 output, `sub_00583490_0x583490.cpp`), loads no `+0x10ac` at all, where r0001's
+ * (its r0001 output, `sub_0057E1B0_0x57e1b0.cpp`, the load at 0x57e348) does -- the test is deleted (the r0004
+ * investigation's G3). Held by `weaponLine.test.ts` (M51, capture-scored; a synthetic twin).
+ */
+export const JUMP_CONTACT_PROVEN = 'none' as 'none' | 'stored-contact';
+/**
+ * SEGMENT-BODY checkpoint 3: where an airborne body's height comes from. `'altitude'` (built): `FUN_0059b440` adds g dt to
+ * the fall speed `+0x133c` and steps the altitude `+0x2e4` by it (D:L456496-456498); `FUN_0059ad30` lands the body when the
+ * altitude is under the floor's hit (D:L456313-456322) -- the height is not the resolved displacement's, so the jam,
+ * which zeroes `+0xf44..+0xf4c` (D:L413602-413611), stops the move across, not the fall; the records still run along the
+ * displacement with the fall in it (`FUN_0054d9a0` D:L416501-416520, research 217 s2.11). `'displacement'`: the height
+ * the resolved displacement's y (checkpoints 1 and 2), which held a body falling over a steep face in the air (the sweep's
+ * "hung"). [reading, pending review: how the translation's y is taken from `+0x2e4` is not read (D:L459729 copies `+0x20`
+ * into it); owed a capture of a SEAL falling past a steep face]
+ */
+export const AIR_HEIGHT_READING = 'altitude' as 'altitude' | 'displacement';
+
+/** One of the body's segments: its two ends and the line it stands for (0 the low ones, 1 the head line; PB-3b). */
+interface BodySegment { a: [number, number, number]; b: [number, number, number]; line: 0 | 1 | 2 }
 /**
  * The head node's height over the feet at each stance idle's first key (`MOTION_P.ZAR`, the port's forward kinematics
  * on `seal_A_scuba`'s tree, research 217 s2.2): `seal_stand` 17.394, `seal_crouch` 10.138, `seal_prone` 3.637 (research
@@ -905,8 +1026,27 @@ export interface TraversalHooks extends TickDriver {
 /** LATER 526: the moves' state as `TraversalHooks.keep` kept it (opaque: only `restore` reads it). */
 export type TraversalKept = { readonly __traversalKept: unique symbol };
 
-/** `FUN_0057e1b0`: a take-off at this speed or more (`225 <= |v|^2`, the local velocity) is the running jump. */
+/**
+ * `FUN_0057e1b0`: a take-off at this speed or more (`225 <= |v|^2`, the local velocity) is the running jump. The velocity
+ * is the clip's, `+0x2c..+0x34` (D:L440812-440814; r0004 0x583668-0x583694), which `FUN_0057a330` writes from the top
+ * clip's root velocity (D:L438908-438985) and the walls never cut (`FUN_005483d0` cuts only `+0xf44` and `+0x1350`,
+ * D:L413533-413597): `Walker.jump` reads the tick's velocity before the walls (`bodyVelocity_`). Proven by ac's r0004
+ * ditch capture (agent-mail/evidence/eph-hunt-2026-11-01/segment-body/ditch-capture/RESULTS.md, 2026-11-04): blocked,
+ * the body moving 0.00 a second against a clip velocity of 65, every press gave the running jump (type 8), never the
+ * standing jump (178). LATER 676.
+ */
 export const RUNNING_JUMP_SPEED = 15;
+/**
+ * LATER 676's slide case (research 86 s3.8; a reading): on a sliding floor the port's tick velocity is the slide's
+ * displacement (`slideOrMove`), the clip's root velocity is not. `'clip'` (built): the jump's speed test reads the
+ * tick's velocity before the slide replaced it -- the stick's, so a body sliding with the stick idle stands to jump.
+ * `'slide'`: it reads the slide's displacement velocity, so a slide over 15 a second launches (the port before the fix).
+ * Unread: whether the slide clip `FUN_0054f330` plays (research 201 s3) carries a root velocity into `+0x2c`. Settled by
+ * a read of the slide clip's root channel, or an r0004 capture of `+0x2c..+0x34` on a steep slide with the stick idle.
+ * Unreachable on the disc's surfaces today (`steepSlide.test.ts`): they slide only steeper than `max_slope`
+ * (`SLIDE_DISC_SURFACE_KIND` 4), where the jump's slope test (`+0x1348`) refuses first; only a kind-0 floor would ask it.
+ */
+export const JUMP_SPEED_SLIDE_READING = 'clip' as 'clip' | 'slide';
 /** `FUN_0057e1b0` -> `FUN_005af930`: the running jump's impulse lands in the fall speed this long after the take-off (`actor+0x1360 = 0x3dcccccd`). */
 export const JUMP_DELAY = 0.1;
 /** `actor+0x135c = 0x3ecccccd`: no jump this long after a running jump's take-off, or after any landing (`FUN_005af930`). */
@@ -1616,15 +1756,37 @@ export const STANCE_CUT_TICK_READING = 'a frame behind' as const;
 export const CROUCH_WALK_AXIS_READING = 'stick x 14 / (abs(stick) x 14.8): 0.946' as const;
 
 /**
- * SEP-POP review N2 (b) READING (named; research 80 section 6f; shared with COMBINED, behaviour unchanged): the crouch's
- * return from its run and the posture the run carries. EPH Q3 and round 4 (capture): with a full stick let go after the
- * pop the original plays 0x11 (`Stand -> Crouch`, 0.58-0.60 s, the root 10.04 to 5.50) then 0x12; with half a stick let
- * go, 0x12 at once; and its posture word reads 1 (crouch) through the run. The port's crouch at rest takes the crouch
- * idle at once, and `Walker.posture` is `stand` while the crouch runs (`locomote`) -- the hull, the headroom and the hit
- * volumes follow `posture`. Settled by porting `FUN_00584c60`'s idle branch (D:L444193 on) and the run's posture write
- * with their own task under OT.R93's gate.
+ * SEP-POP review N2 (b) READING (named; research 80 section 6f; research 217 s2.9; LATER 678): the crouch's return from
+ * its run. `FUN_00584c60` sets `+0x21c` bit 2 in its run branch (the stick past 12.4 / 14.8, D:L444145-444172: the port's
+ * crouch run, `posture` stand) and clears it in its walk branch (D:L444150). At rest its idle branch (D:L444195 on) takes
+ * a turn axis (`+0x23c`, D:L444116) past `FUN_0052eb60`'s 0.025 to the crouch's turn, the bit cleared (D:L444196-444198);
+ * else it pushes the crouch idle 0x12 (D:L444282) and, with the bit set, `Stand -> Crouch` 0x11 on top of it
+ * (D:L444316-444317), the bit cleared (D:L444325). EPH Q3 and round 4 (capture): a full stick let go after the pop plays
+ * 0x11 (0.58-0.60 s, the root 10.04 to 5.50) then 0x12; half a stick let go, 0x12 at once. `'stand-to-crouch'` (built,
+ * LATER 678): a crouch run let go, not turning, plays `standToCrouch` forward, the crouch idle under it -- in SEPARATE
+ * only (`stanceSeparate`, OT.R93). The function reads no stance-button mode (the original has one), but OT.R93 keeps
+ * COMBINED and the bots as main has them (`stanceCutSeparate.test.ts` pins the bots' trace byte for byte), as MOVE-1 and
+ * MOVE-4 were kept (H392): theirs is the owner's question. `'idle'`: the crouch idle at once (the port before LATER 678;
+ * COMBINED's and the bots' still). Not ported still: the posture word reads 1 (crouch) through the run where the port's
+ * `posture` is `stand` (`locomote`; the hull, the headroom and the hit volumes follow it) -- owed with the run's posture
+ * write. [reading, pending review]
  */
-export const CROUCH_RUN_RETURN_READING = 'not ported: crouch idle at once, posture stand through the run' as const;
+export const CROUCH_RUN_RETURN_READING = 'stand-to-crouch' as 'stand-to-crouch' | 'idle';
+
+/**
+ * LATER 678 READING (named; research 217 s2.9): the release's push off a wall. During the 0x11 the release plays, the
+ * head line takes the muzzle reach (`HEAD_LINE_MUZZLE_READING` 'prone-or-transition', `FUN_0054aa30` D:L415480) and the
+ * deep-hit rule puts the body out by the depth less 1 (`FUN_005483d0` D:L413602-413614). `'first-tick'` (built): from
+ * the clip's first tick, at the crouched firepoint's fixed reach (`SEGMENT_FIREPOINT_READING`: 1.1 x 11.438 = 12.58).
+ * ac's r0004 capture (house-crouch, trials 2 and 3): the body held at 5.85 for 4 frames of 0x11, out to 10.85 in one
+ * frame, then 12.88 -- the firepoint node moving through the clip, which the port does not pose. Neither the 4-frame
+ * delay nor the 12.88 is read. Settled by the firepoint node (`actor+0x14b0`) read through 0x11 (RDRAM).
+ * [reading, pending review]
+ */
+export const CROUCH_RUN_RELEASE_PUSH_READING = 'first-tick' as const;
+
+/** `FUN_0052eb60`'s tolerance at 0x3f3420 (0.025) on the turn axis (`+0x23c`): past it the crouch at rest turns (D:L444196). */
+const CROUCH_IDLE_TURN = 0.025;
 
 /**
  * SEP-POP READING (named; research 80 section 6f): `FUN_00587c20` never cuts `Stand -> Crouch` (0x11) while the actor
@@ -1770,8 +1932,27 @@ const WALL_NEAR_CACHE_SIZE = 8;
  */
 export interface WallHit {
   poly: WorldPoly;
-  line: 0 | 1;
+  /**
+   * The line that met the wall: 0 the low line (the centre segment), 1 the head line; 2 a side line (SEGMENT-BODY: the
+   * segment records after the first two, which the move's stored contact never takes, D:L413823-413848).
+   */
+  line: 0 | 1 | 2;
   x: number; y: number; z: number;
+}
+
+/**
+ * SEGMENT-BODY: the move's stored contact `actor+0x1090..+0x10ac` (`FUN_005b0d30` D:L467392-467419 copies a 32-byte hit
+ * slot there): the hit point, the hit polygon (`+0xc`) and its own normal (`+0x10..+0x18`; x and z here).
+ */
+export interface StoredContact {
+  x: number; y: number; z: number;
+  nx: number; nz: number;
+  poly: WorldPoly;
+}
+
+/** A segment's hit as the stored contact holds it (`FUN_005b0d30`'s copy). */
+function contactOfHit(h: SegmentHitOf): StoredContact {
+  return { x: h.point[0], y: h.point[1], z: h.point[2], nx: h.normal[0], nz: h.normal[2], poly: h.poly };
 }
 
 /** DOORS: `fresh` for a moving owner's polygon (`CollisionOwner.sweep`), whose normal turns with it: not the cached one. */
@@ -2041,11 +2222,38 @@ export class Walker {
   private readonly tiltClock = new GameFrameAccumulator();
   /** The velocity carried through the air and a landing clip (`actor+0x1350` / `+0x1358`), world x and z. */
   private carried: [number, number] = [0, 0];
+  /**
+   * LATER 676 (`RUNNING_JUMP_SPEED`): the last ground tick's velocity before the walls cut it -- the port's stand-in for
+   * the clip's `+0x2c` / `+0x34`, which the jump's speed test reads (`FUN_0057e1b0` D:L440812-440814). Written at the
+   * start of `slideOrMove` (the slide's per `JUMP_SPEED_SLIDE_READING`); null on a tick that never reached it (the air,
+   * a move's driver), when the jump reads the tick's own velocity.
+   */
+  private bodyVelocity_: [number, number] | null = null;
   /** HOTFIX BRIDGE-WEDGE (`WEDGE_PUSH_OUT_ADAPTATION`): where the body stood when the tick began, x and z. */
   private tickFromX = 0;
   private tickFromZ = 0;
   /** HOTFIX BRIDGE-WEDGE (`WEDGE_PUSH_OUT_ADAPTATION.ticks`): the ground ticks left in which the push-out may still act. */
   private wedgeArmed = 0;
+  /**
+   * SEGMENT-BODY: the move's stored contact `actor+0x1090..+0x10ac` (`FUN_005b0d30`, `JUMP_CONTACT_PROVEN`): the hit
+   * point, the hit polygon and its own normal, or null. Part 2: the one contact the climb's offer reads too
+   * (`storedContact`; `FUN_005b3ce0` reads `+0x10ac`, D:L469121-469127).
+   */
+  private contact_: StoredContact | null = null;
+  /**
+   * SEGMENT-BODY part 2 (`./weaponLine`): the models of the weapons in the hands, by `WEAP_GEO` name -- the rifle's
+   * (`hand` 0, the hand byte `+0xf79` 1) and the pistol's (`hand` 1, the byte 2), the entries `FUN_0054e8f0` takes the
+   * weapon line's length from (D:L416869-416870). Set from the kit at each spawn and pickup (`./loadout`
+   * `heldWeaponModels`, by `slotModel`): the room's body in match `room.ts` `spawn` and `worldDrops.ts` `take`, the
+   * page's through `WalkMode.setHeldModels` (`./matchFirearm` `spawnKit`, `takeKit`), which every mover the walk makes
+   * carries. Until a kit is set, the port's SEAL's M4A1 SD and Mark 23 (`HELD_RIFLE`, `HELD_SIDEARM`; W2.R4): the
+   * walkers no kit reaches -- a test's, a tool's, a bot's probe. An item up keeps the firearm's
+   * (`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER`). null: no weapon held, no line (D:L416870: no entry or no model,
+   * `FUN_0054e8f0` returns false).
+   */
+  heldModels: { rifle: string | null; pistol: string | null } = { rifle: DEFAULT_WEAPON, pistol: DEFAULT_SIDEARM };
+  /** SEGMENT-BODY part 2: whether this body casts the weapon line at all (`WEAPON_LINE_BOTS_READING` for the bots: none). */
+  weaponLineCast = true;
   /**
    * The floor's normal under the feet (`actor+0x1344..+0x134c`: `FUN_0059b440` copies the floor record's normal on a tick
    * the body stands on the floor, D:L456525-456533; up at the body's creation, D:L419834-419836), written where the mover
@@ -3325,6 +3533,8 @@ export class Walker {
     this.dance_ = null;                                          // the victory dance too: no end is heard
     this.pending_ = null;
     this.jumpLock = 0; this.jumpDelay = 0; this.jumping = false; this.carried = [0, 0];
+    this.contact_ = null;                                         // SEGMENT-BODY: no stored contact on a placing
+    this.bodyVelocity_ = null;                                   // LATER 676: no clip velocity kept from before it
     this.wedgeArmed = 0;                                         // HOTFIX BRIDGE-WEDGE: no landing yet
     this.setFloorNormal(floor.normal);
     this.stopSlide();
@@ -3411,7 +3621,13 @@ export class Walker {
     if (this.bodyOwner() !== null) return false;
     if (this.floorNormal_[1] < MAX_SLOPE_COS) return false;
     const s = this.state;
-    if (s.vx * s.vx + s.vz * s.vz + s.vy * s.vy >= RUNNING_JUMP_SPEED * RUNNING_JUMP_SPEED) {
+    // `JUMP_CONTACT_PROVEN` 'none' (the r0004 capture): the stored contact refuses no running jump; the r0001 reading
+    // (`FUN_0057e1b0` D:L440815-440819, `+0x10ac` set: the standing jump) is kept as 'stored-contact', rejected.
+    const contact = JUMP_CONTACT_PROVEN === 'stored-contact' && WALL_BODY_READING === 'segments' && this.contact_ !== null;
+    // LATER 676: the speed is the clip's (`+0x2c..+0x34`, D:L440812-440814), the tick's velocity before the walls cut it
+    // (`bodyVelocity_`; r0004's ditch capture); the cut one only when no ground move wrote it.
+    const [bx, bz] = this.bodyVelocity_ ?? [s.vx, s.vz];
+    if (!contact && bx * bx + bz * bz + s.vy * s.vy >= RUNNING_JUMP_SPEED * RUNNING_JUMP_SPEED) {
       this.takeOff();
       this.jumping = true;
       this.jumpDelay = JUMP_DELAY;
@@ -3719,6 +3935,7 @@ export class Walker {
     // PAR-64: the pad's stick as FUN_00551ec0 copies it before the driver (D:L418613-418615): what every cut reads.
     this.captureMoveInput(input);
     const cutStick = this.cutStick_;
+    this.bodyVelocity_ = null;                                   // LATER 676: written again only by a ground move
     const owned = this.driver?.tick(this, input, dt) ?? false;   // TRAVERSAL SEAM: a ladder or a climb has the tick
     this.wallHits_ = [];                                         // PB-3b: the driver has read the last move's hits
     if (owned) return;
@@ -3839,6 +4056,7 @@ export class Walker {
    */
   private slideOrMove(forward: number, right: number, dt: number): void {
     const s = this.state;
+    this.bodyVelocity_ = [s.vx, s.vz];                          // LATER 676: the clip's velocity, before the walls
     const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + STEP_PROBE_LIFT_READING, s.y);
     const span = floor ? slideSpanOf(floor.poly.points, s.x, s.z) : null;
     const startSpeed = this.slideSpeed_;
@@ -3872,6 +4090,7 @@ export class Walker {
       }
       s.vx = dt > 0 ? dx / dt : 0;
       s.vz = dt > 0 ? dz / dt : 0;
+      if (JUMP_SPEED_SLIDE_READING === 'slide') this.bodyVelocity_ = [s.vx, s.vz];
       this.slideFloorPoly_ = floor.poly;
       try { this.move(dx, dz); }
       finally { this.slideFloorPoly_ = null; }
@@ -3929,10 +4148,17 @@ export class Walker {
     const idleForward = this.stance === 'crouch' ? crouchForward : forward;
     const idleRight = this.stance === 'crouch' ? crouchRight : right;
     if (idle(idleForward, idleRight)) {                          // FUN_00586f00: at rest, the raw stick is kept
+      // LATER 678 (`CROUCH_RUN_RETURN_READING`, SEPARATE only under OT.R93): a crouch run let go -- `+0x21c` bit 2 set,
+      // the port's crouch with its posture stand -- not turning pushes `Stand -> Crouch` over the crouch idle (D:L444282,
+      // D:L444316-444317); its head line's push off a wall is `CROUCH_RUN_RELEASE_PUSH_READING`'s.
+      const released = CROUCH_RUN_RETURN_READING === 'stand-to-crouch' && this.stanceSeparate
+        && this.stance === 'crouch' && this.posture_ === 'stand'
+        && Math.abs(this.turn / SEAL_TUNING.turnMaxRate) <= CROUCH_IDLE_TURN && this.action_ === null && !this.inAir;
       s.stickForward = idleForward; s.stickRight = idleRight;
       this.cls = -1;
       this.posture_ = this.stance;
       this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
+      if (released) this.start('standToCrouch', ACTION_SECONDS.standToCrouch);
       return still;
     }
     if (this.stance === 'prone') {                               // FUN_005845c0 -> FUN_00583500: no ramp
@@ -4012,6 +4238,315 @@ export class Walker {
   }
 
   /**
+   * SEGMENT-BODY: the body's segments for the displacement `d` from the feet as they are (`FUN_0054aa30`, the
+   * controlled body's branch, D:L415341-415459 and the side lines D:L415549-415577 / D:L415789-415817, prone
+   * D:L415582-415621 / D:L415822-415861), in the list's order: the centre, the head line, then the side lines.
+   * `SEGMENT_BODY_READING`, `HEAD_LINE_MUZZLE_READING`; prone the ends lifted through the root's tilt as
+   * `FUN_0054ecd0` lifts them (`PRONE_PROBE_TILT_READING`, D:L416972-417027: the travel in the body's frame turned by
+   * the root, its y times the segment's length).
+   */
+  private bodySegments(d: readonly [number, number, number]): BodySegment[] {
+    const s = this.state, B = SEGMENT_BODY_READING;
+    const posture = this.posture_, prone = posture === 'prone';
+    const { r, h } = STANCE[posture].probe;
+    const yaw = (s.yaw * Math.PI) / 180, Fx = -Math.sin(yaw), Fz = -Math.cos(yaw);
+    const still = Math.abs(d[0]) < B.still && Math.abs(d[1]) < B.still && Math.abs(d[2]) < B.still;
+    let ux = Fx, uy = 0, uz = Fz;
+    if (!still) { const n = Math.hypot(d[0], d[1], d[2]); ux = d[0] / n; uy = d[1] / n; uz = d[2] / n; }
+    const fx = ux * B.ahead * r, fy = uy * B.ahead * r, fz = uz * B.ahead * r;
+    const bx = still ? fx : d[0], bz = still ? fz : d[2], bl = Math.hypot(bx, bz);
+    const sx = bl > 0 ? (-bz / bl) * r : 0, sz = bl > 0 ? (bx / bl) * r : 0;
+    // The centre's 1.75: the body-frame z `+0x34` (forward is -z) over 0.01 standing or crouched, or under 0 crouched.
+    // In the air `FUN_0054d9a0` writes it 0 (D:L416501-416514).
+    const lz = this.inAir ? 0 : -(s.vx * Fx + s.vz * Fz);
+    const word = this.stance_;
+    const crouchRunFlag = CROUCH_RUN_FLAG_READING === 'set-while-running' && word === 'crouch' && posture === 'stand';
+    const k = B.centre * ((word === 'stand' || word === 'crouch') && (lz > 0.01 || (word === 'crouch' && lz < 0 && !crouchRunFlag)) ? B.backing : 1);
+    const q = this.rootTilt_.q;
+    let per = 0;
+    if (prone && q && PRONE_PROBE_TILT_READING === 'root' && PRONE_TILT_EASE_BASIS_READING === 'root-up') {
+      let t = worldToBody(s.yaw, [d[0], 0, d[2]]);
+      if (t[0] * t[0] + t[2] * t[2] < 0.001) t = [t[0], 0, -1];
+      const tl = Math.hypot(t[0], t[2]);
+      per = rotateByQuat(q, [t[0] / tl, 0, t[2] / tl])[1];
+    }
+    const lift = (a: readonly number[], b: readonly number[]): number => per * Math.hypot(b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!);
+    const out: BodySegment[] = [];
+    const centre: BodySegment = { a: [s.x, s.y + h, s.z], b: [s.x + fx * k + d[0], s.y + fy * k + d[1] + h, s.z + fz * k + d[2]], line: 0 };
+    if (prone) centre.b[1] += lift(centre.a, centre.b);
+    out.push(centre);
+    const headY = s.y + wallProbeHeights(posture)[1];
+    const forward = ux * Fx + uz * Fz > 0;
+    const transition = this.action_?.name === 'standToCrouch' || this.action_?.name === 'crouchToProne' || this.action_?.name === 'standToProne';
+    const envelope = HEAD_LINE_MUZZLE_READING === 'held' && this.bodyOwner() === null;   // FUN_00286c90(+0x458) over 0
+    const muzzle = HEAD_LINE_MUZZLE_READING !== 'none' && (still || forward) && (prone || transition || envelope);
+    const m = muzzle ? -SEGMENT_FIREPOINT_READING[posture][1] * B.centre : 0;
+    const head: BodySegment = muzzle
+      ? { a: [s.x, headY, s.z], b: [s.x + Fx * m + d[0], headY + d[1], s.z + Fz * m + d[2]], line: 1 }
+      : { a: [s.x, headY, s.z], b: [s.x + fx + d[0], headY + fy + d[1], s.z + fz + d[2]], line: 1 };
+    if (prone) head.b[1] += lift(head.a, head.b);
+    out.push(head);
+    for (const sign of [1, -1]) {
+      if (!prone) {
+        out.push({
+          a: [s.x + sign * sx * B.sideNear, s.y + h, s.z + sign * sz * B.sideNear],
+          b: [s.x + sign * sx * B.sideFar + fx + d[0], s.y + h + fy + d[1], s.z + sign * sz * B.sideFar + fz + d[2]],
+          line: 2,
+        });
+      } else {
+        const ax = sign * sx * B.sideNear * B.proneAcross, az = sign * sz * B.sideNear * B.proneAcross;
+        const seg: BodySegment = {
+          a: [s.x + ax - fx, s.y + h - fy, s.z + az - fz],
+          b: [s.x + ax + fx + d[0], s.y + h + fy + d[1], s.z + az + fz + d[2]],
+          line: 2,
+        };
+        const l = lift(seg.a, seg.b);
+        seg.a[1] -= l * 0.5; seg.b[1] += l * 0.5;
+        out.push(seg);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * SEGMENT-BODY: the hit a segment keeps (`SEGMENT_HIT_PICK_READING`): the hull's one-sided test (research 281 s4.3,
+   * `segmentHits`' `frontOnly`) over the movement's surfaces (bit 1 set, bit 18 clear, as `glideAi`'s), nearest first,
+   * an equally near one replaced by the later (`FUN_002d4cc0` D:L175948-175952); dropped: a material flagged in bit 0
+   * or 1 (`volumetric`, `liquid`) and, but in the knock's falls (`FUN_00588030`, r0004), a normal's y over `max_slope`.
+   */
+  private segmentHit(a: readonly [number, number, number], b: readonly [number, number, number]): SegmentHitOf | null {
+    const floorPoly = this.slideFloorPoly_;
+    const hits = segmentHits(this.grid, a, b, (p) => (surfaceWord(p) & (2 | (1 << 18))) === 2 && p !== floorPoly, ALL_LAYERS, true);
+    const fallOver = this.action_?.name === 'fallForward' || this.action_?.name === 'fallBackwards';
+    const passes = (h: SegmentHitOf): boolean => {
+      const material = surfaceMaterial(h.poly.material);
+      if (material.volumetric || material.liquid) return false;
+      return fallOver || h.normal[1] <= AI_HULL_READING.slope;
+    };
+    if (SEGMENT_HIT_PICK_READING === 'nearest-then-drop') {
+      let hit = hits[0];
+      for (let i = 1; hit && i < hits.length && hits[i]!.t === hit.t; i++) hit = hits[i];
+      return hit && passes(hit) ? hit : null;
+    }
+    let hit: SegmentHitOf | null = null;
+    for (const h of hits) {
+      if (hit && h.t !== hit.t) break;
+      if (passes(h)) hit = h;
+    }
+    return hit;
+  }
+
+  /**
+   * SEGMENT-BODY part 2: the move's stored contact (`actor+0x1090`, `FUN_005b0d30`), or null -- the one contact the
+   * climb's offer reads (`./traversal` `keepContact`; `FUN_005b3ce0` reads `+0x10ac`, D:L469121-469127). The running
+   * jump does not (`JUMP_CONTACT_PROVEN` 'none', the r0004 capture).
+   */
+  storedContact(): Readonly<StoredContact> | null {
+    return this.contact_;
+  }
+
+  /**
+   * SEGMENT-BODY part 2: `FUN_005b3890(actor, 0)` (D:L468957-469005) asked of the stored contact on any tick -- dropped
+   * when the feet are more than 24 from it across the ground, behind its normal, or facing away from it (the matrix row
+   * +0x20 against the normal). [Named departure, research 281 s4.1: the original asks it on a moving tick only
+   * (D:L413623-413626, D:L413859-413862; `storeContact`); the port's climb asks it every tick as well (`./traversal`
+   * `keepContact`), as the original's other per-tick paths drop the contact too (`FUN_0054a3d0` D:L414380) -- and the
+   * capture shows a still body turned away loses its contact (r0004, ac 2026-11-04: `+0x10ac` clear whenever the offer
+   * is off), by a path not read (research 86 s3.8). Its reach (fresh review 1's F6): the climb asks this after
+   * `storeContact`'s slot branch, on ticks where the source runs no drop check (D:L413618-413671); the running jump
+   * reads no contact (`JUMP_CONTACT_PROVEN` 'none'), so the drop governs the climb's offer alone.]
+   */
+  holdContact(): void {
+    const c = this.contact_;
+    if (!c) return;
+    const s = this.state, ax = s.x - c.x, az = s.z - c.z;
+    const yaw = (s.yaw * Math.PI) / 180, backX = Math.sin(yaw), backZ = Math.cos(yaw);   // the row +0x20: the facing negated
+    if (ax * ax + az * az > 576 || ax * c.nx + az * c.nz <= 0 || backX * c.nx + backZ * c.nz <= 0) this.contact_ = null;
+  }
+
+  /**
+   * SEGMENT-BODY part 2: the weapon line's length for the hand held (`./weaponLine` `WEAPON_LINE_LENGTH_READING`, by the
+   * held model's `WEAP_GEO` name, case aside -- `weaponLineLengthOf`, the SA-80's `IW80A2`; `FUN_0054e8f0`
+   * D:L416892-416902), or null with no model held or none known. The firearm hand's with an item up
+   * (`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER`).
+   */
+  weaponLineLength(): number | null {
+    const name = this.hand === 1 ? this.heldModels.pistol : this.heldModels.rifle;
+    return name !== null ? weaponLineLengthOf(name) : null;
+  }
+
+  /**
+   * SEGMENT-BODY part 2: the weapon line -- the slot `actor+0x1140..+0x115c` (`FUN_005b0c70` D:L467345-467365), cleared as
+   * the tick begins (`FUN_0054d9a0` D:L416434) and filled from one cast (D:L416630-416687), before the move's resolution
+   * reads it (`FUN_005483d0`, after `FUN_0054d9a0` in the same actor tick, `FUN_005506a0` D:L417825). The segment
+   * (`FUN_0054e8f0` D:L416858-416910): from the feet raised by the skeleton root's height (D:L416877-416880: `*(+0x2e8)`
+   * is the `skel_root` part, research 180 s1.3, and its `+4` its height -- the port's stance root, `rootY`; the capture's
+   * stored point sat 11.486 over the feet, the stand's root 11.484), along the facing (the matrix row +0x20 negated,
+   * D:L416886-416891), `weaponLineLength` long (D:L416892-416902), plus the tick's unresolved displacement `d` (`+0xf44`,
+   * D:L416904; written at D:L416520), level (D:L416905). Cast only with no slide speed (`+0x1340 == 0`, D:L416634), a
+   * weapon held (D:L416869-416870) and the body casting at all (`weaponLineCast`: the controller's vtable +0x2c,
+   * D:L416630-416633, `WEAPON_LINE_BOTS_READING`: the AI's answers 0). [reading: the turret set's guard (`+0x528 != DAT_0044d410`,
+   * D:L416635), the aim point's (`+0x14ac`, D:L416874) and the fire point's (`+0x14bc`, D:L416882) are met by
+   * construction -- the turret's hold moves the body by its own steer, not through here, and every firearm's model has
+   * an `aimpoint` and a `firepoint` node, the two the mount finds into `+0x14ac` and `+0x14bc` (the body's slot +100,
+   * research 202 s3.10; `weaponLine.test.ts` over the kit table's firearms).] The hit: the nearest crossed polygon
+   * whose material is not VOLUMETRIC or LIQUID, at any slope (D:L416644-416672: the material table's `+0x3c` bits 0 and
+   * 1), over the movement's surfaces as the segment records' query is (`segmentHit`), met from the front under
+   * `WEAPON_LINE_ONE_SIDED_PLACEHOLDER`.
+   */
+  private weaponLine(d: readonly [number, number, number]): SegmentHitOf | null {
+    if (!this.weaponLineCast || this.slideSpeed_ !== 0) return null;
+    const length = this.weaponLineLength();
+    if (length === null) return null;
+    const s = this.state, y = s.y + rootY(this.posture);
+    const yaw = (s.yaw * Math.PI) / 180, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const a: [number, number, number] = [s.x, y, s.z];
+    const b: [number, number, number] = [s.x + fx * length + d[0], y, s.z + fz * length + d[2]];
+    const hits = segmentHits(this.grid, a, b, (p) => (surfaceWord(p) & (2 | (1 << 18))) === 2, ALL_LAYERS, WEAPON_LINE_ONE_SIDED_PLACEHOLDER);
+    for (const h of hits) {
+      const material = surfaceMaterial(h.poly.material);
+      if (!material.volumetric && !material.liquid) return h;
+    }
+    return null;
+  }
+
+  /**
+   * SEGMENT-BODY (`JUMP_CONTACT_PROVEN`): the stored contact `FUN_005483d0` keeps for the move.
+   * - **A record hit** (D:L413823-413866, `FUN_005b0d30` D:L467392-467419): of the first two segments (the centre and the
+   *   head line), the hit nearest its segment's start is stored, its polygon's own normal. When it climbs (`FUN_0059d9f0`:
+   *   appflags 1, 3, 4, 5, D:L457424-457426), any other kept hit on another polygon (the slot's `+0xc`, D:L413884) whose
+   *   horizontal normal dotted with the stored one's is under 0.9 (both levelled and normalised, D:L413869-413893; the
+   *   literal `CORNER_DOT`, D:L413894) clears it (`FUN_005b0d30(actor, 0)` -> `FUN_005b3890(actor, 1)`, D:L413895,
+   *   D:L467399-467400) -- the inside corner. Part 2: the corner drop is here, over the segment records' own hits; the
+   *   disc arm's stand-in stays `./climb` `cornerDrop`.
+   * - **No hit at all, and the weapon-line slot set** (part 2, D:L413618-413671): the slot (`weaponLine`) is stored when no
+   *   contact is held, or the slot's polygon climbs (`FUN_0059d9f0`) or is a ladder (appflags 2), D:L413627-413645; else
+   *   when the held contact does not climb (and is not a ladder), D:L413646-413657; else when the feet are more than 24
+   *   from the held contact across the ground, D:L413658-413668. No drop check on such a tick.
+   * - **Otherwise** (no hit of the first two, or no hit and no slot), a moving body (the displacement's square over 2e-5,
+   *   D:L413459-413461) asks `FUN_005b3890(actor, 0)` (D:L413623-413626, D:L413859-413862; `holdContact`'s rule).
+   * [reading, pending review: the climb-material rule of `FUN_005b3890` (a ditype-2 polygon's heights) and its `+0x1061`
+   * bit are not built. `+0x115c` is the weapon-line slot's set word (`FUN_005b0c70` D:L467345-467365), not a ladder's
+   * contact as this note once had it.]
+   */
+  private storeContact(
+    kept: readonly { seg: BodySegment; hit: SegmentHitOf; index: number }[], d: readonly [number, number, number], slot: SegmentHitOf | null,
+  ): void {
+    let best: { seg: BodySegment; hit: SegmentHitOf } | null = null, bestD = Infinity;
+    for (const k of kept) {
+      if (k.index > 1) continue;
+      const p = k.hit.point, a = k.seg.a;
+      const dd = (p[0] - a[0]) ** 2 + (p[1] - a[1]) ** 2 + (p[2] - a[2]) ** 2;
+      if (dd < bestD) { bestD = dd; best = k; }
+    }
+    if (best) {
+      this.contact_ = contactOfHit(best.hit);
+      if (CLIMBABLE.has(best.hit.poly.appflags ?? 0)) {
+        const level = (n: readonly number[]): [number, number] => {
+          const l = Math.hypot(n[0]!, n[2]!);
+          return l !== 0 ? [n[0]! / l, n[2]! / l] : [n[0]!, n[2]!];   // unnormalised when 0 (D:L413872-413877, D:L413888-413893)
+        };
+        const [sx, sz] = level(best.hit.normal);
+        for (const k of kept) {
+          if (k.hit.poly === best.hit.poly) continue;
+          const [ox, oz] = level(k.hit.normal);
+          if (sx * ox + sz * oz < CORNER_DOT) { this.contact_ = null; break; }
+        }
+      }
+      return;
+    }
+    if (kept.length === 0 && slot) {
+      const climbs = (p: WorldPoly): boolean => CLIMBABLE.has(p.appflags ?? 0) || (p.appflags ?? 0) === 2;
+      const c = this.contact_, s = this.state;
+      if (!c || climbs(slot.poly) || !climbs(c.poly) || (s.x - c.x) ** 2 + (s.z - c.z) ** 2 > 576) this.contact_ = contactOfHit(slot);
+      return;
+    }
+    if (!(d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 2e-5)) return;
+    this.holdContact();
+  }
+
+  /**
+   * SEGMENT-BODY: `FUN_005483d0` on the body's segments (D:L413406-413614, D:L413673-413800): the displacement `d` from
+   * the feet as the tick began, resolved. Each kept hit in the segments' order: the normal levelled (its y under
+   * `max_slope` made 0) and normalised (D:L413538-413541); in the air (the jump's and the knock's actions,
+   * `FUN_00587f50` / `FUN_00587f10` / `FUN_00588030`) the displacement put out by the segment's end's depth behind the
+   * face (D:L413543-413556), on the ground its whole part along the normal taken away -- the port's `vx` / `vz` with it
+   * (D:L413557-413567); the carried velocity loses its part into the face (D:L413588-413594). The deepest hit (the end's
+   * depth along the normal; the controlled body's, every walker here) over 1 puts the body back where the tick began
+   * when prone or with more than two hits, else adds the depth less 1 along that normal (D:L413602-413614). Then, with a
+   * hit and no slide speed, the look-ahead (`SEGMENT_LOOK_AHEAD_READING`). The new position is the start plus what is
+   * left (D:L413918).
+   */
+  private resolveSegments(d: [number, number, number]): [number, number, number] {
+    const s = this.state, B = SEGMENT_BODY_READING;
+    const kept: { seg: BodySegment; hit: SegmentHitOf; index: number }[] = [];
+    const slot = this.weaponLine(d);                              // part 2: the slot, cast first (FUN_0054d9a0)
+    const segments = this.bodySegments(d);
+    for (let index = 0; index < segments.length; index++) {
+      const seg = segments[index]!, hit = this.segmentHit(seg.a, seg.b);
+      if (hit) kept.push({ seg, hit, index });
+    }
+    this.storeContact(kept, d, slot);
+    if (kept.length === 0) return d;
+    let [dx, dy, dz] = d;
+    const air = this.inAir;
+    let deepest = 0, dnx = 0, dny = 0, dnz = 0;
+    for (const { seg, hit } of kept) {
+      let [nx, ny, nz] = hit.normal;
+      if (ny < AI_HULL_READING.slope) ny = 0;
+      const n = Math.hypot(nx, ny, nz);
+      if (n > 0) { nx /= n; ny /= n; nz /= n; }
+      const dot = (seg.b[0] - hit.point[0]) * nx + (seg.b[1] - hit.point[1]) * ny + (seg.b[2] - hit.point[2]) * nz;
+      if (air) {
+        if (dot < 0) { dx -= dot * nx; dy -= dot * ny; dz -= dot * nz; }
+      } else {
+        const p = dx * nx + dy * ny + dz * nz;
+        dx -= p * nx; dy -= p * ny; dz -= p * nz;
+        const v = s.vx * nx + s.vz * nz;
+        s.vx -= v * nx; s.vz -= v * nz;
+      }
+      const depth = Math.abs(dot);
+      if (depth > deepest) { deepest = depth; dnx = nx; dny = ny; dnz = nz; }
+      const [cx, cz] = this.carried, into = cx * nx + cz * nz;
+      if (into < 0) this.carried = [cx - into * nx, cz - into * nz];
+      this.wallHits_.push({ poly: hit.poly, line: seg.line, x: hit.point[0], y: hit.point[1], z: hit.point[2] });
+    }
+    const stop = (): [number, number, number] => {
+      if (!air) { s.vx = 0; s.vz = 0; }
+      return [0, 0, 0];
+    };
+    const prone = this.stance_ === 'prone' || this.posture_ === 'prone';
+    if (deepest > B.depth) {
+      if (prone || kept.length > B.jamHits) return stop();
+      dx += (deepest - B.depth) * dnx; dy += (deepest - B.depth) * dny; dz += (deepest - B.depth) * dnz;
+    }
+    if (this.slideSpeed_ !== 0) return [dx, dy, dz];
+    if (prone && PRONE_TURN_WORD_PLACEHOLDER !== 0) return stop();
+    const level = Math.hypot(dx, dz);
+    if (!(level > 1e-6)) return [dx, dy, dz];
+    const L = SEGMENT_LOOK_AHEAD_READING, size = Math.hypot(dx, dy, dz);
+    const ux = dx / size, uy = dy / size, uz = dz / size;
+    let base: number = L.prone;
+    if (!prone) {
+      const yaw = (s.yaw * Math.PI) / 180, c = Math.cos(yaw), sn = Math.sin(yaw);
+      const [px, pz] = SEGMENT_FIREPOINT_READING[this.posture_];
+      const along = (px * c + pz * sn) * ux + (-px * sn + pz * c) * uz;
+      base = Math.max(this.stance_ === 'crouch' ? L.crouch : L.stand, along);
+    }
+    const reach = base + level;
+    const a: [number, number, number] = [s.x, s.y + SEAL_TUNING.stepHeight, s.z];
+    if (this.segmentHit(a, [a[0] + ux * reach, a[1] + uy * reach, a[2] + uz * reach])) return stop();
+    for (const { seg, hit } of kept) {
+      const p = hit.point, w = L.from;
+      const from: [number, number, number] = [p[0] * (1 - w) + seg.a[0] * w, p[1] * (1 - w) + seg.a[1] * w, p[2] * (1 - w) + seg.a[2] * w];
+      let vx = dx, vy = dy, vz = dz;
+      if (dx * dx + dz * dz < L.least * L.least) { const k = L.least / size; vx *= k; vy *= k; vz *= k; }
+      if (this.segmentHit(from, [from[0] + vx, from[1] + vy, from[2] + vz])) return stop();
+    }
+    return [dx, dy, dz];
+  }
+
+  /**
    * A body that does not move this tick but stands inside its radius of a wall (a door leaf swung into it, a spawn, a
    * knock) is pushed out as a step would push it, onto the floor there -- never across a wall (`crosses`); the original
    * resolves its probe's contacts every tick (`FUN_0054aa30` -> `FUN_005483d0`), moving or not. HOTFIX BRIDGE-WEDGE: with
@@ -4087,8 +4622,25 @@ export class Walker {
     return depth;
   }
 
-  /** The horizontal move of a tick in sub-steps of at most `MAX_SUBSTEP`: on the ground, or in the air past an edge. */
+  /**
+   * The horizontal move of a tick in sub-steps of at most `MAX_SUBSTEP`: on the ground, or in the air past an edge.
+   * SEGMENT-BODY (`WALL_BODY_READING` 'segments'): the walls first, once, on the whole move from where the tick began
+   * (`resolveSegments`, still or not: a still body casts along its facing, D:L415135-415161), then the floors along
+   * what is left, sub-step by sub-step (`step`'s floor rules, the port's own: `FUN_005b0840` probes once at the new
+   * position).
+   */
   private move(dx: number, dz: number, correct?: GroundCorrection): void {
+    if (WALL_BODY_READING === 'segments') {
+      [dx, , dz] = this.resolveSegments([dx, 0, dz]);
+      const distance = Math.hypot(dx, dz);
+      if (distance === 0) { if (correct && !this.inAir) this.step(0, 0, correct); return; }
+      const parts = Math.ceil(distance / MAX_SUBSTEP);
+      for (let i = 0; i < parts; i++) {
+        if (this.inAir) this.airStep(dx / parts, dz / parts);
+        else this.step(dx / parts, dz / parts, i === parts - 1 ? correct : undefined, !!correct && i < parts - 1);
+      }
+      return;
+    }
     const distance = Math.hypot(dx, dz);
     if (distance === 0) { this.pushOut(); if (correct && !this.inAir) this.step(0, 0, correct); return; }
     const parts = Math.ceil(distance / MAX_SUBSTEP);
@@ -4126,7 +4678,8 @@ export class Walker {
     [s.vx, s.vz] = this.carried;
     this.airTime += dt;
     const startX = s.x, startZ = s.z;                            // where the tick began (HOTFIX BRIDGE-WEDGE)
-    this.move(s.vx * dt, s.vz * dt);
+    const segments = WALL_BODY_READING === 'segments';
+    if (!segments) this.move(s.vx * dt, s.vz * dt);
     const from = s.y;
     // MISSION R8, the drawing's bookkeeping only (see `airFrom`): a move of the height not made by a game frame (a
     // nudge, a floor ridden) carries the last frame's pair with it; each frame records the height it starts from.
@@ -4147,7 +4700,23 @@ export class Walker {
       s.y += s.vy * GAME_FRAME_DT;
       this.airTo = s.y;
     }
-    const picked = this.airWalls(startX, startZ, from);
+    // HF2-slim's air pass (`airWalls`) is the disc arm's: on the segment path the segments carry the fall's walls.
+    let picked: ReturnType<typeof selectFloor> | undefined;
+    if (segments) {
+      // SEGMENT-BODY: the tick's whole displacement -- the carried move across and the frames' fall -- is the segments'
+      // (`FUN_0054d9a0` D:L416501-416530; `FUN_0054aa30` D:L415157-415166), resolved from where the tick began
+      // (`resolveSegments`); the move across then takes the probe-miss rule (`airStep`), the height what is left.
+      const dy = s.y - from;
+      s.y = from;
+      const [rx, ry, rz] = this.resolveSegments([s.vx * dt, dy, s.vz * dt]);
+      const distance = Math.hypot(rx, rz), parts = Math.ceil(distance / MAX_SUBSTEP);
+      for (let i = 0; i < parts; i++) this.airStep(rx / parts, rz / parts);
+      // `AIR_HEIGHT_READING`: the height is the frames' own step (`FUN_0059b440` on the altitude `+0x2e4`), not the
+      // resolved displacement's y -- the jam zeroes `+0xf44..+0xf4c`, not the fall.
+      s.y = from + (AIR_HEIGHT_READING === 'altitude' ? dy : ry);
+      this.airTo = s.y;
+      [s.vx, s.vz] = this.carried;
+    } else picked = this.airWalls(startX, startZ, from);
     if (this.jumpDelay > 0) return;                              // the wind-up: the landing is off
     // The floor is FUN_005b5d40's pick, as on the ground: the highest at or under the probe's origin + 1 (the feet as
     // they were + STEP_PROBE_LIFT_READING + 1, the tick's one origin), else the lowest while within 20 over the feet -- so a slope that rose over the feet is still
@@ -4234,8 +4803,9 @@ export class Walker {
    */
   private airStep(dx: number, dz: number): void {
     const s = this.state;
-    const [x, z] = this.slide(s.x + dx, s.z + dz, s.x, s.z);
-    if (this.crosses(s.x, s.z, x, z)) return;
+    const segments = WALL_BODY_READING === 'segments';            // SEGMENT-BODY: the walls already met (`fall`, `move`)
+    const [x, z] = segments ? [s.x + dx, s.z + dz] : this.slide(s.x + dx, s.z + dz, s.x, s.z);
+    if (!segments && this.crosses(s.x, s.z, x, z)) return;
     if (!selectFloor(probeGround(this.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y)) return;
     s.x = x; s.z = z;
   }
@@ -4295,8 +4865,10 @@ export class Walker {
     for (const [ax, az] of [[dx, dz], [dx, 0], [0, dz]] as const) {
       if (ax === 0 && az === 0 && !correct) continue;
       tried++;
-      let [x, z] = this.slide(s.x + ax, s.z + az, s.x, s.z);
-      if (this.crosses(s.x, s.z, x, z)) { crossed++; continue; }  // a slide with no room never carries the body through a wall
+      // SEGMENT-BODY: the walls were met once, on the whole move (`move` -> `resolveSegments`); here the floors only.
+      let [x, z] = WALL_BODY_READING === 'segments' ? [s.x + ax, s.z + az] : this.slide(s.x + ax, s.z + az, s.x, s.z);
+      // A slide with no room never carries the body through a wall (the disc arm; HF2-slim counts the refusal).
+      if (WALL_BODY_READING !== 'segments' && this.crosses(s.x, s.z, x, z)) { crossed++; continue; }
       // FUN_005483d0 D:L413918-413955: final AI correction follows hull resolution, before the ground query.
       // AI ground motion resolves every hull substep before its one correction and floor query.
       // Ordinary player movement omits this seam and keeps its existing per-substep floor decisions.

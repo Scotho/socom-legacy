@@ -162,7 +162,7 @@ async function profile(context: BrowserContext, backend: Backend, picture: Pictu
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(e.message));
   await page.addInitScript(installFrameLogger);
-  const renderer = backend === 'webgl2' ? '&renderer=webgl2' : '&renderer=auto';
+  const renderer = backend === 'webgl2' ? '&renderer=webgl2' : '&renderer=webgpu';   // WEBGL2-DEFAULT (LATER 708): auto is WebGL2 now
   const view = picture === 'ps2' ? 'ps2' : 'modern';
   await page.goto(`${TEST_ROOM}?mode=play&map=${MAP}&view=${view}&online=off&devmode&noarmory&nomatch&kit=${KIT}${renderer}`);
   await expect(page.locator('#status')).toContainText('triangles');

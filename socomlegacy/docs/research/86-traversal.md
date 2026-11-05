@@ -264,7 +264,10 @@ whether or not it climbs (D:L413866), and clears a climbable one at an inside co
 s4.1, PAR-21a, reading, pending review). The rule "replaced when the new one is climbable, the old is not, or the old
 is more than 24 away" is the branch with no steep hit (D:L413618-413671), and its candidate is not a wall the move met
 but the weapon line's slot `actor+0x1140` (`FUN_005b0c70` D:L467345-467365; cleared and filled by `FUN_0054d9a0`
-D:L416434, D:L416642-416687) -- not built in the port (research 281 s4.1). `FUN_005b3890(actor, 0)` (decomp 468959) drops
+D:L416434, D:L416630-416687, its segment `FUN_0054e8f0` D:L416858-416910) -- **built 2026-11-04** on the segment arm
+(SEGMENT-BODY part 2, `agent/segment-body`; reading, pending review; s3.8 "The oblique climb"): `Walker.weaponLine` casts
+it, `Walker.storeContact` takes it by the three replace rules (D:L413627-413668), and the offer reads the Walker's one
+stored contact (`Traversal.keepContact`). *Was:* "not built in the port (research 281 s4.1)". `FUN_005b3890(actor, 0)` (decomp 468959) drops
 it past 24, behind the face, or facing away (dot <= 0). *Was:* "The move solver `FUN_005483d0` (decomp 413610-413670)
 records the wall it hits at `actor+0x1090` via `FUN_005b0d30`, replacing a stored contact when the new one is climbable
 or the actor is more than 24 from it". **No forward rays**: the only ray is
@@ -424,6 +427,100 @@ either side turned the short way and climbed (0 off); backwards, strafing either
 nothing (the facing test); the south face's inside corner with `prop01` (x 916.6-934.4, z 778.1-795.2, 18.96 tall) and
 the north-west outside corner climbed whichever face the contact held, facing it; standing against it then pressing,
 the same. The ladder head at yaw 720 played a needless full-circle "180" before a mount that wanted no turn.
+
+**The oblique climb: settled against a capture of the original** (2026-11-04; SEGMENT-BODY part 2, `agent/segment-body`;
+the weapon line built, reading, pending review) [capture; read; viewer, measured]. *Was:* "two readings, unsettled
+(parity clause 7)".
+- **The capture** (proven: a capture of the original running; ac, PCSX2 r0004 alone, offline, 2026-11-04 08:31-08:43Z,
+  `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/climb-angle/RESULTS.md`, two trials a case): M51
+  `worldmodel/guardwall/g19733`'s south face (plane 0.983 x - 0.184 z = 3162.3, 14 over the floor), from slot 18 at
+  (3826.5, -182.91, 3175.3), walked in at stick 0.5. The original offers CLIMB at 0, +-15, +-30 and +-60 degrees and on
+  the crouch walk at 30, and every press climbed. Standing still 15 out it offers at 0 to +-30 before any walk; at +-60
+  the offer comes on during the walk-in, the contact word set with the feet 10.4-11.0 from the plane and the offer a
+  frame later; the offer drops while the body slides along the face and returns once it stands; facing away clears the
+  contact word `+0x10ac`.
+- **What forms the contact: the weapon line** (s3.1). `FUN_0054d9a0` clears the slot `actor+0x1140..+0x115c` as the
+  tick begins (D:L416434) and fills it from one level segment (D:L416630-416687): from the feet raised by the skeleton
+  root's height (`FUN_0054e8f0` D:L416877-416880), along the facing (the matrix row +0x20 negated, D:L416886-416891),
+  2 x the held weapon model's x extent long (D:L416892-416902) plus the tick's displacement (D:L416904), level
+  (D:L416905); the nearest polygon crossed that is not VOLUMETRIC or LIQUID, at any slope (D:L416644-416672); only with
+  no slide speed (D:L416634), a weapon held (D:L416869-416870) whose model's `aimpoint` (`+0x14ac`, D:L416874) and
+  `firepoint` (`+0x14bc`, D:L416882) nodes were found at the mount (the body's slot +100, research 202 s3.10; both on
+  every firearm's model, `weaponLine.test.ts`), outside the turret set (D:L416635) and for a body whose controller's
+  vtable +0x2c answers (D:L416630-416633). `FUN_005483d0` copies the slot into the contact when none of the
+  segment records hits (D:L413618-413671): when no contact is held, or the slot climbs or is a ladder
+  (D:L413627-413645); else when the held one does not climb (D:L413646-413657); else when the feet are more than 24 from
+  it (D:L413658-413668); such a tick runs no drop check.
+- **The slot is the contact** (proven: a memory read of the original running; ac, r0004, 2026-11-04 09:16Z,
+  `climb-angle/WEAPON-LINE.md` section 4): in the still frame facing square, CLIMB on, `+0x1140..+0x115c` and
+  `+0x1090..+0x10ac` hold the same eight words -- the point (3811.99, -171.464, 3178.99) on the face's plane, the
+  polygon, the normal (0.983, 0, -0.184), the set word.
+- **The kit held** (fresh review 1's F1, part 4): the length is the held weapon's -- the kit entry the hand byte `+0xf79`
+  picks (D:L416869-416870). The room's body takes its kit's two firearm models at each spawn and at a pickup
+  (`./loadout` `heldWeaponModels`, by `slotModel`, into `Walker.heldModels`; match `room.ts` `spawn`, `worldDrops.ts`
+  `take`), the page's at its `spawnKit` and `takeKit` (`WalkMode.setHeldModels`, carried to every mover the walk makes).
+  An MP5 casts 16.0, a Barrett 28.5052 (match `weaponLineKit.test.ts`). With an item up the port keeps the firearm's
+  model (`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER`). A pickup's kit reaches the page when the room's `kit` event does, a
+  few ticks after the room's body took it.
+- **The length** (`./weaponLine` `WEAPON_LINE_LENGTH_READING`, s7.2): `|b[3] - b[0]|` of the held model's +0x40 bounds
+  through `FUN_001b3620` (D:L416901), twice (D:L416902). `FUN_0054e8f0` takes `FUN_00541510(+100)`'s bounds instead
+  only when bit 6 (0x40) of the model's byte +0x5f is set -- the byte shifted left 57 and tested for sign (D:L416894) --
+  not bit 7 as ac's note and the investigator's read first had it (6d's correction, ibid.): the M4A1 SD's byte is 0x80,
+  so its own bounds, x -3.679799 to 7.785366: **22.930, proven** (the RDRAM read), inside the capture's 22.5-23.4
+  bracket for the reach. The runtime model is the weapon's `WEAP_GEO` root (its `nparams` bbox at +0x40 and flag word at
+  +0x5c read the same off the disc, the word 0x80800055 against RDRAM's 0x80800855); every one of the 59 models'
+  lengths is a reading of the disc's bounds, and none sets bit 6 (`weaponLine.test.ts`).
+- **The height**: `*(+0x2e8)` is the `skel_root` part (research 180 s1.3) and its `+4` the root's height -- a field's
+  offset, not 4 added: the capture's stored point sat 11.486 over the feet (-171.464 against -182.95), the port's
+  standing root is 11.484 (`STANCE.stand.rootY`, the console dump's). The port casts from the stance's root
+  (`rootY(posture)`), not the posed root of a clip in play [reading: the stance's idle root].
+- **Built**: `Walker.weaponLine` (cast before `resolveSegments`' records, on the unresolved displacement),
+  `Walker.storeContact` (the slot branch; and the corner drop over the records' own hits, D:L413864-413901, moved there
+  from the climb's `cornerDrop`), `Walker.storedContact`, and `Traversal.keepContact` reading that one contact on the
+  segment arm (the original's one `+0x1090`; *was:* a second contact of the port's from the walk's centre and head-line
+  hits). The climb still asks `FUN_005b3890`'s drop every tick (`Walker.holdContact`; the named departure of research 281
+  s4.1). Held by `weaponLine.test.ts`: the capture-scored dev-disc spec on M51 g19733 -- (i) still 15 out, offered square
+  and at +-30, not at +-60; (ii) walked in at +-60, the offer comes on with the feet 11.05 from the plane (the band 9.5 to
+  11.5); (iii) the closest approach at +-30 and +-60 within the capture's range (6.41; 6.19-6.20) -- and a synthetic twin
+  with no disc; and by `climbFacing.test.ts` (d) and (f), staged as the capture (walk, stop, press).
+- **Owed, LATER 681**: walked in square the port's segment body stops a whole step short of the crossing, 5.66 from the
+  plane at stick 0.5, where the original closes to 5.34-5.40 (`weaponLine.test.ts`'s `it.fails`); the weapon line plays
+  no part.
+- **Owed, LATER 682**: the line keeps any slope, so run straight up Frostfire's 26.6-degree rail ramp it stores the
+  ramp's own floor 23 ahead and the running jump is refused (`walk.test.ts`'s rail-ramp case held as `it.fails`);
+  whether `FUN_0031e160` queries floors at all is unread (`WEAPON_LINE_POLYGON_SET_PLACEHOLDER`, which alone decides it).
+- **The rejected reading** (kept with its evidence): "only hits on the first two segment records -- the centre and the
+  head line -- can become the stored contact (`FUN_005483d0`, D:L413823-413848) ... for a walk-in at an angle theta the
+  leading side line reaches the face first once tan(theta) > 0.49/4.2, about 6.7 degrees: the centre never meets it,
+  nothing becomes the contact, and no climb is offered. A still body keeps a contact it already holds (the moving test
+  D:L413459-413461; only a moving body with no hit re-checks it, `FUN_005b3890`, D:L468975-469012)". Its record geometry
+  stands -- the side lines do take the move, and the stop distances they give (6.4 at 30, 6.2 at 60) are the capture's
+  -- but the contact has the second source it left out, so "no offer past about 6.7 degrees" is contradicted by the
+  capture. "A still body keeps a contact it already holds" is re-filed: a still body forms one through the weapon line,
+  and turning away clears it in the original; which code clears it on a still turn is unread (perhaps the turn's root
+  motion makes it a moving tick, D:L413459-413461; low confidence).
+- **Open: the offer's direction test** (a named departure, reading, pending review). The offer `FUN_005b3ce0` tests the
+  facing only (>= 0.3, D:L469243) -- no direction from the contact. The press `FUN_005b2620` tests the direction between
+  the contact and `actor+0x2bc` (D:L468360-468366, the 0.3 at D:L468416), and `+0x2bc` is the feet where the slot was
+  stored (D:L413637-413639) or the record branch's `iStack_38` (D:L413904-413906), unread. The port's `planClimb` takes
+  the press's test against the feet as they are, for the offer and the press alike; left as it is until that point is
+  read -- with contacts up to 23 out it can end a 60-degree slide's offer before the original's 24.
+- **Consequences, the reading's** (pending review): ~~the running jump wants no stored contact (`FUN_0057e1b0`
+  D:L440815-440819), so a running jump pressed within the line's reach of a face ahead is the standing jump~~ --
+  **rejected 2026-11-04 by ac's r0004 jump-near-wall capture** (the running jump launched 17.43 out with `+0x10ac` set
+  and CLIMB offered, carrying 64.5 u at 62.3 u/s; `JUMP_CONTACT_PROVEN` 'none', research 217 s2.9; the r0001 branch kept
+  there as the rejected reading): the running jump reads only the speed, so the jump-grab is pressed 16 out again
+  (`traversal.test.ts`), the 40-tall app-4 crate climbs again (`botClimbNavigation.test.ts`, LATER 683 closed) and
+  Frostfire's rail ramp lands (LATER 682 closed); in an inside corner where
+  only the side records meet the faces, the contact the line stored on the way in holds and the climb is offered
+  (`traversal.test.ts` C2 at 30 and 90); at an outside corner walked in on its edge the moving side record's crossing of
+  the end face clears the contact (no `'span'` question for a crossing; `CORNER_HITS_READING` stays the disc arm's);
+  Frostfire's box from x 938 (LATER 680) stays without an offer -- the -x side record meets `prop01` on every moving
+  tick from z 801.1, where the body is held, and still there the line's 22.93 ends 0.1 short of `prop02`'s face.
+- **Placeholders** (s7.2): `WEAPON_LINE_ONE_SIDED_PLACEHOLDER` (whether the line's query is one-sided),
+  `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` (which polygons it returns, floors or not: LATER 682),
+  `WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` (the length with an item up); the reading `WEAPON_LINE_BOTS_READING` (the bots
+  cast none: the AI controller's +0x2c answers 0).
 
 **The fix**: `shortTurn(from, to)` (`traversal.ts`), the signed short turn in [-180, 180) for any winding, in `align`
 and `mountTop`. After it every approach above starts the clip within the steer's 6.8 degrees (0 measured), the feet end
@@ -589,6 +686,85 @@ a 0.2 s hold, airborne; the clip's own root travel zeroed (416510-416514); the p
 run [derived]. The viewer's stance buttons reach it through `WalkMode.setStance('prone')` (C from a crouch, the pad's
 Triangle held -- the viewer's stand-in for the full press).
 
+**DIVE-ROOT (B201, 2026-11-03; reading, pending review).** Two corrections to the paragraph above, against r0004's
+DIVE-CHECK capture (seat ac, 2026-11-03, 24 runs: `agent-mail/evidence/eph-hunt-2026-11-01/dive-check/RESULTS.md`), where
+the port's body sat about 4 u low from 600 to 1000 ms, dived 1-4 u short and came to rest 30-100 ms early:
+
+- **The "virtual root" is a hidden timer, not the drawn root.** `+0xfac` is seeded from the stance's root
+  (`FUN_0057e540` D:L440911) and lowered by `+0x133c` x dt to a clamp at 2.2, where bit 0x20 of `+0x105e` clears and the
+  bleed starts (`FUN_0059b870` D:L456585-456603). Nothing in the dive writes the root node (`FUN_0059afd0`
+  D:L456346-456352; `FUN_0057a330` D:L439149), so the body draws `seal_dive2prone`'s own root: 16 keys, a one-shot of
+  1.6 x (15/16)^2 = 1.406 s, its root y off `MOTION_P.ZAR` 9.76, 9.22, 8.50, 7.83, 7.00, 6.51, 6.14, 6.08, 5.20, 4.44,
+  3.67, 2.44, 2.19, 2.11, 2.10, 2.13. *Was:* the port forced the drawn root to the timer (`pose().rootY`), at 2.2 by
+  600 ms. Built: `Traversal.pose` hands the root to the clip (null) and `Traversal.rootY` -- the camera's and the shot's
+  seam -- is the clip's root at the drawn key, cross-faded as the animator draws it (F2, below).
+- **The timer falls at 98.1 on the ground, not 235.** At the hold's end `FUN_005af930` resets `+0x133c` to `+0x1364`
+  (0 from the dive's start, D:L440907; the reset D:L466797-466802), and `FUN_0059b440` adds one airborne frame of the
+  table's 235 (D:L456496), the dive still airborne (`+0x1061` bit 0x2, D:L440909): `DIVE_ROOT_SEED_READING`, 235 x
+  525/15734 = 7.84. Once `FUN_0059ad30` lands it (D:L456314-456322), `FUN_0059b440`'s dive branch sets `+0x133c` to the
+  frame's start value plus dt x **98.100006**, a literal (D:L456552-456557; the table's 235 added at D:L456496 is thrown
+  away): `DIVE_ROOT_FALL_READING`. **Superseded reading:** "falling at 235" (the paragraph above; `SEAL_TUNING.gravity`,
+  `dynamics.rdr`'s gravity, `DAT_0044c250`) holds only for the one airborne frame. From the standing root 11.484 the
+  timer is down at 0.2 + 0.362 = **0.562 s** (*was* 0.48 s); at rest at 0.562 + v0 / 150, after v0 x 0.562 + v0^2 / 300.
+  At the original's press speeds on DIVE-CHECK's runs (its feet over the first 150 ms: about 40 forward, about 34
+  backward) that is 27.8 u at 833 ms and 23.0 u at 800 ms, inside the capture's 24.7-28.8 u / 20.0-24.4 u and 754-840 ms.
+- **The bleed** (150 a second, once bit 0x20 is clear, `FUN_0054d9a0` D:L416524-416547) is unchanged. The original moves
+  the body by `+0x1350` before it bleeds it (D:L416529, then D:L416541-416547), a half step's travel more than the
+  continuous total at 30 Hz; the page integrates each phase of a step exactly (R8: the dive is no trajectory; the
+  per-second totals), so 30, 60 and 144 Hz steps travel the same.
+- **The crouch dive is the standing dive**: a full-stick crouch runs on the standing body (`Walker.posture` stand), so
+  the timer starts at the standing root; DIVE-CHECK found the same on the original.
+- **r0004.** The twins of `FUN_0059b440` (0x5a0f60), `FUN_0059b870` (0x5a1390), `FUN_0057e540` (0x5838a0) and the
+  hold's lines of `FUN_005af930` (0x5b5660) differ from r0001 only by the actor's fields moved 4 bytes (98.100006, 2.2,
+  0.2 and the order kept); `FUN_0059ad30`'s one constant change (5.0 to 3.5) is its step margin, not the dive's
+  landing (the r0004 investigation's `fundiff.py`, 2026-11-03).
+- **The seam follows the drawn body** (the review's F2, 2026-11-03). `Traversal.rootY` feeds the room's hit volumes
+  and shot cone and the bots' aim (`moveRoot`), so it is the root the animator draws, not the clip's key alone: the
+  clip's root cross-faded in over its `BlendTime` (0.2) with the animator's weight (`blendWeight`, its first frame at
+  0), and at rest faded out into the prone base's root over `seal_prone`'s (none in `motion.rdr`: 0.4) from the root
+  drawn last -- one frame late, as the animator plays the press's ground word for a frame before the prone base
+  (`diveEnd`). *Was* (6db987bba): the clip's key from the press, 0.81 u off the drawn body in the blend-in, and the
+  stance's 2.17 at rest while the body was drawn at 4.66, a 2.49 u gap closing by 1250 ms. The one difference left is
+  where the blend-in starts: the animator from the run's posed root (10.30 on the fixture's run), the seam from the
+  stance's 11.484, which is what the seam has always held for a runner (the room has no posed root); it fades out by
+  200 ms. From 200 to 1300 ms the seam is the drawn root within 0.02 (`traversal.test.ts`).
+  **The second review (c2f569ce0):** the play the animator draws at rest is not always the prone base. With the stick
+  held through the rest it is the crawl's (`loco:prone:<cls>`; the crawl's and the strafes' `BlendTime`, none: 0.4),
+  turning it is the turn's (`turn:prone`, `seal_prone_turn`'s 0.9). The end blend now reads that play each tick as
+  `Animator.wanted` picks it for a prone body with no action (`diveEndPlay`): a new play restarts the fade from the root
+  drawn at the last tick's end over its clip's `BlendTime`, a stick snap over `STICK_SNAP_BLEND`, and it ends when the
+  body leaves the prone ground plays. *Was* (c2f569ce0): `seal_prone`'s 0.4 always, so a turn's 0.9 fade ran ahead
+  of the drawn body. The seam fades to the stance's prone root 2.168; the drawn body to the play's own (the crawl's
+  2.289, the turn's 2.266, the strafes' 1.602 and 1.863), the difference every prone body crawling or turning has with
+  or without a dive (LATER 661).
+  **The third review (ebd0a74c7):** the turn is the walker's turn rate (`Walker.turn` not 0), the value the animator
+  chooses `turn:prone` on (`MoverSnapshot.turnRate`, `Animator.wanted`). The room has it: `MoverSim` sets
+  `w.turn = looked.turn` before the tick, the look gate's 4-tick average it also sends the others; the page sets it
+  from the look before the tick (`WalkMode`). *Was* (ebd0a74c7): the yaw's change, which in the room left the turn 3-4
+  ticks before the drawn body did (0.62-0.74 u) and on the page took a raw-angle mouse turn (turn rate 0) for a turn
+  (1.53 u). And the play is settled at one fixed point, the next tick's start, a read of `rootY` changing nothing: *was*
+  the first read after the tick, so a read after a stance change between ticks gave another value than reads every
+  tick (`traversal.test.ts`: the seam on the animator's clock to 1e-4 for the idle, a crawl, a turn, the room's turn
+  tail and a turn with no rate; the same values read every tick or now and then).
+- **The carried speed is the speed at the press** (the review's F1, read 2026-11-03; reading, pending review).
+  `FUN_0057e540` copies the velocity as it is (`+0x38`..`+0x40` to `+0x1350`, D:L440899-440901), with no cut and no
+  wait for a slowdown: `FUN_00594cf0` runs it on the frame the pressure's peak passes 0.3 (D:L453336-453341,
+  D:L453380-453390). DIVE-CHECK's forward runs did reach the full run's 65; their speed fell to about 40 a frame or two
+  before the dive (`pcsx2.csv`'s `velX`/`velZ`, then `diveVel`) because the run had reached the strip's rise at x
+  992-997, floor normal y 0.75-0.80, where the ground driver's `FUN_005b56c0` (from `FUN_00586570` D:L444865) scaled
+  the stick to 0.59-0.64 (`stickForward`): the slope's, not the dive's -- the page did the same (its stick scale).
+  The one run that dived before the rise (move stand-fwd t3, at x 990.4) carried 65.1 and slid 49.95 u, but it crossed
+  the 0.754 slope during the dive (y -148.3 to -135.5, peaking at 97.7 u/s), so its agreement with this model's flat
+  50.6 at 65 is a coincidence, not a flat-ground match (the second review). F1 stands on `FUN_0057e540`'s copy and the
+  slope's stick scale; `FUN_0057e540`'s r0004 twin moves only the fields (above).
+- **Open** (named in the code, section 7.2): `DIVE_ROOT_SEED_READING`'s frame -- the order of `FUN_005af930`
+  (D:L466809), `FUN_005b0420`'s landing (D:L467105) and `FUN_0057a330`'s timer (D:L439149) inside one frame, and whether
+  the hold runs 6 or 7 frames -- and `DIVE_END_BLEND_READING`, the blend from the dive's play to the prone base after
+  the pop at rest (D:L418158-418163), left to the animator's own end, which the seam follows. Against the capture
+  (the review's F3): the drawn root at 800 ms is 4.79 against 4.92-5.35, inside only through the test's 0.3 margin,
+  and the test holds 1000 ms loosely at 2.6-4.6 (drawn 3.96 against 3.22-3.97); the seam is the same at both since F2.
+  LATER 661: the seam's prone root (the stance's 2.168) against the prone plays' own roots, for every prone body.
+
 ### 6.2 What else the game has [read]
 
 The steep-ground **slide** (`DAT_003dead8` "Slide", `FUN_0054edf0` 417032-417205, surface test `FUN_0054f330`): a
@@ -751,7 +927,7 @@ Named in the code:
 | `PRONE_ROOT_READING` (`mover.ts`, `STANCE.prone.rootY`) | 1.8 | the prone skeleton root over the feet: under the ramp's floor 2.169155 (where the camera stops lowering -- the lowest stance is the one the floor was cut for) and about a body's half-thickness, 0.18 m | retired 2026-10-05 (web sprint 28, PF-21): `seal_prone`'s `skel_root`, 2.1680 = 555/256 (`PRONE_ROOT`; research 180 §1.2, research 217 §4) |
 | `PRONE_TOP_READING` (`mover.ts`, `STANCE.prone.bodyHigh`) | 9 | the prone body's column top: a body lying down is about 0.9 m high with the head and rifle up; the foot stays at 6, the step's band. The original has no column: its prone probe is a fan of segments along the travel (`FUN_0054aa30`, D:L415150-415240; research 180 §1.6), owed to PF-16. PF-05's first fix round read class 2 as a radius-8 disc at the feet + 3 -- a misreading (it froze a prone SEAL in any gap under 16), taken out in its third | retired 2026-10-05 (web sprint 28, PF-16): no column -- prone the probe at the feet + 3.0, 8.0 ahead along the travel and 3.12 across (`WALL_PROBE_READING`, `PRONE_FAN_READING`; `FUN_0054aa30` D:L415582-415621, research 217 §2) |
 | `PRONE_PROBE_HEIGHT_READING` (`mover.ts`) | 3 | PF-05's first fix round: one prone probe at the feet + 3 with a radius-8 disc (`PRONE_BODY_RADIUS`), read from `FUN_0054aa30` class 2 | removed 2026-10-04 (PF-05's third round): a misreading -- class 2's 8.0 sizes a fan of segments along the travel (D:L415150-415240), not a disc; the fan is PF-16's |
-| `PRONE_GATE_READING` (`mover.ts`, `Walker.proneRefused`) | 11.2 ahead, 8.0 behind, at the feet + 0.5 x step_height (3.25) | `FUN_00552ec0`'s prone gate (D:L418935-418940) through `FUN_0054d620` (D:L416194-416363): two segments, an obstacle on either refuses prone from stand or crouch; brought forward from PF-15 by PF-05's second fix round (research 180 §4.2) | a reading: the segments' turn by the rotation from up to `actor+0x410` (`FUN_00306d40`) taken as none, level; `FUN_005ab590`'s material filter not transcribed (the mover's walls) |
+| `PRONE_GATE_READING` (`mover.ts`, `Walker.proneRefused`) | 11.2 ahead, 8.0 behind, at the feet + 0.5 x step_height (3.25) | `FUN_00552ec0`'s prone gate (D:L418935-418940) through `FUN_0054d620` (D:L416194-416363): two segments, an obstacle on either refuses prone from stand or crouch; brought forward from PF-15 by PF-05's second fix round (research 180 §4.2) | **8.0 behind: proven** (2026-11-03) by ac's capture at M51's fence `worldmodel/noreg_343344/g15582` (PCSX2 r0004, 3 trials each, all identical, 2026-11-03T02:56-03:03Z; `agent-mail/evidence/eph-hunt-2026-11-01/segment-body/results/SEGMENT-BODY.md`, "02:56-03:03Z" (a)): standing facing away, the press refused at 7.00 / 7.50 / 7.75 u from the plane and taken at 8.00 / 8.25 / 8.50 u, the limit between 7.75 and 8.00; held by `segmentBody.test.ts` "M51's fence g15582" (a), a dev-disc test (no harness spec or golden trace yet); a capture of one thin fence, level ground. **11.2 ahead and the 3.25 height: a reading** (neither varied by the capture): the segments' turn by the rotation from up to `actor+0x410` (`FUN_00306d40`) taken as none, level; `FUN_005ab590`'s material filter not transcribed (the mover's walls); research 217 §2.9 |
 | `STEP_PROBE_LIFT_READING` (`mover.ts`) | 5.5 | the mover's probe origin over the feet, every tick and the spawn: research 23 section 1.2's PCSX2 spawn image (+5.5; the origin is pose-dependent, +4.7 / +11.2 elsewhere), so the pick's window reaches `step_height` 6.5 (section 6.5; ported from Chris's browser-beta-v5) | open, a reading; W2.2c measures (a 6.25 kerb over a lower floor on PCSX2: walked at, spawned on, landed on) |
 | `SLIDE_SPAN_MEASURE_READING` (`steepSlide.ts`) | `'column'` | how `FUN_0054f330` reads the polygon's top − bottom. Research 201 §3 leaves `FUN_002dbfb0`'s two points interpretive and reads them as top and bottom the way `climb.ts` `columnTop` does: the highest and lowest edge point whose xz-projection contains the feet, or null when none does (a failed extent read slides). On a planar quad under the feet that span is the polygon's full height, so a 3-tall face does not slide a standing body and does slide a prone one (the note's test). `'vertices'` is max y − min y of the polygon, ignoring where the feet are | open, a reading; the capture owed in research 201 §3 |
 | `HEADROOM_FROM_READING` (`mover.ts`) | 14 | the foot of `FUN_0057efe0(actor, 0)`'s headroom ray: the game casts from a skeleton node (`actor+0x304`) + 2 (decomp 441218) to the feet + 19 (441214); the node's height is not in hand, so the ray starts at the crouch column's top | retired 2026-10-05 (web sprint 28, PF-15): the node is the hips (`actor+0x304`, D:L419618-419619), the foot the stance's idle hips + 2 on both ends (`HEADROOM_HIPS_READING`, research 217 §1.2) |
@@ -759,6 +935,15 @@ Named in the code:
 | `LADDER_STILL_CAST_ACTORS_READING` (`traversal.ts`) | `'every actor'` | `ladderHits`' still cast along the facing runs for every actor, room bots and remotes included; the original casts for the local player only (D:L415036-415055: vtable +0x30, bit 0 of +0x268 under the 0x44d4d0 flag) (section 2.5) | open, a reading |
 | `LADDER_MATCH_READING` (`traversal.ts`) | 1 | `ladderOf`'s match of a contact to its ladder record: within 1 of the plane, half-width + 1 across; no source (the original reads the contact's polygon, no ladder list); 1 is `findLadders`' `SAME` (section 2.5) | open, the port's own |
 | `LADDER_DROP_FLAG_READING` (`traversal.ts`) | `'never set'` | `FUN_005b3890`'s drop of a ladder contact on bit 1 of `seal+0x1061` (D:L469004-469005): what sets the bit is unread (section 2.5) | open, a reading; read the writers of `+0x1061` |
+| `WEAPON_LINE_LENGTH_READING` (`weaponLine.ts`) | 59 lengths by `WEAP_GEO` name; the M4A1 SD 22.9303 | the weapon line's length, `FUN_0054e8f0` D:L416892-416902: 2 x the held model's `|bbox x max - x min|` (its `nparams` +0x40 bounds), unless the model's byte +0x5f has bit 6 (0x40) set (D:L416894), when `FUN_00541510` walks the +100 chain (D:L408768 on) -- no weapon model on the disc sets it (the byte is 0x80 or 0xa0; `weaponLine.test.ts` over `WEAP_GEO`'s 59) (s3.8) | open, a reading (the disc's bounds through the repository's readers, Frostfire's and M51's archives alike); **the M4A1 SD's 22.930 proven** (`WEAPON_LINE_M4A1_SD_PROVEN`: ac's RDRAM read on r0004, 2026-11-04 09:16Z, its bounds x -3.679799 to 7.785366, the flag byte 0x80, bit 6 clear), inside the capture's 22.5-23.4 reach |
+| `WEAPON_LINE_ONE_SIDED_PLACEHOLDER` (`weaponLine.ts`) | true | whether the weapon line's query `FUN_0031e160` (D:L416642) meets a polygon from its front only; its crossing test is not transcribed, and the port takes the hull's one-sided test as the segment records do (research 281 s4.3); a line starting inside a collider would meet the far side's back face under `false` (s3.8). One-sidedness only: the set of polygons is `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` | open; a read of `FUN_0031e160`'s crossing test, or a capture with the line starting behind a face |
+| `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` (`weaponLine.ts`) | `'movement'` | which polygons the weapon line's query `FUN_0031e160` (D:L416642) returns -- whether floors are among them; the function only fills a query on world `+0x14c` (fresh review 1's F3 read), the set that query walks is not transcribed. The port asks the movement's surfaces (bit 1 set, bit 18 clear, as `segmentHit`'s), floors among them, which the line keeps at any slope (D:L416644-416672) -- so it alone decides LATER 682 (the running jump up Frostfire's rail ramp refused); `'walls'` recorded (s3.8) | open; a read of `FUN_0031e160`'s polygon set, or an r0004 capture of a running jump pressed partway up Frostfire's `rmp1` |
+| `WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` (`weaponLine.ts`) | `'firearm'` | the weapon line's length with an item up: `FUN_0054e8f0` takes the model of the kit entry the hand byte `+0xf79` picks (D:L416869-416870), so with a grenade up the original's line is the item's (`grenade` 2.5372); the port's mover carries the firearm hand only (`Walker.hand` 0 or 1), the item up held outside it on both sides, and which entry `+0xf79` names in each item state is not read -- the port keeps the firearm's model (fresh review 1's F1; s3.8) | open; a read of `+0xf79`'s writes, then the item's model carried into the mover on the room's and the page's side |
+| `WEAPON_LINE_BOTS_PLACEHOLDER` (`weaponLine.ts`) | `'cast'` | whether the port's bots cast the weapon line | replaced 2026-11-04 by `WEAPON_LINE_BOTS_READING` (below), the controller's ruling between readings (6d) |
+| `WEAPON_LINE_BOTS_READING` (`weaponLine.ts`, read by `matchBots.ts` `adopt` / `release` / `dispose`, match `room.ts` `newSim` for an AI seat, `climbDiscovery.ts`, `navigation.ts`'s ladder probe, `hostageFollow.ts` and the zombies' `mode.ts` / `obstacle.ts` into `Walker.weaponLineCast`) | `'none'` | the port's bots cast no weapon line: the original casts it only when the body's controller (`actor+0xc0`) answers its vtable +0x2c (D:L416630-416633); `CSealCtrlAi`'s table 0x6693f0 holds `FUN_00575c30` there (the ELF's word at 0x66941c), whose two instructions return 0 (`jr ra`, `v0` = 0 in the delay slot) -- re-read on the disc's `socom2_game.elf` 2026-11-04, as research 334 s9 and 199 s12.5 read it -- where the local player's `CSealCtrl` (0x6694b0) holds 0x5431f0, returning 1; the port's bots are the AI's model (`MoverSim.ai`, `IsAi`). The same on r0004 (OT.R97): the r0004 investigation's function-diff table (`scratch/code-diff/classify.json`) pairs the cast `FUN_0054d9a0` with r0004's 0x552790, 'changed' (raw_diff 97 of 674 words), whose recompiled output (`FUN_00552790_0x552790.cpp`) still loads the controller's vtable +0x2c, calls it and branches on the answer (0x552f74-0x552f8c) before its `+0x1344` read; `FUN_00575c30`'s twin 0x57b010 is 'same' (raw_diff 0; `FUN_0057b010_0x57b010.cpp`: `jr ra`, `v0` = 0). The r0004 `CSealCtrlAi` vtable slot itself is not re-read. The controller's ruling between readings (6d, 2026-11-04, for the owner to see; plan Log). With or without it the bots' 40-tall app-4 climb passes (`botClimbNavigation.test.ts`, the jump reading no contact) (s3.8) | reading, pending review (the vtable word re-read by the implementer; a reviewer's re-read owed); `CRemoteCtrl` (0x5e6250) answers 0 too -- the room's simulation of a remote human casts, as that human's own console does |
+| `DIVE_ROOT_FALL_READING` (`traversal.ts`) | 98.100006 | the dive's hidden timer's speed gained a second on the ground: `FUN_0059b440`'s literal (D:L456552-456557), not the table's 235 (section 6.1, DIVE-ROOT) | open, a reading, pending review; a memory trace of `+0x133c` and `+0xfac` through a dive settles it |
+| `DIVE_ROOT_SEED_READING` (`traversal.ts`) | 235 x 525/15734 (7.84) | the timer's speed at the hold's end: one airborne frame of gravity (D:L456496, after the reset D:L466797-466802) (section 6.1) | open, a reading, pending review; settled by the frame's order (`FUN_005af930` D:L466809, `FUN_005b0420` D:L467105, `FUN_0057a330` D:L439149) and the hold's 6 or 7 frames, or a memory trace |
+| `DIVE_END_BLEND_READING` (`traversal.ts`) | `"the animator's own end"` | the blend from the dive's play to the prone base after the pop at rest (`FUN_00589aa0`, D:L418158-418163), unread (section 6.1); the port's animator cross-fades into its next play -- the prone base's (0.4), a crawl's (0.4) or a turn's (`seal_prone_turn`, 0.9) -- and the seam (`Traversal.rootY`: the room's hit volumes and shot cone, the bots' aim) follows that play's clock (`diveEnd`, `diveEndPlay`; review F2 and the second review) | open, a placeholder; the pop's blend read, or a capture of the root from rest to prone |
 | `STANCE_HOLD_S_PLACEHOLDER` (`stanceButton.ts`) | 0.4 s | how long Triangle (the pad) or `C` (the PC) is held before it means prone: the game reads the button's pressure, not a time (a light press toggles crouch at release, a full press goes prone at once; `host_crouch_shortcut.h`, KNOWN R139), and a browser's button is only on or off, so the owner's rule (2026-09-28: tap crouches, hold goes prone) needs a length | open, the owner's to set (handoff section 6) |
 
 Retired: the airborne column's `step_height` allowance (section 6.3; the ground's pick replaced it, OWNER-5).

@@ -635,6 +635,11 @@ export interface SeenRemotes {
 }
 
 export class RemotePlayers {
+  /** WALL-CAM: FUN_0029a950 reads the followed actor's posed skeleton root (research 382 §2). */
+  cameraRoot(id: number): number | null {
+    return this.remotes.get(id)?.play.rootY() ?? null;
+  }
+
   /**
    * Research 303: the others' VICTORY DANCES (`./netPage`'s `victory`: the room's variant, `elapsed` in for a joiner) --
    * on the body's own `Play`, a dance heard before its body is drawn held until it is (its clock running meanwhile); a

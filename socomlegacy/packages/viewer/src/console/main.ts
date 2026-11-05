@@ -1,5 +1,6 @@
 import { bootFailure } from '../bootFailure';
 import { watchSoftwareRenderer } from '../softwareRendererNotice';
+import { installClientErrorBeacon, pageClientErrorBeacon } from '../clientErrorBeacon';
 import { startPwa } from '../pwa/boot';
 import { adaptersFor, liveAdapters } from './adapters';
 import { bootConsole } from './app';
@@ -20,6 +21,7 @@ import { bootLauncher } from './launcherEntry';
  */
 startPwa(window);
 watchSoftwareRenderer(document, window);   // CPS-4c: a software WebGL renderer named, after the first frame (browser adaptation)
+installClientErrorBeacon(window, pageClientErrorBeacon());   // CLIENT_ERROR_BEACON_ADAPTATION, part A (2026-11-05): what breaks is kept, named on the page and (part B) told to our server
 void bootLauncher(document, {
   dev: import.meta.env.DEV,
   base: import.meta.env.BASE_URL ?? '/',

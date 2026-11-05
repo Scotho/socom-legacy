@@ -33,12 +33,63 @@ Four classes of equality against `rasterizeUiDrawList` on the same list, texture
 The tolerance, per backend (GM.R5): **provisional** -- max(the f32 twin, SwiftShader), measured in GM-11b, gates no
 flip; **pinned** -- max(twin, SwiftShader, each real backend run), GM-27, dated, with the host and
 `UNMASKED_RENDERER_WEBGL` named ("one backend only" said where only one ran). *Not measured yet: both values are
-owed by GM-11b and GM-27.*
+owed by GM-11b and GM-27.* The twin's leg is measured (§1.1).
 
 What every rendered browser run must hold: E 0 bytes; E\* 0 bytes or a written finding; B within the pinned bound; C
 every pinned row unchanged (`uiCompositorScore` 95.8/60.2/true, 98.1/38.2/true, 97.1/63.8/true; CREATE GAME
 98.1/75.2/true and 97.9/73.9/true; every other pinned row, from the one shared table of GM-11c). Absent references are
 skipped by name: `mb10_pcsx2`, `s4_pcsx2`, `menu_explore`, `pcsx2_mission_*`, `SOCOM_PARITY_ARCHIVE`.
+
+### 1.1 The f32 twin's leg (GM-08, 2026-11-02; reading, pending review)
+
+`packages/viewer/src/uiGpuTwin.ts` runs a plan as the shaders and the fixed-function blender will: every operation
+rounded to f32, in the software's operand order, step-tagged S1-S13 (quads) and T1-T12 (models), each tag mapped to
+its P/M row, its software line and its readings (`UI_GPU_TWIN_STEPS`; `uiGpuShaderTwin.test.ts` pins the order and
+each step's arithmetic as source text, and compares the GLSL's tags once GM-11a-2 writes it). The fixed-function
+blender is a model (`UI_GPU_TWIN_UNORM_ADAPTATION`: f32 blend of [0, 1] values, one round to nearest even), not a
+measurement; correctly rounded division and no FMA contraction (the plan's risk 4 is measured against the GPU in
+GM-11b/GM-27). Evidence kinds apart: **unit tests** (the case table, seeded lists) and a **dev-disc test** (GM-04's
+corpus); no browser, no GPU.
+
+- **The exact class** (an untextured quad with f32-exact integer colour and alpha byte, or a non-finite code; a clear;
+  a whole overwrite at alpha byte 128): **0 differing bytes** on every case at 1, 2, 4, opaque and transparent, under
+  `ff` and `exact`, on 12 seeded lists, and on the corpus (226,929,451 / 180,222,300 / 720,904,400 class pixels at
+  1/2/4 under each table). Model pixels are outside the class (M2-M5 B; GM-06b review F1's ruling owed).
+- **Layered == sequential** (GM.R7): every case, every seeded list, and the corpus's 11,260 runs with programmable
+  batches: 0 differing.
+- **B on the case table:** 0 on every case but 13.cold/.warm/.hot (the HD texture): max |Δ| 1, 112-582 pixels at
+  |Δ| = 1 over the case's 12 runs (pinned, `TWIN_B` in `uiGpuTwin.test.ts`).
+- **B on the corpus** (1x every distinct frame, 6,538; 2x and 4x 348 frames each, sampled: every entry's first and last
+  distinct frame, dlgMenu, CREATE GAME and the ARMORY every 8th; `UI_GPU_TWIN_CORPUS_B`):
+
+  | Scale, table | max \|Δ\| (R/G/B/A) | pixels at \|Δ\| ≥ 1 / 2 / 3 | ppm ≥ 1 | outside model boxes: max \|Δ\|, ≥ 1 / 2 / 3 |
+  |---|---|---|---|---|
+  | 1x exact | 123/112/76/1 | 3,616,922 / 2,944 / 1,685 | 1929.46 | 3/3/3/1; 3,609,608 / 1,179 / 34 |
+  | 1x ff | 123/112/76/1 | 10,249,598 / 2,944 / 1,685 | 5467.69 | 3/3/3/1; 10,241,809 / 1,179 / 34 |
+  | 2x exact | 29/29/29/1 | 1,242,233 / 59 / 36 | 3112.47 | 2/2/2/1; 1,239,445 / 15 / 0 |
+  | 2x ff | 29/29/29/1 | 2,487,515 / 59 / 36 | 6232.59 | 2/2/2/1; 2,484,463 / 15 / 0 |
+  | 4x exact | 82/52/40/1 | 4,957,666 / 252 / 185 | 3105.42 | 2/2/2/1; 4,946,353 / 40 / 0 |
+  | 4x ff | 82/52/40/1 | 9,974,691 / 252 / 185 | 6248.02 | 2/2/2/1; 9,962,167 / 40 / 0 |
+
+  Outside the model boxes the twin is within |Δ| 3 (|Δ| ≥ 3 on 34 pixels at 1x, none at HD; where those pixels lie was
+  not traced -- the transparent overlay's divide, P22, which magnifies a 1 in the alpha, is a guess, not a finding). The large |Δ| are all inside model
+  boxes: **finding 1** below.
+- **Finding 1 -- the software's depth tie is per pixel, not "the first drawn wins".** The software stores `invW` as f32
+  and tests the next triangle's f64 `invW` against it (`uiCompositorView.ts:437`). dlgMenu's roller draws each label's
+  `_on` and `_off` faces on one geometry, additive; where the f32 store rounded down the second face draws again (the
+  pixel doubles), where it rounded up it does not -- a speckle (dlgMenu.rdr frame 2 at 1x: 2,103 differing pixels, up to
+  |Δ| 84). The ARMORY's worst frames (the corpus's worst at 1x and 2x/4x `exact`) are inside model boxes too; whether
+  they are the same tie was not traced. A GPU's f32 depth with `GREATER` never draws the second face; the GS's `ZTST GEQUAL`
+  (research 185 §3.1, pending review) would always draw it. Neither reproduces the software. Held by a unit test
+  (`uiGpuTwin.test.ts`, "finding: the software's tie ..."). `UI_MODEL_DEPTH_FORMAT_READING`'s correction is its own
+  simulation-track task, software first (GM.R14); until it, these pixels are B and their |Δ| sets the models' bound.
+- **Finding 2 -- an opaque frame's alpha is not always 255** (P14 × P23). A quad whose alpha is NaN or infinite stores
+  the alpha 0 on an opaque frame too, and later quads raise it by `A + (255 − A)·min(1, a)`; P14's "alpha `colorMask`
+  off" cannot follow (seeded lists: alpha |Δ| up to 223 masked). The twin models `ONE_MINUS_DST_ALPHA, ONE` on both
+  frames (255 exactly over A = 255), held by a unit test; P14's GPU column is for GM-11a-2 and the reviewer to change.
+- **GM-07 review F2's two mutations:** the depth tie `<` for `<=` is caught by four seeded tie lists (exact dyadic ties,
+  counted) on the executor and the twin; the modulate `r (c / 128)` for `(r c) / 128` is an identity in IEEE arithmetic
+  (division by 2^7 is exact), shown over every texel byte in f64 and f32 -- no frame can catch it.
 
 ## 2. The parity contract
 
@@ -46,7 +97,7 @@ Each row: the GS rule as the software transcribes it, its source in the original
 review**), the software line, how the GPU reproduces it, its class (scale 1 defaults to `exact`, HD to `ff`, GM.R6),
 and the test that holds it. `cases` is `test/uiRasterCases.ts` (GM-03), `exec` is `test/uiFramePlan.test.ts` (the f64
 CPU executor equals the reference, GM-06a/b), `twin` is `test/uiGpuTwin.test.ts` with `uiGpuShaderTwin.test.ts`
-(GM-08); none exists yet.
+(GM-08, §1.1).
 
 ### 2.1 The 2D rules
 
@@ -65,7 +116,7 @@ CPU executor equals the reference, GM-06a/b), `twin` is `test/uiGpuTwin.test.ts`
 | P11 | Additive 0x48 `C + r·a` | as P10 | :309-312 | `exact`: programmable. `ff`: `ONE, ONE` with `min(1, r·a/255)` for finite `a ≥ 0`, else programmable | prog E\*; ff B | cases; twin | reading, pending review |
 | P12 | Store: round half to even, clamp 0..255, NaN to 0, after every quad | `COLCLAMP` 1 (research 185 §3.1); `DTHE` unread (`GS_BLEND_ROUNDING_READING`, §4) | `Uint8ClampedArray` (:336) | prog: `roundEven(clamp())`; ff: unorm, implementation-defined | prog E\*; ff B | twin; parity spec, both legs | reading, pending review |
 | P13 | Untextured fractional fades (MENUFADER, the entry fades) | captures `mb10_pcsx2/s06_burst_010..016` (research 141 R141.7; absent on this host) | :214-231 | Always programmable, at every scale | E\* | twin; case 20 (a fade ramp, every step); `menuEntryFadeDisc` on the GPU frame through GM-11c on a host holding `mb10_pcsx2`, else "fade C evidence: none" said | reading, pending review |
-| P14 | Frame alpha bookkeeping `A + (255 − A)·min(1, a)` | no source: an adaptation for the transparent overlay | :308, :192, :220 | Opaque: alpha `colorMask` off (E). Transparent: programmable, or ff `ONE_MINUS_DST_ALPHA, ONE` | E opaque; E\*/B transparent | case 4 over source alpha 0, 64, 128, 192, 255 (case 19), against the pre-divide buffer | reading, pending review |
+| P14 | Frame alpha bookkeeping `A + (255 − A)·min(1, a)` | no source: an adaptation for the transparent overlay | :308, :192, :220 | Opaque and transparent alike: programmable, or ff `ONE_MINUS_DST_ALPHA, ONE` on the frame's alpha (`UI_GPU_FF_BLEND`, `uiGpuShaders.ts`; the twin's `S10ff_alpha`), as the CPU executor (`uiFramePlanCpu.ts` :105, on both frames) and the software (`uiCompositorView.ts` :196, :204, :234, :314, on both frames) blend it; so on an opaque frame a `prog` quad's NaN alpha stored as 0 (P23, `uiFramePlanCpu.ts` :104) is raised by a later `ff` quad there too. The opaque canvas has no alpha channel (`UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION`, `alpha` false), so no displayed pixel depends on it (controller ruling, GM-08 review F1; was alpha `colorMask` off, refiled 2026-11-04) | prog E\*; ff B; opaque and transparent alike | case 4 over source alpha 0, 64, 128, 192, 255 (case 19), against the pre-divide buffer | reading, pending review |
 | P15 | `clear`: packed bytes, alpha 255 even on a transparent frame | the frame, `FUN_003b1200(0)` D:L305271-305395 | :355-359 | Bytes from `uiRasterRules`; `clearColor(k/255)` | E | case 9 | reading, pending review |
 | P16 | Movie with no picture: a black untextured quad, alpha 128, source blend, the register untouched | `MOVIE_HOLD_READING` (contradicted, §7) | :360-373 | A quads step not touching the register | E | case 10; exec | reading, pending review |
 | P17 | Movie picture: an RGB copy at the origin, alpha untouched, nearest `s×s` | `MOVIE_RECT_READING` (contradicted, §7) | :364-371 | `texelFetch(movie, p / s)`; `colorMask(rgb)`; blending off | E | case 8; the movie upload test (GM-11a-3) | reading, pending review |
@@ -290,15 +341,15 @@ spellings were checked against research 112 and 185 first: neither names any of 
 
 | Name | What the software does today (the value) | Where the original stands | What would settle it | Status |
 |---|---|---|---|---|
-| `GS_BLEND_ROUNDING_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | Float64 blend (0x44 `C + (r - C) a`, 0x48 `C + r a`), stored through `Uint8ClampedArray` after every quad: clamp 0..255, round half to even, NaN to 0 | the GS's integer blend `((A - B) C >> 7) + D`, `COLCLAMP` 1 (0x3e0880, research 185 §3.1); `DTHE` written by the per-flip 0x3e0980 (`FUN_003aff30` D:L304731-304835, research 141 §2), its value in no note; the arithmetic unread | the GS's `>> 7` blend transcribed at its source, and a console capture of a fader ramp (`mb10_pcsx2/s06_burst_*`, absent on this host) scored byte for byte | reading, pending review |
-| `GS_BILINEAR_WEIGHT_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | the texel coordinate's full Float64 fraction (`columnAxis`, `rowAxis`, `sample`) | `TEX1_1` 0x60 LINEAR on every UI bind (research 185 §3.1); the weight's 1/16 step is the hardware's, unread | the GS's 1/16 fraction, and a capture of a scaled sprite | reading, pending review |
-| `GS_SPRITE_SUBPIXEL_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | the corners stay Float64 into `coverageBounds` | `FUN_003643b0` maps each corner (`DAT_0049ea00` + x `DAT_0049e9f0`, D:L261689-261690, D:L261696-261697) and sends it through `vftoi4` (`FUN_001bfee8` D:L40826-40838; D:L261695, D:L261700): x 16, truncated -- a 1/16 corner (research 185 §3.3). An untransformed quad's position is an int (D:L261675-261679), so its corners are whole either way | a reviewer's re-read of the two functions, and a capture of a scaled node's quad (a 0.5-scaled one, research 185 §3.3) | reading, pending review |
-| `UI_MODEL_EDGE_RULE_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | a model triangle covers each pixel of its box whose integer point gives no negative barycentric weight: inclusive on every edge | the meshes reach the GS through VU1; the GS's triangle fill rule is the hardware's, unread | the GS triangle fill rule, from captures of the roller's seams | reading, pending review |
-| `UI_MODEL_DEPTH_FORMAT_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | invW in a Float32 buffer per pass, 0 empty; a pixel draws when its Float64 invW is strictly greater, so the first drawn wins a tie | the bind packets' `TEST_1` ZTE 1, ZTST GEQUAL (research 185 §3.1); `ZBUF_1` written by 0x3e0880 and 0x3e0980, its format (the plan's "Z16S") stated by no note; unread in the decompilation | the `ZBUF_1` PSM read off the packets, and a capture of two overlapping model faces | reading, pending review |
-| `UI_MODEL_GOURAUD_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | a model's vertex colour interpolated perspective-correctly (by 1/w), as its texel | the GS interpolates colour screen-linearly and only STQ by 1/w; the meshes' PRIM is VU1's, unread | the meshes' PRIM (IIP) read, and a capture of a lit roller face | reading, pending review |
-| `UI_2D_QUAD_Z_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | a 2D quad carries no depth: list order only, never tested against the 3D pass | each quad's XYZ2 carries a Z: `DAT_004a44e0` untransformed (`FUN_003643b0` D:L261681-261683), the transformed point's otherwise (`FUN_00308640`, D:L261686-261687), the first corner's for both (D:L261691); `TEST_1` ZTE 1 GEQUAL on the binds (research 185 §3.1). `DAT_004a44e0`'s value unread | `DAT_004a44e0` read, and a capture of a 2D quad over the roller | reading, pending review |
-| `UI_TEXTURE_WRAP_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | every bitmap repeats on both axes (`wrap`; `UiBitmap` carries no clamp) | each texture's `CLAMP_1` in its bind packet (`FUN_00354f80` D:L252786-252801 for `FUN_003c3ce0`); research 185 §3.1: REPEAT on 536 of 537 binds, CLAMP on `UI_TXR/specular_map.tif` | whether the menus draw `specular_map.tif`, and a per-texture clamp where one does | reading, pending review |
-| `UI_QUAD_ALPHA_RANGE_READING` (*note only* on main until GM-05b lands from agent/gpu-menus) | the alpha taken as it stands, `rgba[3] / 128`, unclamped and possibly fractional (255 gives 1.9921875); GM-04's tally (§3): the menus send 0 .. 254, whole on the dialogs' quads and glyphs, fractional on the ARMORY's quads, the TELETYPE cursor and the loader's PMODE fade | `vftoi0` (`FUN_001bfef8` D:L40841-40853; `FUN_003643b0` D:L261694, D:L261699) into a PACKED RGBAQ whose alpha is the low byte (research 141 R141.5): a whole 0..255 | the tally reviewed; which draw path the ARMORY's quads and the TELETYPE cursor take in the original (a whole byte there would make the port's fractional bytes a contradiction, its own task under GM.R14) | reading, pending review |
+| `GS_BLEND_ROUNDING_READING` | Float64 blend (0x44 `C + (r - C) a`, 0x48 `C + r a`), stored through `Uint8ClampedArray` after every quad: clamp 0..255, round half to even, NaN to 0 | the GS's integer blend `((A - B) C >> 7) + D`, `COLCLAMP` 1 (0x3e0880, research 185 §3.1); `DTHE` written by the per-flip 0x3e0980 (`FUN_003aff30` D:L304731-304835, research 141 §2), its value in no note; the arithmetic unread | the GS's `>> 7` blend transcribed at its source, and a console capture of a fader ramp (`mb10_pcsx2/s06_burst_*`, absent on this host) scored byte for byte | reading, pending review |
+| `GS_BILINEAR_WEIGHT_READING` | the texel coordinate's full Float64 fraction (`columnAxis`, `rowAxis`, `sample`) | `TEX1_1` 0x60 LINEAR on every UI bind (research 185 §3.1); the weight's 1/16 step is the hardware's, unread | the GS's 1/16 fraction, and a capture of a scaled sprite | reading, pending review |
+| `GS_SPRITE_SUBPIXEL_READING` | the corners stay Float64 into `coverageBounds` | `FUN_003643b0` maps each corner (`DAT_0049ea00` + x `DAT_0049e9f0`, D:L261689-261690, D:L261696-261697) and sends it through `vftoi4` (`FUN_001bfee8` D:L40826-40838; D:L261695, D:L261700): x 16, truncated -- a 1/16 corner (research 185 §3.3). An untransformed quad's position is an int (D:L261675-261679), so its corners are whole either way | a reviewer's re-read of the two functions, and a capture of a scaled node's quad (a 0.5-scaled one, research 185 §3.3) | reading, pending review |
+| `UI_MODEL_EDGE_RULE_READING` | a model triangle covers each pixel of its box whose integer point gives no negative barycentric weight: inclusive on every edge | the meshes reach the GS through VU1; the GS's triangle fill rule is the hardware's, unread | the GS triangle fill rule, from captures of the roller's seams | reading, pending review |
+| `UI_MODEL_DEPTH_FORMAT_READING` | invW in a Float32 buffer per pass, 0 empty; a pixel draws when its Float64 invW is strictly greater, so the first drawn wins a tie | the bind packets' `TEST_1` ZTE 1, ZTST GEQUAL (research 185 §3.1); `ZBUF_1` written by 0x3e0880 and 0x3e0980, its format (the plan's "Z16S") stated by no note; unread in the decompilation | the `ZBUF_1` PSM read off the packets, and a capture of two overlapping model faces | reading, pending review |
+| `UI_MODEL_GOURAUD_READING` | a model's vertex colour interpolated perspective-correctly (by 1/w), as its texel | the GS interpolates colour screen-linearly and only STQ by 1/w; the meshes' PRIM is VU1's, unread | the meshes' PRIM (IIP) read, and a capture of a lit roller face | reading, pending review |
+| `UI_2D_QUAD_Z_READING` | a 2D quad carries no depth: list order only, never tested against the 3D pass | each quad's XYZ2 carries a Z: `DAT_004a44e0` untransformed (`FUN_003643b0` D:L261681-261683), the transformed point's otherwise (`FUN_00308640`, D:L261686-261687), the first corner's for both (D:L261691); `TEST_1` ZTE 1 GEQUAL on the binds (research 185 §3.1). `DAT_004a44e0`'s value unread | `DAT_004a44e0` read, and a capture of a 2D quad over the roller | reading, pending review |
+| `UI_TEXTURE_WRAP_READING` | every bitmap repeats on both axes (`wrap`; `UiBitmap` carries no clamp) | each texture's `CLAMP_1` in its bind packet (`FUN_00354f80` D:L252786-252801 for `FUN_003c3ce0`); research 185 §3.1: REPEAT on 536 of 537 binds, CLAMP on `UI_TXR/specular_map.tif` | whether the menus draw `specular_map.tif`, and a per-texture clamp where one does | reading, pending review |
+| `UI_QUAD_ALPHA_RANGE_READING` | the alpha taken as it stands, `rgba[3] / 128`, unclamped and possibly fractional (255 gives 1.9921875); GM-04's tally (§3): the menus send 0 .. 254, whole on the dialogs' quads and glyphs, fractional on the ARMORY's quads, the TELETYPE cursor and the loader's PMODE fade | `vftoi0` (`FUN_001bfef8` D:L40841-40853; `FUN_003643b0` D:L261694, D:L261699) into a PACKED RGBAQ whose alpha is the low byte (research 141 R141.5): a whole 0..255 | the tally reviewed; which draw path the ARMORY's quads and the TELETYPE cursor take in the original (a whole byte there would make the port's fractional bytes a contradiction, its own task under GM.R14) | reading, pending review |
 
 | `LOADING_PANEL_ALPHA_CLAMP_READING` | the loading panel (`loadingPanel.ts` L207, L219; the fader L197) draws each quad through Canvas 2D at `globalAlpha = min(1, alpha / 128)`: an alpha over 128 is clamped to 1, where the menus' compositor takes it as it stands (P8-P10, `UI_QUAD_ALPHA_RANGE_READING`) | **the menus' own path, so no clamp**: LoadState's Init builds its `dlgLoad.rdr` screen as MenuState builds a menu -- the same `CGameMenu` constructor `FUN_00369b60` and builder `FUN_00368570` (LoadState `FUN_001f6660` D:L55818, D:L55826; MenuState `FUN_001f4860` D:L54824, D:L54856) -- and its Tick `FUN_001f5e70` draws it with `FUN_003691c0` (D:L55769), which hands the screen object itself to the walker `FUN_00336c10(0x4887c0, ...)` (D:L264266-264274) -- the walker and context MenuState's foreplane draw `FUN_00369170` uses, though that one hands it the sub-object `*(param_1+200)` (D:L264251-264262; walk `FUN_00336a60`, P1) -- then flips with `FUN_003aff30(1, 1)` (D:L55775), the per-flip function that sends the env packet 0x3e0880 only when the setting changed (`DAT_004a44f5 != DAT_004a44f4`, D:L304752-304754; otherwise the blend state carries over; research 141 §2; P10's source blend). No step of that path clamps the alpha byte; the one rule is P9/P10's | a reviewer's re-read of the cited lines (it settles which rule at the reading level); then GM-22's code step draws the panel's quads as `UiDrawItem`s through the compositor, and a console capture of the loading screen (`s4_pcsx2/A_ready012.png`, Vigilance; none of the shipped screen's quads exceeds 128, so the clamp itself has no pixel there) scored against that draw makes it proven | reading (re-read at the source by GM-22's reviewer, 2026-11-01); contradicted by the citation, kept at today's clamp (owner default O5, H378) until GM-22's code step; note only (no constant in the code yet) |
 
@@ -326,13 +377,44 @@ No original stands behind these; each bounds the browser's hosting of the drawer
 They carry the `_ADAPTATION` suffix, which the placeholder ledger does not read; each gets a one-line "no original;
 bounds the browser's ..." comment where it is defined.
 
-- switch and modes: `UI_GPU_SURFACES_ADAPTATION`, `UI_GPU_BLEND_ADAPTATION`;
+- switch and modes: `UI_GPU_SURFACES_ADAPTATION`, `UI_GPU_BLEND_ADAPTATION`; GM-16b's `UI_GPU_DEV_SURFACES_ADAPTATION` (pages the Vite dev server serves only -- DEV and MODE `development`, `front.hd` `shadow`; every built page, the nightly's `NODE_ENV=development` build included, reads the landed table);
 - tolerance and fallback: `GPU_RASTER_TOLERANCE_ADAPTATION`, `UI_GPU_FRAME_FALLBACK_SCALE_ADAPTATION`,
-  `UI_GPU_DEV_SAMPLING_FALLBACK_ADAPTATION`;
-- guard: `UI_GPU_GUARD_SAMPLE_ADAPTATION`, `UI_GPU_GUARD_TRIP_ADAPTATION`;
+  `UI_GPU_DEV_SAMPLING_FALLBACK_ADAPTATION` (GM-14a, `uiFramePlan.ts`, carried on each plan as `fallback`: an L1 frame
+  under HD drawn by the software at 1x with no HD lookup or quad cache and shown each pixel `s x s` by one NEAREST blit,
+  `UiGpuBackend.uploadFrame` at a scale -- the owner's O2, H375, default yes; under dev `uiSampling` other than bilinear,
+  at the shown scale. An L1 frame under HD is therefore the 1x frame, not the shown scale's: the parity spec holds it
+  against that, byte for byte, and records the executor's statistics for it without asserting them);
+- guard and shadow (GM-16, `uiGpuGuard.ts`, the surface in `uiGpuPresenter.ts`; start values with no measurement under
+  them, recorded by the GPU leg and GM-16b's dev shadow period): `UI_GPU_GUARD_SAMPLE_ADAPTATION` (one compare in
+  flight; a new one at least 1000 ms after the last ended, for a frame whose plan hash differs from the last compared,
+  or the same frame 10 000 ms after its compare began -- a movie's pictures are not in the hash; idle slices of at most
+  8 ms, 16 frame rows a step; the last 64 records kept) and `UI_GPU_GUARD_TRIP_ADAPTATION` (the first trip escalates the
+  surface to `exact` for the session, GM.R5/R6; a trip on a frame drawn at `exact`, or the second trip, is the
+  session kill `guard-trip`, today's path). A trip is an exact-class pixel that differs (E/E\*: 0 bytes), or B beyond
+  a bound the guard is given; with none pinned (GM-11b's provisional tolerance and GM-27's pinned one are not in the
+  code) B is recorded with the renderer, never judged. The compare runs in idle callbacks, its frames out of
+  `lostSeconds` (GM.R11); the read-back is a pack buffer and a fence, polled, never waited on;
+- the perf instrument (GM-16, `uiGpuPerf.ts`): `UI_PERF_COLD_SWITCH_ADAPTATION` (GM-02b's cold-switch target carried
+  as numbers, §6.2: no animation frame over 50.0 ms and 0.00 s lost, printed to two digits, at 2x and 4x, judged on the
+  GPU leg by `coldSwitchVerdict`; GM-13b's 33.4 ms aim reported beside it, never judged);
 - presentation and loss: `UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`, `UI_GPU_LOSS_FALLBACK_ADAPTATION`,
-  `UI_GPU_LOSS_LIMIT_ADAPTATION`, `UI_GPU_RESTORE_WAIT_MS_ADAPTATION`;
-- HD textures: `HD_UI_RESIDENCY_ADAPTATION`, `HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION`, `HD_UI_VRAM_BYTES_ADAPTATION`.
+  `UI_GPU_LOSS_LIMIT_ADAPTATION`, `UI_GPU_RESTORE_WAIT_MS_ADAPTATION` (GM-12a, `uiGpuPresenter.ts`: the software frame
+  at scale 1 with no HD lookup or quad cache while the GPU is lost; 3 losses in 5 minutes; 5000 ms for a restore);
+- the context (GM-11a-1, `uiGpuWebgl2.ts`): `UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION` (the WebGL2 context's attributes:
+  `alpha` only on a transparent surface -- the overlay; `#front-end-gpu` is opaque -- `premultipliedAlpha`, no MSAA (a
+  blit into a multisampled default framebuffer is an INVALID_OPERATION, and nothing here is anti-aliased), no depth or
+  stencil on the canvas (the models' depth is the frame target's, GM-11a-3), the drawing buffer not preserved (every
+  present blits a whole frame));
+- HD textures (GM-13, `uiGpuTextures.ts`, start values to be measured on the box): `HD_UI_RESIDENCY_ADAPTATION` (1800
+  drawn frames a texture stays unused; one frame is one tick, a `stage` and its draw counted once, GM-13 review F1), `HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION` (32 MiB uploaded a frame; the rest
+  waits, that frame L1), `HD_UI_VRAM_BYTES_ADAPTATION` (256 MiB, least recently used first); and the HD replacement
+  loads' bytes at their peak, `HD_UI_LOAD_BYTES_ADAPTATION` (256 MiB, `uiGpuLoadBudget.ts`; agent/hd-subrect review F3; a replaced lookup's waiting
+  loads are dropped unrun, GM-13 review F2);
+- the movie and the GPU timer (GM-11a-3): `UI_GPU_MOVIE_TEXTURES_ADAPTATION` (two `RGBA8UI` pictures, uploaded in
+  the render that first shows each, keyed on the picture object), `UI_GPU_TIMER_PENDING_ADAPTATION` (timer queries in
+  flight). The quads' instancing (`UI_GPU_INSTANCE_LAYOUT`) is no adaptation: it carries GM-11a-2's uniform values per
+  instance, flat, and decides no byte.
+- not an adaptation (GM-15a): the models' `depthScale` (`UiPlanPass.depthScale`, `passDepthScale` in `uiFramePlan.ts`; GM.R10) -- the largest power of two at most 1 that brings every vertex's f32 `invW` of the pass to at most 1, written as `gl_FragDepth = clamp(invW * depthScale, 0, 1)` -- decides no byte (a power of two scales an f32 exactly unless it underflows, GM-15b's edge), so it has no constant; the models' instancing (`UI_GPU_TRIANGLE_LAYOUT`) likewise.
 
 ## 6. Performance
 
@@ -469,6 +551,9 @@ path**; no GPU leg exists yet, so none is met or missed.
   lost; 50.0 ms is also the clock's catch-up limit; today at 4x 833.3 ms and 3.50-3.53 s on dlgMenu -> OPTIONS); the
   settle time is recorded, not targeted (the decode apart from the upload is not measured). GM-13b's own acceptance,
   no frame over 33.4 ms, is kept as an aim with no measured basis: today's 1x software misses it.
+- **Where it is asserted (GM-16):** on the GPU leg of `uiGpuPerf.spec.ts` (`S2U_UI_PERF_LEG=gpu`), its own test, by
+  `UI_PERF_COLD_SWITCH_ADAPTATION` (§5) -- every cold switch with HD answers at 2x and 4x, the GPU path checked to have
+  drawn at each scale; the aim reported per switch in `gm16-cold.json`. Written, not run yet (unrun: the box).
 - **Other targets:** MENULOOP 29.97 ± 0.5 pictures a wall second at dlgMenu idle at 1, 2, 4 (one a tick, R110.1,
   R110.6; 1x 30.0, 4x 6.9); `composeScreen` and the shells each ≤ 1.0 ms a tick, the segment's mean a tick
   (`uiGpuPerf.ts:188`; measured, SwiftShader 0.12-0.90 and 0.25-0.88, llvmpipe 0.11-0.89 and 0.25-0.85); the first

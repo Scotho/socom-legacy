@@ -5,13 +5,22 @@ import { groundGrid, packGround, type SimMap } from '../../viewer/src/sim';
 import { WalkingNavigation, prepareBotNavigation, validateBotNavigation, type Point } from '../src/bots/navigation';
 import { CombatPositions } from '../src/bots/positions';
 
+/**
+ * SEGMENT-BODY (research 217 s2.9): a hull face is hit only from in front of its own normal (research 281 s4.3), so a
+ * solid wall is two faces back to back, as a hull's closed solid is; one quad is a wall from one side only. `back` is the
+ * quad's reverse winding.
+ */
+const back = (p: Float32Array): Float32Array => Float32Array.from([p[9]!, p[10]!, p[11]!, p[6]!, p[7]!, p[8]!, p[3]!, p[4]!, p[5]!, p[0]!, p[1]!, p[2]!]);
+
 function arena(wall = false): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
     points: Float32Array.from([-190, 0, -190, 190, 0, -190, 190, 0, 190, -190, 0, 190]) };
   const polys = [floor];
-  if (wall) polys.push({ ...floor, path: 'wall', ditype: 2,
-    points: Float32Array.from([0, 0, -200, 0, 50, -200, 0, 50, 200, 0, 0, 200]) });
+  if (wall) {
+    const face = Float32Array.from([0, 0, -200, 0, 50, -200, 0, 50, 200, 0, 0, 200]);
+    polys.push({ ...floor, path: 'wall', ditype: 2, points: face }, { ...floor, path: 'wall', ditype: 2, points: back(face) });
+  }
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: p.path, first: i, count: 1 }));
   const ground = packGround(params, polys, owners);
   return { stem: 'MP99', name: 'BOT NAV TEST', ground, grid: groundGrid(ground), slots: [], respawns: [], spawns: null, notes: [] };
@@ -51,6 +60,7 @@ it('refreshes closed-door graph partitions after the native leaf moves, without 
   map.doors = [{ index: 0, node: 'wall', path: 'wall', valve: 'door', range: 30, elevation: -1,
     local: identity, parent: identity, owners: [1], programs: [],
     sweep: { minX: -10, maxX: 10, minZ: -200, maxZ: 200 } } satisfies DoorSpec];
+  map.doors[0]!.owners = [1, 2];                                 // SEGMENT-BODY: the leaf's two faces
   const nav = new WalkingNavigation(map, prepared);
   expect(nav.route([-90, 0, 0], [90, 0, 0])).toEqual([]);
   // Synthetic analogue of DoorSet's in-place hull mutation: move the closed leaf above the actors.
@@ -105,17 +115,20 @@ it('BOP-S review: a door across a gap in the wall -- shut it refuses the far sid
     quad('wall', 2, [0, 0, -200, 0, 50, -200, 0, 50, -30, 0, 0, -30]),
     quad('wall', 2, [0, 0, 30, 0, 50, 30, 0, 50, 200, 0, 0, 200]),
     quad('leaf', 2, [0, 0, -30, 0, 50, -30, 0, 50, 30, 0, 0, 30])];
+  // SEGMENT-BODY: each wall and the leaf two faces back to back (`back`), the backs after, so the leaf's front keeps its
+  // points (37-47) and its back is the seventh polygon's (73-83).
+  for (const i of [1, 2, 3]) polys.push({ ...polys[i]!, points: back(polys[i]!.points) });
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: p.path, first: i, count: 1 }));
   const ground = packGround(params, polys, owners);
   const map: SimMap = { stem: 'MP99', name: 'BOT NAV TEST', ground, grid: groundGrid(ground), slots: [], respawns: [], spawns: null, notes: [] };
   const prepared = prepareBotNavigation(map);                  // prepared with the leaf shut
   const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
   map.doors = [{ index: 0, node: 'leaf', path: 'leaf', valve: 'door', range: 30, elevation: -1,
-    local: identity, parent: identity, owners: [3], programs: [],
+    local: identity, parent: identity, owners: [3, 6], programs: [],
     sweep: { minX: -10, maxX: 10, minZ: -30, maxZ: 30 } } satisfies DoorSpec];
   const nav = new WalkingNavigation(map, prepared);
   const expansions = vi.spyOn(nav as unknown as { neighbours(id: number): number[] }, 'neighbours');
-  const leaf = (dy: number): void => { for (let k = 37; k < 48; k += 3) map.ground.points[k]! += dy; };
+  const leaf = (dy: number): void => { for (const at of [37, 73]) for (let k = at; k < at + 11; k += 3) map.ground.points[k]! += dy; };
   const from: Point = [-90, 0, 120], to: Point = [90, 0, -120];
   expect(nav.route(from, to)).toEqual([]);
   expect(expansions).not.toHaveBeenCalled();                   // shut, before any toggle: the prepared labels refuse it

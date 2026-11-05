@@ -46,8 +46,22 @@ for (const c of placements) test(`offline C4 opens ${c.map} ${c.variant} ${c.tar
   };
   await stand();
   if (c.map === 'MP51') {
+    // SEGMENT-BODY (re-pinned; was: the intact barrier stops the walk out of wc16 at z < 1049.2, the disc's two-sided
+    // hit). Captured: r0004, ac, 2026-11-04 (agent-mail evidence eph-hunt-2026-11-01/segment-body/mp51-barricade/
+    // RESULTS.md, 2 trials each way). Every wall of access1's di_good faces +z; its collider's +0x80 reads 0x41, bit 1
+    // clear, so the hull's hit is one-sided (FUN_002d2890 D:L174831-174837; research 281 s4.3). From inside the
+    // original walks out through it at 65 u/s (z 1046.4 -> 1050.7, no contact stored): faithful, so the walk out passes.
+    // Caveat: the walking client may have been on the terrorist side (the join switched teams), not the SEAL asked for.
     await page.evaluate(() => window.__viewer.walkFor(0.7, { forward: 1 }));
-    expect((await page.evaluate(() => window.__viewer.feet()))![2]).toBeLessThan(1049.2);
+    expect((await page.evaluate(() => window.__viewer.feet()))![2]).toBeGreaterThan(1049.2);
+    // Walked in (-z) from outside, the planks' +z faces hold it: the original stops at z 1054.375-1054.417 (5.8 off
+    // the 1048.6 plank). The port's segment body stops at 1054.71 (Node, part 11); the tolerance is LATER 681's
+    // stand-off residue, 0.6.
+    expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
+    await page.evaluate(() => window.__viewer.setCamera({ x: 1493.095520, y: 58.66, z: 1065, yaw: 0, pitch: 0 }));
+    await page.evaluate(() => window.__viewer.walkFor(0.3, { forward: 0 }));
+    await page.evaluate(() => window.__viewer.walkFor(2.5, { forward: 1 }));
+    expect(Math.abs((await page.evaluate(() => window.__viewer.feet()))![2] - 1054.4)).toBeLessThanOrEqual(0.6);
   }
   await stand();
   const before = await page.evaluate(() => ({ feet: window.__viewer.feet(), ammo: window.__viewer.grenade().leftByItem.C4 }));
@@ -75,6 +89,12 @@ for (const c of placements) test(`offline C4 opens ${c.map} ${c.variant} ${c.tar
   if (c.map === 'MP51') {
     await page.evaluate(() => window.__viewer.walkFor(0.7, { forward: 1 }));
     expect((await page.evaluate(() => window.__viewer.feet()))![2]).toBeGreaterThan(1049.2);
+    // Opened, the walk in from outside that the intact planks held at 1054.4 now goes through the doorway.
+    expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
+    await page.evaluate(() => window.__viewer.setCamera({ x: 1493.095520, y: 58.66, z: 1065, yaw: 0, pitch: 0 }));
+    await page.evaluate(() => window.__viewer.walkFor(0.3, { forward: 0 }));
+    await page.evaluate(() => window.__viewer.walkFor(2.5, { forward: 1 }));
+    expect((await page.evaluate(() => window.__viewer.feet()))![2]).toBeLessThan(1048);
   }
   expect(problems).toEqual([]);
 });

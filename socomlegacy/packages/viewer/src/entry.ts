@@ -1,4 +1,5 @@
 import { bootFailure } from './bootFailure';
+import { installClientErrorBeacon, pageClientErrorBeacon } from './clientErrorBeacon';
 import { bootPage } from './pageEntry';
 import { startPwa } from './pwa/boot';
 
@@ -10,5 +11,9 @@ import { startPwa } from './pwa/boot';
  */
 // A navigation that aborts the page chunk's import rejects the boot: said, never an unhandled rejection (the WebKit
 // pageerror); any other boot failure is rethrown and stays one (`./bootFailure`).
+// CLIENT_ERROR_BEACON_ADAPTATION, part A (Codex on #685): the capture is on before the selected page's chunk is even asked
+// for, so a failed import (`chunkload`) and every error or graphics event of the front end or the test room has its
+// listener; the pages' own installs after this are no-ops (one install a window).
+installClientErrorBeacon(window, pageClientErrorBeacon());
 startPwa(window);
 void bootPage(location.pathname + location.search).catch(bootFailure);

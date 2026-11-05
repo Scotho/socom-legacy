@@ -24,8 +24,11 @@ export const SCREEN_ORIGIN_Y_LINES_PLACEHOLDER = 1;
  */
 export const SCREEN_ORIGIN_ADAPTATION = 'the drawn frame translated by the origin, in frame pixels at the drawn scale' as const;
 
-/** The canvases the origin moves: the front end's, the test room's (`#view`) and the front end's match's (`./picture` MATCH_CANVAS_CLASS). */
-export const SCREEN_ORIGIN_CANVASES = ['#front-end', '#view', 'canvas.s2u-match'] as const;
+/**
+ * The canvases the origin moves: the front end's, its GPU twin (`#front-end-gpu`, GM-12b `./uiGpuFront`: the same box,
+ * the same origin), the test room's (`#view`) and the front end's match's (`./picture` MATCH_CANVAS_CLASS).
+ */
+export const SCREEN_ORIGIN_CANVASES = ['#front-end', '#front-end-gpu', '#view', 'canvas.s2u-match'] as const;
 
 /** The frame's drawn scale in a box (`object-fit: contain` of 640 x 448). */
 export function frameScale(box: { width: number; height: number }): number {

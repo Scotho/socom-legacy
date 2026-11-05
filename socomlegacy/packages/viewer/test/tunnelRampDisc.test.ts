@@ -49,12 +49,16 @@ const walkUp = (g: Grid, x: number, stance: 'stand' | 'crouch'): Walker => {
 };
 
 describe.skipIf(!HAVE_DISC)(`LATER 412: Frostfire's tunnel ramp foot, standing and crouched alike${HAVE_DISC ? '' : ' (no dev disc: SOCOM_DISC or SOCOM_PC_ROOT -- skipped)'}`, () => {
-  it('square on to tun1_4 at x 382.81: standing and crouched both stop at the 3.5 radius (z 1116.5)', async () => {
+  // SEGMENT-BODY: the stop is the centre segment's reach, 1.1 x 1.4 r = 5.39 (D:L415166, D:L415235), less part of a 60 Hz
+  // move: standing z 1114.48 (5.52 off the face at z 1120); crouched the forward reach is x 1.75 (D:L415354-415371): z
+  // 1110.43 (9.57 off). [reading, pending a capture: r0004's flat-wall standing stand-off is 6.78, the open 30 Hz settle,
+  // H404] Was: both at the disc's 3.5 radius, z 1116.5.
+  it("square on to tun1_4 at x 382.81: standing and crouched stop at the centre segment's reach (z 1114.5, crouched 1110.4)", async () => {
     const g = await mp2();
     for (const stance of ['stand', 'crouch'] as const) {
       const w = walkUp(g, 382.81, stance);
       expect(w.posture, stance).toBe(stance);
-      expect(w.state.z, stance).toBeCloseTo(1116.5, 1);
+      expect(w.state.z, stance).toBeCloseTo(stance === 'stand' ? 1114.5 : 1110.4, 1);
       expect(w.state.y, stance).toBeCloseTo(63.19, 1);
       expect(w.wallHits().map((h) => h.poly.path), stance).toContain('worldmodel/tun1_4');
     }

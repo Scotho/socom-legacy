@@ -421,7 +421,9 @@ describe('Display: graphics compatibility (browser adaptation)', () => {
   it('offers a saved compatibility setting without a disc and resets to automatic', () => {
     const { options } = boot();
     const row = options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
-    expect(row).toMatchObject({ label: 'Graphics mode', values: ['Automatic', 'Compatibility', 'Xbox'], def: 0 });
+    // WEBGL2-DEFAULT (the owner's word, 2026-11-05; a browser adaptation): Automatic is WebGL2; WebGPU is its own value.
+    expect(row).toMatchObject({ label: 'Graphics mode', values: ['Automatic', 'Compatibility', 'Xbox', 'WebGPU'], def: 0 });
+    expect(row.about).toBe('Automatic uses WebGL2 for now, the same as Compatibility. WebGPU asks for WebGPU where the browser offers it; if the game loads to a black screen, use Automatic or Compatibility. Xbox also turns off edge smoothing for better performance.');
     expect(row.locked).toBeUndefined();
     expect(row.note).toContain('Reload');
     options.set('graphics-backend', 1);
@@ -430,6 +432,9 @@ describe('Display: graphics compatibility (browser adaptation)', () => {
     options.set('graphics-backend', 2);
     expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('xbox');
     expect(options.value('graphics-backend')).toBe(2);
+    options.set('graphics-backend', 3);
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('webgpu');
+    expect(options.value('graphics-backend')).toBe(3);
     options.reset('graphics-backend');
     expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('auto');
     options.set('graphics-backend', 99);
@@ -444,6 +449,15 @@ describe('Display: graphics compatibility (browser adaptation)', () => {
       expect(options.value('graphics-backend')).toBe(1);
       options.reset('graphics-backend');
       expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBeNull();
+    } finally { history.replaceState(null, '', '/'); }
+  });
+  it('names a ?renderer=webgpu address as WebGPU (WEBGL2-DEFAULT)', () => {
+    history.replaceState(null, '', '/?renderer=webgpu');
+    try {
+      const { options } = boot();
+      const row = options.categories().find(c => c.id === 'display')!.rows.find(r => r.id === 'graphics-backend')!;
+      expect(row.locked).toBe('Selected by address: WebGPU');
+      expect(options.value('graphics-backend')).toBe(3);
     } finally { history.replaceState(null, '', '/'); }
   });
 });

@@ -42,8 +42,8 @@ const seen = (p: Page): Promise<Seen | null> => p.evaluate(() => {
   const parts = s.parts.current;
   const rec = parts?.dialog.design.controls.find((c) => c.name === 'AVAILABLE_MISSIONS');
   const list = rec?.widget ? parts!.widgets.of(rec.widget) as unknown as { focus: number } : null;
-  const canvas = document.querySelector('canvas#front-end') as HTMLCanvasElement | null;
-  const undrawn = canvas ? s.render(canvas.getContext('2d')!).undrawn : ['no canvas'];
+  // GM-09: what the page's last frame left undrawn (`FrontEndSession.undrawn`), not a second draw of the spec's own.
+  const undrawn = s.presenter ? [...s.undrawn()] : ['no frame'];
   return { dialog: sh.currentName, focused, ready: sh.switchState === -1 && sh.inputTimer <= 0, row: list?.focus ?? -1, shown, undrawn };
 });
 

@@ -680,9 +680,9 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   0.946 (14.19 u/s aside) against round 4's 0.911 (13.68 u/s) at pad 0.40. Owed: `+0x244` traced through the first
   crouched frames.
 - **`CROUCH_RUN_RETURN_READING`** (`mover.ts`; §6f, the review's N2 (b); shared with COMBINED): the original's 0x11 then
-  0x12 after a full-stick pop let go, and its posture crouch through the run; the port's idle at once and posture
-  stand (the hull and hit volumes follow it). Owed: `FUN_00584c60`'s idle branch and the run's posture write, ported
-  under OT.R93's gate.
+  0x12 after a full-stick pop let go, and its posture crouch through the run. The release is built (LATER 678,
+  2026-11-04, 'stand-to-crouch': `FUN_00584c60`'s idle branch, research 217 §2.9; SEPARATE only, OT.R93's gate);
+  the posture stand through the run is not (the hull and hit volumes follow it). Owed: the run's posture write.
 - **`STANCE_PRESS_REARM_READING`** (`stanceButton.ts`, 1; MOVE-S6 §6g; SEPARATE only; research 373's row): a new
   stance press needs one idle game frame after its release frame (`FUN_00594cf0` D:L453332-453333, `+7` at 0; r0004
   0x59b448-0x59b458). **Proven** by capture 2026-11-03 (S6-PROVEN, §6g: the light press about 67 ms after the full

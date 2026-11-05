@@ -141,6 +141,31 @@ export class MenuPageInput implements MenuInputSource {
       e.stopPropagation();                                          // the document's other capture listeners still run
     };
     const blur = (): void => this.release();
+    const doc = canvas.ownerDocument;
+    if (import.meta.env.DEV) {                                       // OT.R29: the keys are a development build's only
+      keyboardSite('s2u-kb-menus');
+      doc.addEventListener('keydown', key, { capture: true });
+      doc.addEventListener('keyup', key, { capture: true });
+    }
+    win.addEventListener('blur', blur);
+    const pointerOff = this.attachPointer(input, canvas);
+    const detach = (): void => {
+      doc.removeEventListener('keydown', key, { capture: true });
+      doc.removeEventListener('keyup', key, { capture: true });
+      win.removeEventListener('blur', blur);
+      pointerOff();
+      this.release();
+    };
+    return detach;
+  }
+
+  /**
+   * The pointer on one canvas: a `pointerdown` a tap at its frame point (`framePoint` of that canvas's own box), and
+   * nothing of the pointer reaching the page beneath. Answers its detach. `attach` takes the front end's canvas so;
+   * GM-12b takes `#front-end-gpu` too (`MenuPageAttachment.also`), whose box is `#front-end`'s, so a tap lands on the
+   * same frame point whichever canvas shows (a browser adaptation, as the rest of this file).
+   */
+  attachPointer(input: Pick<MenuInput, 'tap'>, canvas: HTMLCanvasElement): () => void {
     const pointer = (e: Event): void => {
       e.stopPropagation();
       if (e.type === 'pointerdown') {
@@ -150,22 +175,8 @@ export class MenuPageInput implements MenuInputSource {
         e.preventDefault();
       }
     };
-    const doc = canvas.ownerDocument;
-    if (import.meta.env.DEV) {                                       // OT.R29: the keys are a development build's only
-      keyboardSite('s2u-kb-menus');
-      doc.addEventListener('keydown', key, { capture: true });
-      doc.addEventListener('keyup', key, { capture: true });
-    }
-    win.addEventListener('blur', blur);
     for (const t of POINTER_EVENTS) canvas.addEventListener(t, pointer, { passive: false });
-    const detach = (): void => {
-      doc.removeEventListener('keydown', key, { capture: true });
-      doc.removeEventListener('keyup', key, { capture: true });
-      win.removeEventListener('blur', blur);
-      for (const t of POINTER_EVENTS) canvas.removeEventListener(t, pointer);
-      this.release();
-    };
-    return detach;
+    return () => { for (const t of POINTER_EVENTS) canvas.removeEventListener(t, pointer); };
   }
 }
 
@@ -174,6 +185,11 @@ export interface MenuPageAttachment {
   readonly page: MenuPageInput;
   /** The session's input: its source the page (the keys before it forgotten), the taps its. */
   connect(input: MenuInput): void;
+  /**
+   * GM-12b: the taps on another canvas over the same box (`#front-end-gpu`) too -- its pointer kept from the page, its
+   * taps the same input's; the keys, the pad and the touch layer stay the one source. Let go by `detach`.
+   */
+  also(canvas: HTMLCanvasElement): void;
   detach(): void;
 }
 
@@ -196,10 +212,13 @@ export function attachMenuInput(canvas: HTMLCanvasElement, win: Window, deadZone
   poll();
   const page = new MenuPageInput(poll, () => touch.read(), deadZone);
   let input: MenuInput | null = null;
-  const detach = page.attach({ tap: (x, y) => input?.tap(x, y) ?? null }, canvas, win);
+  const tap = { tap: (x: number, y: number) => input?.tap(x, y) ?? null };
+  const detach = page.attach(tap, canvas, win);
+  const others: (() => void)[] = [];
   return {
     page,
     connect: (i) => { page.release(); touch.release(); input = i; i.source = page; },
-    detach: () => { detach(); touch.dispose(); },
+    also: (c) => { others.push(page.attachPointer(tap, c)); },
+    detach: () => { for (const off of others.splice(0)) off(); detach(); touch.dispose(); },
   };
 }

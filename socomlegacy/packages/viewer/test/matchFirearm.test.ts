@@ -2575,3 +2575,21 @@ describe('LATER 644: another player\'s round passing the page\'s player plays .B
     expect(played).toEqual([]);
   });
 });
+
+describe("SEGMENT-BODY part 4 (fresh review 1's F1): the page's mover casts the weapon line its kit holds", () => {
+  // `FUN_0054e8f0` takes the length from the model of the kit's entry the hand byte picks (D:L416869-416870,
+  // D:L416892-416902): the kit's two firearm models (`slotModel`) go to the walk at a spawn and at a pickup, and every
+  // mover the walk makes (a respawn's) carries them.
+  const heldOf = (walk: WalkMode): unknown => (walk as unknown as { walker: { heldModels: unknown } | null }).walker?.heldModels;
+  it('spawnKit hands the walk the kit\'s models; a respawn\'s new mover holds them; a pickup\'s kit replaces them', () => {
+    const { firearm, walk } = rig();
+    firearm.spawnKit('seal', [254, 16, 123, 122, 254]);          // no primary (FULL_SLOT), a sidearm
+    walk.setGround(FLOOR, null);
+    expect(walk.respawn([0, 0, 0], 0)).toBe(true);
+    expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23' });
+    firearm.spawnKit('seal');                                    // the baked kit: the M4A1 SD and the Mark 23
+    expect(heldOf(walk)).toEqual({ rifle: 'm4Acarbine_sd', pistol: 'a_mark23' });
+    firearm.takeKit([254, HELD_SIDEARM.id, 121, 255, 255], null, [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [12, 0, 0, 0, 0, 0, 0, 0, 0, 0]]);
+    expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23' });
+  });
+});
