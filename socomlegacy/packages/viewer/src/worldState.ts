@@ -731,7 +731,8 @@ export class WorldState {
    */
   private sync(was: ReadonlyMap<string, boolean>, changed: readonly string[], bump = changed.length > 0): void {
     const owners = this.ground.owners;
-    for (let i = 0; i < owners.length; i++) setOwnerActive(owners[i]!, this.base[i], activeIn(this.own, owners[i]!.path));
+    // R4B-09 (research 383): a node r0004 switched off at load stays off, whatever the zAnim references say.
+    for (let i = 0; i < owners.length; i++) setOwnerActive(owners[i]!, this.base[i], !owners[i]!.switchedOff && activeIn(this.own, owners[i]!.path));
     const off = [...this.own].filter(([, on]) => !on).map(([path]) => path);
     for (const path of changed) {
       const on = this.own.get(path) ?? true;

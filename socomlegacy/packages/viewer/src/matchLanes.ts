@@ -1,5 +1,5 @@
 import { fireModeInputFor, type FireModeSetting } from './fireModeInput';
-import { pressedSince, type Input } from './gamepad';
+import { pressedSince, stanceLane, type Input } from './gamepad';
 import type { MatchFirearm } from './matchFirearm';
 import { playActions } from './play';
 import { PRONE_POP_ADAPTATION, type StanceButton } from './stanceButton';
@@ -60,7 +60,7 @@ export function playerLanes(l: LaneParts, before: Input, after: Input, dt: numbe
   // OT.R76: the Jump lane's fresh press -- the pop inside a stance hold's drop or dive (`WalkMode.jumpPress`), else the
   // native jump; a menu frame closes the pop's window, and so does a fresh stance press, before the jump (the review's 2:
   // a fresh Triangle and Square on one frame is no pop, as Benny's core clears the window at the frame's start).
-  if (o.menu || (after.stance && !before.stance)) walk.disarmPop?.();
+  if (o.menu || (stanceLane(after) && !stanceLane(before))) walk.disarmPop?.();   // OT.R107: the stance lane's Triangle
   if (!o.menu && o.walking && playActions(before, after).jump) { if (walk.jumpPress) walk.jumpPress(); else walk.jump(); }
   if (!o.menu) l.action?.(before, after, dt);
   if (o.walking) {
@@ -85,6 +85,7 @@ export function playerLanes(l: LaneParts, before: Input, after: Input, dt: numbe
   // STM.R1 (the owner, 2026-10-30: "The original triangle button (prone) gets disabled for this mode"): in SEPARATE the
   // pad's reader takes Triangle's button from the game while the profile's Prone is bound (`./controllerInput` `poll`;
   // the review's F1 moved the gate there from here, where the profile is not known), so `after.stance` is taken as given.
-  l.stanceButton.lanes(walk.stanceMode?.() ?? PRONE_POP_ADAPTATION, { triangle: walking && after.stance, prone: walking && after.prone }, dt, walk);
+  // OT.R107: a SEPARATE Prone bind's Triangle (`Input.stanceOff`) is Triangle's action only, never the stance (`stanceLane`).
+  l.stanceButton.lanes(walk.stanceMode?.() ?? PRONE_POP_ADAPTATION, { triangle: walking && stanceLane(after), prone: walking && after.prone }, dt, walk);
   firearm.viewLanes(walking);                         // the view from the head past third person, the scope's walk, the binoculars
 }

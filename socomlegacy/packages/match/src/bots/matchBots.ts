@@ -1178,7 +1178,9 @@ export class MatchBots {
     if (this.navigation.offset(feet, x / d, z / d, 8)) return [x, z];
     // At a ramp or wall edge, a sideways separation probe can fail while the planned forward leg is clear.
     // Preserve that leg when it clears teammates; otherwise the group can stop forever on a valid route.
-    const forward = this.navigation.offset(feet, dx, dz, 8);
+    // LATER 684: the leg's walls asked of the body's centre (`legClearOfWalls`): a corner within the side lines' reach is
+    // the walker's and the corner steering's, and the teammates along the leg are asked (BOT-CORNER, below).
+    const forward = this.navigation.legClearOfWalls(feet, dx, dz, 8);
     if (forward && clearPass(forward)) return [dx, dz];
     // Batch 5: stamp the first teammate (in id order) whose body refused this leg, for its own give-way next tick.
     const blocker = forward ? allies.slice().sort((a, c) => a.id - c.id).find((q) => q.id !== b.id && !legClear(q, forward)) : undefined;

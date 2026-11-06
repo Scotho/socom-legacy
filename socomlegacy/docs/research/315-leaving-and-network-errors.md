@@ -204,6 +204,18 @@ E3). `CheckTeamStatus` answers the socket's state, so #367 shows when the seat i
 
 *Built 2026-10-14 (VERSION-ABORT, E3; reading, pending review)*: the version refusal no longer takes errno 32 -- §11.
 
+**R4B-00 source correction (2026-11-04; reading, pending review).** The peer's game-version word is distinct from
+`PATCH_LEVEL`: retail `FUN_002c00f0` writes `0x47` (D:L163070-163072), and `FUN_002c0850` compares the peer's
+`+0x14` word to `0x47` / mode-1/2 `0x817` (D:L163320-163326). r0004 loads `0x49` in its writer at `0x2c1e3c`
+and reader at `0x2c2620`, adds the same `0x7d0` in modes 1/2, and posts the mismatch event through
+`0x2c2638-0x2c2658` (event string `0x41dd60`). Re-read in the PINE aggregate
+`game/overlays_r0004/socom2_game_r0004.elf` and pristine `game/r0004/served/ftscore.bin`.
+This is O1's source explanation for research 343's cross-revision walk-back; those logs are a recomp capture,
+not an original-runtime comparison. The patch token's `VerifyPatchLevel` is the earlier universe-select gate
+(`FUN_002fd6e0`, D:L199829-199850; research 153 R153.7), not this peer event. The port's protocol-hello refusal is
+its documented stand-in (§11), not a new transcription of the original GameObject wire (OT.R27); R4B-23 owns the
+eventual version-value switch.
+
 ### 3.7 The lobby connection elsewhere
 
 R315.7. Built through ONL-07's lobby client (state 2's MP_MEDIUS_ERROR with #450) and the sets' own

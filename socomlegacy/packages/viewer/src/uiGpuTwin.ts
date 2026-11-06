@@ -60,15 +60,19 @@ export const UI_GPU_TWIN_UNORM_ADAPTATION = 'f32 blend of [0, 1] values, one rou
  * outside every model box (`quads*`: the 2D rounding apart from the models' edges and depth ties). Measured by
  * `test/uiGpuTwin.disc.test.ts` in its default sample (1x every distinct frame; 2x and 4x sampled, its comment) on the
  * dev disc at 0e0cc6e44, the ppm rounded up at the second decimal; the test holds every later run at most at these. Changed
- * only by a Log entry naming the run that moved it (never widened by feel, GM.R5).
+ * only by a Log entry naming the run that moved it (never widened by feel, GM.R5). **Re-pinned 2026-11-06 (the plan's Log,
+ * GM-15b land):** the ppm and quadsPpm now as measured on origin/main 13cdc9a48 (the tally on the host, the twin on box
+ * s1f), the same excess on GM-15b's branch; the cause is CPS-4b's VIDEO OPTIONS rows (40e037620, 10ff4f3a8): more 2D
+ * quads, unchanged model columns, 0 differing pixels, exact class 0 bytes. These pins are readings of the port's own
+ * output, not the original's. The max |Δ| values are unchanged.
  */
 export const UI_GPU_TWIN_CORPUS_B = Object.freeze({
-  '1x exact': { maxAbs: 123, ppm: 1929.47, quadsMaxAbs: 3, quadsPpm: 1925.57 },
-  '1x ff': { maxAbs: 123, ppm: 5467.70, quadsMaxAbs: 3, quadsPpm: 5463.54 },
-  '2x exact': { maxAbs: 29, ppm: 3112.48, quadsMaxAbs: 2, quadsPpm: 3105.49 },
-  '2x ff': { maxAbs: 29, ppm: 6232.59, quadsMaxAbs: 2, quadsPpm: 6224.95 },
-  '4x exact': { maxAbs: 82, ppm: 3105.42, quadsMaxAbs: 2, quadsPpm: 3098.34 },
-  '4x ff': { maxAbs: 82, ppm: 6248.02, quadsMaxAbs: 2, quadsPpm: 6240.18 },
+  '1x exact': { maxAbs: 123, ppm: 1932.11, quadsMaxAbs: 3, quadsPpm: 1928.21 },
+  '1x ff': { maxAbs: 123, ppm: 5476.74, quadsMaxAbs: 3, quadsPpm: 5472.58 },
+  '2x exact': { maxAbs: 29, ppm: 3113.04, quadsMaxAbs: 2, quadsPpm: 3106.06 },
+  '2x ff': { maxAbs: 29, ppm: 6234.77, quadsMaxAbs: 2, quadsPpm: 6227.12 },
+  '4x exact': { maxAbs: 82, ppm: 3105.70, quadsMaxAbs: 2, quadsPpm: 3098.61 },
+  '4x ff': { maxAbs: 82, ppm: 6249.70, quadsMaxAbs: 2, quadsPpm: 6241.86 },
 } as const);
 
 // ---- the quad steps (S1-S13): the software's `fillQuad` (uiCompositorView.ts :208-318), in f32 ----------------------
@@ -198,9 +202,9 @@ export interface UiGpuTwinFrame {
 
 /**
  * GM.R10's depth scale for a pass: the plan's (`UiPlanPass.depthScale`, `passDepthScale` in `uiFramePlan.ts`; GM-15a
- * settled it there, the twin's former model unchanged), so the twin and the GPU's `u_depthScale` read one value. The
- * largest power of two `2^-k`, k >= 0, that brings every vertex's f32 `invW` to at most 1; a power of two changes no
- * comparison unless it underflows (GM-06b review F3, GM-15b's).
+ * settled it there), so the twin and the GPU's `u_depthScale` read one value. The largest power of two `2^-k`, k >= 0,
+ * that brings every vertex's f32 `invW` to at most 1/2 (GM-15b: no pixel's depth reaches the clamp at 1); a power of
+ * two changes no comparison unless it underflows, which the plan refuses (`UI_GPU_MODEL_DEPTH_FLOOR`, GM-15b).
  */
 export function twinDepthScale(plan: UiFramePlan, pass: number): number {
   return plan.passes[pass]!.depthScale;

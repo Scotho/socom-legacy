@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ControllerInput, TOUCHPAD_BUTTON } from '../src/controllerInput';
-import { noInput, padInput, type Input } from '../src/gamepad';
+import { noInput, padInput, stanceLane, type Input } from '../src/gamepad';
 import { playerLanes, type LaneParts } from '../src/matchLanes';
 import { StanceButton } from '../src/stanceButton';
 import { SETUP_KEY, controllerStanceMode, defaultController, setControllerStanceMode, type ControllerConfig } from '../src/startupSettings';
@@ -116,7 +116,7 @@ describe('PS2P: SEPARATE with a pressure pad feeds its Crouch and Prone binds fr
   it('Triangle\'s own stance does nothing in SEPARATE (Prone bound: STM.R1\'s triangleOff) -- only the binds act', () => {
     const r = chain(separatePressurePad());
     const i = r.frame(0.8);
-    expect(i.stance).toBe(false);
+    expect(stanceLane(i), 'OT.R107: the Prone button is Triangle\'s action, never the stance lane').toBe(false);
   });
 
   it('an explicit digital preference (`nativePressure: false`) keeps the pad digital: a shared bind is read as Prone alone', () => {

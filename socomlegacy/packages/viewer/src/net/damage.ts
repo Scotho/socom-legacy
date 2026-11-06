@@ -75,9 +75,9 @@ export function bulletDamage(w: { impactDamage?: number; damageModifier?: number
  * toward zero. The piercing is the table's single (`Math.fround`) times 20.0 in single precision, rounded as the EE's FPU
  * rounds (`PIERCE_ROUNDING_READING`, `chopSingle`). The damage is truncated as given: a single chopped toward zero never
  * crosses an integer (every integer under 2^24 is a single), so `trunc(chop(x)) = trunc(x)` -- and rounding it to the
- * nearest single first could carry 35.9999999 up to 36. For a bullet's, a volley pellet's and a launched round's direct
- * hit; a blast's fragments and a fall are applied on the victim's console from its own copy (`FUN_005a0e70`,
- * `FUN_005ac1f0`) and stay float.
+ * nearest single first could carry 35.9999999 up to 36. For a bullet's and a launched round's direct hit; a shotgun
+ * packet only gates admission (`pelletDamage`), then its receiver reads raw ammo floats. A blast's fragments and a
+ * fall are applied on the victim's console from its own copy (`FUN_005a0e70`, `FUN_005ac1f0`) and stay float.
  */
 export function quantiseHit(dmg: number, piercing: number): { damage: number; piercing: number } {
   const byte = (x: number): number => Math.min(255, Math.max(0, Math.trunc(x)));
@@ -245,15 +245,16 @@ export function shotgunPellets(distance: number, random: () => number): number {
 }
 
 /**
- * SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING (research 94 §C2.1): each pellet's damage. The online receiver
- * (`FUN_005a1b80` L459540-459570) takes `FUN_003d4530` (the ammo's raw `ImpactDamage`) per pellet; the offline path
- * `FUN_003c7600` (the falloff and x 14). Whether the raw one is scaled on the way is not traced; the reading is
- * research 91 §1.1's -- **each pellet a full round's damage, falloff and x 14** (`bulletDamage`): the raw 2.5 would
- * never pass the armour (25 at piercing 6 takes 10 a hit), and the shotguns would do nothing online.
+ * Online receiver damage per recounted pellet (research 94 C2.1; retail reading, r0004 unverified).
+ * FUN_005a1b80 D:L459543-459566 requires a positive incoming damage byte, then uses raw ammo ImpactDamage
+ * (FUN_003d4530, D:L326645-326650), with no per-pellet scale, falloff, modifier or integer conversion.
+ * The sender's scaled projectile damage is truncated/clamped by FUN_002bbda0 D:L160870-160879. Preserve that
+ * admission gate: a zero packet near maximum range cannot turn into a positive raw-ammo hit on receipt.
  */
-export const SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING: 'scaled' | 'raw' = 'scaled';
 export function pelletDamage(w: Parameters<typeof bulletDamage>[0], distance: number): number | null {
-  return SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING === 'scaled' ? bulletDamage(w, distance) : (w.impactDamage ?? 0);
+  const incoming = bulletDamage(w, distance);
+  if (incoming === null || quantiseHit(incoming, 0).damage <= 0) return null;
+  return w.impactDamage ?? 0;
 }
 
 export function fragmentPart(random: () => number): number {

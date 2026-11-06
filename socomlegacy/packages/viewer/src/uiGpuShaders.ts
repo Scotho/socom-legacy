@@ -368,7 +368,8 @@ flat in vec4 t_ca;
 flat in vec4 t_cb;
 flat in vec4 t_cc;
 uniform usampler2D u_tex;
-// The pass's power-of-two depth scale (UiPlanPass.depthScale, GM.R10): every vertex's invW times it is at most 1.
+// The pass's power-of-two depth scale (UiPlanPass.depthScale, GM.R10): every vertex's invW times it is at most 1/2 and,
+// the plan refusing the rest, at least 2^-100 (GM-15b): the clamp below never acts on a planned pass.
 uniform float u_depthScale;
 out vec4 o_colour;
 

@@ -164,6 +164,18 @@ const FALL_IN_WATER_ANIM = 'seal_fall_in_water';
 export const FOOTPRINT_SIZE = 3.5;
 export const MAX_FOOTPRINTS = 150;
 
+/**
+ * MAX_EFFECT_RUNS_ADAPTATION -- a browser adaptation with no original counterpart (the game's zAnim list is its own
+ * pools'; nothing here reads it): the most effect runs the page holds, the rounds' oldest retired first, silently (`makeRoom`).
+ * A hidden tab runs no animation frame, so the runs another player's rounds start off the socket were never stepped or
+ * retired, and the return stepped -- and sounded -- every one at once (the owner's report, 2026-11-06: an audio fault
+ * that "starts while the browser is tabbed off and never recovers"). Measured, not read: 16 shooters, each firing a
+ * round that hits every game frame (`GAME_FRAME_DT`, faster than any firearm), stepped at 60 Hz on Frostfire's data,
+ * peak at 983 runs (2026-11-06); the cap is over twice that bound, so no visible match meets it, and a stalled frame
+ * loop's backlog stops at it (`effects.test.ts`, "a hidden tab's round backlog", which holds the 2x margin).
+ */
+export const MAX_EFFECT_RUNS_ADAPTATION = 2048;
+
 /** One live instance of an effect model (a casing, a flash), made for a run and dropped with it. */
 interface Instance { object: Object3D; model: string }
 
@@ -210,6 +222,8 @@ interface RunContext {
    * (MP2's ambient `firey_flames` calling its lights on and off) keeps no growing list.
    */
   parent?: EffectRun;
+  /** A round's run (`onRound`, and what its runs call): `retireRounds` lets it go at a hidden tab's return. */
+  round?: boolean;
 }
 
 export interface EffectStats {
@@ -283,6 +297,12 @@ export class Effects {
    * its end and not retired, so a freeze can look at it. Off unless that URL flag is set.
    */
   private tracerHold = false;
+  /** Inside `onRound`: the runs started are a round's (`RunContext.round`). */
+  private inRound = 0;
+  /** Inside `update`'s stepping: a retired run leaves the list at the frame's sweep, not mid-step. */
+  private stepping = false;
+  /** Retiring (`makeRoom`, `retireRounds`): a stopped run's cleanup sounds nothing (MAX_EFFECT_RUNS_ADAPTATION). */
+  private hush = 0;
 
   constructor(
     private readonly random: () => number = Math.random,
@@ -542,7 +562,9 @@ export class Effects {
   private start(program: EffectProgram, place: EffectPlace, ambient = false, parent: EffectRun | null = null): EffectRun {
     this.played[program.name] = (this.played[program.name] ?? 0) + 1;
     if (program.name.toLowerCase() === FALL_IN_WATER_ANIM) this.water.splashes++;
-    const run = new EffectRun(program, this.host, { place, instance: null, ambient, ...(parent ? { parent } : {}) } satisfies RunContext);
+    const round = this.inRound > 0 || (parent ? (parent.context as RunContext).round === true : false);
+    const run = new EffectRun(program, this.host, { place, instance: null, ambient, ...(parent ? { parent } : {}), ...(round ? { round } : {}) } satisfies RunContext);
+    if (this.runs.length >= MAX_EFFECT_RUNS_ADAPTATION) this.makeRoom();
     this.runs.push(run);
     run.update(0);
     return run;
@@ -692,6 +714,11 @@ export class Effects {
 
   onRound(e: FireEvent, weapon: { node: CallerNode; muzzle: Vec3 | null } | null, zoomed: boolean): void {
     if (e.type !== 'round') return;
+    this.inRound++;
+    try { this.playRound(e, weapon, zoomed); } finally { this.inRound--; }
+  }
+
+  private playRound(e: Extract<FireEvent, { type: 'round' }>, weapon: { node: CallerNode; muzzle: Vec3 | null } | null, zoomed: boolean): void {
     // LATER 366 (OT.R80): a round sent from the head because a wall stood before the muzzle keeps its tracer at the
     // muzzle (`tracerFrom`), the original's tracer origin (research 89 §4 and §19, `FUN_003d5030`). P12b: another's round
     // that struck a body runs its tracer to the round's end past it (`tracerTo`, the room's `shot.end`), not the body.
@@ -724,8 +751,18 @@ export class Effects {
     if (this.paused) dt = 0;
     this.stepScriptRounds(dt);
     this.stepTracers(dt);
-    for (let i = 0; i < this.runs.length; i++) this.runs[i]!.update(dt);   // calls append runs, which start this tick
+    this.stepping = true;
+    try {
+      for (let i = 0; i < this.runs.length; i++) this.runs[i]!.update(dt);   // calls append runs, which start this tick
+    } finally { this.stepping = false; }
     this.poseTracers();
+    this.sweepRuns();
+    this.particles.update(dt, camera);
+    this.lights.update(dt);
+  }
+
+  /** The runs that ended leave the list, and their objects the scene. */
+  private sweepRuns(): void {
     const alive: EffectRun[] = [];
     for (const run of this.runs) {
       if (!run.finished) { alive.push(run); continue; }
@@ -734,8 +771,56 @@ export class Effects {
       if (ctx.instance && !this.tracerHolds(run)) this.object.remove(ctx.instance.object);
     }
     this.runs = alive;
-    this.particles.update(dt, camera);
-    this.lights.update(dt);
+  }
+
+  /** Whether the run is a map's ambient effect or one it called (never retired by the cap). */
+  private ambientRooted(run: EffectRun): boolean {
+    for (let r: EffectRun | undefined = run; r; r = (r.context as RunContext).parent) if ((r.context as RunContext).ambient) return true;
+    return false;
+  }
+
+  /**
+   * MAX_EFFECT_RUNS_ADAPTATION (a browser adaptation): room for one more run -- the live ones over the cap retired,
+   * silently: the rounds' runs first, oldest first (a second or two each), and only when none is left the other runs,
+   * oldest first (the review's F1: a smoke grenade's long screen, likely the oldest run, is not the first to go). Never a
+   * map's ambient run or one it called, nor a travelling tracer's (its pool is the original's `TRACER_POOL`). Mid-step
+   * they leave the list at the frame's sweep; else at once.
+   */
+  private makeRoom(): void {
+    if (!this.stepping) this.sweepRuns();
+    let live = 0;
+    for (const run of this.runs) if (!run.finished) live++;
+    let left = live - MAX_EFFECT_RUNS_ADAPTATION + 1;
+    if (left <= 0) return;
+    this.hush++;
+    try {
+      for (const rounds of [true, false]) {
+        for (const run of this.runs) {
+          if (left <= 0) break;
+          if (run.finished || ((run.context as RunContext).round === true) !== rounds) continue;
+          if (this.ambientRooted(run) || this.tracerHolds(run)) continue;
+          run.stop();
+          left--;
+        }
+      }
+    } finally { this.hush--; }
+    if (!this.stepping) this.sweepRuns();
+  }
+
+  /**
+   * A browser adaptation (MAX_EFFECT_RUNS_ADAPTATION's report): every round's run -- its muzzle, casing, impact and
+   * tracer, and what they called -- let go at once, silently, with the tracers' flights. A hidden tab's return calls it
+   * (`./matchFirearm`): a round's effects outlive it by a second or two, so nothing seen is lost, and none of a frozen
+   * backlog steps or sounds. The map's ambient effects, the grenades' and the scripts' runs stay.
+   */
+  retireRounds(): void {
+    for (const t of [...this.tracers]) this.retireTracer(t);
+    this.tracerTime = 0;
+    this.hush++;
+    try {
+      for (const run of this.runs) if ((run.context as RunContext).round && !run.finished) run.stop();
+    } finally { this.hush--; }
+    if (!this.stepping) this.sweepRuns();
   }
 
   /** Everything playing stops (a new map). */
@@ -1051,6 +1136,7 @@ export class Effects {
   }
 
   private playSound(raw: string, at: Vec3, volume: number): void {
+    if (this.hush > 0) return;                       // MAX_EFFECT_RUNS_ADAPTATION: a retired run's cleanup is silent
     const name = fixSoundName(raw);   // the one name table (`@s2u/sound`)
     this.sounds.push(name);
     if (this.sounds.length > 64) this.sounds.splice(0, this.sounds.length - 64);

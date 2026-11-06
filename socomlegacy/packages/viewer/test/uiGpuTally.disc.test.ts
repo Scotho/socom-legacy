@@ -25,7 +25,11 @@ import { CORPUS_SKIP, HAVE_CORPUS_DISC, walkMenuCorpus, type RecordedFrame } fro
  *
  * The tally is written to research 380 §3 between the markers; this test asserts the note's table is the one it
  * computes. `GM04_TALLY_WRITE=1` rewrites the note's block instead (the tool's mode). Skips without the disc
- * (`SOCOM_DISC`, else `SOCOM_PC_ROOT/game/disc`), naming it.
+ * (`SOCOM_DISC`, else `SOCOM_PC_ROOT/game/disc`), naming it. The block was re-filed 2026-11-06 (dlgOptions_Video,
+ * the Settings overlay, the probe's pixels written), measured on origin/main 13cdc9a48 (the tally on the host, the twin
+ * on box s1f), the same excess on GM-15b's branch; the cause is CPS-4b's VIDEO OPTIONS rows (40e037620, 10ff4f3a8):
+ * more 2D quads, unchanged model columns, 0 differing pixels, exact class 0 bytes. These pins are readings of the
+ * port's own output, not the original's.
  */
 
 // The overlay's frames are taken where it hands them to the drawer (no source change: a recorder around the export).

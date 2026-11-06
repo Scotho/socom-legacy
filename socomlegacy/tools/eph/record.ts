@@ -195,6 +195,39 @@ export interface RecordedEvent {
   readonly flagged: boolean;
 }
 
+/**
+ * A live session's pause (PK-2; the parity pack's Pause, docs/specs/2026-11-03-parity-pack-design.md 5): wall and active
+ * ms since the session's zero (active = wall less the pauses before), and at each edge the guest clock (pcsx2.csv `t`
+ * x 1000) and the page tick (page.csv `tick`) of the latest sampled rows, null when none. A pause is a convenience, not a
+ * measurement: the two sides do not stop on one frame, and a finding never spans one. An end still open when the
+ * session ended is closed at the end.
+ */
+export interface SessionPause {
+  readonly n: number;
+  readonly startWall: number;
+  readonly endWall: number | null;
+  readonly startActive: number;
+  readonly startGuestMs: number | null;
+  readonly endGuestMs: number | null;
+  readonly startTick: number | null;
+  readonly endTick: number | null;
+}
+
+/** A live session's video clip (PK-2; the pack's Record): its file and the same clocks at both ends; `lost` is ffmpeg's failure. */
+export interface SessionClip {
+  readonly n: number;
+  readonly file: string;
+  readonly startWall: number;
+  readonly endWall: number | null;
+  readonly startActive: number;
+  readonly endActive: number | null;
+  readonly startGuestMs: number | null;
+  readonly endGuestMs: number | null;
+  readonly startTick: number | null;
+  readonly endTick: number | null;
+  readonly lost: string | null;
+}
+
 export interface RunRecord {
   readonly pcsx2Version: string;
   readonly renderer: string;
@@ -206,6 +239,9 @@ export interface RunRecord {
   readonly events: RecordedEvent[];
   readonly maxSkewFrames: number | null;
   readonly skewFlagged: boolean;
+  /** A session with controls only (PK-2); absent otherwise, so a run without them records as before. */
+  readonly pauses?: readonly SessionPause[];
+  readonly clips?: readonly SessionClip[];
 }
 
 export interface RunRecordInput {
@@ -224,6 +260,9 @@ export interface RunRecordInput {
    * no page side by design. Absent: every line is expected on both sides.
    */
   readonly pageLines?: Iterable<number>;
+  /** A live session's pauses and clips (PK-2): given only when the session ran with controls. */
+  readonly pauses?: readonly SessionPause[];
+  readonly clips?: readonly SessionClip[];
 }
 
 /**
@@ -260,6 +299,8 @@ export function buildRunRecord(i: RunRecordInput): RunRecord {
     pcsx2WallFps: i.pcsx2WallFps ?? null, tornRows: i.tornRows, nullRows: i.nullRows, events,
     maxSkewFrames: skews.length ? Math.max(...skews) : null,
     skewFlagged: events.some((e) => e.flagged),
+    ...(i.pauses === undefined ? {} : { pauses: [...i.pauses] }),
+    ...(i.clips === undefined ? {} : { clips: [...i.clips] }),
   };
 }
 

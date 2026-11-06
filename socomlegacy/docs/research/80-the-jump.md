@@ -104,7 +104,8 @@ over 11.487 is moved into the actor); `seal_jump` has no `UseVelY`. Its root, pe
 set's backing up)`, the tops from `FUN_0058bb50` / `FUN_0058bc00` (447619-447686) by stance -- the per-stance table
 `FUN_005e0450` (494496-494629) fills with each set's highest band end: **65 ahead, 37 back, 65 aside standing; 20 each
 way crouched**. `DAT_0064fc80` is 1 here (no renormalisation). At rest the velocity is the clip's root motion:
-`seal_jump`'s root does not travel.
+`seal_jump`'s root does not travel. *Kept by the owner's ruling OT.R108 (2026-11-06): r0004's standing jump drives the
+forward axis alone (R4B-12, research 385 §2, reading), and the port knowingly keeps this air control instead.*
 
 ### 2.4 The landing
 

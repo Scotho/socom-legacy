@@ -1,4 +1,4 @@
-# 352 -- r0004 respawn: captured instruction-image checks
+# 352 -- retail + r0004 respawn: instruction-image checks
 
 - Date: 2026-10-21.
 - Plan: [confirmed respawn gap fixes](../plans/2026-10-21-respawn-fixes.md), RSP-6/RSP-7; simulation evidence.
@@ -27,8 +27,31 @@ locator, not as the source of the conditions below.
 
 This is an independent route to the loaded reference: the earlier disc-to-ELF hash refusal remains recorded in the
 plan. No expected hash was changed and no validation check was bypassed. Neither the state nor its decoded binary,
-screenshots or disassembly is added to git. The local decompilation export remains unavailable; native r0004
-addresses below distinguish this fresh reading from inherited r0001 decompilation line references.
+screenshots or disassembly is added to git. The local decompilation export was unavailable for that original task;
+native r0004 addresses below distinguish that reading from inherited r0001 decompilation line references.
+
+### R4B-00: retail + r0004 attribution (2026-11-04)
+
+The original snapshot account above remains the historical acquisition record. The following shared rules were
+re-read in retail's `socom2_game.elf.decomp.c` and at native r0004 addresses in both
+`game/overlays_r0004/socom2_game_r0004.elf` and pristine `game/r0004/served/*.bin`. The new cross-revision
+attribution is **reading, pending review**; it neither repeats the historical runtime acquisition nor establishes
+original-runtime parity. The old source-review verdict remains its own record.
+
+| shared rule | retail original | r0004 original |
+|---|---|---|
+| Ordinary dead help: respawn set, nonspectator, model alpha exactly zero, elapsed strictly >5 s; Action line and alpha 100 | `FUN_001f97b0`, D:L57004-57038 | `0x1f9b40-0x1f9c98` |
+| Dead Action: mode 0, mapped state 1, online/respawn/nonghost/nonspectator, elapsed >5 s; latch only at alpha zero | `FUN_00592560`, D:L451673-451726 | `FUN_00597d90`, `0x597e08-0x597e68`, `0x597ef0-0x597f54`, `0x598064-0x59806c` |
+| Respawn death requests target 0, rate bits `0x3dcccccd`, priority 2 | `FUN_005979a0`, D:L454484-454491 | `FUN_0059d4a0`, `0x59d568-0x59d5e8` |
+| Fade request priority, target/rate stores and sign selection | `FUN_00552780`, D:L418720-418742 | `FUN_00557940`, `0x557950-0x5579fc` |
+| Fade integration and target clamp, flag/priority cleared | `FUN_00551ec0`, D:L418492-418503 | `FUN_00557080`, `0x557134-0x5571b8` |
+
+Respawn and ghost bytes move from retail game `+0xdc` / `+0xd2` to r0004 `+0xe0` / `+0xd6` in these readers;
+the rules above remain shared. In particular, §2's ordinary branch really does set widget alpha 100 on each eligible
+frame in both versions (retail D:L57036; r0004 `0x1f9c50-0x1f9c68`). The set-if-below-100 test at retail
+D:L57088-57095 belongs to the other ghost-help branch and is not a correction to this ordinary branch.
+The spawn picker and input producer have their retail counterparts in research 353/354. This attribution does not
+claim equivalence of every neighbouring HUD operation: R4B-22 owns the changed TeamCommand close calls.
 
 ## 2. Readiness and the help widgets
 

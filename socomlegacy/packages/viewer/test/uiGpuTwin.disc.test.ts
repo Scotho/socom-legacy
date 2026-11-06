@@ -13,7 +13,11 @@ import { CORPUS_SKIP, HAVE_CORPUS_DISC, walkMenuCorpus, type CorpusEntry, type R
  * software (`rasterizeUiDrawList`, the reference), under both blend tables: **the exact class 0 bytes**, **layered ===
  * sequential** byte for byte (GM.R7: the programmable batches), and the **B statistics** per scale and table -- per
  * channel max |Δ|, pixels at |Δ| >= 1, 2, 3, frames with any difference -- held at most at the twin's recorded leg of
- * the provisional bound (`UI_GPU_TWIN_CORPUS_B`; GM-11b adds SwiftShader's, GM-27 pins it on real GPUs).
+ * the provisional bound (`UI_GPU_TWIN_CORPUS_B`; GM-11b adds SwiftShader's, GM-27 pins it on real GPUs). Its ppm bounds were
+ * re-pinned 2026-11-06, measured on origin/main 13cdc9a48 (the tally on the host, the twin on box s1f), the same excess
+ * on GM-15b's branch; the cause is CPS-4b's VIDEO OPTIONS rows (40e037620, 10ff4f3a8): more 2D quads, unchanged model
+ * columns, 0 differing pixels, exact class 0 bytes. These pins are readings of the port's own output, not the
+ * original's.
  *
  * **The runtime budget (GM-08's row; said in the record).** Every distinct frame at 1x; at 2x and 4x a sample -- each
  * entry's first and last distinct frame (the row names the first; a deep link's first frame is often the fade-in's

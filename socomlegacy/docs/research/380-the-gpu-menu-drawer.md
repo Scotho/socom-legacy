@@ -53,8 +53,9 @@ corpus); no browser, no GPU.
 
 - **The exact class** (an untextured quad with f32-exact integer colour and alpha byte, or a non-finite code; a clear;
   a whole overwrite at alpha byte 128): **0 differing bytes** on every case at 1, 2, 4, opaque and transparent, under
-  `ff` and `exact`, on 12 seeded lists, and on the corpus (226,929,451 / 180,222,300 / 720,904,400 class pixels at
-  1/2/4 under each table). Model pixels are outside the class (M2-M5 B; GM-06b review F1's ruling owed).
+  `ff` and `exact`, on 12 seeded lists, and on the corpus (226,615,051 / 180,205,532 / 720,837,328 class pixels at
+  1/2/4 under each table; 226,929,451 / 180,222,300 / 720,904,400 at GM-08's 0e0cc6e44, before CPS-4b). Model pixels
+  are outside the class (M2-M5 B; GM-06b review F1's ruling owed).
 - **Layered == sequential** (GM.R7): every case, every seeded list, and the corpus's 11,260 runs with programmable
   batches: 0 differing.
 - **B on the case table:** 0 on every case but 13.cold/.warm/.hot (the HD texture): max |Δ| 1, 112-582 pixels at
@@ -64,12 +65,18 @@ corpus); no browser, no GPU.
 
   | Scale, table | max \|Δ\| (R/G/B/A) | pixels at \|Δ\| ≥ 1 / 2 / 3 | ppm ≥ 1 | outside model boxes: max \|Δ\|, ≥ 1 / 2 / 3 |
   |---|---|---|---|---|
-  | 1x exact | 123/112/76/1 | 3,616,922 / 2,944 / 1,685 | 1929.46 | 3/3/3/1; 3,609,608 / 1,179 / 34 |
-  | 1x ff | 123/112/76/1 | 10,249,598 / 2,944 / 1,685 | 5467.69 | 3/3/3/1; 10,241,809 / 1,179 / 34 |
-  | 2x exact | 29/29/29/1 | 1,242,233 / 59 / 36 | 3112.47 | 2/2/2/1; 1,239,445 / 15 / 0 |
-  | 2x ff | 29/29/29/1 | 2,487,515 / 59 / 36 | 6232.59 | 2/2/2/1; 2,484,463 / 15 / 0 |
-  | 4x exact | 82/52/40/1 | 4,957,666 / 252 / 185 | 3105.42 | 2/2/2/1; 4,946,353 / 40 / 0 |
-  | 4x ff | 82/52/40/1 | 9,974,691 / 252 / 185 | 6248.02 | 2/2/2/1; 9,962,167 / 40 / 0 |
+  | 1x exact | 123/112/76/1 | 3,621,874 / 3,550 / 1,685 | 1932.10 | 3/3/3/1; 3,614,560 / 1,785 / 34 |
+  | 1x ff | 123/112/76/1 | 10,266,546 / 3,550 / 1,685 | 5476.73 | 3/3/3/1; 10,258,757 / 1,785 / 34 |
+  | 2x exact | 29/29/29/1 | 1,242,458 / 67 / 36 | 3113.04 | 2/2/2/1; 1,239,670 / 23 / 0 |
+  | 2x ff | 29/29/29/1 | 2,488,382 / 67 / 36 | 6234.76 | 2/2/2/1; 2,485,330 / 23 / 0 |
+  | 4x exact | 82/52/40/1 | 4,958,106 / 272 / 185 | 3105.69 | 2/2/2/1; 4,946,793 / 60 / 0 |
+  | 4x ff | 82/52/40/1 | 9,977,372 / 272 / 185 | 6249.70 | 2/2/2/1; 9,964,848 / 60 / 0 |
+
+  The table and `UI_GPU_TWIN_CORPUS_B` were re-pinned 2026-11-06 (GM-08 measured them at 0e0cc6e44: 1x exact
+  1929.46 ppm, each leg 0.27 to 9.04 ppm lower than now), measured on origin/main 13cdc9a48 (the tally on the host, the
+  twin on box s1f), the same excess on GM-15b's branch; the cause is CPS-4b's VIDEO OPTIONS rows (40e037620, 10ff4f3a8):
+  more 2D quads, unchanged model columns, 0 differing pixels, exact class 0 bytes. These pins are readings of the port's
+  own output, not the original's.
 
   Outside the model boxes the twin is within |Δ| 3 (|Δ| ≥ 3 on 34 pixels at 1x, none at HD; where those pixels lie was
   not traced -- the transparent overlay's divide, P22, which magnifies a 1 in the alpha, is a guess, not a finding). The large |Δ| are all inside model
@@ -193,6 +200,12 @@ scale 1 every quad takes the programmable path anyway (GM.R6, `exact`); the coun
   exactly the pixels `coverageBounds`' rectangles cover, as many times as they cover them: 0 pixels differ at 1, 2 and
   4. The movie's picture copy and the models are not probed.
 
+- **Re-filed 2026-11-06:** dlgOptions_Video.rdr's quads 465 -> 566, the Settings overlay's 463 -> 568, and the probe's
+  pixels written (30289170 / 121156680 / 484626720 -> 30293362 / 121173448 / 484693792), measured on origin/main
+  13cdc9a48 (the tally on the host, the twin on box s1f), the same excess on GM-15b's branch; the cause is CPS-4b's
+  VIDEO OPTIONS rows (40e037620, 10ff4f3a8): more 2D quads, unchanged model columns, 0 differing pixels, exact class 0
+  bytes. These pins are readings of the port's own output, not the original's.
+
 <!-- GM-04 tally: begin (written by packages/viewer/test/uiGpuTally.disc.test.ts) -->
 
 | Over the corpus | Scale 1 | Scale 2 | Scale 4 |
@@ -204,7 +217,7 @@ scale 1 every quad takes the programmable path anyway (GM.R6, `exact`); the coun
 | Model triangles, most in one frame / programmable | 228 / 0 | same | same |
 | Largest alpha byte (2D) / model vertex alpha | 254 / 128 | same | same |
 | Quads with a fractional alpha byte (quad-frames) | dlgAlbaniaCinematic.rdr (29); dlgAlgeriaCinematic.rdr (29); dlgBrazilCinematic.rdr (29); dlgRussiaCinematic.rdr (29); dlg_Map82.rdr (13); ARMORY (MP51, seal) (172260); ARMORY (MP51, terrorist) (166793); Loader screens (the sequence) (19) | same | same |
-| Probe on each entry's last frame: pixels written / differing | 30289170 / 0 | 121156680 / 0 | 484626720 / 0 |
+| Probe on each entry's last frame: pixels written / differing | 30293362 / 0 | 121173448 / 0 | 484693792 / 0 |
 
 | Entry | Frames | Quads (most in a frame) | Alpha byte min .. max | Fractional alpha bytes | Programmable quads, most in a frame, by reason (scale 1 / 2 / 4) | Programmable pixels, most in a frame (1 / 2 / 4) | Model triangles (most) | Programmable triangles | Model alpha max | Probe px differing (1 / 2 / 4) |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -270,7 +283,7 @@ scale 1 every quad takes the programmable path anyway (GM.R6, `exact`); the coun
 | dlgOnlineOptions.rdr | 60 | 358 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | dlgOptions_Audio.rdr | 60 | 349 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | dlgOptions_Menu.rdr | 60 | 271 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
-| dlgOptions_Video.rdr | 60 | 465 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
+| dlgOptions_Video.rdr | 60 | 566 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | dlgPlayTutMovies.rdr | 60 | 1093 | 25 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | dlgRespondToInvites.rdr | 60 | 280 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | dlgReturnFromNTGUI2.rdr | 60 | 270 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
@@ -322,7 +335,7 @@ scale 1 every quad takes the programmable path anyway (GM.R6, `exact`); the coun
 | CREATE GAME (PLAY LIST, four maps) | 121 | 1084 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | ARMORY (MP51, seal) | 270 | 703 | 12.800000190734863 .. 128 | 172260 | 0 | 0 / 0 / 0 | 228 | 0 | 128 | 0 |
 | ARMORY (MP51, terrorist) | 270 | 657 | 12.800000190734863 .. 128 | 166793 | 0 | 0 / 0 / 0 | 198 | 0 | 128 | 0 |
-| Settings overlay (in match) | 184 | 463 | 25 .. 128 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
+| Settings overlay (in match) | 184 | 568 | 25 .. 128 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | Loader screens (the sequence) | 96 | 2 | 0.5019607843137255 .. 128 | 19 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 
 <!-- GM-04 tally: end -->
@@ -415,6 +428,7 @@ bounds the browser's ..." comment where it is defined.
   flight). The quads' instancing (`UI_GPU_INSTANCE_LAYOUT`) is no adaptation: it carries GM-11a-2's uniform values per
   instance, flat, and decides no byte.
 - not an adaptation (GM-15a): the models' `depthScale` (`UiPlanPass.depthScale`, `passDepthScale` in `uiFramePlan.ts`; GM.R10) -- the largest power of two at most 1 that brings every vertex's f32 `invW` of the pass to at most 1, written as `gl_FragDepth = clamp(invW * depthScale, 0, 1)` -- decides no byte (a power of two scales an f32 exactly unless it underflows, GM-15b's edge), so it has no constant; the models' instancing (`UI_GPU_TRIANGLE_LAYOUT`) likewise.
+- not an adaptation (GM-15b, `uiFramePlan.ts`): `depthScale` now brings every vertex's f32 `invW` to at most 1/2 (a pixel's f32 `invW` can pass its largest vertex's by an ulp; at 1/2 no depth reaches the clamp at 1); `UI_GPU_MODEL_DEPTH_FLOOR` (2^-100, and a `depthScale` of at least 2^-126) and `UI_GPU_MODEL_TEXEL_RANGE` (2^30 on a vertex's `|u W|`, `|(1 - v) H|`) bound the range in which the GPU's f32 and int arithmetic is the twin's -- a pass or triangle outside is the software's (L1, named), so neither decides a byte and neither is a game value.
 
 ## 6. Performance
 

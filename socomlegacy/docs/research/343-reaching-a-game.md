@@ -337,15 +337,21 @@ a game whose room has no door named (an older server, a local game) keeps the or
   and connects to the game server the lobby names over TCP with an auxiliary UDP channel (type 3 in our Horizon's
   answers; `FUN_00617788` D:L524843-524851); the peers' own UDP channel rides beside it (research 193 row 1;
   `desktop@be5578311:docs/research/18-online-round-start.md:93-95`). The note is not edited here.
-- **The cross logs' walk-back is not explained.** The desktop's KNOWN (its row "The r0004 build passes the gate 3/3
-  ... plays online on our own server", at the pin) says the two revisions cannot join each other's games, the joiner
-  walking back within ten seconds, and puts it on "the client-side join filter", `FUN_002FD6E0` (desktop research 43 §2,
-  `desktop@be5578311:docs/research/43-what-changed-in-r0004.md:44`). Research 153 R153.7 reads that same function as
-  `VerifyPatchLevel` over the universe list (`FUN_002766b0` D:L122431-122451 -> `FUN_002fd6e0` D:L199829-199850),
-  which runs when a universe is chosen, not after a DME join. In cross1 the r0001 joiner joined the DME session,
-  exchanged the join records and left it (class-0 0x12, ClientLeaves) seven seconds later, back on SOCOM II ONLINE
-  (lines 666-752; `B/lobby_fail_join_enter.png`). Its cause is not read here; the same-revision log `dme_probe7.txt`
-  goes on to the match's records.
+- **The cross logs' walk-back is the game-version word (O1), not the patch-level token (O2)** (R4B-00,
+  2026-11-04; **reading, pending review**, supported by a recomp capture). The host writes GameObject's version
+  `0x47` in retail (`FUN_002c00f0`, D:L163070-163072); the peer reader `FUN_002c0850`
+  (D:L163320-163326) compares its `+0x14` word and posts `MP_VERSION_NUMBER_ERROR` on a mismatch. In r0004 the
+  writer loads `0x49` at `0x2c1e3c` and the reader at `0x2c2620`, with the comparison/event at
+  `0x2c2638-0x2c2658`; the mode-1/2 alternatives are `0x817` / `0x819`. These native ranges were re-read in both
+  `game/overlays_r0004/socom2_game_r0004.elf` and pristine `game/r0004/served/ftscore.bin`. The scripts' event
+  routing is research 315 §3.6/§11: `dlgNetAbort.rdr`, disconnect, wait 3 s, SOCOM II ONLINE.
+  `VerifyPatchLevel` instead checks the universe list (`FUN_002766b0` D:L122431-122451 -> `FUN_002fd6e0`
+  D:L199829-199850; r0004 `0x31aaf4-0x31ab00`, token at `0x421998`): research 153 R153.7's reading stands.
+  The desktop's contrary attribution (`desktop@be5578311:docs/research/43-what-changed-in-r0004.md:44`, KNOWN:29)
+  is deferred to LATER 617 for its owners. In cross1 the r0001 joiner exchanged the DME join records and left
+  (class-0 0x12, ClientLeaves) seven seconds later (lines 666-752; `B/lobby_fail_join_enter.png`); that archived
+  recompilation supports the code reading, but is not a measurement of the original running. A controlled original
+  cross-revision trace remains owed. O1/O2's port constants remain r0001 until R4B-23.
 - **Two of the port's comments, small.** `JoinGameReply`'s doc (`packages/server/src/lobby.ts`) says the reply keeps,
   of the connection info, "the world id": the reply's `mediusWorldId` is the request's game id, not the ConnectInfo's
   WorldID (+0x54), which differs from it in both logs (cross1 2 and 1, cross2 3 and 2).

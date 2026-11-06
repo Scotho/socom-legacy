@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { probeGround, selectFloor } from '@s2u/scene';
 import { groundGrid, groundPolygons, STEEP_FLOOR_CONTACT_READING, STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
 import { simMapFromBytes } from '../src/simMap';
@@ -14,8 +14,25 @@ import { Traversal } from '../src/traversal';
  * driver D:L416578-416613). The reported spot: Vigilance (MP51), bot 227 of the BCMP's s41 run -- a 0.09-wide sliver
  * of `worldmodel/wc11`'s stair side (n_y 0.018) beside a 0.13-wide hole in the collision before `canal_wc11`, where the
  * slide's step (scaled by n_y) ends over the hole every tick and the body never moved. Disc-backed: skipped without it.
+ *
+ * That sliver is r0001's hull. Since #683 (R4B-09, research 383; OT.R97) the room reads r0004's per-map table
+ * (`simMapFromBytes`), and r0004 itself closes the spot: its vertex snap on `wc11` (r4 0x2d6ac4-0x2d6acc, research 383
+ * s9) moves the stair ramp's corner (1504.138, -68.197, 684.593) to (1504.471, -68.187, 684.730), so the ramp (n_y 0.83)
+ * covers the spot and the bot walks its route. The push is read off r0004's code and holds wherever a floor under n_y 0.1
+ * stands; the disc's one known such floor is this sliver on r0001's hull, so the push's cases run there (the table held
+ * off by `R0004_OFF`), and r0004's own hull at the spot is its own case below.
  */
 const DISC = process.env.SOCOM_DISC;
+/** While set, `applyR0004MapPatch` applies nothing: the map loads with r0001's hull, the sliver standing. */
+const R0004_OFF = vi.hoisted(() => ({ on: false }));
+vi.mock('@s2u/scene', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@s2u/scene')>();
+  return {
+    ...real,
+    applyR0004MapPatch: (...args: Parameters<typeof real.applyR0004MapPatch>): ReturnType<typeof real.applyR0004MapPatch> =>
+      (R0004_OFF.on ? { level: args[1].toLowerCase(), id: null, applied: [] } : real.applyR0004MapPatch(...args)),
+  };
+});
 /** In the sliver: the only floor under the feet is the stair side's face. */
 const SPOT = [1506.714, -68.454, 678.646] as const;
 /** The face's horizontal normal (0.919, 0.395), as a yaw the body faces into it (forward = -normal). */
@@ -26,12 +43,17 @@ describe('the near-vertical floor push (r0004)', () => {
     expect(STEEP_FLOOR_CONTACT_READING).toEqual({ normalY: 0.1, distance: 6, gain: 0.7 });
   });
 
-  describe.skipIf(!DISC)('Vigilance\'s stair side (bot 227, s41)', () => {
+  describe.skipIf(!DISC)('Vigilance\'s stair side (bot 227, s41), on r0001\'s hull (the sliver r0004\'s snap closes)', () => {
     let grid: ReturnType<typeof groundGrid>, polys: ReturnType<typeof groundPolygons>;
     beforeAll(() => {
-      const map = simMapFromBytes(new Uint8Array(readFileSync(resolve(DISC!, 'RUN/MP51.ZDB'))), 'RUN/MP51.ZDB');
-      grid = groundGrid(map.ground!);
-      polys = groundPolygons(map.ground!);
+      R0004_OFF.on = true;
+      try {
+        const map = simMapFromBytes(new Uint8Array(readFileSync(resolve(DISC!, 'RUN/MP51.ZDB'))), 'RUN/MP51.ZDB');
+        grid = groundGrid(map.ground!);
+        polys = groundPolygons(map.ground!);
+      } finally {
+        R0004_OFF.on = false;
+      }
     });
     const body = (yaw: number): Walker => {
       const w = new Walker(grid);
@@ -70,6 +92,32 @@ describe('the near-vertical floor push (r0004)', () => {
       expect(Math.hypot(w.state.x - SPOT[0], w.state.z - SPOT[2])).toBeLessThan(0.01);
       w.state.yaw = route([1492.3, 686.1]);                          // its recovery leg: into the face
       w.tick({ forward: 0.85, right: 0, boost: false });
+      expect(Math.hypot(w.state.x - SPOT[0], w.state.z - SPOT[2])).toBeGreaterThan(3);
+    });
+  });
+
+  describe.skipIf(!DISC)('the same spot on r0004\'s hull (#683): the snap on wc11 closes the sliver', () => {
+    let grid: ReturnType<typeof groundGrid>, polys: ReturnType<typeof groundPolygons>;
+    beforeAll(() => {
+      const map = simMapFromBytes(new Uint8Array(readFileSync(resolve(DISC!, 'RUN/MP51.ZDB'))), 'RUN/MP51.ZDB');
+      grid = groundGrid(map.ground!);
+      polys = groundPolygons(map.ground!);
+    });
+
+    it('the spot\'s floor is wc11\'s stair ramp, its corner at the snap\'s store, no near-vertical face', () => {
+      const floor = selectFloor(probeGround(grid, SPOT[0], SPOT[2]), SPOT[1] + STEP_PROBE_LIFT_READING, SPOT[1]);
+      expect(floor!.owner.path).toBe('worldmodel/wc11');
+      expect(floor!.normal[1]).toBeGreaterThan(0.8);
+      const corner = [...floor!.poly.points].map((v) => Math.round(v * 1000) / 1000);
+      expect(corner.slice(3, 6)).toEqual([1504.471, -68.187, 684.73]);    // r4 0x2d6ac4-0x2d6acc's store
+    });
+
+    it('the bot\'s case: its patrol leg walks off the spot, nothing held', { timeout: 60_000 }, () => {
+      const w = new Walker(grid);
+      w.driver = new Traversal(grid, polys);
+      expect(w.place(SPOT[0], SPOT[1] + STEP_PROBE_LIFT_READING, SPOT[2])).toBe(true);
+      w.state.yaw = (Math.atan2(-(1529.8 - SPOT[0]), -(696.1 - SPOT[2])) * 180) / Math.PI;
+      for (let i = 0; i < 30; i++) w.tick({ forward: 0.85, right: 0, boost: false });
       expect(Math.hypot(w.state.x - SPOT[0], w.state.z - SPOT[2])).toBeGreaterThan(3);
     });
   });

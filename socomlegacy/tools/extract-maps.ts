@@ -1,9 +1,8 @@
-import { mkdirSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { COMMON_ARCHIVES, listMaps, servedIndex } from '@s2u/archive';
-import { FsAssetSource } from '@s2u/archive/node';
-import { copyMapArchives, describePlan, parseExtractArgs, planExtract } from './extractPlan';
-import { copyFresh, writeFresh, type Fresh } from './freshFiles';
+import { COMMON_ARCHIVES } from '@s2u/archive';
+import { describePlan, parseExtractArgs, planExtract } from './extractPlan';
+import { extractMaps } from './extractMaps';
 
 /**
  * Copies the owner's disc tree into `socomlegacy/public/maps/` for the viewer to fetch, and three maps and the common
@@ -34,6 +33,10 @@ import { copyFresh, writeFresh, type Fresh } from './freshFiles';
  * The trees it writes are hard links shared between the repository's worktrees, so nothing is rewritten in place
  * (`./freshFiles`): a file that already holds the disc's bytes is kept, and one that differs -- the index, when the
  * common list grows -- is replaced by a new file in this tree only.
+ *
+ * The copy and the index are `extractMaps` in `./extractMaps` (PK-1: one callable for the image-to-maps path, which the
+ * parity pack calls with progress); this file is its command line -- the arguments, the environment, the messages and
+ * the summary as they were.
  */
 const web = resolve(import.meta.dirname, '..');
 // The repository's own layout: the extracted disc tree at the repository's root, two levels above redotcom
@@ -42,39 +45,26 @@ const disc = process.env.SOCOM_DISC ?? resolve(web, '..', 'game', 'disc');
 const run = join(disc, 'RUN');
 if (!existsSync(run)) { console.error(`no disc tree at ${disc} (set SOCOM_DISC)`); process.exit(2); }
 const args = parseExtractArgs(process.argv.slice(2));
-const plan = planExtract(disc, { streams: args.streams, campaign: args.campaign });
 if (args.dryRun) {
+  const plan = planExtract(disc, { streams: args.streams, campaign: args.campaign });
   for (const line of describePlan(plan, disc)) console.log(line);
   process.exit(0);
 }
-for (const name of plan.missing) console.warn(`extract list: ${name} is not on the disc tree at ${disc}`);
 
-const publicMaps = join(web, 'public/maps');
-const publicRun = join(publicMaps, 'RUN');
-const fixtureRun = join(web, 'test-fixtures/RUN');
-mkdirSync(publicRun, { recursive: true });
-const tally: Record<Fresh, number> = { kept: 0, written: 0 };
-const copy = (from: string, to: string): void => { tally[copyFresh(from, to)]++; };
-// The multiplayer maps, and unless `--without-campaign` the campaign's archives beside them (FG-22: no index names those).
-const archives = copyMapArchives(plan, disc, publicMaps, copy);
-// A common archive may sit in a directory of its own (`RUN/SOUNDS/BNKSTORE.ZAR`, socomlegacy/docs/research/81; `RUN/UI/`).
-for (const path of COMMON_ARCHIVES) copy(join(disc, path), join(publicMaps, path));
-// The front-end files (PLAT-03) the common list does not already hold.
-const common = new Set(COMMON_ARCHIVES);
-for (const { path } of plan.frontEnd) if (!common.has(path)) copy(join(disc, path), join(publicMaps, path));
 // `--public-only`: the served tree alone; the fixtures under test-fixtures/ are left as they are.
-if (!args.publicOnly) {
-  mkdirSync(fixtureRun, { recursive: true });
-  for (const f of ['MP2.ZDB', 'MP6.ZDB', 'MP72.ZDB']) copy(join(run, f), join(fixtureRun, f));
-  // The common archives in the fixtures too: `READERC.ZAR/character.rdr` (the gear, socomlegacy/docs/research/78 §5), the
-  // tuning, the weapon table, the motion packs and the ARMORY's files the fixture-backed tests read beside the three maps.
-  for (const path of COMMON_ARCHIVES) copy(join(disc, path), join(web, 'test-fixtures', path));
-}
-
-// A served index must name every map: an archive that will not name itself stops the extract (PL-11).
-const maps = await listMaps(new FsAssetSource(publicMaps), (path, message) => { throw new Error(`${path}: ${message}`); });
-tally[writeFresh(join(publicMaps, 'index.json'), JSON.stringify(servedIndex(maps, COMMON_ARCHIVES, plan.frontEnd.map((f) => f.path)), null, 2))]++;
-console.log(`${archives.maps} archives, ${archives.campaign} campaign archives`
-  + `${args.campaign ? ' (for the forge, not indexed)' : ' (--without-campaign)'}, ${COMMON_ARCHIVES.join(', ')} and ${plan.frontEnd.length} front-end files`
-  + `${args.streams ? ' (with the streams)' : ''} to public/maps, ${args.publicOnly ? 'fixtures left as they are' : '3 fixtures'}: ${tally.written} written, ${tally.kept} kept`);
-console.log(`indexed ${maps.length} maps: ${maps.map((m) => `${m.name} (${m.archive})`).join(', ')}`);
+const result = await extractMaps({
+  disc,
+  maps: join(web, 'public/maps'),
+  // The three maps, and the common archives in the fixtures too: `READERC.ZAR/character.rdr` (the gear,
+  // socomlegacy/docs/research/78 §5), the tuning, the weapon table, the motion packs and the ARMORY's files the
+  // fixture-backed tests read beside the three maps.
+  fixtures: args.publicOnly ? null : join(web, 'test-fixtures'),
+  streams: args.streams,
+  campaign: args.campaign,
+  log: (line) => console.log(line),
+  warn: (line) => console.warn(line),
+});
+console.log(`${result.archives.maps} archives, ${result.archives.campaign} campaign archives`
+  + `${args.campaign ? ' (for the forge, not indexed)' : ' (--without-campaign)'}, ${COMMON_ARCHIVES.join(', ')} and ${result.frontEnd} front-end files`
+  + `${args.streams ? ' (with the streams)' : ''} to public/maps, ${args.publicOnly ? 'fixtures left as they are' : '3 fixtures'}: ${result.written} written, ${result.kept} kept`);
+console.log(`indexed ${result.maps.length} maps: ${result.maps.map((m) => `${m.name} (${m.archive})`).join(', ')}`);

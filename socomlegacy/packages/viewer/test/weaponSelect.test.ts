@@ -346,13 +346,14 @@ describe('the keys and the pad inside the menu (§B3)', () => {
     for (const code of ['Escape', 'Space', 'KeyQ', 'KeyE', 'Tab', 'KeyR', 'Digit1', 'KeyM', 'constructor']) expect(menuInputOfKey(code), code).toBeNull();
   });
 
-  it('keeps the game\'s buttons on the pad: R2 Inventory, Cross Action, Triangle / Start back, the d-pad; Circle is no cancel', () => {
+  it('keeps the game\'s buttons on the pad: R2 Inventory, Cross Action, Triangle / Start back, the d-pad; Circle closes (OT.R106)', () => {
     expect(menuInputOfPad('R2')).toBe('inventory');
     expect(menuInputOfPad('Cross')).toBe('action');
     expect(menuInputOfPad('Triangle')).toBe('back');
     expect(menuInputOfPad('Start')).toBe('back');
     expect(['Up', 'Down', 'Left', 'Right'].map((b) => menuInputOfPad(b as 'Up'))).toEqual(['up', 'down', 'left', 'right']);
-    for (const b of ['Circle', 'Square', 'R1', 'L1', 'L2', 'Select', 'L3', 'R3'] as const) expect(menuInputOfPad(b), b).toBeNull();
+    expect(menuInputOfPad('Circle')).toBe('close');                       // OT.R106: the owner's adaptation, not the original's
+    for (const b of ['Square', 'R1', 'L1', 'L2', 'Select', 'L3', 'R3'] as const) expect(menuInputOfPad(b), b).toBeNull();
   });
 });
 

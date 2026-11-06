@@ -151,6 +151,8 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
       }
     }
     expect(over).toEqual([]);
+    // R4B-09 (research 383; OT.R97): 1450 as read, 1441 with r0004's MP8 rewrite of `land43/climber1` (r4 0x2d9884, appflags 4
+    // -> 0): its nine faces are no longer climbed.
     expect({ faces, ladders, level, wideWalls, wide: wide.sort(), endWrite: endWrite.sort() }).toMatchInlineSnapshot(`
       {
         "endWrite": [
@@ -166,7 +168,7 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
           "MP73 worldmodel/aagun/aagun_zpu4=aagun_zpu4/good_parts/di_wheels",
           "MP73 worldmodel/aagun/aagun_zpu4=aagun_zpu4/good_parts/di_wheels",
         ],
-        "faces": 1450,
+        "faces": 1441,
         "ladders": 158,
         "level": [
           "MP1 worldmodel/alaska4d_fence01 app 5: 4",

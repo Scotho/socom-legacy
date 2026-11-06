@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PAD1_SETTINGS, PREPARED, checkPrepared, keyActions, lightStickPressure, lightTrianglePressure, pad1Lines,
+  PAD1_SETTINGS, PCSX2_PAUSE_HOTKEY, PREPARED, checkPrepared, keyActions, lightStickPressure, lightTrianglePressure, pad1Lines,
   pressureKey, replacePad1,
 } from '../eph/padIni';
+import { PCSX2_VK } from '../eph/keys';
+import { INPUTS } from '../eph/script';
 import { parseScript } from '../eph/script';
 
 /**
@@ -156,5 +158,24 @@ describe('pressureKey and the script check', () => {
       { t: 120, line: 4, action: 'down', vk: 0x57 },
       { t: 200, line: 6, action: 'up', vk: 0x57 },
     ]);
+  });
+});
+
+describe("the pause key (PK-2: the parity pack's Pause taps PCSX2's TogglePause hotkey through the injector)", () => {
+  it('is Space, vk 0x20, the TogglePause hotkey of the harness ini', () => {
+    expect(PCSX2_PAUSE_HOTKEY).toEqual({ hotkey: 'TogglePause', key: 'Space', vk: 0x20 });
+  });
+
+  it('is bound by no [Pad1] line and no prepared macro, so a pause never presses a pad button', () => {
+    for (const i of INPUTS) expect(PCSX2_VK[i], i).not.toBe(PCSX2_PAUSE_HOTKEY.vk);
+    for (const p of PREPARED) expect(p.vk, `Macro${p.macro}`).not.toBe(PCSX2_PAUSE_HOTKEY.vk);
+    for (const line of pad1Lines()) expect(line).not.toMatch(/Keyboard\/Space\b/);
+  });
+
+  it("the [Pad1] rewrite keeps the ini's TogglePause = Keyboard/Space where it was", () => {
+    const out = replacePad1(DESKTOP_LIKE_INI);
+    expect(out).toContain('\r\n[Hotkeys]\r\nToggleFullscreen = Keyboard/Alt & Keyboard/Return\r\nTogglePause = Keyboard/Space\r\n');
+    const pad1 = out.slice(out.indexOf('[Pad1]'), out.indexOf('[Pad2]'));
+    expect(pad1).not.toContain('Space');
   });
 });

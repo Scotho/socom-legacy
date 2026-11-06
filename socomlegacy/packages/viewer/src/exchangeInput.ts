@@ -10,7 +10,7 @@ export class ExchangeInput {
   frame(input: Input, menu: boolean): Input {
     const out = menu ? noInput() : { ...input };
     for (const name of Object.keys(input) as (keyof Input)[]) {
-      if (typeof input[name] !== 'boolean') continue;
+      if (typeof input[name] !== 'boolean' || name === 'stanceOff') continue;   // OT.R107: `stanceOff` says how `stance` is held, no lane of its own
       if (menu && input[name]) this.held.add(name);
       if (this.held.has(name)) {
         Object.assign(out, { [name]: false });

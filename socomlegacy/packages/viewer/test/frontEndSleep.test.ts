@@ -1,36 +1,82 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { MovieEndMessage, MovieFrame, MovieStreamHandle } from '@s2u/fmv';
+import { UI_TICK_SECONDS, type DialogDesign } from '@s2u/ui';
+import { FrontEndSession, type FrontEndDisc } from '../src/frontEnd';
 import { frontEndMovies, type MovieWorkerHandle } from '../src/frontEndMovies';
 import { menuRasterWanted, movieWorkerSleeps } from '../src/frontEndSleep';
+import type { UiCanvasTarget } from '../src/uiCompositorView';
 
 /**
- * Browser adaptation (no original; product track, PR #631's Xbox memory work), scoped to the Xbox preset: while a
- * lobby-mounted match is up, the menus under it still tick (the lobby and the match through the session's `advance`)
- * but are not rasterized, and the movie worker is ended when no movie is open. Fakes for the worker; nothing measured.
+ * Browser adaptation (no original; product track): while a lobby-mounted match is up, the menus under it still tick (the
+ * lobby and the match through the session's `advance`) but are not rasterized -- under every graphics preset (CPS H1,
+ * owner row H397 = GM-24; PR #631 rested it under the Xbox preset alone) -- and, under the Xbox preset only, the movie
+ * worker is ended when no movie is open. Fakes for the worker; nothing measured.
  */
 
-describe('menuRasterWanted (the menus\' raster under a match, Xbox preset only)', () => {
-  it('skips the raster only while a match is up under the Xbox preset', () => {
-    expect(menuRasterWanted(true, 'xbox')).toBe(false);
+const PRESETS = ['xbox', 'auto', 'webgl2', 'webgpu', '', 'a preset not yet named'];
+
+describe('menuRasterWanted (the menus\' raster rests under a match on every preset: H397 / GM-24)', () => {
+  it('skips the raster while a match is up, whatever the graphics preset', () => {
+    for (const g of PRESETS) expect(menuRasterWanted(true, g)).toBe(false);
   });
 
-  it('draws under every other preset, match or not -- today\'s behaviour', () => {
-    for (const g of ['auto', 'webgl2', 'webgpu', '']) {
-      expect(menuRasterWanted(true, g)).toBe(true);
-      expect(menuRasterWanted(false, g)).toBe(true);
-    }
+  it('draws with no match up, whatever the graphics preset -- the menus as they always were', () => {
+    for (const g of PRESETS) expect(menuRasterWanted(false, g)).toBe(true);
   });
 
   it('draws again on the first tick after the return', () => {
+    expect(menuRasterWanted(false, 'auto')).toBe(true);
     expect(menuRasterWanted(false, 'xbox')).toBe(true);
   });
 });
 
-describe('movieWorkerSleeps (Xbox preset only)', () => {
+describe('movieWorkerSleeps (Xbox preset only; H397 leaves it: a worker asleep is a cold return to the menus)', () => {
   it('is the Xbox preset alone', () => {
     expect(movieWorkerSleeps('xbox')).toBe(true);
-    for (const g of ['auto', 'webgl2', '']) expect(movieWorkerSleeps(g)).toBe(false);
+    for (const g of ['auto', 'webgl2', 'webgpu', '', 'a preset not yet named']) expect(movieWorkerSleeps(g)).toBe(false);
+  });
+});
+
+describe('the rest changes no state: the raster reads the session, it never writes what `advance` reads', () => {
+  /** A stub disc (the `frontEnd.test.ts` rig): the opener's loader screens, then the game's boot on dlgIntroScreen. */
+  const design = (): DialogDesign => ({
+    libraries: [], usesMemcard: false, font: null, fontLib: true, background: null,
+    bindings: [{ kind: 'event', name: 'ONSTART', code: 0, state: 1, animation: 'menu_fade_up', argument: null }],
+    controls: [], objects: [], scripts: [], models: [], dropped: [],
+  });
+  const disc: FrontEndDisc = {
+    dialog: (n) => (n === 'dlgIntroScreen.rdr' || n === 'dlgMenu.rdr' ? design() : null), sets: [], faces: [], captions: null, loader: {}, missing: [],
+  };
+  /** A cheap canvas target that counts its puts. */
+  const target = (): UiCanvasTarget & { puts: number } => {
+    const t = {
+      puts: 0,
+      createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData: () => { t.puts++; },
+    };
+    return t;
+  };
+
+  it('two held sessions ticked alike, one rendered every tick and one rested, keep the same draw list and dialog each tick', () => {
+    const drawn = new FrontEndSession({ disc }), rested = new FrontEndSession({ disc });
+    drawn.holdMenus(true); rested.holdMenus(true);                // the match's `leave`: the menus held
+    const t = target();
+    let now = 0, nonEmpty = 0;
+    drawn.advance(now); rested.advance(now);
+    const TICKS = 120;                                             // past the loader's 96 ticks into the game's boot
+    for (let i = 0; i < TICKS; i++) {
+      now += 1000 * UI_TICK_SECONDS;
+      expect(rested.advance(now)).toBe(drawn.advance(now));
+      drawn.render(t);
+      expect(rested.last).toEqual(drawn.last);
+      expect(rested.opener.phase).toBe(drawn.opener.phase);
+      expect(rested.machine.shell()?.currentName ?? null).toBe(drawn.machine.shell()?.currentName ?? null);
+      if (drawn.last.length > 0) nonEmpty++;
+    }
+    expect(t.puts).toBe(TICKS);
+    expect(nonEmpty).toBeGreaterThan(0);                           // the comparison saw drawn frames, not only empty ones
+    expect(drawn.opener.phase).toBe('game');
   });
 });
 

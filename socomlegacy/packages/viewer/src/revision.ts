@@ -41,6 +41,22 @@ export function viewerCommit(): string {
   return /^[a-f0-9]{40}$/.test(commit) ? commit : '';
 }
 
+/**
+ * NCW-10 (an instrument with no original, the product track): this build's time, UTC to the minute,
+ * `YYYY-MM-DDTHH:MMZ` -- Vite's `__BUILD_STAMP__` (`YYYY-MM-DD HH:MM:SS`) with its seconds truncated, never rounded and
+ * never a second clock read here. The same FORMAT as the host's `RELEASE_BUILT_AT` (`./net/protocol`
+ * `BUILT_AT_PATTERN`), not yet the same VALUE: Vite's stamp is its own clock read (`../vite.config.ts` `buildStamp`) and
+ * the host's is a separate read in the deploy scripts, so the two agree only once one stamp feeds both (filed with the
+ * controller for the web-image grace's deploy work). '' where Vite wrote none or the stamp is not of that shape. Only the shape is
+ * changed here: the hello validates the result with `BUILT_AT_PATTERN` before it sends it (`./net/client`), so this
+ * module, which the PWA's boot loads, imports no protocol.
+ */
+export function viewerBuiltAt(): string {
+  const stamp = typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : '';
+  const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}$/.exec(stamp);
+  return m ? `${m[1]}T${m[2]}Z` : '';
+}
+
 export function viewerRevision(): string {
   const stamp = typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : '';
   return revisionLabel(viewerRev(), stamp);

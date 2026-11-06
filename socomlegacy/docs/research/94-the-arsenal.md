@@ -1214,14 +1214,75 @@ the fuse of grenades, launcher rounds' self-destruct, C4's delay, and the PMN's 
   while the last one recorded was also 'Q'; `SHOTGUN_HIT_GUARD_RESET_READING`: where `+0x1048` is cleared -- only writes at
   L464602/464737/464743/464757 seen); offline it applies `FUN_005a1620` pellets, each `FUN_003c7600` damage to a random part;
   online `FUN_005a5a80(body, 3, proj)` sends it and the receiver (L160838 -> `FUN_005a1b80` L459540-459570) applies the
-  same count with `FUN_003d4530` (raw ImpactDamage) per pellet (`SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING`: whether the x14
-  and falloff apply on that path -- research 91 owns damage).
+  same count with `FUN_003d4530` (raw ImpactDamage) per pellet (the former
+  `SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING` is retired by the follow-up below; research 91 owns damage).
 - **The count** `FUN_005a1620`: d^2 from the shooter; base 8 if d^2 < 2500 (SP, `DAT_006508b8`) / 6400 (MP,
   `DAT_006508c0`), else 4 if MP and d^2 < 22500 (`DAT_006508c8`); plus 1/2/4/5/6/7 with p 0.05/0.10/0.35/0.35/0.10/0.05;
   past the base radius x `r^2/d^2` with a random round-up. Parts: tables `DAT_006508d0`/`DAT_006508f8` = (0 HEAD, 3 BODY,
   2 LARM, 1 RARM, 5 LLEG, 4 RLEG) at cumulative 0.3/0.6/0.7/0.8/0.9/1.0 (read from `.data`).
 - **Blowback**: the same hit sets `body+0x1314..0x1324` (`FUN_0057ed10`: source, damage x `FUN_003d4450(d^2)`, 100.0) --
   a push, full inside 1 m, 0 at 4 m (`BLOWBACK_CONSUMER_READING`: which motion reads `+0x1320`).
+
+**One-shot-kill follow-up (2026-11-02; retail reading, independently re-read).** On base
+`eb5a8d987e543ca0dba76da10fa73a1982ad74b0`, `viewer/src/net/damage.ts` selects the scaled
+`SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING`; `match/src/room.ts` quantises that damage and applies it
+to each recounted pellet's random part. Reading the local `ZWEAPON.ZAR` through `readWeapon` for
+all three records (`870`, `Spas 12`, `JACKHAMMER`) returns ImpactDamage 2.5, modifier 0, piercing 6
+and four projectile rays. At full damage the port therefore applies 35 per damage pellet.
+
+The retail online receiver's raw reading is not a hidden scale in the ammo getter: `FUN_003cedb0`
+D:L322670-322674 reads the float, `FUN_003d45a0` D:L326712-326717 stores it unchanged at ammo
+`+0xc`, and `FUN_003d4530` D:L326645-326650 returns that field. `FUN_005a1b80`
+D:L459543-459566 calls that getter for each pellet and applies the raw float. The scaled
+projectile calculation is a separate path, `FUN_003c7600` D:L318738-318767. A positive incoming
+damage value gates the online hit; it is not the damage applied to each receiver-side pellet.
+
+This can explain excessive one-shell lethality in the pre-fix damage model: a fresh head has 8 HP,
+so one randomly assigned head pellet at 35 kills; raw 2.5 requires four head pellets. The count
+function (`FUN_005a1620`, D:L459317-459389) thins pellets with distance but does not eliminate all
+long-range pellets. At 20 m the pre-fix full-damage pellet can still kill a fresh head, whereas
+the raw model cannot: at that distance at most two damage pellets survive the count calculation.
+The four outgoing rays do not mean four independent full-damage volleys; the room's volley and
+victim guards are separate from this damage-scale discrepancy.
+
+A local headless audit used the disc records, pre-fix damage/count/part functions, fresh standard
+health/armour and 50,000 seeded trials per weapon/distance. Conditional on an accepted ray hit,
+the pre-fix model killed in 20.67% of trials at 20 m versus 0% with raw receiver damage; at 5 m
+the results were 100% versus 52.81%. These are model samples, **not measured gameplay accuracy or
+console parity**: spread, collision acceptance, network execution and captures were excluded.
+The raw comparison preserves fractional 2.5 damage; merely changing the selector while retaining
+the room's per-pellet packet quantisation would truncate it to 2 and would not match this reading.
+
+**Initial investigation disposition:** no gameplay change at that stage. [H92](../HUMAN_TASKS.md) already records
+the raw-online-shotgun implementation held on `agent/pf23` (`1f3cbce7`, `54b34893`), pending the
+owner's decision; that branch and those commits were unavailable locally during this follow-up.
+The inspected decompilation is retail r0001. Native and served r0004 evidence required by the
+current parity target was unavailable, so this is not an r0004 finding. The report also needs the
+player's weapon, distance and whether the symptom is excessive one-shot kills or missed close
+kills; the latter requires a separate spread/collision/guard reproduction.
+
+Validation of this follow-up: independent source and prose review completed; focused unit suites
+`netDamage`, `firearms`, `roomDamage` and `roomShotgunGuard` passed 78 tests; documentation and
+placeholder-ledger suites passed 29 tests (107 total, zero skipped). These tests check the current
+implementation and documentation, not parity with the original running. No full gate, browser
+playtest or original-console comparison was run.
+
+**Correction requested after the investigation (2026-11-02; SG-RAW).** The developer asked to fix and push it
+for manager review. `pelletDamage` now admits only a positive transmitted damage byte, then returns the raw
+ammo damage; `Room.volleyHit` preserves raw damage and piercing for each pellet. The former scale selector
+is retired. `FUN_002bbda0` D:L160870-160879 truncates/clamps the sender's damage and `FUN_002bbbd0`
+D:L160827 hands the received byte to `FUN_005a1b80`; its D:L459544 gate explains why a hit near maximum range
+whose transmitted damage is zero still applies no pellets. Human and CPU-marked player seats use this same
+receiver rule. The original count, random parts, projectile spread and volley/victim guards are unchanged.
+
+The hostage path explicitly retains its previous scaled recount and quantisation. This is scope preservation,
+not a parity claim: retail remote-shooter hits routed to the host use the raw receiver, while host-local
+hostage hits take the local-victim branch of `FUN_005a5a80` D:L461625-461628, one scaled hit on BODY (part 3
+supplied by `FUN_005abbc0`, D:L464735). The existing hostage recount matches neither complete routing and
+needs separate work (research 191 section 2.3). Shotgun knockback also remains separate: the receiver's push
+uses incoming packet damage times blowback falloff, not raw pellet damage (`FUN_005a1b80`, D:L459582-459613).
+The [plan](../plans/2026-11-02-shotgun-damage.md) owns red/green results, review and the PR handoff. H92's earlier
+hold and the unavailable r0004 evidence are disclosed for the manager's landing review; no r0004 proof is claimed.
 
 #### C2.2 The pump and the box shotguns
 
@@ -1641,7 +1702,7 @@ IgnoreExplosionDI; `LAW HEAT Ammo` and `RPG Ammo` AccelerationFactor 98 (default
 | `LAUNCHER_RELOAD_CONDITION_READING` (*note only*) | what `body+0x528 == DAT_0044d408` means (selects `launcher_reload`) | `FUN_005a82e0` L462833; writes of `+0x528` not traced |
 | `PUMP_BLOCKS_FIRE_READING` (resolved 2026-09-30, M4: yes -- `FUN_005a7ab0` L462527-462540, the fire gate's reload test, lists `Shotgun pump`/`crouch`/`prone pump` (`DAT_003df0b8/c0/c8`), the shotgun reloads and `Rifle m203 reload` (`DAT_003debf8`); `viewer/src/firearms.ts`, `fire.ts` hold the fire for the after-shot clip) | whether the after-shot clip (`Shotgun pump`, bolt) itself refuses fire after the kit lock ends | `FUN_005c3000` L477643; `FUN_00588bc0` action flags not read; `motion.rdr` `NoFire` on those clips not probed |
 | `HOLSTER_TRACK_READING` (in code, M7: `viewer/src/play.ts` `launcherNode`, `viewer/src/rocket.ts`; reading: a carried LAW / RPG-7 hangs at the `spinehi` `launcher` node's origin, the clips' track not played on it) | the local pose of the `rifle`/`pistol`/`launcher`/`rifle_out` nodes in the idle/walk clips (where the slung gun sits) | `CZSealBody_AddWeapon` L419019-419060; research 77 §4 (the tracks exist); the MOTION_P clips' values not probed |
-| `SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING` (in code, M4: `viewer/src/net/damage.ts` `pelletDamage`; reading: research 91 §1.1's, each pellet a full round's damage with the falloff and x14 -- the raw 2.5 would not pass the MP armour) | on the online receive path the pellet damage is `FUN_003d4530` (raw ImpactDamage); whether x14/falloff apply there | L459540-459570, L160838; research 91 §1.1 |
+| `SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING` (retired, SG-RAW 2026-11-02: raw receiver damage, section C2.1) | retail receiver uses raw ammo floats after the positive packet gate; native/served r0004 comparison remains owed | `FUN_005a1b80` D:L459543-459566; parser/getter chain in C2.1 |
 | `SHOTGUN_HIT_GUARD_RESET_READING` (*note only*; resolved 2026-10-06, PF-37: cleared in `CZSealBody`'s update `FUN_00550ef0` D:L418081-418083 and the constructor L419774 -- research 236 s1, 194 s7 A09; the port's window `SHOTGUN_GUARD_WINDOW_READING`) | where the victim's `+0x1048` (last projectile) is cleared, i.e. whether two volleys in quick succession both hit | writes L464602, 464737, 464743, 464757; read L434384 |
 | `BLOWBACK_CONSUMER_READING` (*note only*; M4 builds no push: with its consumer untraced the room's knock path, the blast's, is not given a shotgun push) | what reads `body+0x1314..0x1324` (the shotgun push) | `FUN_0057ed10`; readers of `+0x1320` not traced |
 | `LOFT_TOLERANCE_READING` (resolved 2026-09-30, M7: `FUN_0052eb60(&f, 0x650970, 0x650978)` = `abs(f - 0.0) <= 5.0`, read from the ELF's `.data`; `projectile.ts` `LOFT.band`) | the bounds `FUN_0052eb60(&h, 0x650970, 0x650978)` accepts in the launcher loft | `FUN_005bf8a0` L475688-475740; the two `.data` pairs not decoded |
@@ -1769,3 +1830,5 @@ facts, checked against ours:
 **Why it never showed:** no merge broke it -- the alive menu was never built. R2 alive was §4.3's one-press step (`kitInventory` -> `GrenadeThrower.cycleInventory`), with nothing drawn, on `main`, `agent/play` and the sprint 25 batch alike; `gamepad.ts`, `weaponExchange.ts` and `kit.ts` are unchanged since the layout move (`8a43cdf8`), and neither the DEV gate on the keys (OT.R29) nor the STARTUP pad reader (`setupPad.ts`) stops R2. WEAPON EXCHANGE (the dead's) refuses a living body by its gate, as it should (§4.1).
 
 **Now** (`packages/viewer/src/inventoryMenu.ts`, wired in `main.ts` `padFrame`): R2 opens `CWeaponSel` on the slot in the hand (alive, the kit free to change); d-pad Up the next slot `FUN_005bdc30` lets be taken up, Down the previous, wrapping (the Detonator a sixth slot while the kit carries a claymore, `FUN_005c74e0`); L1 / L2 put the highlighted slot on that shoulder, each refused when it is the other's (L72629-72660, both ways); Triangle closes it unchosen; a fresh Cross or R2 takes the slot up (when `FUN_005a8cb0` passes) and closes it; 5 s with none of the five closes it unchosen; a death closes it. L1 / L2 outside the menu take up the slot each holds (default 0 and 1, `FUN_00598280`), and every new body starts on those defaults again: the SEAL factory `FUN_00599690` (L455422) builds the controller and calls `FUN_00598280` (L455434) -- `InventoryMenu.spawned`, at each spawn and respawn. The menu reads the merged lanes, so the touch INV, zoom and action buttons drive it too. Open, it takes Up / Down / L1 / L2 / Cross / R2, Triangle and Square from the game (a held one until it is let go): the open sets the controller's mode byte `ctrl+0x221` to 1 (`FUN_00597740(ctrl, 1, 0)`, L72835), and the player update runs its Action (L453192), Jump (L453208-453217), zoom (L453315-453323) and Triangle stance (L453331-453430) blocks only while it is 0; the close (`FUN_0021aaa0`, L72009) sets it back and clears the pad's Cross, Circle and Triangle (L72015-72017). So **Triangle closes the menu with no stance change**, a Triangle held on neither crouches nor goes prone, and Square does not jump while the menu is open. The owner's tap/hold rule (R5, research 180 §1.9) is how the stance decides when it runs, not a way through the open menu (the fix round, 2026-10-05; the first build let Triangle through and was refused at review). The draw (read): `newweapnbkrnd.tif` 160 wide at x 0, the highlighted slot's icon at +4 / +4 (`+0xc64` / `+0xc68`), and "L1" / "L2" right-aligned to x 148 at +62 when the slot is that shoulder's (`FUN_002196f0`). Not built: the open animation's states 1-2 (the original reads no button until state 3), the scroll (states 4-5) and the close (6-7), whose lengths are unread, so the viewer steps at once; the sounds `.TCM_SELECT` (confirm), `.TCM_SLIDE` (a step) and the refusal `FUN_003419c0`; the open's posture-9 and `+0xeb8` refusals (L72823-72826).
+
+**The crouch and prone lanes under the menu (OT.R107's fold, 2026-11-06; reading, pending review).** The menu now takes the `crouch` and `prone` lanes with the rest (`INVENTORY_LANES`, `packages/viewer/src/inventoryMenu.ts`), in every stance mode. The reading: the Triangle stance block (L453331-453430) runs only while `ctrl+0x221` is 0 (whether any other path of the update changes the stance from the pad while it is 1 is not read here); the page's `crouch` lane (the keys' crouch, COMBINED's touch crouch, SEPARATE's Crouch bind) and `prone` lane (SEPARATE's Prone bind, PP-5) are that block's stand-ins and are held the same way (a held one stays the menu's until let go). Before the fold they reached the game under the open menu. This changes the game's behaviour: a crouch or a SEPARATE Prone pressed while the menu is open does nothing until let go and pressed again; one held as the menu opens is taken with no release read (the take's frame says `stanceCancelled`, #702's review), so the Crouch bind's release toggle does not run at the open. Re-read at D:L453331 by a reviewer who did not write it.

@@ -39,9 +39,9 @@ function map(): SimMap {
 
 const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
 const rec = (over: Partial<WeaponRecord>): WeaponRecord => ({ ...DEFAULT_RIFLE, fireModes: [1], maxFireMode: 1, ...over });
-/** An 870 whose pellet is 2.45 x 14 = 34.3 (the room's 'scaled' pellet), four rays a shell: it kills at 40 u. */
+/** Synthetic fractional 2.45-damage ammo, four rays a shell: this seeded close volley rolls enough head pellets to kill. */
 const SHOTGUN = rec({ name: '870', id: 84, fireWait: 0.75, magazine: 8, mags: 5, reloadAfterShot: true, reloadDelay: 1, pellets: 4, impactDamage: 2.45, damageModifier: 0, effectiveRange: 41, maximumRange: 84, piercing: 6 });
-/** A light 12-gauge (a pellet 0.15 x 14 = 2.1, the packet's 2): a volley never kills, so a second one shows. */
+/** Synthetic light ammo (raw 0.15 per pellet): a volley never kills, so a second one shows. */
 const LIGHT = rec({ name: 'LIGHT870', id: 901, fireWait: 0.75, magazine: 8, mags: 5, reloadAfterShot: true, reloadDelay: 1, pellets: 4, impactDamage: 0.15, damageModifier: 0, effectiveRange: 41, maximumRange: 84, piercing: 0 });
 const arsenal = arsenalOf(['ZAMMO', [], 'ZWEAPON', [] as never]);
 const M4 = kit(DEFAULT_RIFLE.id, 15, 255, 255, 255);

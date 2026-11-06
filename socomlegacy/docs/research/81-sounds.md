@@ -192,8 +192,8 @@ as slots 0/1/2 (`FUN_003d0140`, decomp 322595-322609) and the bank load resolves
 `+0xe4`, else `+0xe0` (close); a null handle plays nothing; otherwise `vtable+0x14` at volume 1.0 at the round -- the
 3D play, so the variant's own `RANGE` still gates it. So the game plays `.M4A1` within 90 units, `.M4A1_M` to 500,
 `.M4A1_F` beyond (silent past 1,700 by `RANGE`). The M4A1 SD has no Med/Far name, so its slots are empty and past 90
-units its round is silent [PLAUSIBLE: the empty name's lookup to a null handle, `FUN_00344f30`, was not read to the
-end]. `sounds.rdr`'s `MED`/`FAR` marks are data only (§3). The viewer: `weaponGlobals`, `fireVariant`,
+units its round is silent [reading: the missing-name lookup was re-read on 2026-11-02; section 5.1 below].
+`sounds.rdr`'s `MED`/`FAR` marks are data only (§3). The viewer: `weaponGlobals`, `fireVariant`,
 `GameAudio.onFire` (pinned by sound.test.ts and audio.test.ts "picks a remote round by WEAPON_GLOBAL distance").
 
 **A round passing** (`FUN_00598000`, decomp 454613-454655): each tick a projectile's segment is taken against an actor's
@@ -237,6 +237,60 @@ penetration's exit, a ricochet -- are excluded with it: the viewer's own rounds 
   "plays nothing when the nearest point is an end of the segment".
 - **Not built** (§13): the other bodies' passing sounds (`PASSING_REMOTE_BODIES_READING`); where the bullet's segment
   ends (`PASSING_SEGMENT_END_READING`); a remote rocket's `.ROCKET_BY` (LATER 645).
+
+### 5.1 Suppressed rifles: missing reports and the 9 m boundary (2026-11-02)
+
+The reported M4A1 SD / 552SD audibility issue was investigated against `main` at `c15928e75`.
+The distance-slot cutoff agrees with the **retail r0001** code. This closes the earlier **PLAUSIBLE** missing-name
+statement above; it does not establish that a player's report of silence inside that distance is resolved.
+
+**Revision scope:** MISSION OT.R97 makes r0004 authoritative where it differs. The r0004 plan's open **R4B-10a**
+records a 552SD `Sound_Radius` override from 400 to 50 world units (squared 160000 to 2500), at native r4
+initializer 0x3e6850, with audible and AI effects unverified. This investigation has not read the r0004 firing
+and lookup paths in its native image and served decrypt; neither was available in the local handoff inspected.
+The tests establish current-port behavior on retail data, not r0004 audio parity or that override's effect.
+
+| Weapon | Close report | Medium / far | Sound script RANGE, world units |
+|---|---|---|---|
+| M4A1 SD | `.M4A1_SIL` | neither present | 20–200 |
+| 552SD | `.SIG_552_SIL` | neither present | 85–1700 |
+
+Read through the repository's readers from `RUN/ZWEAPON.ZAR/zweapon.rdr`,
+`RUN/SOUNDRDR.ZAR/sounds.rdr` and every multiplayer map's `_fx.bnk` in `RUN/SOUNDS/BNKSTORE.ZAR`.
+The ranges above agree on all 22 maps. The range is the sound's attenuation, applied **after** choosing a slot;
+it does not make an absent medium or far report playable. `Sound_Radius` feeds the distinct AI hearing stimulus
+(research 94 section C1.10); it does not choose the report in the **direct PCM paths traced here**. The broader
+multiplayer stimulus-listener census remains untraced (`SOUND_RADIUS_MP_USE_READING`), and R4B-10a's audible
+effect remains open.
+
+The original missing-field chain, re-read from `socom2_game.elf.decomp.c`:
+
+- `FUN_003cda30`, D:L322155–322157 and D:L322595–322609, supplies `NOT_FOUND` for each missing fire-sound field.
+  `FUN_003d0140`, D:L323303–323322, copies the names independently. The weapon constructor
+  `FUN_003d3c20`, D:L326252–326257, initializes the three handles and names to zero.
+- `FUN_003c4700`, D:L316291–316301, resolves each name independently;
+  `FUN_003d01c0`, D:L323329–323332, stores only that slot's handle. `FUN_00344f30` and
+  `thunk_FUN_00344ee0`, D:L243180–243209, lead to `FUN_00344bf0`, whose unmatched-key paths return zero
+  (D:L243038–243042, D:L243054–243060, D:L243088–243094). No `sounds.rdr` set contains the
+  `NOT_FOUND` hash, 1264485671. The test also checks the loaded `MP_COMMON` and `HOSTAGE` group-name hashes,
+  since groups enter the same original lookup table. No fallback copies the close handle into the other slots.
+- The main weapon path `FUN_003d2d70`, D:L325671–325696, and the additional projectile path
+  `FUN_003d2c50`, D:L325524–325535, both choose close at distance squared **at most 90² units**, medium
+  above 90² through 500², and far above 500²; a null selected handle plays nothing.
+  The thresholds are the table's 9 / 50 metres at ten world units per metre, as traced above.
+
+**Evidence and limits.** An independent source reviewer re-read that chain. A local disc audit of all 22 maps
+rendered both reports at 0, 2, 5, 8.9 and 9 m, and neither at 9.01, 15, 20 or 51 m, with no unknown sound names.
+The M4A1 SD's rendered level falls between 2 and 5 m; the 552SD's is equal at 0, 2 and 5 m (the renders go no
+further between 5 and 8.9 m), consistent with their distinct script ranges -- the 552SD's range minimum, 85 units
+(8.5 m), is the script's value, not a render. These are decoded/rendered PCM observations, not listening tests,
+browser activation checks, two-client network tests or a PS2 capture comparison. The source conclusion is a **reading**, not runtime parity
+proven against the console, and the code inspected is r0001. `viewer/test/suppressedWeaponAudioDisc.test.ts` holds the disc names, lookup absence,
+distinct attenuation and boundary for all maps; it skips without the local disc. The earlier `audio.test.ts`
+comment calling the lookup plausible is superseded by this source chain.
+
+No firing radius or volume was changed. A report of silence inside 9 m still needs the shooter's/listener's
+perspective, map and approximate distance to reproduce through the full multiplayer/browser path.
 
 ## 6. The jump and the landing
 

@@ -467,9 +467,10 @@ describe('the page: the toast and the layout table', () => {
     });
 
     it('lists only the walking controls in walk mode: fire, reload on R3, the stance, the zoom, the action, the peek and the slots', () => {
+      // Weapon select's Circle row (close) is #700's (OT.R106: Circle closes the in-match weapon exchange, an adaptation).
       ui.setWalk(true);
       expect(groups()).toEqual(['Move', 'Combat', 'Stance & action', 'Weapons', 'Weapon select', 'Armory', 'General']);
-      expect(table().map((r) => r[0])).toEqual(['Left stick', 'Right stick', 'Square', 'R1', 'D-pad Up / Down', 'R3', 'L3', 'Triangle', 'Crouch / Prone (Button mapping)', 'Cross', 'D-pad Left / Right', 'L1', 'L2', 'R2', 'R2 (when dead)', 'D-pad Up / Down', 'D-pad Left / Right', 'Cross', 'Triangle', 'R2', 'D-pad Left / Right', 'D-pad Up / Down', 'Cross', 'Square', 'Circle', 'Triangle', 'Taking a seat', 'Select (hold)', 'Start']);
+      expect(table().map((r) => r[0])).toEqual(['Left stick', 'Right stick', 'Square', 'R1', 'D-pad Up / Down', 'R3', 'L3', 'Triangle', 'Crouch / Prone (Button mapping)', 'Cross', 'D-pad Left / Right', 'L1', 'L2', 'R2', 'R2 (when dead)', 'D-pad Up / Down', 'D-pad Left / Right', 'Cross', 'Triangle', 'Circle', 'R2', 'D-pad Left / Right', 'D-pad Up / Down', 'Cross', 'Square', 'Circle', 'Triangle', 'Taking a seat', 'Select (hold)', 'Start']);
       expect(table().find((r) => r[0] === 'R3')![1]).toBe('reload');
       expect(table().find((r) => r[0] === 'R1')![1]).toBe('fire');
       expect(table().flat().join(' ')).not.toMatch(/boost/);

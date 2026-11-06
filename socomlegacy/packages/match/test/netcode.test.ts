@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { CollisionOwner, GridParams, SpawnSlot, WorldPoly } from '@s2u/scene';
 import {
   Button, cameraLook, centreClaim, faceToward, groundGrid, holdBits, MoverSim, moverSnapshot, packGround, PROTOCOL_VERSION, STEP_PROBE_LIFT_READING,
@@ -7,6 +7,7 @@ import {
 } from '../../viewer/src/sim';
 import { NetClient, type NetWalk, type WebSocketLike } from '../../viewer/src/net/client';
 import { Room } from '../src/room';
+import { dashRatio, heldMs, Line, lineSocket, nudgeTally, ownCorrections, ServerLoop, type LineSpec, type V3 } from './helpers/netMeasure';
 
 /**
  * The netcode end to end (web sprint 3, M4; the bar's item 1): the page's `NetClient` against the server's `Room`
@@ -368,4 +369,198 @@ describe('PL-8: the client of an idler moved out (protocol 5 `demoted`)', () => 
     for (let i = 0; i < 5; i++) walk.play({ forward: 1, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
     expect(sent.slice(before).filter((d) => typeof d !== 'string')).toHaveLength(0);
   });
+});
+
+// ---- NCW-3: Case A measured past 150 ms (docs/plans/2026-11-05-netcode-wave.md sections 1 and 5) ---------------------
+
+/**
+ * NCW-3 (a test instrument, product track: it measures and changes nothing the game does). A mover runs a fixed
+ * circle; a watcher 50 ms away (jitter 10) draws it through its own `NetClient.bodies()`; the mover's own page counts its
+ * corrections. The network is a TCP-like line each way (`Line`: in order, jitter bunching, never reordering; no loss --
+ * on TCP a loss is a stall), the room stepped by the match server's own loop rule (`ServerLoop`, `server.ts:951-990`).
+ * Rows: the mover's one-way latency (jitter latency/5) x its stalls (none; up, its commands held 150-400 ms every 2 s;
+ * down, its snapshots held so); and room hitches (ef's dossier via the lane seat: the server's loop blocked 260, 500 or
+ * 800 ms every 3 s) under a steady mover at 128 ms one way, no jitter.
+ */
+type StallDir = 'none' | 'up' | 'down';
+interface NcwCase { label: string; latency: number; jitter: number; stall: StallDir; hitch: number }
+interface NcwRow { dash: number; held: number; count: number; max: number; total: number }
+/** The room's own signals for the mover over the run (read, not pinned): its multi-command steps and dropped stretches. */
+interface NcwSignals {
+  bursts: number; largestBurst: number; drops: Record<string, number>;
+  /** The re-check's F3: the own page's facing corrections, and the frame each own position correction came at. */
+  facing: number; frames: number[];
+}
+
+const NCW_FRAMES = 780, NCW_RUN = [60, 660] as const;
+const NCW_STALL = { firstMs: 1500, everyMs: 2000, minMs: 150, maxMs: 400 };
+const NCW_HITCH = { firstMs: 1500, everyMs: 3000 };
+
+/** A page's socket to the room behind a line each way; the room takes its frames through the server's loop. */
+function linePair(room: Room, id: number, loop: ServerLoop, up: Line, down: Line): (url: string) => WebSocketLike {
+  return () => {
+    const inner: WebSocketLike = {
+      binaryType: 'arraybuffer', readyState: 0, onopen: null, onclose: null, onmessage: null, onerror: null,
+      send(data) {
+        loop.inbound(() => {
+          if (typeof data === 'string') {
+            const ev = JSON.parse(data);
+            if (ev.type === 'hello') room.hello(id, conn, ev);
+            else room.text(id, ev);
+          } else room.binary(id, data);
+        });
+      },
+      close() { room.leave(id); },
+    };
+    const conn = {
+      send: (frame: Uint8Array | string) => inner.onmessage?.({ data: typeof frame === 'string' ? frame : frame.slice().buffer }),
+      close: () => inner.onclose?.({ code: 1000, reason: '' }),
+    };
+    setTimeout(() => { inner.readyState = 1; inner.onopen?.({}); }, 0);
+    return lineSocket(inner, up, down);
+  };
+}
+
+function measureCase(c: NcwCase): NcwRow & { signals: NcwSignals } {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+  let seed = 4242 + c.latency * 7 + c.hitch * 13 + (c.stall === 'up' ? 1 : c.stall === 'down' ? 2 : 0);
+  const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const m = map(0);
+  // The room's clock is the server loop's (the re-check's F2: a long step reads the hitch's start).
+  let clock: ServerLoop | null = null;
+  const room = new Room(m, null, { now: () => clock?.roomNow() ?? Date.now() });
+  const loop = clock = new ServerLoop(() => room.step(), c.hitch ? { ...NCW_HITCH, ms: c.hitch } : null);
+  const spec = (stalled: boolean): LineSpec => ({ latencyMs: c.latency, jitterMs: c.jitter, stall: stalled ? NCW_STALL : null });
+  const page = new PageWalk(m.grid), eye = new PageWalk(m.grid);
+  const tally = nudgeTally(page);
+  const mover = new NetClient({
+    url: 'mem', map: 'MP99', name: 'Mover',
+    socket: linePair(room, 1, loop, new Line(spec(c.stall === 'up'), random), new Line(spec(c.stall === 'down'), random)),
+  }, page);
+  const watcher = new NetClient({
+    url: 'mem', map: 'MP99', name: 'Watch', watch: true,
+    socket: linePair(room, 2, loop, new Line({ latencyMs: 50, jitterMs: 10 }, random), new Line({ latencyMs: 50, jitterMs: 10 }, random)),
+  }, eye);
+  let yaw = 0;
+  mover.on((ev) => { if (ev.type === 'spawn') yaw = ev.yaw; });
+  loop.start();
+  const T = 1000 / 60;
+  const track: (V3 | null)[] = [];
+  const steps: number[] = [], speeds: number[] = [], frames: number[] = [];
+  let last: V3 | null = null;
+  for (let t = 0; t < NCW_FRAMES; t++) {
+    const running = t >= NCW_RUN[0] && t < NCW_RUN[1];
+    // The fixed path: a circle at full stick, the look turned a degree a tick; held where it ends once the stick lets go.
+    page.play({ forward: running ? 1 : 0, right: 0, yaw: yaw + Math.max(0, Math.min(t, NCW_RUN[1] - 1) - NCW_RUN[0]), pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+    vi.advanceTimersByTime(T);
+    const s = page.sim?.walker.state;
+    if (s) {
+      const here: V3 = [s.x, s.y, s.z];
+      if (last && running && t >= NCW_RUN[0] + 60) { steps.push(Math.hypot(here[0] - last[0], here[2] - last[2])); speeds.push(Math.hypot(s.vx, s.vz)); }
+      last = here;
+    }
+    const n = mover.corrections.small + mover.corrections.snapped;
+    while (frames.length < n) frames.push(t);                     // the frame each own position correction came at
+    const b = watcher.bodies().find((x) => x.id === 1);
+    track.push(b ? [b.feet[0], b.feet[1], b.feet[2]] : null);
+  }
+  loop.stop();
+  expect(mover.role).toBe('player');
+  // The run speed: the mover's own prediction's median step a tick (60 ticks a second), at full stick.
+  steps.sort((a, b) => a - b);
+  const runSpeed = steps[steps.length >> 1]! * 60;
+  expect(runSpeed).toBeGreaterThan(50);
+  // The walker's own velocity is that speed in units a second (`tools/mp-bots.ts` takes its run speed from it).
+  speeds.sort((a, b) => a - b);
+  expect(Math.abs(speeds[speeds.length >> 1]! - runSpeed) / runSpeed).toBeLessThan(0.05);
+  // Commanding as the watcher can draw it: from the first frame the drawn body moves to the frame the stick lets go.
+  const moved = (i: number): boolean => !!(track[i - 1] && track[i] && Math.hypot(track[i]![0] - track[i - 1]![0], track[i]![2] - track[i - 1]![2]) > 0.01);
+  let first = NCW_RUN[0];
+  while (first < NCW_RUN[1] && !moved(first)) first++;
+  expect(first).toBeLessThan(NCW_RUN[1] - 120);
+  const commanding = track.map((_, i) => i >= first && i < NCW_RUN[1]);
+  const own = ownCorrections(mover, tally);
+  // The review's F3: the room's signals for the mover (SVC-23b's `bursts`/`burstSizes`, a test's peek at the seat) and
+  // its drop log (`takeDrops`: `command: backlog` a dropped backlog, `command: cut` a flood cut).
+  const seat = (room as unknown as { players: Map<number, { signals: { bursts: number; burstSizes: Record<number, number> } }> }).players.get(1)!.signals;
+  const signals: NcwSignals = { bursts: seat.bursts, largestBurst: Math.max(0, ...Object.keys(seat.burstSizes).map(Number)), drops: room.takeDrops() ?? {},
+    facing: mover.corrections.facing, frames };
+  mover.close(); watcher.close();
+  vi.useRealTimers();
+  return { dash: dashRatio(track.slice(NCW_RUN[0]), runSpeed, T), held: heldMs(track, commanding, T), count: own.count, max: own.largest, total: own.total, signals };
+}
+
+const NCW_CASES: NcwCase[] = [
+  ...[0, 50, 100, 150, 200, 300, 400].flatMap((latency) => (['none', 'up', 'down'] as const).map((stall) => ({
+    label: `${latency} ms, stalls ${stall}`, latency, jitter: latency / 5, stall, hitch: 0,
+  }))),
+  // The review's F3: the long lines again with no jitter, to part the latency's own effect from the jitter's. The table
+  // prints, beside each row, the room's bursts and drops and the own page's facing corrections and the frame of each
+  // position correction (the stick goes at frame 60): what the corrections come with is read there, not asserted.
+  ...[300, 400].map((latency) => ({ label: `${latency} ms, no jitter, stalls none`, latency, jitter: 0, stall: 'none' as const, hitch: 0 })),
+  ...[0, 260, 500, 800].map((hitch) => ({ label: `128 ms steady, room hitch ${hitch} ms`, latency: 128, jitter: 0, stall: 'none' as const, hitch })),
+];
+
+/**
+ * Today's "before" numbers (measured at d8a9c2ec2 on this rig; deterministic -- the seeds and the fake clocks are fixed),
+ * for NCW-4 to tighten: each row is pinned both ways within its margin, so a fix shows as a change to re-pin here and a
+ * regression as a failure. dash: the ratio; held: ms; count: corrections; max, total: units. The hitch rows re-pinned
+ * for the review's F2 (the long step, then the held frames, then five steps): they were 7.47/167, 15.33/400, 29.84/733.
+ */
+const NCW_BASELINE: Record<string, NcwRow> = {
+  '0 ms, stalls none': { dash: 2.03, held: 16.7, count: 0, max: 0, total: 0 },
+  '0 ms, stalls up': { dash: 10.70, held: 266.7, count: 0, max: 0, total: 0 },
+  '0 ms, stalls down': { dash: 2.16, held: 16.7, count: 0, max: 0, total: 0 },
+  '50 ms, stalls none': { dash: 3.03, held: 16.7, count: 0, max: 0, total: 0 },
+  '50 ms, stalls up': { dash: 11.28, held: 316.7, count: 0, max: 0, total: 0 },
+  '50 ms, stalls down': { dash: 2.79, held: 16.7, count: 0, max: 0, total: 0 },
+  '100 ms, stalls none': { dash: 3.14, held: 33.3, count: 0, max: 0, total: 0 },
+  '100 ms, stalls up': { dash: 8.95, held: 250.0, count: 0, max: 0, total: 0 },
+  '100 ms, stalls down': { dash: 3.41, held: 33.3, count: 0, max: 0, total: 0 },
+  '150 ms, stalls none': { dash: 3.26, held: 33.3, count: 0, max: 0, total: 0 },
+  '150 ms, stalls up': { dash: 10.45, held: 300.0, count: 0, max: 0, total: 0 },
+  '150 ms, stalls down': { dash: 3.42, held: 33.3, count: 0, max: 0, total: 0 },
+  '200 ms, stalls none': { dash: 4.31, held: 66.7, count: 0, max: 0, total: 0 },
+  '200 ms, stalls up': { dash: 16.39, held: 366.7, count: 0, max: 0, total: 0 },
+  '200 ms, stalls down': { dash: 4.04, held: 66.7, count: 0, max: 0, total: 0 },
+  '300 ms, stalls none': { dash: 4.91, held: 83.3, count: 6, max: 0.94, total: 3.04 },
+  '300 ms, stalls up': { dash: 10.95, held: 300.0, count: 6, max: 1.20, total: 4.11 },
+  '300 ms, stalls down': { dash: 5.14, held: 100.0, count: 5, max: 1.83, total: 4.12 },
+  '400 ms, stalls none': { dash: 4.71, held: 66.7, count: 6, max: 3.00, total: 7.14 },
+  '400 ms, stalls up': { dash: 14.12, held: 333.3, count: 5, max: 1.84, total: 6.10 },
+  '400 ms, stalls down': { dash: 4.47, held: 100.0, count: 5, max: 2.56, total: 6.10 },
+  '300 ms, no jitter, stalls none': { dash: 2.17, held: 16.7, count: 10, max: 2.24, total: 6.46 },
+  '400 ms, no jitter, stalls none': { dash: 2.20, held: 16.7, count: 10, max: 2.03, total: 8.13 },
+  '128 ms steady, room hitch 0 ms': { dash: 2.17, held: 16.7, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 260 ms': { dash: 16.40, held: 200.0, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 500 ms': { dash: 32.47, held: 416.7, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 800 ms': { dash: 40.71, held: 700.0, count: 0, max: 0, total: 0 },
+};
+
+/** Within the margin: 15 % of the pin, or the absolute slack, whichever is wider. */
+function pinned(value: number, pin: number, slack: number): boolean {
+  return Math.abs(value - pin) <= Math.max(0.15 * Math.abs(pin), slack);
+}
+
+describe('NCW-3: Case A past 150 ms -- the watched dash, the hold and the own corrections (a measure)', () => {
+  const rows: [string, NcwRow & { signals: NcwSignals }][] = [];
+  afterAll(() => {
+    const f = (x: number, d: number): string => x.toFixed(d);
+    console.log(['', '| mover line | dash ratio | held ms | own corrections | largest | total | room bursts | largest burst | room drops | facing corrections | correction frames |',
+      '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+      ...rows.map(([l, r]) => `| ${l} | ${f(r.dash, 2)} | ${f(r.held, 0)} | ${r.count} | ${f(r.max, 2)} | ${f(r.total, 2)} | ${r.signals.bursts} | ${r.signals.largestBurst} | ${JSON.stringify(r.signals.drops)} | ${r.signals.facing} | ${r.signals.frames.join(' ') || '-'} |`)].join('\n'));
+  });
+  it.each(NCW_CASES)('$label', (c) => {
+    const r = measureCase(c);
+    rows.push([c.label, r]);
+    const pin = NCW_BASELINE[c.label];
+    expect(pin, `no pin for ${c.label}: ${JSON.stringify(r)}`).toBeDefined();
+    expect(pinned(r.dash, pin!.dash, 0.25), `dash ${r.dash} against ${pin!.dash}`).toBe(true);
+    expect(pinned(r.held, pin!.held, 2 * 1000 / 60), `held ${r.held} against ${pin!.held}`).toBe(true);
+    // The review's F3: a row pinned at no correction stays at none; the slack is a non-zero row's only.
+    if (pin!.count === 0) expect(r.count, `count ${r.count} against 0`).toBe(0);
+    else expect(pinned(r.count, pin!.count, 2), `count ${r.count} against ${pin!.count}`).toBe(true);
+    expect(pinned(r.max, pin!.max, 1), `largest ${r.max} against ${pin!.max}`).toBe(true);
+    expect(pinned(r.total, pin!.total, 2), `total ${r.total} against ${pin!.total}`).toBe(true);
+  }, 120_000);
 });

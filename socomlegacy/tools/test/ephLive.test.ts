@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CHORD, LivePadReader, LivePadSource, PAD_LAYOUTS, SCRIPT_CLOCK_STALL_MS, ScriptSource, STICK_ON_AT, checkChord, liveScriptText,
-  type PadSnapshot,
+  type Chord, type PadSnapshot,
 } from '../eph/live';
 import { PageTranslator } from '../eph/pageMap';
 import { parseScript, type ScriptEvent } from '../eph/script';
@@ -13,7 +13,7 @@ import { RunAborted } from '../eph/abort';
  * event and sent through the same translation to both clients. A browser adaptation (product track), no game rule.
  */
 const pad = (pressed: number[] = [], axes: number[] = [0, 0, 0, 0]): PadSnapshot => ({
-  buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })),
+  buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })),
   axes,
 });
 const strip = (e: readonly ScriptEvent[]) => e.map(({ t, input, pressure }) => ({ t, input, pressure }));
@@ -34,6 +34,59 @@ describe('the chord', () => {
   it('refuses a script that uses the modifier for itself', () => {
     expect(() => checkChord(DEFAULT_CHORD, parseScript('0 l2 1\n100 l2 0\n'))).toThrow(/script line 1.*l2/);
     expect(() => checkChord(DEFAULT_CHORD, parseScript('0 triangle 1\n'))).not.toThrow();
+  });
+});
+
+describe("the touchpad chord and solo (PK-8: Machete's PCSX2 settings, the owner 2026-11-03)", () => {
+  const TOUCH: Chord = { modifier: 'touchpad', input: 'triangle', pressure: 0.2 };
+  const SOLO: Chord = { ...TOUCH, solo: true };
+
+  it('the touchpad is the standard index 17 in both layouts; checkChord takes it', () => {
+    expect([PAD_LAYOUTS.standard.touchpad, PAD_LAYOUTS.machete.touchpad]).toEqual([17, 17]);
+    expect(() => checkChord(TOUCH)).not.toThrow();
+    expect(() => checkChord(SOLO)).not.toThrow();
+  });
+
+  it('the touchpad held with Triangle: a light Triangle; the touchpad itself never sent', () => {
+    const r = new LivePadReader(TOUCH, PAD_LAYOUTS.machete);
+    expect(r.read(pad([17]), 0)).toEqual([]);
+    expect(strip(r.read(pad([17, 3]), 10))).toEqual([{ t: 10, input: 'triangle', pressure: 0.2 }]);
+    expect(strip(r.read(pad([]), 20))).toEqual([{ t: 20, input: 'triangle', pressure: 0 }]);
+    expect(strip(r.read(pad([3]), 30))).toEqual([{ t: 30, input: 'triangle', pressure: 1 }]);
+    // L2 is a plain button with the touchpad chord.
+    expect(strip(r.read(pad([3, 6]), 40))).toEqual([{ t: 40, input: 'l2', pressure: 1 }]);
+  });
+
+  it('solo: the touchpad alone is a light Triangle, released with it; Triangle pressed while it is held is the same press', () => {
+    const r = new LivePadReader(SOLO, PAD_LAYOUTS.machete);
+    expect(strip(r.read(pad([17]), 0))).toEqual([{ t: 0, input: 'triangle', pressure: 0.2 }]);
+    expect(r.read(pad([17, 3]), 10)).toEqual([]);
+    expect(r.read(pad([3]), 20)).toEqual([]);   // still held by the Triangle: no event
+    expect(strip(r.read(pad([]), 30))).toEqual([{ t: 30, input: 'triangle', pressure: 0 }]);
+    expect(strip(r.read(pad([17]), 40))).toEqual([{ t: 40, input: 'triangle', pressure: 0.2 }]);
+    expect(strip(r.read(pad([]), 50))).toEqual([{ t: 50, input: 'triangle', pressure: 0 }]);
+  });
+
+  it('a held full Triangle is not re-pressed by the touchpad, solo or not', () => {
+    for (const chord of [TOUCH, SOLO]) {
+      const r = new LivePadReader(chord, PAD_LAYOUTS.standard);
+      expect(strip(r.read(pad([3]), 0))).toEqual([{ t: 0, input: 'triangle', pressure: 1 }]);
+      expect(r.read(pad([3, 17]), 10)).toEqual([]);
+      expect(r.read(pad([3]), 20)).toEqual([]);
+      expect(strip(r.read(pad([]), 30))).toEqual([{ t: 30, input: 'triangle', pressure: 0 }]);
+    }
+  });
+
+  it('the standard L2 chord is unchanged: the touchpad does nothing with it', () => {
+    const r = new LivePadReader();
+    expect(r.read(pad([17]), 0)).toEqual([]);
+    expect(strip(r.read(pad([17, 3]), 10))).toEqual([{ t: 10, input: 'triangle', pressure: 1 }]);
+  });
+
+  it('live.script names the chord: the touchpad, and solo when set', () => {
+    expect(liveScriptText([], TOUCH).split('\n')[1]).toBe('# light Triangle chord: touchpad held with triangle = triangle at 0.2');
+    expect(liveScriptText([], SOLO).split('\n')[1]).toBe('# light Triangle chord: touchpad held with triangle = triangle at 0.2; touchpad alone (solo) = triangle at 0.2');
+    expect(liveScriptText([], DEFAULT_CHORD).split('\n')[1]).toBe('# light Triangle chord: l2 held with triangle = triangle at 0.2');
   });
 });
 

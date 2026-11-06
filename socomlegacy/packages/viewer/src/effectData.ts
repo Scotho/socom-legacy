@@ -1,7 +1,7 @@
 import { parseRdr, rdrGet, readZarMembers, readZdbMember, Zar, type AssetSource } from '@s2u/archive';
 import { decodeTexture, PaletteTable, parseTextureRecord, type GsState, type Rgba } from '@s2u/gs';
 import {
-  decalSetRows, decodeEffectProgram, EFFECT_MEMBERS, effectLibrary, flattenScene, parseAnimSets, parseSceneGraph,
+  applyR0004MapPatch, decalSetRows, decodeEffectProgram, EFFECT_MEMBERS, effectLibrary, flattenScene, parseAnimSets, parseSceneGraph,
   throwableRecord, type ThrowableRecord, type DecalEntry, type EffectLine, type EffectMesh, type EffectProgram,
 } from '@s2u/scene';
 import { parseSoils } from '@s2u/sound';
@@ -244,7 +244,9 @@ export async function effectsFromDisc(source: AssetSource, mapPath: string, arch
     const geo = await member(`${archive}_GEO.ZED`);
     if (geo) {
       try {
-        for (const inst of flattenScene(parseSceneGraph(Zar.parse(geo)))) {
+        const graph = parseSceneGraph(Zar.parse(geo));
+        applyR0004MapPatch(graph, archive);   // LATER 707 (research 383): a node r0004 moves, its effect with it
+        for (const inst of flattenScene(graph)) {
           if (wantedNodes.has(inst.node.name) && !sceneNodes.some(([n]) => n === inst.node.name)) sceneNodes.push([inst.node.name, Array.from(inst.world)]);
         }
       } catch (e) { missing.push(`${archive}_GEO.ZED: ${why(e)}`); }

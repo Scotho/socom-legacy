@@ -261,6 +261,7 @@ function padGroups(mode: ControlMode, toggle: boolean): ControlGroup[] {
         { keys: 'D-pad Left / Right', does: 'category' },
         { keys: 'Cross', does: 'choose' },
         { keys: 'Triangle', does: 'back' },
+        { keys: 'Circle', does: 'close' },                     // OT.R106: the owner's adaptation (the original's Circle is no cancel)
         { keys: 'R2', does: 'close' },
       ],
     },

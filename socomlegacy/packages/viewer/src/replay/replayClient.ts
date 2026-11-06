@@ -580,6 +580,8 @@ export class ReplayClient implements NetClientSurface {
   serverTick(now: number = this.now()): number { return this.clock?.tick(now) ?? 0; }
   /** The tick the bodies are drawn at: the replay's own, no interpolation delay (every snapshot is in hand). */
   viewTick(now: number = this.now()): number { return this.serverTick(now); }
+  /** NCW-17's displayed tick (`NetClient.shownTick`), inert: a replay fires no round. */
+  shownTick(): number | null { return null; }
 
   /** Every recorded body at the replay's tick, between the two snapshots around it (`NetClient.bodies`' law). */
   bodies(now: number = this.now()): BodyState[] {

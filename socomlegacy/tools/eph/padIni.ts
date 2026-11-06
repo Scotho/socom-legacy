@@ -35,6 +35,14 @@ export const PAD1_NAME: Readonly<Record<Input, string>> = {
   lup: 'LUp', lright: 'LRight', ldown: 'LDown', lleft: 'LLeft', rup: 'RUp', rright: 'RRight', rdown: 'RDown', rleft: 'RLeft',
 };
 
+/**
+ * PCSX2's TogglePause hotkey as the harness ini binds it: `[Hotkeys] TogglePause = Keyboard/Space` (the desktop's
+ * tools/pcsx2/inis/PCSX2.ini, outside its git, read 2026-11-03; replacePad1 keeps [Hotkeys] byte for byte). The parity
+ * pack's Pause (PK-2) taps it through the key injector; no [Pad1] bind and no prepared macro may use it, which
+ * tools/test/ephPadIni.test.ts pins. An adaptation's key, no game value.
+ */
+export const PCSX2_PAUSE_HOTKEY = { hotkey: 'TogglePause', key: 'Space', vk: 0x20 } as const;
+
 /** PCSX2's `Keyboard/<name>` for a virtual key the harness uses. */
 export function pcsx2KeyName(vk: number): string {
   const named: Record<number, string> = { 0x0d: 'Return', 0x08: 'Backspace', 0x26: 'Up', 0x28: 'Down', 0x25: 'Left', 0x27: 'Right' };

@@ -13,8 +13,9 @@ import {
  * a name, the way Desert Glory's `building_wc2` nodes do, plus one uniquely named structure. No disc geometry.
  */
 
+// `flags` 1: `m_active`, set on every node of every map as read; the draw's gate drops a node without it (LATER 707).
 const node = (name: string, over: Partial<SceneNode> = {}): SceneNode => ({
-  name, modelName: null, type: NODE_GENERIC, flags: 0, matrix: Float32Array.from(IDENTITY),
+  name, modelName: null, type: NODE_GENERIC, flags: 1, matrix: Float32Array.from(IDENTITY),
   bbox: new Float32Array(6), regionmask: 0, visuals: 0, visualParams: [], visualMaterials: [], children: [], collision: [], ...over,
 });
 

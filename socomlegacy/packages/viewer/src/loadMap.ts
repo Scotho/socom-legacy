@@ -19,7 +19,7 @@ import {
 } from '@s2u/scene';
 import { BULLET_MARK, parseAiMaps, VALVE_OF_ITEM, placeSpawnSlots, spawnsFor, type AiMaps, type EscorteeStart, type GameType, type SpawnSlot, type Spawns } from '@s2u/scene';
 import type { TextureFlags } from './materialSpec';
-import { collisionOwners, type WorldPoly } from '@s2u/scene';
+import { applyR0004MapPatch, collisionOwners, type WorldPoly } from '@s2u/scene';
 import { groundGrid, packGround, type GroundData } from './mover';
 import { placementKey } from './forge/layout';
 import { openingStand, type Stand } from './stand';
@@ -1323,6 +1323,7 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
   try {
     const geo = Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`));
     const models = parseSceneGraph(geo);
+    applyR0004MapPatch(models, stem);   // R4B-09 (research 383): r0004's per-map collision, as the room's `simMapFromBytes` does
     const turrets = turretParts(bytes, toc, stem, models, turretDefs, notes);
     // LATER 166 (`@s2u/scene` `turretScopeHidden`; `FUN_003a9a80` D:L300804-300828): a plain turret hides its
     // `thermal_scope` node, a THERMAL one its `scope` -- MP10's own-graph RMG too (`placeInstances` places it).

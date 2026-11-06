@@ -99,6 +99,7 @@ import { extractionPoints } from './hostageMarks';
 import { onlineChoiceAddress, readShare, updateAddress } from './shareUrl';
 import { devBadgeLabel, devMode, devSwitches, startSource, tracerHold } from './source';
 import { ephFrameOf } from './ephFrame';
+import { EphPause } from './ephPause';
 import { enterReplayWorld, replayWorldDeps, replayWorldHost } from './modern/replays/worldHost';
 import { itemIcon, kitParam, PlayerLoadout } from './loadout';
 import { padButtonsDown } from './weaponExchange';
@@ -1212,6 +1213,8 @@ canvas.addEventListener('mousedown', (e) => { if (e.button === 2 && !armory.isOp
 const stanceButton = new StanceButton();
 /** PAR-24 (research 252): the frame's real seconds, read once a frame; the timed rules count them, the simulation the clamped step. */
 const frameTime = new FrameTime();
+/** PK-3, a browser adaptation (`./ephPause`): the parity pack's Pause, `__viewer.ephPause`; a no-op without the bare `?devmode`. */
+const ephPause = new EphPause(EPH_ON, () => frameTime.restart());
 /** The game's lanes' parts (`./matchLanes` `playerLanes`): the shoulders through the R2 inventory's binds, the action's lanes. */
 let cardOptions = pageCardPlayOptions(), cardTuners = pageCardTunerVars();
 setBrightness(brightnessOfVars(cardTuners));   // OPT-11 (research 358): the card's stored BRIGHTNESS; the live Options manager's after
@@ -1535,6 +1538,7 @@ function padFrame(dt: number): void {
   // button's hold -- before the traversal's lanes, so the Cross the menu takes over is no release.
   const over: CancelCause | null = playOn && armory.isOpen() ? 'armory' : menu || inventory.isOpen() ? 'menu' : null;
   if (over && !menuOver) { cancelAction(over); stanceButton.reset(); }   // as the R2 inventory's `onOpened`: no tap or hold carried over
+  if (pad.stance && !game.stance) gamePad.cancelStancePress();   // OT.R107: a Triangle a menu took is no late pressure Prone
   menuOver = over;
   walk.holdForMenu(menu || inventory.isOpen());        // discard preexisting keyboard/touch holds when a menu opens
   // Research 84: d-pad Up and Down step the zoom in and out, L3 the fire mode (walking, the rifle up). The edges are of
@@ -1901,6 +1905,7 @@ async function boot(): Promise<void> {
   };
   const frame = (): void => {
     const dt = Math.min(frameTime.frame(performance.now()), 0.1);     // a backgrounded tab must not teleport the camera (PAR-24: the real seconds kept)
+    if (ephPause.held()) { requestAnimationFrame(frame); return; }   // PK-3 (`./ephPause`): paused, nothing steps or draws; the resume re-bases the clock
     // R6 (the round 5b review): Play, Walk and a new map end the shot first (`mode` / `map`), so the walk's own pitch set
     // or a map's look is never read as the person's move; then the takeover test (R5-B: the person moved the camera).
     soloAgent?.shotSeams();
@@ -2759,6 +2764,7 @@ window.__viewer = {
   },
   action: () => traversal.action(),
   ephFrame: () => ephFrameOf(EPH_ON, walk, play),                     // EPH-2 (`./ephFrame`): null without `?devmode`
+  ephPause: (on) => ephPause.set(on),                                 // PK-3 (`./ephPause`): false without `?devmode`
   doors: () => doors.stats(),
   gates: () => gates.stats(),                                     // MAP-07: the drawn lever gates (a test instrument)
   useDoor: (i) => doors.use(i),

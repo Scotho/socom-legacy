@@ -289,6 +289,60 @@ while running after a swap (full stick or 0.8, the trigger held 2 s), where with
 the press -- player-visible; the port's behaviour there not checked (LATER 656; was: "the port has no such gate", which
 was not checked).
 
+**The first round after a grenade's return (LATER 655/656; 6d's swap-first-round task, 2026-11-05; reading, pending
+review).** The fire gate after the slot change, read at the source:
+
+- **The take-up's raise times.** `FUN_005c4b10` writes the selected slot (D:L478842) and its raise times by its category
+  (D:L478849-478857): the firearm categories (`FUN_003d1db0` 0x1f/0x33/0x51/0x5b/0x8d/0x65, `FUN_003d1da0` 4,
+  `FUN_003d1d90` 0x91) take the rifle's (`FUN_005dffc0`: in 0.1 s, hold 100000 s, out 0.5 s); every other item, the hand
+  grenades (0x79) among them, zero (`FUN_005dfff0` D:L494293-494300).
+- **The grenade up lowers the rifle at once.** With the class 'y' selected (`FUN_005c8040` D:L453568) and the trigger
+  idle the controller asks down with no countdown (D:L453597-453600); under the zero times the lower leaves nothing to
+  fall (`FUN_005dfe30` D:L494249-494256: the linear weight, at most 0.99, times `seal+0xeec` = 0), and the raise tick
+  clears the envelope that tick (`FUN_005dfc80` D:L494204-494210). R1 under the grenade is the throw's wind-up, not the
+  rifle's trigger (D:L453478-453541; research 326 R326.2).
+- **The return plays nothing.** The swap to the grenade takes the item branch -- the body's 0.3 s snapshot cross-fade,
+  the hand's class `+0xf79` not written (`FUN_005a64c0` D:L461867-461869, D:L461889-461920) -- so back on the rifle
+  `+0xf79` is still 1 and `FUN_005c50b0` sets no swap-pending bit (D:L479006-479010): no clip, no overlay, so neither
+  `FUN_005a7980`'s pending-bit test nor its swap-clip tests (D:L462473-462507) refuse the round.
+- **So the first round waits on the raise alone.** The rifle's times come back with the slot; the trigger's press (or
+  the countdown, if the rifle fired within its 5 s: D:L453571-453584) asks up from the cleared envelope (D:L494258-494265);
+  `FUN_005c0ae0` refuses the round while the eased weight is under 1 (D:L476423-476438): `RAISE_REFUSAL_FRAMES`, 2 game
+  frames after the press's (LATER 180). The same for every hold, one game frame or a second. The raise itself takes no
+  stance or speed term, but the same gate also asks `FUN_005a7de0(actor, 1, 1)` (D:L476442), which does read state the
+  swap may leave behind: the stance word `+0x174` (D:L462611-462612, D:L462675), the top action at `+0x1c0` and its
+  `NoFire` window (D:L462610, D:L462620-462675, D:L462698-462706), the upper-body overlay slot `+0x1e4` (D:L462681),
+  `+0xeac` (D:L462682) and `+0x1060` bits 2 and 4 (D:L462613, D:L462683). Whether any of them holds after a grenade's
+  return, running or walking, was not read (`SWAP_RUN_FIRE_READING`).
+
+The port: the page kept the rifle's times while a grenade was up (`matchFirearm.ts` `kitFrame` gave zero times only
+mounted), so the grenade's lower fell over the rifle's 0.5 s out; a return inside that half second found the rifle part
+lowered, the raise snapped to the hold (`FUN_005dfc80` D:L494213-494216) and the first round left on the return's own
+frame -- up to two game frames before the original's. Fixed: an item up takes `ZERO_RAISE_TIMES`
+(`swapFirstRound.test.ts`; RED 6 of 8 at c4f7c7318). The room has no raise model (`ROOM_RAISE_TRUST_ADAPTATION`, LATER
+641): nothing to change there. The bloom is section 3.4's above, unchanged.
+
+What the read does not explain, named: (a) the capture's +0.333 s against the read's 2-3 game frames after a press at
++0.1 s (`SWAP_FIRST_ROUND_WAIT_READING`); (b) no round at all while running after a swap (`SWAP_RUN_FIRE_READING`). The
+unread candidates are `FUN_005a7de0`'s (D:L476442). The likeliest is a stale upper-body overlay at `actor+0x1e4`
+(D:L462681; the review's best guess), or a running action at `+0x1c0` whose `NoFire` window never opens
+(D:L462698-462706); `+0xeac` (D:L462682) and `+0x1060` bit 4 (D:L462683) are the others. The raise's gate `actor+0x258`
+bit 0 (D:L494258) is unlikely: its three clears found (D:L414153, D:L414275, D:L465223) are all wall and weapon-line
+checks. The port fires as with no swap in both. Settles: capture Part E
+(`agent-mail/evidence/segment-body/sb2/CAPTURE-SPEC-COMBINED.md`).
+
+Research 326 R326.2's "the rifle rises about two frames and falls over its 0.5 s out" at a release with a grenade left
+assumed the rifle's times; under the grenade's zero times (above) the release's raise parks the envelope at 0
+(`FUN_00286d90(0, 0, 0)`, D:L494264-494265) and nothing shows -- the same outcome R326.2 drew ("nothing shows"), now
+by the times rather than the clip.
+
+The slot's last grenade (LATER 715; the review of 5cebecc98, F3): the original brings the firearm back at the launch
+(`FUN_005c4b10` from the kit tick, D:L477135-477136), and with it the rifle's raise times; the page's item stays up
+until the throw clip ends (`grenade.ts` `finishThrow`), so its zero times hold through the clip's tail and the rifle's
+rise and first round after the last grenade start at the clip's end. Before this fix the page held the rifle's times
+through the whole throw, also unlike the original. The root is when the port's slot changes, not the times; settled with
+research 326's capture NU8-1 (its last-grenade throws).
+
 **Not built, named.** (1) The room's cone (`net/shotCone.ts`, `room.ts` `aim`) runs the firearm's record through a grenade
 up: no command or event names a hand grenade selected (the room knows the raised launcher only, `Player.held`). Its size
 never stands under the page's (the item closes faster and lower, and from the return both run the firearm's size rule:
@@ -912,6 +966,8 @@ review.
 | `TARGET_NAME_LOOK_READING` | the target's name string (`hud+0x4544`, made at Init by the HUD's string class at 0.7, D:L70816-70817) is coloured nowhere in the reticle's code; its place `FUN_003631a0` (D:L70209-70211); NU-3b C4 | the HUD's every string's: (128, 128, 128) at alpha 80 with the font's drop shadow (`hud.ts` `HUD_COLOURS`, `FONT_TEXT_01`), the place the pen and the baseline, left-aligned (`hudFont.ts` `layoutText`) | a capture of a teammate's name beside the reticle |
 | `PART_HEALTH_INTERVAL_TICKS_READING` | how soon a seat's part byte may change again for the others (section 4.2.1, part 1): 100 ms online (research 193 section 12.4), `lastSent + 100 < now` strictly in the DME's millisecond clock, each of the six bytes its own field and time (`FUN_0061a488` D:L526672-526674, D:L526693); how often the pump runs is unread; NU-3c (2026-10-15, `net/protocol.ts`) | `7` ticks of the room's 60 Hz: the clock is whole milliseconds (`FUN_0063d2d8` D:L552697), so the strict 100 needs 101 counted, which six 59.94 Hz frames (100.1 ms) reach about one time in ten and seven (116.8 ms) always; the room's tick standing for a frame (was `6`, on 100.1 ms passing with the clock taken as continuous; NU-3c's review, F1) | a two-console capture timing a wounded seat's part-byte field updates |
 | `SEAT_SCRIPT_TEAM_MASK_READING` (*note only*) | that no multiplayer map's script gives a seat the escortee bit or the other side's (section 4.2.1, part 2): `FUN_005cea40` (D:L484703-484711) ORs or clears a mask on an actor found by id; the MP maps' scripts were not read; NU-3c | *note only* (no constant: the room's recipients leave out the other side whatever a script does) | a reader run over the MP maps' scripts for that action and its targets |
+| `SWAP_FIRST_ROUND_WAIT_READING` | the first round after a hand grenade's return (section 3.4, "The first round after a grenade's return"; LATER 655): the read gives the raise from a cleared envelope alone, `RAISE_REFUSAL_FRAMES` after the press; ac's first-shot capture has the round about 0.23 s after a press 0.1 s after the return, about three game frames more than the read and the capture's own input lag | `'the raise from a cleared envelope alone'` (`weaponRaise.ts`) | capture Part E: the press's frame and the round's, with `actor+0xf74`, `actor+0x1160..0x116c` per frame |
+| `SWAP_RUN_FIRE_READING` | a round while running after a hand grenade's swap (section 3.4; LATER 656): the capture fires none in 2 s held, where a run with no swap fires about 0.15 s after the press; nothing read on the swap's path refuses it; unread candidates, all in `FUN_005a7de0` on the fire gate (D:L476442): a stale upper-body overlay `actor+0x1e4` (D:L462681), the action at `+0x1c0` and its `NoFire` window (D:L462620-462675, D:L462698-462706), `+0xeac` (D:L462682), `+0x1060` bit 4 (D:L462683); `actor+0x258` bit 0 (D:L494258) unlikely, its three clears (`FUN_00549c30` D:L414153, `FUN_00549f30` D:L414275, D:L465223) all wall and weapon-line checks | `'fires as with no swap'` (`weaponRaise.ts`) | capture Part E's running trials, with `actor+0x258`, `actor+0xf74` and the envelope per frame |
 
 ## 8. Against earlier notes (history kept; those notes are not edited by this row)
 

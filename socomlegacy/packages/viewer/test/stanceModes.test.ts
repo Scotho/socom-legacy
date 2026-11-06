@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ControllerInput } from '../src/controllerInput';
-import { mergeInput, noInput, PAD_BUTTON, padInput, type Input } from '../src/gamepad';
+import { mergeInput, noInput, PAD_BUTTON, padInput, stanceLane, type Input } from '../src/gamepad';
 import { playerLanes, type LaneParts } from '../src/matchLanes';
 import { gameReadsButton } from '../src/modern/overlay/binding';
 import type { Stance } from '../src/mover';
@@ -162,7 +162,7 @@ describe('STM.R1: entering SEPARATE clones Triangle\'s button to Prone', () => {
     press(p, TRIANGLE);
     let read = match.poll(src);
     expect(match.prone).toBe(true);
-    expect(padInput(read).stance, 'Triangle\'s own press is masked: its button is Prone\'s').toBe(false);
+    expect(stanceLane(padInput(read)), 'OT.R107: the stance lane takes none of it -- Triangle\'s own press is masked there: its button is Prone\'s').toBe(false);
     setControllerStanceMode('pop');
     read = match.poll(src);
     expect(match.prone).toBe(false);
@@ -248,7 +248,7 @@ describe('STM.R1 with the review\'s F1: Triangle\'s stance is off in SEPARATE on
     saveProfile(p, { prone: R3 });
     setControllerStanceMode('separate');
     const r = reader(p);
-    expect(r.frame(TRIANGLE).game.stance).toBe(false);
+    expect(stanceLane(r.frame(TRIANGLE).game), 'OT.R107: Triangle\'s action kept, its stance lane off').toBe(false);
     expect(r.frame(R3).prone).toBe(true);
     const m = match(p, 'separate');                              // the match end to end: no stance asked
     m.tapTriangle();

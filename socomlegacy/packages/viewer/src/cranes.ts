@@ -265,8 +265,10 @@ export function splitCranePlacements<T extends { path: string }>(
  * frame (`./cranePage` `frame`); the room judges the press at its command's tick, so **the room is ahead** of what the
  * page saw, by about the round trip plus the snapshot's age (the #337 review's F1; was: "the page a frame ahead"). The
  * lag is the room's tick less the page's view clock (`Player.viewTick`, the page's claim), clamped to
- * `CRANE_PRESS_LAG_BOUND_ADAPTATION` (`MAX_REWIND_MS`, the shots' rewind bound): a forger gains at most that term
- * (about 4 u on hook2). The view clock is the page's interpolation time, `INTERP_DELAY_MS` (100 ms) behind its server
+ * `CRANE_PRESS_LAG_BOUND_ADAPTATION` (`MAX_REWIND_MS`, 200 ms): a forger gains at most that term (about 4 u on hook2).
+ * Since NCW-2 B-bound the shots' rewind is a per-seat cap from 200 up to 400 ms (match `room.ts` `rewindCapMs`); the
+ * press deliberately keeps the 200 ms floor (as `./net/protocol` `MAX_REWIND_MS` says), so a high-ping seat's press
+ * counts less of its lag than its shots do. The view clock is the page's interpolation time, `INTERP_DELAY_MS` (100 ms) behind its server
  * tick (`./net/client`), older than the snapshot the hook is drawn from, so the lag overstates the hook's by up to that
  * delay -- toward acceptance, inside the same bound; and it is the newest batch's clock, not the press's own, which a
  * queued command understates by the queue's depth, under that 100 ms. LATER 325: the hook rewound to the view tick instead.
@@ -279,7 +281,7 @@ export const CRANE_PRESS_BASE_SLACK = 1;
  * frameTime.frame(...), 0.1)`, PAR-24), the frame the page steps the hook past its snapshot. Pinned to both sources by `cranes.test.ts`.
  */
 export const CRANE_PRESS_FRAME_SECONDS = 0.1;
-/** CRANE_PRESS_SLACK_ADAPTATION's lag bound: the shots' rewind bound, `MAX_REWIND_MS`, the most of the page's claimed lag counted. */
+/** CRANE_PRESS_SLACK_ADAPTATION's lag bound: `MAX_REWIND_MS` (200 ms, the shots' rewind floor, kept on purpose), the most of the page's claimed lag counted. */
 export const CRANE_PRESS_LAG_BOUND_ADAPTATION = 'MAX_REWIND_MS' as const;
 
 /**

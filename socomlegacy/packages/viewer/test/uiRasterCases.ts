@@ -480,6 +480,40 @@ export function caseRasterInputs(c: UiRasterCase, scale: UiRasterScale, mode: Ui
 /** The key of one pinned run: `<case key>@<scale>x/<mode>`. */
 export const caseRunKey = (c: UiRasterCase, scale: UiRasterScale, mode: UiRasterMode): string => `${c.key}@${scale}x/${mode}`;
 
+// ---- GM-15b: seams (research 380 M2, M3; the GM-15 row's "seam and tie cases") -----------------------------------------
+
+/** One square of `seamSquares`: its top-left corner and side at scale 1, and the invW of its four corners. */
+export interface UiSeamSquare { x: number; y: number; n: number; invW: number }
+/** The seam list's clear (every channel) and its additive texel (every channel): a pixel drawn once is 70, twice 130. */
+export const UI_SEAM_CLEAR = 10;
+export const UI_SEAM_TEXEL = 60;
+
+/**
+ * GM-15b: a list of squares on a grid (none overlaps another), each split along its anti-diagonal into two front-facing
+ * triangles that share that edge (case 2's first pair, generalised): every vertex of square k at `invWs[k]`, one
+ * additive 4 x 4 texture of `UI_SEAM_TEXEL`, sides 8, 16, 32 in turn (powers of two, so every barycentric weight is
+ * dyadic at every scale). The inclusive-edge rule (M2, `UI_MODEL_EDGE_RULE_READING`) puts each seam pixel in both
+ * triangles; the depth test (M3, `UI_MODEL_DEPTH_FORMAT_READING`) decides whether the second adds its texel again.
+ */
+export function seamSquares(invWs: readonly number[]): { items: UiDrawItem[]; textures: UiTextures; squares: UiSeamSquare[] } {
+  const squares = invWs.map((invW, k): UiSeamSquare => ({ x: 4 + 40 * (k % 12), y: 4 + 40 * Math.floor(k / 12), n: [8, 16, 32][k % 3]!, invW }));
+  const triangles: UiModelTriangle[] = squares.flatMap(({ x, y, n, invW }, k) => [
+    tri('seam.tif', vtx(x, y, invW), vtx(x, y + n, invW), vtx(x + n, y, invW), true, `s${k}a`),
+    tri('seam.tif', vtx(x + n, y, invW), vtx(x, y + n, invW), vtx(x + n, y + n, invW), true, `s${k}b`),
+  ]);
+  const bitmap = solid(4, 4, [UI_SEAM_TEXEL, UI_SEAM_TEXEL, UI_SEAM_TEXEL, 255], 'additive');
+  return { items: [clear(UI_SEAM_CLEAR, UI_SEAM_CLEAR, UI_SEAM_CLEAR), { kind: 'models', triangles }], textures: (name) => (name === 'seam.tif' ? bitmap : null), squares };
+}
+
+/**
+ * The seam pixels of one square at a scale: the integer points strictly inside its shared edge, (x s + i, (y + n) s - i)
+ * for i = 1 .. n s - 1 (the edge's two ends lie on the boxes' exclusive right column and bottom row, `ceil(max)`).
+ */
+export function seamPixels(sq: UiSeamSquare, scale: number): [number, number][] {
+  const x = sq.x * scale, y = sq.y * scale, n = sq.n * scale;
+  return Array.from({ length: n - 1 }, (_, k): [number, number] => [x + k + 1, y + n - k - 1]);
+}
+
 /**
  * SHA-256 of `rasterizeUiDrawList`'s frame bytes for every case, scale and mode, taken from the software on
  * `agent/gpu-menus` at 95c4fa80e, whose `uiCompositorView.ts` and `@s2u/ui` are main cbe52f724's (v0.4.1). A later executor equal to the software reproduces these exactly.

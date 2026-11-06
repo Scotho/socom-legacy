@@ -2,7 +2,8 @@
 
 Written 2026-10-25 in the owner's seat, at his ask ("check out how this project is doing forge and how it compares to
 ours"). **Confidence: source inspection of a third-party tool, plus our own readers' notes it is compared with. Nothing
-here is a reading of the original; nothing is cited from the tool as evidence of the game.** What was read: the
+in the original survey is a reading of the original; nothing is cited from the tool as evidence of the game.**
+R4B-00's original-source correction in §3 (2026-11-04) is separately **reading, pending review**. What was read: the
 repository https://github.com/FatalityDevelopment/SocomMapBuilder at `master` 2a90555f (one squashed commit dated
 2026-10-25, 164 files, no licence file), its `docs/formats/` (545 lines) and its server and page sources.
 
@@ -10,7 +11,7 @@ repository https://github.com/FatalityDevelopment/SocomMapBuilder at `master` 2a
 
 A local editor for the game's own package files, not a port. A .NET 8 server owns an opened `.ZDB` in memory, every
 edit is an `ASSET_*` command with undo, and a React plus three.js page previews and sends commands. Save writes a new
-`.ZDB`, or a `.CDB` pack its own cheat-code loader mounts from the memory card (§3). Its Map Builder page edits GEO
+`.ZDB`, or a `.CDB` pack (the original r0004 also has a native memory-card path, §3). Its Map Builder page edits GEO
 instances (move, duplicate, delete; `worldmodel` refused), `CLUTTER.ZAR` placements (move, add, delete) and the AIMAPS
 named points (move, §3); it imports a prop, vehicle, weapon or character from another package with its textures and
 palettes. Beyond the map: a model editor, an animation editor for `MOTION_S.ZAR`, an asset browser, and SOCOM 3,
@@ -33,9 +34,15 @@ FG-6 open). Theirs edits clutter; §4 says how much of that the forge already ha
 | texture header `+0x08` = TEX0.TBP0 | `loadMap.ts` keys a library's textures by `gsaddr`, the TBP0 and MIPTBP1 space | agrees; already ours |
 | `vparams` flag `0x20000` selects int16/32768 (weapons) over /16 | `mesh/interpret.ts` reads the VIF command (`0x70` ITOF15, `0x68` ITOF4; research 15 §0) | the microcode's command is authoritative; the GEO bit can only confirm it. Not pursued. |
 | clutter `params`: a matrix layout and a quaternion layout | `scene/clutter.ts` reads both | agrees |
-| a `.CDB` pack is mounted natively from `mc0:/BASCUS-97275<NAME>/<NAME>.CDB` | the ELF's string tables (`SCUS_972.75.strings.txt`, `socom2_game.elf.strings.txt` on the owner's host) hold one matching string, the save directory `BASCUS-97275SOCOMII`; no `mc0:`, `.CDB` or `loadpack` | **not native**: their "confirmed in game with loadpack" is their own cheat-code loader (`cds/pack_stream`). Dropped as a reading candidate. |
+| a `.CDB` pack is mounted natively from `mc0:/BASCUS-97275<NAME>/<NAME>.CDB` | the survey checked retail's strings only; r0004 `FUN_003c8c80` builds `BASCUS-97275<NAME>/<NAME>.CDB` at `0x3c8ec0-0x3c8f0c`, then tries card port 0 followed by port 1 (`0x3c8f80-0x3c90e8`) | **native in the inspected r0004; absent from the inspected retail path** (`FUN_0039c440`, D:L292959-292976). The native card API supplies the port; a literal `mc0:` string is not required. R4B-00 correction, reading, pending review; this does not establish that the tool's output meets every native format/check or that r0004 was the first build with support. |
 | AIMAPS named points: `count`, "one more u32", then 24-byte records `{name[16], team u8, kind u8, 2 pad, packed cell u32}`; a move rewrites the cell | research 75 §5.1 and `scene/aimaps.ts`: `count`, then 24-byte records `{u32 loc; char name[16]; u32 word}`, parsed to the last byte on all 22 files; Frostfire's bytes at 0x159d0 read count 6, loc, `PlayerStart`, word, the next loc | **their layout is shifted one word** (`MPS/MapPoints.cs:31-45`): their "one more u32" is the first point's `loc`, their "packed cell" at `+0x14` is the *next* point's `loc`, their team and kind bytes are our `word`'s bytes 0-1 (kind in byte 1 agrees with 75 §5.1). Their move rewrites the following point's cell and the last point reads past the table. Their own doc says the move is unconfirmed in game. The owner passes it on. |
 | facade trees turned by the name pattern `*_facade*` | `facadeOf(flags)`, bits 8-9 of the node flags (reCOM) | ours is the engine's rule; nothing to take |
+
+The corrected `.CDB` reading comes from the original instructions, re-read at those r0004 addresses in both
+`game/overlays_r0004/socom2_game_r0004.elf` and pristine `game/r0004/served/ftscore.bin`; the path pieces are
+strings `0x428018` (`.CDB`), `0x428020` (`BASCUS-97275`) and `0x428030` (`/`). This bounds the old retail-only
+negative. No native package-load or tool-export comparison was run; the third-party claim itself is not evidence
+of the game's behaviour.
 
 ## 4. Clutter in the forge: what is already there, what is not
 

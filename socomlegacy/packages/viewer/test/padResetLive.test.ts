@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { padInput } from '../src/gamepad';
+import { padInput, stanceLane } from '../src/gamepad';
 import { PadBinding } from '../src/padBinding';
 import { GamePad, PAD_SELECTION_KEY } from '../src/setupPad';
 import { SETUP_KEY, STANCE_MODE_KEY, defaultController } from '../src/startupSettings';
@@ -68,7 +68,7 @@ describe('OBF-12: a reset on the mapping screen reaches the match\'s pad reader 
     r.screen.restoreDefaults();
     const f = r.frame(3);
     expect(f.prone, 'Triangle\'s physical button is the cloned Prone').toBe(true);
-    expect(f.input.stance, 'Triangle\'s own press is taken from the game while Prone is bound').toBe(false);
+    expect(stanceLane(f.input), 'OT.R107: the stance lane only -- Triangle\'s own press is taken from the game while Prone is bound').toBe(false);
     r.frame();
     expect(r.frame(R3).prone).toBe(false);
   });

@@ -1,5 +1,5 @@
 {
-  "commit": "0dd49950f",
+  "commit": "9a7da4779",
   "sprints": [
     {
       "number": 6,
@@ -1106,6 +1106,16 @@
       "title": "RV2 -- the replay viewer redesign -- plan"
     },
     {
+      "id": "2026-11-02-shotgun-damage",
+      "date": "2026-11-02",
+      "title": "Shotgun multiplayer damage correction -- plan"
+    },
+    {
+      "id": "2026-11-02-suppressed-weapon-audio",
+      "date": "2026-11-02",
+      "title": "Suppressed weapon audio investigation — plan"
+    },
+    {
       "id": "2026-11-02-wall-parity",
       "date": "2026-11-02",
       "title": "Wall and camera collision -- plan"
@@ -1114,6 +1124,11 @@
       "id": "2026-11-03-open-source-client",
       "date": "2026-11-03",
       "title": "The open-source client (\"SOCOM Legacy Client\") -- plan"
+    },
+    {
+      "id": "2026-11-03-parity-pack",
+      "date": "2026-11-03",
+      "title": "The parity pack -- plan"
     },
     {
       "id": "2026-11-04-gate-diet",
@@ -1129,6 +1144,11 @@
       "id": "2026-11-05-client-error-beacon",
       "date": "2026-11-05",
       "title": "The client error beacon -- plan"
+    },
+    {
+      "id": "2026-11-05-netcode-wave",
+      "date": "2026-11-05",
+      "title": "The netcode wave: rubber banding at high ping, and late shots lost at the room -- plan"
     }
   ],
   "issues": {

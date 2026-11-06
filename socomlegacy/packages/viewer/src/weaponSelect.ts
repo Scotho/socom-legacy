@@ -444,10 +444,14 @@ export function menuInputOfKey(code: string): MenuInput | null {
 
 /**
  * The pad keeps the game's buttons (§B3, the Default config): the d-pad (slots 2-5), `Action` X (Cross), Triangle or
- * Start back (+7 / +1, L88603, L87874), `Inventory` R2 (L89371). Circle is no cancel; one step per press.
+ * Start back (+7 / +1, L88603, L87874), `Inventory` R2 (L89371); one step per press. Circle is the owner's adaptation
+ * (OT.R106, 2026-11-06): in the original Circle is not cancel (`FUN_0023e5e0`, D:L88379); on the owner's word it is
+ * `close`, the menu shut from the list or the picker. Open, the menu takes the press, so it never reaches the game's
+ * TeamCommand; closed, Circle stays the game's.
  */
 export const WEAPON_SELECT_PAD: Readonly<Partial<Record<PadButton, MenuInput>>> = {
   Up: 'up', Down: 'down', Left: 'left', Right: 'right', Cross: 'action', Triangle: 'back', Start: 'back', R2: 'inventory',
+  Circle: 'close',
 };
 
 /** A pad button (`./gamepad`'s standard names) -> the menu's input, or null. */

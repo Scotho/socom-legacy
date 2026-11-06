@@ -614,3 +614,15 @@ holds its row too (its LATER-414 group). LATER 492's review (2026-10-26) adds `S
 | `STANCE_WORD_CROUCH_FALLBACK_READING` | `FUN_00584c60`'s stand and bit (D:L444287) when the crouch move's clip (type 0x12) cannot be pushed | `'not raised: the clip is always held'` | `FUN_00589900`'s refusals of the push read, with the per-weapon-class motion record |
 | `STANCE_MEMORY_RETURNS_READING` | the crouch and stand states' early returns on a refused clip push before their memory writes (D:L444157, D:L444186, D:L444218, D:L444883, D:L444910, D:L444935; `FUN_00586050`'s when `+0x105d` bit 2 is clear, after its clip-0x10 push, D:L444681-444683; the crouch's clip-0x12 fallback, D:L444282-444311, `STANCE_WORD_CROUCH_FALLBACK_READING`'s path) and the crouch idle's `+0x21c` bit-2 clip (D:L444316-444317), which leave `+0x105e` as it was | `"not ported: the clip-push returns leave the memory unwritten that frame, and the crouch's idle under +0x21c bit 2 pushes a clip without clearing it"`: the port writes the memory every ground frame | the clip pushes' port: which of them a player's frame refuses |
 | `STANCE_WORD_DIVE_REQUEST_READING` | the dive's second entry: an accepted prone request raises the bit at once (`FUN_00552d60` D:L418879), then `FUN_0057e540` when the controller's `+0x30` answers; the player's `CSealCtrl` answers 0 (0x5499d0), so never the player's -- the player's dive is the press's, its bit at the later acceptance | `"never the player's: CSealCtrl's +0x30 answers 0"` | which controllers answer `+0x30` |
+
+## 17. Browser adaptations (NCW-7)
+
+Filed 2026-11-05 by NCW-7 part 1 (the owner's word, 2026-11-05: "build the scoreboard ping yeah"; plan
+`2026-11-05-netcode-wave.md`, its NCW-7 row); product track, a labelled browser adaptation. The original's SELECT board
+(§12) has the columns KILLS, DEATH and SCORE and no ping. The port draws a fourth column, PING, one pitch left of KILLS
+(`SCORE_LAYOUT.ping`, `packages/viewer/src/scoreboard.ts`), from the score rows' `ping` (the heartbeat's smoothed round trip, PT195-4, LATER 329).
+It changes no rule of play.
+
+| name | stands for | value in the code | why |
+|---|---|---|---|
+| `PING_SCORE_RESEND_MS_ADAPTATION` | the board's rows are re-sent (`scoreDirty`) when a seat's shown ping moved this many whole ms from the value the last score rows broadcast to the room carried (`Room.broadcast`), or has its first reading; checked once a room per heartbeat sweep (`Room.notePingSweep`, called by `server.ts` before each sweep's pings) | `5` (`packages/match/src/room.ts`) | at most one extra `score` message a room per heartbeat (5 s), whatever the number of seats; a smaller drift is noise on the column |

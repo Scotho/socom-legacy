@@ -140,6 +140,33 @@ export const THROW_RIFLE_RAISE_READING = 'down at a take-up; up at a release, do
 export const THROW_LAST_GRENADE_RAISE_READING = 'the countdown' as const;
 
 /**
+ * LATER 655 (research 321 s3.4, "The first round after a grenade's return"; reading, pending review): the read accounts for
+ * the first round after the rifle's return as the raise alone -- the grenade's take-up gave zero times (`FUN_005c4b10`
+ * D:L478849-478853), its lower cleared the envelope (`FUN_005dfe30` D:L494249-494256), the return plays no swap
+ * (`FUN_005c50b0` D:L479006-479010) -- so a press on a cleared rifle fires `RAISE_REFUSAL_FRAMES` game frames after its
+ * own (`FUN_005c0ae0` D:L476423-476438). ac's first-shot capture (`w100-t1..3`, walking, the press 0.1 s after the
+ * return) has the round at +0.333 s, about 0.23 s after the press, where the read gives about 0.07-0.1 s (plus the
+ * capture's own input lag, about 0.05 s on its no-swap run): about three game frames the read does not explain. The
+ * port takes the read. Settles: capture Part E (segment-body sb2), the press's frame against the round's with the raise
+ * state `actor+0xf74` and envelope `actor+0x1160..0x116c` per frame.
+ */
+export const SWAP_FIRST_ROUND_WAIT_READING = 'the raise from a cleared envelope alone' as const;
+
+/**
+ * LATER 656 (research 321 s3.4; reading, pending review): ac's capture (`s100`, `s800`, `shold`, `sjog85`) shows no round
+ * while running after a grenade's swap, the trigger held 2 s, where a run with no swap fires about 0.15 s after the
+ * press. Nothing read on the swap's path holds the rifle after the return: no pending bit or clip (`FUN_005c50b0`
+ * D:L479006-479010, `FUN_005a7980` D:L462473-462507), the raise from a cleared envelope as without a swap (`FUN_005dfe30`
+ * D:L494258-494265). The fire gate's `FUN_005a7de0(actor, 1, 1)` (D:L476442) reads state the swap may leave behind, unread
+ * after a return -- the candidates: a stale upper-body overlay at `actor+0x1e4` (D:L462681; the review's best guess), the
+ * top action at `+0x1c0` and its `NoFire` window (D:L462620-462675, D:L462698-462706), `+0xeac` (D:L462682) and `+0x1060`
+ * bit 4 (D:L462683). The raise's gate `actor+0x258` bit 0 (D:L494258) is unlikely: its three clears found (`FUN_00549c30`
+ * D:L414153, `FUN_00549f30` D:L414275, D:L465223) are all wall and weapon-line checks. The port fires as it does with no
+ * swap: no refusal is built on an unread mechanism. Settles: capture Part E's running trials with those words per frame.
+ */
+export const SWAP_RUN_FIRE_READING = 'fires as with no swap' as const;
+
+/**
  * NU-8a (research 326 §3; *inference*): C4's plant (`FUN_00592d50` -> `FUN_005c0020(.., 0x97)`) and the bomb's plant and
  * drop (`FUN_005920c0`, `FUN_0059ddb0`) are the Action button's, not the trigger's: the trigger branch that raises the
  * rifle (D:L453633-453634) is not on their path, so they ask no raise. The Action handler (D:L452030-452055) was not

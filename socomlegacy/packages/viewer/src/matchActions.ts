@@ -542,7 +542,10 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
     // gate) or the count spent (`TurretPage.round` null), whose claim carries the eye's ray as before. The room's own
     // `shot` of this page's id plays nothing (`NetPage`).
     const record = turretRecord(), r = record && !walk.binoculars?.() ? turrets.round() : null;
-    c.send({ type: 'fire', seq: turrets.claimSeq() ?? c.lastSeq(), from: r ? r.from : eye, dir: r ? r.dir : dir, weapon: 0, viewTick: c.viewTick(), eye, aim: dir });
+    // NCW-17 (an instrument): the displayed tick beside the claim's view clock, both at one clock read (the review's F1:
+    // two reads in a browser put a bracketed `shownTick` a hair off `viewTick`, and the room drops one above it).
+    const now = performance.now(), viewTick = c.viewTick(now), shownTick = c.shownTick?.(now) ?? null;
+    c.send({ type: 'fire', seq: turrets.claimSeq() ?? c.lastSeq(), from: r ? r.from : eye, dir: r ? r.dir : dir, weapon: 0, viewTick, eye, aim: dir, ...(shownTick !== null ? { shownTick } : {}) });
     if (record && r) d.turret?.round?.(record, r.from, r.dir, r.frame, r.count);
     return true;
   };

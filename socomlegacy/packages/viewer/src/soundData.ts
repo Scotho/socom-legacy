@@ -1,6 +1,6 @@
 import { isRanged, looseMemberOverride, parseRdr, rdrGet, readZarMembers, readZdbMember, Zar, ZAR_HEAD, zarIndexLength, type AssetSource, type RdrNode } from '@s2u/archive';
 import {
-  flattenScene, mapLocArchive, parseAnimSets, parseCharacterTable, parseSceneGraph, parseWorldRoot, readLocArchive, spawnsFor, teamCharacter, UNITS_PER_METRE, worldCollision,
+  applyR0004MapPatch, flattenScene, mapLocArchive, parseAnimSets, parseCharacterTable, parseSceneGraph, parseWorldRoot, readLocArchive, spawnsFor, teamCharacter, UNITS_PER_METRE, worldCollision,
   type CharacterTable, type SceneNode, type ZAnimArchive,
 } from '@s2u/scene';
 import {
@@ -390,7 +390,10 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
 
   // The map's scene graph: the emitters' nodes, and the materials its floors are made of.
   let models: SceneNode[] | null = null;
-  try { models = parseSceneGraph(Zar.parse(await readZdbMember(source, mapPath, `${archive}_GEO.ZED`))); }
+  try {
+    models = parseSceneGraph(Zar.parse(await readZdbMember(source, mapPath, `${archive}_GEO.ZED`)));
+    applyR0004MapPatch(models, archive);   // LATER 707 (research 383): r0004's per-map edits, as the page's `place` reads the graph
+  }
   catch (e) { missing.push(`${archive}_GEO.ZED: ${why(e)}`); }
 
   // The zAnims: the common set and the mission's, a command's bytes out of its animation's Seq_Data.

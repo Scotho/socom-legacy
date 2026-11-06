@@ -330,6 +330,28 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     return { sent, drawn, run, client, acts, place, order };
   };
 
+  it("NCW-17 (an instrument): the turret's claim carries the page's displayed tick beside its viewTick, and none without one", () => {
+    const { sent, run, client } = seated('MGL FRAG TURRET');
+    (client as unknown as { shownTick(): number | null }).shownTick = () => 1.5;
+    run(1 / 60, true);
+    expect(sent).toEqual([expect.objectContaining({ type: 'fire', viewTick: 3, shownTick: 1.5 })]);
+    (client as unknown as { shownTick(): number | null }).shownTick = () => null;
+    run(1.1, false);
+    run(1 / 60, true);                                               // a new pull, past the wait
+    expect(sent).toHaveLength(2);
+    expect('shownTick' in sent[1]!).toBe(false);
+  });
+
+  it("NCW-17's review F1: the turret claim's two ticks read at one moment (a browser's clock moves between two reads)", () => {
+    const { sent, run, client } = seated('MGL FRAG TURRET');
+    let clock = 3;
+    const read = (): number => (clock += 0.01);
+    Object.assign(client, { viewTick: (now = read()) => now, shownTick: (now = read()) => now });
+    run(1 / 60, true);
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { shownTick?: number }).shownTick).toBe((sent[0] as { viewTick: number }).viewTick);
+  });
+
   it("mounted on MGL FRAG TURRET, a press sends the turret's claim (the PKM's command) and draws the room's round of the 230 record; held, nothing more -- SINGLE, one round a pull (FUN_005c0940, FUN_005c0ae0 D:L476438-476439); a new pull waits out FireWait 1 s (D:L476446-476448)", () => {
     const { sent, drawn, run, place } = seated('MGL FRAG TURRET');
     run(1 / 60, true);

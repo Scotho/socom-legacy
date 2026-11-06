@@ -3,15 +3,16 @@ import { describe, expect, it } from 'vitest';
 import type { Rgba } from '@s2u/gs';
 import type { UiDrawItem, UiModelTriangle, UiModelVertex } from '@s2u/ui';
 import { rasterizeUiDrawList, type UiBitmap, type UiTextures } from '../src/uiCompositorView';
-import { planFrame, type UiFramePlan, type UiPlanBlendMode } from '../src/uiFramePlan';
+import { UI_GPU_MODEL_DEPTH_FLOOR, planFrame, type UiFramePlan, type UiPlanBlendMode } from '../src/uiFramePlan';
+import { UI_MODEL_DEPTH_FORMAT_READING } from '../src/uiRasterRules';
 import { executeFramePlanOnCpu } from '../src/uiFramePlanCpu';
 import {
   S10_frameAlpha, S11_additive, S11_source, S11ff_source, S12_store, S12ff_unorm, S6_horizontal, S7_vertical, S8_modulate, S9_modulateAlpha,
-  T2_weight, T4_invW, T5_depthPasses, T6_perspective, T8_lerp, executeFramePlanOnTwin, twinStats, type UiGpuTwinStats,
+  T2_third, T2_weight, T3_inside, T4_invW, T5_depthPasses, T6_perspective, T8_lerp, executeFramePlanOnTwin, twinStats, type UiGpuTwinStats,
 } from '../src/uiGpuTwin';
 import {
-  UI_RASTER_CASES, UI_RASTER_CASE_MODES, UI_RASTER_CASE_SCALES, UI_RASTER_SOFTWARE_SHA256, caseRasterInputs, caseRunKey,
-  type UiRasterCase, type UiRasterMode, type UiRasterScale,
+  UI_RASTER_CASES, UI_RASTER_CASE_MODES, UI_RASTER_CASE_SCALES, UI_RASTER_SOFTWARE_SHA256, UI_SEAM_CLEAR, UI_SEAM_TEXEL, caseRasterInputs, caseRunKey,
+  seamPixels, seamSquares, type UiRasterCase, type UiRasterMode, type UiRasterScale,
 } from './uiRasterCases';
 
 // GM-08 (plan 2026-11-01-gpu-menus, GM-08's row; GM.R4, GM.R5, GM.R7; research 380 §1, §2): the f32 twin of the GPU
@@ -407,4 +408,148 @@ describe('GM-08: the statistics and the software verdict', () => {
     expect(t.software).toBe(true);
     expect(same(t.frame.data, rasterizeUiDrawList(items, () => null, {}).frame.data)).toBe(0);
   });
+});
+
+// ---- GM-15b: seams, ties and the depth's range on the twin (the GM-15 row's 15b; research 380 M2, M3) -------------------
+
+describe('GM-15b: seams and ties on the twin, pixel for pixel the software\'s; the depth before its clamp stays inside (0, 1)', () => {
+  /** A pixel's four bytes as one number (pixel index q), and a colour packed the same way. */
+  const rgbaAt = (frame: Rgba, q: number): number => { const d = frame.data, o = q * 4; return ((d[o]! * 256 + d[o + 1]!) * 256 + d[o + 2]!) * 256 + d[o + 3]!; };
+  const pack = (r: number, g: number, b: number, a: number): number => ((r * 256 + g) * 256 + b) * 256 + a;
+  const once = UI_SEAM_CLEAR + UI_SEAM_TEXEL, twice = UI_SEAM_CLEAR + 2 * UI_SEAM_TEXEL;
+  const ONCE = pack(once, once, once, 255), TWICE = pack(twice, twice, twice, 255);
+  /** Dyadic invW (a few bits each): with the squares' power-of-two sides, every weight, invW and depth is exact in f64 and f32. */
+  const DYADIC = [0.5, 0.75, 1, 1.5, 2, 0.375];
+
+  it('a seam at dyadic depths (24 squares, invW 0.375 .. 2): every seam pixel drawn once, by the software, the executor and the twin, at 1, 2 and 4 under ff and exact', () => {
+    const { items, textures, squares } = seamSquares(Array.from({ length: 24 }, (_, k) => DYADIC[k % DYADIC.length]!));
+    for (const scale of [1, 2, 4]) for (const blend of BLENDS) {
+      const k = `${scale}x ${blend}`;
+      const want = rasterizeUiDrawList(items, textures, { scale }).frame;
+      const p = planFrame(items, textures, { scale, blend });
+      expect(p.verdict, `${k}: ${p.why.join('; ')}`).toBe('gpu');
+      const t = executeFramePlanOnTwin(p).frame;
+      expect(same(executeFramePlanOnCpu(p).frame.data, want.data), `${k}: the executor`).toBe(0);
+      expect(same(t.data, want.data), `${k}: the twin, the whole frame`).toBe(0);
+      let seams = 0, notOnce = 0;
+      for (const sq of squares) for (const [x, y] of seamPixels(sq, scale)) {
+        seams++;
+        const q = y * want.width + x;
+        if (rgbaAt(want, q) !== ONCE || rgbaAt(t, q) !== ONCE) notOnce++;
+      }
+      expect(seams, k).toBe(squares.reduce((n, sq) => n + sq.n * scale - 1, 0));
+      expect(notOnce, `${k}: seam pixels not drawn exactly once (${once})`).toBe(0);
+    }
+  }, 120_000);
+
+  it('finding, B and not refused: a seam whose invW f32 rounds down (0.7) -- the software adds the texel twice on every seam pixel (f64 against its f32 store), the twin once (f32 against f32)', () => {
+    // drawModels (uiCompositorView.ts:437, :450): the first triangle stores fround(invW) = 0.699999988 under the f64
+    // 0.7, and the second's f64 invW at the seam is not <= it, so it draws again. The twin (and a GPU) compares the
+    // same f32 sums both ways round (T4 adds the edge's two terms in either order: equal), so GREATER fails. GM-08's
+    // finding on coplanar faces (above), on a shared edge; the reading's correction is its own task (GM.R14), the
+    // corpus's measure is 15c's.
+    expect(Math.fround(0.7)).toBeLessThan(0.7);
+    const { items, textures, squares } = seamSquares(Array.from({ length: 24 }, () => 0.7));
+    for (const scale of [1, 2, 4]) {
+      const want = rasterizeUiDrawList(items, textures, { scale }).frame;
+      const p = planFrame(items, textures, { scale, blend: 'ff' });
+      expect(p.verdict, `${scale}x`).toBe('gpu');
+      const t = executeFramePlanOnTwin(p).frame;
+      const seam = new Set<number>();
+      let softwareTwice = 0, twinOnce = 0;
+      for (const sq of squares) for (const [x, y] of seamPixels(sq, scale)) {
+        const q = y * want.width + x;
+        seam.add(q);
+        if (rgbaAt(want, q) === TWICE) softwareTwice++;
+        if (rgbaAt(t, q) === ONCE) twinOnce++;
+      }
+      expect(softwareTwice, `${scale}x: the software doubles every seam pixel`).toBe(seam.size);
+      expect(twinOnce, `${scale}x: the twin draws every seam pixel once`).toBe(seam.size);
+      let elsewhere = 0;
+      for (let q = 0; q < want.width * want.height; q++) if (rgbaAt(want, q) !== rgbaAt(t, q) && !seam.has(q)) elsewhere++;
+      expect(elsewhere, `${scale}x: no other pixel differs`).toBe(0);
+    }
+  }, 120_000);
+
+  it('a tie (case 3, equal invW): the first triangle wins every pixel the two share, on the software and the twin, at 1, 2 and 4 -- strict GREATER (UI_MODEL_DEPTH_FORMAT_READING), where the original\'s GEQUAL would keep the second', () => {
+    expect(UI_MODEL_DEPTH_FORMAT_READING).toBe('float32 invW, strictly greater wins, 0 empty');
+    const c = UI_RASTER_CASES.find((x) => x.key === '3')!;
+    for (const scale of UI_RASTER_CASE_SCALES) for (const blend of BLENDS) {
+      const { plan: p, want } = plan(c, scale, 'opaque', blend);
+      const t = executeFramePlanOnTwin(p).frame;
+      expect(same(t.data, want.data), `3@${scale}x ${blend}`).toBe(0);
+      let red = 0, green = 0;
+      const RED = pack(128, 0, 0, 255), GREEN = pack(0, 128, 0, 255);
+      for (let q = 0; q < want.width * want.height; q++) {
+        const s = rgbaAt(want, q);
+        if (s === RED) red++;
+        else if (s === GREEN) green++;
+      }
+      expect(red, `3@${scale}x: pixels the tie covers`).toBeGreaterThan(0);
+      expect(green, `3@${scale}x: none of the second triangle's`).toBe(0);
+    }
+  }, 120_000);
+
+  /** Every inside pixel of a drawn plan's triangles, as T2-T5 compute it before the clamp: f32 invW times the pass's depthScale. */
+  function depthRange(p: UiFramePlan): { max: number; min: number; pixels: number } {
+    let max = 0, min = Infinity, pixels = 0;
+    for (const pass of p.passes) for (const i of pass.triangles) {
+      const t = p.triangles[i]!, inv = f(1 / t.area), { box } = t;
+      const ax = f(t.a.x), ay = f(t.a.y), bx = f(t.b.x), by = f(t.b.y), cx = f(t.c.x), cy = f(t.c.y);
+      const aw = f(t.a.invW), bw = f(t.b.invW), cw = f(t.c.invW);
+      for (let y = box.ys; y < box.ye; y++) for (let x = box.xs; x < box.xe; x++) {
+        const w0 = T2_weight(bx, by, cx, cy, x, y, inv), w1 = T2_weight(cx, cy, ax, ay, x, y, inv), w2 = T2_third(w0, w1);
+        if (!T3_inside(w0, w1, w2)) continue;
+        const z = f(T4_invW(w0, w1, w2, aw, bw, cw) * pass.depthScale);
+        pixels++;
+        if (z > max) max = z;
+        if (z < min) min = z;
+      }
+    }
+    return { max, min, pixels };
+  }
+  /** Seeded passes: arbitrary geometry, and per pass either one invW shared by every vertex (the case a pixel overshoots) or three apiece. */
+  function depthList(seed: number): { items: UiDrawItem[]; textures: UiTextures } {
+    let s = seed >>> 0;
+    const rnd = (): number => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const pick = <T>(v: readonly T[]): T => v[Math.floor(rnd() * v.length)]!;
+    const shared = [Math.fround(1 - 2 ** -24), 0.9999, 0.75, 1.9999999, 0.7, 3.3, 1, 2, 1e-3, 1e3];
+    const items: UiDrawItem[] = [{ kind: 'clear', rgb: [0, 0, 0] }];
+    for (let k = 0; k < 4; k++) {
+      const one = k % 2 === 0 ? pick(shared) : null;
+      const v = (x: number, y: number): UiModelVertex => ({ x, y, invW: one ?? pick(shared) * (0.5 + rnd()), u: 0, v: 0, rgba: [128, 128, 128, 128] });
+      const triangles: UiModelTriangle[] = Array.from({ length: 12 }, (_, j) => {
+        const x = rnd() * 60, y = rnd() * 40;
+        return { node: `d${j}`, texture: null, cull: false, a: v(x, y), b: v(x + rnd() * 30 - 10, y + rnd() * 30), c: v(x + rnd() * 30, y + rnd() * 20 - 10) };
+      });
+      items.push({ kind: 'models', triangles });
+    }
+    return { items, textures: () => null };
+  }
+
+  it('item 2: no pixel\'s depth before the clamp reaches 1 (at most 1/2 and a few ulps), nor falls under UI_GPU_MODEL_DEPTH_FLOOR: every case, the seam lists, seeded passes, at 1, 2 and 4', () => {
+    const lists: [string, { items: UiDrawItem[]; textures: UiTextures }][] = [
+      ['seams dyadic', seamSquares(Array.from({ length: 24 }, (_, k) => DYADIC[k % DYADIC.length]!))],
+      ['seams 0.7', seamSquares(Array.from({ length: 24 }, () => 0.7))],
+      ...[1, 2, 3, 4, 5, 6].map((seed): [string, { items: UiDrawItem[]; textures: UiTextures }] => [`seed ${seed}`, depthList(seed)]),
+    ];
+    let max = 0, min = Infinity, pixels = 0;
+    const take = (p: UiFramePlan, k: string): void => {
+      expect(p.verdict, `${k}: ${p.why.join('; ')}`).toBe('gpu');
+      const r = depthRange(p);
+      max = Math.max(max, r.max); min = Math.min(min, r.min); pixels += r.pixels;
+    };
+    for (const c of UI_RASTER_CASES.filter((x) => x.data().items.some((i) => i.kind === 'models'))) for (const scale of UI_RASTER_CASE_SCALES) {
+      const { items, textures, options } = caseRasterInputs(c, scale, 'opaque');
+      const { quadCache: _cache, ...rest } = options;
+      take(planFrame(items, textures, { ...rest, blend: 'ff' }), caseRunKey(c, scale, 'opaque'));
+    }
+    for (const [name, { items, textures }] of lists) for (const scale of [1, 2, 4]) take(planFrame(items, textures, { scale }), `${name} ${scale}x`);
+    expect(pixels, 'model pixels swept').toBeGreaterThan(10_000);
+    expect(max, 'the largest depth before the clamp').toBeLessThanOrEqual(0.5 * (1 + 2 ** -20));
+    expect(min, 'the smallest').toBeGreaterThanOrEqual(UI_GPU_MODEL_DEPTH_FLOOR);
+    expect(UI_GPU_MODEL_DEPTH_FLOOR).toBe(2 ** -100);
+    // eslint-disable-next-line no-console
+    console.log(`GM-15b depth sweep: ${pixels} pixels, depth before the clamp in [${min}, ${max}]`);
+  }, 120_000);
 });

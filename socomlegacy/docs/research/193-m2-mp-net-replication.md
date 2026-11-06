@@ -651,3 +651,72 @@ part). The sender `FUN_002bbda0` (D:L160852-160891) packs +4 from its 7th argume
 4. M2 §6 / matrix 19: add the screen (UIMnLOC 528, then back to World of SOCOM) and the second trigger
    (`FUN_002c4500`).
 6. Port: the `abandoned` page text (netPage.ts L945) should become the original's popup and exit, when ONL-22 lands.
+
+### 12.11 A late `Hit`: what the receiving console drops (NCW-5, 2026-11-05)
+
+**Status: reading, pending review.** NCW-5 of the netcode wave (`docs/plans/2026-11-05-netcode-wave.md`, section 3's
+"Unknown, named") re-read the Hit handler `FUN_002bbbd0` (D:L160802-160847; §12.6 cites its body as D:L160819-160850)
+and `FUN_005a1b80` (D:L459488-459620), with `FUN_002bd4d0` (D:L161786-161815) and the shooter's side `FUN_005a1ff0` ->
+`FUN_002bbda0` (D:L459651-459658, D:L160852-160890). The question: does the original ever drop or refuse a `Hit`
+that arrives late -- after the shooter's death on the receiving console, outside game state 3, or after a round change?
+No decompiled text is quoted.
+
+What the receiving console checks, in order, before it applies anything:
+1. **The session's mode.** A short at `DAT_0043668c + 4` equal to 1 or 2 makes the handler do nothing
+   (D:L160820-160824). That short is written at D:L61892 and D:L61900; what modes 1 and 2 are was not read here. The
+   same test is at the start of `FUN_00594cf0` (D:L453064).
+2. **Game state 3.** The game object `DAT_00437ce8` must exist and its byte `+0x113` must be 3 (D:L160824). Otherwise
+   the `Hit` is dropped, silently: no answer is sent.
+3. **Both bodies resolve.** The victim's handle (the message's second u16) and the attacker's (the first) are each
+   looked up through `FUN_002bd4d0` (D:L160825-160826). That function finds the DME object by its handle, checks its
+   class name (D:L161801) and returns its body, or 0 (D:L161796-161812). Either one missing drops the `Hit`
+   (D:L160831). So a `Hit` from a player whose object has left the session is dropped.
+
+Past those three checks the `Hit` is applied. A victim whose controller is local (vtable `+0x34` false) takes the
+damage through `FUN_005a1b80` (D:L160837-160839). Any other console takes it through `FUN_005a1b70`, which is
+`FUN_005a1b80` with zero damage (D:L160841-160842, D:L459483).
+
+**Answers:**
+- **After the shooter's death on the receiving console: applied, not refused.** Neither function reads the
+  attacker's alive state. In `FUN_005a1b80` the attacker is checked for being non-null (D:L459519). Its `+0x58c`
+  block is passed on twice. The first is when the message's flag bit is set (D:L459527-459529). The second is to
+  `FUN_005459c0` (D:L459580), in the branch taken only when three things hold (D:L459535-459542): the message's
+  low-4-bit field is 0 (byte 7, D:L160829; §3's "type"), the victim's bit 4 is set, and the class `FUN_003d1a60`
+  gives for the message's byte 4 (D:L160838, D:L459518; §3's "part") is none of 'Q', 'y' or 0xAB.
+  It is also read for its position (D:L459546, D:L459583) and for its id as the killer (D:L459606). None of these reads
+  its alive bit. The only alive bit read is the victim's (`+0xe1` bit 4, set while alive: research 114 §1.4 with
+  reCOM `m_isAlive`; research 225, D:L164432-164435). The killer is recorded when that bit goes from set to clear in
+  this call, on the victim's own console (D:L459597-459607). It is cleared when the victim lives on
+  (D:L459609-459612). So a trade after death lands on the victim's console as an ordinary hit. This is the original
+  side of the port's `fire: not alive` (`match/src/room.ts` `fire`), which refuses such a round.
+- **Outside game state 3: dropped** (D:L160824), whatever the `Hit`'s age.
+- **After a round change: not settled by the code.** The `Hit` carries no round number and no time: 8 bytes, being
+  the attacker, the victim, the part, the damage, the piercing, and the type with its flag (§3, id 0). So the handler
+  cannot tell a `Hit` from the last round from one from this round. A late one is dropped only if it arrives while the
+  state is not 3, or if a handle no longer resolves. Two questions stay open: whether the state leaves 3 between
+  rounds for longer than a line's delay, and whether a body's handle lives across the round change.
+- **On an already-dead victim:** `FUN_005a1b80` has no early return for it. It still calls the damage apply
+  `FUN_005a5830` (D:L459541-459581). What that does to a dead body was not read here.
+
+The sender has one gate of its own. The shooter's console sends a `Hit` only while the game object's `+0xde` is 0
+(D:L160869). That byte is written from a session clock in `FUN_00594cf0` (D:L453107-453123). What it guards (a window
+at a spawn or a round's start?) was not read.
+
+**What would settle the rest:** the two-console traced round of §9 (item 1's trace) run under an added delay, with a
+kill traded across the delay and a `Hit` sent in a round's last frames. Read the state byte `+0x113` and the
+receiving console's applied damage beside each class-2 id 0 record.
+
+**For the port (NCW-2's B-trade):** the original applied a dead shooter's `Hit`, in the round's state 3, with no time
+bound. Any bound the port puts on B-trade (the rewind's) is the port's own, not the original's. NCW-5's room test
+(`match/test/refusalRepro.test.ts`) shows that the room's `not alive` rounds name commands the room ran **after** the
+kill, on the dead body, with at most one exception per death. A round and its command share one ordered line. The room
+decides a round only once the command after it has run (`due`, `match/src/room.ts` `p.sim.seq > ev.seq`). So a round
+named at exactly the last command run alive waits for a command run on the dead body, and is refused too. So B-trade's
+test cannot be "a command the room ran while he lived", which covers at most that one round. It has to be one the page
+sent before it could know of the death.
+
+**Taken by NCW-2's B-trade (2026-11-05, reading pending review):** `match/src/room.ts` `fire` -> `tradeFrame` decides a
+dead shooter's round named fewer than `tradeWindowTicks` commands past his last command run alive (the seat's measured
+round trip in ticks, capped at `TRADE_WINDOW_CAP_MS_ADAPTATION` = `MAX_REWIND_MS`; research 223 §4) on that command's
+frame; the victim's rules are the room's own (a dead victim's hit a miss), and a kill it makes is the dead shooter's, as
+`FUN_005a1b80` records the attacker as the killer on the victim's console (D:L459597-459607).

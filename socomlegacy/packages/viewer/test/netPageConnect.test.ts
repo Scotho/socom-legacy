@@ -536,3 +536,83 @@ describe('LATER 305: C4\'s plant carries the eye its aim ray left; a grenade\'s 
     expect(throws[1]!.eye).toBeUndefined();
   });
 });
+
+describe('NCW-17: a round carries the displayed tick beside its viewTick (an instrument; the room judges by neither more)', () => {
+  // The page's displayed tick (`NetClient.shownTick`: the snapshot tick the drawn others stand at), read with the view
+  // clock at the round's firing -- a round at once, a held press's round at its press -- and sent on the `fire` event.
+  const setup = () => {
+    const p = page();
+    p.socket().onopen?.({} as Event);
+    p.server(welcome());
+    let seq = 50, vt = 900, st: number | null = 897;
+    const c = p.net.client as unknown as { lastSeq(): number; viewTick(): number; shownTick(): number | null };
+    c.lastSeq = () => seq; c.viewTick = () => vt; c.shownTick = () => st;
+    const fired: Record<string, unknown>[] = [];
+    p.socket().send = (d) => { if (typeof d === 'string') { const m = JSON.parse(d); if (m.type === 'fire') fired.push(m); } };
+    const round = (shot: number) => ({ type: 'round', weapon: HELD_RIFLE, from: [0, 0, 0], to: [0, 0, -10], hit: false, rounds: 1, shot }) as never;
+    return { p, fired, round, at: (s: number, v: number, shown: number | null) => { seq = s; vt = v; st = shown; } };
+  };
+
+  it("a held trigger's round: the fire event names shownTick, the frame's displayed tick, beside viewTick", () => {
+    const { p, fired, round } = setup();
+    p.net.trigger(true);
+    p.net.fireEvent(round(1));
+    expect(fired).toEqual([expect.objectContaining({ seq: 50, viewTick: 900, shownTick: 897 })]);
+  });
+
+  it("a press's held round keeps the displayed tick of its firing, as it keeps its viewTick", () => {
+    const { p, fired, round, at } = setup();
+    p.net.trigger(false);
+    p.net.fireEvent(round(1));                        // held: the view at 900, the picture at 897
+    p.net.trigger(true);
+    at(53, 904, 904);                                 // the walk's commands go; the clock and the picture move on
+    p.net.frame(1 / 60, new PerspectiveCamera(), true);
+    expect(fired).toEqual([expect.objectContaining({ seq: 51, viewTick: 900, shownTick: 897 })]);
+  });
+
+  it('no displayed tick (no snapshot drawn yet): the event goes without the field, as an older page\'s', () => {
+    const { p, fired, round, at } = setup();
+    at(50, 900, null);
+    p.net.trigger(true);
+    p.net.fireEvent(round(1));
+    expect(fired).toHaveLength(1);
+    expect('shownTick' in fired[0]!).toBe(false);
+  });
+});
+
+describe("NCW-17's review F1: one clock read for a round's two ticks (a browser's clock moves between two reads)", () => {
+  // Each read of the client's clock moves it on (as `performance.now` does in a browser between two calls): a client whose
+  // `viewTick` and `shownTick` read it themselves when called without `now`, bracketed (the displayed tick the view tick).
+  const setup = () => {
+    const p = page();
+    p.socket().onopen?.({} as Event);
+    p.server(welcome());
+    let clock = 900;
+    const read = (): number => (clock += 0.01);
+    const c = p.net.client as unknown as { lastSeq(): number; viewTick(now?: number): number; shownTick(now?: number): number | null };
+    c.lastSeq = () => 50; c.viewTick = (now = read()) => now; c.shownTick = (now = read()) => now;
+    const fired: Record<string, unknown>[] = [];
+    p.socket().send = (d) => { if (typeof d === 'string') { const m = JSON.parse(d); if (m.type === 'fire') fired.push(m); } };
+    const round = (shot: number) => ({ type: 'round', weapon: HELD_RIFLE, from: [0, 0, 0], to: [0, 0, -10], hit: false, rounds: 1, shot }) as never;
+    return { p, fired, round };
+  };
+
+  it("a round at once: its shownTick is its viewTick, never a hair above (the room's check would drop it)", () => {
+    const { p, fired, round } = setup();
+    p.net.trigger(true);
+    p.net.fireEvent(round(1));
+    expect(fired).toHaveLength(1);
+    expect(fired[0]!.shownTick).toBe(fired[0]!.viewTick);
+  });
+
+  it("a press's held round: the two ticks of its firing read at one moment", () => {
+    const { p, fired, round } = setup();
+    p.net.trigger(false);
+    p.net.fireEvent(round(1));
+    p.net.trigger(true);
+    (p.net.client as unknown as { lastSeq(): number }).lastSeq = () => 53;
+    p.net.frame(1 / 60, new PerspectiveCamera(), true);
+    expect(fired).toHaveLength(1);
+    expect(fired[0]!.shownTick).toBe(fired[0]!.viewTick);
+  });
+});

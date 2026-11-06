@@ -48,6 +48,18 @@ const NAV_ADAPTATION = { bucket: 10, fallbackSpacing: 10, link: 15, sample: 2.5,
  * nodes a cell off), and how far under the leaf's foot the floor may be found (units).
  */
 export const BOT_DOORWAY_NODES_ADAPTATION = { offsets: [-8, -4, 0, 4, 8], floor: 4 } as const;
+/**
+ * LATER 684 (OT.R81, a bot adaptation: the port's invention, no original value -- a bot decision, not an unknown of the
+ * game's). The traffic's wall test of a planned leg (`legClearOfWalls`, `MatchBots.space`'s `forward`) glides the probe
+ * on the walker's centre line alone (`Walker.glideAi`: one segment at `step_height`, the radius x 1.4 ahead), not its
+ * whole segment body. Under the segment body (viewer `WALL_BODY_READING` 'segments') the side lines reach 4.2 across
+ * the travel, and a leg passing a corner within that reach was refused on the walls before any teammate was asked, so
+ * BOT-CORNER's refusal clock (`TRAFFIC_ADAPTATION.deadlockTicks`) never ran there and both bots stood until the stall
+ * recovery (botRampDeadlock, staged on the warm-up yaws). Walked, such a leg is the walker's and the bot's corner
+ * steering's (`SIDE_SLIDE_ADAPTATION`, `CORNER_SLIDE_ADAPTATION`), as when no teammate is near and the leg is taken
+ * unprobed. `false` gives the whole body's glide (the test before LATER 684). The players' walker is untouched.
+ */
+export const LEG_WALLS_CENTRE_ADAPTATION = true as boolean;
 /** OT.R81: the port's invention, no original value -- a memory bound for BOP-S's attachment answers (entries). */
 const ATTACH_CACHE_ADAPTATION = 4096;
 const distance = (a: readonly number[], b: readonly number[]): number => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
@@ -351,14 +363,14 @@ export class WalkingNavigation {
    * an 80-unit direct walk: up to 32 glides) is no longer one step a job's budget can only check after. Task (a): the
    * step comes BEFORE its glide and yields the glide's samples, so the budget stops short of a glide it cannot pay.
    */
-  *canWalkSteps(a: Point, b: Point, doorless: boolean | number = false): NavSteps<boolean> {
+  *canWalkSteps(a: Point, b: Point, doorless: boolean | number = false, centre = false): NavSteps<boolean> {
     const length = Math.hypot(b[0] - a[0], b[2] - a[2]);
     // `true`: the hull without every door leaf (the door edges'); a door's index: without that door's leaf alone (the press).
     const view = doorless === false ? null : doorless === true ? this.doorlessView() : this.leafView(doorless), grid = view?.grid ?? this.map.grid;
     if (length < 0.01) {
       if (Math.abs(a[1] - b[1]) >= 1) return false;
       yield glideSamples(a, b);
-      return this.clearBody(a, b, view?.probe);
+      return this.clearBody(a, b, view?.probe, centre);
     }
     const parts = Math.ceil(length / NAV_ADAPTATION.sample);
     let previous: Point = a;
@@ -380,19 +392,24 @@ export class WalkingNavigation {
     for (let i = 1; i < traced.length; i++) {
       const before = traced[i - 1]!, next = traced[i]!;
       yield glideSamples(before, next);
-      if (!this.clearBody(before, next, view?.probe)) return false;
+      if (!this.clearBody(before, next, view?.probe, centre)) return false;
     }
     return true;
   }
 
-  private clearBody(from: Point, to: Point, probe = this.probe): boolean {
+  /**
+   * The glide test: the scratch mover placed at `from` and moved to `to` as the human's walker moves -- its whole segment
+   * body (`glide`), or with `centre` (`LEG_WALLS_CENTRE_ADAPTATION`) the body's centre line alone (`glideAi`).
+   */
+  private clearBody(from: Point, to: Point, probe = this.probe, centre = false): boolean {
     this.work += glideSamples(from, to);
     // Reuse the current human mover's actual wall probes and body radius instead of porting an older collision copy.
     // This scratch mover is never a combatant and cannot affect any player's state.
     if (!probe.place(from[0], from[1], from[2])) return false;
     if (Math.abs(probe.state.y - from[1]) > 1) return false;
     probe.clearWallHits();   // LATER 535: no tick empties the probe's contacts; kept, they grew the heap to its cap
-    probe.glide(to[0] - from[0], to[2] - from[2]);
+    if (centre) probe.glideAi(to[0] - from[0], to[2] - from[2]);
+    else probe.glide(to[0] - from[0], to[2] - from[2]);
     const s = probe.state;
     return !probe.airborne && Math.hypot(s.x - to[0], s.z - to[2]) < 0.05 && Math.abs(s.y - to[1]) < 2;
   }
@@ -524,13 +541,22 @@ export class WalkingNavigation {
   /** A short steering offset follows its actual floor height, including stairs and ramps. */
   offset(from: Point, dx: number, dz: number, length: number): Point | null { return drain(this.offsetSteps(from, dx, dz, length)); }
 
+  /**
+   * LATER 684 (`LEG_WALLS_CENTRE_ADAPTATION`): `offset` with the leg's walls asked of the body's centre line -- the
+   * traffic's test of a planned leg (`MatchBots.space`'s `forward`), so a leg passing a corner within the side lines'
+   * reach still clears the walls and BOT-CORNER asks the teammates along it.
+   */
+  legClearOfWalls(from: Point, dx: number, dz: number, length: number): Point | null {
+    return drain(this.offsetSteps(from, dx, dz, length, LEG_WALLS_CENTRE_ADAPTATION));
+  }
+
   /** `offset` as resumable steps (BOP-S, the attach bypass): its walk test's glides, one step each. */
-  *offsetSteps(from: Point, dx: number, dz: number, length: number): NavSteps<Point | null> {
+  *offsetSteps(from: Point, dx: number, dz: number, length: number, centre = false): NavSteps<Point | null> {
     const d = Math.hypot(dx, dz); if (d < 0.001) return null;
     const x = from[0] + dx / d * length, z = from[2] + dz / d * length;
     const floor = probeFloor(this.map.grid, x, from[1], z); if (!floor) return null;
     const to: Point = [x, floor.y, z];
-    return (yield* this.canWalkSteps(from, to)) ? to : null;
+    return (yield* this.canWalkSteps(from, to, false, centre)) ? to : null;
   }
 
   private around(at: Point, radius: number): number[] {

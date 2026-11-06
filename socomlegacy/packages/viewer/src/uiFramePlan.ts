@@ -40,8 +40,11 @@ import {
  * `al <= 0` (M6, `UI_MODEL_ZWRITE_READING`), the frame alpha untouched (M7) -- are the drawer's, run from these numbers.
  * A triangle the fixed-function blend cannot take (`triangleRoute`), a vertex not finite, or one at `invW <= 0` (the
  * GPU's depth cleared to 0 rejects what the software's "0 = empty" draws) gives the verdict `software`, named (GM.R10:
- * the first L1 until GM-26; the other two stay L1 under GM-15a, GM-15b's to revisit). GM-15a: every other pass is drawn
- * on the GPU (`model-ff-src`, `model-ff-add`), its depth `invW` times the pass's `depthScale` (`passDepthScale`).
+ * the first L1 until GM-26). GM-15a: every other pass is drawn on the GPU (`model-ff-src`, `model-ff-add`), its depth
+ * `invW` times the pass's `depthScale` (`passDepthScale`). GM-15b adds two refusals, both `software`, named, where a
+ * GPU's numbers leave the range the shader's arithmetic is defined in: a pass whose depth leaves f32's normal range
+ * (`UI_GPU_MODEL_DEPTH_FLOOR`), and a textured triangle whose texel coordinate leaves the int range of T8's floor
+ * (`UI_GPU_MODEL_TEXEL_RANGE`). Neither changes a byte: an L1 frame is the software's.
  *
  * **The movie (GM-06b; P16, P17).** A picture is a `movie` step: an RGB copy at the origin over the picture's size
  * times the scale (clipped to the frame), each pixel the picture's at `p / s` (nearest), the alpha untouched, the
@@ -170,19 +173,60 @@ export interface UiPlanTriangle {
 export interface UiPlanPass { id: number; item: number; triangles: number[]; depthScale: number }
 
 /**
- * GM-15a (GM.R10; research 380 M3, §5): a pass's depth scale -- the largest power of two `2^-k`, k >= 0, that brings
- * every vertex's f32 `invW` (the value the GPU receives) to at most 1, so `gl_FragDepth = clamp(invW * depthScale, 0, 1)`
- * keeps the software's order (`drawModels`' f32 depth, `uiCompositorView.ts`:437, :450). A design choice of GM.R10
- * that decides no byte: a power of two scales an f32 exactly unless it underflows (that edge, a positive `invW` reaching
- * 0 or a subnormal, is GM-15b's, GM-06b review F3), so no comparison changes. The f32 twin's model, moved here from
- * `twinDepthScale` unchanged so the twin and the GPU read one value. Not hashed: it is a function of the vertices,
- * which are.
+ * GM-15a, GM-15b (GM.R10; research 380 M3, §5): a pass's depth scale -- the largest power of two `2^-k`, k >= 0, that
+ * brings every vertex's f32 `invW` (the value the GPU receives) to at most 1/2, so `gl_FragDepth = clamp(invW *
+ * depthScale, 0, 1)` keeps the software's order (`drawModels`' f32 depth, `uiCompositorView.ts`:437, :450). A design
+ * choice of GM.R10 that decides no byte: a power of two scales an f32 exactly unless it underflows
+ * (`UI_GPU_MODEL_DEPTH_FLOOR` refuses that edge, GM-06b review F3), so no comparison changes.
+ *
+ * GM-15b, the clamp above 1: a pixel's f32 `invW` (T4) is a convex combination of its vertices', rounded three times,
+ * and can exceed the largest vertex's by an ulp (`uiFramePlan.test.ts` holds a witness at 0.75); a scale that brought
+ * the largest vertex to 1 could so put a depth past 1, where the clamp would tie two depths the software keeps apart. At
+ * most 1/2 (GM-15a's scale halved), a pixel's depth stays below 1 by a factor near 2, so the clamp's upper bound is
+ * never reached (`uiGpuTwin.test.ts` sweeps every pixel of the cases and of seeded passes). A vertex whose f32 is
+ * infinite (a finite f64 past f32's range) gives 0, which the depth floor refuses.
+ *
+ * The f32 twin's model, moved here from `twinDepthScale` so the twin and the GPU read one value. Not hashed: it is a
+ * function of the vertices, which are.
  */
 export function passDepthScale(triangles: readonly UiPlanTriangle[], pass: readonly number[]): number {
   let max = 0;
   for (const i of pass) { const t = triangles[i]!; max = Math.max(max, Math.fround(t.a.invW), Math.fround(t.b.invW), Math.fround(t.c.invW)); }
-  return max <= 1 ? 1 : 2 ** -Math.ceil(Math.log2(max));
+  if (!Number.isFinite(max)) return 0;
+  let scale = 1;
+  while (max * scale > 0.5) scale /= 2;   // exact: max is a finite f32, scale a power of two
+  return scale;
 }
+
+/**
+ * GM-15b (GM-06b review F3; the GM-15 row's "a positive invW reaching 0 or a subnormal" and "0 = empty"): the smallest
+ * depth a pass may put on the GPU, 2^-100 -- each vertex's f32 `invW` times the pass's `depthScale` -- with the scale
+ * itself at least f32's smallest normal, 2^-126. Not a game value and no adaptation: the edge of the range in which the
+ * GPU's f32 arithmetic is the twin's. Below it the pass's frame is the software's (L1, the reference's bytes), named.
+ *
+ * Why: the software's depth is a `Float32Array` (`drawModels`, `uiCompositorView.ts`:411), tested `depth[i] > 0 &&
+ * invW <= depth[i]` (:437) and written `depth[i] = invW` (:450). A positive `invW` whose f32 is 0 is drawn and leaves
+ * the pixel "empty", so a farther triangle draws over it; a subnormal one is stored, so a farther triangle fails. The
+ * GPU clears its depth to 0 and tests `GREATER`: a fragment at depth 0 is never drawn, and ESSL 3.00 section 4.5.1 lets
+ * highp arithmetic (and the depth buffer) flush a subnormal to 0 -- either way the GPU's bytes would not be the
+ * software's. The margin above 2^-126 covers T4's three products, each of which may be flushed when it alone is
+ * subnormal: their loss, under 3 x 2^-126, is below an ulp of any depth at or above 2^-100.
+ */
+export const UI_GPU_MODEL_DEPTH_FLOOR = 2 ** -100;
+/** f32's smallest normal number: a `depthScale` under it could reach the shader as a flushed 0 (GM-15b). */
+const F32_MIN_NORMAL = 2 ** -126;
+
+/**
+ * GM-15b (GM-15a review F2): the bound on a textured triangle's texel coordinate, `|u W|` and `|(1 - v) H|` at each
+ * vertex (W x H the sampled image: the HD replacement where one is picked), exclusive: 2^30. Not a game value and no
+ * adaptation: the int range of T8 (`model-ff-*`, `uiGpuShaders.ts`) -- `int x0 = int(floor(U - 0.5))` has no defined
+ * result past the int range (ESSL 3.00 section 5.4.1 defines the conversion by dropping the fraction, for a value an
+ * int holds), and `wrapRepeat`'s `-i - 1` overflows at INT_MIN. The software's `sample` (`uiCompositorView.ts`:178-190)
+ * floors in f64 and wraps any value. The bound is 2^30, not 2^31: the GPU receives u as f32 (2^31 - 1 rounds to 2^31),
+ * and a pixel's perspective-correct u is a convex combination of the vertices' with a few ulps of rounding, so the
+ * vertices' bound keeps a factor of 2 under INT_MAX. At or past it the frame is the software's (L1), named.
+ */
+export const UI_GPU_MODEL_TEXEL_RANGE = 2 ** 30;
 
 /**
  * A movie picture the plan draws: a handle for the drawer, not hashed (`volatile`). `picture` is the layer's picture
@@ -518,6 +562,13 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
           else if ([a, b, c].some((v) => v.invW <= 0)) say('a model vertex at invW <= 0 (the GPU\'s depth cleared to 0 cannot hold the software\'s "0 = empty"): drawn by the software');
           const route = triangleRoute({ textured: bitmap !== null, rgba: [a.rgba, b.rgba, c.rgba], blend });
           if (route) say('a model triangle needing the programmable path: drawn by the software until GM-26 (GM.R10)');
+          // GM-15b (GM-15a review F2): T8's int range, on the sampled image's size (UI_GPU_MODEL_TEXEL_RANGE).
+          if (tex !== null && [a, b, c].every((v) => finite([v.u, v.v]))) {
+            const { width: tw, height: th } = planned[tex]!;
+            if ([a, b, c].some((v) => !(Math.abs(v.u * tw) < UI_GPU_MODEL_TEXEL_RANGE && Math.abs((1 - v.v) * th) < UI_GPU_MODEL_TEXEL_RANGE))) {
+              say('a model texel coordinate |u W| or |(1 - v) H| at or past UI_GPU_MODEL_TEXEL_RANGE (2^30; T8\'s int floor and REPEAT): drawn by the software');
+            }
+          }
           const path: UiPlanPath = route ? 'prog' : 'ff';
           const box: UiPlanRect = {
             xs: Math.max(0, Math.ceil(Math.min(a.x, b.x, c.x))), xe: Math.min(W, Math.ceil(Math.max(a.x, b.x, c.x))),
@@ -532,6 +583,12 @@ export function planFrame(items: readonly UiDrawItem[], textures: UiTextures, o:
         }
         // GM-15a: the pass's depth scale, once its triangles are known (GM.R10).
         pass.depthScale = passDepthScale(triangles, pass.triangles);
+        // GM-15b: every depth the pass puts on the GPU in f32's normal range, at or above UI_GPU_MODEL_DEPTH_FLOOR; a
+        // vertex at invW <= 0 or not finite has its own why above.
+        const shallow = (v: UiModelVertex): boolean => v.invW > 0 && Number.isFinite(v.invW) && !(Math.fround(v.invW) * pass.depthScale >= UI_GPU_MODEL_DEPTH_FLOOR);
+        if (pass.triangles.length && (!(pass.depthScale >= F32_MIN_NORMAL) || pass.triangles.some((i) => [triangles[i]!.a, triangles[i]!.b, triangles[i]!.c].some(shallow)))) {
+          say('a model pass whose depth leaves f32\'s normal range -- a vertex\'s f32 invW times the pass\'s depthScale under UI_GPU_MODEL_DEPTH_FLOOR (2^-100), or the scale under 2^-126 (the GPU may flush it to 0, its clear\'s "empty"): drawn by the software');
+        }
         break;
       }
     }

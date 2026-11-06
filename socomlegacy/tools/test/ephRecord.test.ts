@@ -212,3 +212,26 @@ describe("page.csv's anim columns (the movement hunt, fix 3)", () => {
     for (const k of PAGE_ANIM_COLUMNS) expect(src, k).toMatch(new RegExp(`^  ${k}: (string|number) \\| null;$`, 'm'));
   });
 });
+
+describe('buildRunRecord: the parity pack session controls (PK-2; design 5, 6.4)', () => {
+  const base = { pcsx2Version: 'v', renderer: 'r', pageBuild: 'b', script: '', pcsx2Fired: [], pageFired: [], tornRows: 0, nullRows: 0 };
+
+  it('a run without controls has no pauses or clips keys, so an old record compares equal', () => {
+    const rec = buildRunRecord(base);
+    expect(rec).not.toHaveProperty('pauses');
+    expect(rec).not.toHaveProperty('clips');
+    expect(JSON.parse(JSON.stringify(rec))).toEqual(JSON.parse(JSON.stringify(buildRunRecord({ ...base, pauses: undefined, clips: undefined }))));
+  });
+
+  it('carries each pause with both clocks at both edges, and each clip with its file and both clocks', () => {
+    const pauses = [{ n: 1, startWall: 5000, endWall: 9000, startActive: 5000, startGuestMs: 15000, endGuestMs: 15016.7, startTick: 1300, endTick: 1301 }];
+    const clips = [
+      { n: 1, file: 'clip-1.mp4', startWall: 1000, endWall: 12000, startActive: 1000, endActive: 8000, startGuestMs: 11000, endGuestMs: 18000, startTick: 1060, endTick: 1480, lost: null },
+      { n: 2, file: 'clip-2.mp4', startWall: 13000, endWall: null, startActive: 9000, endActive: null, startGuestMs: null, endGuestMs: null, startTick: null, endTick: null, lost: null },
+    ];
+    const rec = buildRunRecord({ ...base, pauses, clips });
+    expect(rec.pauses).toEqual(pauses);
+    expect(rec.clips).toEqual(clips);
+    expect(buildRunRecord({ ...base, pauses: [], clips: [] })).toMatchObject({ pauses: [], clips: [] });
+  });
+});

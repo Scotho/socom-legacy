@@ -57,4 +57,6 @@ export class GamePad {
   extras(input: Input, menuOpen: boolean): Input { return this.input.applyExtras(input, menuOpen); }
   /** h59U9CLb: the extras' modifiers reset at the match's flush (a button held through it is no combo's press). */
   flushExtras(): void { this.input.flushExtras(); }
+  /** OT.R107's fold: a menu took the press -- the pending stance press dropped until the button rests (`ControllerInput.cancelStancePress`). */
+  cancelStancePress(): void { this.input.cancelStancePress(); }
 }

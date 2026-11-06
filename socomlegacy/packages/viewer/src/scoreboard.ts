@@ -45,6 +45,16 @@ export const SCORE_LAYOUT = {
   title: { x: 171, dy: 20, scale: 1, alpha: 90 / 128 },
   /** "KILLS" (locale 60523), "DEATH", "SCORE" centred on 455, 522, 588 (175 and 175/3 from `DAT_003dc8e8`). */
   columns: [{ text: 'KILLS', x: 455 }, { text: 'DEATH', x: 522 }, { text: 'SCORE', x: 588 }],
+  /**
+   * A browser adaptation (NCW-7, the owner's word 2026-11-05 "build the scoreboard ping yeah"; plan
+   * `2026-11-05-netcode-wave.md`, its NCW-7 row): the original's board has no ping. A fourth column "PING", one column
+   * pitch (66.5, KILLS to DEATH to SCORE) left of KILLS, centred on 388.5, its header in the three's font, scale, colour
+   * and alpha, its values the rows' whole milliseconds (`ScoreRowInfo.ping`) in the rows' colours, dimmed with them;
+   * "--" (`PING_NONE`) for a bot or a seat with no reading yet. Drawn only on a board with the room's rows (`info.rows`):
+   * the single-SEAL board of a round with no room is the original's, untouched. The names are cut (`cutLine`) to end
+   * `gap` before the column's left edge, the wider of the header and "999" at their scales.
+   */
+  ping: { text: 'PING', x: 388.5, gap: 4 },
   /** Rows: baseline y + 38 + 16.8 i, 8 a team, scale 0.8; the clan tag at 163, the name at 223 (`FUN_0022a290`). */
   rows: { dy: 38, pitch: 16.8, max: 8, scale: 0.8, clanX: 163, nameX: 223 },
   /** Row colours: (115, 115, 115) alpha 110; the local player's blue 12; the clan tag (128, 64, 32). */
@@ -138,6 +148,12 @@ export interface ScoreRowInfo {
   /** Authored extension: trusted CPU identity is separate from the name and clan tag. */
   bot?: true;
   /**
+   * NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the seat's ping, whole ms -- the room's score row's `ping`
+   * (`ScoreRow.ping`, the heartbeat's smoothed round trip), handed here whole by the page (`NetPage`'s `score`). 0 or
+   * absent (no reading yet, an older room) draws `PING_NONE`, as a bot's row does.
+   */
+  ping?: number;
+  /**
    * ONL-19: the player's clan tag (the record's +0x2e, `FUN_002c3ac0` D:L79042; research 91 §13), drawn "[tag]" at
    * `clanX`; absent or empty, nothing (`NO_CLAN`). CLAN-TAG-ROUND (research 275): the room's score rows carry it
    * (`ScoreRow.clan`, the server's tag of the seat's account at its seat, `CLAN_TAG_AT_SEAT_READING`), handed here whole by
@@ -169,6 +185,23 @@ export const SPECTATOR_ORDER_READING = 'the room\'s: its queue head first, then 
  * runs past it, and what the console then draws is unread. The port draws the whole tag, uncut. [reading]
  */
 export const CLAN_TAG_OVERRUN_READING = 'the whole tag, uncut';
+
+/** NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the PING cell of a bot, or of a seat with no reading yet. */
+export const PING_NONE = '--';
+/** NCW-7: the PING cell's text -- whole ms, or `PING_NONE` for a bot or a ping of 0 / absent. */
+export function pingCell(r: Pick<ScoreRowInfo, 'ping' | 'bot'>): string {
+  return r.bot === true || !r.ping || r.ping <= 0 ? PING_NONE : String(Math.round(r.ping));
+}
+/**
+ * NCW-7: the widest a row's name may be on a board with the PING column -- from the name's pen (`rows.nameX`, 223) to
+ * the column's left edge (the wider of its header at the title scale and "999" at the row scale, about 388.5) less
+ * `ping.gap`.
+ */
+export function pingNameWidth(): number {
+  const L = SCORE_LAYOUT;
+  const half = Math.max(textWidth(L.ping.text, L.title.scale), textWidth('999', L.rows.scale)) / 2;
+  return L.ping.x - half - L.ping.gap - L.rows.nameX;
+}
 
 /** A detail line cut to `width` at `scale` with a trailing "-", as `FUN_0022ac30` does. */
 export function cutLine(text: string, scale: number, width: number): string {
@@ -269,10 +302,13 @@ export function scoreboardLayout(
   // The teams' strings: the header lines, the columns, the rows (the one SEAL).
   const rowRgba = c128(L.rowRgb, L.rowAlpha);
   const wins = info.rows ? [info.wins?.seal ?? 0, info.wins?.terrorist ?? 0] : [0, 0];
+  const nameWidth = pingNameWidth();
   L.teams.forEach((t, i) => {
     text(`${t.name} :   ${wins[i]}`, L.title.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha]);
     for (const col of L.columns) text(col.text, col.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha], 'centre');
     if (info.rows) {
+      // NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the PING header beside the three.
+      text(L.ping.text, L.ping.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha], 'centre');
       const team = i === 0 ? 'seal' : 'terrorist';
       // Array.prototype.sort is stable: equal scores keep the given (join) order.
       const mine = info.rows.filter((r) => r.team === team).sort((a, b) => b.score - a.score).slice(0, L.rows.max);
@@ -281,13 +317,15 @@ export function scoreboardLayout(
         const f = r.alive ? 1 : DEAD_DIM;
         const [cr, cg, cb, ca] = r.self ? c128(L.localRgb, L.rowAlpha) : rowRgba;
         const rgba: Rgba4 = [cr * f, cg * f, cb * f, ca * f];
-        text(botDisplayName(r.name, r.bot === true), L.rows.nameX, base, L.rows.scale, rgba);
+        // NCW-7: the name cut to end before the PING column (`pingNameWidth`), with the board's own `cutLine`.
+        text(botDisplayName(cutLine(plainBotText(r.name), L.rows.scale, nameWidth), r.bot === true), L.rows.nameX, base, L.rows.scale, rgba);
         // The clan: "[" tag "]" (S:0x3e57a0, S:0x3e57a8) over the seed's space, uncut (CLAN_TAG_OVERRUN_READING past 13
         // characters), in (128, 64, 32) for every row --
         // the local player's blue is the name's alone (D:L79020) -- and dimmed with it (D:L79024; D:L79042-79058).
         const [kr, kg, kb, ka] = c128(L.clanRgb, L.rowAlpha);
         text(r.clan ? `[${plainBotText(r.clan)}]` : NO_CLAN, L.rows.clanX, base, L.rows.scale, [kr * f, kg * f, kb * f, ka * f]);
         [r.kills, r.deaths, r.score].forEach((n, c) => text(String(n), L.columns[c]!.x, base, L.rows.scale, rgba, 'centre'));
+        text(pingCell(r), L.ping.x, base, L.rows.scale, rgba, 'centre');   // NCW-7: the row's colour, dimmed with it
       });
       return;
     }

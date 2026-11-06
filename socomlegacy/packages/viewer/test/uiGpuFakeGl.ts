@@ -419,6 +419,9 @@ export function fakeGl(o: FakeGlOptions = {}) {
     if (!T3_inside(w0, w1, w2)) return null;
     // T4, T5 (gl_FragDepth; the test is the raster's, against the bound depth)
     const invW = T4_invW(w0, w1, w2, aw, bw, cw), z = T5_depth(invW, scale);
+    // GM-15b: a GPU may flush a subnormal to 0 (ESSL 3.00 section 4.5.1), and its clear's 0 never passes GREATER; the
+    // plan refuses such a pass (UI_GPU_MODEL_DEPTH_FLOOR), so a drawn fragment below f32's normal range is a bug here.
+    if (!(z >= 2 ** -126)) throw new Error(`fake: a model fragment's depth ${z} under f32's normal range (a GPU may flush it; the plan refuses it)`);
     // T6, T7
     w0 = T6_perspective(w0, aw, invW); w1 = T6_perspective(w1, bw, invW); w2 = T6_perspective(w2, cw, invW);
     const rgba = [0, 1, 2, 3].map((k) => T7_lerp(w0, w1, w2, ca[k]!, cb[k]!, cc[k]!));
@@ -429,6 +432,9 @@ export function fakeGl(o: FakeGlOptions = {}) {
       const tex = sampled(UI_GPU_TEXTURE_UNITS.tex, GL.RGBA8UI, 'u_tex'), d = tex.data as Uint8Array;
       const sx = f(f(U * tex.w) - 0.5), sy = f(f(f(1 - V) * tex.h) - 0.5);
       const x0 = Math.floor(sx), y0 = Math.floor(sy), fx = f(sx - x0), fy = f(sy - y0);
+      // GM-15b: GLSL's int(floor()) is undefined past the int range and wrapRepeat's -i - 1 overflows at INT_MIN; the
+      // plan refuses such a triangle (UI_GPU_MODEL_TEXEL_RANGE), so a drawn one here is a bug.
+      for (const i of [x0, y0]) if (!(i > -(2 ** 31) && i + 1 <= 2 ** 31 - 1)) throw new Error(`fake: T8's texel index ${i} past the int range (undefined on a GPU; the plan refuses it)`);
       const xa = wrapRepeat(x0, tex.w), xb = wrapRepeat(x0 + 1, tex.w), ya = wrapRepeat(y0, tex.h), yb = wrapRepeat(y0 + 1, tex.h);
       const at = (tx: number, ty: number): number => {
         if (tx < 0 || ty < 0 || tx >= tex.w || ty >= tex.h) throw new Error(`fake: a texel (${tx}, ${ty}) outside ${tex.w} x ${tex.h}`);

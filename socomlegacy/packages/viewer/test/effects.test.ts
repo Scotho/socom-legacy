@@ -7,7 +7,7 @@ import { buildGrid, type CollisionOwner, type EffectOp, type EffectProgram, type
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { effectsFromDisc, type EffectData } from '../src/effectData';
 import { soundFor } from '@s2u/sound';
-import { Effects, impactAnimation, markTable, muzzleAnimation, rangeTestHolds, RIPPLES, speedClass, valveApply, valveTest } from '../src/effects';
+import { Effects, impactAnimation, markTable, MAX_EFFECT_RUNS_ADAPTATION, muzzleAnimation, rangeTestHolds, RIPPLES, speedClass, valveApply, valveTest } from '../src/effects';
 import { flatCorners, rotatedCorners } from '../src/particles';
 import { EffectLights } from '../src/effectLights';
 
@@ -446,5 +446,106 @@ describe.skipIf(!MP2)(`the M4A1 SD's round on the game's data${MP2 ? '' : ` (${F
     for (let i = 0; i < 3; i++) fx.update(1 / 60, camera);
     expect(sounds).toContain('.BUL_STONE');
     expect(fx.stats().emitted).toBeGreaterThan(metal);
+  });
+});
+
+/**
+ * A browser adaptation (no original counterpart; the owner's 2026-11-06 report: "an audio bug that starts while the
+ * browser is tabbed off and never recovers"): a hidden tab runs no animation frame, so the runs the socket's rounds start
+ * are never stepped or retired, and on the return every one of them steps -- and sounds -- at once. The runs held are
+ * capped (`MAX_EFFECT_RUNS_ADAPTATION`, the oldest retired first, silently) and the rounds' runs go at a return
+ * (`retireRounds`). Presentation only: no damage, no wire, no game rule.
+ */
+describe.skipIf(!MP2)(`a hidden tab's round backlog (a browser adaptation)${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  let data: EffectData | null = null;
+  const load = async (): Promise<EffectData> => (data ??= await effectsFromDisc(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB', 'MP2'));
+  const M4A1_SD = { name: 'M4A1 SD', id: 0, fireAnim: 'muzzle_m4SD', sounds: { close: null, med: null, far: null, reload: null } };
+  const node = new Matrix4().makeTranslation(0, 12, 0);
+  /** Another player's round that struck the metal deck (an impact as well as the muzzle's casing). */
+  const round = (k: number) => ({
+    type: 'round' as const, weapon: M4A1_SD, from: [0, 12, 0] as [number, number, number], to: [k % 50, 0, 20] as [number, number, number],
+    hit: true, rounds: 0, normal: [0, 1, 0] as [number, number, number], material: 25,
+  });
+  const seeded = () => { let r = 1; return () => ((r = (r * 9301 + 49297) % 233280) / 233280); };
+
+  it('the cap stands well above the busiest visible match: 16 shooters, a round each every game frame, stepped at 60 Hz', async () => {
+    const d = await load();
+    const fx = new Effects(seeded());
+    fx.setData({ ...d, ambient: [] });
+    fx.setWorld(() => deck(25));
+    const camera = new PerspectiveCamera();
+    // An upper bound, not a game rate: a round per shooter per game frame (`GAME_FRAME_DT`, ~30 a second) is faster than
+    // any firearm's; 16 shooters, every round a hit. Four seconds is past every run's life (the casing's 1.2 s).
+    let peak = 0, sinceRound = 0, k = 0;
+    for (let f = 0; f < 240; f++) {
+      sinceRound += 1 / 60;
+      while (sinceRound >= 525 / 15734) { sinceRound -= 525 / 15734; for (let s = 0; s < 16; s++) fx.onRound(round(k++), { node, muzzle: [7.8, 0.8, 0] }, false); }
+      fx.update(1 / 60, camera);
+      peak = Math.max(peak, fx.stats().runs);
+    }
+    expect(peak).toBeGreaterThan(0);
+    expect(MAX_EFFECT_RUNS_ADAPTATION).toBeGreaterThanOrEqual(2 * peak);
+  });
+
+  it('a stalled frame loop: 1200 rounds unstepped hold no more runs than the cap, and the map\'s ambient runs stay', async () => {
+    const d = await load();
+    const sounds: string[] = [];
+    const fx = new Effects(seeded(), (name) => sounds.push(name));
+    fx.setData(d);                                                    // Frostfire's own `firey_flames`
+    fx.setWorld(() => deck(25));
+    const ambient = fx.stats().ambient;
+    expect(ambient).toContain('firey_flames');
+    let most = 0;
+    for (let k = 0; k < 1200; k++) {
+      fx.onRound(round(k), { node, muzzle: [7.8, 0.8, 0] }, false);
+      most = Math.max(most, fx.stats().runs);
+    }
+    expect(most).toBeLessThanOrEqual(MAX_EFFECT_RUNS_ADAPTATION);
+    expect(fx.stats().ambient).toEqual(ambient);
+  });
+
+  it('the review F1: a burst over the cap retires the rounds\' runs first -- a smoke grenade\'s screen, the oldest run, stays', async () => {
+    const d = await load();
+    const fx = new Effects(seeded());
+    fx.setData({ ...d, ambient: [] });
+    fx.setWorld(() => deck(25));
+    const at: [number, number, number] = [100, 0, 100];
+    const smoke = fx.run('smoke_grenade', { node: new Matrix4().makeTranslation(...at), position: at, normal: [0, 1, 0], velocity: [0, 0, 0] });
+    expect(smoke).not.toBeNull();
+    const camera = new PerspectiveCamera();
+    for (let i = 0; i < 30; i++) fx.update(1 / 30, camera);           // a second in: its stream pours
+    const before = fx.stats().played['smoke_stream'];
+    expect(before).toBe(1);
+    const streams = (): number => (fx as unknown as { runs: { finished: boolean; program: { name: string } }[] }).runs
+      .filter((r) => !r.finished && r.program.name.toLowerCase() === 'smoke_stream').length;
+    expect(streams()).toBe(1);
+    for (let k = 0; k < 1200; k++) fx.onRound(round(k), { node, muzzle: [7.8, 0.8, 0] }, false);
+    expect(fx.stats().runs).toBeLessThanOrEqual(MAX_EFFECT_RUNS_ADAPTATION);
+    expect(streams()).toBe(1);                                        // the screen still pours
+  });
+
+  it('a visible return: retireRounds lets the rounds\' runs and tracers go without a sound; the next frame sounds as a quiet map\'s', async () => {
+    const d = await load();
+    const camera = new PerspectiveCamera();
+    const quietSounds: string[] = [];
+    const quiet = new Effects(seeded(), (name) => quietSounds.push(name));
+    quiet.setData(d);
+    quiet.setWorld(() => deck(25));
+    quiet.update(0.1, camera);
+    const sounds: string[] = [];
+    const fx = new Effects(seeded(), (name) => sounds.push(name));
+    fx.setData(d);
+    fx.setWorld(() => deck(25));
+    const base = fx.stats().runs;
+    for (let k = 0; k < 1200; k++) fx.onRound({ ...round(k), tracer: true, tracerKind: 'ally' }, { node, muzzle: [7.8, 0.8, 0] }, false);
+    expect(fx.stats().runs).toBeGreaterThan(base);
+    const before = sounds.length;
+    fx.retireRounds();
+    expect(sounds.length).toBe(before);                               // retired silently
+    expect(fx.stats().runs).toBe(base);                               // the ambient runs alone
+    expect(fx.stats().tracers).toEqual([]);
+    expect(fx.stats().ambient).toEqual(quiet.stats().ambient);
+    fx.update(0.1, camera);
+    expect(sounds.length - before).toBe(quietSounds.length);
   });
 });

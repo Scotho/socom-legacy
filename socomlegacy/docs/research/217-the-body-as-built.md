@@ -454,10 +454,72 @@ stopped the body at that edge. The browser
 spec (`menuCrossroads.spec.ts`) passed with this change (the playtest batch's Log, 13:08Z and 13:52Z: test 1 five of
 five, the file's four tests).
 
-### 2.7 The steep-rise refusal, bounded (`STEEP_RISE_FACE_MIN_READING`; LATER 590, interim, 2026-10-31)
+### 2.7 The steep-rise refusal: removed (LATER 590, closed 2026-11-05; bounded 2026-10-31, `STEEP_RISE_FACE_MIN_READING` retired)
 
-*Reading, pending review* (the owner's interim ruling, 2026-10-31, in the controller's seat: "Take bounded fix
-(Recommended)"; measured off the disc headless; nothing measured on the original running).
+*Reading, pending review* (segment-body-2 task S, `agent/sb2-590`, 2026-11-05: the refusal removed on the reads below;
+measured off the disc headless; nothing measured on the original running). The interim bound that stood from 2026-10-31
+to 2026-11-05 is kept below as it was filed.
+
+**Closed: no rise is refused for a floor's slope.** Re-read at the source for this close:
+- the walk compares no rise: `FUN_005b5d40` (D:L470163-470290) keeps the highest floor at or under the origin + 1, else
+  the lowest, and drops it only when it is more than 20 over the feet (D:L470272-470274); no normal is read;
+- a steep face stops a body only where `FUN_0054aa30`'s records at the feet + `step_height` 6.5 meet it (`DAT_0044c26c`,
+  D:L415167) and `FUN_005483d0` resolves the hit -- a normal under `max_slope` levelled, the move's part along it taken
+  away (D:L413533-413567) -- or where the contact branch's look-ahead, lifted by `step_height`, meets a steep unflagged face
+  and zeroes the displacement (D:L413711-413736);
+- steep ground under the feet slides only where `FUN_0054f330` makes it eligible (research 201 s3).
+The interim stood in for the segment body; with the segment body on `main` (B203, §2.9) the refusal is removed, with
+`STEEP_RISE_FACE_MIN_READING` and `faceHeight`. Held by `viewer/test/steepRise.test.ts` (it replaces
+`steepRiseBounded.test.ts`).
+
+**What it frees** (the disc, headless):
+- MP9's trunk crease at `land_04/congo2_tree4`'s west-north-west foot, (1794.86, 127.00, 1747.50) (LATER 687's sweep; 24 of
+  its 276 ground routes ended there): standing and crouched every heading now leaves it, 6.3-56.8 in 2 s (was
+  0.00-0.18); the 276 routes re-run end stuck in 0 (was 24). Prone, the rest still moves 0.00 in every heading, with or
+  without the refusal (the prone jam, D:L413602-413611); a stand press frees it.
+- MP7's `g537` trough (1242.1, 118.22, 1569.5): headings 90, 135 and 180 leave it (were 0.00). Heading 90 crosses the
+  faces (8.70 and 10.28 tall, n_y 0.50 and 0.61) on a grade near 0.25, rising 6.87: no record meets a `g537` face on the
+  way -- the centre record at the feet + 6.5 passes over them -- so it is the source's walk, not a regression. (The interim
+  record read `g537` as "still refused"; that was the refusal, not the segments.) The crossing also rests on
+  `SLIDE_SPAN_MEASURE_READING` 'column' (`./steepSlide`): the faces' column span under the feet is under `SLIDE_SPAN_MIN`
+  4, so `FUN_0054f330` (D:L417237) does not make them slide; under 'vertices' (the polygons' 8.70 and 10.28) they would
+  slide the body and it would not cross. The capture below settles the two together.
+- Vigilance's pocket (the owner's report): still free in every heading.
+- MP51's bridge sides (§2.8, BOT-STRAND-S53): from (629.76, 24.78, 936.11) headings 218 and 234 now walk off (71.5, 88.8;
+  were 6.2, 15.5); 202 and 282 still stop within 4 (another cause).
+- MP51's bot graph: 3 edges gained, none lost (`match/test/navigationGraphIdentity.test.ts`); MP2's unchanged.
+
+**What a tall steep face does now** (synthetic, `steepRise.test.ts`, `walk.test.ts`, `steepSlide.test.ts`):
+- walked at from a flat floor, a face wound with its normal up (n_y 0.62, 0.50, 54 degrees) holds the body off by the
+  segments at every heading tried, the same with the refusal or without -- the refusal never acted there;
+- a face the segments do not test -- ditype 1 (bit 1 clear), or wound with its front down (research 281 s4.3) -- is
+  stepped onto, and the slide's entry speed (the uphill velocity's part along the fall line, `FUN_0054edf0`, research 201
+  s3) carries the body up a little before it turns back: never a `step_height` up (5.70 on a 55-degree ramp, 6.11 on a
+  54-degree face);
+- pressed straight up a sliding face, the body treads in place (each uphill step taken, the slide bringing it back).
+
+**The six-map sweep** (scratch, main's one line restored against none in one process; MP9, MP51, MP72, MP7, MP73, MP1;
+up to 200 spots 2 off the foot of a steep face at least 6.5 tall, 100 on such faces, 100 on walkable ground; stand, crouch
+and prone; 8 headings, 60 ticks; a stall is under 1 moved): 54,240 runs, stalls 10,129 -> 9,897, 244 freed, 12 new (3
+spots x 1 heading, stand and crouch, each a body laid on a steep sliding face -- MP9 `land_20`, MP51 `wc18/ground_wc18`,
+MP72 `sandbags2` -- and pressed up it: under the refusal it slid off, 1.69, 1.78 and 46.06, now it treads where it was;
+each of the three keeps 7 of its 8 headings out); spots stuck in all eight headings 317 -> 310 (7 freed), none new. 141 runs climb at least `step_height` in
+total on faces the refusal held; in none did the walker's own records meet the polygon it climbed (on MP7's `g125_2` the
+side line met a neighbouring polygon of the same face, and the resolution carried the body along it). The
+tallest, by a body's rise over its start: placements on near-vertical faces (n_y 0.09-0.21) pushed by a neighbour's
+records during the slide (MP9 `congo2_tree2`, MP51 `wc06A`), an oblique walk along MP7's `g125_2` (n_y 0.59-0.64) with
+the side line's hit resolving the move along it, and MP1's dredge, where no floor lies at or under the feet + 6.5 and the
+pick takes the lowest, 13.5 up (§2.6). The report is agent-mail `segment-body/sb2/S-REPORT.md`.
+
+**Untested (LATER 713).** Bodies placed on near-vertical floor polygons (n_y 0.09-0.21: MP9 `congo2_tree2`, MP51
+`wc06A`) are now lifted by a neighbour's records during the slide; no walk in the sweep reaches them, and whether a jump
+or a fall can land a body on them is not swept.
+
+**Owed (a capture, not a blocker).** A SEAL on the original walked at MP7's `g537` from its trough on heading 90, pressed
+up a sliding face (MP9 `land_20` at (1352.92, 34.79, 1107.93), yaw 90), and run at a steep face over flat ground: the
+slide's entry speed and the treading are the port's model of `FUN_0054edf0` (research 201 s3).
+
+*The interim, as filed 2026-10-31:*
 
 **The rule as it stood.** `Walker.groundEndpoint` refused a grounded step onto a floor that rises and is steeper than
 `max_slope` 50 degrees (`if (rise > 0 && floor.normal[1] < MAX_SLOPE_COS) return false;`). The rule came with W2.2b
@@ -488,10 +550,10 @@ stuck walks unchanged (145 before and after; MP10's jungle trees not newly pinne
 with no wall hit 335 -> 325 -- ten freed (MP73 nine, LATER 590's rim `g5788`, 1.53 tall, among them; MP61 one), none
 new (the sweep walks off edges, so it reaches no pocket like Vigilance's). LATER 590's other named spots: MP72's Charlie
 lip `table_slanted` (1.84 tall) -- the prone crawl at yaw 0 now goes 21.6, down onto the road (was 0); MP7's `g537`
-(8.70 / 10.28 / 8.82 tall) still refused (the review's walks, 2026-10-31). Held by `viewer/test/steepRiseBounded.test.ts` (the spot, eight headings,
+(8.70 / 10.28 / 8.82 tall) still refused (the review's walks, 2026-10-31). Held by `viewer/test/steepRiseBounded.test.ts`, removed 2026-11-05 (the spot, eight headings,
 standing and crouched; disc-backed).
 
-**Not settled (owed).** LATER 590 stays open: the rule's source-faithful removal, after a capture on the original of a
+**Not settled (owed)** *(as filed; closed 2026-11-05 above)*. LATER 590 stays open: the rule's source-faithful removal, after a capture on the original of a
 SEAL walked over MP73's `g5788` rim and MP7's `g537`, and up a long steep face (the slide-back that would replace the
 refusal is the port's own model of `FUN_0054edf0`, research 201 section 3).
 
@@ -581,7 +643,8 @@ a placement artefact). Walked from the bridge node at (629.76, 24.78, 936.11), h
 on `worldmodel/wc13A/di_bridge_wc13_sides` at y 23.4-26.1 (n_y 0.518-0.533, column span 0.27-0.49, so no slide):
 every step, whole and split by axis, rises onto the next `_sides` polygon (n_y 0.518, taller than 6.5) and is refused
 by the interim steep-rise rule (section 2.7, `STEEP_RISE_FACE_MIN_READING`; LATER 590, which has no source in the
-original). That is LATER 590's, not this push's (no floor there is under n_y 0.1); not changed here.
+original). That is LATER 590's, not this push's (no floor there is under n_y 0.1); not changed here. (LATER 590 closed
+2026-11-05: headings 218 and 234 now walk off; section 2.7.)
 ### 2.9 The segment body (SEGMENT-BODY, 2026-11-02; `WALL_BODY_READING`; LATER 283, LATER 620)
 
 *Reading, pending review* (the gameplay lane, on 5d's decision between readings, OT.R53: "the port's disc body with
@@ -649,7 +712,7 @@ centre line. The port's tick is 60 Hz (PF.R8): the records add the tick's displa
 **What replaces the disc for walls**: nothing of `r`: the stand-off is where a record first crosses a face -- head on
 standing 9.46 to 9.46 + the move, at a face under the head line 5.39 to 5.39 + the move, crouched 9.43 or 12.58, prone
 15.94 (the head line) or 12.32. **The floors and steps keep their own rules** (`step`, `groundEndpoint`, `selectFloor`, the
-`[dx, 0] / [0, dz]` retry and the steep-rise bound of §2.7): `FUN_005b0840`'s pick is not the wall pass, and none of them
+`[dx, 0] / [0, dz]` retry; the steep-rise bound of §2.7 until its removal, 2026-11-05): `FUN_005b0840`'s pick is not the wall pass, and none of them
 reads a wall. **What replaces `crosses`**: the look-ahead (`SEGMENT_LOOK_AHEAD_READING`) and the records' own reach past the
 move; `pushOut` is gone with it -- a still body is resolved by its records along its facing. **b2's end clip** has no place:
 a face's end is met by a record crossing the face inside its edges, with the face's own normal, as any hit
@@ -1383,7 +1446,7 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `HEADROOM_FROM_READING` (`mover.ts`, a comment) | was 14 | §1.2 | retired 2026-10-05 (PF-15): the foot is the hips + 2, `HEADROOM_HIPS_READING` |
 | `STANCE_REQUEST_RETRY_READING` | the port drops a refused press; the original keeps an obstacle-refused request and asks again each tick | D:L418991, D:L419011, `FUN_00552d60` D:L418875 (§1.4) | *note only*: owed a request word on the shared mover and a capture |
 | `SWAP_IN_TRANSITION_CLIP_READING` | the new stance's swap clip, the stance word changing at once | 211 §6, §7 C3 (§5) | *note only*: owed capture C3 |
-| `STEEP_RISE_FACE_MIN_READING` (`mover.ts`) | 6.5 (`SEAL_TUNING.stepHeight`): the grounded step's steep-rise refusal holds only on a floor polygon at least this tall | the owner's interim ruling on LATER 590 (2026-10-31); `step_height` (`dynamics.rdr` +0x1c), `FUN_005483d0` D:L413724-413725 (§2.7) | a reading, pending review: the refusal has no source; a capture owed (LATER 590) |
+| `STEEP_RISE_FACE_MIN_READING` (`mover.ts`, retired 2026-11-05) | was 6.5 (`SEAL_TUNING.stepHeight`): the grounded step's steep-rise refusal held only on a floor polygon at least this tall; removed with the refusal (LATER 590 closed, §2.7) | the owner's interim ruling on LATER 590 (2026-10-31); `step_height` (`dynamics.rdr` +0x1c), `FUN_005483d0` D:L413724-413725 (§2.7) | a reading, pending review: the refusal has no source; a capture owed (LATER 590) |
 | `STEEP_FLOOR_CONTACT_READING` (`mover.ts`) | `{ normalY: 0.1, distance: 6, gain: 0.7 }`: a standing or crouched body facing into a sliding floor under n_y 0.1, its slide not started, is pushed off it along the normal for one tick | r0004's `FUN_0054f330` twin r4 0x554248-0x5542d0, `FUN_005b0c10`'s twin r4 0x5b6a60; the driver D:L416578-416613, `FUN_0054a6d0` D:L414410-414469 (§2.8) | a reading, pending review (MP51-FLOOR-TRAP, 2026-11-02): the back axis, the record's point and P's y the port's; one push a frame by r0001's frame order (D:L145065-145071), a second at tick N+1 (about 1.26) the other reading until r0004's `FUN_005483d0` bit-0 write is re-read or a capture; the prone block owed; a capture owed |
 | `WALL_PROBE_READING` (`mover.ts`) | stand / crouch `{ h: 6.5, r: 3.5 }`, prone `{ h: 3.0, r: 8.0 }` (h = `SEAL_TUNING.stepHeight`, prone the class height 6.0 x 0.5) | `FUN_0054aa30` D:L415110-415133, D:L415231-415233, D:L415418-415419 (§2.1) | a reading: the stand-off is `r`, the original's about its segments' reach (`r x 1.4`); owed a capture of a SEAL pressed to a wall |
 | `PRONE_FAN_READING` (`mover.ts`) | `{ count: 3, ahead: 1.4, centre: 1.1, across: 0.39 }`: built as 3.12 every way and 8.0 ahead along the travel | D:L415166, D:L415235, D:L415582-415621, D:L415822-415861 (§2.1) | a reading: the segments' lengths are not the stand-off; the standing fan's side lines taken as the disc; owed a capture, prone crawled in head-on and aslant |

@@ -68,8 +68,16 @@ export type PadAction = 'move' | 'look' | PadFlag;
 export interface Input {
   /** Native pressure, 0..1 including release; absent for the digital tap/hold adaptation. Research 373. */
   stancePressure?: number;
-  /** A synthetic USB neutral cancels a press; it is not a physical release. */
+  /** A synthetic USB neutral cancels a press; it is not a physical release. Nor is the R2 inventory's take of a held
+   *  stance lane (`./inventoryMenu` `frame`, #702's review). */
   stanceCancelled?: boolean;
+  /**
+   * OT.R107 (the owner, 2026-11-06; a browser adaptation of SEPARATE, STM.R1 / OT.R67): `stance` is held only by a pad's
+   * Triangle that the SEPARATE Prone bind's button drives (`./controllerInput` `poll`, the pad's `stanceOff`) -- Triangle's
+   * action for every reader of `stance` as Triangle (the R2 inventory's close, the spectator's jump), none for the stance
+   * lane (`stanceLane`).
+   */
+  stanceOff?: boolean;
   moveX: number; moveY: number;
   lookX: number; lookY: number;
   jump: boolean; crouch: boolean; stance: boolean; boost: boolean; fire: boolean; zoom: boolean;
@@ -289,6 +297,8 @@ export interface GamepadLike {
   /** Explicit per-device browser adaptation; never inferred from a device name or a fractional trigger. */
   readonly nativePressure?: boolean;
   readonly stanceCancelled?: boolean;
+  /** OT.R107: the logical Triangle is Triangle's action only, never the stance (`Input.stanceOff`; `./controllerInput` `poll`). */
+  readonly stanceOff?: boolean;
   readonly axes: readonly number[];
   readonly buttons: readonly { readonly pressed: boolean; readonly value: number }[];
 }
@@ -398,6 +408,8 @@ export function padMapInput(pad: GamepadLike | null | undefined, map: PadMap): I
   out.moveX = move.x; out.moveY = move.y; out.lookX = look.x; out.lookY = look.y;
   for (const [b, lane] of map.lanes) if (held(b)) out[lane] = true;
   if (pad.stanceCancelled) out.stanceCancelled = true;
+  // OT.R107: the stance off only where Triangle alone holds it (a preset's other stance button is the stance as ever).
+  if (pad.stanceOff && out.stance && !map.lanes.some(([b, lane]) => lane === 'stance' && b !== 'Triangle' && held(b))) out.stanceOff = true;
   if (pad.nativePressure) {
     const b = map.lanes.find(([, lane]) => lane === 'stance')?.[0];
     applyStancePressure(out, b ? pad.buttons[PAD_BUTTON[b]]?.value : 0);
@@ -453,6 +465,7 @@ export function padInput(pad: GamepadLike | null | undefined, layout?: readonly 
     }
   }
   if (pad.stanceCancelled) out.stanceCancelled = true;
+  if (pad.stanceOff && out.stance && !layout.some((r) => r.action === 'stance' && r.control !== 'Triangle' && down(pad.buttons[PAD_BUTTON[r.control as PadButton]]))) out.stanceOff = true;   // OT.R107, as `padMapInput`
   if (pad.nativePressure) {
     const row = layout.find((r) => r.action === 'stance');
     applyStancePressure(out, row ? pad.buttons[PAD_BUTTON[row.control as PadButton]]?.value : 0);
@@ -471,7 +484,9 @@ export function strongest(a: number, b: number): number {
  */
 export function mergeInput(...inputs: readonly Input[]): Input {
   const out = noInput();
+  let stanceOn = false;                                // OT.R107: a source whose `stance` is the stance's own
   for (const i of inputs) {
+    if (i.stance && !i.stanceOff) stanceOn = true;
     out.moveX = strongest(out.moveX, i.moveX);
     out.moveY = strongest(out.moveY, i.moveY);
     out.lookX = strongest(out.lookX, i.lookX);
@@ -480,8 +495,15 @@ export function mergeInput(...inputs: readonly Input[]): Input {
     if (i.stanceCancelled) out.stanceCancelled = true;
     if (i.stancePressure !== undefined) out.stancePressure = Math.max(out.stancePressure ?? 0, i.stancePressure);
   }
+  if (out.stance && !stanceOn) out.stanceOff = true;   // only when every source holding it holds it as Triangle's action alone
   return out;
 }
+
+/**
+ * The stance lane's Triangle (OT.R107): `stance` held as the stance -- not a SEPARATE Prone bind's Triangle, which is
+ * Triangle's action only (`Input.stanceOff`). The game's stance readers take this; Triangle's other readers, `stance`.
+ */
+export function stanceLane(i: Input): boolean { return i.stance && !i.stanceOff; }
 
 /** The actions that went down between two frames: `mode` toggles on its press, as `G` does on its keydown. */
 export function pressedSince(before: Input, after: Input): PadFlag[] {

@@ -282,6 +282,12 @@ export interface ViewerHook {
    * posture and the action holding the mover. Null unless the page was opened with `?devmode`. Read only.
    */
   ephFrame(): EphFrame | null;
+  /**
+   * PK-3, a browser adaptation (`./ephPause`): the parity pack's Pause -- `true` holds the page's frame (the walk's tick,
+   * the input, the draw), anything else resumes it with its clock re-based; answers the paused state after the call.
+   * A no-op answering false unless the page was opened with `?devmode`.
+   */
+  ephPause(on: boolean): boolean;
   /** DOORS (`./doorPage`): each door's node and state, the door under the reticle, the last action on one. */
   doors(): ReturnType<DoorPage['stats']>;
   /**

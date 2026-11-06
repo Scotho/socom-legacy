@@ -48,6 +48,12 @@ export interface CollisionOwner {
    */
   flags?: number;
   /**
+   * R4B-09 (research 383; fresh review 1's F1): the node was switched off when the graph was built -- r0004's
+   * switch-off (node vtable +0x38, r4 0x1ec450) or one above it (`flattenScene`'s `flags`). The world's opening state and
+   * its changes (`viewer/src/worldState.ts`) keep it off. Absent on every owner of the disc as read.
+   */
+  switchedOff?: true;
+  /**
    * DOORS (`socomlegacy/docs/research/92-doors.md`): the ground-plane box a moving node's polygons can reach -- a door leaf's
    * whole swing. The grid links the owner into every cell it covers and keeps it as the object's footprint, so the
    * polygons can be turned in place (their points rewritten) without relinking; the mover re-reads such an owner's
@@ -244,7 +250,7 @@ export function collisionOwners(models: SceneNode[], rootName = 'worldmodel'): C
   for (const f of flattenScene(models, rootName)) {
     const count = worldDi(f).length;
     if (count === 0) continue;
-    out.push({ modelName: f.modelName, path: f.path, first, count, flags: f.node.flags, ...(uprightFrame(f.world) ? {} : { frame: f.world }) });
+    out.push({ modelName: f.modelName, path: f.path, first, count, flags: f.flags, ...((f.flags & 1) === 0 ? { switchedOff: true as const } : {}), ...(uprightFrame(f.world) ? {} : { frame: f.world }) });
     first += count;
   }
   return out;
@@ -405,7 +411,8 @@ export function ringCells(grid: Grid, x: number, z: number, maxRing = Infinity, 
  * The ordered traversal (`StartTraversalOrdered` / `GetNextAtomOrdered`, `grid_main.cpp:264-310`): every atom of
  * every cell in `ringCells` order, each cell's atoms in the order they were linked, with the cell's ring. An
  * object covering several cells comes once per cell; the first time is its nearest ring. The engine also skips
- * a node that is not `m_active` (`:303`); every placement the viewer draws is taken as active.
+ * a node that is not `m_active` (`:303`); `placeInstances` leaves a placement whose node, or one above it, is off at
+ * load out of the grid (`FUN_003389c0` D:L236069; LATER 707), and the world's state switches the rest by path.
  */
 export function* traverse(grid: Grid, x: number, z: number, maxRing = Infinity, metric: RingMetric = 'diamond'): Generator<{ atom: GridAtom; ring: number }> {
   for (const { cell, ring } of ringCells(grid, x, z, maxRing, metric)) {

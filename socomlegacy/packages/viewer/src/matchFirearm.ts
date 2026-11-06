@@ -213,6 +213,19 @@ export interface MatchFirearmDeps {
   vibration?(): boolean;
   /** CTL-2 (`RUMBLE_MENU_STOP_READING`): the START menu open now, asked each frame (never at the mount); absent, never. */
   menuOpen?(): boolean;
+  /**
+   * A browser adaptation (`./effects` `MAX_EFFECT_RUNS_ADAPTATION`): the page's visibility. Hidden, another player's
+   * rounds start no effect run (their report and passing sound still play); the return to visible retires the rounds'
+   * runs. Absent: the page's `document` (none: always visible).
+   */
+  visibility?: PageVisibility;
+}
+
+/** What `MatchFirearmDeps.visibility` reads of a `Document` (a browser adaptation). */
+export interface PageVisibility {
+  readonly hidden: boolean;
+  addEventListener(type: 'visibilitychange', listener: () => void): void;
+  removeEventListener(type: 'visibilitychange', listener: () => void): void;
 }
 
 export interface MatchFirearm {
@@ -786,7 +799,20 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   // room's `reloadLife` from the command its `reload` names (`NetPage`: the last one sent at `reloadStart`).
   const stillReload = new StillReloadLife();
   walk.setStillClip(stillReload);
+  /**
+   * A browser adaptation, presentation only (`./effects` `MAX_EFFECT_RUNS_ADAPTATION`; the owner's report, 2026-11-06): a
+   * hidden tab runs no animation frame, so another player's rounds off the socket would pile effect runs nothing steps,
+   * and the return would step and sound them all at once. Hidden, they start none -- no muzzle, casing, impact or
+   * tracer run; the report and the passing sound still play, as before (the controller's ruling, 2026-11-06: they start
+   * at once and free on 'ended', so they are no backlog, and a tabbed-off player keeps hearing the gunfire). Back, the
+   * rounds' runs go (`Effects.retireRounds`). The room's damage, the wire and every game rule are untouched.
+   */
+  const page: PageVisibility | null = d.visibility ?? (typeof document !== 'undefined' ? document : null);
+  const pageHidden = (): boolean => page?.hidden === true;
+  const onVisibility = (): void => { if (!pageHidden()) effects.retireRounds(); };
+  page?.addEventListener('visibilitychange', onVisibility);
   const offs = [
+    () => page?.removeEventListener('visibilitychange', onVisibility),
     () => walk.setStillClip(null),
     fire.subscribe((e) => {
       // PAR-79's review F1 (research 251 s12.3, "PAR-79"): `Fire`'s completed end is its own timer, not the clip's pop --
@@ -1100,9 +1126,13 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       play.setMounts(kit.state().mounts);
       // LATER 180 (research 215 s8.3): mounted, the turret's slot is in the hand and its raise times are zero (the mount's
       // take-up, D:L412218 -> `FUN_005dfff0`); off it, the firearm's (`FUN_005dffc0`). Before the raise ticks (`play.frame`).
+      // LATER 655 (research 321 s3.4; reading, pending review): an item up -- a hand grenade, a charge, the gear -- is a
+      // selected slot of none of the firearm categories, so its take-up gives zero times too (`FUN_005c4b10`
+      // D:L478849-478853); the grenade's lower then clears the envelope at once (`FUN_005dfe30` D:L494249-494256) and the
+      // rifle's first round after the return waits on the raise from 0. A raised launcher keeps the firearm's (LATER 192).
       const mounted = mountedId() !== null;
       if (!mounted) mountedTrigger = false;
-      play.setRaiseTimes(mounted ? ZERO_RAISE_TIMES : RAISE_TIMES);
+      play.setRaiseTimes(mounted || hands?.itemUp() ? ZERO_RAISE_TIMES : RAISE_TIMES);
     },
     // DEAD: the dead's controller (`FUN_00592560` L451642-451730) takes the respawn press alone -- a held trigger lets go.
     beforeNet: () => { if (walk.isDead() && fire.triggerHeld()) fire.release(); },
@@ -1293,8 +1323,11 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     shotRumble: (r) => { shotRumble(rumble, r); },
     roundEffects: (e, id) => {
       // MAP-10b: a mounted body's round leaves the turret's firepoint (`mountedMuzzle`), not the rifle in its hand.
-      const mounted = d.mountedMuzzle?.(id) ?? null;
-      effects.onRound(e, mounted ? { node: new Matrix4().fromArray(Array.from(mounted)), muzzle: [0, 0, 0] } : remote.weaponFrame(id), false);
+      // A browser adaptation: a hidden tab starts no effect run for it (`onVisibility`); its sounds below still play.
+      if (!pageHidden()) {
+        const mounted = d.mountedMuzzle?.(id) ?? null;
+        effects.onRound(e, mounted ? { node: new Matrix4().fromArray(Array.from(mounted)), muzzle: [0, 0, 0] } : remote.weaponFrame(id), false);
+      }
       sound?.roundFired(e);
       // LATER 644 (research 81 "A round passing"): `FUN_00598000` takes a projectile's segment against the
       // player's place (`+0x1c`, the feet; the `CSealCtrl` vtable's slot +0x44) and plays `.BUL_PASSING` within 20
@@ -1304,7 +1337,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       const feet = walk.feet();
       if (feet) sound?.roundPast?.(e.from, e.tracerTo ?? e.to, feet);
     },
-    roundImpact: (e) => { effects.onRound(e, null, false); },   // INT-NET-2: the own round's blood, the room's body hit
+    roundImpact: (e) => { if (!pageHidden()) effects.onRound(e, null, false); },   // INT-NET-2: the own round's blood, the room's body hit (a hidden tab's: none, `onVisibility`)
     turretCone: () => {
       const turret = mountedRecord();
       if (turret) accuracy.setWeapon(turret);                    // the turret slot's record, as `gunFrame` names it each frame

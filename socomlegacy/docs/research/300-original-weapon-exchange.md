@@ -57,7 +57,7 @@ The visible title/category labels are code strings, not a missing texture needin
 | Open | In a match, dead or a late-join ghost, viewing self, not spectator; Inventory/R2 in Default configuration. `FUN_001f7ff0`, D:L56648-56661; `FUN_00240600`, D:L89371. Alive R2 belongs to the separate inventory. |
 | Browse | D-pad Up/Down rows/items; Left/Right categories; visible highlight and card previews. `FUN_0023ebc0`, D:L88581; `FUN_0023d1b0`, D:L87851. |
 | Held direction | Just-pressed state `== 1`, no automatic repeat, research 94 B3. Held-input tests preserve this. Automatic repeat requested in the brief would be a browser adaptation and has not been invented as original behavior. |
-| Confirm/cancel | Cross confirms; Triangle/Start back to rows or close; R2 closes rows but is ignored by the picker. Circle is not cancel. `FUN_0023e5e0`, D:L88379. |
+| Confirm/cancel | Cross confirms; Triangle/Start back to rows or close; R2 closes rows but is ignored by the picker. Circle is not cancel. `FUN_0023e5e0`, D:L88379. The port's Circle closes the menu from the rows or the picker by OT.R106 (an owner adaptation, MISSION). |
 | Equip | Confirm writes the character type's next kit; classic mode equips at the next spawn/round rebuild. `FUN_00223680`, D:L75931; `FUN_00598b90` / `FUN_00599b60`, D:L455604; `FUN_00599f00`, D:L455719. |
 | Reset | Round reset closes the menu and drops unconfirmed preview. `FUN_002a7d40`, D:L149757 -> `FUN_00240d50`. |
 | Sounds | Active HUD menu is silent, research 94 R94.3. The unused CInGameWeaponSel loads .TCM_SELECT/.TCM_SLIDE but does not establish sounds for this menu. Weapon firing/reload sounds still come from each record. |

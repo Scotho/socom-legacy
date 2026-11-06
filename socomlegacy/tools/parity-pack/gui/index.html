@@ -1,0 +1,303 @@
+<!doctype html>
+<!--
+  The parity pack's GUI page (PK-5; docs/specs/2026-11-03-parity-pack-design.md 5). Product track (OT.R53): the GUI of a
+  validation instrument, an adaptation with no original. Plain HTML and JavaScript, no framework and no build step; the
+  state arrives as server-sent events from /api/events, the commands go as JSON POSTs to /api/<verb>. The look is the
+  design system's (shared/ds: tokens.css, base.css, components.css, fonts.css, served under /ds/ when the pack ships
+  them); the rules below are this page's own and name the system's tokens with their values as fallbacks, so the page
+  reads the same without the files. Everything the tester reads is a sentence: no port, no path but the saved file's,
+  no state slot.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOCOM II parity harness</title>
+<link rel="stylesheet" href="/ds/fonts.css">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/base.css">
+<link rel="stylesheet" href="/ds/components.css">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; background: var(--s2u-ground, #000e11); color: var(--s2u-text, #b4bfc1);
+    font: 400 17px/24px var(--s2u-font-body, "Oswald", "Arial Narrow", sans-serif);
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 16px clamp(12px, 4vw, 32px) 48px; }
+  h1 { margin: 8px 0 0; font: italic 800 34px/38px var(--s2u-font-display, "Saira Condensed", Impact, sans-serif); color: var(--s2u-gold-display, #dcb85c); letter-spacing: 0.02em; }
+  .tag { margin: 2px 0 16px; color: var(--s2u-text-dim, #8a9a9c); font-size: 15px; }
+  section { background: var(--s2u-panel, #002933); border: 1px solid var(--s2u-panel-edge, #061a1c); border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+  h2 { margin: 0 0 8px; font: 600 15px/20px var(--s2u-font-label, "Oswald", sans-serif); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-text-strong, #dfe4e5); }
+  ul.checks { list-style: none; margin: 0; padding: 0; }
+  ul.checks li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+  .dot { flex: none; width: 12px; height: 12px; border-radius: 50%; transform: translateY(1px); }
+  .ok .dot { background: var(--s2u-glyph-triangle, #3fae7f); }
+  .bad .dot { background: var(--s2u-glyph-circle, #ee5a52); }
+  .warn .dot { background: var(--s2u-warn, #e0a35a); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .note { color: var(--s2u-text-dim, #8a9a9c); font-size: 15px; }
+  button {
+    font: 600 17px/22px var(--s2u-font-label, "Oswald", sans-serif); letter-spacing: 0.06em; min-height: 44px; padding: 8px 18px;
+    color: var(--s2u-text-strong, #dfe4e5); background: var(--s2u-tab, #032326); border: 1px solid var(--s2u-highlight, #0d595c); border-radius: 4px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--s2u-tab-lit, #093535); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--s2u-focus, #5fb3bf); outline-offset: 2px; }
+  .big { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .big button { min-height: 64px; font-size: 20px; }
+  .big button.on { background: var(--s2u-highlight, #0d595c); }
+  @media (max-width: 700px) { .big { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 480px) { .big { grid-template-columns: 1fr; } }
+  textarea { box-sizing: border-box; width: 100%; min-height: 96px; resize: vertical; font: inherit; color: var(--s2u-text-strong, #dfe4e5); background: var(--s2u-ground, #000e11); border: 1px solid var(--s2u-highlight, #0d595c); border-radius: 4px; padding: 8px; }
+  select { font: inherit; min-height: 36px; color: var(--s2u-text-strong, #dfe4e5); background: var(--s2u-tab, #032326); border: 1px solid var(--s2u-highlight, #0d595c); }
+  #status { font-size: 19px; color: var(--s2u-text-strong, #dfe4e5); }
+  #notice { color: var(--s2u-warn, #e0a35a); min-height: 1em; }
+  pre { max-height: 260px; overflow: auto; margin: 8px 0 0; padding: 8px; background: var(--s2u-ground-deep, #000); font: 13px/18px var(--s2u-font-mono, "JetBrains Mono", ui-monospace, monospace); white-space: pre-wrap; word-break: break-word; }
+  #saved code { word-break: break-all; color: var(--s2u-text-strong, #dfe4e5); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td { padding: 2px 8px; border-bottom: 1px solid var(--s2u-panel-edge, #061a1c); }
+  td:last-child { font-family: var(--s2u-font-mono, ui-monospace, monospace); color: var(--s2u-text-strong, #dfe4e5); }
+  .cols { columns: 2 220px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="packName">SOCOM II parity harness</h1>
+  <p class="tag" id="packTag">&nbsp;</p>
+
+  <section aria-labelledby="hCheck">
+    <h2 id="hCheck">Before you play</h2>
+    <ul class="checks" id="checks"></ul>
+    <div class="row" id="prepareRow" hidden>
+      <button id="prepare" type="button">Prepare the maps</button>
+      <span class="note" id="prepareLine"></span>
+    </div>
+  </section>
+
+  <section aria-labelledby="hSettings">
+    <h2 id="hSettings">Settings</h2>
+    <div class="row">
+      <span>Build:</span>
+      <label><input type="radio" name="build" value="r0004" checked> r0004</label>
+      <label><input type="radio" name="build" value="r0001"> r0001</label>
+    </div>
+    <p class="note">The original: r0004, starting at the first mission's insertion point.</p>
+    <div class="row">
+      <label>Pad:
+        <select id="preset"></select>
+      </label>
+    </div>
+    <p class="note" id="presetWords">&nbsp;</p>
+    <p class="note">Any pad the browser reads in its standard mapping works; PCSX2's own controller settings are not used.</p>
+  </section>
+
+  <section aria-labelledby="hPlay">
+    <h2 id="hPlay">Session</h2>
+    <div class="big">
+      <button id="play" type="button">Play</button>
+      <button id="record" type="button">Record</button>
+      <button id="stop" type="button">Stop</button>
+      <button id="reset" type="button">Reset</button>
+      <button id="save" type="button">Save</button>
+    </div>
+    <p id="status">Not started.</p>
+    <p id="notice" role="status" aria-live="polite"></p>
+    <div id="saved" hidden>
+      <p>Saved. Send this file: <code id="savedPath"></code></p>
+      <button id="openFolder" type="button">Open folder</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="hRepair" id="repair" hidden>
+    <h2 id="hRepair">The saved starting point did not load</h2>
+    <p>Your PS2 BIOS may not load the starting point the pack ships. Make your own: press <b>Boot the original</b>, play
+      in the PCSX2 window with the keyboard keys below to the first mission's insertion point -- standing there, the Help
+      off, in control of your SEAL -- then press <b>Mark starting point</b>. Leave the window alone while it saves, and look
+      at the PCSX2 window before you press Play again.</p>
+    <div class="row">
+      <button id="boot" type="button">Boot the original</button>
+      <button id="mark" type="button">Mark starting point</button>
+    </div>
+    <details>
+      <summary>The keyboard keys for PCSX2</summary>
+      <div class="cols"><table><tbody id="keys"></tbody></table></div>
+    </details>
+  </section>
+
+  <section aria-labelledby="hNotes">
+    <h2 id="hNotes">Notes</h2>
+    <textarea id="notes" placeholder="What you saw: what you did, what the original did, what the port did."></textarea>
+    <p class="note">Your notes are saved with the session.</p>
+  </section>
+
+  <section>
+    <details>
+      <summary>The harness's own log (it goes in the saved file)</summary>
+      <pre id="log"></pre>
+    </details>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+let state = null;
+let clipStart = { clip: null, ms: 0 };
+let notesTimer = 0;
+let notesDirty = false;
+const STOPPED = 'Stopped. Save keeps this session as a file, or Play starts a new one.';
+// The run directory's stamp (YYYYMMDDTHHMMSSZ) as a time the tester reads, never the path.
+const stampWords = (dir) => {
+  const m = /(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(dir || '');
+  return m ? m[1] + '-' + m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5] + ':' + m[6] + ' UTC' : 'the last session';
+};
+
+async function post(verb, body) {
+  try {
+    const r = await fetch('/api/' + verb, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) $('notice').textContent = j.error || 'That did not work.';
+    else $('notice').textContent = '';
+    return j;
+  } catch (e) {
+    $('notice').textContent = 'The harness is not answering: is its window still open?';
+    return {};
+  }
+}
+
+const mmss = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+};
+
+function render(s) {
+  state = s;
+  $('packName').textContent = s.pack.name;
+  $('packTag').textContent = 'the port: ' + s.pack.pageTag;
+  const ul = $('checks');
+  ul.replaceChildren(...s.checklist.map((l) => {
+    const li = document.createElement('li');
+    li.className = l.level;
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.setAttribute('aria-hidden', 'true');
+    const t = document.createElement('span');
+    t.textContent = l.text;
+    li.append(dot, t);
+    return li;
+  }));
+  const maps = s.checklist.find((l) => l.id === 'maps');
+  const image = s.checklist.find((l) => l.id === 'image');
+  $('prepareRow').hidden = !!(maps && maps.ok);
+  $('prepare').disabled = s.prepare.running || !(image && image.ok);
+  $('prepareLine').textContent = s.prepare.running ? (s.prepare.line || 'preparing the maps') : (s.prepare.error ? 'preparing stopped: ' + s.prepare.error : '');
+
+  for (const r of document.querySelectorAll('input[name=build]')) { r.checked = r.value === s.settings.build; r.disabled = s.session.active; }
+  const sel = $('preset');
+  if (!sel.options.length) {
+    sel.replaceChildren(...s.padPresets.map((p) => { const o = document.createElement('option'); o.value = p.name; o.textContent = p.label; return o; }));
+  }
+  const hit = s.padPresets.find((p) => p.layout === s.settings.layout && p.chord === s.settings.chord && p.chordSolo === s.settings.chordSolo);
+  const match = hit ? hit.name : null;
+  let custom = sel.querySelector('option[value=custom]');
+  if (!match && !custom) { custom = document.createElement('option'); custom.value = 'custom'; custom.textContent = 'Custom'; sel.append(custom); }
+  if (match && custom) custom.remove();
+  sel.value = match || 'custom';
+  $('presetWords').textContent = hit ? hit.words + '.'
+    : 'Custom: the ' + s.settings.layout + ' layout; hold ' + s.settings.chord + ' and press Triangle for the light press' + (s.settings.chordSolo ? ', or ' + s.settings.chord + ' alone' : '') + '.';
+  sel.disabled = s.session.active;
+  if (!notesDirty && document.activeElement !== $('notes')) $('notes').value = s.settings.notes;
+
+  const live = s.session.active && s.session.kind === 'live';
+  const playing = live && s.session.phase === 'live';
+  const paused = live && s.session.paused;
+  const play = $('play');
+  play.textContent = playing && !paused ? 'Pause' : 'Play';
+  play.disabled = s.session.active ? !(playing || paused) : !s.canPlay;
+  const rec = $('record');
+  if (s.session.clip !== clipStart.clip) clipStart = { clip: s.session.clip, ms: s.session.activeMs };
+  rec.classList.toggle('on', s.session.recording);
+  rec.textContent = s.session.recording ? 'Recording clip ' + s.session.clip + ' -- ' + mmss(s.session.activeMs - clipStart.ms) : 'Record';
+  rec.disabled = !playing || s.resetting;
+  if (s.resetting) play.disabled = true;
+  $('stop').disabled = !live || s.resetting;
+  $('reset').disabled = !live || s.resetting;
+  $('save').disabled = s.resetting || (!live && !s.unsaved && s.session.phase !== 'ended');
+
+  let words = s.session.words.charAt(0).toUpperCase() + s.session.words.slice(1) + '.';
+  if (live) words += ' ' + mmss(s.session.activeMs) + (s.session.clips ? ', ' + s.session.clips + (s.session.clips === 1 ? ' clip' : ' clips') + ' recorded' : '') + '.';
+  if (!s.session.active && s.session.phase === 'idle') words = s.canPlay ? 'Ready: press Play.' : 'Not ready: see the list above.';
+  if (!s.session.active && s.notice === STOPPED) words = STOPPED;
+  if (s.unsaved && !s.saved) {
+    words += live ? ' The session ended ' + stampWords(s.unsaved) + ' is kept unsaved; Save saves this one.'
+      : ' Save takes the session ended ' + stampWords(s.unsaved) + '.';
+  }
+  if (s.resetting) words = 'Resetting...';
+  $('status').textContent = words;
+  if (s.notice && !$('notice').textContent) $('notice').textContent = s.notice;
+
+  $('saved').hidden = !s.saved;
+  if (s.saved) $('savedPath').textContent = s.saved.path + ' (' + (s.saved.bytes / 1048576).toFixed(1) + ' MB)';
+
+  const marking = s.session.active && s.session.kind === 'mark';
+  $('repair').hidden = !(s.session.repair || s.session.kind === 'mark');
+  $('boot').disabled = s.session.active;
+  $('mark').disabled = !(marking && s.session.phase === 'ready');
+  if (!$('keys').children.length) {
+    $('keys').replaceChildren(...s.keys.map((k) => {
+      const tr = document.createElement('tr');
+      const a = document.createElement('td'); a.textContent = k.button;
+      const b = document.createElement('td'); b.textContent = k.key;
+      tr.append(a, b);
+      return tr;
+    }));
+  }
+  const log = $('log');
+  const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+  log.textContent = s.session.lines.join('\n');
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+$('play').onclick = () => {
+  if (state && state.session.active && state.session.phase === 'live' && !state.session.paused) post('pause');
+  else post('play');
+};
+$('record').onclick = () => post('record', { on: !(state && state.session.recording) });
+$('stop').onclick = () => post('stop').then((j) => { if (j && j.ok) $('notice').textContent = STOPPED; });
+$('reset').onclick = () => { $('status').textContent = 'Resetting...'; post('reset'); };
+$('save').onclick = () => { $('notice').textContent = 'Saving: the session ends and its record is written.'; flushNotes().then(() => post('save')); };
+$('prepare').onclick = () => post('prepare');
+$('openFolder').onclick = () => post('open-folder');
+$('boot').onclick = () => post('boot');
+$('mark').onclick = () => post('mark');
+$('preset').onchange = (e) => { if (e.target.value !== 'custom') post('settings', { preset: e.target.value }); };
+for (const r of document.querySelectorAll('input[name=build]')) r.onchange = (e) => post('settings', { build: e.target.value });
+function flushNotes() {
+  clearTimeout(notesTimer);
+  if (!notesDirty) return Promise.resolve();
+  notesDirty = false;
+  return post('settings', { notes: $('notes').value });
+}
+$('notes').oninput = () => { notesDirty = true; clearTimeout(notesTimer); notesTimer = setTimeout(flushNotes, 800); };
+$('notes').onblur = flushNotes;
+
+// The pad line only (the harness's own browser reads the pad for play): the first pad's id and its mapping, which
+// must be the browser's "standard" one for the harness's buttons to line up.
+let padSent = null;
+setInterval(() => {
+  const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+  const first = pads[0];
+  const body = JSON.stringify(first ? { seen: true, id: first.id, mapping: first.mapping } : { seen: false });
+  if (body !== padSent) {
+    padSent = body;
+    fetch('/api/pad', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
+  }
+}, 1000);
+
+const events = new EventSource('/api/events');
+events.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch (_) { /* a partial line */ } };
+events.onerror = () => { $('notice').textContent = 'The harness is not answering: is its window still open?'; };
+events.onopen = () => { if ($('notice').textContent.startsWith('The harness is not answering')) $('notice').textContent = ''; };
+</script>
+</body>
+</html>

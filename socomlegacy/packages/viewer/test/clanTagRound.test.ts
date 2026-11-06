@@ -148,3 +148,13 @@ describe('AD-13 C30: the speaker line\'s tag from the room\'s told tags, a watch
     expect(frame(7, null)).toBe('Papa');                              // no board and no row: the name alone, as before AD-13
   });
 });
+
+describe('NCW-7 (a browser adaptation): the page hands the board each row\'s ping', () => {
+  it('a score\'s rows reach the HUD with their ping, and a later score\'s ping replaces it', () => {
+    const p = page();
+    p.server(score([KILO, LIMA]));
+    expect(p.rows()?.map((r) => [r.id, r.ping])).toEqual([[1, 40], [2, 50]]);
+    p.server(score([{ ...KILO, ping: 55 }, LIMA]));
+    expect(p.rows()?.find((r) => r.id === 1)?.ping).toBe(55);
+  });
+});

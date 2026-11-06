@@ -39,6 +39,15 @@ export interface SceneInstance {
    * the root model's own tree. It decides whether an instance node's own `di` reaches the world (`worldDi`).
    */
   nested: boolean;
+  /**
+   * The node's flag word as the probe reads it (`collisionOwners`): its own, with `m_active` (bit 0) cleared when a
+   * node above it is switched off. `FUN_002d3030` tests a node's `m_active` before its polygons and before it recurses
+   * into its children (D:L175073-175074, the children's loop D:L175383-175389 inside that test), so a switched-off
+   * node's whole subtree is out of the query; an instance's model root is the instance node itself in the engine
+   * (`CNode::CreateInstance` copies the model into it, `worldDi`), so it takes the instance's. No node of the disc is
+   * switched off above a polygon (`r0004MapPatchDisc.test.ts`); r0004 switches some off (R4B-09, research 383).
+   */
+  flags: number;
 }
 
 /** One drawn placement: a node's chunks and the matrix that puts them in the world. */
@@ -248,13 +257,14 @@ export function flattenScene(models: SceneNode[], rootName = 'worldmodel'): Scen
     return Math.min(next, total - 1);
   };
 
-  const realise = (model: SceneNode, parent: Float32Array, path: string, instanceIndex: number | null, depth: number, top: StackEntry | null): void => {
+  const realise = (model: SceneNode, parent: Float32Array, path: string, instanceIndex: number | null, depth: number, top: StackEntry | null, activeAbove: boolean): void => {
     let nodeIndex = 0;
     const nested = depth > 0;
-    const rec = (node: SceneNode, above: Float32Array, where: string, below: StackEntry | null): void => {
+    const rec = (node: SceneNode, above: Float32Array, where: string, below: StackEntry | null, upActive: boolean): void => {
       const world = multiply(node.matrix, above);
       const entry = entryFor(node, below);
-      out.push({ modelName: model.name, node, nodeIndex: node.visuals > 0 ? nodeIndex++ : -1, instanceIndex, world, path: where, facade: turnedOf(entry), nested });
+      const active = upActive && (node.flags & 1) !== 0;
+      out.push({ modelName: model.name, node, nodeIndex: node.visuals > 0 ? nodeIndex++ : -1, instanceIndex, world, path: where, facade: turnedOf(entry), nested, flags: flagsOf(node, active) });
       // The world's own children are taken as atoms (`StackEntry`: a reading on an unread bit, no disc case depending on
       // it): each starts on a fresh entry of its own. Another root (a clutter
       // model, a weapon, an effect) is drawn whole on the one entry its draw pushes (that path is not read; no disc case).
@@ -263,30 +273,48 @@ export function flattenScene(models: SceneNode[], rootName = 'worldmodel'): Scen
         const childPath = `${where}/${child.name}`;
         const childTop = atoms ? null : entry;
         if (child.type !== NODE_INSTANCE) {
-          rec(child, world, childPath, childTop);
+          rec(child, world, childPath, childTop, active);
           continue;
         }
         const childWorld = multiply(child.matrix, world);
         const childEntry = entryFor(child, childTop);
-        out.push({ modelName: model.name, node: child, nodeIndex: -1, instanceIndex, world: childWorld, path: childPath, facade: turnedOf(childEntry), nested });
+        const childActive = active && (child.flags & 1) !== 0;
+        out.push({ modelName: model.name, node: child, nodeIndex: -1, instanceIndex, world: childWorld, path: childPath, facade: turnedOf(childEntry), nested, flags: flagsOf(child, childActive) });
         const prototype = child.modelName === null ? undefined : byName.get(child.modelName);
         if (prototype && depth < MAX_DEPTH) {
-          realise(prototype, childWorld, `${childPath}=${prototype.name}`, takeIndex(prototype.name), depth + 1, childEntry);
+          realise(prototype, childWorld, `${childPath}=${prototype.name}`, takeIndex(prototype.name), depth + 1, childEntry, childActive);
         }
+        // An instance node's own children, after its model (none on the disc as read; R4B-09's crate caps hang so,
+        // `AddChild` on the crate at r4 0x2d719c -- research 383): in its frame, under its path.
+        for (const own of child.children) rec(own, childWorld, `${childPath}/${own.name}`, childEntry, childActive);
       }
     };
-    rec(model, parent, path, top);
+    rec(model, parent, path, top, activeAbove);
   };
 
-  realise(root, IDENTITY, rootName, takeIndex(rootName), 0, null);
+  realise(root, IDENTITY, rootName, takeIndex(rootName), 0, null, true);
   return out;
 }
 
-/** Every drawn placement of the scene: one per realised node that has visuals, with its chunk keys. */
+/** A node's flag word with `m_active` cleared when it or a node above it is switched off (`SceneInstance.flags`). */
+const flagsOf = (node: SceneNode, active: boolean): number => (active ? node.flags : (node.flags & ~1) >>> 0);
+
+/**
+ * Every drawn placement of the scene: one per realised node that has visuals and that the draw walk's `m_active` gate
+ * lets through, with its chunk keys.
+ *
+ * LATER 707 (research 383 §5, research 318 §1.2): `FUN_003389c0` -- the world's node draw, from the grid walk
+ * `FUN_00339de0` (D:L236971) -- tests the node's `+0x5c` bit 0 first (D:L236069) and only inside that test draws its
+ * visuals (D:L236189-236192) and recurses into its children (D:L236208-236219): a node off draws nothing of its subtree,
+ * an instance's model with it -- the draw's twin of the probe's gate (`FUN_002d3030` D:L175073-175074). `flattenScene`
+ * carries the bit down (`SceneInstance.flags`). As read no node of any map's graph is off (34 maps,
+ * `drawGateDisc.test.ts`), so the gate hides only r0004's switch-offs (`r0004MapPatch.ts` `hide`): MP71's `b1`, MP72's
+ * basket, MP73's six chairs. The chunk keys of the rest are unchanged (the `N` index counts every visual-bearing node).
+ */
 export function placeInstances(models: SceneNode[], rootName = 'worldmodel'): PlacedModel[] {
   const modelFlags = new Map(models.map((m) => [m.name, m.flags]));
   return flattenScene(models, rootName)
-    .filter((f) => f.node.visuals > 0)
+    .filter((f) => f.node.visuals > 0 && (f.flags & 1) !== 0)
     .map((f) => ({
       modelName: f.modelName,
       path: f.path,

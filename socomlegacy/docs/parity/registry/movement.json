@@ -210,13 +210,14 @@
     },
     {
       "id": "movement.step.touch-and-slope",
-      "claim": "A drop within ground_touch_distance 8 is a step down, further is a fall; a ramp steeper than max_slope 50 degrees is not walked up.",
+      "claim": "A drop within ground_touch_distance 8 is a step down, further is a fall; a ramp steeper than max_slope 50 degrees is not walked up: the segments at step_height hold a body off a steep face they meet, and the slide carries it back from one they do not (no rise is compared, LATER 590).",
       "level": "reading",
-      "source": "disc READERC.ZAR dynamics.rdr ground_touch_distance, max_slope",
+      "source": "disc READERC.ZAR dynamics.rdr ground_touch_distance, max_slope; FUN_005b5d40 D:L470163-470290 (no rise compared); FUN_0054aa30 D:L415167, FUN_005483d0 D:L413533-413567 (the segments); FUN_0054edf0 (the slide, research 201 s3)",
       "note": "docs/research/88-feel-parity.md",
       "tests": [
         { "file": "packages/viewer/test/walk.test.ts", "name": "a drop within ground_touch_distance 8 is a step down; a 13-unit crate top is a short fall to the floor", "data": "none" },
-        { "file": "packages/viewer/test/walk.test.ts", "name": "max_slope 50: a 45-degree ramp is walked up, a 55-degree ramp refuses", "data": "none" }
+        { "file": "packages/viewer/test/walk.test.ts", "name": "max_slope 50: a 45-degree ramp is walked up; a 55-degree ramp is stepped onto and slides the body back, never a step_height up", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a 54-degree face is not walked into from the floor in front of it: the segments at step_height hold the body off it", "data": "none" }
       ]
     },
     {
@@ -361,12 +362,13 @@
     },
     {
       "id": "movement.jump.air-control",
-      "claim": "While the standing jump plays the stick drives the SEAL at each set's top speed with no renormalisation: 65 ahead, 37 back, 65 aside standing, 20 each way crouched.",
+      "claim": "While the standing jump plays the stick drives the SEAL at each set's top speed with no renormalisation: 65 ahead, 37 back, 65 aside standing, 20 each way crouched. Kept by the owner's OT.R108 (2026-11-06) over r0004's forward-only standing jump (R4B-12, research 385 s2), a known departure from r0004.",
       "level": "reading",
       "source": "FUN_0057a330 D:L438955-438985; FUN_0058bb50 / FUN_0058bc00 D:L447619-447686; FUN_005e0450 D:L494496-494629",
       "note": "docs/research/80-the-jump.md",
       "tests": [
         { "file": "packages/viewer/test/walk.test.ts", "name": "the standing jump's stick drives it at the sets' top speeds: 65 ahead, 37 back, 65 aside, 20 crouched", "data": "none" },
+        { "file": "packages/viewer/test/r0004Jump.test.ts", "name": "a sideways stick alone drives the SEAL at the side sets' top", "data": "none" },
         { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "SEAL_LOCOMOTION's walk bands are the pinned motion.rdr, and the stances run at them: 65/37/65/65, 14.8/13.5/15/15, 11/11/5.5/5.5", "data": "none" }
       ]
     },

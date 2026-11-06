@@ -741,8 +741,9 @@ export class FrontEndSession<P = BlackPicture> {
 /**
  * HD-3 review F1 (a browser adaptation): whether the page draws the menus' frame this tick. At an HD scale a frame is
  * 2560 x 1792 in software, so it is not drawn while a match holds the menus (the match's canvas is over it); the next
- * tick after the return draws it. At scale 1 the page draws every tick, held or not -- except under the Xbox preset,
- * where `./frontEndSleep` `menuRasterWanted` rests it for the whole lobby match (PR #631). `gpu` (GM-12b, GM.R17): the
+ * tick after the return draws it. At scale 1 the page draws every tick, held or not -- except while a match is up,
+ * where `./frontEndSleep` `menuRasterWanted` rests it under every preset (H397 / C14; PR #631 began it under the Xbox
+ * preset alone). `gpu` (GM-12b, GM.R17): the
  * frame goes through the front end's GPU surface (`./uiGpuFront`), which draws no hidden frame at any scale.
  */
 export function drawsMenuFrame(session: { menusHidden: boolean }, scale: number, gpu = false): boolean {
@@ -1204,8 +1205,9 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
           return deferredMatch(m.client, made); },
         // The menus take no pad while the match is up (the original's menus are not running in a match).
         // MATCH-SOUND: the menus' music held from the match's loading screen to the return.
-        // PR #631 (`./frontEndSleep`, a browser adaptation scoped to the Xbox preset): the menus' raster skipped while the
-        // match is up and, with no movie open, the movie worker ended; every other player keeps both.
+        // `./frontEndSleep` (a browser adaptation): the menus' raster skipped while the match is up under every preset
+        // (H397 / C14; PR #631 began it under the Xbox preset) and, under the Xbox preset alone, the movie worker ended
+        // when no movie is open.
         leave: () => { matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); uiGpuFront?.release(); gpuFront?.commit(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); },
         settled: (r) => { matchSound.settled(r); },
         // PR #631 (`./matchLoaderSlot`): under the Xbox preset the match's worker and decoded mission let go at the return.
@@ -1252,7 +1254,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
       music?.refreshVolume();                                      // OPTIONS' MUSIC VOLUME on the music playing (research 302 §4)
       setBrightness(brightnessOfVars(session_?.uiVars));         // OPT-11 (research 358): OPTIONS' BRIGHTNESS on the picture
       const hd = hdMenus?.options() ?? { scale: 1 };                  // HD-3: 640 x 448 unless HD (GoE Soul)'s pack is on
-      // The session advances every tick (the lobby and the match tick through it); PR #631: the Xbox preset's raster rests under a match.
+      // The session advances every tick (the lobby and the match tick through it); the raster rests under a match (H397 / C14).
       perf?.begin(now);                                              // GM-02: the instrument's frame (null on every player's page)
       const ticks = s.advance(now);
       perf?.advanced(ticks);

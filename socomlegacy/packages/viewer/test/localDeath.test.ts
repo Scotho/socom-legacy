@@ -419,7 +419,8 @@ describe('the rules behind it', () => {
   it('the death camera, mode 3: the eye swings to the far side of the body from the killer, 56 out', () => {
     const cam = newDeathCamera(() => [0, 0, -200]);               // the killer 200 ahead (down -z) of a body at 0
     let eye = deathEye(cam, [0, 25, 28], [0, 0, 0], 90, 1 / 60); // the body faces -x: its eye starts at +x... behind
-    for (let i = 0; i < 20 * 60; i++) eye = deathEye(cam, [0, 25, 28], [0, 0, 0], 90, 1 / 60);
+    // 4.5 s, inside OT.R104's 5 s (`DEATH_KILLER_FOLLOW_S_ADAPTATION`; was 20 s): past it the camera is mode 6.
+    for (let i = 0; i < 4.5 * 60; i++) eye = deathEye(cam, [0, 25, 28], [0, 0, 0], 90, 1 / 60);
     // Actor space to world at yaw 90 (`toWorld`): the settled eye is on the +z side, away from the killer.
     const y = Math.PI / 2, wx = eye[0] * Math.cos(y) + eye[2] * Math.sin(y), wz = -eye[0] * Math.sin(y) + eye[2] * Math.cos(y);
     expect(wz).toBeGreaterThan(0);

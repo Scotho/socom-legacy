@@ -1,23 +1,25 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { RunAborted, RunStopped, abortError, once, raceAbort, sleep, waitUntil } from './abort';
 import { PCSX2_WINDOW_TITLE, createKeyInjector, injectorArgs } from './keys';
 import {
-  DEFAULT_CHORD, LivePadSource, SCRIPT_CLOCK_STALL_MS, checkChord, liveScriptText, type Chord, type PadSnapshot,
+  DEFAULT_CHORD, LivePadSource, SCRIPT_CLOCK_STALL_MS, checkChord, liveScriptText, type Chord, type ChordModifier, type PadSnapshot,
   PAD_LAYOUTS, type PadLayoutName,
 } from './live';
-import { keyActions, pressureKey, replacePad1, type KeyAction } from './padIni';
+import { PCSX2_PAUSE_HOTKEY, keyActions, pressureKey, replacePad1, type KeyAction } from './padIni';
 import { DEFAULT_LEAD_FRAMES, FRAME_MS, PageTranslator, actMoments, groupWrites, pageEvents, type ActMoment, type PageEvent, type PageWrite } from './pageMap';
 import { EPH_PAD, XBOX_CROUCH, XBOX_PAD, ephPadInitScript, padProfileKey, pageSeedFor, type PadChoice } from './pageSeed';
 import {
   PAGE_READY_EXPRESSION, PAGE_STATE_EXPRESSION, pageNotReadyMessage, startStanceMismatch, startStancesOf, type PageState, type StartStances,
 } from './ready';
+import { packContext } from './packContext';
 import { PineClient, pineSocketPath } from './pine';
 import {
   PAGE_ANIM_COLUMNS, PAGE_STICK_COLUMNS, PAGE_TILT_COLUMNS, QUESTION_CSV_NOTE, buildRunRecord, idleDefinitions, pageCrouchIdle, pcsx2CrouchIdle, questionCsv, seriesCsv, type PageRow,
-  type QuestionRow,
+  type QuestionRow, type SessionClip, type SessionPause,
 } from './record';
 import { checkRunDir, copyPlan, runLayout, slash, type CopyPlan, type RunLayout } from './runDir';
 import {
@@ -40,6 +42,8 @@ import { WindowHelper, pollWindow, type Rect } from './window';
  *   node --import tsx tools/eph/run.ts --script <file> --map <archive> [--state <slot>] [--dry-run]   automated
  *   node --import tsx tools/eph/run.ts --live --map <archive> [--state <slot>] [--chord l2] [--dry-run]  one pad
  *   node --import tsx tools/eph/run.ts --boot-to-mission --state <slot> [--dry-run]           reach the mission once
+ *   node --import tsx tools/eph/run.ts --live --map <archive> --control stdio ...    a live session a parent drives
+ *   node --import tsx tools/eph/run.ts --mark-state <slot> [--dry-run]                a person marks the starting point
  *   (each takes --build r0001|r0004, default r0001: the owner's ruling 2026-10-31, "r0001 default, r0004 on ask"; ./build)
  *
  * The launch is `node --import tsx` (RUN_COMMAND; as tools/map-validation.ts and tools/gameplay-audio-inventory.ts),
@@ -51,6 +55,24 @@ import { WindowHelper, pollWindow, type Rect } from './window';
  * Env: SOCOM_PC_ROOT (the desktop tree, read only: its tools/pcsx2 is copied), SOCOM_ISO (the disc), EPH_RUN_DIR (the
  * git-ignored run directory, ./runDir). The page is served by a dev server the operator starts (`--base`, default
  * http://localhost:5303); the runner starts none.
+ * In a parity pack (PK-2; docs/specs/2026-11-03-parity-pack-design.md 6), which has no git: EPH_PACK (the pack's root:
+ * the plan context comes from its pack/VERSION.json, ./packContext, and EPH_RUN_DIR defaults to <EPH_PACK>/pack/run) and
+ * EPH_PAGE_BUILD (the page build for the record, which the pack's GUI sets from VERSION.json; else git rev-parse).
+ * EPH_BROWSER_CHANNEL (msedge | chrome: an installed browser for the page; unset, Playwright's bundled Chromium).
+ *
+ * The parity pack's GUI runs the harness as its child (design 10, "also settled"), so its signal and exit paths never end
+ * the GUI's server. `--control stdio` (live only): commands arrive as JSON lines on stdin -- {"cmd":"pause"},
+ * {"cmd":"resume"}, {"cmd":"record","on":true|false}, {"cmd":"end"}; a malformed line is logged and ignored; stdin
+ * closed is an end -- and stdout carries ONLY status lines, `EPH-STATUS {json}` (SessionStatus), one per change; the
+ * plan and every log line go to stderr (each log line is in a status line's `line` too). With controls (liveRun's third
+ * argument) no video starts with the session: each record on/off is one clip-<n>.mp4; a pause releases every key held,
+ * taps PCSX2's TogglePause hotkey (./padIni PCSX2_PAUSE_HOTKEY) and asks the page's devmode `__viewer.ephPause(on)`;
+ * live.script's clock is the session's active time (the pauses cut out); record.json gains pauses[] and clips[]; `end`
+ * ends the session as Ctrl+C does, its outcome "complete (live session ended by Save)". `--mark-state <slot>` (design
+ * 10.2, "Mark starting point"): PCSX2 with the image and no state, PINE connected, no page and no sampler; a person
+ * plays to the starting point on the [Pad1] keys, then {"cmd":"mark"} saves the state to the slot (the detected build
+ * must be --build's), waits for its file and stops PCSX2; {"cmd":"end"} stops it without saving; the same status lines.
+ * Without --control nothing of this changes a run.
  *
  * Ported, cited, read only:
  * - desktop@be5578311:tools_py/parity/pcsx2_ctl.py:146-166 -- cmd_launch: `pcsx2-qt.exe -batch -nogui -fastboot
@@ -100,7 +122,9 @@ export interface RunArgs {
   readonly dryRun: boolean;
   readonly bootToMission: boolean;
   readonly live: boolean;
-  readonly chordModifier: Button;
+  readonly chordModifier: ChordModifier;
+  /** PK-8 `--chord-solo`: the modifier alone is the light Triangle too (./live Chord.solo); used live only, as --chord. */
+  readonly chordSolo: boolean;
   /** Live mode's physical layout (./live PAD_LAYOUTS). */
   readonly padLayout: PadLayoutName;
   readonly base: string;
@@ -120,6 +144,10 @@ export interface RunArgs {
   readonly nearRadius: number;
   /** The page's pad: the harness stub (default) or the owner's Xbox pad setup (Crouch L3, Prone Triangle; ./pageSeed). */
   readonly pad: PadChoice;
+  /** PK-2: `--control stdio` -- the live session driven by JSON lines on stdin (stdioSession); absent otherwise. */
+  readonly control?: 'stdio';
+  /** PK-2: `--mark-state <slot>` -- the mark mode (liveMark); absent otherwise. */
+  readonly markState?: number;
 }
 
 /** Feet x, y, z and the page's `Pose.yaw` in degrees, as the viewer's `devSpot.ts` `readDevSpot` reads them. */
@@ -136,13 +164,23 @@ export const HELP = `EPH run -- the emulator parity harness (a validation instru
   --live                 interactive: both clients at the spot, one physical pad drives both; Ctrl+C or closing
                          the page ends it; the session is written as live.script (replay it with --script)
   --boot-to-mission      cold boot PCSX2 through launch_to_mission, then PINE save_state to --state
+  --control stdio        live: a parent drives the session by JSON lines on stdin ({"cmd":"pause"}, {"cmd":"resume"},
+                         {"cmd":"record","on":true|false}, {"cmd":"end"}; stdin closed ends it); no video until a
+                         record (one clip-<n>.mp4 each); stdout carries only "EPH-STATUS {json}" lines, the plan and
+                         the log go to stderr (the parity pack's GUI)
+  --mark-state <slot>    PCSX2 with the image and no state, PINE on, no page: play to the starting point on the
+                         [Pad1] keys, then {"cmd":"mark"} on stdin saves it to <slot> (the build must be --build's)
+                         and stops PCSX2; {"cmd":"end"} stops it unsaved; status lines as --control stdio
   --map <archive>        the test room's map
   --state <slot>         PCSX2 save state slot to load (to save, with --boot-to-mission)
   --build <rNNNN>        the build PCSX2 runs: r0001 (default, the disc as shipped: harness cards without the
                          update) or r0004 (the copy's Mcd001/Mcd002, which carry it); the build detected at
                          connect must match, so a state saved from the other build is refused
   --chord <button>       live: the button held with Triangle for a light Triangle (default l2: L2 + Triangle =
-                         Triangle at 0.2); never sent to either client; not triangle, not l3 (the page Crouch bind)
+                         Triangle at 0.2); never sent to either client; not triangle, not l3 (the page Crouch bind);
+                         or touchpad: a Sony pad's touchpad press (standard index 17), not a PS2 button
+  --chord-solo           live: the --chord modifier pressed alone is the light Triangle too (a DualSense's touchpad
+                         as a Triangle-at-30% macro, as a PCSX2 profile binds it); Triangle with it held is one press
   --base <url>           the dev server serving the page (default http://localhost:5303)
   --lead-frames <n>      the page Crouch lead of a light Triangle (default ${DEFAULT_LEAD_FRAMES})
   --hold-frames <n>      frames the crouch idle must hold to count (default 6)
@@ -164,13 +202,16 @@ export const HELP = `EPH run -- the emulator parity harness (a validation instru
 export function parseRunArgs(argv: readonly string[]): RunArgs {
   const o = {
     script: null as string | null, map: null as string | null, state: null as number | null, dryRun: false,
-    bootToMission: false, live: false, chordModifier: DEFAULT_CHORD.modifier, padLayout: 'standard' as PadLayoutName, base: 'http://localhost:5303',
+    bootToMission: false, live: false, chordModifier: DEFAULT_CHORD.modifier as ChordModifier, chordSolo: false, padLayout: 'standard' as PadLayoutName, base: 'http://localhost:5303',
     leadFrames: DEFAULT_LEAD_FRAMES, holdFrames: 6, tailMs: 3000, question: 'run', renderer: null as string | null,
     pageBuild: null as string | null, build: DEFAULT_BUILD as Build, spot: null as PageSpot | null,
     extra: false, nearRadius: 30, pad: 'stub' as PadChoice,
   };
   let at: [number, number, number] | null = null;
   let yaw: number | null = null;
+  let control: 'stdio' | undefined;
+  let markState: number | undefined;
+  const result = (): RunArgs => ({ ...o, ...(control ? { control } : {}), ...(markState === undefined ? {} : { markState }) });
   const NUM = /^-?\d+(?:\.\d+)?$/;                           // devSpot.ts's plain number
   const int = (name: string, v: string | undefined, min: number): number => {
     const n = Number(v);
@@ -198,9 +239,10 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
       }
       case '--chord': {
         const b = str(a, v).toLowerCase();
-        if (!(BUTTONS as readonly string[]).includes(b)) throw new RunArgsError(`--chord takes a pad button, not "${v}"`);
-        o.chordModifier = b as Button; i++; break;
+        if (b !== 'touchpad' && !(BUTTONS as readonly string[]).includes(b)) throw new RunArgsError(`--chord takes a pad button or touchpad, not "${v}"`);
+        o.chordModifier = b as ChordModifier; i++; break;
       }
+      case '--chord-solo': o.chordSolo = true; break;
       case '--base': o.base = str(a, v); i++; break;
       case '--lead-frames': o.leadFrames = int(a, v, 0); i++; break;
       case '--hold-frames': o.holdFrames = int(a, v, 1); i++; break;
@@ -233,21 +275,32 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
         if (!NUM.test(y)) throw new RunArgsError(`--yaw takes degrees (a plain number), not "${y}"`);
         yaw = Number(y); i++; break;
       }
+      case '--control': {
+        const c = str(a, v);
+        if (c !== 'stdio') throw new RunArgsError(`--control takes stdio, not "${c}"`);
+        control = c; i++; break;
+      }
+      case '--mark-state': markState = int(a, v, 0); i++; break;
       case '--then-script': throw new RunArgsError('--then-script is not built (the addendum left it optional); replay live.script with --script');
       default: throw new RunArgsError(`unknown argument ${a}\n${HELP}`);
     }
   }
   if ((at === null) !== (yaw === null)) throw new RunArgsError('--at and --yaw go together: the page reads a stand only with both');
   if (at && yaw !== null) o.spot = { x: at[0], y: at[1], z: at[2], yaw };
+  if (markState !== undefined) {
+    if (o.script || o.live || o.bootToMission) throw new RunArgsError('--mark-state takes none of --script, --live, --boot-to-mission: it is its own mode');
+    return result();
+  }
+  if (control !== undefined && !o.live) throw new RunArgsError('--control stdio is for --live (--mark-state reads stdin itself)');
   if (o.bootToMission) {
     if (o.state === null) throw new RunArgsError('--boot-to-mission needs --state <slot> to save the mission to');
     if (o.script || o.live) throw new RunArgsError('--boot-to-mission takes neither --script nor --live');
-    return o;
+    return result();
   }
   if (o.live && o.script) throw new RunArgsError('--live and --script are two modes; pick one');
   if (!o.live && !o.script) throw new RunArgsError(`a run needs --script <file> or --live\n${HELP}`);
   if (!o.map) throw new RunArgsError('a run needs --map <archive>');
-  return o;
+  return result();
 }
 
 /**
@@ -356,6 +409,8 @@ export interface RunPlan extends HostPlan {
   readonly ffmpeg: string[];
   /** Where ffmpeg is on PATH, or null (the run then goes on without video). */
   readonly ffmpegPath: string | null;
+  /** EPH_BROWSER_CHANNEL as checked (chromiumLaunchOptions), or null for Playwright's bundled Chromium. */
+  readonly browserChannel: BrowserChannel | null;
   readonly outputs: string[];
 }
 
@@ -379,7 +434,7 @@ export function findOnPath(
 export function planRun(args: RunArgs, ctx: PlanContext): RunPlan {
   if (args.bootToMission) throw new RunArgsError('planRun is for a run; --boot-to-mission is planBoot');
   const host = hostPlan(args, ctx);
-  const chord: Chord = { ...DEFAULT_CHORD, modifier: args.chordModifier };
+  const chord: Chord = { ...DEFAULT_CHORD, modifier: args.chordModifier, ...(args.chordSolo ? { solo: true } : {}) };
   const scriptText = args.script ? ctx.readText(args.script) : '';
   const events = parseScript(scriptText);
   const keys = keyActions(events);
@@ -394,6 +449,7 @@ export function planRun(args: RunArgs, ctx: PlanContext): RunPlan {
     acts: actMoments(events), chord, pcsx2Argv: pcsx2Argv(host.layout.exe, host.iso, args.state),
     windowTitle: PCSX2_WINDOW_TITLE, url: pageUrl(args.base, args.map!, args.spot), seed: pageSeedFor(args.pad),
     ffmpeg: ffmpegArgs(`${out}/side-by-side.mp4`), ffmpegPath: findOnPath('ffmpeg', ctx.env, ctx.exists, ctx.platform),
+    browserChannel: chromiumLaunchOptions(ctx.env).channel ?? null,
     outputs: files.map((f) => `${out}/${f}`),
   };
 }
@@ -424,6 +480,7 @@ export function formatPlan(p: RunPlan): string {
     `injector     powershell ${injectorArgs().slice(0, 3).join(' ')} <${injectorArgs()[3]!.length} chars>`,
     'pine         127.0.0.1:28011 (version, the sampler, the guest clock)',
     `page         ${p.url}`,
+    `browser      ${p.browserChannel ? `${p.browserChannel} (EPH_BROWSER_CHANNEL)` : "Playwright's bundled Chromium"}`,
     `chromium     headed at ${CHROMIUM_WINDOW.x},${CHROMIUM_WINDOW.y} ${CHROMIUM_WINDOW.width}x${CHROMIUM_WINDOW.height}; getGamepads stubbed with "${EPH_PAD.id}"`,
     ...Object.entries(p.seed).map(([k, v]) => `page seed    ${k} = ${v}`),
     `renderer     ${p.renderer}`,
@@ -437,7 +494,7 @@ export function formatPlan(p: RunPlan): string {
   ];
   if (p.mode === 'live') {
     lines.push(
-      `chord        hold ${p.chord.modifier} and press ${p.chord.input}: ${p.chord.input} at ${p.chord.pressure} (the ${p.chord.modifier} is never sent)`,
+      `chord        hold ${p.chord.modifier} and press ${p.chord.input}${p.chord.solo ? `, or the ${p.chord.modifier} alone` : ''}: ${p.chord.input} at ${p.chord.pressure} (the ${p.chord.modifier} is never sent)`,
       `live pad     the first real pad of the page (__ephRealPads), polled each frame; ${padProfileKey(EPH_PAD)} is the stub's profile`,
       'ends         Ctrl+C, or closing the page',
     );
@@ -523,6 +580,13 @@ export class KeyTranslator {
     if (next !== null) out.push({ t: e.t, line: e.line, action: 'down', vk: next });
     if (next === null) this.held.delete(e.input);
     else this.held.set(e.input, next);
+    return out;
+  }
+
+  /** PK-2: an up for every key held (a pause lets them go first, so no stick runs on past it); then none is held. */
+  releaseAll(t: number): KeyAction[] {
+    const out: KeyAction[] = [...this.held.values()].map((vk) => ({ t, line: 0, action: 'up' as const, vk }));
+    this.held.clear();
     return out;
   }
 }
@@ -654,17 +718,28 @@ export interface LiveDeps {
   readonly now: () => number;
 }
 
+/** EPH_BROWSER_CHANNEL's values (PK-2): Playwright's installed-browser channels; unset is its bundled Chromium. */
+export const BROWSER_CHANNELS = ['msedge', 'chrome'] as const;
+export type BrowserChannel = (typeof BROWSER_CHANNELS)[number];
+
 /**
  * Chromium's launch options. Playwright's own SIGINT/SIGTERM/SIGHUP handlers are off: on, they close the browser and
  * exit the process before the run's `finally`, leaving PCSX2 (a GUI process) running and no record written.
+ * EPH_BROWSER_CHANNEL (PK-2, the parity pack, which ships no Chromium): `msedge` or `chrome` launches that installed
+ * browser; unset or blank, the bundled Chromium as before; any other value refused in one line.
  */
-export function chromiumLaunchOptions() {
+export function chromiumLaunchOptions(env: Readonly<Record<string, string | undefined>> = process.env) {
+  const raw = env.EPH_BROWSER_CHANNEL?.trim() ?? '';
+  if (raw !== '' && !(BROWSER_CHANNELS as readonly string[]).includes(raw)) {
+    throw new RunArgsError(`EPH_BROWSER_CHANNEL takes ${BROWSER_CHANNELS.join(' or ')} (unset: the bundled Chromium), not "${raw}"`);
+  }
   return {
     headless: false,
     handleSIGINT: false,
     handleSIGTERM: false,
     handleSIGHUP: false,
     args: [`--window-position=${CHROMIUM_WINDOW.x},${CHROMIUM_WINDOW.y}`, `--window-size=${CHROMIUM_WINDOW.width},${CHROMIUM_WINDOW.height}`],
+    ...(raw === '' ? {} : { channel: raw as BrowserChannel }),
   };
 }
 
@@ -805,7 +880,7 @@ async function launchChromium(initScript: string): Promise<{ browser: BrowserLik
 }
 
 /** The host's LiveDeps: the processes, the window calls, PINE, Chromium, the files and the clock. */
-export function hostDeps(platform: NodeJS.Platform = process.platform): LiveDeps {
+export function hostDeps(platform: NodeJS.Platform = process.platform, env: Readonly<Record<string, string | undefined>> = process.env): LiveDeps {
   // Review F3: the orchestrator's host pieces (the window helper, taskkill, gdigrab, the PostMessage key path) are Win32;
   // off Windows it refuses here, before anything starts, rather than failing inside the helper.
   if (platform !== 'win32') {
@@ -838,7 +913,8 @@ export function hostDeps(platform: NodeJS.Platform = process.platform): LiveDeps
     injector: (hwnd, onFail) => createKeyInjector({ window: hwnd, onFail }),
     connectPine,
     launchBrowser: launchChromium,
-    pageBuild: () => execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
+    // A pack has no git (./packContext): its GUI sets EPH_PAGE_BUILD from VERSION.json.
+    pageBuild: () => env.EPH_PAGE_BUILD?.trim() || execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
     sleep,
     now: () => Date.now(),
   };
@@ -963,6 +1039,260 @@ export async function liveBoot(p: BootPlan, deps: LiveDeps = hostDeps()): Promis
   }
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// PK-2: the parity pack's session controls (docs/specs/2026-11-03-parity-pack-design.md 5, 6.3, 10). A product-track
+// adaptation (OT.R53): a tester's pause, clips and end; the game's behaviour on either side is not touched.
+
+export type SessionPhase = 'setup' | 'live' | 'paused' | 'ending' | 'ended';
+
+/** A live session's state, given to SessionControls.onStatus on every change. */
+export interface SessionStatus {
+  readonly phase: SessionPhase;
+  readonly paused: boolean;
+  readonly recording: boolean;
+  /** The clip being recorded (1-based), or null. */
+  readonly clip: number | null;
+  /** Clips started so far. */
+  readonly clips: number;
+  /** The session's active ms: wall ms since the pad went live less every pause (frozen while paused). */
+  readonly activeMs: number;
+  /** A line the run printed (each log line is one status, so a GUI can show them). */
+  readonly line?: string;
+}
+
+/** What liveRun binds for its caller: each resolves once done (a pause: keys released, both clients asked). */
+export interface SessionHandle {
+  pause(on: boolean): Promise<void>;
+  record(on: boolean): Promise<void>;
+  end(): void;
+}
+
+export interface SessionControls {
+  onStatus(s: SessionStatus): void;
+  /** Called once, as the run starts: pause and record answer "not live yet" until the pad is live; end works at once. */
+  bind(h: SessionHandle): void;
+}
+
+/** The bound on a pause's wait for the live pad loop to let every held input go (an adaptation, the instrument's). */
+export const PAUSE_RELEASE_BOUND_MS = 1000;
+
+/** No button down, no stick pushed: the live reader's every held input released (the pause's first step). */
+const RELEASED_PAD: PadSnapshot = { buttons: [], axes: [] };
+
+export type ControlCommand =
+  | { readonly cmd: 'pause' } | { readonly cmd: 'resume' } | { readonly cmd: 'record'; readonly on: boolean }
+  | { readonly cmd: 'end' } | { readonly cmd: 'mark' };
+
+/** One stdin line as a command; anything else refused in one line. */
+export function parseControlLine(line: string): ControlCommand {
+  const shown = JSON.stringify(line.trim().slice(0, 80));
+  const fail = (why: string): never => { throw new Error(`EPH control: ${why}`); };
+  let v: unknown;
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return fail(`not a JSON line: ${shown}`);
+  }
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return fail(`not a command object: ${shown}`);
+  const o = v as { cmd?: unknown; on?: unknown };
+  switch (o.cmd) {
+    case 'pause': case 'resume': case 'end': case 'mark': return { cmd: o.cmd };
+    case 'record':
+      if (typeof o.on !== 'boolean') return fail(`record takes "on": true or false: ${shown}`);
+      return { cmd: 'record', on: o.on };
+    default: return fail(`unknown command ${JSON.stringify(o.cmd)} (pause, resume, record, end, mark): ${shown}`);
+  }
+}
+
+/** The prefix of a status line on stdout under --control stdio and --mark-state. */
+export const STATUS_PREFIX = 'EPH-STATUS ';
+
+export function statusLine(s: object): string {
+  return STATUS_PREFIX + JSON.stringify(s);
+}
+
+/** A stdin link: `feed` each line, `close` when stdin ends (that is an end: the parent is gone). */
+export interface StdioLink<H> {
+  readonly controls: { onStatus(s: object): void; bind(h: H): void };
+  feed(line: string): void;
+  close(): void;
+}
+
+function stdioLink<H>(write: (line: string) => void, log: (line: string) => void, apply: (h: H, c: ControlCommand) => void, endOf: (h: H) => void): StdioLink<H> {
+  let handle: H | null = null;
+  const queue: ControlCommand[] = [];
+  let closed = false;
+  return {
+    controls: {
+      onStatus: (st) => write(statusLine(st)),
+      bind: (h) => {
+        handle = h;
+        for (const c of queue.splice(0)) apply(h, c);
+        if (closed) endOf(h);
+      },
+    },
+    feed: (line) => {
+      if (line.trim() === '') return;
+      let c: ControlCommand;
+      try {
+        c = parseControlLine(line);
+      } catch (err) {
+        log(`${(err as Error).message} -- ignored`);
+        return;
+      }
+      if (handle) apply(handle, c);
+      else queue.push(c);
+    },
+    close: () => {
+      closed = true;
+      if (handle) endOf(handle);
+    },
+  };
+}
+
+/** --control stdio for liveRun: the four session commands; `mark` is --mark-state's and is logged and ignored. */
+export function stdioSession(write: (line: string) => void, log: (line: string) => void): StdioLink<SessionHandle> & { readonly controls: SessionControls } {
+  const quiet = (pr: Promise<void>): void => { void pr.catch((err: Error) => log(`EPH control: ${err.message}`)); };
+  return stdioLink<SessionHandle>(write, log, (h, c) => {
+    switch (c.cmd) {
+      case 'pause': quiet(h.pause(true)); break;
+      case 'resume': quiet(h.pause(false)); break;
+      case 'record': quiet(h.record(c.on)); break;
+      case 'end': h.end(); break;
+      case 'mark': log('EPH control: "mark" is a --mark-state command; a live session takes pause, resume, record and end -- ignored'); break;
+    }
+  }, (h) => h.end());
+}
+
+/** What liveMark binds: `mark` saves the state (once PCSX2 is up), `end` stops without saving. */
+export interface MarkHandle {
+  mark(): void;
+  end(): void;
+}
+
+export type MarkPhase = 'setup' | 'ready' | 'saving' | 'ending' | 'ended';
+
+export interface MarkStatus {
+  readonly phase: MarkPhase;
+  readonly slot: number;
+  readonly saved: boolean;
+  readonly line?: string;
+}
+
+export interface MarkControls {
+  onStatus(s: MarkStatus): void;
+  bind(h: MarkHandle): void;
+}
+
+/** --mark-state's stdin: mark and end; the session commands are logged and ignored. */
+export function stdioMark(write: (line: string) => void, log: (line: string) => void): StdioLink<MarkHandle> & { readonly controls: MarkControls } {
+  return stdioLink<MarkHandle>(write, log, (h, c) => {
+    if (c.cmd === 'mark') h.mark();
+    else if (c.cmd === 'end') h.end();
+    else log(`EPH control: "${c.cmd}" is a live session's command; --mark-state takes mark and end -- ignored`);
+  }, (h) => h.end());
+}
+
+export interface MarkPlan extends HostPlan {
+  readonly pcsx2Argv: string[];
+  readonly slot: number;
+}
+
+/** --mark-state: the host as any run's, PCSX2 with the image and no state. */
+export function planMark(args: RunArgs, ctx: PlanContext): MarkPlan {
+  if (args.markState === undefined) throw new RunArgsError('planMark needs --mark-state <slot>');
+  const host = hostPlan(args, ctx);
+  return { ...host, pcsx2Argv: pcsx2Argv(host.layout.exe, host.iso, null), slot: args.markState };
+}
+
+export function formatMarkPlan(p: MarkPlan): string {
+  return [
+    'EPH mark starting point, dry run -- nothing started',
+    ...hostLines(p),
+    `pcsx2 argv   ${p.pcsx2Argv.join(' ')}`,
+    'waits        for {"cmd":"mark"} or {"cmd":"end"} on stdin; meanwhile a person plays PCSX2 on the [Pad1] keys',
+    `then         on {"cmd":"mark"}: PINE save_state slot ${p.slot} (the detected build must be ${p.build}), PCSX2 stopped; on {"cmd":"end"}: PCSX2 stopped, nothing saved`,
+  ].join('\n') + '\n';
+}
+
+/**
+ * The mark mode (design 10.2): PCSX2 up with the image and no state, PINE connected; no page, no sampler. On `mark` the
+ * detected build must be --build's (a state of the other build is refused, as liveBoot refuses it), the slot's old
+ * files are cleared, PINE save_state is asked and its finished file waited for (waitForSlotState); then PCSX2 is
+ * stopped. `end` (or stdin closed) stops PCSX2 without saving. Ctrl+C stops it as every mode does. Resolves 'saved' or
+ * 'ended'; a failure rejects after PCSX2 is stopped.
+ */
+export async function liveMark(p: MarkPlan, deps: LiveDeps = hostDeps(), controls: MarkControls): Promise<'saved' | 'ended'> {
+  const ctl = new AbortController();
+  const signal = ctl.signal;
+  const s = nothingStarted();
+  let phase: MarkPhase = 'setup';
+  let saved = false;
+  const emit = (line?: string): void => {
+    try { controls.onStatus({ phase, slot: p.slot, saved, ...(line === undefined ? {} : { line }) }); } catch { /* the caller's */ }
+  };
+  const base = deps;
+  deps = { ...base, log: (line) => { base.log(line); emit(line); } };
+  const finish = once(() => stopAll(s, deps));
+  let choose: (c: 'mark' | 'end') => void = () => undefined;
+  const chosen = new Promise<'mark' | 'end'>((done) => { choose = done; });
+  let ready = false;
+  let endedByCommand = false;
+  controls.bind({
+    mark: () => {
+      if (!ready) { deps.log('EPH mark: not ready yet -- PCSX2 is still starting; mark once it is up'); return; }
+      choose('mark');
+    },
+    end: () => {
+      if (signal.aborted) return;
+      endedByCommand = true;
+      choose('end');
+      if (!ready) ctl.abort(new RunAborted('ended before PCSX2 was up'));
+    },
+  });
+  emit();
+  const remove = installStop({
+    signals: deps.signals, controller: ctl, killNow: () => killPcsx2(s, deps), finish, exit: deps.exit, log: deps.log,
+    sleep: (ms) => deps.sleep(ms),
+  });
+  let result: 'saved' | 'ended' = 'ended';
+  try {
+    await raceAbort((async () => {
+      deps.prepareHost(p);
+      await launchPcsx2(p.pcsx2Argv, s, deps, signal, stopWith(ctl));
+      ready = true;
+      phase = 'ready';
+      deps.log(`EPH mark: PCSX2 is up -- play to the starting point on the [Pad1] keys, then mark it (slot ${p.slot})`);
+      if (await raceAbort(chosen, signal) === 'end') {
+        deps.log('EPH mark: ended without saving');
+        return;
+      }
+      phase = 'saving';
+      emit();
+      const detected = await detectRevision(s.pine!, { sleep: (ms) => deps.sleep(ms, signal), now: deps.now });
+      deps.log(`PCSX2 runs ${detected.revision} (${describeReadings(detected.readings)})`);
+      if (detected.revision !== p.build) throw new Error(`EPH mark: ${buildMismatch(p, detected.revision, detected.readings, null)}`);
+      const sstates = `${p.layout.pcsx2Dir}/sstates`;
+      for (const name of deps.listDir(sstates)) if (slotStateFile(name, p.slot) !== null) deps.removeFile(`${sstates}/${name}`);
+      await raceAbort(s.pine!.saveState(p.slot), signal);
+      await waitForSlotState(sstates, p.slot, deps, signal);
+      saved = true;
+      result = 'saved';
+      deps.log(`EPH mark: saved the ${detected.revision} state to slot ${p.slot}`);
+    })(), signal);
+  } catch (err) {
+    if (!(endedByCommand && err instanceof RunAborted)) throw err;
+  } finally {
+    phase = 'ending';
+    emit();
+    await finish();
+    remove();
+    phase = 'ended';
+    emit();
+  }
+  return result;
+}
+
 /** What a run gathers; written by writeOutputs however the run ended. */
 interface RunState {
   prepared: boolean;
@@ -997,7 +1327,7 @@ function outcomeOf(failure: unknown): string {
 }
 
 /** The run's outputs from what it gathered: whole on a complete run, partial (and saying so) on any other end. */
-function writeOutputs(p: RunPlan, st: RunState, outcome: string, deps: LiveDeps): void {
+function writeOutputs(p: RunPlan, st: RunState, outcome: string, deps: LiveDeps, session: { pauses: SessionPause[]; clips: SessionClip[] } | null = null): void {
   const out = p.layout.outDir;
   const rows = st.pcsxRows;
   const wallS = rows.length > 1 ? (rows[rows.length - 1]!.wallMs - rows[0]!.wallMs) / 1000 : 0;
@@ -1013,6 +1343,7 @@ function writeOutputs(p: RunPlan, st: RunState, outcome: string, deps: LiveDeps)
     script: p.mode === 'script' ? p.scriptText : '(live: live.script)',
     pcsx2Fired: st.pcsx2Fired, pageFired: st.pageFired, pageLines: p.pageEvents.map((e) => e.line),
     tornRows: st.sampler?.torn ?? 0, nullRows: st.sampler?.nullActor ?? 0, pcsx2WallFps: wallS > 0 ? frames / wallS : null,
+    ...(session ? { pauses: session.pauses, clips: session.clips } : {}),
   });
   const question = `${p.args.question}-question.csv`;
   deps.writeFile(`${out}/record.json`, JSON.stringify({
@@ -1088,10 +1419,40 @@ function writeSetupRecord(p: RunPlan, outcome: string, deps: LiveDeps): void {
  * started is stopped once and the record is written with an `outcome`. A live session's normal end is Ctrl+C (or the
  * page closed): it resolves. Any other end than complete rejects with its error after the record is written.
  */
-export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps()): Promise<void> {
+export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps(), controls?: SessionControls): Promise<void> {
+  if (controls && p.mode !== 'live') throw new RunArgsError('session controls (pause, record, end) are for a --live session; a --script run takes none');
   const ctl = new AbortController();
   const signal = ctl.signal;
   const s = nothingStarted();
+  // PK-2: the session (controls only). The active clock: wall ms since the pad's zero less the pauses (live.script's).
+  type Mut<T> = { -readonly [K in keyof T]: T[K] };
+  const ses = {
+    phase: 'setup' as SessionPhase, paused: false, endedBySave: false, holdPad: false,
+    pauses: [] as Mut<SessionPause>[], clips: [] as Mut<SessionClip>[], clip: null as Mut<SessionClip> | null,
+    pausedTotal: 0, pauseStart: null as number | null,
+    releaseWanted: false, releaseWaiter: null as (() => void) | null, afterRelease: null as (() => void) | null,
+    ops: null as null | { pauseOn(): Promise<void>; pauseOff(): Promise<void>; recordOn(): void; recordOff(): Promise<void> },
+  };
+  let t0wall: number | null = null;
+  const wallMs = (): number => (t0wall === null ? 0 : deps.now() - t0wall);
+  const activeMs = (): number => {
+    if (t0wall === null) return 0;
+    const now = deps.now();
+    return now - t0wall - ses.pausedTotal - (ses.pauseStart === null ? 0 : now - ses.pauseStart);
+  };
+  const emit = (line?: string): void => {
+    if (!controls) return;
+    try {
+      controls.onStatus({
+        phase: ses.phase, paused: ses.paused, recording: ses.clip !== null, clip: ses.clip?.n ?? null, clips: ses.clips.length,
+        activeMs: activeMs(), ...(line === undefined ? {} : { line }),
+      });
+    } catch { /* the caller's */ }
+  };
+  if (controls) {
+    const base = deps;
+    deps = { ...base, log: (line) => { base.log(line); emit(line); } };
+  }
   const stopOnce = once(() => stopAll(s, deps));
   const out = p.layout.outDir;
   const st: RunState = {
@@ -1113,22 +1474,76 @@ export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps()): Promise<
     // How the run ended is read before the stop: a Ctrl+C pressed while a finished run stops is not its outcome.
     const end = endOf();
     const abortedAtEnd = signal.aborted;
+    // PK-2: an open clip and an open pause are closed at the end, on the clocks as they stand now.
+    if (ses.clip) closeClip(ses.clip);
+    ses.clip = null;
+    if (ses.pauseStart !== null) closePause();
+    ses.releaseWaiter?.();
+    ses.phase = 'ending';
+    emit();
     sampling = false;
     st.live?.stop();
     await stopOnce();
     await Promise.race([Promise.all(loops), deps.sleep(LOOP_DRAIN_MS)]);
-    if (!st.prepared) {
-      writeSetupRecord(p, outcomeOf(end).replace(/^(\w+):/, '$1 in setup:'), deps);
-      return;
-    }
-    const outcome = p.mode === 'live' && end === null && abortedAtEnd ? 'complete (live session ended by Ctrl+C)' : outcomeOf(end);
     try {
-      writeOutputs(p, st, outcome, deps);
-      deps.log(`EPH run (${outcome}) written to ${out}`);
-    } catch (err) {
-      deps.log(`EPH run: the outputs could not all be written: ${(err as Error).message}`);
+      if (!st.prepared) {
+        writeSetupRecord(p, outcomeOf(end).replace(/^(\w+):/, '$1 in setup:'), deps);
+        return;
+      }
+      const how = ses.endedBySave ? 'Save' : 'Ctrl+C';
+      const outcome = p.mode === 'live' && end === null && abortedAtEnd ? `complete (live session ended by ${how})` : outcomeOf(end);
+      if (controls) st.video = ses.clips.length ? `clips: ${ses.clips.length}` : 'none: not requested';
+      try {
+        writeOutputs(p, st, outcome, deps, controls ? { pauses: ses.pauses, clips: ses.clips } : null);
+        deps.log(`EPH run (${outcome}) written to ${out}`);
+      } catch (err) {
+        deps.log(`EPH run: the outputs could not all be written: ${(err as Error).message}`);
+      }
+    } finally {
+      ses.phase = 'ended';
+      emit();
     }
   });
+  /** The latest sampled rows' guest ms (pcsx2.csv t x 1000) and page tick, null where none: a pause's or clip's edge. */
+  const edge = (): { guestMs: number | null; tick: number | null } => ({
+    guestMs: st.pcsxRows.length ? st.pcsxRows[st.pcsxRows.length - 1]!.t * 1000 : null,
+    tick: st.pageRows.length ? st.pageRows[st.pageRows.length - 1]!.tick : null,
+  });
+  function closeClip(c: Mut<SessionClip>): void {
+    const e = edge();
+    Object.assign(c, { endWall: wallMs(), endActive: activeMs(), endGuestMs: e.guestMs, endTick: e.tick });
+  }
+  function closePause(): void {
+    const ps = ses.pauses[ses.pauses.length - 1]!;
+    const e = edge();
+    Object.assign(ps, { endWall: wallMs(), endGuestMs: e.guestMs, endTick: e.tick });
+    ses.pausedTotal += deps.now() - ses.pauseStart!;
+    ses.pauseStart = null;
+  }
+  // The handle: bound at once, so `end` works from the setup on; pause and record wait for the pad (ses.ops). One
+  // command at a time, in order.
+  let chain: Promise<void> = Promise.resolve();
+  const serial = (f: () => Promise<void>): Promise<void> => (chain = chain.then(f).catch((err: Error) => { deps.log(`EPH run: ${err.message}`); }));
+  const notLive = (what: string): void => {
+    deps.log(ses.phase === 'setup' ? `EPH run: ${what} ignored: the session is not live yet` : `EPH run: ${what} ignored: the session is ${ses.phase}`);
+  };
+  controls?.bind({
+    pause: (on) => serial(async () => {
+      if (!ses.ops || (ses.phase !== 'live' && ses.phase !== 'paused')) return notLive(on ? 'pause' : 'resume');
+      if (on !== ses.paused) await (on ? ses.ops.pauseOn() : ses.ops.pauseOff());
+    }),
+    record: (on) => serial(async () => {
+      if (!ses.ops || (ses.phase !== 'live' && ses.phase !== 'paused')) return notLive(on ? 'record' : 'record off');
+      if (on && !ses.clip) ses.ops.recordOn();
+      else if (!on && ses.clip) await ses.ops.recordOff();
+    }),
+    end: () => {
+      if (signal.aborted) return;
+      ses.endedBySave = true;
+      ctl.abort(new RunAborted('the live session ended by Save'));
+    },
+  });
+  emit();
   const remove = installStop({
     signals: deps.signals, controller: ctl, killNow: () => killPcsx2(s, deps), finish, exit: deps.exit, log: deps.log,
     sleep: (ms) => deps.sleep(ms),
@@ -1177,20 +1592,23 @@ export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps()): Promise<
     await deps.topmostWindow(pageHwnd, signal);
     st.videoOverlap = await deps.windowsAbove(CAPTURE_REGION, [st.pcsx2Hwnd!, pageHwnd], signal);
     if (st.videoOverlap.length) deps.log(`EPH run: other windows over the capture region: ${st.videoOverlap.join('; ')} -- the video's covered part is not clean`);
-    st.video = st.videoOverlap.length ? `recorded, overlapped by: ${st.videoOverlap.join('; ')}` : 'recorded';
-    s.ffmpeg = startCapture(p.ffmpeg, deps, (why) => {
-      deps.log(`EPH run: ${why}`);
-      st.video = `none: ${why}`;
-      s.ffmpeg = null;
-    });
+    // With controls (PK-2) the video is the clips a record starts; none with the session.
+    if (!controls) {
+      st.video = st.videoOverlap.length ? `recorded, overlapped by: ${st.videoOverlap.join('; ')}` : 'recorded';
+      s.ffmpeg = startCapture(p.ffmpeg, deps, (why) => {
+        deps.log(`EPH run: ${why}`);
+        st.video = `none: ${why}`;
+        s.ffmpeg = null;
+      });
+    }
 
     // The samplers: PCSX2 as fast as PINE answers (errors counted, ./sampler Recorder), the page as fast as evaluate.
     const sampler = new Sampler(pine, detected.revision, { extra: p.args.extra, nearRadius: p.args.nearRadius });
     st.sampler = sampler;
-    const t0wall = deps.now();
+    t0wall = deps.now();
     const recorder = new Recorder(sampler, {
       running: () => sampling,
-      onRow: (r) => { st.pcsxRows.push({ ...r, wallMs: deps.now() - t0wall }); },
+      onRow: (r) => { st.pcsxRows.push({ ...r, wallMs: wallMs() }); },
       sleep: (ms) => deps.sleep(ms),
     });
     st.recorder = recorder;
@@ -1237,7 +1655,9 @@ export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps()): Promise<
       return (applied - tick0) * FRAME_MS;
     };
     const sendKey = (k: KeyAction): void => { if (k.action === 'down') s.injector!.down(k.vk); else s.injector!.up(k.vk); };
-    const caption = (e: ScriptEvent): void => { st.captions.push({ t: deps.now() - t0wall, text: `${e.t} ${e.input} ${e.pressure}` }); };
+    // events.srt stays on the wall clock (the video's; design 5: a clip's offset in it is its wall start); the text is the
+    // event's own time, active time in a live session.
+    const caption = (e: ScriptEvent): void => { st.captions.push({ t: wallMs(), text: `${e.t} ${e.input} ${e.pressure}` }); };
     const byLine = new Map(p.events.map((e) => [e.line, e]));
 
     if (p.mode === 'script') {
@@ -1275,16 +1695,108 @@ export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps()): Promise<
       // abort) or the page closing ends it.
       const keys = new KeyTranslator();
       const pageTr = new PageTranslator({ leadFrames: p.args.leadFrames }, 'live');
+      const readPad = async (): Promise<PadSnapshot | null> => (await page.evaluate('(() => { const q = window.__ephRealPads()[0]; return q ? { buttons: Array.from(q.buttons, (b) => ({ pressed: b.pressed, value: b.value })), axes: Array.from(q.axes) } : null; })()').catch(() => null)) as PadSnapshot | null;
       const live = new LivePadSource({
         chord: p.chord,
         layout: PAD_LAYOUTS[p.args.padLayout],
-        read: async () => (await page.evaluate('(() => { const q = window.__ephRealPads()[0]; return q ? { buttons: Array.from(q.buttons, (b) => ({ pressed: b.pressed, value: b.value })), axes: Array.from(q.axes) } : null; })()').catch(() => null)) as PadSnapshot | null,
-        now: () => deps.now() - t0wall,
+        // A pause (PK-2): one released pad, so every held input goes up through the same path on both clients and in
+        // live.script; then nothing while paused. Without controls this is the plain read.
+        read: async () => {
+          if (ses.releaseWanted) {
+            ses.releaseWanted = false;
+            ses.afterRelease = ses.releaseWaiter;
+            ses.releaseWaiter = null;
+            return RELEASED_PAD;
+          }
+          if (ses.afterRelease) { const done = ses.afterRelease; ses.afterRelease = null; done(); }
+          if (ses.holdPad) return null;
+          const snap = await readPad();
+          return ses.holdPad ? null : snap;
+        },
+        now: activeMs,
       });
       st.live = live;
       const stop = (): void => live.stop();
       signal.addEventListener('abort', stop, { once: true });
       page.onClose(stop);
+      if (controls) {
+        // `atDown` runs at the key-down: the moment PCSX2 acts on its hotkey (the batch review's F2: the pause's clocks are
+        // read there, not after the hold, so a replay on the guest clock does not drift by a hold per pause).
+        const tap = async (vk: number, atDown?: () => void): Promise<void> => {
+          s.injector!.down(vk);
+          atDown?.();
+          try { await deps.sleep(TAP_HOLD_MS); } finally { s.injector!.up(vk); }
+        };
+        const pausePage = (on: boolean): Promise<void> => raceAbort(page.evaluate(`window.__viewer.ephPause(${on})`), signal).then(() => undefined, (err: Error) => {
+          if (!signal.aborted) deps.log(`EPH run: the page did not ${on ? 'pause' : 'resume'} (window.__viewer.ephPause(${on}): ${err.message}); PCSX2 did`);
+        });
+        ses.ops = {
+          pauseOn: async () => {
+            // Every held input let go first, through the live loop (RELEASED_PAD), bounded; then anything left on PCSX2.
+            ses.holdPad = true;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+              new Promise<void>((done) => { ses.releaseWaiter = done; ses.releaseWanted = true; }),
+              new Promise<void>((done) => { timer = setTimeout(done, PAUSE_RELEASE_BOUND_MS); }),
+            ]);
+            clearTimeout(timer);
+            ses.releaseWanted = false;
+            ses.releaseWaiter = null;
+            if (signal.aborted) return;
+            const ups = keys.releaseAll(activeMs());
+            if (ups.length) await s.injector!.batch(ups.map((k) => ({ action: k.action, vk: k.vk })));
+            await tap(PCSX2_PAUSE_HOTKEY.vk, () => {
+              const e = edge();
+              ses.pauseStart = deps.now();
+              ses.pauses.push({
+                n: ses.pauses.length + 1, startWall: wallMs(), endWall: null, startActive: activeMs(), startGuestMs: e.guestMs,
+                endGuestMs: null, startTick: e.tick, endTick: null,
+              });
+              ses.paused = true;
+              ses.phase = 'paused';
+            });
+            await pausePage(true);
+            emit();
+          },
+          pauseOff: async () => {
+            await tap(PCSX2_PAUSE_HOTKEY.vk, () => closePause());
+            await pausePage(false);
+            ses.paused = false;
+            ses.holdPad = false;
+            ses.phase = 'live';
+            emit();
+          },
+          recordOn: () => {
+            const e = edge();
+            const clip: Mut<SessionClip> = {
+              n: ses.clips.length + 1, file: `clip-${ses.clips.length + 1}.mp4`, startWall: wallMs(), endWall: null, startActive: activeMs(),
+              endActive: null, startGuestMs: e.guestMs, endGuestMs: null, startTick: e.tick, endTick: null, lost: null,
+            };
+            ses.clips.push(clip);
+            ses.clip = clip;
+            let child: ChildLike | null = null;
+            child = startCapture(ffmpegArgs(`${out}/${clip.file}`), deps, (why) => {
+              clip.lost = why;
+              if (s.ffmpeg === child) s.ffmpeg = null;
+              deps.log(`EPH run: clip ${clip.n}: ${why}`);
+            });
+            s.ffmpeg = child;
+            deps.log(`EPH run: recording clip ${clip.n} (${clip.file})`);
+          },
+          recordOff: async () => {
+            const clip = ses.clip!;
+            closeClip(clip);
+            ses.clip = null;
+            const child = s.ffmpeg;
+            s.ffmpeg = null;
+            emit();
+            await stopFfmpeg(child, deps);
+            deps.log(`EPH run: clip ${clip.n} closed (${clip.file})`);
+          },
+        };
+        ses.phase = 'live';
+        emit();
+      }
       await live.run(async (e) => {
         caption(e);
         for (const k of keys.push(e)) sendKey(k);
@@ -1326,23 +1838,64 @@ export function hostContext(env: NodeJS.ProcessEnv = process.env): PlanContext {
   };
 }
 
-async function main(argv: string[]): Promise<number> {
+/** A stdin link fed line by line; stdin closed is the link's close (an end). */
+function attachStdin(link: { feed(line: string): void; close(): void }): { close(): void } {
+  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  rl.on('line', (line) => link.feed(line));
+  rl.on('close', () => link.close());
+  return rl;
+}
+
+/** The CLI's body; exported for the parity pack's bundle (`tools/parity-pack/harness.ts run ...`), unchanged. */
+export async function main(argv: string[]): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) { process.stdout.write(HELP); return 0; }
   const args = parseRunArgs(argv);
-  const ctx = hostContext();
+  // --control stdio and --mark-state: stdout is the parent's status channel only; the plan and the log go to stderr.
+  const stdio = args.control === 'stdio' || args.markState !== undefined;
+  const say = (text: string): void => { (stdio ? process.stderr : process.stdout).write(text); };
+  const statusOut = (line: string): void => { process.stdout.write(`${line}\n`); };
+  const logErr = (line: string): void => { process.stderr.write(`${line}\n`); };
+  // EPH_PACK: a run inside a parity pack, which has no git (./packContext).
+  const ctx = process.env.EPH_PACK ? packContext(process.env, new Date(), process.platform, existsSync, (p) => readFileSync(p, 'utf8')) : hostContext();
+  if (args.markState !== undefined) {
+    const plan = planMark(args, ctx);
+    say(formatMarkPlan(plan));
+    if (args.dryRun) return 0;
+    const link = stdioMark(statusOut, logErr);
+    const input = attachStdin(link);
+    try {
+      await liveMark(plan, { ...hostDeps(), log: logErr }, link.controls);
+    } finally {
+      input.close();
+    }
+    return 0;
+  }
   if (args.bootToMission) {
     const plan = planBoot(args, ctx);
-    process.stdout.write(formatBootPlan(plan));
+    say(formatBootPlan(plan));
     if (!args.dryRun) await liveBoot(plan);
     return 0;
   }
   const plan = planRun(args, ctx);
-  process.stdout.write(formatPlan(plan));
-  if (!args.dryRun) await liveRun(plan);
+  say(formatPlan(plan));
+  if (args.dryRun) return 0;
+  if (args.control === 'stdio') {
+    const link = stdioSession(statusOut, logErr);
+    const input = attachStdin(link);
+    try {
+      await liveRun(plan, { ...hostDeps(), log: logErr }, link.controls);
+    } finally {
+      input.close();
+    }
+    return 0;
+  }
+  await liveRun(plan);
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Inside the parity pack's one bundle every module's import.meta.url is the bundle's, which is argv[1]: its prelude
+// (tools/parity-pack/prelude.ts) sets __ephEmbedded first so this check does not start the CLI there (PK-5).
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href && !(globalThis as { __ephEmbedded?: boolean }).__ephEmbedded) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (err: Error) => {
     console.error(err.message);
     process.exit(err instanceof RunAborted ? 130 : 1);

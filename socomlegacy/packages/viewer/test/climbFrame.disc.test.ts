@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
 import {
-  flattenScene, isWallSurface, modelGate, parseSceneGraph, polygonNormal, probeGround, segmentHits, surfaceWord, SURFACE_SKIP,
+  applyR0004MapPatch, flattenScene, isWallSurface, modelGate, parseSceneGraph, polygonNormal, probeGround, segmentHits, surfaceWord, SURFACE_SKIP,
   worldCollision, worldDi, SEAL_TUNING, type CollisionOwner, type Grid, type SceneNode, type WorldPoly,
 } from '@s2u/scene';
 import { simMapFromBytes, stemOf } from '../src/simMap';
@@ -78,7 +78,9 @@ function load(stem: string): Loaded {
   if (done) return done;
   const path = `RUN/${stem}.ZDB`, bytes = new Uint8Array(readFileSync(join(DISC, path)));
   const sim = simMapFromBytes(bytes, path), polys = groundPolygons(sim.ground);
-  const placed = placedFrames(parseSceneGraph(Zar.parse(zdbMember(bytes, parseZdb(bytes), `${stemOf(path)}_GEO.ZED`))));
+  const models = parseSceneGraph(Zar.parse(zdbMember(bytes, parseZdb(bytes), `${stemOf(path)}_GEO.ZED`)));
+  applyR0004MapPatch(models, stemOf(path));                      // R4B-09: the graph the room's hull is built from (research 383)
+  const placed = placedFrames(models);
   expect(placed.length).toBe(polys.length);
   const frames = new Map<number, Frame>();
   polys.forEach((p, i) => {

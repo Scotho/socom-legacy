@@ -189,11 +189,14 @@ const sizeOf = (p: PlacedModel): number => {
   return Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
 };
 
-/** Pairs `placeInstances(models, root)` with its nodes: it is `flattenScene(models, root)` filtered to visuals, in order. */
+/**
+ * Pairs `placeInstances(models, root)` with its nodes: it is `flattenScene(models, root)` filtered to visuals the draw's
+ * `m_active` gate lets through (LATER 707: none is off on the disc as read), in order.
+ */
 function placedWithNodes(models: SceneNode[], root: string): { p: PlacedModel; f: SceneInstance; off: string | null }[] {
   const flat = flattenScene(models, root);
   const off = offOnPaths(flat);
-  const drawn = flat.map((f, i) => ({ f, off: off[i] ?? null })).filter(({ f }) => f.node.visuals > 0);
+  const drawn = flat.map((f, i) => ({ f, off: off[i] ?? null })).filter(({ f }) => f.node.visuals > 0 && (f.flags & 1) !== 0);
   const placed = placeInstances(models, root);
   if (placed.length !== drawn.length) throw new Error(`${root}: ${placed.length} placements but ${drawn.length} drawn nodes`);
   return placed.map((p, i) => ({ p, f: drawn[i]!.f, off: drawn[i]!.off }));

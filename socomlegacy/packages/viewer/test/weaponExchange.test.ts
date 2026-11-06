@@ -59,7 +59,7 @@ describe('the gate: what opens the menu in the match (FUN_001f7ff0 L56648-56661)
   it('closed, no other key or button is the menu\'s: the game keeps W, X, Space, the d-pad and Cross', () => {
     const { x } = exchange();
     for (const code of ['KeyW', 'KeyX', 'Space', 'Enter', 'Backspace']) expect(x.key(code, DEAD), code).toBe(false);
-    expect(x.pad(new Set(['Up', 'Cross', 'Triangle', 'Start']), DEAD)).toBe(false);
+    expect(x.pad(new Set(['Up', 'Cross', 'Triangle', 'Start', 'Circle']), DEAD)).toBe(false);
     expect(x.isOpen()).toBe(false);
   });
 
@@ -120,6 +120,23 @@ describe('inside: the keys and the pad per the menu\'s maps, the game\'s input t
     expect(x.state().screen).toBe('list');
     x.pad(new Set(['Start']), DEAD);
     expect(x.isOpen()).toBe(false);
+  });
+
+  it('OT.R106: Circle closes from the list or the picker, taken while open (not the game\'s TeamCommand), the game\'s when closed', () => {
+    const { x, confirmed } = exchange();
+    expect(x.pad(new Set(['Circle']), DEAD)).toBe(false);             // closed: Circle stays the game's
+    expect(x.isOpen()).toBe(false);
+    x.pad(new Set(['R2']), DEAD);
+    expect(x.pad(new Set(['Circle']), DEAD)).toBe(true);              // the list: closed, the press the menu's
+    expect(x.isOpen()).toBe(false);
+    x.pad(new Set(['R2']), DEAD);
+    x.pad(new Set(['Cross']), DEAD);
+    x.pad(new Set(['Down']), DEAD);                                   // an unconfirmed pick on the picker
+    expect(x.state().screen).toBe('picker');
+    expect(x.pad(new Set(['Circle']), DEAD)).toBe(true);
+    expect(x.isOpen()).toBe(false);
+    expect(confirmed).toEqual([]);
+    expect(x.state().loadout).toEqual([...SEAL_KIT]);
   });
 
   it('the room\'s answer is what the menu shows; a refusal\'s kit replaces the menu\'s own', () => {

@@ -3,12 +3,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Rgba } from '@s2u/gs';
-import type { UiDrawItem, UiModelVertex } from '@s2u/ui';
+import type { UiDrawItem, UiModelTriangle, UiModelVertex } from '@s2u/ui';
 import { rasterizeUiDrawList, type UiBitmap, type UiTextures } from '../src/uiCompositorView';
 import { columnAxis, rowAxis } from '../src/uiRasterRules';
 import {
-  UI_PLAN_CODE, passDepthScale, planFrame, quadRoute, triangleRoute, type UiFramePlan, type UiFramePlanOptions, type UiPlanBlendMode, type UiPlanQuad,
+  UI_GPU_MODEL_DEPTH_FLOOR, UI_GPU_MODEL_TEXEL_RANGE, UI_PLAN_CODE, passDepthScale, planFrame, quadRoute, triangleRoute, type UiFramePlan,
+  type UiFramePlanOptions, type UiPlanBlendMode, type UiPlanQuad, type UiPlanTriangle,
 } from '../src/uiFramePlan';
+import { T2_third, T4_invW } from '../src/uiGpuTwin';
 import { executeFramePlanOnCpu } from '../src/uiFramePlanCpu';
 import {
   UI_RASTER_CASES, UI_RASTER_CASE_MODES, UI_RASTER_CASE_SCALES, UI_RASTER_SOFTWARE_SHA256, caseRasterInputs, caseRunKey, pattern, solid,
@@ -397,7 +399,7 @@ describe('GM-06b: the models list (research 380 M1-M7)', () => {
     const run = p.steps[2]!;
     if (run.kind !== 'triangles') throw new Error('not a run');
     expect([run.pass, run.blend, run.path, run.depth, run.triangles]).toEqual([0, 'additive', 'ff', 'pass', [0, 1, 2, 3]]);
-    expect(p.passes).toEqual([{ id: 0, item: 1, triangles: [0, 1, 2, 3], depthScale: 0.5 }]);
+    expect(p.passes).toEqual([{ id: 0, item: 1, triangles: [0, 1, 2, 3], depthScale: 0.25 }]);   // GM-15b: invW 2 to 1/2
     expect(p.stats.triangles).toBe(4);
     expect(plan(caseOf('1'), 2, 'opaque').target.depth).toBe(false);
   });
@@ -469,7 +471,7 @@ describe('GM-06b: the models list (research 380 M1-M7)', () => {
       expect(sha(executeFramePlanOnCpu(p).frame)).toBe(sha(rasterizeUiDrawList(items, () => null).frame));
     }
   });
-  it('GM-15a: each pass carries its depthScale, the largest power of two <= 1 that brings every vertex\'s f32 invW to at most 1 (GM.R10)', () => {
+  it('GM-15a/15b: each pass carries its depthScale, the largest power of two <= 1 that brings every vertex\'s f32 invW to at most 1/2 (GM.R10; GM-15b: headroom under the clamp at 1)', () => {
     let passes = 0;
     for (const c of UI_RASTER_CASES) for (const scale of UI_RASTER_CASE_SCALES) for (const mode of UI_RASTER_CASE_MODES) for (const blend of BLENDS) {
       const p = plan(c, scale, mode, blend);
@@ -479,15 +481,15 @@ describe('GM-06b: the models list (research 380 M1-M7)', () => {
         expect(Number.isInteger(Math.log2(pass.depthScale)), `${k}: ${pass.depthScale} a power of two`).toBe(true);
         expect(pass.depthScale, k).toBeLessThanOrEqual(1);
         const max = Math.max(0, ...pass.triangles.flatMap((i) => [p.triangles[i]!.a, p.triangles[i]!.b, p.triangles[i]!.c].map((v) => Math.fround(v.invW))));
-        expect(Math.fround(max * pass.depthScale), `${k}: every invW times it at most 1`).toBeLessThanOrEqual(1);
-        // The largest such: twice it would take the largest invW past 1 (or past the scale's cap, 1).
-        if (pass.depthScale < 1) expect(max * pass.depthScale * 2, k).toBeGreaterThan(1);
+        expect(Math.fround(max * pass.depthScale), `${k}: every invW times it at most 1/2`).toBeLessThanOrEqual(0.5);
+        // The largest such: twice it would take the largest invW past 1/2 (or past the scale's cap, 1).
+        if (pass.depthScale < 1) expect(max * pass.depthScale * 2, k).toBeGreaterThan(0.5);
       }
     }
     expect(passes).toBeGreaterThan(0);
-    expect(plan(caseOf('2'), 1, 'opaque').passes.map((x) => x.depthScale)).toEqual([0.5]);    // the nearer triangle's invW 2
-    expect(plan(caseOf('16'), 1, 'opaque').passes.map((x) => x.depthScale)).toEqual([1]);    // invW 1/10, 1/20, 1/50
-    expect(plan(caseOf('18'), 1, 'opaque').passes.map((x) => x.depthScale)).toEqual([1, 1]);  // the empty pass: 1
+    expect(plan(caseOf('2'), 1, 'opaque').passes.map((x) => x.depthScale)).toEqual([0.25]);    // the nearer triangle's invW 2
+    expect(plan(caseOf('16'), 1, 'opaque').passes.map((x) => x.depthScale)).toEqual([1]);      // invW 1/10, 1/20, 1/50
+    expect(plan(caseOf('18'), 1, 'opaque').passes.map((x) => x.depthScale)).toEqual([0.5, 1]); // invW 1; the empty pass: 1
     expect(passDepthScale([], [])).toBe(1);
   });
   it('GM-15a: depthScale is not hashed (a function of the vertices, which are): the hash section names no depthScale and its version is unchanged', () => {
@@ -507,6 +509,154 @@ describe('GM-06b: the models list (research 380 M1-M7)', () => {
     const p = planFrame(items, () => a, o);
     expect(p.textures.map((t) => [t.width, t.hd])).toEqual([[16, true]]);
     expect(sha(executeFramePlanOnCpu(p).frame)).toBe(sha(rasterizeUiDrawList(items, () => a, o).frame));
+  });
+});
+
+// ---- GM-15b: the models pass's edges (the GM-15 row's 15b; GM-06b review F3, GM-15a review F2) ------------------------
+
+describe('GM-15b: the models pass\'s edges -- what the software draws there, and the plan refusing (L1, named) what a GPU cannot hold', () => {
+  type Q4 = [number, number, number, number];
+  const RED: Q4 = [128, 0, 0, 128], GREEN: Q4 = [0, 128, 0, 128];
+  /** The corner triangle (dx, 0), (dx, 16), (dx + 16, 0) (counter-clockwise on the frame), every vertex at one invW and colour, untextured. */
+  const corner = (invW: number, rgba: Q4, dx = 0): UiModelTriangle => {
+    const v = (x: number, y: number): UiModelVertex => ({ x, y, invW, u: 0, v: 0, rgba });
+    return { node: 'n', texture: null, cull: false, a: v(dx, 0), b: v(dx, 16), c: v(dx + 16, 0) };
+  };
+  const list = (...triangles: UiModelTriangle[]): UiDrawItem[] => [{ kind: 'clear', rgb: [0, 0, 0] }, { kind: 'models', triangles }];
+  const px = (f: Rgba, x: number, y: number): number[] => [...f.data.subarray((y * f.width + x) * 4, (y * f.width + x) * 4 + 4)];
+  const DEPTH = /UI_GPU_MODEL_DEPTH_FLOOR/, TEXEL = /UI_GPU_MODEL_TEXEL_RANGE/;
+  /** A stand-in triangle for `passDepthScale`, which reads the three invW only. */
+  const atDepth = (m: number): UiPlanTriangle => ({ a: { invW: m }, b: { invW: m }, c: { invW: m } }) as unknown as UiPlanTriangle;
+
+  it('item 4, "0 = empty": a positive invW whose f32 is 0 -- the software draws the triangle and leaves its depth empty, so a farther one draws over it; refused at every scale', () => {
+    expect(Math.fround(1e-46)).toBe(0);
+    const items = list(corner(1e-46, RED), corner(1e-47, GREEN));
+    // drawModels (uiCompositorView.ts): the depth is a Float32Array (:411), the test `depth[i] > 0 && invW <= depth[i]`
+    // (:437), the store `depth[i] = invW` (:450): 1e-46 stores 0, still "empty", so the green triangle draws.
+    expect(px(rasterizeUiDrawList(items, () => null).frame, 1, 1), 'the farther triangle drew over the nearer').toEqual([0, 128, 0, 255]);
+    // The same pair at depths f32 holds: the farther fails the nearer's depth, and the GPU draws that list.
+    const held = list(corner(0.5, RED), corner(0.25, GREEN));
+    expect(px(rasterizeUiDrawList(held, () => null).frame, 1, 1)).toEqual([128, 0, 0, 255]);
+    expect(planFrame(held, () => null, {}).verdict).toBe('gpu');
+    // A GPU's depth is cleared to 0 and tested GREATER: a fragment at depth 0 never passes, so a GPU would draw neither
+    // triangle where the software draws both. The plan refuses the pass; the frame is the software's (L1).
+    for (const scale of UI_RASTER_CASE_SCALES) {
+      const p = planFrame(items, () => null, { scale });
+      expect(p.verdict, `${scale}x`).toBe('software');
+      expect(p.why.join(' '), `${scale}x`).toMatch(DEPTH);
+      expect(sha(executeFramePlanOnCpu(p).frame), `${scale}x: the executor is the software`).toBe(sha(rasterizeUiDrawList(items, () => null, { scale }).frame));
+    }
+  });
+
+  it('item 1: a positive invW whose f32 is subnormal -- the software stores it (not empty) and the farther triangle fails; a GPU may flush it to 0 (ESSL 3.00 section 4.5.1): refused', () => {
+    const v = Math.fround(1e-40);
+    expect(v > 0 && v < 2 ** -126, 'a subnormal f32').toBe(true);
+    const items = list(corner(1e-40, RED), corner(1e-41, GREEN));
+    expect(px(rasterizeUiDrawList(items, () => null).frame, 1, 1)).toEqual([128, 0, 0, 255]);
+    const p = planFrame(items, () => null, {});
+    expect(p.verdict).toBe('software');
+    expect(p.why.join(' ')).toMatch(DEPTH);
+  });
+
+  it('item 1: the floor is UI_GPU_MODEL_DEPTH_FLOOR = 2^-100, on each vertex\'s f32 invW times the pass\'s depthScale (after the scale, not before)', () => {
+    expect(UI_GPU_MODEL_DEPTH_FLOOR).toBe(2 ** -100);
+    const planOf = (...t: UiModelTriangle[]): UiFramePlan => planFrame(list(...t), () => null, {});
+    // Alone (its invW at most 1/2, the scale 1): the floor itself is drawn, the power of two under it is not.
+    expect(planOf(corner(2 ** -100, RED)).passes[0]!.depthScale).toBe(1);
+    expect(planOf(corner(2 ** -100, RED)).verdict).toBe('gpu');
+    const alone = planOf(corner(2 ** -101, RED));
+    expect(alone.verdict).toBe('software');
+    expect(alone.why.join(' ')).toMatch(DEPTH);
+    // Beside a triangle at invW 1 the pass's depthScale is 1/2: 2^-99 lands on the floor, 2^-100 under it.
+    const near = corner(1, RED, 40);
+    expect(planOf(near, corner(2 ** -99, GREEN)).passes[0]!.depthScale).toBe(0.5);
+    expect(planOf(near, corner(2 ** -99, GREEN)).verdict).toBe('gpu');
+    const under = planOf(near, corner(2 ** -100, GREEN));
+    expect(under.verdict).toBe('software');
+    expect(under.why.join(' ')).toMatch(DEPTH);
+    // A vertex at invW <= 0 keeps its own why (GM-06b's), and adds no floor's.
+    const behind = planOf(corner(-1, RED));
+    expect(behind.why.join(' ')).toMatch(/invW <= 0/);
+    expect(behind.why.join(' ')).not.toMatch(DEPTH);
+  });
+
+  it('item 1: a depthScale under f32\'s normal range (2^-126) is refused too -- the uniform itself could be flushed to 0', () => {
+    expect(passDepthScale([atDepth(2 ** 127)], [0])).toBe(2 ** -128);
+    const p = planFrame(list(corner(2 ** 127, RED)), () => null, {});
+    expect(p.verdict).toBe('software');
+    expect(p.why.join(' ')).toMatch(DEPTH);
+    expect(planFrame(list(corner(2 ** 125, RED)), () => null, {}).verdict).toBe('gpu');   // depthScale 2^-126
+  });
+
+  it('item 2, the clamp above 1: no planned pass can reach a depth past 1 -- a pixel\'s f32 invW can exceed its largest vertex\'s by rounding (a witness), so the scale keeps a factor of 2', () => {
+    // A witness (T2_third, T4_invW: the twin's and the GLSL's arithmetic): three vertices at invW 0.75; the f32 sum is
+    // one ulp above 0.75. Under GM-15a's scale (the largest vertex brought to at most 1) a pass whose largest vertex
+    // lands at or one ulp under 1 could so reach a depth past 1, where the clamp ties depths the software keeps apart.
+    const w0 = Math.fround(0.8175441026687622), w1 = Math.fround(0.15435118973255157), w2 = T2_third(w0, w1);
+    expect(w2).toBe(0.028104707598686218);
+    expect(T4_invW(w0, w1, w2, 0.75, 0.75, 0.75)).toBeGreaterThan(0.75);
+    // GM-15b's scale brings the largest vertex to at most 1/2; f32 rounding moves a pixel by a few ulps, never by 2x
+    // (the per-pixel sweep is `uiGpuTwin.test.ts`'s): the clamp's upper bound is never reached on a planned pass.
+    const rows: [number, number][] = [[0.5, 1], [0.25, 1], [0.75, 0.5], [1, 0.5], [2, 0.25], [3, 0.125], [Math.fround(1 - 2 ** -24), 0.5], [2 ** 100, 2 ** -101]];
+    for (const [m, s] of rows) {
+      expect(passDepthScale([atDepth(m)], [0]), `invW ${m}`).toBe(s);
+      expect(Math.fround(m) * s, `invW ${m}`).toBeLessThanOrEqual(0.5);
+    }
+    // A vertex whose f32 is infinite (a finite f64 past f32's range): no loop, a scale of 0, and the plan refuses it.
+    expect(passDepthScale([atDepth(1e39)], [0])).toBe(0);
+    const inf = planFrame(list(corner(1e39, RED)), () => null, {});
+    expect(inf.verdict).toBe('software');
+    expect(inf.why.join(' ')).toMatch(DEPTH);
+  });
+
+  it('item 5 (GM-15a review F2): a textured triangle whose |u W| or |(1 - v) H| reaches UI_GPU_MODEL_TEXEL_RANGE (2^30) is refused -- T8\'s int(floor()) and wrapRepeat\'s -i - 1 stay in the int range', () => {
+    expect(UI_GPU_MODEL_TEXEL_RANGE).toBe(2 ** 30);
+    // 2^31 - 1 itself cannot be the boundary: its f32 is 2^31 (past INT_MAX), and a pixel's interpolated u can exceed
+    // its largest vertex's by a few ulps; 2^30 leaves a factor of 2.
+    expect(Math.fround(2 ** 31 - 1)).toBe(2 ** 31);
+    const tex = solid(4, 4, [50, 60, 70, 255]);
+    const textured = (u: number, v: number): { items: UiDrawItem[]; p: UiFramePlan } => {
+      const vx = (x: number, y: number): UiModelVertex => ({ x, y, invW: 1, u, v, rgba: [128, 128, 128, 128] });
+      const items: UiDrawItem[] = [{ kind: 'clear', rgb: [0, 0, 0] }, { kind: 'models', triangles: [{ node: 'n', texture: 'a.tif', cull: false, a: vx(0, 0), b: vx(0, 16), c: vx(16, 0) }] }];
+      return { items, p: planFrame(items, () => tex, {}) };
+    };
+    const rows: [number, number, 'gpu' | 'software', string][] = [
+      [(2 ** 30 - 1) / 4, 0, 'gpu', 'u W = 2^30 - 1'],
+      [2 ** 28, 0, 'software', 'u W = 2^30'],
+      [-(2 ** 30 - 1) / 4, 0, 'gpu', 'u W = -(2^30 - 1)'],
+      [-(2 ** 28), 0, 'software', 'u W = -2^30'],
+      [(2 ** 31 - 1) / 4, 0, 'software', 'u W = 2^31 - 1'],
+      [2 ** 29, 0, 'software', 'u W = 2^31'],
+      [-(2 ** 29), 0, 'software', 'u W = -2^31 (INT_MIN: -i - 1 overflows)'],
+      [0, 1 - (2 ** 30 - 1) / 4, 'gpu', '(1 - v) H = 2^30 - 1'],
+      [0, 1 - 2 ** 28, 'software', '(1 - v) H = 2^30'],
+      [0, 1 + (2 ** 30 - 1) / 4, 'gpu', '(1 - v) H = -(2^30 - 1)'],
+      [0, 1 + 2 ** 28, 'software', '(1 - v) H = -2^30'],
+      [0, 1 + 2 ** 29, 'software', '(1 - v) H = -2^31'],
+    ];
+    for (const [u, v, verdict, what] of rows) {
+      const { items, p } = textured(u, v);
+      expect(p.verdict, what).toBe(verdict);
+      if (verdict === 'software') expect(p.why.join(' '), what).toMatch(TEXEL);
+      else expect(p.why, what).toEqual([]);
+      expect(sha(executeFramePlanOnCpu(p).frame), `${what}: the executor is the software`).toBe(sha(rasterizeUiDrawList(items, () => tex).frame));
+    }
+    // Untextured, u and v reach no sampler: no refusal.
+    const flat: UiDrawItem[] = [{ kind: 'clear', rgb: [0, 0, 0] }, { kind: 'models', triangles: [{ ...corner(1, RED), a: { ...corner(1, RED).a, u: 2 ** 40, v: -(2 ** 40) } }] }];
+    expect(planFrame(flat, () => null, {}).verdict).toBe('gpu');
+  });
+
+  it('item 5: the range is the sampled image\'s -- an HD replacement 4 x wider moves the boundary 4 x nearer', () => {
+    const a = solid(4, 4, [50, 60, 70, 255]), big = pattern(16, 16, 9);
+    const at = (u: number): UiFramePlan => {
+      const vx = (x: number, y: number): UiModelVertex => ({ x, y, invW: 1, u, v: 0, rgba: [128, 128, 128, 128] });
+      const items: UiDrawItem[] = [{ kind: 'clear', rgb: [0, 0, 0] }, { kind: 'models', triangles: [{ node: 'n', texture: 'a.tif', cull: false, a: vx(0, 0), b: vx(0, 16), c: vx(16, 0) }] }];
+      return planFrame(items, () => a, { scale: 2, hd: (b: UiBitmap) => (b === a ? big : null) });
+    };
+    expect(at((2 ** 30 - 1) / 16).textures.map((t) => [t.width, t.hd])).toEqual([[16, true]]);
+    expect(at((2 ** 30 - 1) / 16).verdict).toBe('gpu');
+    expect(at(2 ** 26).verdict).toBe('software');
+    expect(at(2 ** 26).why.join(' ')).toMatch(TEXEL);
   });
 });
 

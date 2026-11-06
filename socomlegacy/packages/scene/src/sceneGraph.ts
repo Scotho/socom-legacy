@@ -160,6 +160,13 @@ export interface SceneNode {
   visualDetailRanges?: (number | null)[];
   children: SceneNode[];
   collision: CollisionPoly[];
+  /**
+   * R4B-09 (research 383): the node's byte +0x80 bit 0, which the CNode constructor sets (r1 `FUN_00316e30`, D:L215827)
+   * and no file writes -- absent here means that 1. r0004's edits clear or copy it on a few nodes
+   * (`./r0004MapPatch`). `FUN_002d3030` reads it as a type-2 (column) query's "stop at this node's first hit"
+   * (D:L175151, D:L175276, D:L175372); the port has no type-2 query that reads it (LATER, research 383 §5).
+   */
+  stopAtFirstHit?: boolean;
 }
 
 /** The 4x4 identity, row-major. */

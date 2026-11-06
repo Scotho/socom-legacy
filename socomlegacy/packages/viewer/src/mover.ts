@@ -95,9 +95,9 @@ type GroundCorrection = (feet: readonly [number, number, number]) => readonly [n
  *   the feet at y (research 23 section 1.1-1.2, research 24 section 2). The pick is the floor stood on, up to 20 over
  *   the feet (`FUN_005b5d40`); no rise is compared with `step_height` 6.5 -- a face taller than 6.5 is met by the low
  *   probe line as a wall (`wallProbeHeights`), the original's segment query lifted by `step_height` (issue #111,
- *   research 217 s2.6, research 86 s6.5). One steeper than `max_slope` 50 degrees is not climbed on a face at least
- *   `STEEP_RISE_FACE_MIN_READING` tall (LATER 590's interim bound, research 217 s2.7), and on the ground
- *   it slides (`./steepSlide`, research 201 §3); one down to
+ *   research 217 s2.6, research 86 s6.5). One steeper than `max_slope` 50 degrees is not refused either (LATER 590,
+ *   closed, research 217 s2.7): the segments at `step_height` stop a steep face they meet (`FUN_0054aa30` D:L415167),
+ *   and on the ground it slides (`./steepSlide`, research 201 §3); one down to
  *   `ground_touch_distance` 8 under the feet is stepped down to (`READERC.ZAR/dynamics.rdr`,
  *   reCOM `zCharacter/char_dyn.cpp:17-20`; research 17 section 8's `+0x14..+0x1c`). No floor, and the step is refused.
  *   On the ground the origin is y + 5.5 (`STEP_PROBE_LIFT_READING`, the console's spawn measurement), so the window
@@ -139,7 +139,8 @@ type GroundCorrection = (feet: readonly [number, number, number]) => readonly [n
  *   comes from the clip only for `UseVelY` motions (`FUN_0059afd0`, 456328-456466), and `seal_jump` is none: the rise
  *   is the skeleton root's, 10.5 to 15.1 over the feet, and the game's camera follows that root. While it plays the
  *   stick drives the SEAL at each set's top speed (`FUN_0057a330` 438955-438985, the only air control: 65 ahead, 37
- *   back, 65 aside standing, 20 crouched). **Landing** (`FUN_005af590`, 466641-466728): over `land_hard_fall_rate` 115
+ *   back, 65 aside standing, 20 crouched; kept by OT.R108 over r0004's forward-only R4B-12). **Landing**
+ *   (`FUN_005af590`, 466641-466728): over `land_hard_fall_rate` 115
  *   the `Jump land hard` action (`seal_land_hard`, 0.9 s); else, with the stick at rest or the last airborne tick's
  *   velocity under 20 (`actor+0x38`, the fall included: `FUN_005483d0` decomp 413963), `Jump land` (`seal_land_soft`,
  *   0.63 s); else no clip, the run going on from the stick at once (the ramp skipped: `actor+0x248 = +0x244`). Through a
@@ -433,7 +434,9 @@ export const SEGMENT_HIT_PICK_READING = 'nearest-passing' as 'nearest-passing' |
  * reading is an older build's, which the r0004 capture overrides. The r0004 code agrees (reading): r0004's jump, 0x583490
  * (the desktop recompilation's r0004 output, `sub_00583490_0x583490.cpp`), loads no `+0x10ac` at all, where r0001's
  * (its r0001 output, `sub_0057E1B0_0x57e1b0.cpp`, the load at 0x57e348) does -- the test is deleted (the r0004
- * investigation's G3). Held by `weaponLine.test.ts` (M51, capture-scored; a synthetic twin).
+ * investigation's G3). Held by `weaponLine.test.ts` (M51, capture-scored; a synthetic twin). R4B-12 (research 385 s1)
+ * re-read it natively (R4B.R4): r4 0x583690 compares `|v|^2` with 225 and 0x583694 branches straight to the running jump
+ * (0x583760), no load between, in the PINE dump and the served decrypt alike; LATER 614's divergence is r0004's.
  */
 export const JUMP_CONTACT_PROVEN = 'none' as 'none' | 'stored-contact';
 /**
@@ -560,20 +563,6 @@ const MAX_SLOPE_COS = Math.cos((SEAL_TUNING.maxSlopeDeg * Math.PI) / 180);
 export const STEP_PROBE_LIFT_READING = 5.5;
 
 /**
- * The grounded step's steep-rise refusal holds only on a face at least this tall, 6.5 [reading] (`step_height`,
- * `dynamics.rdr` +0x1c, `SEAL_TUNING.stepHeight`). LATER 590: the refusal itself has no source in the original -- the
- * walk (`FUN_005b5d40` D:L470163-470290) compares no rise -- and the owner's interim ruling (2026-10-31, "Take bounded
- * fix", in the controller's seat) keeps it only on a face as tall as `step_height`, the height of the original's own
- * segment query over the feet (`FUN_005483d0` D:L413724-413725, `FUN_0054aa30`'s probes at 6.5); a shorter steep lip --
- * Vigilance's cap bevel, 5.5 tall, where the unbounded rule held a body; MP73's rim `g5788`, 1.5; MP72's Charlie lip, 1.8
- * -- is walked over, and MP7's `g537` (8.7-10.3) is still refused. The measure is the polygon's own height, the port's
- * choice (the face's top over the feet is the alternative a capture may pick; research 217 section 2.7). Measured: the
- * 22-map ledge sweep's stuck walks unchanged (145), its walks stopped short of the edge 335 -> 325 (ten freed: MP73
- * nine, its rim among them; MP61 one), none newly pinned. LATER 590 stays open for the source-faithful removal.
- */
-export const STEEP_RISE_FACE_MIN_READING = SEAL_TUNING.stepHeight;
-
-/**
  * r0004's near-vertical floor push [reading] (OT.R97; research 217 section 2.8). r0004's twin of `FUN_0054f330` (r4
  * 0x554180-0x554354) adds, for a standing or crouched body on a floor that slides (steeper than `max_slope`, its extent
  * read, `SLIDE_SPAN_MIN` or more tall): when the slide has not started (`+0x1340` 0, r4 0x554248-0x554258), the floor's
@@ -597,12 +586,6 @@ export const STEEP_RISE_FACE_MIN_READING = SEAL_TUNING.stepHeight;
  * speed, about 0.001 a tick, into whatever lies off the face's foot (MP51-FLOOR-TRAP: a hole, so it never moved).
  */
 export const STEEP_FLOOR_CONTACT_READING = { normalY: 0.1, distance: 6, gain: 0.7 } as const;
-/** The vertical extent of a floor polygon: the face the steep-rise bound measures. */
-function faceHeight(points: ArrayLike<number>): number {
-  let lo = Infinity, hi = -Infinity;
-  for (let i = 1; i < points.length; i += 3) { const y = points[i]!; if (y < lo) lo = y; if (y > hi) hi = y; }
-  return hi - lo;
-}
 
 /**
  * `FUN_00586c10`'s snap on one axis (decomp 445037-445050): last tick's value past `at` (0.78 lateral, 0.9 forward) and
@@ -4125,6 +4108,8 @@ export class Walker {
    * velocity straight from it -- the lateral axis times the side sets' top speed, the forward times the forward set's
    * or, backing up, the back set's (`FUN_0058bb50` / `FUN_0058bc00` by stance: `airBands`), no blend and no
    * renormalisation (`DAT_0064fc80` is 1 here). At rest, the clip's root motion: `seal_jump`'s root does not travel.
+   * OT.R108 (the owner, 2026-11-06): this air control is kept -- r0004's standing jump drives the forward axis alone
+   * (R4B-12, r4 0x57fcb8-0x57fd54; research 385 s2), a reading the port knowingly does not apply.
    */
   private jumpControl(forward: number, right: number, dt: number): { forward: number; right: number } {
     const s = this.state;
@@ -4855,7 +4840,9 @@ export class Walker {
    * the feet + 6.5 (`wallProbeHeights`) and `crosses` stand for, so a face taller than 6.5 stops the body, and a floor
    * over 6.5 with no face in the way (a stair's side edge) is stepped onto when no floor lies at or under the feet + 6.5
    * at the new point (else the pick is that floor, as before). A climb onto a floor
-   * steeper than `max_slope` is refused on a face at least `STEEP_RISE_FACE_MIN_READING` tall (LATER 590, interim); one more than `ground_touch_distance` under the feet takes the step and leaves
+   * steeper than `max_slope` is not refused (LATER 590, closed: the walk compares no rise, `FUN_005b5d40`
+   * D:L470163-470290; a steep face stops the body where the segments at `step_height` meet it, `resolveSegments`); one
+   * more than `ground_touch_distance` under the feet takes the step and leaves
    * the mover in the air. A refused step is tried again as its part along x and its part along z, so a mover pressed diagonally
    * against an edge runs along it rather than stopping dead; with no floor for either, it stays where it was.
    */
@@ -4877,8 +4864,8 @@ export class Walker {
       if (this.groundEndpoint(x, z)) return;
     }
     // HOTFIX BRIDGE-WEDGE: nothing taken, and every try refused by the crossing guard -- wedged, put out. A floor refusal
-    // (no floor, a steep rise) is the walk's own and never asks the push-out (the review of 20c326dfb: healthy bodies on
-    // MP6's and MP9's steep ground were moved).
+    // (no floor; a steep rise was one until LATER 590) is the walk's own and never asks the push-out (the review of
+    // 20c326dfb: healthy bodies on MP6's and MP9's steep ground were moved).
     if (tried > 0 && crossed === tried) this.unwedge();
   }
 
@@ -4886,8 +4873,6 @@ export class Walker {
     const s = this.state, floor = selectFloor(probeGround(this.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y);
     if (!floor) return false;
     const rise = floor.y - s.y;
-    // LATER 590 (interim, the owner's ruling): a steep rise is refused only on a face `step_height` tall or more.
-    if (rise > 0 && floor.normal[1] < MAX_SLOPE_COS && faceHeight(floor.poly.points) >= STEEP_RISE_FACE_MIN_READING) return false;
     s.x = x; s.z = z;
     if (rise < -SEAL_TUNING.groundTouchDistance) {
       this.takeOff(); this.start('fall', null);

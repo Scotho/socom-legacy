@@ -153,13 +153,24 @@ describe('steep-ground slide (research 201 §3, §27.3)', () => {
     // FUN_005483d0 zeroes the speed when the resolved y is in [0, 0.01), so it does not keep climbing.
     expect(s.walker.slideSpeed).toBe(0);
     const yStopped = s.walker.state.y;
-    for (let i = 0; i < 60; i++) s.walker.tick({ forward: 1, right: 0, boost: false });
-    // It does not climb: neither x nor y rises. (SEGMENT-BODY: the first uphill tick lets the slide take one more step
-    // down, -0.0099 in x and -0.017 in y, still 9.435 off the wall; then nothing moves. Was: equal to 4 digits.)
-    expect(s.walker.state.x).toBeLessThanOrEqual(stopped + 1e-4);
-    expect(s.walker.state.y).toBeLessThanOrEqual(yStopped + 1e-4);
-    expect(s.walker.state.x - wallX).toBeGreaterThan(9.43);
+    // LATER 590 (closed 2026-11-05): the swap is asked at the stop, the slide speed 0 (`FUN_005b4340` code 4 refuses it
+    // over 0.001). Was asked after the uphill press below, when the steep-rise refusal (W2.2b, no source) held the body.
     expect(s.walker.swapWeapon('pistol')).not.toBeNull();
+    for (let i = 0; i < 120 && (s.walker as unknown as { action_: unknown }).action_ !== null; i++) s.walker.tick(still);
+    expect((s.walker as unknown as { action_: unknown }).action_, 'the swap played out').toBeNull();
+    let maxX = s.walker.state.x, maxY = s.walker.state.y;
+    for (let i = 0; i < 60; i++) {
+      s.walker.tick({ forward: 1, right: 0, boost: false });
+      maxX = Math.max(maxX, s.walker.state.x); maxY = Math.max(maxY, s.walker.state.y);
+    }
+    // It does not climb. LATER 590: the walk compares no rise (`FUN_005b5d40` D:L470163-470290) and this slope is ditype 1,
+    // which the segments do not test, so each uphill step is taken and the slide starts from its velocity's part along the
+    // fall line and brings it back (`FUN_0054edf0`, research 201 s3): the body treads in place, measured at most 0.132 up
+    // the slope in x and 0.228 in y over the stop, never nearer the wall. (Was: neither x nor y rose, to 1e-4, under the
+    // refusal; SEGMENT-BODY's first uphill tick let the slide take one more step down, -0.0099 in x and -0.017 in y.)
+    expect(maxX).toBeLessThanOrEqual(stopped + 0.15);
+    expect(maxY).toBeLessThanOrEqual(yStopped + 0.25);
+    expect(s.walker.state.x - wallX).toBeGreaterThan(9.43);
   });
 
   it('LATER 676 (JUMP_SPEED_SLIDE_READING): a body sliding over 15 with the stick idle is refused the jump by the slope first', () => {

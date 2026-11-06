@@ -3,16 +3,17 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Rgba } from '@s2u/gs';
-import type { UiDrawItem } from '@s2u/ui';
+import type { UiDrawItem, UiModelTriangle } from '@s2u/ui';
 import { rasterizeUiDrawList } from '../src/uiCompositorView';
 import { UI_GPU_BASE_STEPS, GpuUiPresenter, divideTransparentFrame, uiGpuFrameFallbackOptions, upscaleFrameNearest } from '../src/uiGpuPresenter';
 import { UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION, UI_GPU_TIMER_PENDING_ADAPTATION, UiGpuBackend, createUiGpuBackend } from '../src/uiGpuWebgl2';
 import { clearBytes } from '../src/uiRasterRules';
 import { executeFramePlanOnTwin } from '../src/uiGpuTwin';
-import { UI_GPU_FRAME_FALLBACK_SCALE_ADAPTATION, planFrame } from '../src/uiFramePlan';
+import { UI_GPU_FRAME_FALLBACK_SCALE_ADAPTATION, planFrame, type UiFramePlan } from '../src/uiFramePlan';
 import { GL, fakeGl, type Fake } from './uiGpuFakeGl';
 import {
-  UI_RASTER_CASES, UI_RASTER_CASE_MODES, UI_RASTER_CASE_SCALES, UI_RASTER_PREDIVIDE_CASES, caseRasterInputs, caseRunKey,
+  UI_RASTER_CASES, UI_RASTER_CASE_MODES, UI_RASTER_CASE_SCALES, UI_RASTER_PREDIVIDE_CASES, UI_SEAM_CLEAR, UI_SEAM_TEXEL, caseRasterInputs, caseRunKey,
+  seamPixels, seamSquares, solid,
 } from './uiRasterCases';
 
 // GM-11a-1 (plan 2026-11-01-gpu-menus; research 380 P15, "Frame conventions"): the WebGL2 base -- the context, the frame
@@ -606,5 +607,96 @@ describe('GM-11a-3: the timer survives a draw that throws', () => {
     expect(f.activeQuery()).toBeNull();
     b.draw(bad);
     expect(f.queries.length).toBe(2);
+  });
+});
+
+// ---- GM-15b: the models pass's edges on the fake GL (the GM-15 row's 15b; research 380 M2, M3, M5) ----------------------
+
+describe('GM-15b: the models pass\'s edges on the fake GL -- seams and ties drawn as the software draws them; what the plan refuses is L1, named', () => {
+  type Q4 = [number, number, number, number];
+  const DYADIC = [0.5, 0.75, 1, 1.5, 2, 0.375];
+  const ONCE = UI_SEAM_CLEAR + UI_SEAM_TEXEL;
+  const depthOf = (f: Fake) => f.framebuffers.find((fb) => !fb.deleted && fb.depth)!.depth!;
+  /** The corner triangle (0,0), (0,16), (16,0), every vertex at one invW, u, v and colour; textured by `a.tif` when asked. */
+  const corner = (invW: number, rgba: Q4, texture: string | null = null, u = 0, v = 0): UiModelTriangle => {
+    const vx = (x: number, y: number) => ({ x, y, invW, u, v, rgba });
+    return { node: 'n', texture, cull: false, a: vx(0, 0), b: vx(0, 16), c: vx(16, 0) };
+  };
+  const RED: Q4 = [128, 0, 0, 128], GREEN: Q4 = [0, 128, 0, 128], GREY: Q4 = [128, 128, 128, 128];
+  const tex = solid(4, 4, [50, 60, 70, 255]);
+  const list = (...triangles: UiModelTriangle[]): UiDrawItem[] => [clearItem([0, 0, 0]), { kind: 'models', triangles }];
+
+  it('a seam at dyadic depths: drawn, the frame the twin\'s and the software\'s, every seam pixel once, its depth invW x depthScale, at 1, 2 and 4', () => {
+    const { items, textures, squares } = seamSquares(Array.from({ length: 24 }, (_, k) => DYADIC[k % DYADIC.length]!));
+    for (const scale of UI_RASTER_CASE_SCALES) {
+      const p = planFrame(items, textures, { scale, blend: 'ff' }), f = fakeGl(), b = backendOn(f);
+      expect(p.passes.map((x) => x.depthScale), `${scale}x`).toEqual([0.25]);   // the largest invW 2, to 1/2
+      expect(b.refusal(p), `${scale}x`).toBeNull();
+      b.draw(p);
+      const got = b.readPixels(), want = rasterizeUiDrawList(items, textures, { scale }).frame;
+      expect(diff(got.data, executeFramePlanOnTwin(p, { divide: false }).frame.data), `${scale}x: the twin`).toBe(0);
+      expect(diff(got.data, want.data), `${scale}x: the software`).toBe(0);
+      const depth = depthOf(f);
+      let notOnce = 0, depthOff = 0;
+      for (const sq of squares) for (const [x, y] of seamPixels(sq, scale)) {
+        const o = (y * got.width + x) * 4;
+        if (got.data[o] !== ONCE || got.data[o + 1] !== ONCE || got.data[o + 2] !== ONCE) notOnce++;
+        if (depth.data![y * depth.w + x] !== sq.invW * 0.25) depthOff++;
+      }
+      expect(notOnce, `${scale}x: seam pixels not drawn once`).toBe(0);
+      expect(depthOff, `${scale}x: seam depths not invW x 1/4`).toBe(0);
+    }
+  });
+
+  it('a tie (case 3): the first triangle\'s colour and depth on every pixel the two share (strict GREATER, UI_MODEL_DEPTH_FORMAT_READING), the software\'s bytes, at 1, 2 and 4', () => {
+    const c = UI_RASTER_CASES.find((x) => x.key === '3')!;
+    for (const scale of UI_RASTER_CASE_SCALES) {
+      const { items, textures, options } = caseRasterInputs(c, scale, 'opaque');
+      const p = planFrame(items, textures, { scale, blend: 'ff' }), f = fakeGl(), b = backendOn(f);
+      b.draw(p);
+      const got = b.readPixels();
+      expect(diff(got.data, rasterizeUiDrawList(items, textures, options).frame.data), `${scale}x`).toBe(0);
+      for (const [x, y] of [[1, 1], [7, 7], [0, 15]] as const) {
+        const o = (y * scale * got.width + x * scale) * 4;
+        expect([...got.data.subarray(o, o + 4)], `${scale}x (${x}, ${y})`).toEqual([128, 0, 0, 255]);
+        expect(depthOf(f).data![y * scale * got.width + x * scale], `${scale}x (${x}, ${y})`).toBe(0.5);   // invW 1, depthScale 1/2
+      }
+    }
+  });
+
+  it('the passes the plan refuses -- a depth under UI_GPU_MODEL_DEPTH_FLOOR (0, subnormal, after the scale), a texel past UI_GPU_MODEL_TEXEL_RANGE -- are L1, named, the frame the software\'s, no model drawn', () => {
+    const rows: [string, UiDrawItem[], RegExp][] = [
+      ['invW 1e-46 (f32 0)', list(corner(1e-46, RED), corner(1e-47, GREEN)), /UI_GPU_MODEL_DEPTH_FLOOR/],
+      ['invW 1e-40 (f32 subnormal)', list(corner(1e-40, RED), corner(1e-41, GREEN)), /UI_GPU_MODEL_DEPTH_FLOOR/],
+      ['invW 2^-100 beside invW 1 (2^-101 after the scale)', list(corner(1, RED), corner(2 ** -100, GREEN)), /UI_GPU_MODEL_DEPTH_FLOOR/],
+      ['u W = 2^30', list(corner(1, GREY, 'a.tif', 2 ** 28)), /UI_GPU_MODEL_TEXEL_RANGE/],
+      ['(1 - v) H = -2^31', list(corner(1, GREY, 'a.tif', 0, 1 + 2 ** 29)), /UI_GPU_MODEL_TEXEL_RANGE/],
+    ];
+    for (const [what, items, re] of rows) {
+      const f = fakeGl(), pr = new GpuUiPresenter(backendOn(f));
+      pr.present(items, () => tex, {});
+      expect(pr.last!.path, what).toBe('software');
+      expect(pr.last!.why.join(' '), what).toMatch(re);
+      expect(diff(pr.readFrame()!.data, rasterizeUiDrawList(items, () => tex).frame.data), what).toBe(0);
+      expect(f.draws.filter((d) => d.program.startsWith('model-')), what).toEqual([]);
+    }
+    // Their neighbours inside the range are drawn on the GPU.
+    for (const items of [list(corner(1, RED), corner(2 ** -99, GREEN)), list(corner(1, GREY, 'a.tif', (2 ** 30 - 1) / 4))]) {
+      const pr = new GpuUiPresenter(backendOn(fakeGl()));
+      pr.present(items, () => tex, {});
+      expect(pr.last!.path).toBe('gpu');
+    }
+  });
+
+  it('were such a plan drawn, the fake GL throws where a GPU is undefined or flushes: T8\'s int conversion past the int range, a depth under f32\'s normal range', () => {
+    const forced = (p: UiFramePlan): UiFramePlan => ({ ...p, verdict: 'gpu', why: [] });
+    const texel = planFrame(list(corner(1, GREY, 'a.tif', 2 ** 29)), () => tex, {});
+    expect(texel.verdict).toBe('software');
+    expect(() => backendOn(fakeGl()).draw(forced(texel))).toThrow(/T8/);
+    const zero = planFrame(list(corner(1e-46, RED)), () => null, {});
+    expect(zero.verdict).toBe('software');
+    expect(() => backendOn(fakeGl()).draw(forced(zero))).toThrow(/depth/);
+    const subnormal = planFrame(list(corner(1e-40, RED)), () => null, {});
+    expect(() => backendOn(fakeGl()).draw(forced(subnormal))).toThrow(/depth/);
   });
 });

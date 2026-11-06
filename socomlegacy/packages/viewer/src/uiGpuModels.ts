@@ -18,7 +18,10 @@ import type { UiGpuModelProgram } from './uiGpuShaders';
  * each `pass` (the software's "empty"), tested `GREATER` (strictly greater: an equal depth fails, the first drawn wins),
  * written where the test passes; `gl_FragDepth = clamp(invW * depthScale, 0, 1)` with the pass's power-of-two
  * `depthScale` (`UiPlanPass.depthScale`): a GM.R10 design choice that decides no byte -- a power of two scales an f32
- * exactly unless it underflows, which GM-15b guards -- so it is no adaptation constant (research 380 §5 says so).
+ * exactly unless it underflows -- so it is no adaptation constant (research 380 §5 says so). GM-15b: the scale brings
+ * every vertex to at most 1/2, so no depth reaches the clamp at 1, and the plan refuses (L1, named) a pass with a depth
+ * under `UI_GPU_MODEL_DEPTH_FLOOR` (a 0 or a subnormal the GPU may flush) and a textured triangle past
+ * `UI_GPU_MODEL_TEXEL_RANGE` (T8's int range): the clamp at 0 never acts either.
  * The strict test is the software's named reading, `UI_MODEL_DEPTH_FORMAT_READING` (`uiRasterRules.ts`:165-174;
  * research 380 :136, :348), not the original's rule: the bind packets' `TEST_1` is ZTE 1, ZTST GEQUAL (research 185
  * §3.1, pending review), under which the later of two equal depths wins a tie, where the strict `>` keeps the first.

@@ -1805,9 +1805,13 @@ function makeTexture(rgba: Rgba): DataTexture {
 }
 
 /** One batch per layer and bitmap: a dynamic quad list drawn in one call. */
-interface Batch { mesh: Mesh; geometry: BufferGeometry; capacity: number; size: { width: number; height: number } }
-/** One layer's untextured triangles. */
-interface Shapes { mesh: Mesh; geometry: BufferGeometry; capacity: number }
+/**
+ * `sent`: the geometry's attributes have been flagged for upload once; `count`: the quads (triangles) last written. CPS
+ * (plan 2026-11-02; product track, the same picture): a frame flags its attributes only when what it wrote changed them.
+ */
+interface Batch { mesh: Mesh; geometry: BufferGeometry; capacity: number; size: { width: number; height: number }; sent: boolean; count: number }
+/** One layer's untextured triangles (`sent`, `count` as `Batch`'s). */
+interface Shapes { mesh: Mesh; geometry: BufferGeometry; capacity: number; sent: boolean; count: number }
 /** The layers the pass draws, in order: the in-round HUD, the tactical map. */
 export const HUD_LAYERS = 2;
 
@@ -2504,16 +2508,24 @@ export class Hud {
       shapes.geometry.dispose();
       shapes.geometry = geometry;
       shapes.capacity = capacity;
+      shapes.sent = false;
     }
     const pos = shapes.geometry.getAttribute('position') as BufferAttribute;
     const col = shapes.geometry.getAttribute('color') as BufferAttribute;
+    const P = pos.array as Float32Array, C = col.array as Float32Array;
+    // CPS: written as before, each slot through `put`; flagged only on a change, a new count or a fresh geometry.
+    let changed = !shapes.sent || shapes.count !== tris.length;
     tris.forEach((t, i) => {
       for (let k = 0; k < 3; k++) {
-        pos.setXYZ(i * 3 + k, t.p[k * 2]!, t.p[k * 2 + 1]!, 0);
-        col.setXYZW(i * 3 + k, t.rgba[0], t.rgba[1], t.rgba[2], t.rgba[3]);
+        const n = i * 3 + k;
+        if (put(P, n * 3, t.p[k * 2]!)) changed = true;
+        if (put(P, n * 3 + 1, t.p[k * 2 + 1]!)) changed = true;
+        if (put(P, n * 3 + 2, 0)) changed = true;
+        for (let j = 0; j < 4; j++) if (put(C, n * 4 + j, t.rgba[j]!)) changed = true;
       }
     });
-    pos.needsUpdate = true; col.needsUpdate = true;
+    if (changed) { pos.needsUpdate = true; col.needsUpdate = true; shapes.sent = true; }
+    shapes.count = tris.length;
     shapes.geometry.setDrawRange(0, tris.length * 3);
     shapes.mesh.visible = tris.length > 0;
   }
@@ -2537,7 +2549,7 @@ export class Hud {
     mesh.renderOrder = order;
     mesh.visible = false;
     this.scene.add(mesh);
-    this.shapes.push({ mesh, geometry, capacity });
+    this.shapes.push({ mesh, geometry, capacity, sent: false, count: 0 });
   }
 
   private fill(batch: Batch, quads: HudQuad[], half: number): void {
@@ -2545,7 +2557,10 @@ export class Hud {
     const pos = batch.geometry.getAttribute('position') as BufferAttribute;
     const tex = batch.geometry.getAttribute('uv') as BufferAttribute;
     const col = batch.geometry.getAttribute('color') as BufferAttribute;
+    const P = pos.array as Float32Array, T = tex.array as Float32Array, C = col.array as Float32Array;
     const { width, height } = batch.size;
+    // CPS: written as before, each slot through `put`; flagged only on a change, a new count or a fresh geometry.
+    let changed = !batch.sent || batch.count !== quads.length;
     quads.forEach((q, i) => {
       if (this.sampling.settings.enabled && this.sampling.settings.mode === 'integer' && q.texture !== WHITE) {
         const sourceW = Math.abs(q.u1-q.u0), sourceH = Math.abs(q.v1-q.v0);
@@ -2565,14 +2580,21 @@ export class Hud {
         [-0.5, -0.5, q.u0, q.v0], [0.5, -0.5, q.u1, q.v0], [0.5, 0.5, q.u1, q.v1], [-0.5, 0.5, q.u0, q.v1],
       ];
       corners.forEach(([cx, cy, u, v], k) => {
-        const lx = cx * q.w, ly = cy * q.h;
+        const lx = cx * q.w, ly = cy * q.h, n = i * 4 + k;
         // A clockwise turn on a y-down screen: the game's own (x cos - y sin, x sin + y cos), `FUN_00358730`.
-        pos.setXYZ(i * 4 + k, q.x + lx * c - ly * sn, q.y + lx * sn + ly * c, 0);
-        tex.setXY(i * 4 + k, (u + du) / width, (v + dv) / height);
-        col.setXYZW(i * 4 + k, q.rgba[0], q.rgba[1], q.rgba[2], cx > 0 ? q.alphaRight ?? q.rgba[3] : q.rgba[3]);
+        if (put(P, n * 3, q.x + lx * c - ly * sn)) changed = true;
+        if (put(P, n * 3 + 1, q.y + lx * sn + ly * c)) changed = true;
+        if (put(P, n * 3 + 2, 0)) changed = true;
+        if (put(T, n * 2, (u + du) / width)) changed = true;
+        if (put(T, n * 2 + 1, (v + dv) / height)) changed = true;
+        if (put(C, n * 4, q.rgba[0])) changed = true;
+        if (put(C, n * 4 + 1, q.rgba[1])) changed = true;
+        if (put(C, n * 4 + 2, q.rgba[2])) changed = true;
+        if (put(C, n * 4 + 3, cx > 0 ? q.alphaRight ?? q.rgba[3] : q.rgba[3])) changed = true;
       });
     });
-    pos.needsUpdate = true; tex.needsUpdate = true; col.needsUpdate = true;
+    if (changed) { pos.needsUpdate = true; tex.needsUpdate = true; col.needsUpdate = true; batch.sent = true; }
+    batch.count = quads.length;
     batch.geometry.setDrawRange(0, quads.length * 6);
     batch.mesh.visible = quads.length > 0;
   }
@@ -2584,6 +2606,7 @@ export class Hud {
     batch.geometry.dispose();
     batch.geometry = geometry;
     batch.capacity = capacity;
+    batch.sent = false;
   }
 
   private addBatch(layer: number, name: string, order: number): void {
@@ -2608,7 +2631,7 @@ export class Hud {
     mesh.renderOrder = order;
     mesh.visible = false;
     this.scene.add(mesh);
-    this.batches.set(`${layer}:${name}`, { mesh, geometry, capacity, size });
+    this.batches.set(`${layer}:${name}`, { mesh, geometry, capacity, size, sent: false, count: 0 });
   }
 
   /** ONL-18c: the HUD's textures, materials and buffers freed (the front end's match lets its HUD go at the match's end). */
@@ -2622,6 +2645,18 @@ export class Hud {
     this.batches.clear(); this.later.clear(); this.shapes = []; this.maps.clear();
     this.materials = []; this.textures = [];
   }
+}
+
+/**
+ * CPS (plan 2026-11-02; product track, the same picture): stores `v` at `a[j]` and says whether the slot's bytes changed
+ * -- the float32 the store rounds `v` to (`Math.fround`, the typed array's own conversion) against the slot's, a zero's
+ * sign told apart; a NaN always counts as a change.
+ */
+function put(a: Float32Array, j: number, v: number): boolean {
+  const f = Math.fround(v), old = a[j]!;
+  if (old === f && (f !== 0 || 1 / old === 1 / f)) return false;
+  a[j] = f;
+  return true;
 }
 
 /** `capacity` triangles' worth of vertices, unindexed. */

@@ -7,7 +7,7 @@ import {
   cameraLook, centreClaim, encodeCommands, EYE_HEIGHT, faceToward, groundGrid, launcherRaiseSeconds, packGround, PROTOCOL_VERSION, TICK_HZ,
   type Command, type ServerEvent, type SimKits, type SimMap,
 } from '../../viewer/src/sim';
-import { applyHit, freshHealth, quantiseHit } from '../../viewer/src/net/damage';
+import { applyHit, freshHealth } from '../../viewer/src/net/damage';
 import { VOICE_GATE_S } from '../../viewer/src/net/deaths';
 import { ffRefuses, Room, type Conn } from '../src/room';
 import type { RoomRuleHost, RuleRoom } from '../src/creator/rules';
@@ -18,9 +18,10 @@ import { fixture } from '../../archive/test/fixtures';
 
 /**
  * PF-22 (web sprint 28; research 219 s1, 179 s8.2-s8.3, 192 G12, 181 s2.3): damage as the victim's console applies it.
- * A bullet's, a volley's pellets' and a launched round's direct hit are the hit packet's integer (`FUN_002bd220`
+ * A bullet's and a launched round's direct hit are the hit packet's integer (`FUN_002bd220`
  * D:L161655-161672: `(int)` clamped [0, 255]); a blast's fragments and a fall are applied from the victim's own copy,
- * float (`FUN_005a0e70`, `FUN_005ac1f0`). One friendly-fire predicate (`ffRefuses`) transcribes `CZSealBody::OnWeaponHit`
+ * float (`FUN_005a0e70`, `FUN_005ac1f0`); shotgun pellets use raw ammo floats (`FUN_005a1b80`, research 94 C2.1).
+ * One friendly-fire predicate (`ffRefuses`) transcribes `CZSealBody::OnWeaponHit`
  * (`FUN_005ac670` 0x5ac670, by disassembly): the owner's team read live at the hit, a departed owner's hit landing, a
  * spectator taking nothing, the backblast never hurting its firer or his side. On a synthetic floor and a hand-built
  * kit table, as `roomEquipment.test.ts`.
@@ -44,8 +45,8 @@ function map(): SimMap {
 
 const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
 const rec = (over: Partial<WeaponRecord>): WeaponRecord => ({ ...DEFAULT_RIFLE, fireModes: [1], maxFireMode: 1, ...over });
-/** An 870 whose pellet is 2.45 x 14 = 34.3 (the room's 'scaled' pellet: `pelletDamage`), four rays a shell. */
-const SHOTGUN = rec({ name: '870', id: 84, fireWait: 0.75, magazine: 8, mags: 5, reloadAfterShot: true, reloadDelay: 1, pellets: 4, impactDamage: 2.45, damageModifier: 0, effectiveRange: 41, maximumRange: 84, piercing: 6 });
+/** Synthetic fractional ammo (2.45) detects accidental per-pellet scaling or packet quantisation; four rays a shell. */
+const SHOTGUN = rec({ name: '870', id: 84, fireWait: 0.75, magazine: 8, mags: 5, reloadAfterShot: true, reloadDelay: 1, pellets: 4, impactDamage: 2.45, damageModifier: 0, effectiveRange: 41, maximumRange: 84, piercing: 6.03 });
 const round = (over: Partial<ThrowableRecord>): ThrowableRecord => ({ ...M67, ...over });
 /** A LAW HEAT whose direct hit is 1.85 x 14 = 25.9 (not a kill), armed at 100 u (so a body at 60 is a dud's hit, no blast). */
 const HEAT = round({ name: 'LAW HEAT', id: 185, muzzleVelocity: 200, acceleration: 980, armingDistance: 100, impact: true, hasBackblast: true, fuse: 20, removal: 20.1, capacity: 1, explosionDamage: 20, explosionRadius: 150, impactDamage: 1.85, damageModifier: 0, effectiveRange: 3500, maximumRange: 100000 });
@@ -71,6 +72,7 @@ function kits(terrorist: Loadout, seal: Loadout): SimKits {
 }
 
 class Client implements Conn {
+  constructor(readonly cpu?: true) {}
   readonly events: ServerEvent[] = [];
   send(frame: Uint8Array | string): void { if (typeof frame === 'string') this.events.push(JSON.parse(frame) as ServerEvent); }
   close(): void { /* not used */ }
@@ -84,12 +86,12 @@ const tok = (tab: number): string => `tab${tab}`.padEnd(22, '_');
  * Players 1 (T), 2 (S), 3 (S), 4 (T) -- the join rule -- at `at[i]` (feet on the floor), each side's kit; the combat
  * report on (it changes nothing the room does) so the applied damage can be read.
  */
-function setup(at: readonly V3[], opts: { allowFriendlyFire?: boolean; deathlessSeat?: string; ruleHost?: RoomRuleHost } = {}, terrorist: Loadout = KIT, seal: Loadout = KIT) {
+function setup(at: readonly V3[], opts: { allowFriendlyFire?: boolean; random?: () => number; deathlessSeat?: string; ruleHost?: RoomRuleHost } = {}, terrorist: Loadout = KIT, seal: Loadout = KIT, cpu = false) {
   let seed = 1;
   const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const room = new Room(map(), null, { now: () => 0, random, combatReport: true, ...opts }, null, kits(terrorist, seal));
   const cs = at.map((_, i) => {
-    const c = new Client();
+    const c = new Client(cpu && i === 0 ? true : undefined);
     room.hello(i + 1, c, { type: 'hello', version: PROTOCOL_VERSION, name: `P${i + 1}`, map: 'MP99', session: tok(i + 1) }, `10.0.0.${i + 1}`);
     return c;
   });
@@ -149,7 +151,34 @@ const sum = (xs: readonly number[]): number => xs.reduce((n, x) => n + x, 0);
 type Side = { readonly team: 'seal' | 'terrorist' };
 
 describe('PF-22: damage as the victim\'s console applies it (research 219 s1)', () => {
-  it('the room applies integer damage to bullets, volleys and launched-round direct hits; a blast\'s fragments and a fall stay float (FUN_005a5a80 D:L461619-461629; FUN_005a0e70, FUN_005ac1f0)', () => {
+  it('preserves raw ammo piercing as well as damage for a shotgun receiver', () => {
+    const s = setup([[0, 0, 0], [200, 0, 0]], { random: () => 0.4 }, kit(84, 15, 255, 255, 255));
+    s.room.player(2)!.health.armour[PART.BODY] = 5;
+    s.face(1, [200, 12, 0]); s.shoot(1, [200, 12, 0], 4);
+    expect(s.applied(s.c[0]!, 'fire')[0]!.hitLocations).toEqual([{ part: PART.BODY, rawDamage: 2.45 }]);
+    expect(s.room.player(2)!.health.hp[PART.BODY]).toBeCloseTo(50 - (2.45 - 5 * (10 - 6.03) / 10), 10);
+  });
+
+  it.each([false, true])('a human survives a 20 m shotgun head pellet and four rays count once (CPU shooter: %s)', (cpu) => {
+    const s = setup([[0, 0, 0], [200, 0, 0]], { random: () => 0.2 }, kit(84, 15, 255, 255, 255), KIT, cpu);
+    s.face(1, [200, 12, 0]); s.shoot(1, [200, 12, 0], 4);
+    const hits = s.applied(s.c[0]!, 'fire');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.hitLocations).toEqual([{ part: PART.HEAD, rawDamage: 2.45 }]);
+    expect(s.room.player(2)!.health.hp[PART.HEAD]).toBeCloseTo(5.55, 10);
+    expect(s.room.player(2)!.alive).toBe(true);
+  });
+
+  it.each([false, true])('a close shell still kills when four pellets hit a human head (CPU shooter: %s)', (cpu) => {
+    const s = setup([[0, 0, 0], [50, 0, 0]], { random: () => 0.2 }, kit(84, 15, 255, 255, 255), KIT, cpu);
+    s.face(1, [50, 12, 0]); s.shoot(1, [50, 12, 0], 4);
+    const hits = s.applied(s.c[0]!, 'fire');
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.hitLocations).toEqual(Array.from({ length: 4 }, () => ({ part: PART.HEAD, rawDamage: 2.45 })));
+    expect(s.room.player(2)!.alive).toBe(false);
+  });
+
+  it('the room applies integer damage to bullets and launched-round direct hits; shotgun pellets, blast fragments and falls stay float', () => {
     // A bullet: the M4A1's 36.4 at 100 u arrives as the byte 36.
     {
       const s = setup([[0, 0, 0], [100, 0, 0]]);
@@ -162,14 +191,14 @@ describe('PF-22: damage as the victim\'s console applies it (research 219 s1)', 
       expect(s.room.player(2)!.health.hp).toEqual(want.hp);
       expect(s.room.player(2)!.health.armour).toEqual(want.armour);
     }
-    // A volley: each pellet's 34.3 is 34.
+    // A volley: the receiver reads raw ammo 2.45, not scaled 34.3 or an integer byte.
     {
       const s = setup([[0, 0, 0], [100, 0, 0]], {}, kit(84, 15, 255, 255, 255));
       s.face(1, [100, 12, 0]); s.shoot(1, [100, 12, 0], 4);
       const [hit] = s.applied(s.c[0]!, 'fire');
       expect(hit).toBeDefined();
       expect(hit!.hitLocations!.length).toBeGreaterThan(0);
-      expect(hit!.hitLocations!.every((h) => h.rawDamage === 34)).toBe(true);
+      expect(hit!.hitLocations!.every((h) => h.rawDamage === 2.45)).toBe(true);
     }
     // A launched round's direct hit: 1.85 x 14 = 25.9 is 25.
     {
@@ -474,8 +503,10 @@ describe('CPS cell-alive: the deathless seat (RoomOptions.deathlessSeat)', () =>
 
   // the batch-3 review (part B), F4: a copy per fragment let every one of a shell's pellets land on the deathless seat
   it("a shotgun shell: the deathless seat's pellets stop at the lethal one, as a mortal seat's do; the default path applies them as before", () => {
+    // 50 u at the draw 0.2 (the close-shell case above): four pellets, each to the head, each the raw 2.45 at the raw
+    // piercing (research 94 C2.1); the head's 8 holds three (0.65 left) and the fourth is lethal
     const shell = (opts: { deathlessSeat?: string }) => {
-      const s = setup([[0, 0, 0], [50, 0, 0]], opts, kit(84, 15, 255, 255, 255));   // 50 u: 9-15 pellets of 34
+      const s = setup([[0, 0, 0], [50, 0, 0]], { random: () => 0.2, ...opts }, kit(84, 15, 255, 255, 255));
       s.face(1, [50, 12, 0]); s.shoot(1, [50, 12, 0], 4);
       const hits = s.applied(s.c[0]!, 'fire');
       expect(hits).toHaveLength(1);
@@ -485,11 +516,11 @@ describe('CPS cell-alive: the deathless seat (RoomOptions.deathlessSeat)', () =>
     expect(mortal.hit.killed).toBe(true);
     expect(mortal.s.room.player(2)!.alive).toBe(false);
     // the default path: the pellets laid one by one on the victim's own health, the last one lethal and none before it
-    const replay = freshHealth(), piercing = quantiseHit(34, SHOTGUN.piercing).piercing;
-    const deaths = mortal.hit.hitLocations!.map((h) => applyHit(replay, h.part, h.rawDamage, piercing));
-    expect(deaths.at(-1)).toBe(true);
-    expect(deaths.slice(0, -1).every((d) => !d)).toBe(true);
-    expect(mortal.hit.rawDamage).toBe(34 * mortal.hit.hitLocations!.length);
+    expect(mortal.hit.hitLocations).toEqual(Array.from({ length: 4 }, () => ({ part: PART.HEAD, rawDamage: 2.45 })));
+    const replay = freshHealth();
+    const deaths = mortal.hit.hitLocations!.map((h) => applyHit(replay, h.part, h.rawDamage, SHOTGUN.piercing));
+    expect(deaths).toEqual([false, false, false, true]);
+    expect(mortal.hit.rawDamage).toBe(2.45 * 4);
     // the deathless seat: the same pellets (the same draws), no more, unharmed and not killed
     const spared = shell({ deathlessSeat: 'P2' });
     expect(spared.hit.hitLocations).toEqual(mortal.hit.hitLocations);

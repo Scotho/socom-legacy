@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cutLine, DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, SCORE_LAYOUT, SCORE_TOP, scoreboardLayout } from '../src/scoreboard';
+import { cutLine, DEAD_DIM, DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, PING_NONE, pingCell, pingNameWidth, SCORE_LAYOUT, SCORE_TOP, scoreboardLayout } from '../src/scoreboard';
 import { layoutText, textWidth } from '../src/hudFont';
 import type { ScoreRowInfo } from '../src/scoreboard';
 import {
@@ -283,5 +283,105 @@ describe('scoreboardLayout with every player (research 91 §11, §18)', () => {
           }
         `);
     });
+  });
+});
+
+/**
+ * NCW-7 (a browser adaptation, the owner's word 2026-11-05 "build the scoreboard ping yeah"; plan
+ * `2026-11-05-netcode-wave.md`'s NCW-7 row): the original's board has no ping; the port adds a PING column one pitch
+ * left of KILLS, the three where the game puts them.
+ */
+describe('the PING column (NCW-7, a browser adaptation)', () => {
+  const row = (id: number, team: 'seal' | 'terrorist', score: number, over: Partial<ScoreRowInfo> = {}): ScoreRowInfo =>
+    ({ id, name: `P${id}`, team, kills: id, deaths: 1, score, alive: true, self: false, ...over });
+  const drawn = (quads: ReturnType<typeof scoreboardLayout>['quads'], line: string, x: number, y: number, scale = 0.8, centre = false) => {
+    const g = layoutText(line, centre ? x - textWidth(line, scale) / 2 : x, y, scale).glyphs;
+    const hit = g.map((h) => quads.find((q) => q.texture === 'font_text_01.tif' && q.rgba[0] !== 0
+      && Math.abs(q.x - (h.x + h.w / 2)) < 1e-6 && Math.abs(q.y - (h.y + h.h / 2)) < 1e-6 && q.u0 === h.u0));
+    return hit.every((q) => q) ? hit as typeof quads : [];
+  };
+  const base = (team: 0 | 1, i: number): number => SCORE_LAYOUT.teams[team]!.y + 38 + 16.8 * i;
+
+  it('centres PING on 388.5, one pitch (66.5) left of KILLS; KILLS, DEATH and SCORE stay on 455, 522, 588', () => {
+    expect(SCORE_LAYOUT.columns.map((c) => c.x)).toEqual([455, 522, 588]);
+    expect(SCORE_LAYOUT.ping.x).toBe(388.5);
+    expect(SCORE_LAYOUT.columns[0]!.x - SCORE_LAYOUT.ping.x).toBe((588 - 455) / 2);
+    expect([SCORE_LAYOUT.ping.x, ...SCORE_LAYOUT.columns.map((c) => c.x)]).toEqual([388.5, 455, 522, 588]);
+  });
+
+  it("draws the header on both teams in the three headers' font, scale, colour and alpha", () => {
+    const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(1, 'seal', 0)] }, SIZES);
+    for (const t of [0, 1] as const) {
+      const y = SCORE_LAYOUT.teams[t]!.y + 20;
+      const ping = drawn(quads, 'PING', 388.5, y, 1, true), kills = drawn(quads, 'KILLS', 455, y, 1, true);
+      expect(ping.length).toBe(4);
+      expect(kills.length).toBe(5);
+      for (const q of ping) expect(q.rgba).toEqual(kills[0]!.rgba);
+    }
+  });
+
+  it("draws a row's ping in whole ms on the column, in the row's colour; the local player's in yellow", () => {
+    const rows = [row(1, 'seal', 5, { ping: 87.4 }), row(2, 'seal', 9, { self: true, ping: 120 }), row(3, 'terrorist', 1, { ping: 999 })];
+    const { quads } = scoreboardLayout(PS2, { ...info, rows }, SIZES);
+    const self = drawn(quads, '120', 388.5, base(0, 0), 0.8, true);
+    expect(self.length).toBe(3);
+    for (const q of self) expect(q.rgba).toEqual([115 / 128, 115 / 128, 12 / 128, 110 / 128]);
+    const other = drawn(quads, '87', 388.5, base(0, 1), 0.8, true);
+    expect(other.length).toBe(2);
+    for (const q of other) expect(q.rgba).toEqual([115 / 128, 115 / 128, 115 / 128, 110 / 128]);
+    expect(drawn(quads, '999', 388.5, base(1, 0), 0.8, true).length).toBe(3);
+  });
+
+  it('draws "--" for a bot, for a seat with no reading yet (0) and for a row with none (an older room)', () => {
+    expect(PING_NONE).toBe('--');
+    expect([pingCell({ ping: 0 }), pingCell({}), pingCell({ ping: 40, bot: true }), pingCell({ ping: 40 })]).toEqual(['--', '--', '--', '40']);
+    const rows = [row(1, 'seal', 3, { ping: 0 }), row(2, 'seal', 2, { bot: true, ping: 0 }), row(3, 'seal', 1)];
+    const { quads } = scoreboardLayout(PS2, { ...info, rows }, SIZES);
+    for (let i = 0; i < 3; i++) expect(drawn(quads, '--', 388.5, base(0, i), 0.8, true).length).toBe(2);
+    expect(drawn(quads, '0', 388.5, base(0, 0), 0.8, true)).toHaveLength(0);
+  });
+
+  it("dims a dead row's ping with its name (DEAD_DIM)", () => {
+    const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(4, 'seal', 1, { alive: false, ping: 64 })] }, SIZES);
+    const dead = drawn(quads, '64', 388.5, base(0, 0), 0.8, true);
+    expect(dead.length).toBe(2);
+    for (const q of dead) {
+      expect(q.rgba[0]).toBeCloseTo((115 / 128) * DEAD_DIM, 6);
+      expect(q.rgba[3]).toBeCloseTo((110 / 128) * DEAD_DIM, 6);
+    }
+  });
+
+  it("cuts a name to end before the column, with the board's cutLine; a short name is whole", () => {
+    const half = Math.max(textWidth('PING', 1), textWidth('999', 0.8)) / 2;
+    expect(pingNameWidth()).toBeCloseTo(388.5 - half - SCORE_LAYOUT.ping.gap - 223, 9);
+    const wide = 'WWWWWWWWWWWWWWWW';
+    const cut = cutLine(wide, 0.8, pingNameWidth());
+    expect(cut.endsWith('-')).toBe(true);
+    expect(cut.length).toBeLessThan(wide.length);
+    const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(1, 'seal', 2, { name: wide, ping: 50 }), row(2, 'seal', 1, { name: 'Kilo', ping: 50 })] }, SIZES);
+    const name = drawn(quads, cut, 223, base(0, 0));
+    expect(name.length).toBe(cut.length);
+    expect(Math.max(...name.map((q) => q.x + q.w / 2))).toBeLessThan(388.5 - half);
+    expect(drawn(quads, wide, 223, base(0, 0))).toHaveLength(0);
+    expect(drawn(quads, 'Kilo', 223, base(0, 1)).length).toBe(4);
+  });
+
+  it("leaves the single-SEAL board with no room's rows the original's: no PING header", () => {
+    const { quads } = scoreboardLayout(PS2, info, SIZES);
+    expect(drawn(quads, 'PING', 388.5, SCORE_TOP + 20, 1, true)).toHaveLength(0);
+  });
+
+  it('the Modern presentation scales the column with the board (modernScoreboardFit), no new art', () => {
+    const rows = [row(1, 'seal', 5, { ping: 87 }), row(2, 'terrorist', 1, { alive: false, ping: 0 })];
+    for (const f of [{ width: 1920, height: 1080 }, { width: 1024, height: 768 }]) {
+      const s = f.height / 448, k = modernScoreboardFit(f, SIZES).scale, cx = f.width / 2, ty = (SCORE_TOP - MODERN_SCOREBOARD_LIFT) * s;
+      const p = scoreboardLayout(f, { ...info, rows }, SIZES), m = scoreboardLayout(f, { ...info, rows }, SIZES, MODERN_SCOREBOARD_LIFT, k);
+      expect(m.quads).toHaveLength(p.quads.length);
+      expect(new Set(m.quads.map((q) => q.texture))).toEqual(new Set(p.quads.map((q) => q.texture)));
+      m.quads.forEach((q, i) => {
+        expect(q.x).toBeCloseTo(cx + (p.quads[i]!.x - cx) * k, 6);
+        expect(q.y).toBeCloseTo(ty + (p.quads[i]!.y - SCORE_TOP * s) * k, 6);
+      });
+    }
   });
 });

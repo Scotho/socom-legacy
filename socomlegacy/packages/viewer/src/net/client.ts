@@ -3,7 +3,7 @@ import { shortTurn, wrapYaw } from '../yaw';
 import type { Knock } from './blast';
 import { LookGate, LookLog, OPEN_LOOK_CONTEXT } from './lookGate';
 import {
-  COMMAND_REDUNDANCY, epochNewer, Frame, partHealthOf, partHealthWire, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ,
+  BUILT_AT_PATTERN, COMMAND_REDUNDANCY, epochNewer, Frame, INTERP_DELAY_MS, partHealthOf, partHealthWire, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ,
   type BodyState, type ClientEvent, type CombatReport, type Command, type CraneWire, type DoorWire, type EnvWire, type Role, type Rules, type ServerEvent, type Snapshot, type Team,
 } from './protocol';
 import type { WorldState } from '../worldState';
@@ -13,6 +13,10 @@ import { SeatToldBoard } from './seatTold';
 import { SeatClanBoard } from './seatClans';
 import { equipmentLimit } from '../equipmentLimit';
 import { markLoad } from '../loadMarks';
+import { viewerBuiltAt, viewerRev } from '../revision';
+
+/** NCW-8 (`NetClient.beginFrame`): a command frame held for its frame's end, and its newest command's number. */
+type HeldOut = { frame: Uint8Array; cmd: number };
 
 /**
  * The page's end of the match (web sprint 3, M4; W3.R8-R10): the socket, the commands numbered and sent every tick
@@ -198,8 +202,8 @@ export interface WebSocketLike {
   onerror: ((ev: unknown) => void) | null;
 }
 
-/** The others are drawn this far behind the server: two snapshot intervals and a margin for jitter. */
-export const INTERP_DELAY_MS = 100;
+/** The others are drawn this far behind the server (`./protocol`'s, since NCW-2 B-bound: the room's rewind cap counts it). */
+export { INTERP_DELAY_MS };
 /** A prediction error past this (units) is snapped at once; under it, spread over `SMOOTH_TICKS` (bar 1: never snapped otherwise). */
 export const SNAP_DISTANCE = 24;
 /** An error under this is float noise, not a correction. */
@@ -328,6 +332,10 @@ export class NetClient {
     this.socket.onopen = () => {
       this.state = 'open';
       const types = opts.watch ? undefined : opts.types?.();
+      // NCW-10 (an instrument, the product track): the page's build and its build time, last, each only when Vite wrote one
+      // (the hello as before otherwise); every hello -- a first connect, a reconnect, a resume -- is this client's open.
+      const build = viewerRev();
+      const builtAt = viewerBuiltAt();
       this.out(JSON.stringify({
         type: 'hello', version: PROTOCOL_VERSION, name: opts.name, map: opts.map, cranes: true, ...(opts.watch ? { watch: true } : {}), ...(opts.rules ? { rules: opts.rules } : {}),
         ...(types ? { types: { seal: types.seal, terrorist: types.terrorist } } : {}), ...(opts.session ? { session: opts.session } : {}),
@@ -336,6 +344,7 @@ export class NetClient {
           ? 'token' in opts.forge ? { forge: { id: opts.forge.id }, token: opts.forge.token }   // LATER 275: a placed lobby, at its door
             : { forge: { id: opts.forge.id, ...(opts.forge.ticket ? { ticket: opts.forge.ticket } : {}) }, ...(opts.forgeAccount ? { ticket: opts.forgeAccount } : {}) }
           : opts.game ? { game: opts.game.id, ...('token' in opts.game ? { token: opts.game.token } : { ticket: opts.game.ticket }) } : {}),
+        ...(build ? { build } : {}), ...(BUILT_AT_PATTERN.test(builtAt) ? { builtAt } : {}),
       } satisfies ClientEvent), true);
     };
     this.socket.onclose = (ev) => {
@@ -386,8 +395,63 @@ export class NetClient {
   }
 
   send(ev: ClientEvent): void {
+    // NCW-8 (b): between a resumed welcome and its resume, an event named at a command is dropped (`resuming`).
+    const seq = (ev as { seq?: unknown }).seq;
+    if (this.resuming && typeof seq === 'number') return;
+    // NCW-8 (`beginFrame`): an event named at a command leaves right after it -- the frame's held commands up to it first.
+    const held = this.frameOut?.held;
+    if (held && typeof seq === 'number') while (held.length && held[0]!.cmd <= seq) this.out(held.shift()!.frame, false);
     this.out(JSON.stringify(ev), true);
   }
+
+  /**
+   * NCW-8 (the netcode wave's B-resync, plan `2026-11-05-netcode-wave.md` section 6; simulation track, reading, pending
+   * review): a browser adaptation of the send ORDER only -- the original's console had no wire between its input and its
+   * fire (research 193), and no round's naming changes here (LATER 338: a round at its own tick's command; LATER 347: a
+   * press's at its press's first). The room decides a round once the command after the one it names has run (`room.ts`
+   * `due`) and refuses it `stale` when that command is more than `FIRE_ARRIVAL_JITTER_TICKS` (3) behind the last it ran
+   * (`decide`), counting one already past that bound at its arrival (`timed`, `staleFires`); its 3 ticks assume "the page
+   * names the command it has just sent" (`room.ts` `FIRE_ARRIVAL_JITTER_TICKS`'s note). A long frame (a hitch, a slow
+   * machine: 6 ticks at the frame clamp) sent all its commands in the walk and its rounds after them in the weapon step, so
+   * a round named at the frame's first tick left 5 commands behind the newest sent, and a room step between the two was
+   * enough to refuse it (`longGap.test.ts`, the first half's "before": 2-5 rounds a second at 10 fps).
+   *
+   * So a frame (`beginFrame`, from `NetPage.trigger`: the page's frame sets the trigger before the walk builds its
+   * commands, `../matchMount` and `../main`) sends its first command at once, as before, and holds the rest; an event
+   * named at a command (`send`) first sends the held commands up to and including the one it names, then itself -- so
+   * it leaves right after its own command, as at 60 fps -- and the frame's task's end (a microtask) sends what is left,
+   * in order. Only commands wait: every event leaves when sent, so the events keep their send order among themselves
+   * (LATER 249) and one named at no command is not held. A frame of one tick holds nothing: its wire is unchanged
+   * (`longGap.test.ts`'s 60 fps pin, one-tick frames only). A longer frame -- a real 60 fps game's jitter gives two-tick
+   * frames -- reorders only so each event follows its own command (`c1 f1 c2`, was `c1 c2 f1`; the room's result the
+   * same: `frameSendOrder.test.ts`). A frame begun while the last one's hold still stands (frames run back to
+   * back in one task: a test's loop) sends that hold's rest first: the last frame has ended.
+   *
+   * Optional on the surface (`../replay/replayClient` `NetClientSurface` keeps its modifiers): a replay's client sends
+   * nothing, so it has no frame to hold and no resume to wait for (`awaitingResume`).
+   */
+  beginFrame?(): void {
+    const last = this.frameOut;
+    if (last) for (const h of last.held.splice(0)) this.out(h.frame, false);
+    const hold: { sent: boolean; held: HeldOut[] } = { sent: false, held: [] };
+    this.frameOut = hold;
+    queueMicrotask(() => {
+      if (this.frameOut === hold) this.frameOut = null;
+      for (const h of hold.held.splice(0)) this.out(h.frame, false);
+    });
+  }
+  /** NCW-8: the frame's hold (`beginFrame`) -- whether its first command went, and the commands waiting, in order. */
+  private frameOut: { sent: boolean; held: HeldOut[] } | null = null;
+  /**
+   * NCW-8 (b; product track -- the resume is OT.R59's labelled adaptation): a resumed welcome came and its `resume` not
+   * yet. The commands this client numbers until then are its own low count, which the room never runs (`resumed` forgets
+   * them), so nothing named at one leaves: no command (`tick`), no round, reload, throw or other event with a `seq`
+   * (`send`). Dropped, not held: re-named they would claim commands the page never built, and the `resume` lays the
+   * room's own magazines, pouch and kit (`../netPage`'s 'resume'), so nothing spent there is owed back.
+   */
+  private resuming = false;
+  /** NCW-8 (b): whether this client waits for its seat's `resume` after a resumed welcome (`resuming`). */
+  awaitingResume?(): boolean { return this.resuming; }
 
   /**
    * SVC-20b-page (web sprint 20, W20.R1): the room's voice frames (`Frame.Voice`, decoded: `./voiceWire` `VoiceDown`) to
@@ -542,9 +606,12 @@ export class NetClient {
     this.shadowStep(cmd, this.alive && facing ? facing : null);
     if (this.history.length > HISTORY) this.history.shift();
     this.applyCorrection();
-    if (this.state !== 'open' || this.role !== 'player') return;
+    if (this.state !== 'open' || this.role !== 'player' || this.resuming) return;
     const batch = this.history.slice(-COMMAND_REDUNDANCY).map((h) => h.cmd);
-    this.out(encodeCommands({ viewTick: this.viewTick(), commands: batch }), false);
+    const frame = encodeCommands({ viewTick: this.viewTick(), commands: batch });
+    // NCW-8 (`beginFrame`): the frame's first command at once, the rest held until an event names them or the task ends.
+    if (this.frameOut?.sent) this.frameOut.held.push({ frame, cmd: cmd.seq });
+    else { this.out(frame, false); if (this.frameOut) this.frameOut.sent = true; }
     const now = performance.now();
     if (now - this.lastPing > 2000) { this.lastPing = now; this.send({ type: 'ping', t: now }); }
   }
@@ -727,6 +794,7 @@ export class NetClient {
         }
         this.type = ev.gameType ?? null;                // PF-40: the room's mode, a new socket's own
         this.welcomed = true;
+        this.resuming = ev.resumed === true;           // NCW-8 (b): nothing named at a command until its `resume`
         if (this.lateLoadOwed && !this.lateLoadSent) { this.lateLoadOwed = false; this.lateLoadSent = true; this.send({ type: 'lateLoad' }); }   // LATER 64's review F4
         if (this.loadedOwed) { this.loadedOwed = false; this.send({ type: 'loaded' }); markLoad('loaded-sent'); }   // ONL-18b: `reportLoaded`; IP3's mark
         // LOW-3 (research 223 s6): a load reported on a dropped socket, the room still holding round 1 for it; and (NET-RES.R8,
@@ -930,6 +998,7 @@ export class NetClient {
    * which the room never ran, are forgotten. RESUME-MOUNTED: alive, and unlocked unless it holds a turret (`turret`).
    */
   private resumed(ev: Extract<ServerEvent, { type: 'resume' }>): void {
+    this.resuming = false;                                      // NCW-8 (b): the commands number on from the room's count
     // OBF-20 (the review's F1): the Chat menu's sends number on from the room's last taken, as the commands from `seq`.
     this.floors.taunt = Math.max(this.floors.taunt, ev.taunt ?? 0);
     this.floors.communication = Math.max(this.floors.communication, ev.communication ?? 0);
@@ -1097,6 +1166,42 @@ export class NetClient {
   }
 
   /**
+   * The two snapshots `bodies(now)` draws from, one choice for both it and `shownTick` (NCW-17): `t` the view tick;
+   * `newer` the oldest snapshot newer than `t`, else the newest; `older` the one before it when the two bracket `t`
+   * (null when `bodies` holds `newer`: nothing newer than `t` yet, or nothing older in hand). Null before a snapshot.
+   */
+  private drawnAt(now: number): { t: number; newer: Snapshot; older: Snapshot | null } | null {
+    const n = this.snaps.length;
+    if (!n) return null;
+    const t = this.viewTick(now);
+    let b = n - 1;
+    while (b > 0 && this.snaps[b - 1]!.snap.tick > t) b--;
+    const newer = this.snaps[b]!.snap, older = b > 0 ? this.snaps[b - 1]!.snap : null;
+    return { t, newer, older: older && newer.tick > t ? older : null };
+  }
+
+  /**
+   * NCW-17 (the netcode wave's claim-versus-picture instrument, `docs/plans/2026-11-05-netcode-wave.md` section 7; a
+   * labelled adaptation with no original, it changes nothing drawn or judged): the displayed tick, the room's tick the
+   * drawn remote bodies stand at now -- what `bodies(now)` draws, by the same choice (`drawnAt`):
+   * - when two snapshots bracket the view tick and `bodies` interpolates between them, the view tick itself
+   *   (`viewTick(now)`, fractional);
+   * - when `bodies` HOLDS a snapshot -- nothing newer than the view tick has come (a snapshot gap: the view tick runs on
+   *   from the newest's arrival while the drawn bodies stay at it), or nothing older is in hand -- that snapshot's tick,
+   *   a whole number: below `viewTick(now)` in a gap, by the claim's lead over the picture; above it only when every
+   *   snapshot in hand is newer than the view tick (the first after a join);
+   * - null before any snapshot (no body drawn).
+   * One number for the frame: a body spawned between the two bracketing snapshots, which `bodies` draws whole from the
+   * newer (NU-12 D6), is not told apart. The page's round carries it beside `viewTick` (`ClientEvent` `fire`'s
+   * `shownTick`); nothing on the page or in the room is judged by it.
+   */
+  shownTick(now = performance.now()): number | null {
+    const drawn = this.drawnAt(now);
+    if (!drawn) return null;
+    return drawn.older ? drawn.t : drawn.newer.tick;
+  }
+
+  /**
    * Every other body at the view tick: the feet, yaw and pitch between the two snapshots around it; the rest from the
    * newer. A body missing from the newer snapshot is gone; with nothing newer yet, the newest is held.
    * NU-12 B2 (research 328 §4.3 D5-D6, §5 B2; the build brief's F3): each body carries its seat's spawns the drawn
@@ -1105,14 +1210,11 @@ export class NetClient {
    * the original places the rebuilt copy at its record (`FUN_00598b90` D:L455245-455324). Was: lerped across it.
    */
   bodies(now = performance.now()): (BodyState & { spawns?: number })[] {
-    const n = this.snaps.length;
-    if (!n) return [];
-    const t = this.viewTick(now);
-    let b = n - 1;
-    while (b > 0 && this.snaps[b - 1]!.snap.tick > t) b--;
-    const newer = this.snaps[b]!.snap, older = b > 0 ? this.snaps[b - 1]!.snap : null;
+    const drawn = this.drawnAt(now);
+    if (!drawn) return [];
+    const { t, newer, older } = drawn;
     const counted = (x: BodyState): BodyState & { spawns: number } => ({ ...x, spawns: this.spawnsAt(x.id, newer.tick) });
-    if (!older || newer.tick <= t) return newer.bodies.map(counted);
+    if (!older) return newer.bodies.map(counted);
     const f = Math.max(0, Math.min(1, (t - older.tick) / (newer.tick - older.tick)));
     const before = new Map(older.bodies.map((x) => [x.id, x]));
     return newer.bodies.map((x) => {

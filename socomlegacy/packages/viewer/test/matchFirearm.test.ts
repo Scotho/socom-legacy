@@ -2593,3 +2593,58 @@ describe("SEGMENT-BODY part 4 (fresh review 1's F1): the page's mover casts the 
     expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23' });
   });
 });
+
+/**
+ * A browser adaptation (no original counterpart; the owner's 2026-11-06 report of an audio fault that starts while the tab
+ * is hidden and never recovers): a hidden tab runs no frame, so another player's rounds would pile effect runs nothing
+ * steps (`./effects` `MAX_EFFECT_RUNS_ADAPTATION`). Hidden, the firearm starts none; their report and passing sound still
+ * play (the controller's ruling, 2026-11-06: they start at once and free on 'ended', no backlog); at
+ * the return the rounds' runs go (`Effects.retireRounds`). Presentation only: no damage, no wire, no game rule.
+ */
+describe('a hidden tab: another player\'s rounds start no effect run, and their sounds still play (a browser adaptation)', () => {
+  class Page extends EventTarget { hidden = false; flip(hidden: boolean): void { this.hidden = hidden; this.dispatchEvent(new Event('visibilitychange')); } }
+  const weapon: FireWeapon = { name: 'M4A1 SD', id: 0, fireAnim: 'muzzle_m4SD', sounds: { close: null, med: null, far: null, reload: null } };
+  const round = (): Extract<FireEvent, { type: 'round' }> => ({
+    type: 'round', weapon, from: [0, 12, 0], to: [0, 0, 20], hit: true, rounds: 0, normal: [0, 1, 0], material: 25,
+  });
+  const mount = () => {
+    const page = new Page();
+    const sound = { fireEvent: vi.fn(), effect: vi.fn(), goggles: vi.fn(), roundFired: vi.fn(), roundPast: vi.fn() };
+    const r = rig({ sound, visibility: page });
+    vi.spyOn(r.walk, 'feet').mockReturnValue([0, 0, 10]);
+    const onRound = vi.spyOn(r.firearm.effects, 'onRound');
+    const retire = vi.spyOn(r.firearm.effects, 'retireRounds');
+    return { ...r, page, sound, onRound, retire };
+  };
+
+  it('hidden: 1200 rounds of another player\'s start no run, yet each plays its report and passing sound; the room\'s own-round impact starts none', () => {
+    const { firearm, page, sound, onRound } = mount();
+    page.flip(true);
+    for (let k = 0; k < 1200; k++) firearm.roundEffects(round(), 3);
+    firearm.roundImpact(round());
+    expect(onRound).not.toHaveBeenCalled();
+    expect(firearm.effects.stats().runs).toBe(0);
+    expect(sound.roundFired).toHaveBeenCalledTimes(1200);
+    expect(sound.roundPast).toHaveBeenCalledTimes(1200);
+  });
+
+  it('visible: the same round plays as before -- its effects, its report, its passing sound', () => {
+    const { firearm, sound, onRound } = mount();
+    firearm.roundEffects(round(), 3);
+    firearm.roundImpact(round());
+    expect(onRound).toHaveBeenCalledTimes(2);
+    expect(sound.roundFired).toHaveBeenCalledTimes(1);
+    expect(sound.roundPast).toHaveBeenCalledTimes(1);
+  });
+
+  it('the return to visible retires the rounds\' runs, once; going hidden does not; a disposed firearm listens no more', () => {
+    const { firearm, page, retire } = mount();
+    page.flip(true);
+    expect(retire).not.toHaveBeenCalled();
+    page.flip(false);
+    expect(retire).toHaveBeenCalledTimes(1);
+    firearm.dispose();
+    page.flip(true); page.flip(false);
+    expect(retire).toHaveBeenCalledTimes(1);
+  });
+});

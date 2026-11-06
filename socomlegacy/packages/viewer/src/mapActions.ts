@@ -1,5 +1,5 @@
 import { parseRdr, rdrGet, Zar, zdbMember, type RdrNode, type ZdbEntry } from '@s2u/archive';
-import { flattenScene, parseSceneGraph, transformPoint } from '@s2u/scene';
+import { applyR0004MapPatch, flattenScene, parseSceneGraph, transformPoint } from '@s2u/scene';
 
 /**
  * The map's own context actions (socomlegacy/docs/research/87-hud.md §5, 209 §2): `READERM.ZAR/actions.rdr` lists, per
@@ -118,7 +118,11 @@ export function readMapActions(bytes: Uint8Array, toc: ZdbEntry[], stem: string,
   if (records.length === 0) return { actions: [], diagnostics: [] };
   let where: Map<string, { path: string; at: [number, number, number] }>;
   try {
-    const models = graph ?? parseSceneGraph(Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`)));   // the caller's, when it has it
+    let models = graph;                                     // the caller's, when it has it (already r0004's)
+    if (!models) {
+      models = parseSceneGraph(Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`)));
+      applyR0004MapPatch(models, stem);   // LATER 707 (research 383): the graph `place` hands in is r0004's; so is this one
+    }
     where = new Map();
     for (const f of flattenScene(models, 'worldmodel')) {
       const name = f.node.name.toLowerCase();

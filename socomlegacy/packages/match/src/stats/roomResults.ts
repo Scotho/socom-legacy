@@ -176,6 +176,245 @@ export interface SeatSignals {
   arrivalLate?: Record<number, number>;
   arrivalGapMaxMs?: number;
   staleFires?: number;
+  /**
+   * NCW-1 (B-count; an instrument with no original, it changes nothing judged): the seat's accepted rounds this round,
+   * each classed once (`RewindClass`) by whether its walk strikes a body with the others rewound to the round's own
+   * `viewTick` and at the room's scored rewind (`at`: the clamped `viewTick`, or since NCW-2 B-shown the round's valid
+   * displayed tick held to the cap, `Room.shownOf`), keyed `class:bucket` (`rewindAgeBucket` of the round's rewind age,
+   * the room's tick less its `viewTick`, in ticks): `{ 'a:0-8': 40, 'b:25-36': 3 }`. Absent before the seat's first
+   * classed round, and when the room's `rewindOutcome` is off.
+   */
+  rewind?: Record<string, number>;
+  /** NCW-1: the largest rewind age (ticks, unrounded) among the rounds `rewind` counts. */
+  rewindAgeMax?: number;
+  /**
+   * NCW-1 (the lane seat's addition): the seat's heartbeat round trips this round (`Room.noteRoundTrip`'s raw samples,
+   * one a `HEARTBEAT_MS`, before the score row's smoothing), summarised by `rttSummary`; absent with none.
+   */
+  rtt?: RttSummary;
+  /**
+   * NCW-6 (an instrument with no original; nothing judged reads it): the commands the room RECEIVED from the seat this
+   * round -- each command's first copy queued at intake (`Room.binary`, beside `noteArrival`), apart from `commands`, the
+   * commands it ran -- and `wallMs`, the seat's wall time in the round on the room's clock (`RoomOptions.now`), from the
+   * round's start or the seat's seating, the later, to the report, in ms, rounded. `commandsReceived / (wallMs / 1000) /
+   * TICK_HZ` is the seat's commands per real second over the page's 60 (1.0 real time; central's `commandRate`). A
+   * number is received once, however many copies come (an unsynced page's flood cut, `Room.receivedFloor`). The wall time
+   * runs on while the seat is away or parked (a reconnect's `handBack` keeps the same seat): it can only lower the ratio
+   * (60 s away of 180 s reads about 0.67 at real time), never make a page look fast. Both absent for a seat that sent
+   * nothing this round, and from a host of an older build.
+   */
+  commandsReceived?: number;
+  wallMs?: number;
+  /**
+   * NCW-6 (the lane seat's addition from the field split; an instrument): of `staleFires`, the rounds whose named command
+   * the room had dropped unrun in a stretch (`Room.dropStretch`: a stall's backlog, `dropBacklog`, or the intake's flood
+   * cut) -- the rest are a page's old rounds on commands that ran (a backgrounded tab's, a reconnect's). A number the page
+   * skipped inside a stretch was never received and is not counted; only the last `STALE_DROP_RANGES_MAX_ADAPTATION`
+   * runs of dropped numbers are remembered, so a round on an older one undercounts here (never over). On the report
+   * whenever `staleFires` is above 0 (0 when none was a drop's); absent with no stale round, and from an older host.
+   */
+  staleAfterDrop?: number;
+  /**
+   * NCW-10 (an instrument with no original, the product track): the seat's page build (its hello's `build`, `viewerRev()`,
+   * at most `CLIENT_BUILD_MAX_CHARS_ADAPTATION` characters of `[0-9a-z.-]`, `Room.clientBuildOf`) and its build time (the
+   * hello's `builtAt`, UTC to the minute, `BUILT_AT_PATTERN`), so a seat's refusals and rates read against the build that
+   * made them. Each absent when the page sent none or a malformed one, and from a host of an older build.
+   */
+  build?: string;
+  builtAt?: string;
+  /**
+   * NCW-17 (the claim-versus-picture instrument, `docs/plans/2026-11-05-netcode-wave.md` section 7; no original, nothing
+   * judged reads it): of the rounds `rewind` counts, those whose page sent a valid displayed tick (`fire`'s `shownTick`,
+   * `Room.shownOf`), by the claim's lead over the picture -- `viewTick - shownTick`, in ticks, `shownLeadBucket` -- and
+   * `shownMiss`, those of them that miss at the scored rewind and hit at the displayed tick (`shownMissOf`). Since NCW-2
+   * B-shown such a round is scored AT its displayed tick, so `shownMiss` reads 0 by construction: a tripwire (a count
+   * above 0 means the scored tick and the displayed tick parted); a host before B-shown counted the claim's misses
+   * there. The round B-shown rescues is NCW-1's `d` beside a lead of 1 or more. `shownLead` absent before the seat's
+   * first such round, `shownMiss` before its first miss; both with the room's `rewindOutcome` off, and from a host of an
+   * older build.
+   */
+  shownLead?: Record<string, number>;
+  shownMiss?: number;
+  /**
+   * NCW-2 B-trade (the review's F1; an instrument, it changes nothing judged): the dead shooter's rounds this round the
+   * room took into the trade window (`Room.tradeFrame`) -- decided, and refused (each also in `refused` under
+   * `fire: trade: <reason>`). Absent before the seat's first. Central's reader (`hostResults.ts` `readSignals`) keeps
+   * only the members it names, so it does not store this one yet.
+   */
+  trade?: { decided: number; refused: number };
+}
+
+/**
+ * NCW-1 (B-count, `docs/plans/2026-11-05-netcode-wave.md` sections 2, 4; an instrument with no original): a round the
+ * room took and walked against the bodies, classed once by two reads -- the walk with the others rewound to the
+ * shooter's own `viewTick` (unclamped), and the scored walk at `at`, the room's scored rewind: the `viewTick` clamped
+ * to the seat's cap (since NCW-2 B-bound `rewindCapTicks` of its measured round trip: 12 ticks at the floor,
+ * `MAX_REWIND_MS`, up to 24 at the ceiling, `REWIND_CEILING_MS_ADAPTATION`), or, since NCW-2 B-shown, the round's valid
+ * displayed tick (`shownTick`) held to the same cap (`Room.shownOf`) --
+ * `a` the body its walk first strikes at the `viewTick` is struck too at `at`; `b` it strikes a body at the `viewTick`
+ * and not that body at `at` (a bystander struck instead does not make it `a`); `c` no body at either; `d` none at the
+ * `viewTick` and one at `at`; `e` the `viewTick` older than the room keeps (its history), not tested.
+ * In the old age buckets (past the cap) `b` is a round lost to the cap and `d` one the cap's clamp happened to land.
+ * In the low buckets (inside the cap) a round without a displayed tick has one read, so only `a` or `c`; a round with a
+ * displayed tick behind its `viewTick` is read at two ticks: `d` is a round the picture rescued (a miss where the claim
+ * ran on to, a hit where the page drew the body -- B-shown's yield), `b` one that would have struck at the `viewTick`
+ * but misses at the picture (B-shown's cost). By `rewindClassOf`.
+ */
+export const REWIND_CLASSES = ['a', 'b', 'c', 'd', 'e'] as const;
+/** NCW-1: one of `REWIND_CLASSES`. */
+export type RewindClass = typeof REWIND_CLASSES[number];
+
+/**
+ * NCW-1: one ray's two reads -- `viewFirst`, the id of the first body (a player's, or a hostage's) its walk strikes with
+ * the bodies at the shooter's `viewTick`, null none; `atStruck`, the ids of every body the scored walk strikes at the
+ * scored rewind (`at`: the clamped `viewTick`, or the displayed tick held to the cap, NCW-2 B-shown), in order. Struck means met by the walk, before any friendly-fire gate.
+ */
+export interface RewindRay {
+  viewFirst: number | null; atStruck: readonly number[];
+  /**
+   * NCW-17: the id of the first body the ray's walk strikes with the bodies rewound to the round's displayed tick (the
+   * page's `shownTick`, held to the cap: `max(tick - cap, shownTick)`), null none; absent when the round sent no valid one.
+   * Since NCW-2 B-shown that tick is the scored rewind, so this is `atStruck[0]` (the same walk).
+   */
+  shownFirst?: number | null;
+}
+
+/**
+ * NCW-1 (the review's F5: by the same body): a round's class from its rays (one, or a shotgun pull's: one round, a hit
+ * any ray's) -- a ray hit at the `viewTick` is kept when the same body (its `viewFirst`) is struck at the scored rewind
+ * (`REWIND_CLASSES`); `a` some ray kept, `b` some ray hit at the `viewTick` and none kept (a bystander struck instead is
+ * still `b`), `d` no ray hit at the `viewTick` and one struck a body at the scored rewind, `c` neither. `e` is the caller's (no read).
+ */
+export function rewindClassOf(rays: readonly RewindRay[]): Exclude<RewindClass, 'e'> {
+  if (rays.some((x) => x.viewFirst !== null)) return rays.some((x) => x.viewFirst !== null && x.atStruck.includes(x.viewFirst)) ? 'a' : 'b';
+  return rays.some((x) => x.atStruck.length > 0) ? 'd' : 'c';
+}
+/**
+ * NCW-17 (the review's F5 rule, by the same body, as `rewindClassOf`): whether a round (one ray, or a shotgun pull's: one
+ * round) is a miss at the scored rewind and a hit at the displayed tick -- some ray's walk strikes a body at the
+ * displayed tick (`shownFirst`) and no ray's scored walk strikes the body it struck there. A bystander struck by the
+ * scored walk instead does not make it a hit. Since NCW-2 B-shown a round with a displayed tick is scored at it
+ * (`shownFirst` is `atStruck[0]`), so this is false for every such round by construction: a tripwire that reads 0 while
+ * the scored and displayed ticks agree. Before B-shown the scored walk was the claim's (`viewTick`) and this counted the
+ * claim's misses the picture would have landed.
+ */
+export function shownMissOf(rays: readonly RewindRay[]): boolean {
+  const shown = rays.filter((x) => x.shownFirst !== undefined && x.shownFirst !== null);
+  return shown.length > 0 && !shown.some((x) => x.atStruck.includes(x.shownFirst!));
+}
+
+/**
+ * NCW-17 (an instrument's bands, no game value: an adaptation, research 223 §4): the claim's lead over the picture
+ * (`viewTick - shownTick`) in whole ticks at `TICK_HZ` 60 -- `0` the claim on the picture (two snapshots bracket the view
+ * tick, or the gap shorter than the page's interpolation); then bands up to 2, 4, 8 and 12 ticks (the scored rewind's
+ * floor, `MAX_REWIND_MS` 12 ticks), 24 (Benny's 500 ms gap; since NCW-2 B-bound also the ceiling of a seat's cap,
+ * `REWIND_CEILING_MS_ADAPTATION`) and past it. A lead of 13-24 is clamped only for a seat whose cap is below it (a seat
+ * under about 50 ms round trip, or with no measure, has 12): the band does not say which. Seven `/metrics` series.
+ */
+export const SHOWN_LEAD_BUCKETS_ADAPTATION = ['0', '1-2', '3-4', '5-8', '9-12', '13-24', '25+'] as const;
+/** NCW-17: each lead bucket's top, in whole ticks (the last open). */
+const SHOWN_LEAD_TOPS = [0, 2, 4, 8, 12, 24, Infinity] as const;
+
+/** NCW-17: a lead's bucket -- the lead (fractional ticks) rounded up to whole ticks, at most 0 the first (`0`). */
+export function shownLeadBucket(lead: number): typeof SHOWN_LEAD_BUCKETS_ADAPTATION[number] {
+  const whole = Math.max(0, Math.ceil(lead));
+  return SHOWN_LEAD_BUCKETS_ADAPTATION[SHOWN_LEAD_TOPS.findIndex((top) => whole <= top)]!;
+}
+
+/**
+ * NCW-17 (an operator's instrument, no original): the server's totals of its rooms' rounds that carried a valid displayed
+ * tick, by lead bucket, and of the misses at the scored rewind that hit at the displayed tick (`shownMissOf`), summed
+ * from each room's once-a-second `takeRewind` (`add`) for the life of the process, as `RewindTally`. `/metrics`
+ * `s2u_shown_lead_rounds_total{lead}` (every bucket always written) and `s2u_shown_miss_rounds_total` -- since NCW-2
+ * B-shown a tripwire that reads 0 by construction (a host before it counted the claim's misses): eight series, no seat
+ * or room label.
+ */
+export class ShownTally {
+  private readonly lead = new Map<string, number>(SHOWN_LEAD_BUCKETS_ADAPTATION.map((b) => [b, 0] as [string, number]));
+  private miss = 0;
+
+  /** One room's take: each seat's lead counts (an unknown bucket or a count below one ignored) and its misses added. */
+  add(take: { seats: Record<number, { shownLead?: Record<string, number>; shownMiss?: number }> }): void {
+    for (const seat of Object.values(take.seats)) {
+      for (const [key, n] of Object.entries(seat.shownLead ?? {})) if (this.lead.has(key) && n > 0) this.lead.set(key, this.lead.get(key)! + n);
+      if (seat.shownMiss !== undefined && seat.shownMiss > 0) this.miss += seat.shownMiss;
+    }
+  }
+
+  /** The Prometheus lines: `s2u_shown_lead_rounds_total{lead="3-4"} 2` in `SHOWN_LEAD_BUCKETS_ADAPTATION` order, then the misses. */
+  lines(): string[] {
+    return [...[...this.lead].map(([b, n]) => `s2u_shown_lead_rounds_total{lead="${b}"} ${n}`), `s2u_shown_miss_rounds_total ${this.miss}`];
+  }
+}
+
+/**
+ * NCW-1 (the controller's buckets; no game value): the rewind age's bands in whole ticks at `TICK_HZ` 60 -- 0-8 a
+ * page's interpolation (6) and the decision's tick at a near line; 9-12 up to the floor of the seat's cap
+ * (`MAX_REWIND_MS` 200 ms = 12 ticks: never clamped); then 13-16, 17-24, 25-36 and 37+. Since NCW-2 B-bound a seat's
+ * cap is its measured line (`rewindCapTicks`): 12 ticks with no measure or under about 50 ms round trip, growing with
+ * it up to 24 (`REWIND_CEILING_MS_ADAPTATION`, 400 ms) -- so a 13-24 age is scored unclamped for a seat whose cap
+ * reaches it and clamped for one whose does not (read it beside the seat's `signals.rtt`); 25-36 (about 200 ms one way)
+ * and 37+ are past every seat's cap, clamped always.
+ */
+export const REWIND_AGE_BUCKETS = ['0-8', '9-12', '13-16', '17-24', '25-36', '37+'] as const;
+/** NCW-1: each bucket's top age, in whole ticks (the last open). */
+const REWIND_AGE_TOPS = [8, 12, 16, 24, 36, Infinity] as const;
+
+/**
+ * NCW-1: a rewind age's bucket -- the age (the room's tick less the round's `viewTick`, fractional) rounded up to whole
+ * ticks, so an age past the cap by any fraction falls in a bucket past it (the rewind clamps at `viewTick < tick - 12`);
+ * at most 0, the first.
+ */
+export function rewindAgeBucket(age: number): typeof REWIND_AGE_BUCKETS[number] {
+  const whole = Math.max(0, Math.ceil(age));
+  return REWIND_AGE_BUCKETS[REWIND_AGE_TOPS.findIndex((top) => whole <= top)]!;
+}
+
+/**
+ * NCW-1 (B-count; an operator's instrument, no original): the server's totals of the rounds its rooms classed, by class
+ * and age bucket, summed from each room's once-a-second `takeRewind` (`add`) -- a total for the life of the process, as
+ * `s2u_ticks_total` is, never reset with a room. `/metrics` `s2u_rewind_rounds_total{class,age}`: every class and bucket
+ * always written (30 series, a zero where none), so a scraper's series never come and go; no seat or room label (the
+ * per-seat counts are the `rewind` log line's and the round results').
+ */
+export class RewindTally {
+  private readonly totals = new Map<string, number>(REWIND_CLASSES.flatMap((c) => REWIND_AGE_BUCKETS.map((b) => [`${c}:${b}`, 0] as [string, number])));
+
+  /**
+   * One room's take: each seat's `class:bucket` counts added (an unknown key ignored). A take's counts are never below
+   * one (`Room.takeRewind`: a round counted once, when its class is final); a count below one is ignored, so the total
+   * only grows.
+   */
+  add(take: { seats: Record<number, { rounds: Record<string, number> }> }): void {
+    for (const seat of Object.values(take.seats)) {
+      for (const [key, n] of Object.entries(seat.rounds)) if (this.totals.has(key) && n > 0) this.totals.set(key, this.totals.get(key)! + n);
+    }
+  }
+
+  /** The Prometheus lines, `name{class="b",age="25-36"} 3`, in `REWIND_CLASSES` then `REWIND_AGE_BUCKETS` order. */
+  lines(name = 's2u_rewind_rounds_total'): string[] {
+    return [...this.totals].map(([key, n]) => {
+      const [c, age] = key.split(':');
+      return `${name}{class="${c}",age="${age}"} ${n}`;
+    });
+  }
+}
+
+/**
+ * NCW-1: the most heartbeat round-trip samples a seat keeps for its round's `signals.rtt` (one each `HEARTBEAT_MS`,
+ * `../server`'s 5 s: 21 minutes' worth, past respawn's 1200 s round), the oldest dropped past it. An instrument's bound,
+ * no game value.
+ */
+export const RTT_SAMPLES_MAX_ADAPTATION = 256;
+/** NCW-1: the round trips summarised -- the samples, their median (the mean of the middle two when even), max and last, in ms. */
+export interface RttSummary { samples: number; medianMs: number; maxMs: number; lastMs: number }
+
+/** NCW-1: `samples` (ms, in order) as an `RttSummary`, rounded to whole ms; undefined with none. */
+export function rttSummary(samples: readonly number[]): RttSummary | undefined {
+  if (!samples.length) return undefined;
+  const sorted = [...samples].sort((x, y) => x - y), mid = sorted.length >> 1;
+  const median = sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return { samples: samples.length, medianMs: Math.round(median), maxMs: Math.round(sorted[sorted.length - 1]!), lastMs: Math.round(samples[samples.length - 1]!) };
 }
 
 /**

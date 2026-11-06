@@ -343,7 +343,7 @@ bit the SOCOM II code reads. **Census over all 22 MP maps** (`census.py` → `ou
 | 9-18 | `m_altitude` | steep-cell cost, smoothing uphill test | y = min.y + (max.y−min.y)/1024 · value (D:L387628). The M51 dump's map+0xe8 = 704.41/1024 = 0.68791, as computed. |
 | 19-20 | `m_boundary` | no | 0/1/2/3 = 945,537/63/279/276 |
 | 21 | `m_mes` | no | 91,837 set |
-| 22-23 | `m_shadow` | no | 0..3 |
+| 22-23 | `m_shadow` | no (render consumer below) | 0..3; feeds model darkness outside the planner |
 | 24 | `m_inside` | no | 46,791 set |
 | 25 | `m_badalt` | no | 109,078 set |
 | 26 | `m_rtflag` | no (reset helper) | 0 everywhere |
@@ -352,7 +352,17 @@ bit the SOCOM II code reads. **Census over all 22 MP maps** (`census.py` → `ou
 | word 2 | `m_astar_f` s16, `m_astar_g` s16 | A* | 0xFFFFFFFF everywhere (research 75 §4) |
 
 - **Grade.** PROVEN for each bit the planner reads: the DWARF name and the code agree, and the census agrees with the
-  tables. The unread fields are named, not used.
+  tables. The planner does not use every named field; the render consumer of `m_shadow` is read below.
+- **R4B-00 correction (2026-11-04; reading, pending review): `m_shadow` feeds model darkness.** The table's
+  "no" means "not read by the planner", not "inert in the game". `FUN_0052d270` (D:L396805-396808) extracts
+  bits 22-23. `FUN_0052ce10` (D:L396671-396784) samples up to four neighbouring cells with bilinear weights,
+  re-normalises when accepted weights sum below 0.98, and scales by `1/3`; a missing sub-map returns 1.0,
+  while failure to obtain the local interpolation gives 0.0. With its fourth argument enabled, an `m_inside`
+  cell is treated as shadow 3 (`FUN_0052d280`, D:L396814-396817). In the body update `FUN_005af930`, when the
+  shading path is enabled and its override is negative, the sample is clamped and the model's `+0xa0` is set
+  from `(1 - sample) * 127` (D:L466988-466993). Thus the field has a render consumer even though A* ignores it.
+  This is a static retail-code reading, not a measured brightness comparison; r0004's map edits and their visible
+  result belong to R4B-11. No model-lighting implementation is added here.
 - **Corrections.**
   - Research 75's "marker bits 5-7 (values 2, 3, 4)" are three separate flags: name, occupied+name, action.
   - **H4 §6 "bars cells are type 9 (stored, i.e. walkable in the A* sense)" is wrong.** Soil 9 *trans* is in the

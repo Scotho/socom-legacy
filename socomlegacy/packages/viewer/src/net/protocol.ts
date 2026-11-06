@@ -140,6 +140,17 @@ export function isSessionToken(v: unknown): v is string {
 }
 
 /**
+ * NCW-10 (an instrument with no original, the product track): a build time, UTC to the minute, `YYYY-MM-DDTHH:MMZ`
+ * (`2026-11-05T01:32Z`) -- the hello's `builtAt` (the page's Vite build stamp, its seconds truncated: `viewerBuiltAt`),
+ * the same FORMAT as the host's `RELEASE_BUILT_AT` (the web-image grace's, `agent/web-grace`) -- not yet the same VALUE:
+ * the page's stamp is Vite's own clock read and the host's a separate one, until one stamp feeds both (filed with the
+ * controller for that deploy work). The one pattern the page,
+ * the room (`clientBuiltAtOf`) and central's reader validate it with. The day is checked 01-31 only (not against its
+ * month): a string, compared stamp for stamp, never a date the room computes with.
+ */
+export const BUILT_AT_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\dZ$/;
+
+/**
  * The close a connection replaced by its session's newer one gets (a server policy). The replaced page, told `kicked`
  * 'replaced' first, renews its token and joins again as a new joiner (`../netPage` `NetPage`'s `kicked` case: the usual
  * rejoin after the close, its own line in the message window).
@@ -209,8 +220,31 @@ export interface BotSettings { seal: BotSetting; terrorist: BotSetting }
 export const MAX_SPECTATORS = 32;
 /** How many of its last commands a client repeats in each batch, for a lost frame on a lossy transport. */
 export const COMMAND_REDUNDANCY = 3;
-/** The rewind a shot may ask for (W3.R4): the shooter's view time is clamped to this far behind the server. */
+/**
+ * The rewind a shot may ask for (W3.R4): the shooter's view time is clamped to this far behind the server. Since NCW-2
+ * B-bound (the owner's OT.R105) it is the FLOOR of the room's per-seat cap: a seat with no measure of its line, or one
+ * whose line explains less, keeps this; the room grows a seat's cap above it by the seat's measured round trip
+ * (`rewindCapMs`, match `room.ts`) up to `REWIND_CEILING_MS_ADAPTATION`. Its other readers (the crane press's lag bound,
+ * `CRANE_PRESS_LAG_BOUND_ADAPTATION`) keep 200.
+ */
 export const MAX_REWIND_MS = 200;
+/**
+ * REWIND_CEILING_MS_ADAPTATION (OT.R105, the owner's ruling of 2026-11-05 on LOW-9, verbatim "400 is acceptable yes";
+ * research 223 §4 and LOW-9; a simulation-track ruling on a browser adaptation): the most any seat's rewind reaches, ms
+ * (24 ticks at `TICK_HZ` 60), however long its measured line. The original had no rewind to bound: its shooter resolved
+ * the hit on his own picture and the victim's console applied it (research 193 §12.6). The cost, named in the ruling: a
+ * low-ping victim can be struck up to the extra rewind (this less `MAX_REWIND_MS`) behind cover -- 13 units at the run
+ * speed's 65 u/s (`seal_run`) -- and a seat that forges its measure buys this, the same as an honest high-ping seat,
+ * and no more: `pongSentAt` (match `server.ts`) takes any payload at or before now as the ping's send time, and the ws
+ * library emits unsolicited pongs, so a non-browser client can send crafted pongs and move `pingExact` either way in
+ * about 25 frames (B-bound's review F5; LATER 717: accept only a pong matching an outstanding ping).
+ */
+export const REWIND_CEILING_MS_ADAPTATION = 400;
+/**
+ * The others are drawn this far behind the server: two snapshot intervals and a margin for jitter. Kept here (it was
+ * `net/client.ts`'s, which re-exports it) since NCW-2 B-bound: the room's per-seat rewind cap counts it.
+ */
+export const INTERP_DELAY_MS = 100;
 
 /**
  * SEAT_HOLD_MS_ADAPTATION (NET-RES.R4, the owner's ruling of 2026-10-23 in the deploy seat: "the hold is 3 minutes";
@@ -659,6 +693,15 @@ export type ClientEvent =
      * it -- the hooks stand still on its screen, nothing throws (a page from before #337 refuses an unknown bit).
      */
     cranes?: boolean;
+    /**
+     * NCW-10 (an instrument with no original, the product track; additive, the version kept): the page's build,
+     * `viewerRev()` (`../revision`), and its build time, `viewerBuiltAt()` (`BUILT_AT_PATTERN`), each absent when Vite
+     * wrote none. The room keeps them for the seat's round signals only (`build` bounded,
+     * `CLIENT_BUILD_MAX_CHARS_ADAPTATION`); a malformed one is ignored, never refused, and a page that sends neither is
+     * welcomed as before. Nothing played or scored reads them.
+     */
+    build?: string;
+    builtAt?: string;
   }
   /** The ARMORY a seat opened on (`armory`) left: the seat's first spawn (web sprint 5, the S3 review; additive). */
   | { type: 'ready' }
@@ -719,6 +762,13 @@ export type ClientEvent =
   | {
     type: 'fire'; seq: number; from: [number, number, number]; dir: [number, number, number]; weapon: number; viewTick: number;
     eye: [number, number, number]; aim: [number, number, number];
+    /**
+     * NCW-17 (additive under protocol 13, no bump; an instrument, a labelled adaptation with no original): the page's
+     * displayed tick at the round's firing (`NetClient.shownTick`: the snapshot tick its drawn others stand at -- the view
+     * tick while two snapshots bracket it, the held snapshot's in a gap). The room only counts it (`room.ts` `noteRewind`):
+     * nothing is judged by it, a bad one is ignored, and a round without it (an older page, a bot) is taken as before.
+     */
+    shownTick?: number;
   }
   | { type: 'reload'; seq: number }
   /**

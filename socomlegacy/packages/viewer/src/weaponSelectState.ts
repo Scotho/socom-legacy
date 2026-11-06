@@ -26,8 +26,14 @@ import {
  *   and the spawn takes it. The round's reset closes the menu; an unconfirmed pick is lost.
  */
 
-/** The pad's inputs the menu reads (§B3's slots): the d-pad, `Action` (X), Triangle / Start, and `Inventory` (R2). */
-export type MenuInput = 'up' | 'down' | 'left' | 'right' | 'action' | 'back' | 'inventory';
+/**
+ * The pad's inputs the menu reads (§B3's slots): the d-pad, `Action` (X), Triangle / Start, and `Inventory` (R2) -- and
+ * `close` (Circle), the owner's adaptation (OT.R106, 2026-11-06), not the original's: there Circle is not cancel
+ * (`FUN_0023e5e0`, D:L88379; research 300). On the owner's word `close` shuts the menu outright from the list or the
+ * picker, an unconfirmed pick dropped, the same `closed` event as Triangle's close from the list; from the closed menu
+ * it does nothing (R2 alone opens). Triangle and Start keep the original's steps.
+ */
+export type MenuInput = 'up' | 'down' | 'left' | 'right' | 'action' | 'back' | 'inventory' | 'close';
 
 /** A category of the picker: an item class, or all of the slot kind's (`0xff`, "ALL PRIMARY" ...). */
 export type Category = ItemClass | 'all';
@@ -180,7 +186,7 @@ export function step(ctx: MenuContext, s: MenuState, input: MenuInput, open = tr
         const at = pickerOn(s);
         return { state: { ...s, screen: 'picker', category: at.category, item: at.id }, event: null };
       }
-      if (input === 'back' || input === 'inventory') return { state: { ...s, screen: 'closed' }, event: { kind: 'closed' } };
+      if (input === 'back' || input === 'inventory' || input === 'close') return { state: { ...s, screen: 'closed' }, event: { kind: 'closed' } };
       return { state: s, event: null };
     }
     case 'picker': {
@@ -193,6 +199,8 @@ export function step(ctx: MenuContext, s: MenuState, input: MenuInput, open = tr
         return { state: { ...s, category, item: stepItem(ctx, s, category, head, 1) }, event: null };
       }
       if (input === 'back') return { state: { ...s, screen: 'list' }, event: null };
+      // OT.R106 (the owner's adaptation, not the original's): Circle closes from the picker too, the pick unconfirmed.
+      if (input === 'close') return { state: { ...s, screen: 'closed' }, event: { kind: 'closed' } };
       if (input === 'action') {
         // S4: confirm only what the list offers (the middle card may be the slot's own, unlisted item: no change).
         if (s.item === s.loadout[s.slot] || !listable(ctx, s, s.category, s.item)) return { state: { ...s, screen: 'list' }, event: null };

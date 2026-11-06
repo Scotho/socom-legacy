@@ -129,7 +129,13 @@ export function groundWithout(map: Pick<LoadedMap, 'props'>, ground: GroundData,
     const p = map.props[prop];
     const path = p?.paths?.[index];
     if (!p || !path) continue;
-    const owners = ground.owners.filter((o) => o.count > 0 && (o.path === path || o.path.startsWith(`${path}/`)));
+    // A placement drawn as an instance's model (`flattenScene`'s `node=model` path) also owns the instance node's own
+    // children: R4B-09's MP72 crate caps, `AddChild`ed to the crate (r4 0x2d719c; research 383). None on the disc as read.
+    const eq = path.lastIndexOf('='), slash = path.lastIndexOf('/');
+    const own = eq > slash ? `${path.slice(0, eq)}/` : null;
+    // LATER 707 (review 1's F1): an owner switched off at load (r0004's, `CollisionOwner.switchedOff`) has no drawn
+    // placement -- the draw's gate drops it (`placeInstances`) -- so it is no placement's share.
+    const owners = ground.owners.filter((o) => o.count > 0 && !o.switchedOff && (o.path === path || o.path.startsWith(`${path}/`) || (own !== null && o.path.startsWith(own))));
     if (owners.length === 0) continue;
     // This placement's place among every placement of its path, across the map's entries of its model, in walk order.
     const order = walkOrder(map, p.modelName, path);

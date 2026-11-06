@@ -4,7 +4,7 @@ import type { CharacterCatalogue } from './characters/catalogue';
 import { victoryFromBytes } from './victoryData';
 import { parseRdr, parseZdb, rdrGet, Zar, zdbMember, type AssetSource, type RdrNode, type ZdbEntry } from '@s2u/archive';
 import {
-  aiCellCentre, aiCellIndex, aiCellY, ARMORY_TYPES_PER_SIDE, characterModelNames, collisionOwners, DEFAULT_GRID_PARAMS, namedPoint, parseAiMaps, parseCharacterTable,
+  aiCellCentre, applyR0004MapPatch, aiCellIndex, aiCellY, ARMORY_TYPES_PER_SIDE, characterModelNames, collisionOwners, DEFAULT_GRID_PARAMS, namedPoint, parseAiMaps, parseCharacterTable,
   parseEscortees, parseGridParams, parseSceneGraph, parseWorldRoot, placeEscortees, placeSpawnSlots, readSkeleton, readTurrets, spawnsFor, teamCharacter, worldCollision,
   type AiMaps, type EscorteeStart, type CharacterTable, type GameType, type SceneNode, type TurretPlacement, type Grid, type MotionClip, type Skeleton, type SpawnSlot, type Spawns, type CharacterTeam,
 } from '@s2u/scene';
@@ -118,6 +118,7 @@ export function simMapFromBytes(bytes: Uint8Array, path: string, kits: KitSource
   const toc = parseZdb(bytes);
   const stem = stemOf(path);
   const models = parseSceneGraph(Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`)));
+  applyR0004MapPatch(models, stem);   // R4B-09 (research 383): r0004's per-map collision, as the page's `place` does
   const polys = worldCollision(models, WORLD_MODEL);
   let params = DEFAULT_GRID_PARAMS;
   try {

@@ -22,6 +22,9 @@ import { SOLO_IS_NETWORK_READING } from './net/loopback';
  * the camera's local eye, in the actor's space, before the actor's matrix (`FUN_003083c0(m, (pitch, yaw, 0))`, then
  * the eye through it, 141253-141275), and on the look's far point (140987-141028).
  *
+ * OT.R104 (an owner's ruling against the original, 2026-11-05; `DEATH_KILLER_FOLLOW_S_ADAPTATION`): mode 3 lasts 5 s
+ * from the camera's reset, then the camera goes on as mode 6 about the body.
+ *
  * DEATH_ORBIT_EULER_READING: `FUN_003083c0`'s order is not read; the tilt is taken about x first, then the turn about
  * y (the actor space's own yaw, `./cameraRig` `toWorld`). With the turn so, the game's mode-3 formula brings the eye
  * round to the far side of the body from the killer, as its sign requires.
@@ -40,6 +43,21 @@ export const DEATH_EYE_REACH = 56;
 /** Mode 3: the eye's reach grows by this part of itself a tick while under `DEATH_EYE_REACH` (141285-141286). */
 export const DEATH_EYE_PUSH = 1.05;
 
+/**
+ * DEATH_KILLER_FOLLOW_S_ADAPTATION (an adaptation: the owner's ruling OT.R104, MISSION, 2026-11-05: "5 seconds is
+ * acceptable before the camera stops following"): how long, in seconds from the camera's reset (`newDeathCamera`: the
+ * death, or the killer named by `WalkMode.setDeathKiller`), mode 3 reads the killer's place. The original has no such
+ * limit: online state 3 reads the killer's place (+0x154) every frame for as long as the player is dead (`FUN_00297a30`
+ * D:L141145-141215; `FUN_002980d0` D:L141369-141376; research 314 §5.4 item 4). At the limit the killer is dropped
+ * for the rest of this death and the camera goes on as mode 6, the lone death's own orbit (0.8725 rad a second,
+ * D:L141216-141218), from the yaw mode 3 left: the turn `yaw` is one field both modes step, so the first mode-6 tick
+ * adds dt x 0.8725 to it and nothing else. With the killer gone, mode 3's height ease and reach push and the look's
+ * blend toward the killer (`deathFar`) stop as they do for a death with no killer: the eye and the look are mode 6's.
+ */
+export const DEATH_KILLER_FOLLOW_S_ADAPTATION = 5;
+/** The tick sum's float slack: 300 ticks of 1/60 s land a hair under 5. */
+const FOLLOW_SLACK = 1e-9;
+
 export interface DeathCamera {
   /** `DAT_00416208`: the orbit's turn, rad. */
   yaw: number;
@@ -51,6 +69,8 @@ export interface DeathCamera {
   killer: (() => Vec3 | null) | null;
   /** The killer's origin as last seen. */
   lastKiller: Vec3 | null;
+  /** Seconds since the reset (OT.R104, `DEATH_KILLER_FOLLOW_S_ADAPTATION`): mode 3 ends at the limit. */
+  age: number;
   /** Mode 2 (`DAT_0045a0c1` clear, 141363-141369): the orbit does not turn. Optional: absent is a network camera. */
   still?: boolean;
 }
@@ -62,7 +82,7 @@ export interface DeathCamera {
  * mode-2 branch at 141143-141221; the tilt clamp still applies), which the page never builds.
  */
 export function newDeathCamera(killer: (() => Vec3 | null) | null = null, network = SOLO_IS_NETWORK_READING): DeathCamera {
-  return { yaw: 0, tilt: 0, blend: 0, killer: network ? killer : null, lastKiller: null, still: !network };
+  return { yaw: 0, tilt: 0, blend: 0, age: 0, killer: network ? killer : null, lastKiller: null, still: !network };
 }
 
 const turnY = (v: readonly number[], a: number): Vec3 => {
@@ -95,10 +115,14 @@ function killerAt(cam: DeathCamera): Vec3 | null {
 
 /**
  * One tick of `FUN_00297a30` on the camera's local eye (actor space: `+z` behind): the orbit turned (mode 3 toward the
- * killer's far side, mode 6 on its own), tilted, and laid on the eye; mode 3's height and reach. `feet` and `yawDegrees`
+ * killer's far side, mode 6 on its own; mode 3 for DEATH_KILLER_FOLLOW_S_ADAPTATION, OT.R104), tilted, and laid on the eye; mode 3's height and reach. `feet` and `yawDegrees`
  * are the dead actor's (its matrix).
  */
 export function deathEye(cam: DeathCamera, eyeL: readonly number[], feet: readonly number[], yawDegrees: number, dt: number): Vec3 {
+  // OT.R104 (DEATH_KILLER_FOLLOW_S_ADAPTATION): the tick that reaches the limit is mode 6's; the killer is dropped for
+  // this death, so `deathFar` (after this in the tick, `./playerCamera`) gives the aim.
+  cam.age += dt;
+  if (cam.killer && cam.age >= DEATH_KILLER_FOLLOW_S_ADAPTATION - FOLLOW_SLACK) { cam.killer = null; cam.lastKiller = null; }
   const killer = killerAt(cam);
   if (killer) {
     // 141149-141214: the eye turned by this frame's yaw, to the world; a = body -> eye, b = killer -> body, flat.

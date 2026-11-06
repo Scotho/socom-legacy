@@ -5,6 +5,8 @@ import {
   PAGE_READY_TIMEOUT_MS, PAGE_TICK_EXPRESSION, PAGE_WINDOW_TITLE, PCSX2_WINDOW, PINE_CONNECT_TIMEOUT_MS, RUN_COMMAND, RunArgsError, SAVE_STATE_TIMEOUT_MS, chromiumLaunchOptions, slotStateFile, ffmpegArgs, findOnPath, formatBootPlan, formatPlan, installStop, liveBoot, liveRun, pageUrl,
   hostDeps, parseBootSteps, parseRunArgs, pcsx2Argv, planBoot, planRun, startCapture, stopFfmpeg, type ChildLike, type LiveDeps,
   type PageLike, type PineLike, type PlanContext,
+  KeyTranslator, STATUS_PREFIX, TAP_HOLD_MS, formatMarkPlan, liveMark, parseControlLine, planMark, statusLine, stdioMark, stdioSession,
+  type MarkHandle, type MarkStatus, type SessionControls, type SessionHandle, type SessionStatus,
 } from '../eph/run';
 import { RunAborted, RunStopped, sleep as abortableSleep } from '../eph/abort';
 import { SCRIPT_CLOCK_STALL_MS } from '../eph/live';
@@ -60,7 +62,7 @@ const ctx = (over: Partial<PlanContext> = {}): PlanContext => {
 describe('parseRunArgs', () => {
   it('reads the script, the map, the slot, the page base and the switches', () => {
     expect(parseRunArgs(['--script', 'C:/runs/s.txt', '--map', 'M01', '--state', '8', '--dry-run'])).toEqual({
-      script: 'C:/runs/s.txt', map: 'M01', state: 8, dryRun: true, bootToMission: false, live: false, chordModifier: 'l2', base: 'http://localhost:5303',
+      script: 'C:/runs/s.txt', map: 'M01', state: 8, dryRun: true, bootToMission: false, live: false, chordModifier: 'l2', chordSolo: false, base: 'http://localhost:5303',
       leadFrames: 3, holdFrames: 6, tailMs: 3000, question: 'run', renderer: null, pageBuild: null, build: 'r0001', spot: null, padLayout: 'standard',
       extra: false, nearRadius: 30, pad: 'stub',
     });
@@ -299,6 +301,23 @@ describe('the live mode (the owner addendum, 2026-10-30)', () => {
     expect(text).not.toContain('page events');
   });
 
+  it('PK-8: --chord touchpad and --chord-solo (the Machete settings): parsed, planned, and named in the plan and the help', () => {
+    expect(parseRunArgs(['--live', '--map', 'M01', '--chord', 'touchpad', '--chord-solo'])).toMatchObject({ chordModifier: 'touchpad', chordSolo: true });
+    expect(parseRunArgs(['--live', '--map', 'M01', '--chord', 'TouchPad'])).toMatchObject({ chordModifier: 'touchpad', chordSolo: false });
+    // As --chord, --chord-solo is read in any mode and only used live (a script run plans no chord to check).
+    expect(parseRunArgs(['--script', 's', '--map', 'M01', '--chord-solo'])).toMatchObject({ chordSolo: true, live: false });
+    expect(() => parseRunArgs(['--live', '--map', 'M01', '--chord', 'pad'])).toThrow(/--chord takes a pad button or touchpad/);
+    const plan = planRun(parseRunArgs(['--live', '--map', 'M01', '--state', '8', '--chord', 'touchpad', '--chord-solo']), ctx());
+    expect(plan.chord).toEqual({ modifier: 'touchpad', input: 'triangle', pressure: 0.2, solo: true });
+    expect(formatPlan(plan)).toContain('chord        hold touchpad and press triangle, or the touchpad alone: triangle at 0.2 (the touchpad is never sent)');
+    const plain = planRun(parseRunArgs(['--live', '--map', 'M01', '--state', '8', '--chord', 'touchpad']), ctx());
+    expect(plain.chord).toEqual({ modifier: 'touchpad', input: 'triangle', pressure: 0.2 });
+    expect(formatPlan(plain)).toContain('chord        hold touchpad and press triangle: triangle at 0.2 (the touchpad is never sent)');
+    expect(HELP).toContain('--chord <button>');
+    expect(HELP).toMatch(/touchpad/);
+    expect(HELP).toContain('--chord-solo');
+  });
+
   it('refuses a chord on l3 or triangle before anything starts', () => {
     expect(() => planRun(parseRunArgs(['--live', '--map', 'M01', '--chord', 'l3']), ctx())).toThrow(/l3/);
     expect(() => planRun(parseRunArgs(['--live', '--map', 'M01', '--chord', 'triangle']), ctx())).toThrow(/modifier/);
@@ -362,6 +381,8 @@ interface FakeOpts {
   readonly stanceByte?: number;
   /** The page's walk stance (default crouch). */
   readonly pageStance?: 'stand' | 'crouch' | 'prone';
+  /** PK-2: the physical pad the live source reads (`__ephRealPads()[0]`), or null (the default: none connected). */
+  readonly pad?: () => { buttons: { pressed: boolean; value: number }[]; axes: number[] } | null;
 }
 
 interface Gate { readonly promise: Promise<void>; readonly release: () => void }
@@ -372,7 +393,7 @@ function fakeHost(o: FakeOpts = {}) {
   const h = {
     log: [] as string[], errors: [] as string[], files: new Map<string, string>(), handlers: new Map<string, () => void>(),
     kills: [] as string[], exits: [] as number[], pads: [] as string[], writeTicks: [] as number[], keys: [] as string[], batches: [] as string[], steps: [] as string[], waited: [] as string[],
-    sstates: [...(o.sstates ?? [])], removed: [] as string[],
+    sstates: [...(o.sstates ?? [])], removed: [] as string[], evals: [] as string[], ffmpegArgs: [] as string[][], ffmpegs: [] as FakeChild[],
     saved: [] as number[], order: [] as string[], launched: 0, browserClosed: 0, pineClosed: 0, windowsClosed: 0,
     pcsx2: new FakeChild(false), ffmpeg: new FakeChild(true),
     gates: new Map<number, Gate>((o.gated ?? []).map((ms) => [ms, gate()])), browserGate: gate(),
@@ -418,6 +439,8 @@ function fakeHost(o: FakeOpts = {}) {
     },
     async evaluate(expr: string): Promise<unknown> {
       await tick();
+      if (expr.includes('ephPause')) { h.evals.push(expr); return undefined; }
+      if (expr.includes('__ephRealPads')) return o.pad ? o.pad() : null;
       if (expr.includes('loading()')) return { viewer: true, walking: true, loadingBlocked: Boolean(o.pageHeld), armoryOpen: false };
       if (expr.includes('__ephPadWrite')) {
         if (o.padSetHangs) return new Promise(() => undefined);
@@ -453,12 +476,17 @@ function fakeHost(o: FakeOpts = {}) {
     prepareHost: () => { if (o.prepareFails) throw new Error('cpSync: EACCES copying tools/pcsx2'); h.steps.push('prepare'); },
     writeFile: (path, text) => { const name = path.slice(path.lastIndexOf('/') + 1); h.files.set(name, text); h.order.push(`write ${name}`); },
     spawnPcsx2: () => { h.steps.push('pcsx2'); return h.pcsx2; },
-    spawnFfmpeg: () => {
+    spawnFfmpeg: (args) => {
       h.steps.push('ffmpeg');
-      if (o.ffmpegMissing) setImmediate(() => h.ffmpeg.emit('error', Object.assign(new Error('spawn ffmpeg ENOENT'), { code: 'ENOENT' })));
-      return h.ffmpeg;
+      h.ffmpegArgs.push(args);
+      // The first capture is h.ffmpeg (every test before PK-2); each later one (a session's next clip) a fresh child.
+      const c = h.ffmpegArgs.length === 1 ? h.ffmpeg : new FakeChild(true);
+      if (c !== h.ffmpeg && o.ffmpegMissing) c.pid = undefined;
+      h.ffmpegs.push(c);
+      if (o.ffmpegMissing) setImmediate(() => c.emit('error', Object.assign(new Error('spawn ffmpeg ENOENT'), { code: 'ENOENT' })));
+      return c;
     },
-    killTree: (c) => { const what = c === h.pcsx2 ? 'pcsx2' : c === h.ffmpeg ? 'ffmpeg' : '?'; h.kills.push(what); h.order.push(`kill ${what}`); },
+    killTree: (c) => { const what = c === h.pcsx2 ? 'pcsx2' : h.ffmpegs.includes(c as FakeChild) ? 'ffmpeg' : '?'; h.kills.push(what); h.order.push(`kill ${what}`); },
     topmostWindow: async (hwnd) => { h.steps.push(`topmost ${hwnd}`); h.order.push(`topmost ${hwnd}`); await tick(); },
     windowsAbove: async (r, hwnds) => { h.steps.push(`above ${r.width}x${r.height} ${hwnds.join(',')}`); await tick(); return [...(o.overlap ?? [])]; },
     findWindow: async (title, _pid, signal) => {
@@ -530,6 +558,22 @@ describe('the run seams (the review fold: Ctrl+C, async failures, bounded waits)
     const o = chromiumLaunchOptions();
     expect(o).toMatchObject({ headless: false, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
     expect(o.args).toEqual([`--window-position=${CHROMIUM_WINDOW.x},${CHROMIUM_WINDOW.y}`, `--window-size=${CHROMIUM_WINDOW.width},${CHROMIUM_WINDOW.height}`]);
+  });
+
+  it('PK-2: EPH_BROWSER_CHANNEL msedge or chrome picks that browser; unset (or blank) is the bundled Chromium; else refused', () => {
+    expect(chromiumLaunchOptions({})).not.toHaveProperty('channel');
+    expect(chromiumLaunchOptions({ EPH_BROWSER_CHANNEL: '' })).not.toHaveProperty('channel');
+    expect(chromiumLaunchOptions({ EPH_BROWSER_CHANNEL: 'msedge' })).toMatchObject({ channel: 'msedge', handleSIGINT: false });
+    expect(chromiumLaunchOptions({ EPH_BROWSER_CHANNEL: 'chrome' })).toMatchObject({ channel: 'chrome', headless: false });
+    expect(() => chromiumLaunchOptions({ EPH_BROWSER_CHANNEL: 'firefox' })).toThrow(/^EPH run: EPH_BROWSER_CHANNEL takes msedge or chrome .*not "firefox"$/);
+  });
+
+  it('PK-2: the plan checks EPH_BROWSER_CHANNEL before anything starts and prints the browser it launches', () => {
+    const c = ctx();
+    const live = parseRunArgs(['--live', '--map', 'M01', '--state', '8']);
+    expect(() => planRun(live, { ...c, env: { ...c.env, EPH_BROWSER_CHANNEL: 'opera' } })).toThrow(/EPH_BROWSER_CHANNEL/);
+    expect(formatPlan(planRun(live, { ...c, env: { ...c.env, EPH_BROWSER_CHANNEL: 'msedge' } }))).toContain('browser      msedge (EPH_BROWSER_CHANNEL)');
+    expect(formatPlan(planRun(live, c))).toContain("browser      Playwright's bundled Chromium");
   });
 
   it('installStop: the first signal aborts; the second and third await the one finish (stop, then the record), then exit', async () => {
@@ -1101,5 +1145,323 @@ describe('liveBoot over a fake host', () => {
     expect(h.saved).toEqual([]);
     expect(h.kills).toEqual(['pcsx2']);
     expect(h.handlers.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// PK-2: the parity pack's session controls on liveRun (design 5, 6.3, 10 "also settled"), the stdio link, --mark-state.
+// A product-track adaptation (OT.R53): pause, record and end are a tester's conveniences; no game value moves.
+
+const crossDown = () => ({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === 0, value: i === 0 ? 1 : 0 })), axes: [0, 0, 0, 0] });
+const liveArgs = (...more: string[]) => parseRunArgs(['--live', '--map', 'M51', '--state', '8', ...more]);
+
+/** A session's controls over the fake: every status kept, the handle once bound. */
+function fakeControls() {
+  const c = { statuses: [] as SessionStatus[], handle: null as SessionHandle | null };
+  const controls: SessionControls = { onStatus: (st) => { c.statuses.push(st); }, bind: (hd) => { c.handle = hd; } };
+  return { c, controls };
+}
+
+describe('KeyTranslator.releaseAll (PK-2: the pause lets every held key go first)', () => {
+  it('gives an up for each key it holds, then holds none', () => {
+    const k = new KeyTranslator();
+    k.push({ t: 0, input: 'cross', pressure: 1, line: 4 });
+    k.push({ t: 0, input: 'triangle', pressure: 0.2, line: 5 });
+    expect(k.releaseAll(100).map((a) => `${a.action} ${a.vk}`)).toEqual([`up ${PCSX2_VK.cross}`, 'up 55']);
+    expect(k.releaseAll(200)).toEqual([]);
+  });
+});
+
+describe('liveRun with session controls (PK-2)', () => {
+  it('without controls a live session is as before: video from the start, no pauses or clips in the record', async () => {
+    const { h, deps } = fakeHost();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps);
+    await until(() => h.steps.includes('ffmpeg') && h.handlers.has('SIGINT'));
+    h.handlers.get('SIGINT')!();
+    await run;
+    const rec = recordOf(h);
+    expect(h.ffmpegArgs[0]!.at(-1)).toBe('E:/eph-runs/runs/20261030T210509Z/side-by-side.mp4');
+    expect(rec.video).toBe('recorded');
+    expect(rec).not.toHaveProperty('pauses');
+    expect(rec).not.toHaveProperty('clips');
+  });
+
+  it('refuses controls on a --script run in one line, starting nothing', async () => {
+    const { h, deps } = fakeHost();
+    const { controls } = fakeControls();
+    await expect(liveRun(planRun(runArgs(), ctx()), deps, controls)).rejects.toThrow(/^EPH run: session controls \(pause, record, end\) are for a --live session/);
+    expect(h.steps).toEqual([]);
+    expect(h.handlers.size).toBe(0);
+  });
+
+  it('with controls no video starts at the session start; end() ends it as Save does, the record says so', async () => {
+    const { h, deps } = fakeHost();
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps, controls);
+    await until(() => c.statuses.some((st) => st.phase === 'live'));
+    expect(h.steps).not.toContain('ffmpeg');
+    c.handle!.end();
+    await run;
+    const rec = recordOf(h);
+    expect(rec.outcome).toBe('complete (live session ended by Save)');
+    expect(rec.video).toBe('none: not requested');
+    expect(rec.pauses).toEqual([]);
+    expect(rec.clips).toEqual([]);
+    expect(h.files.get('live.script')).toMatch(/^# EPH live session/);
+    expect(h.kills).toEqual(['pcsx2']);
+    expect(h.handlers.size).toBe(0);
+    expect(c.statuses.map((st) => st.phase).filter((ph, i, a) => ph !== a[i - 1])).toEqual(['setup', 'live', 'ending', 'ended']);
+    expect(c.statuses.at(-1)).toMatchObject({ phase: 'ended', paused: false, recording: false, clip: null, clips: 0 });
+  });
+
+  it('onStatus carries each log line the run prints', async () => {
+    const { h, deps } = fakeHost();
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps, controls);
+    await until(() => c.statuses.some((st) => st.phase === 'live'));
+    c.handle!.end();
+    await run;
+    const lines = c.statuses.flatMap((st) => (st.line === undefined ? [] : [st.line]));
+    expect(lines).toEqual(h.log);
+    expect(lines.some((l) => l.startsWith('PCSX2 runs r0001'))).toBe(true);
+  });
+
+  it('end() during setup ends the run there, stopping what it started; pause and record wait for the pad', async () => {
+    const { h, deps } = fakeHost({ hangWindow: true });
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps, controls);
+    await until(() => h.steps.includes('findWindow') && c.handle !== null);
+    await c.handle!.pause(true);
+    await c.handle!.record(true);
+    expect(h.keys).toEqual([]);
+    expect(h.steps).not.toContain('ffmpeg');
+    c.handle!.end();
+    await run;
+    expect(recordOf(h).outcome).toBe('complete (live session ended by Save)');
+    expect(h.kills).toEqual(['pcsx2']);
+    expect(c.statuses.some((st) => st.line?.includes('not live yet'))).toBe(true);
+  });
+
+  it('pause(true) releases every held key, taps Space, freezes the page; pause(false) taps Space again; the script clock is active time', async () => {
+    const { h, deps } = fakeHost({ pad: crossDown });
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps, controls);
+    const cross = `down ${PCSX2_VK.cross}`;
+    await until(() => h.keys.includes(cross));
+    await c.handle!.pause(true);
+    const afterPause = [...h.keys];
+    // The held Cross let go, then TogglePause's Space tapped (vk 0x20, padIni PCSX2_PAUSE_HOTKEY).
+    expect(afterPause.slice(afterPause.indexOf(cross) + 1)).toEqual([`up ${PCSX2_VK.cross}`, 'down 32', 'up 32']);
+    expect(h.evals).toEqual(['window.__viewer.ephPause(true)']);
+    expect(c.statuses.at(-1)).toMatchObject({ phase: 'paused', paused: true });
+    const frozen = c.statuses.at(-1)!.activeMs;
+    // Paused: no pad read reaches either client.
+    for (let i = 0; i < 50; i++) await tick();
+    expect(h.keys).toEqual(afterPause);
+    await c.handle!.pause(false);
+    expect(h.keys.slice(afterPause.length, afterPause.length + 2)).toEqual(['down 32', 'up 32']);
+    expect(h.evals).toEqual(['window.__viewer.ephPause(true)', 'window.__viewer.ephPause(false)']);
+    expect(c.statuses.at(-1)).toMatchObject({ phase: 'live', paused: false });
+    // The pause closes at the resume tap's key-down (the review's F2): PCSX2 runs through the tap's hold, so the active
+    // clock has moved by that hold when the resume's status is emitted -- not by the paused span.
+    expect(c.statuses.at(-1)!.activeMs).toBe(frozen + TAP_HOLD_MS);
+    // The Cross still held after the pause is pressed afresh, on both clients.
+    await until(() => h.keys.filter((k) => k === cross).length === 2);
+    c.handle!.end();
+    await run;
+    const rec = recordOf(h) as unknown as { pauses: { n: number; startWall: number; endWall: number; startActive: number; startGuestMs: number; endGuestMs: number; startTick: number; endTick: number }[] };
+    expect(rec.pauses).toHaveLength(1);
+    const ps = rec.pauses[0]!;
+    expect(ps.n).toBe(1);
+    expect(ps.startActive).toBe(ps.startWall);
+    // The clocks are read at each hotkey's key-down (the review's F2): the span holds the pause tap's hold and the page's call.
+    expect(ps.endWall - ps.startWall).toBeGreaterThanOrEqual(TAP_HOLD_MS);
+    expect(ps.startActive).toBe(frozen);
+    for (const k of ['startGuestMs', 'endGuestMs', 'startTick', 'endTick'] as const) expect(typeof ps[k], k).toBe('number');
+    // live.script: the press, the pause's release, the press after it -- on the active clock, the pause cut out.
+    const evs = h.files.get('live.script')!.split('\n').filter((l) => /^\d/.test(l)).map((l) => l.split(' '));
+    expect(evs.map((e) => `${e[1]} ${e[2]}`)).toEqual(['cross 1', 'cross 0', 'cross 1']);
+    expect(Number(evs[1]![0])).toBeLessThanOrEqual(ps.startActive);
+    expect(Number(evs[2]![0])).toBeGreaterThanOrEqual(ps.startActive);
+    // On the active clock the re-press follows the resume tap's hold (PCSX2 ran through it), the paused span cut out.
+    expect(Number(evs[2]![0])).toBeGreaterThanOrEqual(frozen + TAP_HOLD_MS);
+  });
+
+  it('a page without ephPause (before PK-3) is logged, and the pause goes on', async () => {
+    const { h, deps } = fakeHost();
+    const page = await deps.launchBrowser('');
+    h.launched = 0;
+    const wrapped: LiveDeps = {
+      ...deps,
+      launchBrowser: async () => ({ ...page, page: { ...page.page, evaluate: async (e: string) => {
+        if (e.includes('ephPause')) throw new Error('window.__viewer.ephPause is not a function');
+        return page.page.evaluate(e);
+      } } }),
+    };
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), wrapped, controls);
+    await until(() => c.statuses.some((st) => st.phase === 'live'));
+    await c.handle!.pause(true);
+    expect(h.log.some((l) => l.includes('ephPause') && l.includes('is not a function'))).toBe(true);
+    expect(c.statuses.at(-1)).toMatchObject({ phase: 'paused' });
+    c.handle!.end();
+    await run;
+    expect((recordOf(h) as unknown as { pauses: { endWall: number | null }[] }).pauses[0]!.endWall).not.toBeNull();
+  });
+
+  it('record(true) starts clip-<n>.mp4, record(false) stops it; a clip open at the end is closed there; video names the count', async () => {
+    const { h, deps } = fakeHost();
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps, controls);
+    await until(() => c.statuses.some((st) => st.phase === 'live'));
+    await c.handle!.record(true);
+    expect(h.ffmpegArgs[0]!.at(-1)).toBe('E:/eph-runs/runs/20261030T210509Z/clip-1.mp4');
+    expect(c.statuses.at(-1)).toMatchObject({ recording: true, clip: 1, clips: 1 });
+    await c.handle!.record(true);   // already recording: nothing new
+    expect(h.ffmpegArgs).toHaveLength(1);
+    await c.handle!.record(false);
+    expect(h.ffmpegs[0]!.written).toEqual(['q']);
+    expect(c.statuses.at(-1)).toMatchObject({ recording: false, clip: null, clips: 1 });
+    await c.handle!.record(true);
+    expect(h.ffmpegArgs[1]!.at(-1)).toBe('E:/eph-runs/runs/20261030T210509Z/clip-2.mp4');
+    c.handle!.end();
+    await run;
+    expect(h.ffmpegs[1]!.written).toEqual(['q']);
+    const rec = recordOf(h) as unknown as { video: string; clips: Record<string, unknown>[] };
+    expect(rec.video).toBe('clips: 2');
+    expect(rec.clips.map((k) => k.file)).toEqual(['clip-1.mp4', 'clip-2.mp4']);
+    for (const k of rec.clips) {
+      for (const f of ['startWall', 'endWall', 'startActive', 'endActive', 'startGuestMs', 'endGuestMs', 'startTick', 'endTick']) expect(typeof k[f], f).toBe('number');
+      expect(k.lost).toBeNull();
+    }
+    expect((rec.clips[0]!.endWall as number) <= (rec.clips[1]!.startWall as number)).toBe(true);
+  });
+
+  it('a clip whose ffmpeg is missing is listed with why, and the session goes on', async () => {
+    const { h, deps } = fakeHost({ ffmpegMissing: true });
+    const { c, controls } = fakeControls();
+    const run = liveRun(planRun(liveArgs(), ctx()), deps, controls);
+    await until(() => c.statuses.some((st) => st.phase === 'live'));
+    await c.handle!.record(true);
+    await until(() => h.log.some((l) => l.includes('ffmpeg not found')));
+    c.handle!.end();
+    await run;
+    const rec = recordOf(h) as unknown as { outcome: string; clips: { lost: string | null }[] };
+    expect(rec.outcome).toBe('complete (live session ended by Save)');
+    expect(rec.clips[0]!.lost).toMatch(/ffmpeg not found on PATH/);
+  });
+});
+
+describe('--control stdio and --mark-state (PK-2: the GUI runs the harness as a child)', () => {
+  it('parses --control stdio for --live and --mark-state <slot>; refuses either beside a script', () => {
+    expect(liveArgs('--control', 'stdio').control).toBe('stdio');
+    expect(liveArgs()).not.toHaveProperty('control');
+    expect(() => liveArgs('--control', 'tcp')).toThrow(/--control takes stdio/);
+    expect(() => parseRunArgs(['--script', 's', '--map', 'M51', '--control', 'stdio'])).toThrow(/--control stdio is for --live/);
+    expect(parseRunArgs(['--mark-state', '5', '--build', 'r0004'])).toMatchObject({ markState: 5, build: 'r0004' });
+    expect(() => parseRunArgs(['--mark-state', '5', '--live', '--map', 'M51'])).toThrow(/--mark-state takes none of/);
+    expect(() => parseRunArgs(['--mark-state', 'x'])).toThrow(/--mark-state/);
+    for (const k of ['--control stdio', '--mark-state <slot>']) expect(HELP).toContain(k);
+  });
+
+  it('parseControlLine reads the four session commands and mark; anything else is refused in one line', () => {
+    expect(parseControlLine('{"cmd":"pause"}')).toEqual({ cmd: 'pause' });
+    expect(parseControlLine(' {"cmd":"resume"} ')).toEqual({ cmd: 'resume' });
+    expect(parseControlLine('{"cmd":"record","on":true}')).toEqual({ cmd: 'record', on: true });
+    expect(parseControlLine('{"cmd":"record","on":false}')).toEqual({ cmd: 'record', on: false });
+    expect(parseControlLine('{"cmd":"end"}')).toEqual({ cmd: 'end' });
+    expect(parseControlLine('{"cmd":"mark"}')).toEqual({ cmd: 'mark' });
+    for (const bad of ['', 'pause', '{"cmd":"jump"}', '{"cmd":"record"}', '{"cmd":"record","on":"yes"}', '[1]', 'null']) {
+      expect(() => parseControlLine(bad), bad).toThrow(/^EPH control: /);
+    }
+  });
+
+  it('statusLine prefixes one JSON line with EPH-STATUS', () => {
+    const line = statusLine({ phase: 'live', paused: false, recording: false, clip: null, clips: 0, activeMs: 12.5 });
+    expect(line).toBe(`${STATUS_PREFIX}{"phase":"live","paused":false,"recording":false,"clip":null,"clips":0,"activeMs":12.5}`);
+    expect(STATUS_PREFIX).toBe('EPH-STATUS ');
+    expect(line).not.toContain('\n');
+  });
+
+  it('stdioSession: commands reach the handle (queued until it is bound), a bad line is logged and ignored, status goes out', async () => {
+    const out: string[] = [];
+    const logged: string[] = [];
+    const link = stdioSession((l) => { out.push(l); }, (l) => { logged.push(l); });
+    const calls: string[] = [];
+    link.feed('{"cmd":"pause"}');
+    link.feed('{"cmd":"jump"}');
+    expect(logged).toEqual([expect.stringMatching(/^EPH control: .*jump/)]);
+    link.controls.bind({ pause: async (on) => { calls.push(`pause ${on}`); }, record: async (on) => { calls.push(`record ${on}`); }, end: () => { calls.push('end'); } });
+    link.feed('{"cmd":"resume"}');
+    link.feed('{"cmd":"record","on":true}');
+    link.feed('{"cmd":"mark"}');
+    link.feed('{"cmd":"end"}');
+    await tick();
+    expect(calls).toEqual(['pause true', 'pause false', 'record true', 'end']);
+    expect(logged.some((l) => l.includes('mark') && l.includes('--mark-state'))).toBe(true);
+    link.controls.onStatus({ phase: 'live', paused: false, recording: true, clip: 1, clips: 1, activeMs: 5 });
+    expect(out).toEqual([`${STATUS_PREFIX}{"phase":"live","paused":false,"recording":true,"clip":1,"clips":1,"activeMs":5}`]);
+    link.close();   // stdin closed (the GUI gone): the session ends
+    expect(calls.at(-1)).toBe('end');
+  });
+
+  it('the mark plan: PCSX2 with the image and no state, the slot named, nothing started', () => {
+    const plan = planMark(parseRunArgs(['--mark-state', '5', '--build', 'r0004', '--dry-run']), ctx());
+    expect(plan.pcsx2Argv).toEqual(['E:/eph-runs/pcsx2/pcsx2-qt.exe', '-batch', '-nogui', '-fastboot', 'D:\\disc\\socom2.iso']);
+    expect(plan.slot).toBe(5);
+    const text = formatMarkPlan(plan);
+    for (const want of ['EPH mark starting point, dry run -- nothing started', 'then         on {"cmd":"mark"}: PINE save_state slot 5']) expect(text).toContain(want);
+  });
+
+  it('liveMark: PCSX2 up, PINE connected, no page; on mark the slot is saved, then PCSX2 stopped', async () => {
+    const { h, deps } = fakeHost({ sstates: ['SCUS-97275 (0F6FC6CF).05.p2s'] });
+    const statuses: MarkStatus[] = [];
+    let handle: MarkHandle | null = null;
+    const run = liveMark(planMark(parseRunArgs(['--mark-state', '5']), ctx()), deps, { onStatus: (s) => { statuses.push(s); }, bind: (m) => { handle = m; } });
+    await until(() => statuses.some((s) => s.phase === 'ready'));
+    expect(h.launched).toBe(0);
+    expect(h.saved).toEqual([]);
+    handle!.mark();
+    await expect(run).resolves.toBe('saved');
+    expect(h.saved).toEqual([5]);
+    expect(h.removed).toEqual(['E:/eph-runs/pcsx2/sstates/SCUS-97275 (0F6FC6CF).05.p2s']);
+    expect(h.kills).toEqual(['pcsx2']);
+    expect(h.handlers.size).toBe(0);
+    expect(statuses.map((s) => s.phase).filter((ph, i, a) => ph !== a[i - 1])).toEqual(['setup', 'ready', 'saving', 'ending', 'ended']);
+    expect(statuses.at(-1)).toMatchObject({ phase: 'ended', slot: 5, saved: true });
+  });
+
+  it('liveMark: end stops PCSX2 without saving; a mark of the wrong build saves nothing', async () => {
+    const a = fakeHost();
+    const sa: MarkStatus[] = [];
+    let ha: MarkHandle | null = null;
+    const runA = liveMark(planMark(parseRunArgs(['--mark-state', '5']), ctx()), a.deps, { onStatus: (s) => { sa.push(s); }, bind: (m) => { ha = m; } });
+    await until(() => sa.some((s) => s.phase === 'ready'));
+    ha!.end();
+    await expect(runA).resolves.toBe('ended');
+    expect(a.h.saved).toEqual([]);
+    expect(a.h.kills).toEqual(['pcsx2']);
+
+    const b = fakeHost({ runs: 'r0004' });
+    const sb: MarkStatus[] = [];
+    let hb: MarkHandle | null = null;
+    const runB = liveMark(planMark(parseRunArgs(['--mark-state', '5']), ctx()), b.deps, { onStatus: (s) => { sb.push(s); }, bind: (m) => { hb = m; } });
+    await until(() => sb.some((s) => s.phase === 'ready'));
+    hb!.mark();
+    await expect(runB).rejects.toThrow(/--build r0001 asked, but PCSX2 runs r0004/);
+    expect(b.h.saved).toEqual([]);
+    expect(b.h.kills).toEqual(['pcsx2']);
+  });
+
+  it('stdioMark: mark and end reach the mark handle; the session commands are logged as not for this mode', () => {
+    const logged: string[] = [];
+    const link = stdioMark(() => undefined, (l) => { logged.push(l); });
+    const calls: string[] = [];
+    link.controls.bind({ mark: () => { calls.push('mark'); }, end: () => { calls.push('end'); } });
+    link.feed('{"cmd":"pause"}');
+    link.feed('{"cmd":"mark"}');
+    link.feed('{"cmd":"end"}');
+    expect(calls).toEqual(['mark', 'end']);
+    expect(logged).toEqual([expect.stringMatching(/pause.*--mark-state/)]);
   });
 });

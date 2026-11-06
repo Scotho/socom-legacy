@@ -38,3 +38,5 @@ export * from './uiFont';
 export * from './armoryCharacters';
 export * from './gameFrame';
 export * from './turrets';
+export * from './r0004MapPatch';
+export * from './r0004MapPatchTable';

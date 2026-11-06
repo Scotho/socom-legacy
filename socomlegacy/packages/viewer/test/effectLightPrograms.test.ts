@@ -182,8 +182,10 @@ describe.skipIf(absent)(`IP4 on MP72's world (the fixture)${absent ? ` (${FIXTUR
     lights.warmMeshes();
     const overlays = overlaysUnder(view.group);
     const counts = new Set(overlays.filter((o) => (o as InstancedMesh).isInstancedMesh).map((o) => (o as InstancedMesh).instanceMatrix.count));
-    // The fixture's world: 846 opaque receivers, 121 of them instanced, of seven instance counts (2, 3, 4, 6, 7, 8, 13).
-    expect(overlays).toHaveLength(1692);
+    // The fixture's world: 843 opaque receivers, 121 of them instanced, of seven instance counts (2, 3, 4, 6, 7, 8, 13).
+    // 846 before LATER 707's draw gate (#703, research 383 section 5): r0004 switches off MP72's one `basket_open_up`
+    // (a placement of one visual, three receivers), and a node off draws nothing (`FUN_003389c0` D:L236069).
+    expect(overlays).toHaveLength(1686);
     expect(overlays.filter((o) => (o as InstancedMesh).isInstancedMesh)).toHaveLength(242);
     expect(counts.size).toBe(7);
     const instanced = programs(overlays.filter((o) => (o as InstancedMesh).isInstancedMesh), WGSLNodeBuilder);

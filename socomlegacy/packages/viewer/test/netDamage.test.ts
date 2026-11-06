@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_RIFLE, HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import {
   applyFall, applyHit, bulletDamage, FRAGMENT_PARTS, FRAGMENT_ROLLS, fragmentCount, fragmentDamage, fragmentPart, freshHealth, isDead,
-  LIMB_SPILL, LIMB_SPILL_PIERCING, overall, PART, PIERCE_ROUNDING_READING, quantiseHit,
+  LIMB_SPILL, LIMB_SPILL_PIERCING, overall, PART, pelletDamage, PIERCE_ROUNDING_READING, quantiseHit, shotgunPellets,
 } from '../src/net/damage';
 
 /** The game's damage (web research 91 sections 1-5): the table's shots to kill, the falloff, the falls, the blasts. */
@@ -12,6 +12,43 @@ function shotsToKill(w: typeof DEFAULT_RIFLE, part: number): number {
   for (let n = 1; n <= 20; n++) if (applyHit(h, part, bulletDamage(w, 0)!, w.piercing)) return n;
   return Infinity;
 }
+
+describe('online shotgun receiver (research 94 C2.1; retail FUN_005a1b80 D:L459543-459566)', () => {
+  // ZWEAPON.ZAR / 12 Gauge: raw ImpactDamage 2.5, Piercing 6. No synthetic balance values.
+  const shotgun = { ...DEFAULT_RIFLE, impactDamage: 2.5, damageModifier: 0, piercing: 6, effectiveRange: 40, maximumRange: 85 };
+
+  it('uses fractional ammo damage, not scaled projectile damage or the hit packet byte', () => {
+    expect(pelletDamage(shotgun, 50)).toBe(2.5);
+    expect(pelletDamage(shotgun, 600)).toBe(2.5);
+    expect(pelletDamage({ ...shotgun, damageModifier: 4 }, 50)).toBe(2.5);
+  });
+
+  it('requires a positive incoming damage byte, including the last part of range falloff', () => {
+    expect(pelletDamage(shotgun, 830)).toBe(2.5);
+    expect(pelletDamage(shotgun, 840)).toBeNull(); // scaled projectile < 1, transmitted as zero
+    expect(pelletDamage(shotgun, 850)).toBeNull();
+    expect(pelletDamage(shotgun, 851)).toBeNull();
+    expect(pelletDamage({ ...shotgun, damageModifier: -2.5 }, 50)).toBeNull();
+  });
+
+  it('needs four head pellets to kill a fresh player, allowing a close one-shell kill', () => {
+    const h = freshHealth(), damage = pelletDamage(shotgun, 50)!;
+    for (let i = 0; i < 3; i++) expect(applyHit(h, PART.HEAD, damage, shotgun.piercing)).toBe(false);
+    expect(h.hp[PART.HEAD]).toBe(0.5);
+    expect(applyHit(h, PART.HEAD, damage, shotgun.piercing)).toBe(true);
+  });
+
+  it('cannot kill a fresh target with the maximum two head pellets at 20 m', () => {
+    const h = freshHealth(), count = shotgunPellets(200, (() => {
+      const rolls = [0.99, 0]; // maximum random extra count, then round up
+      return () => rolls.shift()!;
+    })());
+    expect(count).toBe(2);
+    for (let i = 0; i < count; i++) applyHit(h, PART.HEAD, pelletDamage(shotgun, 200)!, shotgun.piercing);
+    expect(h.hp[PART.HEAD]).toBe(3);
+    expect(isDead(h)).toBe(false);
+  });
+});
 
 describe('bullets (research 91 section 1.2)', () => {
   it('does the table\'s damage a round', () => {

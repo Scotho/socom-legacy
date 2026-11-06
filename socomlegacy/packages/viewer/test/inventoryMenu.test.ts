@@ -242,6 +242,17 @@ describe('the game keeps what the menu does not read; the menu takes what it doe
     expect(h.frame({ stance: true }).stance).toBe(true);  // a new press is the stance again
   });
 
+  it('OT.R107: the SEPARATE Prone button closes the menu as Triangle and is no Prone, held or let go (the stance block, L453331)', () => {
+    const h = harness();
+    h.open();
+    const game = h.frame({ stance: true, stanceOff: true, prone: true });
+    expect(h.menu.isOpen()).toBe(false);
+    expect(game.prone, 'the press that closed it is no Prone').toBe(false);
+    expect(h.frame({ stance: true, stanceOff: true, prone: true }).prone, 'held on: still the menu\'s').toBe(false);
+    h.frame();
+    expect(h.frame({ prone: true }).prone, 'a new press is Prone again').toBe(true);
+  });
+
   it('a Triangle down short of the hold as R2 opens the menu is no tap: the host forgets the stance press (no stance block while open)', () => {
     // The opening frame masks the held lane, which a stance machine would read as a release -- a tap, a crouch. The
     // original runs no stance block while ctrl+0x221 = 1 (L453331), so the page forgets the press under way.

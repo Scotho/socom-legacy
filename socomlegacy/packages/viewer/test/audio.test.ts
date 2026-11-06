@@ -671,7 +671,8 @@ describe.skipIf(!haveSound)('Frostfire from the fixtures (81)', () => {
     expect(audio.onFire('M4A1', [0, 0, -1800])).toBeNull();             // the far sound's own RANGE (85-1700)
     expect(audio.stats().dropped.range).toBe(range + 1);
     // The M4A1 SD has no FireSoundMed/Far: its slots are empty and an empty slot plays nothing -- no fall back to the
-    // close sound. PLAUSIBLE: the empty name's lookup to a null handle (FUN_00344f30) was not read to the end.
+    // close sound. A reading: the missing name's lookup to a null handle (FUN_00344f30 -> FUN_00344bf0) is read to
+    // the end in research 81 s5.1, which supersedes the earlier PLAUSIBLE.
     expect(audio.onFire('M4A1 SD', [0, 0, -80])).toBe('.M4A1_SIL');
     expect(audio.onFire('M4A1 SD', [0, 0, -150])).toBeNull();
   });

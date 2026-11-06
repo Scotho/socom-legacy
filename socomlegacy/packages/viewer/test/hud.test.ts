@@ -23,11 +23,12 @@ import { netMagsHidden } from '../src/net/netRefill';
 import { flipRows, HUD_LIBRARIES, readHud } from '../src/hudAssets';
 import { FONT_TEXT_01, layoutText, PEN_NUDGE, textWidth } from '../src/hudFont';
 import {
-  MP_TEAM_TAG_COLOUR_READING, ROUND_SCREEN_HIDES, TEAM_TAG_LAYOUT, teamTagLayout, type HudQuad,
+  GS_SAMPLE_OFFSET, MP_TEAM_TAG_COLOUR_READING, ROUND_SCREEN_HIDES, TEAM_TAG_LAYOUT, teamTagLayout, type HudQuad, type HudTri,
 } from '../src/hud';
 import type { TeamTagsView } from '../src/hudTags';
 import { MESSAGE_WRAP_WIDTH, messageMeasureScale, wrapMessageLine } from '../src/hudMessagePanel';
 import { eliminationLines } from '../src/net/rules';
+import { integerFit, UI_SAMPLING_DEFAULTS, type UiSamplingSettings } from '../src/experimentalUiSampling';
 
 /**
  * The in-game HUD (socomlegacy/docs/research/87-hud.md): its layout against `CHUD`'s constants and the console frames, and its
@@ -1979,5 +1980,234 @@ describe('LkPaioX5 (c): the two TAKE records', () => {
     const hud = new Hud();
     hud.setNearbyAction([{ prompt: 'pickup', name: 'M4A1' }, { prompt: 'pickup2', name: 'MK23' }]);
     expect(hud.state().model).toMatchObject({ action: 'pickup', actionCaption: 'TAKE M4A1', actionSides: [{ prompt: 'pickup2', colour: 'green' }] });
+  });
+});
+
+/**
+ * CPS (plan 2026-11-02, "the HUD's upload skipped when unchanged"; product track, a same-picture change): a batch's and a
+ * shapes layer's attributes are flagged for upload (`needsUpdate`, three's `version`) only when the frame's written
+ * vertices differ from what the attribute held; the arrays, the draw range and `visible` stay what the former fill wrote
+ * at every frame. The reference below is the former `fill`/`fillShapes` (sampling off), run over the same frames on its
+ * own arrays and compared byte for byte.
+ */
+describe('CPS: the HUD uploads a batch only when its vertices changed', () => {
+  type Attr = { array: Float32Array; version: number };
+  type Geo = { getAttribute(n: string): Attr; drawRange: { start: number; count: number } };
+  type BatchView = { mesh: Mesh; geometry: Geo; capacity: number; size: { width: number; height: number } };
+  type ShapesView = { mesh: Mesh; geometry: Geo; capacity: number };
+  type Inner = {
+    batches: Map<string, BatchView>; shapes: ShapesView[];
+    fill(b: BatchView, q: HudQuad[], half: number): void; fillShapes(s: ShapesView, t: HudTri[]): void;
+  };
+  const px = (): { width: number; height: number; data: Uint8ClampedArray } => ({ width: 2, height: 2, data: new Uint8ClampedArray(16).fill(255) });
+  const made = (): { hud: Hud; inner: Inner } => {
+    const hud = new Hud();
+    hud.setBitmaps({ 'newweapnbkrnd.tif': px(), 'm4carbine_icon.tif': px(), 'firemode.tif': px(), 'compass_lo.tif': px(), 'font_text_01.tif': px() });
+    return { hud, inner: hud as unknown as Inner };
+  };
+
+  /**
+   * The former fill's arithmetic on its own arrays (grown as the former `grow`: fresh zeroed arrays), its integer-sampling
+   * branch included (`sampling`: the settings the HUD was given, `setExperimentalSampling`).
+   */
+  class RefBatch {
+    capacity: number; pos: Float32Array; tex: Float32Array; col: Float32Array; count = 0; visible = false;
+    sampling: UiSamplingSettings = { ...UI_SAMPLING_DEFAULTS };
+    constructor(capacity: number, readonly size: { width: number; height: number }) {
+      this.capacity = capacity; this.pos = new Float32Array(capacity * 12); this.tex = new Float32Array(capacity * 8); this.col = new Float32Array(capacity * 16);
+    }
+    fill(quads: HudQuad[], half: number): void {
+      if (quads.length > this.capacity) {
+        this.capacity = Math.max(quads.length, this.capacity * 2);
+        this.pos = new Float32Array(this.capacity * 12); this.tex = new Float32Array(this.capacity * 8); this.col = new Float32Array(this.capacity * 16);
+      }
+      const { width, height } = this.size;
+      quads.forEach((q, i) => {
+        if (this.sampling.enabled && this.sampling.mode === 'integer' && q.texture !== 'white') {
+          const sourceW = Math.abs(q.u1-q.u0), sourceH = Math.abs(q.v1-q.v0);
+          const scaleX = Math.abs(q.w)/sourceW, scaleY = Math.abs(q.h)/sourceH;
+          if (sourceW > 0 && sourceH > 0 && Math.abs(scaleX-scaleY) <= 1e-6*Math.max(scaleX, scaleY)) {
+            const fit = integerFit(sourceW, sourceH, Math.abs(q.w), Math.abs(q.h), this.sampling.snap);
+            q = {...q, w: Math.sign(q.w)*fit.width, h: Math.sign(q.h)*fit.height};
+          }
+        }
+        const c = Math.cos(q.turn), sn = Math.sin(q.turn);
+        const lx0 = -half * c - half * sn, ly0 = half * sn - half * c;
+        const du = (lx0 / q.w) * (q.u1 - q.u0), dv = (ly0 / q.h) * (q.v1 - q.v0);
+        const corners: [number, number, number, number][] = [[-0.5, -0.5, q.u0, q.v0], [0.5, -0.5, q.u1, q.v0], [0.5, 0.5, q.u1, q.v1], [-0.5, 0.5, q.u0, q.v1]];
+        corners.forEach(([cx, cy, u, v], k) => {
+          const n = i * 4 + k, lx = cx * q.w, ly = cy * q.h;
+          this.pos.set([q.x + lx * c - ly * sn, q.y + lx * sn + ly * c, 0], n * 3);
+          this.tex.set([(u + du) / width, (v + dv) / height], n * 2);
+          this.col.set([q.rgba[0], q.rgba[1], q.rgba[2], cx > 0 ? q.alphaRight ?? q.rgba[3] : q.rgba[3]], n * 4);
+        });
+      });
+      this.count = quads.length * 6; this.visible = quads.length > 0;
+    }
+  }
+  class RefShapes {
+    capacity: number; pos: Float32Array; col: Float32Array; count = 0; visible = false;
+    constructor(capacity: number) { this.capacity = capacity; this.pos = new Float32Array(capacity * 9); this.col = new Float32Array(capacity * 12); }
+    fill(tris: HudTri[]): void {
+      if (tris.length > this.capacity) {
+        this.capacity = Math.max(tris.length, this.capacity * 2);
+        this.pos = new Float32Array(this.capacity * 9); this.col = new Float32Array(this.capacity * 12);
+      }
+      tris.forEach((t, i) => {
+        for (let k = 0; k < 3; k++) {
+          this.pos.set([t.p[k * 2]!, t.p[k * 2 + 1]!, 0], (i * 3 + k) * 3);
+          this.col.set([t.rgba[0], t.rgba[1], t.rgba[2], t.rgba[3]], (i * 3 + k) * 4);
+        }
+      });
+      this.count = tris.length * 3; this.visible = tris.length > 0;
+    }
+  }
+  const versions = (g: Geo, names: string[]): number[] => names.map((n) => g.getAttribute(n).version);
+  const bytes = (a: Float32Array): number[] => [...new Uint8Array(a.buffer, a.byteOffset, a.byteLength)];
+  const sameBatch = (b: BatchView, r: RefBatch): void => {
+    expect(b.capacity).toBe(r.capacity);
+    expect(bytes(b.geometry.getAttribute('position').array)).toEqual(bytes(r.pos));
+    expect(bytes(b.geometry.getAttribute('uv').array)).toEqual(bytes(r.tex));
+    expect(bytes(b.geometry.getAttribute('color').array)).toEqual(bytes(r.col));
+    expect(b.geometry.drawRange.count).toBe(r.count);
+    expect(b.mesh.visible).toBe(r.visible);
+  };
+  const sameShapes = (s: ShapesView, r: RefShapes): void => {
+    expect(s.capacity).toBe(r.capacity);
+    expect(bytes(s.geometry.getAttribute('position').array)).toEqual(bytes(r.pos));
+    expect(bytes(s.geometry.getAttribute('color').array)).toEqual(bytes(r.col));
+    expect(s.geometry.drawRange.count).toBe(r.count);
+    expect(s.mesh.visible).toBe(r.visible);
+  };
+  const quad = (over: Partial<HudQuad> = {}): HudQuad => ({
+    element: 'panel', texture: 'white', x: 100.3, y: 50.7, w: 30, h: -12, turn: 0.4, u0: 0, v0: 0, u1: 1, v1: 1, rgba: [0.5, 0.25, 1, 0.75], ...over,
+  });
+  const QUAD_ATTRS = ['position', 'uv', 'color'];
+
+  it("a batch: flagged on the first frame and a changed one, not on an identical one; contents always the former fill's", () => {
+    const { inner } = made();
+    const b = inner.batches.get('0:white')!;
+    const ref = new RefBatch(b.capacity, b.size);
+    const half = GS_SAMPLE_OFFSET;
+    const step = (qs: HudQuad[], flagged: boolean): void => {
+      const g0 = b.geometry, v0 = versions(g0, QUAD_ATTRS);
+      inner.fill(b, qs, half); ref.fill(qs, half);
+      sameBatch(b, ref);
+      const before = b.geometry === g0 ? v0 : [0, 0, 0];                            // grown: a fresh geometry, versions from 0
+      const after = versions(b.geometry, QUAD_ATTRS);
+      if (flagged) for (let i = 0; i < 3; i++) expect(after[i]).toBeGreaterThan(before[i]!);
+      else expect(after).toEqual(before);
+    };
+    const a = [quad(), quad({ x: 200, alphaRight: 0.1 }), quad({ x: 300, y: 10, turn: 0 })];
+    step(a, true);                                                                  // the first frame
+    step(a.map((q) => ({ ...q, rgba: [...q.rgba] as HudQuad['rgba'] })), false);    // identical content, new objects
+    step(a, false);
+    step([a[0]!, { ...a[1]!, x: 201 }, a[2]!], true);                               // a moved quad
+    step([a[0]!, { ...a[1]!, x: 201 }, a[2]!], false);
+    step([a[0]!, { ...a[1]!, x: 201, rgba: [0.5, 0.25, 1, 0.5] }, a[2]!], true);    // a recoloured quad
+    step([a[0]!, { ...a[1]!, x: 201, rgba: [0.5, 0.25, 1, 0.5], alphaRight: 0.2 }, a[2]!], true);   // its right alpha
+    step([a[0]!], true);                                                            // fewer quads: the range shrinks
+    step([a[0]!], false);
+    step([], true);                                                                 // none: hidden
+    step([], false);
+    step([a[0]!], true);                                                            // back: shown, the range grows
+    const many = Array.from({ length: 9 }, (_, i) => quad({ x: i * 10, v1: 0.5 }));  // beyond the capacity (4): grown
+    step(many, true);
+    expect(b.capacity).toBe(9);
+    step(many, false);
+    step(many.slice(0, 5), true);
+  });
+
+  it('a batch under integer sampling (the test room\'s experiment): letterboxed as the former fill, flagged only on a change', () => {
+    const { hud, inner } = made();
+    const b = inner.batches.get('0:compass_lo.tif')!;                                // a bitmap's batch: the branch skips white
+    const ref = new RefBatch(b.capacity, b.size);
+    const half = GS_SAMPLE_OFFSET;
+    const set = (over: Partial<UiSamplingSettings>): void => {
+      const settings = { ...UI_SAMPLING_DEFAULTS, enabled: true, mode: 'integer' as const, ...over };
+      hud.setExperimentalSampling(settings); ref.sampling = settings;
+    };
+    const step = (qs: HudQuad[], flagged: boolean): void => {
+      const g0 = b.geometry, v0 = versions(g0, QUAD_ATTRS);
+      inner.fill(b, qs, half); ref.fill(qs, half);
+      sameBatch(b, ref);
+      const before = b.geometry === g0 ? v0 : [0, 0, 0];
+      const after = versions(b.geometry, QUAD_ATTRS);
+      if (flagged) for (let i = 0; i < 3; i++) expect(after[i]).toBeGreaterThan(before[i]!);
+      else expect(after).toEqual(before);
+    };
+    const bitmap = (over: Partial<HudQuad> = {}): HudQuad => quad({ texture: 'compass_lo.tif', w: 31, h: -31, u0: 0, v0: 0, u1: 2, v1: 2, ...over });
+    // Uniform scales (fitted: 15.5 -> 15, and -> 12 at snap 4) and a stretched one (left as laid out).
+    const qs = [bitmap(), bitmap({ x: 10, w: 9, h: 9, turn: 0 }), bitmap({ x: 50, w: 31, h: 20 })];
+    set({ snap: 1 });
+    step(qs, true);
+    step(qs.map((q) => ({ ...q })), false);
+    set({ snap: 4 });
+    step(qs, true);                                                                  // the fit changed: the bytes changed
+    step(qs, false);
+    set({ enabled: false });
+    step(qs, true);                                                                  // sampling off: the layout's sizes
+  });
+
+  it('a shapes layer: the same', () => {
+    const { inner } = made();
+    const s = inner.shapes[0]!;
+    const ref = new RefShapes(s.capacity);
+    const step = (ts: HudTri[], flagged: boolean): void => {
+      const g0 = s.geometry, v0 = versions(g0, ['position', 'color']);
+      inner.fillShapes(s, ts); ref.fill(ts);
+      sameShapes(s, ref);
+      const before = s.geometry === g0 ? v0 : [0, 0];                              // grown: a fresh geometry, versions from 0
+      const after = versions(s.geometry, ['position', 'color']);
+      if (flagged) for (let i = 0; i < 2; i++) expect(after[i]).toBeGreaterThan(before[i]!);
+      else expect(after).toEqual(before);
+    };
+    const tri = (x: number, rgba: HudTri['rgba'] = [0, 1, 0, 0.5]): HudTri => ({ layer: 0, p: [x, 1.1, x + 5, 2.2, x, 9.3], rgba });
+    const t = [tri(1), tri(20), tri(40)];
+    step(t, true);
+    step(t.map((x) => ({ ...x, p: [...x.p] as HudTri['p'], rgba: [...x.rgba] as HudTri['rgba'] })), false);
+    step([t[0]!, tri(21), t[2]!], true);
+    step([t[0]!, tri(21, [1, 0, 0, 0.5]), t[2]!], true);
+    step([t[0]!, tri(21, [1, 0, 0, 0.5]), t[2]!], false);
+    step([t[0]!], true);
+    step([], true);
+    step([], false);
+    const many = Array.from({ length: 70 }, (_, i) => tri(i));                       // beyond the capacity (64): grown
+    step(many, true);
+    expect(s.capacity).toBe(128);
+    step(many, false);
+  });
+
+  it('a zero written over a negative zero (and back) is a change: the bytes, not the numbers, are compared', () => {
+    const { inner } = made();
+    const s = inner.shapes[0]!;
+    const ref = new RefShapes(s.capacity);
+    const z = (x: number): HudTri => ({ layer: 0, p: [x, 1, 2, 3, 4, 5], rgba: [1, 1, 1, 1] });
+    for (const [ts, flagged] of [[[z(-0)], true], [[z(0)], true], [[z(0)], false], [[z(-0)], true]] as [HudTri[], boolean][]) {
+      const before = s.geometry.getAttribute('position').version;
+      inner.fillShapes(s, ts); ref.fill(ts);
+      sameShapes(s, ref);
+      expect(s.geometry.getAttribute('position').version > before).toBe(flagged);
+    }
+  });
+
+  it('a still clock: after two rendered frames, a third identical frame flags no attribute of any batch or shapes layer', () => {
+    const now = 5000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const frame = { autoClear: true, getDrawingBufferSize: (v: Vector2) => v.set(640, 448), render: () => {} };
+    const { hud, inner } = made();
+    hud.setVisible(true);
+    hud.setOverlay(() => ({ quads: [], tris: [{ layer: 1, p: [1, 2, 30, 4, 5, 60], rgba: [1, 1, 1, 1] }] }));
+    const all = (): number[] => [
+      ...[...inner.batches.values()].flatMap((b) => versions(b.geometry, QUAD_ATTRS)),
+      ...inner.shapes.flatMap((s) => versions(s.geometry, ['position', 'color'])),
+    ];
+    hud.render(frame);
+    hud.render(frame);                                    // the clock still: the frame's quads equal the last's
+    const once = all();
+    expect(once.some((v) => v > 0)).toBe(true);            // the first frames flagged what they drew
+    hud.render(frame);
+    expect(all()).toEqual(once);
+    clock.mockRestore();
   });
 });

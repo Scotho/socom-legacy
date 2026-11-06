@@ -57,9 +57,14 @@ export const INVENTORY_BUTTON_LANE: Readonly<Record<InventoryButton, PadFlag>> =
  * The lanes the open menu takes from the game: its own buttons, Triangle's stance among them, and Square's jump -- the
  * blocks `ctrl+0x221` = 1 stops (L453192, L453208, L453315-453323, L453331). Held through the menu, each stays the
  * menu's until it is let go (`FUN_0021aaa0` clears the pad's Cross and Triangle at the close, L72015-72017), so the
- * Cross that confirms is no climb, the Triangle that closes no crouch and the R2 no second open.
+ * Cross that confirms is no climb, the Triangle that closes no crouch and the R2 no second open. OT.R107 (the owner,
+ * 2026-11-06; SEPARATE a browser adaptation, STM.R1 / OT.R67): SEPARATE's Crouch and Prone binds are that stance block's
+ * buttons there, and the Prone bind's button is Triangle's too (`./controllerInput` `poll`), so they are taken with it --
+ * the Prone button that closes the menu is no Prone.
  */
-export const INVENTORY_LANES: readonly PadFlag[] = ['zoom', 'zoomOut', 'swap1', 'swap2', 'action', 'inventory', 'stance', 'jump'];
+export const INVENTORY_LANES: readonly PadFlag[] = ['zoom', 'zoomOut', 'swap1', 'swap2', 'action', 'inventory', 'stance', 'jump', 'crouch', 'prone'];
+/** The stance block's lanes among them (L453331): taken while held, the take is no release (`InventoryMenu.frame`). */
+const STANCE_BLOCK_LANES: readonly PadFlag[] = ['stance', 'crouch', 'prone'];
 
 /** The idle close (`FUN_0021bda0` L72705: `5.0 < DAT_0040c100`), seconds without a step. */
 export const INVENTORY_IDLE_CLOSE = 5.0;
@@ -629,13 +634,22 @@ export class InventoryMenu {
     const wasOpen = this.s.open;
     const events = this.press(buttons, real);
     this.drawFrame(events, dt);
+    // #702's review (Codex P2): a stance lane held into the take (down last frame, not yet the menu's) goes true -> false in
+    // the game's input -- no let-go: the frame says so (`Input.stanceCancelled`), so the Crouch bind's release toggle and
+    // Triangle's tap read none (`./matchLanes`); the stance stays blocked under the menu (D:L453331).
+    let took = false;
     if (wasOpen || this.s.open || events.some((e) => e.kind === 'opened')) {
-      for (const lane of INVENTORY_LANES) if (after[lane]) this.held.add(lane);
+      for (const lane of INVENTORY_LANES) {
+        if (!after[lane]) continue;
+        if (!this.held.has(lane) && before[lane] && STANCE_BLOCK_LANES.includes(lane)) took = true;
+        this.held.add(lane);
+      }
     }
     for (const lane of [...this.held]) if (!after[lane]) this.held.delete(lane);
     if (!this.held.size) return after;
     const game = { ...after };
     for (const lane of this.held) game[lane] = false;
+    if (took) game.stanceCancelled = true;
     if (game.stancePressure !== undefined && !game.stance) game.stancePressure = 0;
     return game;
   }

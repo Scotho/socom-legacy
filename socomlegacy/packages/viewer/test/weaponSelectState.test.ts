@@ -39,7 +39,7 @@ describe('WEAPON EXCHANGE, state by state (research 94 §B4)', () => {
     expect(canOpen({ inMatch: false, alive: false, cameraOnSelf: true, spectator: false })).toBe(false);
     const closed = closedMenu(kit(54, 15, 121, 126, 194));
     expect(step(seal, closed, 'inventory', false).state.screen).toBe('closed');
-    for (const i of ['up', 'action', 'back'] as const) expect(step(seal, closed, i).state).toBe(closed);
+    for (const i of ['up', 'action', 'back', 'close'] as const) expect(step(seal, closed, i).state).toBe(closed);
   });
 
   it('S2: Inventory opens the slot list on slot 0; Up/Down wrap; Triangle, Start or Inventory close', () => {
@@ -111,6 +111,19 @@ describe('WEAPON EXCHANGE, state by state (research 94 §B4)', () => {
     expect([s.screen, s.loadout, s.picks]).toEqual(['list', [54, 15, 121, 126, 194], []]);
     const same = step(seal, drive(seal, closedMenu(kit(54, 15, 121, 126, 194)), 'inventory', 'action'), 'action');
     expect([same.state.screen, same.event]).toEqual(['list', null]);
+  });
+
+  it('OT.R106 (owner adaptation, not the original): Circle\'s `close` shuts the menu from the list and the picker', () => {
+    // The original's Circle is not cancel (`FUN_0023e5e0`, D:L88379); the owner's word (2026-11-06) closes the menu with it.
+    const list = drive(seal, closedMenu(kit(54, 15, 121, 126, 194)), 'inventory');
+    expect(step(seal, list, 'close')).toMatchObject({ state: { screen: 'closed' }, event: { kind: 'closed' } });
+    const picker = drive(seal, list, 'action', 'down');                         // an unconfirmed M4A1 SD on the picker
+    expect(picker.screen).toBe('picker');
+    const { state, event } = step(seal, picker, 'close');
+    expect(event).toEqual({ kind: 'closed' });                                 // the same event a Triangle close from the list emits
+    expect([state.screen, state.loadout, state.picks]).toEqual(['closed', [54, 15, 121, 126, 194], []]);
+    expect(step(seal, closedMenu(kit(54, 15, 121, 126, 194)), 'close').event).toBeNull();   // closed: R2 alone opens
+    expect(step(seal, picker, 'back').state.screen).toBe('list');               // Triangle / Start: still the original's
   });
 
   it('the other side lists its own: a Terrorist\'s sidearm picker holds the M9 and the 226, never the Mark 23', () => {

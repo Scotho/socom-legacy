@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FsAssetSource } from '@s2u/archive/node';
-import { buildGrid, probeGround, GAME_FRAME_DT, PROBE_LIFT, SEAL_LOCOMOTION, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
+import { buildGrid, polygonNormal, probeGround, GAME_FRAME_DT, PROBE_LIFT, SEAL_LOCOMOTION, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { FlyCamera } from '../src/camera';
 import { loadMap } from '../src/loadMap';
@@ -398,7 +398,8 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     expect(w.state.y).toBe(0);
   });
 
-  it('max_slope 50: a 45-degree ramp is walked up, a 55-degree ramp refuses', () => {
+  it('max_slope 50: a 45-degree ramp is walked up; a 55-degree ramp is stepped onto and slides the body back, never a step_height up', () => {
+    let top = 0;
     const ramp = (degrees: number): Walker => {
       const h = 100 * Math.tan(degrees * Math.PI / 180);
       const slope: WorldPoly = {
@@ -408,16 +409,24 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
       const w = new Walker(world([floor(-200, -200, 30, 200, 0), slope]));
       w.place(0, 0, 0);
       w.state.yaw = facing(0, 0, 1, 0);
-      for (let i = 0; i < 60; i++) w.tick(FORWARD);
+      top = 0;
+      for (let i = 0; i < 60; i++) { w.tick(FORWARD); top = Math.max(top, w.state.y); }
       return w;
     };
     expect(SEAL_TUNING.maxSlopeDeg).toBe(50);
     const walked = ramp(45);
     expect(walked.state.x).toBeGreaterThan(50);                 // 1 s at 65 with the 0.2 s ramp: ~59 from 0
     expect(walked.state.y).toBeCloseTo(walked.state.x - 30, 3);
-    const refused = ramp(55);
-    expect(refused.state.x).toBeLessThanOrEqual(30);
-    expect(refused.state.y).toBe(0);
+    // LATER 590 (closed 2026-11-05; was "a 55-degree ramp refuses", W2.2b's rule, which had no source): the walk compares
+    // no rise (`FUN_005b5d40` D:L470163-470290), and this ramp is ditype 1, a ground surface the segments do not test (bit 1
+    // clear; `FUN_0054aa30`'s records take the movement surfaces only). So the step onto it is taken, the slide starts from
+    // the uphill velocity's part along the fall line and carries the body up a little before it turns back
+    // (`FUN_0054edf0`, research 201 s3; `./steepSlide`): measured, at 1 s x 33.88, y 5.53, never over 5.70.
+    const steep = ramp(55);
+    expect(steep.state.x).toBeGreaterThan(30);
+    expect(steep.state.x).toBeLessThan(35);
+    expect(top).toBeGreaterThan(5);
+    expect(top).toBeLessThan(SEAL_TUNING.stepHeight);
   });
 
   // The M71 rubble toe: the three low-probe contacts measured at the hallway stand-off, and the triangle
@@ -526,19 +535,46 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     expect(w.state.y).toBe(0);
   });
 
-  it('a 54-degree face is not walked into from the floor in front of it', () => {
+  it('a 54-degree face is not walked into from the floor in front of it: the segments at step_height hold the body off it', () => {
+    // LATER 590 (closed 2026-11-05): the face stops the body, not a rise rule. Wound with its own normal up (as the disc's
+    // ground faces are: MP7's g125_2 is met from above by the side lines, steepRise.test.ts), the centre record at the feet
+    // + 6.5 and the side lines meet it and the hit's levelled normal takes the move's part into it (`FUN_0054aa30`
+    // D:L415167, `FUN_005483d0` D:L413533-413567). Was: this fixture wound the other way, held at -0.4167 by the steep-rise
+    // refusal (W2.2b, no source) with no segment hit; that winding is the next case.
     const tan = Math.tan((54 * Math.PI) / 180);
     const slope: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/ramp', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([0, 0, -20, 40, 40 * tan, -20, 40, 40 * tan, 20, 0, 0, 20]),
+      points: Float32Array.from([0, 0, 20, 40, 40 * tan, 20, 40, 40 * tan, -20, 0, 0, -20]),
     };
+    expect(polygonNormal(slope.points)![1]).toBeGreaterThan(0);
     const w = new Walker(world([floor(-80, -40, 80, 40, 0), slope]));
     expect(w.place(-8, 2, 0)).toBe(true);
     w.state.yaw = facing(w.state.x, w.state.z, 20, 0);
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
     expect(w.state.y).toBe(0);
-    // The face starts at x 0. Disc check of Fuse's #408 head (PR #408's verification comment) stopped 0.7 to 1.8 short of the chain's stop.
-    expect(w.state.x).toBeCloseTo(-0.416666666666668, 4);
+    expect(w.state.x).toBeCloseTo(-0.958, 3);
+    expect(w.wallHits().some((h) => h.poly.path === 'worldmodel/ramp')).toBe(true);
+  });
+
+  it('LATER 590: a 54-degree face wound with its front down is not met by the segments; stepped onto, it slides the body back under step_height', () => {
+    // A hull face is hit only from in front of its own normal (research 281 s4.3), so the records above this one pass
+    // through its back: no segment holds the body, and the walk compares no rise (`FUN_005b5d40` D:L470163-470290). The
+    // step onto it is taken and the slide (`FUN_0054edf0`, research 201 s3) starts from the uphill velocity's part along
+    // the fall line, carries the body up and turns it back, over and over: measured at 3 s x 3.83, y 5.27, never over 6.11.
+    const tan = Math.tan((54 * Math.PI) / 180);
+    const slope: WorldPoly = {
+      modelName: 'worldmodel', path: 'worldmodel/ramp', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+      points: Float32Array.from([0, 0, -20, 40, 40 * tan, -20, 40, 40 * tan, 20, 0, 0, 20]),
+    };
+    expect(polygonNormal(slope.points)![1]).toBeLessThan(0);
+    const w = new Walker(world([floor(-80, -40, 80, 40, 0), slope]));
+    expect(w.place(-8, 2, 0)).toBe(true);
+    w.state.yaw = facing(w.state.x, w.state.z, 20, 0);
+    let top = 0;
+    for (let i = 0; i < 180; i++) { w.tick(FORWARD); top = Math.max(top, w.state.y); }
+    expect(top).toBeGreaterThan(5);
+    expect(top).toBeLessThan(SEAL_TUNING.stepHeight);
+    expect(w.state.x).toBeLessThan(5);
   });
 
   // FUN_005483d0's deep branch (D:L413602-413614), built with the original's segments by SEGMENT-BODY (LATER 283;
@@ -802,7 +838,8 @@ describe.skipIf(!MP2)(`walking Frostfire${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, 
   it('walks research 24\'s route from A\'s spawn to B\'s floor, on each leg\'s floor within 1.5, and the door leaf stops it', async () => {
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     expect(map.ground).toBeDefined();
-    expect(groundPolygons(map.ground!).length).toBe(3318);           // research 24 section 1.1
+    // Research 24 section 1.1's 3,318, and the three r0004 adds under the map's root (R4B-09, research 383; OT.R97).
+    expect(groundPolygons(map.ground!).length).toBe(3318 + 3);
     const w = new Walker(groundGrid(map.ground!));
     expect(w.place(796, 100 + EYE_HEIGHT, 614)).toBe(true);
     expect(w.state.y).toBe(100);
@@ -2088,6 +2125,8 @@ describe('the jump, as the decompilation has it (research 80)', () => {
     expect(w.jump()).toBe(true);                                   // and again once it is done
   });
 
+  // OT.R108 (the owner, 2026-11-06): the port keeps this air control, r0001's (`FUN_0057a330` D:L438955-438985); r0004's
+  // forward-only standing jump (R4B-12, research 385 s2) is a known, deliberate rejection.
   it('the standing jump\'s stick drives it at the sets\' top speeds: 65 ahead, 37 back, 65 aside, 20 crouched', () => {
     const speed = (input: WalkInput, stance: Stance = 'stand'): number => {
       const w = standing();

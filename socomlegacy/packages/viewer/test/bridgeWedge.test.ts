@@ -8,6 +8,7 @@ import { simMapFromBytes } from '../src/simMap';
 import { WorldState } from '../src/worldState';
 import { Traversal } from '../src/traversal';
 import { BODY_RADIUS, groundGrid, groundPolygons, STEP_PROBE_LIFT_READING, wallProbeHeights, Walker, WEDGE_PUSH_OUT_ADAPTATION } from '../src/mover';
+import { CLIMBABLE } from '../src/climb';
 
 /**
  * HOTFIX BRIDGE-WEDGE, HF2-slim (Trello c22ltqhr; research 217 s2.10; LATER 620, LATER 283). Reading, pending capture,
@@ -417,10 +418,12 @@ describe(`HF2-slim's bound: a healthy body is untouched by the wedge push-out`, 
 // body is jammed, never pushed (D:L413602-413611); the disc pushed it off that floor's edge to main's y 114.30. MP1's
 // standing drop is put out off the face by the deep-hit rule along its facing (D:L415135-415161, D:L413602-413614) and
 // ends on the floor 38 below main's, 13 further in z. Main's are kept beside them.
+// R4B-09 (research 383): MP1's face is the same `land27/invis27` polygon, now 3288 -- r0004 hangs a new node with one
+// polygon under `land18`, which comes before it in the list (OT.R97).
 const FACE_DROPS = [
   { map: 'MP9', poly: 12898, side: 1, off: 0.5, stance: 'prone', main: [1801.22, 114.30, 1737.03], rest: [1807.30, 161.32, 1739.90], what: 'land_04/congo2_tree4' },
-  { map: 'MP1', poly: 3287, side: 1, off: 0.5, stance: 'stand', main: [2228.66, 117.48, 2671.49], rest: [2226.98, 79.48, 2684.61], what: 'land27/invis27' },
-  { map: 'MP1', poly: 3287, side: -1, off: 0.5, stance: 'prone', main: [2227.14, 116.40, 2673.63], what: 'land27/invis27' },
+  { map: 'MP1', poly: 3288, side: 1, off: 0.5, stance: 'stand', main: [2228.66, 117.48, 2671.49], rest: [2226.98, 79.48, 2684.61], what: 'land27/invis27' },
+  { map: 'MP1', poly: 3288, side: -1, off: 0.5, stance: 'prone', main: [2227.14, 116.40, 2673.63], what: 'land27/invis27' },
   { map: 'MP51', poly: 1358, side: 1, off: 0.5, stance: 'stand', main: [1525.56, 62.83, 635.38], what: 'wc06/window_frame' },
 ] as const;
 for (const c of FACE_DROPS) {
@@ -460,9 +463,9 @@ for (const c of FACE_DROPS) {
     // twice the radius 3.5) across the ground from its rest. Measured 2026-11-04: MP1's standing rest walks out at 90,
     // 180 and 270 (250-254 u). MP9's prone rest does not: it crawls 0.00 in all four -- the prone body against the face is
     // put back on every move with a hit (D:L413602-413611) -- and the stand press is forgotten for want of headroom
-    // (`stanceGate('stand')` 'reset'), so it stays prone and no direction clears. LATER 687 holds it: stuck in every
-    // stance, where main dropped it to y 114.30; whether a player can reach the spot is open (crawls from 6, 10 and 20 u
-    // never do). Pinned as measured, not as a gap: the original's answer at that spot is not read.
+    // (`stanceGate('stand')` 'reset'), so it stays prone and no direction clears: stuck in every stance, where main
+    // dropped it to y 114.30. LATER 687 (closed 2026-11-05): no player's route reaches the rest (the sweep below), so the
+    // drop is a synthetic placement only. Pinned as measured, not as a gap: the original's answer there is not read.
     if ('rest' in c) {
       it(c.stance === 'prone'
         ? 'LATER 687: stuck at the rest -- the stand press is forgotten for headroom, and no direction clears, prone or after it'
@@ -497,6 +500,101 @@ for (const c of FACE_DROPS) {
     }
   });
 }
+
+/**
+ * LATER 687 (closed 2026-11-05: unreachable). MP9's `land_04/congo2_tree4` rest (above) lies on the trunk's leaning face
+ * (polygon 12898, n_y 0.79), 46 over the ground under it and 26-34 over the reachable ground at the trunk's west foot.
+ * No climb takes a body onto the tree: every `congo2_tree4` polygon carries appflags 0, none `CLIMBABLE` (`climbClass`'s
+ * table climbs only a contact flagged 1, 3, 4 or 5), so no climb is ever offered off it. A player's own moves were swept
+ * from the ground on every side (12 bearings, 30 out; 276 routes: prone presses and crawls, stand and crouch walks
+ * pressed into the trunk then prone, running jumps, dives; every climb offered taken -- none was; 2026-11-05, L-REPORT):
+ * none reached the rest or stood on the tree. The uphill side's running jumps reach the lower floor but not the rest
+ * (REVIEW-L-1: from 70 out at bearings 240-330, jumps pressed 30-55 out land on the tree's lower floor, y 150.4-152.7 by
+ * polygons 12885-12889; walked, jumped and crawled on from there at 16 headings, none reached the rest or stuck). Held
+ * here by the tree's flags, a light subset -- 12 bearings x four moves from 30 out -- and a control: a prone body
+ * falling onto the rest from 10 above (no player's way in) reaches it and rests there.
+ */
+describe.skipIf(!haveDisc('MP9'))(`LATER 687: no player's route reaches MP9's congo2_tree4 rest${haveDisc('MP9') ? '' : ' (SOCOM_DISC absent)'}`, () => {
+  const REST = [1807.30, 161.32, 1739.90] as const, AXIS = [1804, 1741] as const;
+  const load = () => {
+    const map = simMapFromBytes(new Uint8Array(readFileSync(resolve(DISC, 'RUN', 'MP9.ZDB'))), 'RUN/MP9.ZDB');
+    return { grid: groundGrid(map.ground!), polys: groundPolygons(map.ground!) };
+  };
+  const terrain = (grid: Grid, x: number, z: number): number | null => {
+    const ys = probeGround(grid, x, z).filter((h) => h.poly.path === 'worldmodel/land_04' && h.normal[1] > 0.5).map((h) => h.y);
+    return ys.length ? Math.max(...ys) : null;
+  };
+  /** A route's watch: the ticks its feet stood on a floor of the tree, and whether it came within 3 of the rest. */
+  const route = (grid: Grid, polys: WorldPoly[]) => {
+    const w = new Walker(grid), t = new Traversal(grid, polys);
+    w.driver = t;
+    const seen = { tree: 0, rest: false };
+    const step = (forward: number): void => {
+      if (t.climbPrompt() !== null) t.action();                  // every climb offered, taken
+      w.tick(still(forward));
+      const s = w.state;
+      const fl = w.airborne ? null : selectFloor(probeGround(grid, s.x, s.z), s.y + STEP_PROBE_LIFT_READING, s.y);
+      if (fl && fl.poly.path.includes('congo2_tree4') && Math.abs(fl.y - s.y) < 1) seen.tree++;
+      if (Math.hypot(s.x - REST[0], s.z - REST[2]) < 3 && Math.abs(s.y - REST[1]) < 3) seen.rest = true;
+    };
+    /** Placed on the ground `d` out at bearing `a`, facing the trunk's axis. */
+    const start = (a: number, d: number): boolean => {
+      const r = (a * Math.PI) / 180, x = AXIS[0] + Math.sin(r) * d, z = AXIS[1] + Math.cos(r) * d, g = terrain(grid, x, z);
+      if (g === null || !w.place(x, g + STEP_PROBE_LIFT_READING, z)) return false;
+      w.state.yaw = (Math.atan2(-(AXIS[0] - x), -(AXIS[1] - z)) * 180) / Math.PI;
+      return true;
+    };
+    /** Full stick at the axis until within `d` of it or blocked (under 0.3 in 10 ticks), 3 s at most. */
+    const approach = (d: number): void => {
+      let x0 = w.state.x, z0 = w.state.z;
+      for (let i = 0; i < 180 && Math.hypot(w.state.x - AXIS[0], w.state.z - AXIS[1]) > d; i++) {
+        step(1);
+        if (i % 10 === 9) { if (Math.hypot(w.state.x - x0, w.state.z - z0) < 0.3) return; x0 = w.state.x; z0 = w.state.z; }
+      }
+    };
+    return { w, t, seen, step, start, approach };
+  };
+  const BEARINGS = Array.from({ length: 12 }, (_, i) => i * 30);
+
+  it("no climb off the tree (every congo2_tree4 polygon's appflags 0), and none of 48 routes from 30 out reaches the rest or stands on the tree", () => {
+    const { grid, polys } = load();
+    const tree = polys.filter((p) => p.path.includes('congo2_tree4'));
+    expect(tree.length).toBe(300);
+    expect(tree.filter((p) => (p.appflags ?? 0) !== 0).length, 'tree polygons with a flag').toBe(0);
+    expect(tree.some((p) => CLIMBABLE.has(p.appflags ?? 0)), 'a climbable tree polygon').toBe(false);
+    const ends: string[] = [];
+    let routes = 0;
+    const moves: Record<string, (r: ReturnType<typeof route>) => void> = {
+      'stand walk, prone, crawl': (r) => { r.approach(0); for (let i = 0; i < 60; i++) r.step(1); r.w.changeStance('prone'); for (let i = 0; i < 90; i++) r.step(0); for (let i = 0; i < 120; i++) r.step(1); },
+      'crouch walk, prone, crawl': (r) => { r.w.stance = 'crouch'; r.approach(0); for (let i = 0; i < 60; i++) r.step(1); r.w.changeStance('prone'); for (let i = 0; i < 90; i++) r.step(0); for (let i = 0; i < 120; i++) r.step(1); },
+      'running jump at 10': (r) => { r.approach(10); r.w.jump(); for (let i = 0; i < 120; i++) r.step(1); },
+      'dive at 12': (r) => { r.approach(12); r.t.dive(r.w); for (let i = 0; i < 400 && r.t.inDive(); i++) r.step(1); for (let i = 0; i < 120; i++) r.step(1); },
+    };
+    for (const [name, move] of Object.entries(moves)) for (const a of BEARINGS) {
+      const r = route(grid, polys);
+      expect(r.start(a, name.startsWith('dive') ? 40 : 30)).toBe(true);
+      routes++;
+      move(r);
+      for (let i = 0; i < 300 && (r.w.airborne || r.w.action !== null || r.t.active); i++) r.step(0);
+      if (r.seen.tree > 0 || r.seen.rest) ends.push(`${name} from ${a}: ${r.seen.tree} ticks on the tree, rest ${r.seen.rest}`);
+    }
+    expect(routes).toBe(48);
+    expect(ends, 'routes that reached the tree').toEqual([]);
+  }, 120_000);
+
+  it('the control: a prone body falling onto the rest from 10 above rests there, on the tree', () => {
+    const { grid, polys } = load();
+    const r = route(grid, polys);
+    expect(r.w.place(REST[0], REST[1] + 3, REST[2])).toBe(true);
+    Object.assign(r.w.state, { y: r.w.state.y + 10 });
+    r.w.stance = 'prone';
+    r.w.setAirborne(true, 0);
+    for (let i = 0; i < 120; i++) r.step(0);
+    expect(r.seen.tree).toBeGreaterThan(0);
+    expect(r.seen.rest).toBe(true);
+    expect(r.w.airborne).toBe(false);
+  }, 120_000);
+});
 
 /**
  * The bound, widened (the review of 20c326dfb, finding 1): the push-out fired from `step` on every all-refused try,
@@ -590,7 +688,8 @@ describe.skipIf(!MP2)(`HF2-slim's cost cut leaves every walker state as it was${
     // r0004 jump-near-wall capture proved the running jump reads no stored contact (`JUMP_CONTACT_PROVEN` 'none'), so
     // only the speed decides: 339 launch and 160 stand (8ed3ea02...). Part 6 (2026-11-04, LATER 676): the speed is the
     // clip's, before the walls cut it (`FUN_0057e1b0` D:L440812-440814; ac's r0004 ditch capture): 383 and 116, the hash
-    // re-measured.
+    // re-measured. R4B-12 (2026-11-05) moved it to 0a7b0923... with r0004's forward-only standing jump; OT.R108 (the
+    // owner, 2026-11-06) rejected that segment and the air control is kept, so the hash is Part 6's again, re-measured.
     expect([launched, stood]).toEqual([383, 116]);
     expect(digest).toBe('c2b30349ff5ef7ca715d45c59f6264c5464645b4d6f96abe85c821c28732ceb5');
   }, 120_000);

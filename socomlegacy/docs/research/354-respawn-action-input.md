@@ -1,4 +1,4 @@
-# 354 -- Respawn: the dead controller's fresh Action press
+# 354 -- retail + r0004 respawn: the dead controller's fresh Action press
 
 - Date: 2026-10-21.
 - Plan: [confirmed respawn gap fixes](../plans/2026-10-21-respawn-fixes.md), RSP-8, simulation track.
@@ -11,7 +11,20 @@
 
 Research 352 sections 1 and 3 record the original snapshot provenance, integrity checks and native instruction
 ranges. The r0004 `FUN_00597d90` corresponds to the inherited r0001 `FUN_00592560`, D:L451675-451726; the local
-decompilation export is unavailable, so fresh native addresses are kept distinct from inherited decompilation lines.
+decompilation export was unavailable for that original task, so its fresh native addresses were kept distinct from
+inherited decompilation lines.
+
+**R4B-00 retail + r0004 re-citation (2026-11-04; reading, pending review).** The export is now available and was
+re-read: retail `FUN_00592560` D:L451675-451726 gives mapped state 1, the online/respawn/nonghost/nonspectator
+and strict >5-s conditions, and the alpha-zero latch. The mode-0 guard is D:L451673-451674. These are the same
+conditions in the r0004 ranges below, re-read in both `game/overlays_r0004/socom2_game_r0004.elf` and pristine
+`game/r0004/served/zsealetc.bin`. The mapped-button reader is retail `FUN_002c64e0` D:L166917-166930 /
+r0004 `0x2c81d0-0x2c820c`; the pad-state producer is retail `FUN_002d9ff0` D:L179130-179168 /
+r0004 `0x2f7020-0x2f70d8`, also re-read in pristine `game/r0004/served/ftscore.bin` and the aggregate.
+Retail's down sample turns 0 or release 3 into state 1 and then held 2, matching r0004's rising-edge interpretation.
+The game record's ghost/respawn bytes move `+0xd2`/`+0xdc` to `+0xd6`/`+0xe0`; the gates do not change.
+This is a new static cross-revision reading awaiting fresh review, not a repeat of the earlier acquisition,
+unit tests or source-review verdict. It adds no post-spawn flush claim and does not close the partial-alpha gap.
 
 | r0004 source | reading |
 |---|---|

@@ -181,5 +181,8 @@ export function applyPadExtras(extras: PadExtras, input: Input, pressed: readonl
   const out: Input = { ...input };
   extras.doubles.forEach((d, i) => { if (d.action === 'stance' ? doublePressed[i] : now(d.button)) out[d.action] = true; });
   extras.combos.forEach((c, i) => { if (c.action === 'stance' ? comboPressed.has(i) : state.on.has(i)) out[c.action] = true; });
+  // #702's review (Codex P2): an added stance is a stance source of its own -- never Triangle's action alone, whatever
+  // the Prone button's `stanceOff` (OT.R107; `./gamepad` `stanceLane`), as `mergeInput` keeps an independent source's.
+  if (out.stanceOff && (extras.doubles.some((d, i) => d.action === 'stance' && doublePressed[i]) || extras.combos.some((c, i) => c.action === 'stance' && comboPressed.has(i)))) out.stanceOff = false;
   return out;
 }

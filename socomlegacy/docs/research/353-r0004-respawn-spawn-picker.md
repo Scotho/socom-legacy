@@ -1,4 +1,4 @@
-# 353 -- r0004 respawn spawn selection
+# 353 -- retail + r0004 respawn spawn selection
 
 - Date: 2026-10-21.
 - Plan: [original respawn fixes](../plans/2026-10-21-respawn-fixes.md), RSP-5, simulation track.
@@ -26,6 +26,24 @@ The prior r0001 reading is [research 179 section 9.3](179-c1-match-server.md#93-
 `FUN_002b7ee0`, D:L158657-158716; dispatcher `FUN_002b8100`, D:L158760-158787; reader `FUN_0052b5c0`,
 D:L395740-395765. Those older locations are context for the mapping, not a claim that the unpatched disc and r0004
 are interchangeable.
+
+### R4B-00: retail + r0004 attribution (2026-11-04)
+
+The rules in §2 are shared code readings, not r0004-only additions. Re-read from retail's
+`socom2_game.elf.decomp.c` and in the r0004 PINE aggregate `game/overlays_r0004/socom2_game_r0004.elf`, with the
+same native ranges checked byte for byte against pristine `game/r0004/served/ftscore.bin` and `zsealetc.bin`:
+
+| shared rule | retail original | r0004 original |
+|---|---|---|
+| `trunc(count/24)` client block, max-min squared 3D distance to type-2 opposing bodies without an alive test, strict improvement/ties keep first | `FUN_002b7ee0`, D:L158657-158716 | `FUN_002b9a70`, `0x2b9a74-0x2b9c50` |
+| Keys 0/2: width one skips RNG; other widths use remainder plus block start; other respawn keys use the picker | `FUN_002b8100`, D:L158775-158791 | `FUN_002b9c90`, `0x2b9ce0-0x2b9da0` |
+| Positive list count wraps requested record index; empty count fails | `FUN_0052b5c0`, D:L395758-395765 | `FUN_0052e6e0`, `0x52e734-0x52e760` |
+
+This cross-revision attribution is **reading, pending review**; the earlier independent snapshot/data review and
+its test results below remain historical evidence, not a new run. The dispatcher's respawn byte moved from
+`+0xdc` to `+0xe0`; that relocation does not change the rule. The input list itself is version-specific: these
+shared picker rules do not incorporate r0004's MP10/MP73 list edits or re-sort (R4B-11), nor establish RNG-stream
+equivalence. OT.R97 makes r0004 the deciding gameplay source where a later task finds a disagreement.
 
 ## 2. The r0004 rules read
 

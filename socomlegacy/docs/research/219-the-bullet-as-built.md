@@ -1,7 +1,8 @@
 # 219 -- The bullet as built (web sprint 28, PF-22 / PF-23 / PF-24 / PF-25)
 
-- Date: 2026-10-05 (web sprint 28). PF-22: every bullet, volley pellet and launched round's direct hit the room applies
-  quantised as the victim's console applies the hit packet; the room's three team tests made one friendly-fire predicate
+- Date: 2026-10-05 (web sprint 28), amended 2026-11-02 by SG-RAW. Bullets and launched rounds' direct hits apply
+  quantised packet values; shotgun receiver pellets use raw ammo floats (superseding PF-22's scaled/quantised
+  pellet implementation, section 2). The room's three team tests made one friendly-fire predicate
   transcribing `CZSealBody::OnWeaponHit`; the backblast's cone about the firer's body's back. Sections 2-4 are PF-23's,
   PF-24's and PF-25's (the sprint's dispatch); this note opens with PF-22's.
 - Status: **reading, pending review.** Every value below is a read of the decompilation (`D:L<n>` of
@@ -24,8 +25,8 @@
 
 | question | answer | source |
 |---|---|---|
-| What a hit applies | the packet's integer: `min(255, trunc(dmg))`, the piercing `min(255, trunc(p x 20)) / 20` | `FUN_002bd220` D:L161655-161672; `.data` 0x3de728-0x3de740; 179 s8.3 |
-| Which hits | a bullet's, a volley's pellets', a launched round's direct hit; a blast's fragments and a fall stay float | `FUN_005a5a80` D:L461619-461629; `FUN_005a0e70`, `FUN_005ac1f0`; 179 s8.3 |
+| What a packet carries | integer damage: `min(255, trunc(dmg))`, piercing `min(255, trunc(p x 20)) / 20`; shotgun receiver uses the positive damage byte only as its admission gate | `FUN_002bd220` D:L161655-161672; `.data` 0x3de728-0x3de740; `FUN_005a1b80` D:L459543-459566 |
+| Which hits apply packet values | bullets and launched rounds' direct hits; shotgun receiver pellets, blast fragments and falls use local floats | `FUN_005a5a80` D:L461619-461629; `FUN_005a1b80`, `FUN_005a0e70`, `FUN_005ac1f0`; research 94 C2.1 |
 | The friendly-fire gate | one predicate, the owner's team at the hit, the owner looked up live | `FUN_005ac670` 0x5ac6b8-0x5ac750; 179 s8.2; 192 G12 |
 | A departed owner | his hit lands on anyone (the lookup fails, the gate does not apply) | 179 s8.2 (a); PF.R40 |
 | A spectator | takes nothing | `FUN_002c2fd0` in `FUN_005ac670`; 179 s8.2 |
@@ -62,11 +63,12 @@ farther from zero the single one step toward zero (its bit pattern less one) is 
 to nearest (7 steps for 0.35); the review of 2026-10-05 found it. An M4A1 round at the falloff distance that leaves
 27.6 takes 27; the full 36.4 takes 36.
 
-The room quantises before `applyHit` in `fire` (a bullet), `volleyHit` (each pellet, under
-`SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING`'s present `'scaled'`; PF-23 is the raw pellet's) and `directHit` (a launched
-round's struck body). A blast's fragments (`FUN_005a0e70`, the blast queue applied on the victim's own console) and a
-fall (`FUN_005ac1f0`, the victim's own) stay float. The combat report's `rawDamage` is the applied integer (still a
-number on the wire; protocol 10 unchanged).
+The room quantises before `applyHit` in `fire` (a bullet) and `directHit` (a launched round's struck body).
+The earlier scaled/quantised shotgun pellet implementation is superseded by SG-RAW (2026-11-02): `volleyHit`
+uses raw ammo floats after a positive packet-damage admission gate (research 94 C2.1; section 2 below).
+A blast's fragments (`FUN_005a0e70`, the blast queue applied on the victim's own console) and a fall
+(`FUN_005ac1f0`, the victim's own) also stay float. The combat report's `rawDamage` is the damage actually
+applied before armour, including fractional shotgun damage; its wire field remains a number.
 
 ### 1.2 The gate: `ffRefuses`
 
@@ -124,7 +126,11 @@ The page deals no backblast of its own (the room's `blast` does; `rocket.ts` onl
 
 ## 2. The shotgun online and the blowback (PF-23)
 
-Not written by PF-22.
+Not written by PF-22. Follow-up SG-RAW (2026-11-02): research 94 C2.1 records the independently re-read
+retail ammo parser, raw receiver and positive packet gate, plus the fractional-damage correction submitted
+at the developer's request. H92 records PF-23's earlier held implementation. This correction covers player
+seats, including bots; it preserves the existing hostage path and does not implement shotgun blowback.
+Native/served r0004 verification and original-console comparison remain owed, not claimed as passed.
 
 ## 3. Bodies passed (PF-24)
 

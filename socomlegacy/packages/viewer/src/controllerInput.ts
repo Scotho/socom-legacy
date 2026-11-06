@@ -152,6 +152,12 @@ export class ControllerInput {
   prone = false;
   /** PS2P: the Prone bind's button's pressure, in SEPARATE on a pressure-capable pad (`StancePress`). */
   private readonly press = new StancePress();
+  /** OT.R107's fold: the polls read, the poll the Prone button went down on (its raw value, this poll's: null at rest),
+   *  and the menu's take of Triangle -- the poll it began on and the last poll it was told (`cancelStancePress`). */
+  private polls = 0;
+  private proneDownAt: number | null = null;
+  private takeFrom = -1;
+  private takeAt = -2;
   /**
    * MOVE-S6: the clock (ms) the stance press is stepped by -- once a 30 Hz game frame (`GAME_FRAME_DT`), as the original
    * reads the pad record (`FUN_00594cf0` runs once a game frame); the match's page sets `performance.now`. Null: each
@@ -188,6 +194,21 @@ export class ControllerInput {
   }
   /** h59U9CLb: the extras' modifier state reset alone -- the match's flush (`./padFlush`), where a held button is held. */
   flushExtras(): void { this.extrasState.reset(); }
+  /**
+   * OT.R107's fold: the stance button's press under way (`StancePress`) dropped undecided, the next armed only after the
+   * button's rest -- a press a menu took as Triangle is no light or full press after the menu has gone. Called by the
+   * pages on each frame a menu holds the pad's Triangle (`./main`, `./matchMount`: the pad's `stance` the game did not get).
+   * The fold's re-review: decided off this poll's raw value of the Prone button, never the stepped rest (a poll at 60 Hz
+   * or more can step no 30 Hz game frame), and only for a press as old as the take -- the press the menu took. A press
+   * begun while the take was already under way (Triangle's own button held past a menu's close) is no menu's; at rest
+   * nothing is dropped, so a press that starts on the next poll arms as any. Dropped, the press cannot arm again before the
+   * button has stepped at rest (`StancePress`: armed only after `STANCE_PRESS_REARM_READING` frames at rest).
+   */
+  cancelStancePress(): void {
+    if (this.takeAt !== this.polls && this.takeAt !== this.polls - 1) this.takeFrom = this.polls;
+    this.takeAt = this.polls;
+    if (this.proneDownAt !== null && this.proneDownAt <= this.takeFrom) this.press.reset();
+  }
   /**
    * h59U9CLb: this frame's `input` with the profile's extras ORed in (`./padExtras` `applyPadExtras`), off the physical
    * buttons the last `poll` read; `menuOpen`, untouched. With no extras, or no standard pad read, `input` itself.
@@ -306,6 +327,9 @@ export class ControllerInput {
     return same.length === 1 ? same[0] : undefined;
   }
   poll(source: PadSource): PadLike | null {
+    this.polls++;
+    const proneDownAt = this.proneDownAt;
+    this.proneDownAt = null;                           // OT.R107's fold: set again below while the pressure-read Prone is down
     this.devices = connectedPads(source);
     const chosen = this.selection === 'auto'
       ? this.devices.find((p) => padKey(p) === this.identity && p.mapping === 'standard') ?? this.devices.find((p) => p.mapping === 'standard') ?? this.devices[0]
@@ -375,6 +399,8 @@ export class ControllerInput {
     const c = this.config;
     if (separate && c.prone >= 0 && this.pressureCapable()) {
       const value = pad.buttons[c.prone]?.value ?? 0;
+      const raw = pad.buttons[c.prone];
+      if (raw && (buttonDown(raw) || value > STANCE_PRESS_ACTIVE_PLACEHOLDER)) this.proneDownAt = proneDownAt ?? this.polls;
       let press: 'light' | 'full' | null = null;
       if (pad.stanceCancelled === true) this.press.step(value, true);
       else for (let n = this.pressSteps(); n > 0; n--) press = this.press.step(value) ?? press;
@@ -392,12 +418,33 @@ export class ControllerInput {
     // (`./stanceButton` `PAD_STANCE_SEPARATE`, H338). Here, not in `./matchLanes`: this reader is where the mode and the
     // profile are both known. Off, Triangle's logical button is taken from the game as a bind's button is (in the match
     // only, `releaseCrouch`; the menus keep it); with Prone cloned on it (`cloneTriangleToProne`) it is Prone's already.
+    // OT.R107 (below): taken from the stance lane only -- the Prone button serves Triangle's action everywhere else.
     const triangleOff = separate && this.config.prone >= 0;
     // The Crouch and Prone binds take their buttons from the pad in the match (`releaseCrouch`), as the shortcut did.
     const taken = (physical: number, logical: number): boolean => this.releaseCrouch
       && ((separate && (physical === this.config.crouch || physical === this.config.prone)) || (triangleOff && logical === PAD_BUTTON.Triangle));
     this.extrasPressed = physicalPressed(pad.buttons);
+    const buttons = this.config.bindings.map((physical, logical) => physical >= 0 && taken(physical, logical) ? released : pad.buttons[physical] ?? released);
+    // OT.R107 (the owner, 2026-11-06: "everywhere that people have assigned prone when in separate mode should also serve
+    // the action of triangle"): in the match, with Triangle's stance off, the logical Triangle is held by the Prone bind's
+    // button -- on a pressure pad any press, light or full (`STANCE_PRESS_ACTIVE_PLACEHOLDER`, `StancePress`'s rest) -- and
+    // by Triangle's own button where it is not Crouch's, for every reader of Triangle but the stance lane: the pad says
+    // `stanceOff` and `./gamepad` `stanceLane` takes none of it. So the START menu's close on its release (`FUN_002041e0`
+    // D:L61669-61671), its confirm's BACK (D:L61878-61882), WEAPON EXCHANGE's back, the ARMORY's, the Chat menu's, the R2
+    // inventory's close and the spectator's jump read it as the original's Triangle; the press stays Prone's in the game.
+    // The fold (b6's call): the front end's reader (`releaseCrouch` false: no stance lane, nothing taken) has the Prone
+    // button hold the logical Triangle too, Triangle's own button kept -- only where no logical button is bound to the
+    // Prone button (the fold's review F1: the console dispatches every logical button down, so a button with its own job
+    // keeps it alone; cloned on Triangle's own button, nothing changes).
+    const proneFree = this.releaseCrouch || !c.bindings.some((ph, lg) => ph === c.prone && lg !== PAD_BUTTON.Triangle);
+    if (triangleOff && proneFree) {
+      const p = pad.buttons[c.prone];
+      const proneDown = !!p && (buttonDown(p) || (this.pressureCapable() && p.value > STANCE_PRESS_ACTIVE_PLACEHOLDER));
+      const own = c.bindings[PAD_BUTTON.Triangle] ?? -1;
+      const ownDown = own >= 0 && (!this.releaseCrouch || (own !== c.prone && own !== c.crouch)) && held(own);
+      buttons[PAD_BUTTON.Triangle] = proneDown ? { pressed: true, value: p!.value } : ownDown ? pad.buttons[own]! : released;
+    }
     return { ...pad, id: pad.id, index: pad.index, connected: pad.connected, mapping: pad.mapping, nativePressure, stanceCancelled: pad.stanceCancelled, axes,
-      buttons: this.config.bindings.map((physical, logical) => physical >= 0 && taken(physical, logical) ? released : pad.buttons[physical] ?? released) };
+      ...(this.releaseCrouch && triangleOff ? { stanceOff: true } : {}), buttons };
   }
 }

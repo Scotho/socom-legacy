@@ -19,7 +19,7 @@ import { holdFamily, holdOf,
   ACTION_TYPE_CODES, actionAtPick, bareMeta, CraneSet, cranePressSlack, DoorSet, doorInReach, doorPick, GateSet, openDoorClip, type DoorActor, LOOK_KIT_LEAD_PLACEHOLDER, lookContextOf, lookScaleOf, looserLookContext, MoverSim, OPEN_LOOK_CONTEXT, ROOM_SKIP_EFFECTS_READING, under, WorldState, overall, ringFor, roundPath, shortTurn, Traversal, Walker, wrapYaw, type MagazineRing,
   fallDamageFraction, KNOCK_LANDING_SPEED_FACTOR, MP_HEALTH, PART, type Landing, decodeVoiceUp, encodeVoiceDown,
   healthTold, PART_HEALTH_INTERVAL_TICKS_READING, partHealthBytes,
-  Button, HOLD_SHIFT, STANCE_CODES, isSessionToken, MAX_LOADOUT_PICKS, MAX_REWIND_MS, PROTOCOL_VERSION, SESSION_REPLACED_CLOSE, SNAPSHOT_HZ, TICK_HZ,
+  BUILT_AT_PATTERN, Button, HOLD_SHIFT, STANCE_CODES, isSessionToken, MAX_LOADOUT_PICKS, MAX_REWIND_MS, REWIND_CEILING_MS_ADAPTATION, INTERP_DELAY_MS, PROTOCOL_VERSION, SESSION_REPLACED_CLOSE, SNAPSHOT_HZ, TICK_HZ,
   eliminatedHoldS, eliminationWatchS, eliminationWinner, ESCORT_ELIMINATION_HOLD_READING, isMatchOver, MAX_ROUNDS, modeRules, OWNER_LAUNCH_COUNTDOWN_S, timeoutHoldS, type Rules,
   EYE_HEIGHT, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, rootY, toWorld, STEP_PROBE_LIFT_READING, headPoint, reloadHoldPeriod, reloadLockSeconds, reloadMoving, reloadSeconds, ShotCone, lookFitsPoint,
   ROOT_POSE_SLACK_PLACEHOLDER, SEAL_ANIMS, type AimFrame,
@@ -77,8 +77,8 @@ import type { TurretPlacement } from '@s2u/scene';
 import { noticeHeldAt, type KeptNotice } from './noticeHold';      // LATER 261: the host's restart notice, held for a welcome
 import { botProfiler } from './bots/botProfile';   // BOP-1: the bot profiler (an instrument; null unless S2U_BOT_PROFILE=1)
 import {
-  arrivalBucket, freshSignals, noteCentring, roundResultOf, type HandOver, type MatchId, type RoomMatchResult, type RoomMatchSeat, type RoomRatingSeat, type RoundSignals,
-  type SeatSignals,
+  arrivalBucket, freshSignals, noteCentring, roundResultOf, shownLeadBucket, shownMissOf, type HandOver, type MatchId, type RoomMatchResult, type RoomMatchSeat, type RoomRatingSeat, type RoundSignals,
+  type SeatSignals, rewindAgeBucket, rttSummary, type RewindClass, rewindClassOf, type RewindRay, RTT_SAMPLES_MAX_ADAPTATION,
 } from './stats/roomResults';
 
 /**
@@ -160,6 +160,15 @@ export interface RoundOverReport {
   emptied?: boolean;
 }
 
+/**
+ * NCW-1: one seat of `Room.takeRewind` -- its rounds by `class:bucket`, its newest raw round trip and its smoothed ping;
+ * NCW-17: with the lead buckets of its rounds that carried a displayed tick, and its misses at the claim, when any.
+ */
+export interface RewindTakeSeat {
+  rounds: Record<string, number>; rttMs: number | null; ping: number | null;
+  shownLead?: Record<string, number>; shownMiss?: number;
+}
+
 /** IP3 (`RoomOptions.onLoadEvent`): one step of the launch's load hold, ticks at `TICK_HZ`. */
 export type RoomLoadEvent =
   | { kind: 'hold'; tick: number; seats: number[]; ceilingTicks: number }
@@ -167,6 +176,12 @@ export type RoomLoadEvent =
   | { kind: 'passed'; tick: number; sinceHold: number; by: 'all' | 'ceiling'; waiting: number[] };
 
 export interface RoomOptions {
+  /**
+   * NCW-1 (B-count; an instrument's switch, no original): false turns the rewind-outcome instrument off -- no second
+   * read of a round at its `viewTick`, no `signals.rewind`, nothing for `takeRewind`. On by default; the scored round is
+   * the same either way (`test/rewindOutcome.test.ts` pins it).
+   */
+  rewindOutcome?: boolean;
   /** Authored bot extension (FBA): trusted controller work before the ordinary tick/round spawn. */
   beforeStep?: () => void;
   beforeRoundStart?: (newMatch: boolean) => void;
@@ -780,8 +795,137 @@ export const SHOT_EVENT_BODIES_READING = 'first body' as const;
  * rather than each page walking its own. Additive JSON (protocol 13 kept). [reading]
  */
 export const SHOT_EVENT_THROUGH_READING = 'struck world surfaces' as const;
-/** Ticks of history kept for the rewind: MAX_REWIND_MS and a margin. */
-const HISTORY = Math.ceil((MAX_REWIND_MS / 1000) * TICK_HZ) + 12;
+/**
+ * NCW-1 (B-count; an instrument's adaptation, no original): the ticks of the bodies' past the room keeps so its
+ * instrument can test a round at the shooter's own `viewTick` beyond the cap -- 72, 1.2 s at `TICK_HZ` 60: a rewind age
+ * of up to 71 ticks, ~590 ms each way (the age is the round trip, the page's 6 ticks of interpolation and about one
+ * more), past the 200 ms each way the measure runs to; an older `viewTick` is class `e`. The cost, measured: a kept pose
+ * (`Past`: the tick, the feet's three-number array, yaw, posture, alive, the tilt's shared reference) is 168 bytes of
+ * heap with its slot in the history array (node 24, 200 000 poses after a full GC), so 72 a body is ~12.1 kB where 24
+ * were ~4.0 kB: ~8.1 kB more a body, ~129 kB more for 16 players (and as much more for each hostage). Nothing scored
+ * reads past the cap: the clamped rewind is never older than the seat's cap (`rewindCapTicks`, since NCW-2 B-bound at
+ * most `REWIND_CEILING_MS_ADAPTATION`, 24 ticks), inside both lengths, and `pastOf` answers it the same from either.
+ * Research 223 §4.
+ */
+export const REWIND_PROBE_HISTORY_TICKS_ADAPTATION = 72;
+/**
+ * NCW-6 (an instrument's bound, no game value: an adaptation, research 223 §4): the most runs of dropped command numbers
+ * a seat remembers (`dropStretch`, each run of consecutive numbers its first and last) for `signals.staleAfterDrop`, the
+ * oldest forgotten past it. Nothing judged reads it.
+ */
+export const STALE_DROP_RANGES_MAX_ADAPTATION = 32;
+/**
+ * NCW-10 (an instrument's bound, no game value: an adaptation, research 223 §4): the longest page build the room keeps
+ * from a hello's `build` for the seat's round signals -- characters of `[0-9a-z.-]` only (a short hash, `-dirty`, a
+ * release tag); a longer or other one is none, never a refusal (`clientBuildOf`). Nothing judged reads it.
+ */
+export const CLIENT_BUILD_MAX_CHARS_ADAPTATION = 40;
+const CLIENT_BUILD_PATTERN = new RegExp(`^[0-9a-z.-]{1,${CLIENT_BUILD_MAX_CHARS_ADAPTATION}}$`);
+/** NCW-10: a hello's `build` as the room keeps it (`CLIENT_BUILD_MAX_CHARS_ADAPTATION`), or undefined; central's reader checks the same. */
+export function clientBuildOf(raw: unknown): string | undefined {
+  return typeof raw === 'string' && CLIENT_BUILD_PATTERN.test(raw) ? raw : undefined;
+}
+/** NCW-10: a hello's `builtAt` as the room keeps it (`BUILT_AT_PATTERN`, UTC to the minute), or undefined; central's reader checks the same. */
+export function clientBuiltAtOf(raw: unknown): string | undefined {
+  return typeof raw === 'string' && BUILT_AT_PATTERN.test(raw) ? raw : undefined;
+}
+/**
+ * NCW-2 B-bound (the owner's OT.R105; simulation track, reading pending review; research 223 §4, LOW-9): the allowance,
+ * ms, a seat's rewind cap (`rewindCapMs`) grants past the page's interpolation and its measured round trip. A round's
+ * rewind age at the room is the round trip, the interpolation (`INTERP_DELAY_MS`) and the room's own wait and wander:
+ * the round is decided once the command after it has run (`due`), the step and the socket's arrival fall either side of
+ * a tick, and the line jitters -- exactly what the room already allows an honest event, `FIRE_ARRIVAL_JITTER_TICKS`
+ * (3 ticks, 50 ms at `TICK_HZ` 60). No new measure; the same derivation as B-trade's `TRADE_ARRIVAL_JITTER_MS_ADAPTATION`.
+ */
+export const REWIND_LINE_ALLOWANCE_MS_ADAPTATION = (FIRE_ARRIVAL_JITTER_TICKS * 1000) / TICK_HZ;
+/**
+ * NCW-2 B-bound (OT.R105, "400 is acceptable yes"; the netcode wave's plan, section 4's B-bound row): how far back, ms,
+ * the room rewinds the others for a seat's round -- as far as the seat's own measured line explains, never less than
+ * today's `MAX_REWIND_MS` (200, the floor: a low-ping seat keeps what it had) and never past the owner's
+ * `REWIND_CEILING_MS_ADAPTATION` (400): `INTERP_DELAY_MS` + `rttMs` + `REWIND_LINE_ALLOWANCE_MS_ADAPTATION`, clamped.
+ * `rttMs` is the seat's smoothed heartbeat round trip (`Player.pingExact`, `noteRoundTrip`; 0 until the first pong:
+ * then the floor). Why the heartbeat and not the commands' arrival offset (`Player.arrivalFloor`): that offset is the
+ * arrival time less the command's number, whose zero is the page's own start -- it measures how much later than its
+ * best a command arrives, a change in the line, never the line itself (its floor cancels a steady delay by design, for
+ * the dated rate gate); the heartbeat's pong is the only absolute measure of the line the room has, and B-trade's
+ * window reads it already. What a forger buys: a page cannot name an older tick than its own cap allows (a low-ping
+ * seat stays at 200 ms whatever its `viewTick` or `shownTick`) -- but the measure itself is forgeable (B-bound's review
+ * F5): `pongSentAt` (`server.ts`) takes any payload at or before now as the ping's send time, and the ws library emits
+ * unsolicited pongs, so a non-browser client can send crafted pongs (or hold its pongs back) and move `pingExact` either
+ * way in about 25 frames. What that buys stays bounded: at most the ceiling -- what an honest high-ping seat has -- and
+ * the trade's 24 + 3 ticks (`tradeExpiryTicks`); OT.R105's accepted cost. LATER 717: accept only a pong that matches an
+ * outstanding ping.
+ */
+export function rewindCapMs(rttMs: number): number {
+  if (!(rttMs > 0)) return MAX_REWIND_MS;
+  return Math.min(REWIND_CEILING_MS_ADAPTATION, Math.max(MAX_REWIND_MS, INTERP_DELAY_MS + rttMs + REWIND_LINE_ALLOWANCE_MS_ADAPTATION));
+}
+/** NCW-2 B-bound: a seat's rewind cap in whole ticks (`rewindCapMs`, rounded up; 12 at the floor, 24 at the ceiling). */
+export function rewindCapTicks(rttMs: number): number {
+  return Math.ceil((rewindCapMs(rttMs) / 1000) * TICK_HZ - 1e-9);
+}
+/**
+ * Ticks of history kept for the rewind: the ceiling of any seat's cap (`REWIND_CEILING_MS_ADAPTATION`, NCW-2 B-bound;
+ * was `MAX_REWIND_MS`) and a margin (36), or NCW-1's instrument's longer past (`REWIND_PROBE_HISTORY_TICKS_ADAPTATION`)
+ * -- the larger: 72 today either way (`S2U_REWIND_PROBE=0` stops the probe's second read, not the history), and a
+ * 400 ms rewind reads inside it.
+ */
+export const REWIND_HISTORY_TICKS = Math.max(Math.ceil((REWIND_CEILING_MS_ADAPTATION / 1000) * TICK_HZ) + 12, REWIND_PROBE_HISTORY_TICKS_ADAPTATION);
+const HISTORY = REWIND_HISTORY_TICKS;
+/**
+ * NCW-2 B-trade (the trade after death; simulation track, reading pending review; research 223 §4, research 193 §12.11):
+ * the longest round trip, ms, the room lets a dead shooter's rounds ride on (`tradeWindowTicks`). The original has no
+ * bound: its receiving console applies a dead attacker's `Hit` whenever it arrives in game state 3 (`FUN_002bbbd0`
+ * D:L160819-160850; `FUN_005a1b80` D:L459519 asks only that the attacker resolves, never that he lives). The port's own
+ * bound, the rewind's cap: a corpse's round is never older than a living shooter's may be -- and the bound on a page that
+ * forges its round trip (held pongs, or crafted unsolicited ones, `rewindCapMs`'s note and LATER 717; `tradeWindowTicks`). Since NCW-2 B-bound (OT.R105) the cap is the seat's
+ * own (`rewindCapMs` of its measured round trip), so this, the most it reaches, is the owner's ceiling
+ * (`REWIND_CEILING_MS_ADAPTATION`, 400 ms; was `MAX_REWIND_MS`, 200). The window is bounded twice, in commands past the
+ * last one run alive (`tradeWindowTicks`) and in the room's own time after the kill (`tradeExpiryTicks`, Codex's P1 on
+ * PR #698), each by the seat's cap.
+ */
+export const TRADE_WINDOW_CAP_MS_ADAPTATION = REWIND_CEILING_MS_ADAPTATION;
+/**
+ * NCW-2 B-trade: how many commands, counted from the shooter's last command run alive (that one the 0th), his page sent
+ * before it could have known of his death, by the room's own measure of his line -- `rttMs`, the seat's smoothed
+ * heartbeat round trip (`Player.pingExact`, `noteRoundTrip`), capped at the seat's rewind cap (`rewindCapMs`, NCW-2
+ * B-bound; at most `TRADE_WINDOW_CAP_MS_ADAPTATION`). The page
+ * sends one command a tick (`TICK_HZ`); the last command run alive left it at least one way before the room's kill, and
+ * the kill reaches it one way after: so a command fewer than a round trip's ticks after that one left before the page
+ * could know. A lower bound -- that command may have waited in the room's queue, so the page knew later still -- and 0
+ * with no measure (today's rule: refused `not alive`). "Sent before it could know" holds for an HONEST measure only:
+ * the round trip is the page's pong (`server.ts`'s heartbeat), which a page can move by holding its pongs or sending
+ * crafted unsolicited ones (`rewindCapMs`'s note; LATER 717) -- up to the cap, which is what bounds a forged one. What that buys is bounded too: rate-gated rounds from the frozen last
+ * alive pose (`tradeFrame`), never older than a living shooter's rewind; each traded round is counted per seat
+ * (`signals.trade`), so its use shows.
+ */
+export function tradeWindowTicks(rttMs: number): number {
+  if (!(rttMs > 0)) return 0;
+  return Math.ceil((Math.min(rttMs, rewindCapMs(rttMs), TRADE_WINDOW_CAP_MS_ADAPTATION) / 1000) * TICK_HZ - 1e-9);
+}
+/**
+ * NCW-2 B-trade, Codex's P1 on PR #698 (an adaptation; research 223 §4): the slack, ms, the trade's expiry on the room's
+ * clock (`tradeExpiryTicks`) allows past the seat's measured line. The original has no expiry (its console applies a
+ * dead attacker's `Hit` whenever it arrives: `TRADE_WINDOW_CAP_MS_ADAPTATION`'s sources). Why a slack at all: the last
+ * command an honest page sent before it could know of the death reaches the room at most about one round trip after the
+ * kill (the kill's word one way down, that command one way up), but the round it carries is decided only once the
+ * command after it has run (`due`: a command more, a tick at the page's rate), the line's arrivals bunch, and the
+ * smoothed round trip (`pingExact`) lags the line's instant one. Its value is the room's own allowance for an honest
+ * command's arrival wander, `FIRE_ARRIVAL_JITTER_TICKS` (3 ticks, 50 ms at `TICK_HZ` 60), which a living round's stale
+ * bound already grants -- no new measure, and small beside the window it extends (at most 24 + 3 ticks: `tradeExpiryTicks` at the ceiling, NCW-2 B-bound).
+ */
+export const TRADE_ARRIVAL_JITTER_MS_ADAPTATION = (FIRE_ARRIVAL_JITTER_TICKS * 1000) / TICK_HZ;
+/**
+ * NCW-2 B-trade, Codex's P1 on PR #698: the room's ticks after the kill (`Player.diedAt`) within which a dead shooter's
+ * round may still be decided as traded -- the seat's measured round trip in ticks, capped (`tradeWindowTicks`), plus
+ * `TRADE_ARRIVAL_JITTER_MS_ADAPTATION`; 0 with no measure. The window is so bounded twice: in commands (`tradeWindowTicks`
+ * past the last command run alive) AND in the room's own time, so a page that falls silent at its death and later sends
+ * commands and a round named inside the command window, with a current `viewTick`, is refused `not alive`.
+ */
+export function tradeExpiryTicks(rttMs: number): number {
+  const w = tradeWindowTicks(rttMs);
+  return w > 0 ? w + Math.ceil((TRADE_ARRIVAL_JITTER_MS_ADAPTATION / 1000) * TICK_HZ - 1e-9) : 0;
+}
 /**
  * The most commands a batch may carry (PL-9/PL-16 of the launch review): the client repeats its last
  * `COMMAND_REDUNDANCY` (3) in each; the rest is room for a batch after a lost frame. A longer batch is dropped whole, so a
@@ -900,6 +1044,16 @@ export const PING_EWMA_ALPHA_ADAPTATION = 1 / 8;
 export const PING_SAMPLE_MAX_MS_ADAPTATION = 10_000;
 /** The most the row carries. A longer accepted sample is shown as this. */
 export const PING_ROW_MAX_MS_ADAPTATION = 999;
+/**
+ * PING_SCORE_RESEND_MS_ADAPTATION (NCW-7, the owner's word 2026-11-05 "build the scoreboard ping yeah"; product track):
+ * the board's PING column is fed by the `score` rows, which go out only when the board changes (`scoreDirty`). Once a
+ * heartbeat sweep (`Room.notePingSweep`, called by the match server before each sweep's pings), the board is marked
+ * changed when a seat's shown ping moved this many whole ms or more from the value the room's last score broadcast
+ * carried, or has its first reading. Why 5: a smaller drift is noise on a 1 ms-unit column, and the check runs once per
+ * room per sweep, so the cost is at most one extra `score` message a room per heartbeat (5 s), whatever the number of
+ * seats.
+ */
+export const PING_SCORE_RESEND_MS_ADAPTATION = 5;
 
 /** A sample the row will fold, unrounded, or null when it is not a round trip. At least 1 ms, so a sub-millisecond loopback still reads. */
 export function pingSampleMs(sampleMs: number): number | null {
@@ -1523,6 +1677,17 @@ class Player {
   partBytes: number[] | null = null;
   readonly partTold = [0, 0, 0, 0, 0, 0];
   diedAt = -1;
+  /**
+   * NCW-2 B-trade: the command number the body had last run when `kill` took it (its last command run alive); -1 alive,
+   * or dead by no kill. A dead shooter's round named within `tradeWindowTicks` commands of it is judged on its frame.
+   */
+  diedSeq = -1;
+  /**
+   * NCW-2 B-trade, Codex's P1 on PR #698: the rounds in each weapon's magazine (`mags[w].rounds()`, the magazine in the
+   * weapon only) when `kill` took the body, read before its classic drop empties the rings (`worldDrops.death` ->
+   * `dropsOf`). A traded round spends from these (`fireAt`), never from the rings; [0, 0] alive.
+   */
+  tradeRounds: [number, number] = [0, 0];
   /** LATER 266, research 322 §5.3: FUN_00543d50 D:L410440 zeroes alpha at load; no corpse or fade to wait for. */
   deadAtLoad = false;
   /**
@@ -1606,6 +1771,19 @@ class Player {
   arrivalFloor = { cur: Infinity, prev: Infinity, since: -Infinity };
   frameAt = -1;
   /**
+   * NCW-6 (an instrument; nothing judged reads it): the room's clock (ms) at this round's start or the seat's seating, the
+   * later, that `signals.wallMs` counts from; the runs of consecutive command numbers the room dropped unrun
+   * (`dropStretch`, each run its first and last number -- a number the page skipped inside a stretch splits it, so it is
+   * in none -- at most `STALE_DROP_RANGES_MAX_ADAPTATION` runs, the oldest forgotten), that `signals.staleAfterDrop`
+   * reads; and the highest number an unsynced page's flood cut discarded (`binary`): any number at or under it is treated
+   * as already received and not counted in `signals.commandsReceived` -- a re-sent copy, but also a number never received
+   * that arrives late, out of order (queued, not counted) -- so the count, and central's `commandRate`, can only come out
+   * low, never high.
+   */
+  roundFromMs = 0;
+  readonly droppedRanges: [number, number][] = [];
+  receivedFloor = -Infinity;
+  /**
    * The sprint 31 fix-up (research 239 s9.2): the seq of this player's last well-shaped `hostageOrder`; an order at or
    * below it (a replay, one out of order) is dropped `'stale'`, as a stale timed event is (`timed`).
    */
@@ -1616,12 +1794,15 @@ class Player {
   viewTick = 0;
   /**
    * The smoothed round trip, whole ms, the score row carries (`scoreEvent`): `pingRowMs(pingExact)`. 0 until
-   * `noteRoundTrip` folds a sample (`PING_FROM_HEARTBEAT_ADAPTATION`). The drawn SELECT board has no ping column
-   * (research 87 §12, 91 §11).
+   * `noteRoundTrip` folds a sample (`PING_FROM_HEARTBEAT_ADAPTATION`). The original's SELECT board has no ping column
+   * (research 87 §12, 91 §11); the port's draws it in NCW-7's PING column, a browser adaptation (research 87 §17,
+   * `PING_SCORE_RESEND_MS_ADAPTATION`; the viewer's `SCORE_LAYOUT.ping`).
    */
   ping = 0;
   /** The smoothed round trip unrounded (`smoothPing`), so steady samples bring the row to them (PT195-4, review F3). */
   pingExact = 0;
+  /** NCW-7 (`PING_SCORE_RESEND_MS_ADAPTATION`): the ping the last score rows broadcast to the room carried; 0 before any. */
+  pingSent = 0;
   /**
    * The kit on the body (web sprint 4, M3/M4; `../../viewer/src/loadout`): five item ids, the character type's
    * `default_weapons` at each spawn (R94.7) -- and the records its two firearm slots hold, 2X applied, which every
@@ -1894,7 +2075,23 @@ class Player {
    * (3), LATER 510: `refused`, a pull whose first ray the room refused ('rate' early or near, or at the muzzle) -- its
    * later rays bloom and are refused the same, under its word `why` (`Room.refuseRound`; LATER 510's review F2).
    */
-  volley: { w: 0 | 1; count: number; rays: number; hit: Set<number>; refused?: boolean; why?: string } | null = null;
+  volley: {
+    w: 0 | 1; count: number; rays: number; hit: Set<number>; refused?: boolean; why?: string;
+    /**
+     * NCW-1 (B-count): the pull's rewind reads so far -- each ray's (`RewindRay`), its age (the first ray's), whether it
+     * is past the kept history (`e`), and `counted` once its class is final and counted (`Room.settleRewind`): a ray
+     * after that changes nothing.
+     */
+    rewind?: { rays: RewindRay[]; age: number; e: boolean; counted: boolean; lead?: number };
+  } | null = null;
+  /**
+   * NCW-1 (the lane seat's addition; an instrument): this round's heartbeat round-trip samples (ms, raw, in order; at
+   * most `RTT_SAMPLES_MAX_ADAPTATION`), `noteRoundTrip`'s -- summarised into `signals.rtt` by `roundReport`; emptied at
+   * a round's start with the signals. `rttLast`, the newest sample whatever the round (ms; -1 none yet), for the
+   * per-second `rewind` line.
+   */
+  rttRound: number[] = [];
+  rttLast = -1;
   /**
    * PF-37 (`./shotgunGuard`): the room tick a shotgun volley last landed on this body -- the victim's `+0x1048` memory
    * (`FUN_005abbc0` D:L464701-464737), cleared by its update (`FUN_00550ef0` D:L418081-418083) and by a new body
@@ -1950,6 +2147,7 @@ class Player {
   constructor(readonly id: number, public team: Team, sim: MoverSim, now: number) {
     this.sim = sim;
     this.lastActive = now;
+    this.roundFromMs = now;                                      // NCW-6: the seat's wall time in the round from its seating
   }
 }
 
@@ -2789,6 +2987,10 @@ export class Room {
     if (session !== null) { this.sessions.set(id, session); this.live.set(session, id); }
     this.accounts.set(id, as.account ?? null);                  // OT.R59: the bridge's seat account, null a guest's
     this.types.set(id, Room.helloTypes(ev.types));
+    // NCW-10 (an instrument): the page's build and build time for the seat's round signals; malformed or absent, none
+    const build = clientBuildOf(ev.build), builtAt = clientBuiltAtOf(ev.builtAt);
+    if (build !== undefined || builtAt !== undefined) this.builds.set(id, { ...(build !== undefined ? { build } : {}), ...(builtAt !== undefined ? { builtAt } : {}) });
+    else this.builds.delete(id);
     if (ev.armory === true && !watch) this.armoryPages.add(id);
     if (ev.cranes === true) this.cranePages.add(id); else this.cranePages.delete(id);   // #337: watchers draw the hooks too
     const m = joined.member;
@@ -2877,6 +3079,8 @@ export class Room {
    */
   private readonly drops = new Map<string, number>();
   private dropped(kind: string, why: string, p?: Player, logOnly = false): void {
+    // NCW-2 B-trade (the review's F1): a traded round's refusal under its own word, apart from a living round's.
+    if (kind === 'fire' && p && p === this.trading) { why = `trade: ${why}`; this.tradeRefused = true; }
     const key = `${kind}: ${why}`;
     this.drops.set(key, (this.drops.get(key) ?? 0) + 1);
     if (logOnly) return;
@@ -2888,6 +3092,18 @@ export class Room {
   // ---- the combat report (INT.R5, research 127: a playtest instrument with no original) ----
 
   private combatSerial = 0;
+  /**
+   * NCW-2 B-trade (the review's F1): the dead shooter whose traded round `fire` is deciding now, else null -- a `fire`
+   * refusal of his while it is set goes under `trade: <reason>` (`dropped`) and sets `tradeRefused`.
+   */
+  private trading: Player | null = null;
+  private tradeRefused = false;
+  /**
+   * NCW-2 B-trade (the review's F3): the living body whose command `run` is running now, and the command it had last
+   * run before it -- a death inside that run (`fallDamage`, after the command's `aim`) leaves that one the last command
+   * run alive (`kill`'s `diedSeq`), not the command it died in.
+   */
+  private ownRun: { p: Player; before: number } | null = null;
   private rejectionTick = -1;
   private readonly rejections = new Map<Player, number>();
   /**
@@ -2948,6 +3164,8 @@ export class Room {
   private readonly refusalLines: RefusalLine[] = [];
   private readonly refusalsOver = new Map<number, number>();
   private noteRefusal(p: Player, ev: Extract<ClientEvent, { type: 'fire' }>, frame: AimFrame, why: string): void {
+    // NCW-2 B-trade (the re-check's fold): a traded round's line and record under the tally's own key (`dropped`).
+    if (p === this.trading && why.startsWith('fire: ')) why = `fire: trade: ${why.slice('fire: '.length)}`;
     const near = p.cone.eyeLocus(ev.seq, ev.eye);
     const r: ReplayRefusal = {
       seat: p.id, seq: ev.seq, why, eye: [...ev.eye], aim: [...ev.aim],
@@ -3348,6 +3566,7 @@ export class Room {
     this.players.delete(id);
     this.addresses.delete(id);
     this.types.delete(id);
+    this.builds.delete(id);                                      // NCW-10
     this.clans.delete(id);
     this.armoryPages.delete(id);
     this.cranePages.delete(id);
@@ -3670,10 +3889,12 @@ export class Room {
       p.queue.splice(at, 0, c);
       p.queued.add(c.seq);
       this.noteArrival(p, c.seq, arrivedAt);                     // SIMDROP-INSTR: its lateness, by bucket
+      if (c.seq > p.receivedFloor) p.signals.commandsReceived = (p.signals.commandsReceived ?? 0) + 1;   // NCW-6: received, its first copy queued
     }
     if (p.queue.length > QUEUE_MAX) {                            // a flood (10 s) is dropped, not queued
       const cut = p.queue.splice(0, p.queue.length - QUEUE_MAX);
       for (const c of cut) p.queued.delete(c.seq);
+      if (!p.synced) p.receivedFloor = Math.max(p.receivedFloor, cut[cut.length - 1]!.seq);   // NCW-6: its copies counted once
       // LATER 136: kept aside for the next step's top (`dropStretch`: its presses laid, its asks decided), at most
       // QUEUE_MAX, the excess tallied once an intake (the merge controller's bound); a page not yet synced has no body to
       // lay them on (and a later sync would put sim.seq above them): discarded as before.
@@ -3893,7 +4114,11 @@ export class Room {
     if (!p) return;
     // SIMDROP-INSTR (sim drop #3; an instrument): a round arriving already past the stale bound (`decide`'s measure, at its
     // arrival), counted; its decision, and its refusal's tally, are `decide`'s as before.
-    if (ev.type === 'fire' && p.synced && p.sim.seq - ev.seq > FIRE_ARRIVAL_JITTER_TICKS) p.signals.staleFires++;
+    if (ev.type === 'fire' && p.synced && p.sim.seq - ev.seq > FIRE_ARRIVAL_JITTER_TICKS) {
+      p.signals.staleFires++;
+      // NCW-6 (an instrument): and of those, the rounds whose command the room dropped unrun (`dropStretch`)
+      if (p.droppedRanges.some(([from, to]) => ev.seq >= from && ev.seq <= to)) p.signals.staleAfterDrop = (p.signals.staleAfterDrop ?? 0) + 1;
+    }
     const n = ++p.arrivals;                                      // LATER 249: its arrival, in the page's send order
     if (!p.pending.length && due(p, ev)) { this.decide(p, ev, n); return; }
     if (p.pending.length >= PENDING_MAX) { this.turretFireOwed(p, ev); return this.dropped(ev.type, 'too many waiting', p); }
@@ -4025,6 +4250,7 @@ export class Room {
     // its wall time once -- its first step the stall, the steps after it nothing -- not its wall time and a tick a step.
     this.steps++;
     if (this.firstStepAt === null) this.firstStepAt = now;
+    this.settleRewind();                                         // NCW-1: the pulls decided since the last step, counted
     const wall = Math.round((((now - this.firstStepAt) / 1000) * TICK_HZ + 1) * 1e6) / 1e6;   // float noise off a tick
     this.creditStep = Math.max(0, Math.max(this.steps, wall) - this.serverClock);
     this.serverClock += this.creditStep;
@@ -4309,6 +4535,14 @@ export class Room {
       for (const c of gone) this.asksAt(p, c.seq);              // LATER 123: refused 'mounted' at their command (a pickup claimed)
     }
     p.sim.seq = Math.max(p.sim.seq, gone[gone.length - 1]!.seq);   // LATER 136 (review F1's net): never back
+    // NCW-6 (an instrument): the stretch remembered for `signals.staleAfterDrop`, the oldest forgotten past the bound
+    for (let i = 0; i < gone.length;) {                          // each run of consecutive numbers, a skipped number in none
+      let j = i;
+      while (j + 1 < gone.length && gone[j + 1]!.seq === gone[j]!.seq + 1) j++;
+      p.droppedRanges.push([gone[i]!.seq, gone[j]!.seq]);
+      i = j + 1;
+    }
+    if (p.droppedRanges.length > STALE_DROP_RANGES_MAX_ADAPTATION) p.droppedRanges.splice(0, p.droppedRanges.length - STALE_DROP_RANGES_MAX_ADAPTATION);
     p.gapSince = -1;
     this.dropped('command', why);
   }
@@ -4392,6 +4626,7 @@ export class Room {
         this.settle(p);
         continue;
       }
+      this.ownRun = { p, before: p.sim.seq };                    // NCW-2 B-trade (F3): a death in this run keeps `before`
       p.trigger = (cmd.buttons & Button.Trigger) !== 0;
       p.aiming = (cmd.buttons & Button.Aim) !== 0;
       p.boost = (cmd.buttons & Button.Boost) !== 0;
@@ -4486,6 +4721,7 @@ export class Room {
       }
       this.settle(p);
       this.bankPlaceGate(p, c.seq);                            // LATER 220 head 3's review F1: the press's gate, while in the cone
+      this.ownRun = null;
     }
   }
 
@@ -4737,6 +4973,8 @@ export class Room {
     this.scoreDirty = true;
     p.raise = false;                                             // OBF-14: a new body asks no raise until its controller does
     p.deadAtLoad = false;
+    p.diedSeq = -1;                                              // NCW-2 B-trade: a new life trades nothing of the last
+    p.tradeRounds = [0, 0];                                      // nor spends its last life's rounds (Codex's P1, PR #698)
     p.deathClip = null; p.deathCause = null;                     // PF-28: no corpse once alive
     p.spawnedIn = this.roundSerial;
     p.health = freshHealth();
@@ -4998,6 +5236,8 @@ export class Room {
   private lastSeatReturned = false;
   /** Protocol 9: each connection's hello types, one a side (`helloTypes`), read when the room seats it (`seat`). */
   private readonly types = new Map<number, { seal?: number; terrorist?: number }>();
+  /** NCW-10 (an instrument): each connection's page build and build time, its hello's (`clientBuildOf`, `clientBuiltAtOf`), for `roundReport`'s signals. */
+  private readonly builds = new Map<number, { build?: string; builtAt?: string }>();
   /**
    * LATER 85 / 266 (the review's F3): the connections the room was told are late (`hello`'s `as.late`, +0xcc), whatever
    * their role, until their `loaded` -- so a seat made later (a promotion) awaits its console's load too (`seat`).
@@ -5120,7 +5360,18 @@ export class Room {
    */
   private fire(p: Player, ev: Extract<ClientEvent, { type: 'fire' }>): void {
     if (this.victoryPlaying.has(p.id)) return;
-    if (!p.alive || this.state.phase === 'over') return this.dropped('fire', 'not alive', p);
+    if (!p.alive || this.state.phase === 'over') {
+      // NCW-2 B-trade: a round the dead shooter's page sent before it could know of the death is decided as if he lived,
+      // on his last command run alive (`tradeFrame`); any other refused, as before.
+      const traded = this.state.phase === 'over' ? null : this.tradeFrame(p, ev.seq);
+      if (!traded) return this.dropped('fire', 'not alive', p);
+      // The review's F1: a refusal of it under `trade: <reason>` (`dropped`); decided and refused counted per seat.
+      this.trading = p; this.tradeRefused = false;
+      try { this.fireAt(p, { ...ev, seq: p.diedSeq }, traded, undefined); } finally { this.trading = null; }
+      const t = p.signals.trade ??= { decided: 0, refused: 0 };
+      if (this.tradeRefused) t.refused++; else t.decided++;
+      return;
+    }
     const frame = p.cone.frame(ev.seq);
     const seat = p.mounted !== null ? this.turrets[p.mounted] : undefined;
     if (!frame) {                                                // not a command this body ran
@@ -5167,6 +5418,42 @@ export class Room {
       return;
     }
     this.fireAt(p, ev, frame, seat);
+  }
+
+  /**
+   * NCW-2 B-trade (the trade after death; reading pending review; research 193 §12.11, research 223 §4
+   * `TRADE_WINDOW_CAP_MS_ADAPTATION`): the frame a dead shooter's round named at command `seq` is judged on, or null
+   * (refused `not alive`). The original's receiving console applies a dead attacker's `Hit` (`FUN_002bbbd0`
+   * D:L160819-160850; `FUN_005a1b80` reads no alive bit of the attacker, D:L459519), so the trade after death was the
+   * console's. The port's room decides a round only once the command after it has run (`due`), on the body as it stands,
+   * and a round travels with its command, so every round in flight at the kill names a command the room ran on the dead
+   * body (NCW-5, `refusalRepro.test.ts`). Taken: a round named at most `tradeWindowTicks(p.pingExact)` - 1 commands past
+   * the last command run alive (`diedSeq`, `kill`'s) -- one the page sent before it could know, by the room's own measure
+   * of the seat's round trip, never past the rewind's cap -- and decided no later than `tradeExpiryTicks` after the kill
+   * on the room's own clock (`diedAt`; Codex's P1 on PR #698: a page silent since its death trades nothing late). Judged
+   * on that last alive command's frame -- its feet, eye,
+   * look, cone, posture and weapon (the corpse's commands, run dead, lay none: `run`) -- its count moved on by the
+   * commands the page ran since, so the rate and the reload's lock count on the page's clock as a living round's do; not
+   * from a turret (`kill` releases it). Everything after is a living round's (`fireAt`): the cone, the muzzle, the rate,
+   * the magazine (the rounds in it as the death found them, `tradeRounds`: a classic death's drop empties the rings,
+   * Codex's P1 on PR #698), the rewind and the victim's own rules (`bulletHit`: a victim already dead is a miss); a kill it makes is
+   * the dead shooter's (`kill`'s credit, as `FUN_005a1b80` names the attacker the killer, D:L459597-459607). The round is
+   * re-keyed to that command (`fire`), so a `stale` told for its refusal names it, not the page's own command: the page,
+   * dead, refunds nothing it needs (its kit is new at the spawn). The frame takes neither the page's look nor movement
+   * since, nor the bloom of the traded rounds before (its stored cone is that command's): a shooter who turned, moved or
+   * fired on through the window may be refused at the cone, the eye or the muzzle -- under `trade: <reason>` (the
+   * review's F1), counted in `signals.trade`; the cone is not loosened for it (the lane's question).
+   */
+  private tradeFrame(p: Player, seq: number): AimFrame | null {
+    if (p.diedSeq < 0 || p.mounted !== null) return null;
+    // Codex's P1 on PR #698: and in the room's time -- decided no later than `tradeExpiryTicks` after the kill (`diedAt`,
+    // set in the same `kill` as `diedSeq`, which `spawn` clears), so a page silent since its death trades nothing late.
+    if (p.diedAt < 0 || this.tick - p.diedAt > tradeExpiryTicks(p.pingExact)) return null;
+    const past = seq - p.diedSeq;
+    if (!(past >= 0 && past < tradeWindowTicks(p.pingExact))) return null;
+    const f = p.cone.frame(p.diedSeq);
+    if (!f || (f.turret ?? null) !== null) return null;
+    return { ...f, count: f.count + past };
   }
 
   /**
@@ -5234,7 +5521,9 @@ export class Room {
       near = gap < cycle;
       // SVC-23b: the same cycle and lock on the room's own clock, whatever commands the rounds name.
       early = firedAt < p.fireClock[w] + cycle - FIRE_ARRIVAL_JITTER_TICKS;
-      if (frame.count < p.reloadUntil[w] || firedAt + FIRE_ARRIVAL_JITTER_TICKS < p.lockClock[w] || p.mags[w].rounds() <= 0) {
+      // NCW-2 B-trade (Codex's P1 on PR #698): a traded round's magazine is the one the death found (`tradeRounds`).
+      const left = p === this.trading ? p.tradeRounds[w] : p.mags[w].rounds();
+      if (frame.count < p.reloadUntil[w] || firedAt + FIRE_ARRIVAL_JITTER_TICKS < p.lockClock[w] || left <= 0) {
         return this.dropped('fire', 'reload or empty', p);
       }
       if (w === 0 && frame.count < p.roundWaitUntil) return this.dropped('fire', 'rate', p);   // M4: a launched round's FireWait
@@ -5297,12 +5586,13 @@ export class Room {
       // on the console's whole frames (never
       // faster than the rate, `../../viewer/src/fire` `update`) is never early, and a faster one is held to the rate.
       p.fireClock[w] = Math.max(firedAt, p.fireClock[w] + rate);
-      p.mags[w].fire();
+      if (p === this.trading) p.tradeRounds[w]--;                // B-trade: from the rounds kept at the death, never the rings
+      else p.mags[w].fire();
       p.throwStart = null;                                       // THROW-INTERRUPT (F1): its own round taken ends its request
       p.volley = pellets > 1 ? { w, count: frame.count, rays: 1, hit: new Set() } : null;
       // M4: the bolt's or the pump's lock (`FUN_005c5340` L479321-479343) and then its after-shot clip, which holds the
       // fire as a reload does (`FUN_005a7ab0`): the weapon's lock runs on to their end, on the command clock.
-      const lock = afterShotLock(record.id, record, p.mags[w].rounds(), record.id);
+      const lock = afterShotLock(record.id, record, p === this.trading ? p.tradeRounds[w] : p.mags[w].rounds(), record.id);
       if (lock !== null) {
         const family = reloadFamily({ item: w ? 'pistol' : 'rifle', id: record.id, afterShot: true });
         const clip = this.clips ? reloadSeconds(this.clips.clips, this.clips.table, frame.posture, reloadMoving(...frame.velocity), family, record.reloadTime ?? 0) ?? 0 : 0;
@@ -5313,39 +5603,27 @@ export class Room {
     if (centring !== null) noteCentring(p.signals, centring);   // SEC-F1: an accepted round on foot, into the round's signals
     if (!aimed) p.cone.round(ev.seq);                            // a turret round's is `turretRound`'s (TURRET-CONE)
     const reach = record.maximumRange * UNITS_PER_METRE;
-    // The rewind: the others where the shooter saw them, at most MAX_REWIND_MS back.
-    const earliest = this.tick - Math.round((MAX_REWIND_MS / 1000) * TICK_HZ);
-    const at = Math.max(earliest, Math.min(this.tick, ev.viewTick));
-    const extra: ExtraSurface[] = [];
-    for (const q of this.players.values()) {
-      if (q === p || !q.alive) continue;
-      const past = this.past(q, at);
-      if (!past || !past.alive) continue;
-      // Skip a body the ray passes nowhere near (the cylinder round its feet).
-      if (!nearRay(from, dir, reach, past.feet)) continue;
-      const hit = rayBody(from, dir, reach, bodyVolumes(past.feet, past.yaw, past.posture, this.volumesOf(q), past.tilt));   // PRONE-TILT
-      if (!hit) continue;
-      const point: V3 = [from[0] + dir[0] * hit.t, from[1] + dir[1] * hit.t, from[2] + dir[2] * hit.t];
-      // PF-24 (PF.R42): a body is a PERSON surface the round strikes and goes on past (`BODY_PENETRATION`, 0.97 from the
-      // materials table; FUN_003c8920 D:L319473-319518), once a body (`BODY_ONE_SURFACE_READING`).
-      extra.push({ distance: hit.t, penetration: BODY_PENETRATION, point, normal: [-dir[0], -dir[1], -dir[2]], tag: { id: q.id, part: hit.part } });
-    }
-    // HX-1 (research 237 s2): after the players, the hostages -- the same PERSON surface, where the shooter saw them
-    // (their own past), on their own skeleton's capsules at their stance (HX-2's `volumesOf({ escortee })`).
-    for (const h of this.extraction?.hostages ?? []) {
-      if (!this.extraction!.targetable(h)) continue;
-      const past = pastOf(h.history, at);
-      if (!past || !past.alive || !nearRay(from, dir, reach, past.feet)) continue;
-      const hit = rayBody(from, dir, reach, bodyVolumes(past.feet, past.yaw, past.posture, this.hostageVolumes(h), past.tilt));   // PRONE-TILT-2 (5)
-      if (!hit) continue;
-      const point: V3 = [from[0] + dir[0] * hit.t, from[1] + dir[1] * hit.t, from[2] + dir[2] * hit.t];
-      extra.push({ distance: hit.t, penetration: BODY_PENETRATION, point, normal: [-dir[0], -dir[1], -dir[2]], tag: { id: h.id, part: hit.part, hostage: true } });
-    }
+    // The rewind: the others where the shooter saw them, at most the seat's cap back (NCW-2 B-bound, OT.R105:
+    // `rewindCapTicks` of its measured round trip -- MAX_REWIND_MS with none, at most REWIND_CEILING_MS_ADAPTATION).
+    const earliest = this.tick - rewindCapTicks(p.pingExact);
+    // NCW-2 B-shown (a browser adaptation, `shownOf`): at the round's displayed tick when it carries a valid one,
+    // else at its `viewTick` as before -- the same cap either way.
+    const shown = this.shownOf(ev, earliest);
+    const at = shown?.at ?? Math.max(earliest, Math.min(this.tick, ev.viewTick));
+    const extra = this.rewoundBodies(p, from, dir, reach, at);
     // PEN-MATERIAL: each world surface cuts the round by its own material's PENETRATION (`FUN_003c8920`: the byte
     // `FUN_002dc1d0` D:L319383, `DAT_0044f358` D:L319388, +0x24 D:L319473-319476, the cut D:L319510-319516; byte 0 the
     // map's DefaultMaterial), as the page's walk and `sceneBlast` take it. Was: a flat 0.5 for every surface.
     const penetration = (m: number | undefined): number => surfaceMaterial(m ?? 0, this.map.defaultMaterial ?? '').penetration;
     const path = roundPath(this.map.grid, [...from], dir, reach, penetration, record.piercing, extra);
+    // NCW-1 (B-count; an instrument, nothing below reads it): the round classed against its own `viewTick`, a read only.
+    if (this.opts.rewindOutcome !== false) {
+      const bodyIds = (struck: readonly { tag?: unknown }[]): number[] => struck.flatMap((s2) => s2.tag !== undefined ? [(s2.tag as { id: number }).id] : []);
+      this.noteRewind(p, ev.viewTick, at, ofVolley ? v : !aimed && pellets > 1 ? p.volley : null, ofVolley, bodyIds(path.struck), (when) => {
+        const probe = this.rewoundBodies(p, from, dir, reach, when);
+        return probe.length ? bodyIds(roundPath(this.map.grid, [...from], dir, reach, penetration, record.piercing, probe).struck)[0] ?? null : null;
+      }, shown);                                                 // NCW-17: the page's displayed tick beside it (B-shown: `at`)
+    }
     // MAP-06 (`FUN_003c7490`; research 209 s13): every world surface the round struck, in the walk's order, is a scene
     // destructible's maybe, and each is handed the hit (`hitAt`: the impact rating plus the weapon's modifier against its
     // shield). P11 (research 209 s13, reading, pending review): the hit ends nothing -- the original's walk goes on by
@@ -5428,6 +5706,183 @@ export class Room {
       if (hostage) this.hostageBulletHit(p, this.extraction!.hostage(victimId)!, part, struck.distance, record, pellets > 1);
       else this.bulletHit(p, victimId, part, struck, record, pellets > 1, from, report);
     }
+  }
+
+  /**
+   * The rewind's bodies (W3.R4), each a surface the round may strike: every other living player's and, HX-1, every
+   * targetable hostage's hit volumes as they stood at `at` (their past), met by the ray within `reach`. Lifted out of
+   * `fireAt` unchanged (NCW-1) so its instrument reads the same bodies at another tick; it reads and changes nothing.
+   */
+  private rewoundBodies(p: Player, from: V3, dir: V3, reach: number, at: number): ExtraSurface[] {
+    const extra: ExtraSurface[] = [];
+    for (const q of this.players.values()) {
+      if (q === p || !q.alive) continue;
+      const past = this.past(q, at);
+      if (!past || !past.alive) continue;
+      // Skip a body the ray passes nowhere near (the cylinder round its feet).
+      if (!nearRay(from, dir, reach, past.feet)) continue;
+      const hit = rayBody(from, dir, reach, bodyVolumes(past.feet, past.yaw, past.posture, this.volumesOf(q), past.tilt));   // PRONE-TILT
+      if (!hit) continue;
+      const point: V3 = [from[0] + dir[0] * hit.t, from[1] + dir[1] * hit.t, from[2] + dir[2] * hit.t];
+      // PF-24 (PF.R42): a body is a PERSON surface the round strikes and goes on past (`BODY_PENETRATION`, 0.97 from the
+      // materials table; FUN_003c8920 D:L319473-319518), once a body (`BODY_ONE_SURFACE_READING`).
+      extra.push({ distance: hit.t, penetration: BODY_PENETRATION, point, normal: [-dir[0], -dir[1], -dir[2]], tag: { id: q.id, part: hit.part } });
+    }
+    // HX-1 (research 237 s2): after the players, the hostages -- the same PERSON surface, where the shooter saw them
+    // (their own past), on their own skeleton's capsules at their stance (HX-2's `volumesOf({ escortee })`).
+    for (const h of this.extraction?.hostages ?? []) {
+      if (!this.extraction!.targetable(h)) continue;
+      const past = pastOf(h.history, at);
+      if (!past || !past.alive || !nearRay(from, dir, reach, past.feet)) continue;
+      const hit = rayBody(from, dir, reach, bodyVolumes(past.feet, past.yaw, past.posture, this.hostageVolumes(h), past.tilt));   // PRONE-TILT-2 (5)
+      if (!hit) continue;
+      const point: V3 = [from[0] + dir[0] * hit.t, from[1] + dir[1] * hit.t, from[2] + dir[2] * hit.t];
+      extra.push({ distance: hit.t, penetration: BODY_PENETRATION, point, normal: [-dir[0], -dir[1], -dir[2]], tag: { id: h.id, part: hit.part, hostage: true } });
+    }
+    return extra;
+  }
+
+  /**
+   * NCW-1 (B-count, `docs/plans/2026-11-05-netcode-wave.md` sections 2, 4; an instrument with no original -- it decides
+   * nothing, sends nothing, damages nothing): a taken round's class (`RewindClass`, `rewindClassOf`) by its rewind age
+   * (`this.tick` less `viewTick`, ticks). `atStruck`, the ids of the bodies (players and hostages, before any
+   * friendly-fire gate) the scored walk struck at the clamped rewind `at`; `probe(tick)`, the same walk, read only, with
+   * the bodies at `tick` -- the id of the first body it strikes, else null. The unclamped tick is `min(tick, viewTick)`:
+   * only the cap's clamp is undone; when it is `at` the two reads are one. A `viewTick` older than the kept history
+   * (`HISTORY`) is class `e`, not probed. `a` and `b` compare the same body: a round whose body at the `viewTick` is not
+   * struck at the clamped rewind is `b` even when a bystander is.
+   *
+   * A single round is counted at once. A shotgun's pull (`pull`, its first ray's or, `ofVolley`, a later one's) is one
+   * round: its rays' reads are kept on the pull and counted once, when its class is final -- at the next step's top
+   * (`settleRewind`; a page sends a pull's rays together, and the room decides them in one pass), or sooner when the
+   * take or the round report asks -- so a count never moves and no total ever falls (the review's F4). A ray decided
+   * after its pull was counted changes nothing.
+   *
+   * What it undercounts: a body not alive now is in neither read (`rewoundBodies` skips `!q.alive`) -- a target killed
+   * since the `viewTick`, by this round's earlier rays or another's, is no hit at the `viewTick`; and a body respawned
+   * since has its history cleared at the spawn (`Player.history`), so the probe finds it at its oldest pose, its spawn,
+   * not where the shooter saw it.
+   *
+   * NCW-17: `shown`, the round's displayed tick checked (`shownOf`: the claim's lead over the picture and the tick held to
+   * the cap), or null -- each ray also read there by the same `probe` (`RewindRay.shownFirst`), and the round's lead and
+   * its miss at the claim counted with its class (`countRewind`). The same read only: it adds nothing to the scored walk.
+   * NCW-2 B-shown: a round with a valid displayed tick is scored there (`at` is `shown.at`), so its `shownFirst` is the
+   * scored walk's own and it is never a miss at the scored rewind -- `shownMiss` reads 0 for it, a tripwire; the round its
+   * `viewTick` would have lost and the picture lands is NCW-1's class `d` (no hit at the `viewTick`, struck at `at`).
+   */
+  private noteRewind(p: Player, viewTick: number, at: number, pull: Player['volley'], ofVolley: boolean, atStruck: number[], probe: (tick: number) => number | null, shown: { lead: number; at: number } | null = null): void {
+    const prior = ofVolley ? pull?.rewind : undefined;
+    if (prior?.counted) return;
+    const age = prior?.age ?? this.tick - viewTick;
+    const e = prior?.e ?? age > HISTORY - 1;
+    const view = Math.min(this.tick, viewTick);
+    const rays = prior?.rays ?? [];
+    // NCW-17: the same walk, read only, at the displayed tick (held to the cap) -- the scored read's own when it is `at`.
+    const shownRead = shown === null ? {} : { shownFirst: shown.at === at ? atStruck[0] ?? null : probe(shown.at) };
+    if (!e) rays.push({ viewFirst: view === at ? atStruck[0] ?? null : probe(view), atStruck, ...shownRead });
+    const lead = prior ? prior.lead : shown?.lead;               // NCW-17: a pull's lead its first ray's
+    if (!pull) { this.countRewind(p, e ? 'e' : rewindClassOf(rays), age, e ? undefined : lead, rays); return; }
+    if (prior) return;
+    pull.rewind = { rays, age, e, counted: false, ...(lead !== undefined ? { lead } : {}) };
+    this.rewindOpen.push({ p, pull });
+  }
+
+  /**
+   * NCW-17 (the claim-versus-picture instrument, `docs/plans/2026-11-05-netcode-wave.md` section 7; no original, it
+   * decides nothing): a round's displayed tick (`fire`'s `shownTick`, `NetClient.shownTick`), checked -- a finite number
+   * (the page's interpolated view tick while two snapshots bracket it: a fraction, as `viewTick` is), at most the round's
+   * `viewTick` -- as the claim's lead over the picture (`viewTick - shownTick`,
+   * ticks) and the tick the instrument rewinds to for it, `max(earliest, min(tick, shownTick))`: held to the scored
+   * rewind's cap (`earliest`, the seat's cap back: `rewindCapTicks`, NCW-2 B-bound), as the scored read is. Null for a
+   * round without one or with a bad one, which is ignored, never refused: the round is taken and scored as without it.
+   *
+   * NCW-2 B-shown (a browser adaptation; plan sections 4 and 7, Benny's §1): the scored rewind is this `at` when
+   * there is one -- the bodies judged where the page drew them, not where its `viewTick` ran on to in a snapshot gap
+   * (his real-room probe: a 150 ms gap, the claim at tick 27, the picture at 24; a miss at 27, a hit at 24). A browser
+   * adaptation (the original had no rewind: the shooter's console sent the Hit it resolved on its own picture, and the
+   * victim's owner applied it, research 193 §12.6) that moves the judged tick toward that picture. Only the bodies'
+   * tick moves: the cone, eye and muzzle checks read the round's command frames as before, and the seat's cap is not
+   * widened. A forged `shownTick` buys nothing a forged `viewTick` cannot already: it is held at most to `viewTick`,
+   * and both are clamped by the one cap (`earliest`) to the same tick -- the oldest a page may ask for either way.
+   * The review's F3: one older than the kept history is clamped to `earliest` too, as an equally old `viewTick` is, not
+   * dropped -- dropping it judged the round at its `viewTick`, further from the picture than a slightly newer
+   * `shownTick` clamped to the cap, so the rule was not monotonic. The clamp keeps every read inside the history, and a
+   * forger who sends an ancient one gets `earliest`, which a `viewTick` at the cap already gets him. Without one, or a
+   * bad one (not a finite number, or past `viewTick`), the round is judged at its `viewTick`.
+   */
+  private shownOf(ev: Extract<ClientEvent, { type: 'fire' }>, earliest: number): { lead: number; at: number } | null {
+    const s = ev.shownTick as unknown;
+    if (typeof s !== 'number' || !Number.isFinite(s) || s > ev.viewTick) return null;   // F3: an old one is clamped, below
+    return { lead: ev.viewTick - s, at: Math.max(earliest, Math.min(this.tick, s)) };
+  }
+
+  /** NCW-1: the shotgun pulls read and not yet counted (`noteRewind`), counted by `settleRewind`. */
+  private rewindOpen: { p: Player; pull: NonNullable<Player['volley']> }[] = [];
+
+  /** NCW-1: every open pull counted now, its class final (`noteRewind`'s rule); called at each step's top, by the take and the round report. */
+  private settleRewind(): void {
+    if (!this.rewindOpen.length) return;
+    const open = this.rewindOpen;
+    this.rewindOpen = [];
+    for (const { p, pull } of open) {
+      const r = pull.rewind!;
+      r.counted = true;
+      this.countRewind(p, r.e ? 'e' : rewindClassOf(r.rays), r.age, r.e ? undefined : r.lead, r.rays);
+    }
+  }
+
+  /**
+   * NCW-1: one round's count under its class and age bucket, in the seat's round (and its largest age) and the room's
+   * second. NCW-17: with a displayed tick's `lead` (a round that sent a valid one), its lead bucket too and, when its rays
+   * miss at the claim and hit at the displayed tick (`shownMissOf`), the class's count.
+   */
+  private countRewind(p: Player, cls: RewindClass, age: number, lead?: number, rays: readonly RewindRay[] = []): void {
+    const key = `${cls}:${rewindAgeBucket(age)}`;
+    const own = p.signals.rewind ??= {};
+    own[key] = (own[key] ?? 0) + 1;
+    p.signals.rewindAgeMax = Math.max(p.signals.rewindAgeMax ?? 0, age);
+    const seat = this.rewindSecond.get(p.id) ?? new Map<string, number>();
+    seat.set(key, (seat.get(key) ?? 0) + 1);
+    this.rewindSecond.set(p.id, seat);
+    if (lead === undefined) return;
+    const bucket = shownLeadBucket(lead), miss = shownMissOf(rays);
+    const ownLead = p.signals.shownLead ??= {};
+    ownLead[bucket] = (ownLead[bucket] ?? 0) + 1;
+    if (miss) p.signals.shownMiss = (p.signals.shownMiss ?? 0) + 1;
+    const second = this.shownSecond.get(p.id) ?? { lead: new Map<string, number>(), miss: 0 };
+    second.lead.set(bucket, (second.lead.get(bucket) ?? 0) + 1);
+    if (miss) second.miss++;
+    this.shownSecond.set(p.id, second);
+  }
+
+  /** NCW-1: the rounds counted since the last `takeRewind`, by seat and `class:bucket` (each count one or more). */
+  private readonly rewindSecond = new Map<number, Map<string, number>>();
+  /** NCW-17: of them, the rounds with a displayed tick by seat and lead bucket, and the seat's misses at the claim. */
+  private readonly shownSecond = new Map<number, { lead: Map<string, number>; miss: number }>();
+
+  /**
+   * NCW-1 (B-count; an instrument): the rounds classed since the last call, by seat and `class:bucket`, each seat with its
+   * newest heartbeat round trip (`rttMs`, raw; null none yet) and the score row's smoothed `ping` -- for the server's
+   * once-a-second `rewind` line and its `/metrics` series. Null when none was classed. A seat gone since is reported
+   * with null round trips. The open pulls are counted first (`settleRewind`). NCW-17: a seat with rounds that carried a
+   * displayed tick has their lead buckets (`shownLead`) and, with any, its misses at the claim (`shownMiss`).
+   */
+  takeRewind(): { seats: Record<number, RewindTakeSeat> } | null {
+    this.settleRewind();
+    if (!this.rewindSecond.size) return null;
+    const seats: Record<number, RewindTakeSeat> = {};
+    for (const [id, keys] of this.rewindSecond) {
+      const rounds = Object.fromEntries(keys);
+      const q = this.players.get(id);
+      const shown = this.shownSecond.get(id);
+      seats[id] = {
+        rounds, rttMs: q && q.rttLast >= 0 ? Math.round(q.rttLast) : null, ping: q ? q.ping : null,
+        ...(shown ? { shownLead: Object.fromEntries(shown.lead) } : {}), ...(shown?.miss ? { shownMiss: shown.miss } : {}),
+      };
+    }
+    this.rewindSecond.clear();
+    this.shownSecond.clear();
+    return Object.keys(seats).length ? { seats } : null;
   }
 
   /**
@@ -5581,7 +6036,9 @@ export class Room {
     if (volley) {
       if (!p.volley || p.volley.hit.has(h.id)) return;
       p.volley.hit.add(h.id);
-      const raw = pelletDamage(record, distance);
+      // Preserve the existing hostage path. Retail host-local and remote-hostage hits route differently;
+      // the player receiver correction does not settle that separate parity question (research 94 C2.1).
+      const raw = bulletDamage(record, distance);
       if (raw === null) return;
       const { damage, piercing } = quantiseHit(raw, record.piercing);
       const n = shotgunPellets(distance, this.opts.random);
@@ -5914,7 +6371,7 @@ export class Room {
    * M4 (research 94 §C2.1, R94.10; research 91 §1.1): a shotgun's ray on a victim -- honoured **once a volley** (the
    * victim's `+0x1048` guard, `FUN_005abbc0` L464704-464737), whatever part it met: the receiver re-counts the pellets by
    * the range (`shotgunPellets`, `FUN_005a1620`), each to a part by the fragments' table (`fragmentPart`, `DAT_00650900`
-   * / `DAT_006508f8`) at `pelletDamage` (`SHOTGUN_MP_PELLET_DAMAGE_SCALE_READING`), the ammo's piercing; the last
+   * / `DAT_006508f8`) at `pelletDamage`, the raw ammo's damage and piercing (research 94 C2.1); the last
    * pellet's part names the death. The push it sets (`FUN_0057ed10`) has no traced reader: `BLOWBACK_CONSUMER_READING`.
    */
   private volleyHit(p: Player, victim: Player, record: WeaponRecord, distance: number, from: V3, report: Partial<CombatReport> & { request: string }): void {
@@ -5923,8 +6380,9 @@ export class Room {
     volley.hit.add(victim.id);
     const raw = pelletDamage(record, distance);
     if (raw === null) { this.combat(p, victim, { ...report, status: 'miss', reason: 'beyond range' }); return; }
-    // PF-22: each pellet the packet's integer, its piercing in 0.05 steps (`quantiseHit`, FUN_002bd220).
-    const { damage: dmg, piercing } = quantiseHit(raw, record.piercing);
+    // FUN_005a1b80 D:L459543-459566: the packet gates the hit; each pellet reads the ammo's own floats.
+    // Neither raw damage nor piercing passes through the packet quantiser here.
+    const dmg = raw, piercing = record.piercing;
     this.countShot(p, false, victim);                            // PF-26: the shell's hit, once a shell
     const n = shotgunPellets(distance, this.opts.random);
     const scale = this.ruleHitEvent(p, victim, record, dmg * n); // FCW-31: the shell's pellets, before they are applied (`hit.scale`)
@@ -6187,8 +6645,10 @@ export class Room {
     // Both hulls start from the disc rest (the page does not step before the room forks it). The slack on the line is
     // along the ray. A shallow look meets the moved face far from the named point; the face itself within that slack
     // is the press. A nearer face of the same node, entered before the point, stays missed.
-    // CRANE_PRESS_SLACK_ADAPTATION: the press's lag from the page's view clock (its claim), clamped as the shots' rewind is
-    // (`MAX_REWIND_MS`, CRANE_PRESS_LAG_BOUND_ADAPTATION) -- a forged clock widens a crane press by that term at most.
+    // CRANE_PRESS_SLACK_ADAPTATION: the press's lag from the page's view clock (its claim), clamped to `MAX_REWIND_MS`
+    // (CRANE_PRESS_LAG_BOUND_ADAPTATION) -- a forged clock widens a crane press by that term at most. The press deliberately
+    // keeps the 200 ms floor, not the shots' per-seat cap (NCW-2 B-bound, `rewindCapMs`): a high-ping seat's press counts
+    // less of its lag than its shots do.
     const lag = Math.max(0, Math.min(MAX_REWIND_MS / 1000, (this.tick - p.viewTick) / TICK_HZ));
     const slack = crane >= 0 ? cranePressSlack(this.cranes.specs[crane]!, lag) : 0;
     let line = crane >= 0
@@ -8268,6 +8728,9 @@ export class Room {
    * (`FUN_005979a0`), which every page plays at the body.
    */
   private kill(victim: Player, killer: Player | null, weapon: string | null, how: KillHow, cause: number, clip: string | null = null, killerName?: string, part?: number): void {
+    // NCW-2 B-trade (Codex's P1 on PR #698): the rounds in the weapons as the death found them, before anything below (a
+    // classic death's drop, `worldDrops.death`) empties the rings -- what a traded round may still spend (`fireAt`).
+    victim.tradeRounds = [victim.mags[0].rounds(), victim.mags[1].rounds()];
     this.deathDrop(victim);                                      // THROW-INTERRUPT: `FUN_005b8920` before the alive bit (D:L413023-413024)
     if (victim.mounted !== null) this.releaseTurret(this.turrets[victim.mounted]!);   // MAP-10b: freed before the kill is told
     else if (victim.reserved !== null) this.releaseTurret(this.turrets[victim.reserved.turret]!);   // A1: the take's refusal, at once
@@ -8275,6 +8738,9 @@ export class Room {
     victim.alive = false;
     victim.flinchFrom = -1; victim.flinchUntil = -1; victim.flinchAir = -1; victim.flinchGatesReload = true; victim.flinchCutFrom = -1; victim.flinchKeptFrom = -1; victim.flinchKeptUntil = -1; victim.flinchUnder = null;   // PF-18: a death ends the flinch (and a door clip, and the span it cut) (FUN_005a2690 L459978: the death clip instead)
     victim.diedAt = this.tick;
+    // NCW-2 B-trade: the last command run alive -- inside the victim's own run of a command (F3: a fall's death), the one
+    // before it, which completed alive.
+    victim.diedSeq = !victim.synced ? -1 : this.ownRun?.p === victim ? this.ownRun.before : victim.sim.seq;
     victim.deathClip = clip; victim.deathCause = cause;          // PF-28: a joiner's corpse (`joinWire`)
     const moves = victim.sim.moves;
     if (moves) {
@@ -8887,8 +9353,10 @@ export class Room {
     const passedBy: number[] = [];                               // LATER 85: the seats this start passes by (`ghosts`)
     for (const p of this.players.values()) {
       p.signals = freshSignals();                                // SVC-12d: its signals from zero
+      p.rttRound.length = 0;                                     // NCW-1: the round's round trips from zero
       p.refusalsLogged = 0;                                      // SIMDROP-INSTR: the round's refusal lines from zero
       p.frameAt = -1;                                            // SIMDROP-INSTR: the round's largest gap from its first frame
+      p.roundFromMs = this.opts.now();                           // NCW-6: the seat's wall time in the round from its start
       p.roundScore = 0; p.roundKills = 0; p.roundDeaths = 0; p.roundRescued = 0; p.arming = false;
       if (!keepLoadDeaths || !p.deadAtLoad) p.diedAt = -1;
       // LATER 85: a late seat still loading stays without a body -- a ghost of the round (the review's F2: not in it for the
@@ -8967,6 +9435,7 @@ export class Room {
    * (`handOverOf`). `emptied`: a round a leave emptied a side of (`reportEmptied`).
    */
   private roundReport(winner: Team | null, matchOver: boolean, stats: Record<number, MatchStats>, emptied = false): RoundOverReport {
+    this.settleRewind();                                         // NCW-1: the open pulls counted in this round's signals
     const results = this.handOverOf(winner, matchOver, emptied);
     return {
       round: this.round, matchOver, respawn: this.opts.rules === 'respawn', gameType: this.map.gameType ?? 0, wins: { ...this.wins },
@@ -8975,7 +9444,16 @@ export class Room {
       signals: [...this.players.values()].map((p) => ({
         seat: p.id, ...p.signals, hitsByPart: { ...p.signals.hitsByPart }, refused: { ...p.signals.refused }, burstSizes: { ...p.signals.burstSizes },
         arrivalLate: { ...p.signals.arrivalLate },   // SIMDROP-INSTR: the page's health, its histogram a copy
+        ...(p.signals.rewind ? { rewind: { ...p.signals.rewind } } : {}),   // NCW-1: the rounds by rewind class and age, a copy
+        ...(p.signals.shownLead ? { shownLead: { ...p.signals.shownLead } } : {}),   // NCW-17: the claim's lead over the picture, a copy
+        ...(rttSummary(p.rttRound) ? { rtt: rttSummary(p.rttRound)! } : {}),   // NCW-1: the round's heartbeat round trips
+        // NCW-6 (instruments): the commands received and the seat's wall time in the round, with any received; of the stale
+        // rounds, those on a dropped command, beside any stale count
+        ...(p.signals.commandsReceived ? { commandsReceived: p.signals.commandsReceived, wallMs: Math.max(0, Math.round(this.opts.now() - p.roundFromMs)) } : {}),
+        ...(p.signals.staleFires > 0 ? { staleAfterDrop: p.signals.staleAfterDrop ?? 0 } : {}),
         ...(p.signals.centring ? { centring: { ...p.signals.centring } } : {}),   // SEC-F1: the shot-centring statistic, a copy
+        ...this.builds.get(p.id),                                // NCW-10: the page's build and build time, its hello's
+        ...(p.signals.trade ? { trade: { ...p.signals.trade } } : {}),   // NCW-2 B-trade (F1): the traded rounds, a copy
       })),
       ...(results ? { results } : {}),
       ...(emptied ? { emptied } : {}),
@@ -9407,9 +9885,25 @@ export class Room {
   noteRoundTrip(id: number, sampleMs: number): number | null {
     const p = this.players.get(id);
     if (!p || pingSampleMs(sampleMs) === null) return null;
+    p.rttRound.push(sampleMs);                                   // NCW-1: the round's raw samples (an instrument)
+    if (p.rttRound.length > RTT_SAMPLES_MAX_ADAPTATION) p.rttRound.shift();
+    p.rttLast = sampleMs;
     p.pingExact = smoothPing(p.pingExact, sampleMs);
     p.ping = pingRowMs(p.pingExact);
     return p.ping;
+  }
+
+  /**
+   * NCW-7 (`PING_SCORE_RESEND_MS_ADAPTATION`): once a heartbeat sweep, after the previous sweep's pongs are folded
+   * (`noteRoundTrip`), mark the board changed when any seat's shown ping moved by the threshold from the value its
+   * rows last broadcast to the room carried (`pingSent`, set by `broadcast`), or has its first reading. True when it
+   * marked. A room with no players marks nothing.
+   */
+  notePingSweep(): boolean {
+    const ps = [...this.players.values()];
+    if (!ps.some((p) => (p.pingSent === 0 && p.ping > 0) || Math.abs(p.ping - p.pingSent) >= PING_SCORE_RESEND_MS_ADAPTATION)) return false;
+    this.scoreDirty = true;
+    return true;
   }
 
   scoreEvent(): ServerEvent {
@@ -9892,6 +10386,11 @@ export class Room {
   }
 
   private broadcast(ev: ServerEvent, except?: number): void {
+    // NCW-7 (the review F1, Codex P2): the ping the whole room was sent, from the rows themselves; a score built for one
+    // page (the joiner's, a `score` request) is never broadcast and moves nothing.
+    if (ev.type === 'score' && except === undefined) {
+      for (const r of ev.rows) { const p = this.players.get(r.id); if (p) p.pingSent = r.ping; }
+    }
     this.opts.recorder?.event(this.tick, ev);
     const text = JSON.stringify(ev);
     for (const [id, conn] of this.conns) {

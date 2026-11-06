@@ -564,23 +564,23 @@ describe('GM-11a-2: the backend draws GM-03\'s cases on the fake GL, frame for f
     ]);
   });
 
-  it('case 2: invW 2 on its fourth triangle gives the pass depthScale 0.5 -- every depth at most 1, the nearer triangle still wins (M3, GM.R10)', () => {
+  it('case 2: invW 2 on its fourth triangle gives the pass depthScale 0.25 (GM-15b: every vertex at most 1/2) -- the nearer triangle still wins (M3, GM.R10)', () => {
     const c = UI_RASTER_CASES.find((x) => x.id === 2)!;
     for (const blend of ['ff', 'exact'] as const) {
       const plan = planOf(c, 1, 'opaque', blend), f = fakeGl(), b = backendOn(f);
-      expect(plan.passes.map((p) => p.depthScale)).toEqual([0.5]);
+      expect(plan.passes.map((p) => p.depthScale)).toEqual([0.25]);
       b.draw(plan);
       const models = f.draws.filter((d) => d.program.startsWith('model-'));
       expect(models.map((d) => d.program)).toEqual(['model-ff-add', 'model-ff-add', 'model-ff-add', 'model-ff-add']);
-      for (const d of models) expect(d.uniforms.u_depthScale).toEqual([0.5]);
+      for (const d of models) expect(d.uniforms.u_depthScale).toEqual([0.25]);
       // The probes the case pins (uiRasterCases.ts): the shared edge drawn once at equal depth, twice where nearer.
       const px = b.readPixels(), at = (x: number, y: number) => Array.from(px.data.subarray((y * px.width + x) * 4, (y * px.width + x) * 4 + 4));
       expect(at(4, 4), blend).toEqual([70, 70, 70, 255]);
       expect(at(24, 4), blend).toEqual([130, 130, 130, 255]);
-      // The depth the pass leaves: 1 * 0.5 under the first pair, 2 * 0.5 = 1 where the nearer triangle drew.
+      // The depth the pass leaves: 1 * 0.25 under the first pair, 2 * 0.25 = 0.5 where the nearer triangle drew.
       const depth = f.framebuffers.find((fb) => !fb.deleted && fb.depth)!.depth!;
-      expect(depth.data![4 * depth.w + 4]).toBe(0.5);
-      expect(depth.data![4 * depth.w + 24]).toBe(1);
+      expect(depth.data![4 * depth.w + 4]).toBe(0.25);
+      expect(depth.data![4 * depth.w + 24]).toBe(0.5);
       expect(depth.data![40 * depth.w + 100]).toBe(0);   // untouched: the pass's clear
     }
   });

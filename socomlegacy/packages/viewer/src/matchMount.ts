@@ -1163,6 +1163,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // inventory, the Chat menu) cancels the action button's hold before the lanes, so the Cross it takes over is no release.
     const over: CancelCause | null = armory.isOpen() ? 'armory' : menu || throws.inventory.isOpen() ? 'menu' : null;
     if (over && !menuOver) { acts.cancel(over); stanceButton.reset(); }   // as the R2 inventory's `onOpened`: no tap or hold carried over
+    if (pad.stance && !game.stance) gamePad.cancelStancePress();   // OT.R107: a Triangle a menu took is no late pressure Prone
     menuOver = over;
     fly.setInputSuspended(menu);                       // this frame's menu, as `./main` suspends on its `menu`
     walk.holdForMenu(menu || throws.inventory.isOpen());

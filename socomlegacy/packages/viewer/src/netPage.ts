@@ -693,7 +693,7 @@ export class NetPage {
    * (`./net/shotCone` `tick`) bloomed the round before the press's edge started the pull's count again (`FUN_005c0ae0`), and
    * ran one round behind the page's count for the whole burst -- bursts of five rounds or more refused 'cone'.
    */
-  private readonly pressRounds: { client: NetClient; after: number; viewTick: number; e: Extract<FireEvent, { type: 'round' }> }[] = [];
+  private readonly pressRounds: { client: NetClient; after: number; viewTick: number; shownTick: number | null; e: Extract<FireEvent, { type: 'round' }> }[] = [];
   /** LATER 347: the Trigger bit the walk's next commands carry (`trigger`). */
   private triggerBit = false;
   private static remember<T>(map: Map<number, T>, seq: number, v: T): void {
@@ -1302,9 +1302,14 @@ export class NetPage {
 
   /**
    * A round to the server, named at command `seq` (the last sent; LATER 347's held round the first after it was held) with
-   * the view clock of its firing (`viewTick`: the room's rewind for the shot; a held round keeps the one it fired at).
+   * the view clock of its firing (`viewTick`: the room's rewind for the shot; a held round keeps the one it fired at) and,
+   * NCW-17 (an instrument), the displayed tick of its firing (`shownTick`, `NetClient.shownTick`; none before a snapshot)
+   * -- like `viewTick`, read when the round fires (a held press's round: at its press, as `fireEvent` holds it), not at
+   * the frame the player last saw, so its lead bucket reads "at the firing". The two are read at one moment
+   * (`roundTicks`): a browser's clock moves between two reads, and a bracketed `shownTick` read after `viewTick` would
+   * come out a hair above it and be dropped by the room's check (the review's F1).
    */
-  private sendRound(e: Extract<FireEvent, { type: 'round' }>, viewTick: number, seq = this.client.lastSeq()): void {
+  private sendRound(e: Extract<FireEvent, { type: 'round' }>, viewTick: number, shownTick: number | null, seq = this.client.lastSeq()): void {
     if (e.shot !== undefined) NetPage.remember(this.sentFires, seq, e.shot);
     const d = [e.to[0] - e.from[0], e.to[1] - e.from[1], e.to[2] - e.from[2]];
     const l = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
@@ -1314,11 +1319,28 @@ export class NetPage {
       type: 'fire', seq, from: [...e.from], dir: [d[0]! / l, d[1]! / l, d[2]! / l],
       weapon: e.weapon.id === this.deps.weapons()[1].id ? 1 : 0, viewTick,
       eye: [eye[0], eye[1], eye[2]], aim: [aim[0]!, aim[1]!, aim[2]!],
+      ...(shownTick !== null ? { shownTick } : {}),
     });
+  }
+
+  /**
+   * NCW-17's review F1: a round's view clock and displayed tick (`sendRound`), both at one clock read, so a bracketed
+   * round's `shownTick` is its `viewTick`. The read is `performance.now` itself -- the live client's own default, as the
+   * turret claim's (`./matchActions`) -- never the page's round-timer clock (`now`), which a replay clock would put on
+   * its own milliseconds and so move a round's rewind tick (the re-check's F1).
+   */
+  private roundTicks(): { viewTick: number; shownTick: number | null } {
+    const now = performance.now();
+    return { viewTick: this.client.viewTick(now), shownTick: this.client.shownTick(now) };
   }
 
   /** LATER 347: the trigger as the walk's commands carry it -- `./main`'s and `./matchMount`'s frame, before `walk.frame`; `frame` again after. */
   trigger(on: boolean): void {
+    this.setTrigger(on);
+    this.client.beginFrame?.();                   // NCW-8: a new frame's send order -- each round right after its own command
+  }
+  /** LATER 347's bit, set: `trigger`'s before the walk, and `frame`'s again after it (which begins no frame: NCW-8). */
+  private setTrigger(on: boolean): void {
     this.triggerBit = on;
     this.deps.walk.setTrigger(on);
   }
@@ -1334,30 +1356,33 @@ export class NetPage {
     const sent = this.client.lastSeq();
     if (this.pressRounds.some((h) => h.client === this.client && h.after >= sent)) return;   // no command since: a frame past 60 fps
     // LATER 338: a round with its own game frame's command keeps it, never before the press's first command.
-    for (const h of this.pressRounds.splice(0)) if (h.client === this.client) this.sendRound(h.e, h.viewTick, Math.max(h.after + 1, h.e.seq ?? 0));
+    for (const h of this.pressRounds.splice(0)) if (h.client === this.client) this.sendRound(h.e, h.viewTick, h.shownTick, Math.max(h.after + 1, h.e.seq ?? 0));
   }
 
   /**
    * LATER 587's second fold (`./fire` `ROOM_GATE_MIRROR_ADAPTATION`, `FireSource.roundSeq`): the command a round the kit
    * fires now goes out named at, as `fireEvent` and `flushPressRounds` name it -- held (no Trigger on the commands yet, or
    * a round already held), the first command after the last sent or its own game frame's (`own`) if later; else its own,
-   * or the last sent. Null on a closed socket (nothing is sent).
+   * or the last sent. Null on a closed socket, or between a resumed welcome and its resume (NCW-8 (b)): nothing is sent.
    */
   roundSeq(own?: number): number | null {
-    if (this.client.state !== 'open') return null;
+    if (this.client.state !== 'open' || this.client.awaitingResume?.() === true) return null;
     if (!this.triggerBit || this.pressRounds.length > 0) return Math.max(this.client.lastSeq() + 1, own ?? 0);
     return own ?? this.client.lastSeq();
   }
 
   /** The page's own rounds and reloads, to the server (`Fire.subscribe`). */
   fireEvent(e: FireEvent): void {
-    if (this.client.state !== 'open') { if (e.type === 'reloadStart') this.reloadSeq = null; return; }
+    // NCW-8 (b): between a resumed welcome and its resume nothing is named at the new client's low count -- a press's
+    // round held here (LATER 347) would leave named there once the resume came; dropped, as a closed socket's.
+    if (this.client.state !== 'open' || this.client.awaitingResume?.() === true) { if (e.type === 'reloadStart') this.reloadSeq = null; return; }
     if (e.type === 'round') {
       if (!this.triggerBit || this.pressRounds.length > 0) {                     // LATER 347: before its press's commands
-        this.pressRounds.push({ client: this.client, after: this.client.lastSeq(), viewTick: this.client.viewTick(), e });
+        this.pressRounds.push({ client: this.client, after: this.client.lastSeq(), ...this.roundTicks(), e });
         return;
       }
-      this.sendRound(e, this.client.viewTick(), e.seq ?? this.client.lastSeq());   // LATER 338: its own game frame's command
+      const { viewTick, shownTick } = this.roundTicks();
+      this.sendRound(e, viewTick, shownTick, e.seq ?? this.client.lastSeq());   // LATER 338: its own game frame's command
     } else if (e.type === 'reloadPress') {
       // LATER 72 (research 313 s8.3): the press reaches the room, at the command it rode, and the page's window ends where
       // the room's does -- its `seq` + the delay's commands.
@@ -1735,7 +1760,7 @@ export class NetPage {
     this.deps.hud.setRoundScreen(this.roundScreen(elapsed));
     this.sweepDrops(elapsed);
     this.flushPressRounds();                       // LATER 347: a press's round, once the walk has sent its frame's commands
-    this.trigger(trigger);
+    this.setTrigger(trigger);
     const scale = (this.client as { dtScale?(): number }).dtScale?.() ?? 1;   // PT-19 (F2): the replay's speed, both clocks
     this.deps.remote.frame(dt * scale, this.client.bodies(), camera, real * scale);
     this.deps.roundAudio?.frame();                 // INT.R7: the round's cues that are due
