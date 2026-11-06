@@ -22,8 +22,7 @@
 
 ---
 
-An open-source, faithful re-implementation of SOCOM U.S. Navy SEALs II, the 2003 tactical third-person shooter by Zipper
-Interactive for the PlayStation 2, rebuilt in TypeScript and three.js to run in your browser. Our focus is
+An open-source, faithful re-implementation of SOCOM II U.S. Navy SEALs, rebuilt in TypeScript and three.js to run in your browser. Our focus is
 multiplayer: the online game SOCOM II was built around, from the briefing rooms to the last round, played on SOCOM
 Legacy's own servers and the community's hosts.
 
