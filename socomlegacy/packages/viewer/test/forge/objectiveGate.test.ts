@@ -32,7 +32,10 @@ function layoutLoader(): string {
 
 describe('FG-51: the page reads the room\'s rule, keeps the author\'s type, and holds a locked marker', () => {
   it('the Play gate and the type picker both ask forgeTypeUnplayable; the page keeps no rule of its own', () => {
-    expect(body('composeForMatch')).toMatch(/forgeTypeUnplayable\(/);
+    // The Play gate's staging delegates to `./playObjectives`, which asks the same rule.
+    expect(body('composeForMatch')).toMatch(/playObjectives\(/);
+    const staged = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/forge/playObjectives.ts'), 'utf8');
+    expect(staged).toMatch(/forgeTypeUnplayable\(/);
     expect(body('typeUnplayable')).toMatch(/forgeTypeUnplayable\(/);
     expect(body('refreshGameTypes')).toMatch(/typeUnplayable\(/);
     expect(page).not.toMatch(/forgeTypePlayable\(/);

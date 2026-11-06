@@ -37,7 +37,7 @@ const open = async (page: Page, size: { width: number; height: number }): Promis
 const rules = (page: Page) => page.locator('.fx-right details.fx-panel[data-forge-panel="rules"]');
 const control = (page: Page, key: string) => rules(page).locator(`[data-rules-key="${key}"]`);
 const showRules = async (page: Page): Promise<void> => {
-  await page.locator('.fx-right [data-forge-tab="edit"]').click();
+  await page.locator('.fx-right [data-forge-tab="object"]').click();
   if (!(await rules(page).evaluate((d) => (d as HTMLDetailsElement).open))) await rules(page).locator(':scope > summary').click();
 };
 /** A virtual pad (the Gamepad API read by `../src/forge/pad`), before the page loads. */

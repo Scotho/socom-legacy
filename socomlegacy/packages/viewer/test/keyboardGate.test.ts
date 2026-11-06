@@ -52,6 +52,13 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // FUI-23 (browser adaptation): the Forge rules cues' audio-unlock gesture list, the same events `audio.ts` listens to; it
   // asks a held cue's output to run and reads no key as input (OT.R29's exemption, as `audio.ts` has).
   ['forge/rulesCues.ts', "'keydown', 'touchend'"],
+  // The Forge's own accessibility keys (browser adaptations): Enter or Space on the axis widget's end, the arrows on a dock's
+  // resize handle, Escape closing the asset view's, Play's and Select's popovers, Escape cancelling a scrub's drag.
+  ['forge/page.ts', "end.addEventListener('keydown', (event) => {"],
+  ['forge/page.ts', "handle.addEventListener('keydown', (event) => {"],
+  ['forge/page.ts', "doc.addEventListener('keydown', event => {"],
+  ['forge/page.ts', "doc.addEventListener('keydown', (e) => {"],
+  ['forge/scrub.ts', "doc.addEventListener('keydown', onKey, true);"],
   ['startupNavigation.ts', 'this.clearFocus()'],                 // a key clears the pad's focus ring
   ['ui.ts', "pop.querySelector('#controls-tabs')?.addEventListener('keydown'"], // the tabs' arrows (twice)
   ['ui.ts', "button.addEventListener('keydown'"],                  // a tab's arrow keys

@@ -270,9 +270,14 @@ function plantingSide(a: MapAction): Team | null {
     if (a.team === 1) return 'terrorist';
     return null;
   }
-  const node = a.node.toLowerCase();
-  if (node === 'terrorist_tent') return 'seal';
-  if (node === 'seal_tent') return 'terrorist';
+  return plantingSideOfNode(a.node);
+}
+
+/** A disc MPBOMB record's planting side by its node's name alone (`plantingSide`'s disc rule): the Forge's Map Data too. */
+export function plantingSideOfNode(node: string): Team | null {
+  const n = node.toLowerCase();
+  if (n === 'terrorist_tent') return 'seal';
+  if (n === 'seal_tent') return 'terrorist';
   return null;
 }
 

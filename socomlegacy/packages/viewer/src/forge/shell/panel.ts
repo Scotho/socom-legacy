@@ -13,8 +13,8 @@ import type { ForgeSurface } from './state';
  * only its own sections, the other tabs' hidden. Nothing here changes what the
  * game does.
  */
-export type ForgeDock = 'left' | 'right' | 'workspace';
-type SideDock = Exclude<ForgeDock, 'workspace'>;
+export type ForgeDock = 'left' | 'right' | 'top' | 'bottom' | 'center' | 'workspace';
+type DockZone = Exclude<ForgeDock, 'workspace'>;
 
 /** The pad's buttons a legend names (FUI.R6 draws them as the design system's glyphs, FUI-3). */
 export type ForgePadButton = 'cross' | 'circle' | 'square' | 'triangle' | 'dpad' | 'l1r1' | 'start' | 'select';
@@ -43,7 +43,7 @@ export interface ForgePanel {
   id: string;
   title: string;
   dock: ForgeDock;
-  /** Its place in the dock, least first (Inspector 10, Outliner 20, View 30, Settings 40, the agent 50). */
+  /** Its place in the dock, least first (Outliner 10, Inspector 20, View 30, Settings 40, the agent 50). */
   order: number;
   /**
    * Open on a viewer's first visit; after it, the viewer's own choice (one key, `FORGE_PANELS_KEY`), in either layout
@@ -60,6 +60,8 @@ export interface ForgePanel {
    * Content / Agent); its own title, alone, when absent.
    */
   tab?: string;
+  /** Whether this panel's tab group may be moved between docks. Defaults to true. */
+  movable?: boolean;
   /**
    * Its own START menu rows, beyond the shell's "Panels" row for it (asked each time the menu draws). A row of id
    * `panel-<id>` is that row: the shell lists it under Panels in place of its generic one.
@@ -104,6 +106,10 @@ export interface ForgeShellPage extends ForgeShell {
   layoutOf(dock: ForgeDock): ForgeDockLayout;
   /** The dock's open tab while it draws tabs (its `data-forge-tab`), else null. */
   tabOf(dock: ForgeDock): string | null;
+  /** Move a complete tab group to a dock zone. */
+  moveTab(from: DockZone, tab: string, to: DockZone): void;
+  /** Restore registered panels, tab groups, and open states to their declared defaults. */
+  resetLayout(): void;
 }
 
 export class ForgePanelError extends Error {
@@ -134,6 +140,7 @@ export interface ForgeShellOptions {
 
 interface Mounted {
   panel: ForgePanel;
+  dock: ForgeDock;
   host: HTMLElement;
   instance: ForgePanelInstance;
   abort: AbortController;
@@ -142,7 +149,7 @@ interface Mounted {
 }
 
 interface DockTabs { active: string | null; before: string | null; strip: HTMLElement }
-interface TabSpec { key: string; label: string; titles: string[] }
+interface TabSpec { key: string; label: string; titles: string[]; movable: boolean }
 
 /** The workspace slot (FUI.R5): a full-viewport surface with a breadcrumb, its title and Back; hidden while it holds nothing open. */
 export function createWorkspaceDock(doc: Document): HTMLElement {
@@ -183,17 +190,29 @@ const readOpen = (store: ForgeStore, key: string): Record<string, boolean> => {
 
 const slug = (label: string): string => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'tab';
 const tabKeyOf = (p: ForgePanel): string => (p.tab ? slug(p.tab) : p.id);
-const isSide = (d: ForgeDock): d is SideDock => d !== 'workspace';
+const isZone = (d: ForgeDock): d is DockZone => d !== 'workspace';
+const DOCK_ORDER: Record<ForgeDock, number> = { left: 0, right: 1, top: 2, bottom: 3, center: 4, workspace: 5 };
+const DOCK_LAYOUT_KEY_SUFFIX = '.layout';
+const DOCK_ZONES: readonly DockZone[] = ['left', 'right', 'top', 'bottom', 'center'];
 
 export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
   const { doc, docks, context, store, storeKey } = options;
   const mounted = new Map<string, Mounted>();
   const open = readOpen(store, storeKey);
+  const dockLayout = (() => {
+    try {
+      const raw = JSON.parse(store.get(`${storeKey}${DOCK_LAYOUT_KEY_SUFFIX}`) ?? '{}') as unknown;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {} as Record<string, DockZone>;
+      return Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, DockZone] =>
+        typeof entry[1] === 'string' && (DOCK_ZONES as readonly string[]).includes(entry[1]))) as Record<string, DockZone>;
+    } catch { return {} as Record<string, DockZone>; }
+  })();
   let disposed = false;
   let workspaceOpen: string | null = null;
   /** FUI.R5: a side dock's tab strip and open tab, while it draws tabs. The viewer's kept choices hold in both layouts (R3-A). */
-  const tabs: Partial<Record<SideDock, DockTabs>> = {};
-  const lastRevealed: Partial<Record<SideDock, string>> = {};
+  const tabs: Partial<Record<DockZone, DockTabs>> = {};
+  const movableTabZones = new Set<DockZone>();
+  const lastRevealed: Partial<Record<DockZone, string>> = {};
   /**
    * R3-A: the open state the shell itself last gave a side panel's `details`, until its `toggle` event is read. The
    * browser fires `toggle` (queued, coalesced) for a programmatic `open` too: a toggle that lands on the state the shell
@@ -215,8 +234,8 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     return true;
   };
   const sorted = (): Mounted[] => [...mounted.values()].sort((a, b) =>
-    (DOCK_ORDER[a.panel.dock] - DOCK_ORDER[b.panel.dock]) || (a.panel.order - b.panel.order) || a.panel.id.localeCompare(b.panel.id));
-  const inDock = (dock: ForgeDock): Mounted[] => sorted().filter((m) => m.panel.dock === dock);
+    (DOCK_ORDER[a.dock] - DOCK_ORDER[b.dock]) || (a.panel.order - b.panel.order) || a.panel.id.localeCompare(b.panel.id));
+  const inDock = (dock: ForgeDock): Mounted[] => sorted().filter((m) => m.dock === dock);
   const available = (p: ForgePanel): boolean => !p.availableIn || p.availableIn.includes(context.state().surface);
   const setShown = (m: Mounted, shown: boolean): void => {
     if (m.shown === shown) return;
@@ -226,8 +245,8 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
   /** Actually shown: the tab visible, the surface allowed, the dock drawn, the panel open (or the workspace's own). */
   const shownNow = (m: Mounted): boolean => {
     if (doc.visibilityState === 'hidden' || !available(m.panel)) return false;
-    if (options.dockShown && !options.dockShown(m.panel.dock)) return false;
-    if (m.panel.dock === 'workspace') return workspaceOpen === m.panel.id;
+    if (options.dockShown && !options.dockShown(m.dock)) return false;
+    if (m.dock === 'workspace') return workspaceOpen === m.panel.id;
     return (m.host as HTMLDetailsElement).open && !m.host.hidden;
   };
   /**
@@ -236,10 +255,10 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
    */
   const sideHidden = (m: Mounted): boolean => {
     if (!available(m.panel)) return true;
-    const t = isSide(m.panel.dock) ? tabs[m.panel.dock] : undefined;
+    const t = isZone(m.dock) ? tabs[m.dock] : undefined;
     return !!t && tabKeyOf(m.panel) !== t.active;
   };
-  const applyHidden = (dock: SideDock): void => { for (const m of inDock(dock)) m.host.hidden = sideHidden(m); };
+  const applyHidden = (dock: DockZone): void => { for (const m of inDock(dock)) m.host.hidden = sideHidden(m); };
   const syncShown = (): void => { for (const m of mounted.values()) setShown(m, shownNow(m)); };
   doc.addEventListener('visibilitychange', syncShown);
 
@@ -270,13 +289,18 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
   workspace?.root.addEventListener('keydown', onWorkspaceKey);
 
   /* ---------- FUI.R5: the tab strip of a dock past five panels ---------- */
-  const tabList = (dock: SideDock): TabSpec[] => {
+  const tabList = (dock: DockZone): TabSpec[] => {
     const out: TabSpec[] = [];
     for (const m of inDock(dock)) {
       if (!available(m.panel)) continue;
       const key = tabKeyOf(m.panel);
       const t = out.find((x) => x.key === key);
-      if (t) t.titles.push(m.panel.title); else out.push({ key, label: m.panel.tab ?? m.panel.title, titles: [m.panel.title] });
+      if (t) {
+        t.titles.push(m.panel.title);
+        t.movable = t.movable && m.panel.movable !== false;
+      } else {
+        out.push({ key, label: m.panel.tab ?? m.panel.title, titles: [m.panel.title], movable: m.panel.movable !== false });
+      }
     }
     return out;
   };
@@ -286,7 +310,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
    * focus keeps it (a pad user's L1 / R1 and Circle stay the dock's). Should the focused tab still be replaced, the focus
    * goes back to the button of the same tab.
    */
-  const drawStrip = (dock: SideDock): void => {
+  const drawStrip = (dock: DockZone): void => {
     const t = tabs[dock];
     if (!t) return;
     const focusedKey = (() => {
@@ -307,8 +331,16 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
         b.setAttribute('role', 'tab');
         b.dataset['forgeTab'] = tab.key;
         b.addEventListener('click', () => selectTab(dock, tab.key));
+        b.addEventListener('dragstart', (event) => {
+          if (!b?.draggable) { event.preventDefault(); return; }
+          event.dataTransfer?.setData('application/x-forge-tab', JSON.stringify({ dock, tab: tab.key }));
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+          doc.body.classList.add('fx-panel-dragging');
+        });
+        b.addEventListener('dragend', () => { doc.body.classList.remove('fx-panel-dragging'); });
         have.set(tab.key, b);
       }
+      b.draggable = tab.movable;
       if (b.textContent !== tab.label) b.textContent = tab.label;
       const title = `${tab.titles.join(' · ')} · L1 / R1 another tab`;
       if (b.title !== title) b.title = title;
@@ -327,7 +359,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
    * One tab open: its panels opened by the viewer's kept choices (all of them when every one is folded), every other
    * tab's folded. The shell's own change, so nothing is written.
    */
-  const selectTab = (dock: SideDock, key: string): void => {
+  const selectTab = (dock: DockZone, key: string): void => {
     const t = tabs[dock];
     if (!t) return;
     if (t.active !== key) { t.before = t.active; t.active = key; }
@@ -341,16 +373,30 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     drawStrip(dock);
     syncShown();
   };
-  const focusTab = (dock: SideDock, key: string): void => {
+  const focusTab = (dock: DockZone, key: string): void => {
     tabs[dock]?.strip.querySelector<HTMLElement>(`[data-forge-tab="${key}"]`)?.focus();
   };
   /** The dock's layout by its count: entering tabs opens one tab, leaving them puts back the viewer's kept choices. */
   const relayout = (dock: ForgeDock): void => {
-    if (!isSide(dock)) return;
-    const el = docks[dock];
-    if (!el) return;
-    const layout = shell.layoutOf(dock);
-    el.dataset['forgeDockLayout'] = layout;
+    if (!isZone(dock)) return;
+    const container = docks[dock];
+    if (!container) return;
+    const members = inDock(dock);
+    if (dock !== 'left' && dock !== 'right') container.hidden = members.length === 0;
+    if (dock === 'left' || dock === 'right') {
+      container.hidden = members.length === 0;
+      doc.body.classList.toggle(`has-fx-dock-${dock}`, members.length > 0);
+    }
+    if (dock === 'top' || dock === 'bottom') {
+      const axis = dock === 'top' ? '--fx-dock-top' : '--fx-dock-bottom';
+      const activeClass = dock === 'top' ? 'has-fx-dock-top' : 'has-fx-dock-bottom';
+      const current = Number.parseFloat(doc.body.style.getPropertyValue(axis));
+      doc.body.classList.toggle(activeClass, members.length > 0);
+      if (members.length > 0 && (!Number.isFinite(current) || current <= 0)) doc.body.style.setProperty(axis, '180px');
+    }
+    const layout = dock === 'center' || (dock === 'left' && members.some((m) => m.panel.tab === 'Assets')) || movableTabZones.has(dock)
+      ? 'tabs' : shell.layoutOf(dock);
+    container.dataset['forgeDockLayout'] = layout;
     const t = tabs[dock];
     if (layout === 'tabs') {
       const list = tabList(dock);
@@ -360,7 +406,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
         strip.dataset['forgeTabs'] = '';
         strip.setAttribute('role', 'tablist');
         strip.setAttribute('aria-label', `${PANELS_MENU_HEADING} · L1 / R1`);
-        el.prepend(strip);
+        container.prepend(strip);
         tabs[dock] = { active: null, before: null, strip };
         // The tab of the panel last shown, if it is still open (a toolbar's reveal before the dock filled); else the first.
         const seedId = lastRevealed[dock];
@@ -373,15 +419,15 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     } else if (t) {
       t.strip.remove();
       delete tabs[dock];
-      for (const m of inDock(dock)) if (setOpen(m.host, kept(m.panel))) m.instance.update?.();
+      for (const m of members) if (setOpen(m.host, kept(m.panel))) m.instance.update?.();
     }
     applyHidden(dock);
     syncShown();
   };
 
   /** The panel's host: a `details.fx-panel` in a side dock (in order), a hidden section in the workspace. */
-  const hostFor = (panel: ForgePanel): { host: HTMLElement; off: () => void } => {
-    if (panel.dock === 'workspace') {
+  const hostFor = (panel: ForgePanel, dock: ForgeDock): { host: HTMLElement; off: () => void } => {
+    if (dock === 'workspace') {
       if (!workspace) throw new ForgePanelError('NO_DOCK', `${panel.id}: the Forge has no workspace dock`);
       const host = doc.createElement('section');
       host.dataset['forgePanel'] = panel.id;
@@ -390,22 +436,21 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
       workspace.body.append(host);
       return { host, off: () => undefined };
     }
-    const side = panel.dock;
-    const dock = docks[side];
-    if (!dock) throw new ForgePanelError('NO_DOCK', `${panel.id}: the Forge has no ${side} dock`);
+    const container = docks[dock];
+    if (!container) throw new ForgePanelError('NO_DOCK', `${panel.id}: the Forge has no ${dock} dock`);
     const host = doc.createElement('details');
     host.className = 'fx-panel';
     host.dataset['forgePanel'] = panel.id;
-    const t = tabs[side];
+    const t = tabs[dock];
     // In tabs, as `selectTab` opens a tab: by the kept choice, or open when nothing of the open tab is kept open.
     const tabShows = (): boolean => tabKeyOf(panel) === t!.active
-      && (kept(panel) || !inDock(side).some((m) => tabKeyOf(m.panel) === t!.active && kept(m.panel)));
+      && (kept(panel) || !inDock(dock).some((m) => tabKeyOf(m.panel) === t!.active && kept(m.panel)));
     setOpen(host, t ? tabShows() : kept(panel));
     const summary = doc.createElement('summary');
     summary.textContent = panel.title;
     host.append(summary);
-    const after = sorted().find((m) => m.panel.dock === side && m.panel.order > panel.order);
-    if (after) dock.insertBefore(host, after.host); else dock.append(host);
+    const after = sorted().find((m) => m.dock === dock && m.panel.order > panel.order);
+    if (after) container.insertBefore(host, after.host); else container.append(host);
     // The browser fires `toggle` for a programmatic `open` too: the shell's own (`setOpen`) is not written; a viewer's
     // change from what is kept is, in either layout (R3-A); in tabs, a panel of another tab opened by hand opens its tab.
     const onToggle = (): void => {
@@ -413,8 +458,11 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
       shellSet.delete(host);
       if (!own) {
         if (host.open !== kept(panel)) writeOpen(panel.id, host.open);
-        const tabbed = tabs[side];
-        if (tabbed && host.open && tabKeyOf(panel) !== tabbed.active) selectTab(side, tabKeyOf(panel));
+        const currentDock = mounted.get(panel.id)?.dock;
+        const tabbed = currentDock && isZone(currentDock) ? tabs[currentDock] : undefined;
+        if (currentDock && isZone(currentDock) && tabbed && host.open && tabKeyOf(panel) !== tabbed.active) {
+          selectTab(currentDock, tabKeyOf(panel));
+        }
       }
       syncShown();
     };
@@ -431,8 +479,8 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
 
   /** The pad's landing in a panel from its Panels row: its tab in a tabbed dock, else its summary (a workspace focuses its Back). */
   const focusPanel = (m: Mounted): void => {
-    if (!isSide(m.panel.dock)) return;
-    if (tabs[m.panel.dock]) focusTab(m.panel.dock, tabKeyOf(m.panel));
+    if (!isZone(m.dock)) return;
+    if (tabs[m.dock]) focusTab(m.dock, tabKeyOf(m.panel));
     else m.host.querySelector<HTMLElement>(':scope > summary')?.focus();
   };
   /** FUI-1b: a panel's row under Panels -- its own `panel-<id>` row when it has one -- that shows it or folds it. */
@@ -451,14 +499,22 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     register(panel) {
       if (disposed) throw new ForgePanelError('DISPOSED', `${panel.id}: the Forge has closed`);
       if (mounted.has(panel.id)) throw new ForgePanelError('DUPLICATE', `${panel.id}: a panel of that id is registered`);
-      const { host, off } = hostFor(panel);
+      if (panel.movable === false && dockLayout[panel.id] !== undefined && dockLayout[panel.id] !== panel.dock) {
+        delete dockLayout[panel.id];
+        store.set(`${storeKey}${DOCK_LAYOUT_KEY_SUFFIX}`, JSON.stringify(dockLayout));
+      }
+      const dock = panel.movable === false || panel.dock === 'workspace'
+        ? panel.dock
+        : (dockLayout[panel.id] ?? panel.dock);
+      const { host, off } = hostFor(panel, dock);
       const abort = new AbortController();
       let instance: ForgePanelInstance;
       try { instance = panel.mount(host, panelContext(context, abort.signal)); }
       catch (e) { off(); abort.abort(); host.remove(); throw e; }
-      mounted.set(panel.id, { panel, host, instance, abort, off, shown: true });
-      host.hidden = panel.dock === 'workspace' || !available(panel);
-      relayout(panel.dock);
+      mounted.set(panel.id, { panel, dock, host, instance, abort, off, shown: true });
+      if (isZone(dock) && dockLayout[panel.id] !== undefined) movableTabZones.add(dock);
+      host.hidden = dock === 'workspace' || !available(panel);
+      relayout(dock);
       syncShown();
     },
     unregister(id) {
@@ -466,7 +522,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
       if (!m) return;
       mounted.delete(id);
       teardownOne(m);
-      relayout(m.panel.dock);
+      relayout(m.dock);
     },
     dispose() {
       if (disposed) return;
@@ -475,7 +531,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
       workspace?.back.removeEventListener('click', onBack);
       workspace?.root.removeEventListener('keydown', onWorkspaceKey);
       for (const m of sorted().reverse()) { mounted.delete(m.panel.id); teardownOne(m); }
-      for (const d of ['left', 'right'] as const) { tabs[d]?.strip.remove(); delete tabs[d]; }
+      for (const d of DOCK_ZONES) { tabs[d]?.strip.remove(); delete tabs[d]; }
     },
     panels: () => sorted().map((m) => m.panel.id),
     menuItems() {
@@ -492,11 +548,10 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     },
     update() {
       for (const m of sorted()) {
-        if (m.panel.dock !== 'workspace') m.host.hidden = sideHidden(m);
+        if (m.dock !== 'workspace') m.host.hidden = sideHidden(m);
         m.instance.update?.();
       }
-      relayout('left');
-      relayout('right');
+      for (const d of DOCK_ZONES) relayout(d);
       syncShown();
     },
     refresh: () => syncShown(),
@@ -507,7 +562,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     reveal(id) {
       const m = mounted.get(id);
       if (!m) return;
-      if (m.panel.dock === 'workspace') {
+      if (m.dock === 'workspace') {
         if (!workspace) return;
         if (workspaceOpen !== null && workspaceOpen !== id) closeWorkspace();
         workspaceOpen = id;
@@ -519,7 +574,7 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
         syncShown();
         return;
       }
-      const side = m.panel.dock;
+      const side = m.dock;
       options.showDock?.(side);
       lastRevealed[side] = id;
       const d = m.host as HTMLDetailsElement;
@@ -532,8 +587,8 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     collapse(id) {
       const m = mounted.get(id);
       if (!m) return;
-      if (m.panel.dock === 'workspace') { if (workspaceOpen === id) closeWorkspace(); return; }
-      const side = m.panel.dock;
+      if (m.dock === 'workspace') { if (workspaceOpen === id) closeWorkspace(); return; }
+      const side = m.dock;
       const t = tabs[side];
       if (setOpen(m.host, false)) m.instance.update?.();
       if (kept(m.panel)) writeOpen(id, false);                     // R3-A: folded is the viewer's choice in tabs too
@@ -544,13 +599,13 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
     },
     isOpen(id) {
       const m = mounted.get(id);
-      return !!m && (m.panel.dock === 'workspace' ? workspaceOpen === id : (m.host as HTMLDetailsElement).open);
+      return !!m && (m.dock === 'workspace' ? workspaceOpen === id : (m.host as HTMLDetailsElement).open);
     },
     back: () => closeWorkspace(),
     padInput(input) {
       const active = doc.activeElement;
       if (!active || active === doc.body) return false;
-      const side = (['left', 'right'] as const).find((d) => docks[d]?.contains(active));
+      const side = DOCK_ZONES.find((d) => docks[d]?.contains(active));
       if (!side) return false;
       if (input === 'back') { (active as HTMLElement).blur?.(); return true; }
       const t = tabs[side];
@@ -569,13 +624,60 @@ export function createForgeShell(options: ForgeShellOptions): ForgeShellPage {
       return !!m && m.shown && (m.instance.pad?.(input) ?? false);
     },
     isShown: (id) => mounted.get(id)?.shown ?? false,
-    layoutOf: (dock) => dockLayoutOf([...mounted.values()].filter((m) => m.panel.dock === dock).length),
-    tabOf: (dock) => (isSide(dock) ? tabs[dock]?.active ?? null : null),
+    layoutOf: (dock) => dockLayoutOf([...mounted.values()].filter((m) => m.dock === dock).length),
+    tabOf: (dock) => (isZone(dock) ? tabs[dock]?.active ?? null : null),
+    moveTab(from, tab, to) {
+      const group = inDock(from).filter((m) => tabKeyOf(m.panel) === tab);
+      if (group.length === 0 || group.some((m) => m.panel.movable === false)) return;
+      const target = docks[to];
+      if (!target) throw new ForgePanelError('NO_DOCK', `The Forge has no ${to} dock`);
+      movableTabZones.add(from);
+      movableTabZones.add(to);
+      group.forEach((m) => {
+        m.dock = to;
+        m.host.style.removeProperty('left');
+        m.host.style.removeProperty('top');
+        m.host.style.removeProperty('width');
+        m.host.style.removeProperty('height');
+        target.append(m.host);
+        dockLayout[m.panel.id] = to;
+      });
+      store.set(`${storeKey}${DOCK_LAYOUT_KEY_SUFFIX}`, JSON.stringify(dockLayout));
+      relayout(from);
+      relayout(to);
+      if (tabs[to]) selectTab(to, tab);
+    },
+    resetLayout() {
+      for (const id of Object.keys(dockLayout)) delete dockLayout[id];
+      for (const id of Object.keys(open)) delete open[id];
+      for (const m of sorted()) {
+        open[m.panel.id] = m.panel.defaultOpen;
+        if (!isZone(m.panel.dock)) continue;
+        const target = docks[m.panel.dock];
+        if (!target) throw new ForgePanelError('NO_DOCK', `The Forge has no ${m.panel.dock} dock`);
+        m.dock = m.panel.dock;
+        m.host.style.removeProperty('left');
+        m.host.style.removeProperty('top');
+        m.host.style.removeProperty('width');
+        m.host.style.removeProperty('height');
+        target.append(m.host);
+        setOpen(m.host, m.panel.defaultOpen);
+      }
+      for (const dock of DOCK_ZONES) {
+        const tab = tabs[dock];
+        if (tab) { tab.active = null; tab.before = null; }
+        delete lastRevealed[dock];
+        const container = docks[dock];
+        if (container) for (const m of inDock(dock)) container.append(m.host);
+      }
+      movableTabZones.clear();
+      store.set(`${storeKey}${DOCK_LAYOUT_KEY_SUFFIX}`, JSON.stringify(dockLayout));
+      store.set(storeKey, JSON.stringify(open));
+      for (const dock of DOCK_ZONES) relayout(dock);
+    },
   };
   return shell;
 }
-
-const DOCK_ORDER: Record<ForgeDock, number> = { left: 0, right: 1, workspace: 2 };
 
 /**
  * A panel whose body the page builds (the four first registrants: the page's closure keeps wiring their controls), and

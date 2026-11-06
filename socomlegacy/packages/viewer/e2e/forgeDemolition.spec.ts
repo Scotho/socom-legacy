@@ -82,7 +82,10 @@ test('the blank floor plays Demolition from a placed bomb start and two sites', 
   await page.getByRole('button', { name: 'Start a new layout' }).click();
   await expect(page.locator('.fx-vp-label')).toContainText('Blank floor', { timeout: 120_000 });
 
+  // Settings is under the World tab; the Outliner under Object.
+  await page.locator('.fx-right [data-forge-tab="world"]').click();
   await page.getByLabel('Game type').selectOption('2');
+  await page.locator('.fx-right [data-forge-tab="object"]').click();
   await page.getByRole('button', { name: "Place the bomb's start" }).click();
   await expect(page.getByText('BOMB', { exact: true })).toBeVisible();
   await clickFloor(page, 0.5);

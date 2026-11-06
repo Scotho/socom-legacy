@@ -196,7 +196,9 @@ describe('R6: creator content on the mounted Forge', () => {
     openFile(recordOfLayout(contentBase(), 'On the yard'));
     await vi.waitFor(() => expect(api.status().map).toBe(`content:${MAP_PACK.id}@${MAP_PACK.version}/yard`));
     expect(api.read().layout!.name).toBe('On the yard');
-    expect(document.querySelector('.fx-vp-label')!.textContent).toContain('Yard');
+    // The map named in the base select (the viewport's old label is its view menu now).
+    const base = document.querySelector<HTMLSelectElement>('select[title^="The base"]')!;
+    expect(base.selectedOptions[0]!.textContent).toContain('Yard');
     await vi.waitFor(() => expect(lines.join(' | ')).toMatch(/hull/i));
   }, 30_000);
 

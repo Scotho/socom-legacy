@@ -2,6 +2,7 @@ import type { LoadedMap, LoadStage } from '../loadMap';
 import type { PlayClips } from '../play';
 import type { SourceRequest } from '../discSource';
 import type { ForgeRequest, ForgeResponse, ListedArchive } from './forgeWorker';
+import { copiesOf, type MapCopies } from './mapCensus';
 
 /**
  * FORGE (a browser adaptation, no original): the forge's archives, read by its own decode thread (`./forgeWorker`, the
@@ -35,6 +36,11 @@ export class Archives {
   private readonly waiting = new Map<number, { resolve: (r: ForgeResponse) => void; reject: (e: Error) => void; stem?: string }>();
   private loaded = new Map<string, Promise<LoadedMap>>();
   private clipsAsked: Promise<PlayClips | null> | null = null;
+  /** Each archive's census (`census`), asked once; the asks one at a time, so the worker holds one map at once. */
+  private counted = new Map<string, Promise<MapCopies | null>>();
+  /** The maps being loaded for use now: the census waits on them. */
+  private loading = new Set<Promise<unknown>>();
+  private censusQueue: Promise<unknown> = Promise.resolve();
   onProgress: OnProgress | null = null;
   /** The archives the source holds, once listed (a path by stem). */
   private paths = new Map<string, string>();
@@ -60,6 +66,8 @@ export class Archives {
     this.loaded = new Map();
     this.paths = new Map();
     this.clipsAsked = null;
+    this.counted = new Map();
+    this.censusQueue = Promise.resolve();
   }
 
   private ask(make: (id: number) => ForgeRequest, stem?: string): Promise<ForgeResponse> {
@@ -79,6 +87,27 @@ export class Archives {
   }
 
   /** The archive `stem` decoded, once. */
+  /**
+   * The archive's doors, turrets and hostages listed (`./mapCensus` `copiesOf`): off its map where it is loaded already,
+   * else read by the worker, which keeps only the lists. One at a time, and each after any map being loaded for use
+   * (`load`), which goes first. Null where it will not read.
+   */
+  census(stem: string): Promise<MapCopies | null> {
+    let p = this.counted.get(stem);
+    if (!p) {
+      const path = this.paths.get(stem) ?? `RUN/${stem}.ZDB`;
+      p = this.censusQueue.then(async () => {
+        while (this.loading.size) await Promise.allSettled([...this.loading]);
+        const loaded = this.loaded.get(stem);
+        if (loaded) return loaded.then(copiesOf, () => null);
+        return this.ask((id) => ({ kind: 'census', id, source: this.source, path })).then((r) => (r.kind === 'census' ? r.copies : null), () => null);
+      });
+      this.censusQueue = p;
+      this.counted.set(stem, p);
+    }
+    return p;
+  }
+
   load(stem: string): Promise<LoadedMap> {
     let p = this.loaded.get(stem);
     if (!p) {
@@ -89,6 +118,9 @@ export class Archives {
       });
       p.catch(() => { this.loaded.delete(stem); });
       this.loaded.set(stem, p);
+      const held = p.catch(() => null);
+      this.loading.add(held);
+      void held.then(() => this.loading.delete(held));
     }
     return p;
   }

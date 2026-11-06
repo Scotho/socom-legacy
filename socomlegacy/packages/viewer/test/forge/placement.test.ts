@@ -132,3 +132,33 @@ describe('FORGE placement: paste keeps the group', () => {
     expect(pastedPlaces([], [1, 2, 3])).toEqual([]);
   });
 });
+
+/**
+ * A placement seated on the surface (the owner, 2026-11-06; a browser adaptation, FG.R2): the bottom of its bounding
+ * box on the point placed, never under the floor, whatever its origin (a door's is its hinge, part way up its leaf).
+ */
+describe('seatOn', () => {
+  it("puts the bottom of the object's box on the point: one whose geometry reaches below its origin is lifted", async () => {
+    const { BoxGeometry, Group, Mesh, Vector3 } = await import('three');
+    const { seatOn } = await import('../../src/forge/placement');
+    const leaf = new Mesh(new BoxGeometry(10, 80, 2));        // its origin at its middle: 40 below it
+    const door = new Group(); door.add(leaf);
+    seatOn(door, new Vector3(5, 100, -3));
+    expect([door.position.x, door.position.y, door.position.z]).toEqual([5, 140, -3]);
+    const raised = new Group(); const m = new Mesh(new BoxGeometry(2, 2, 2)); m.position.y = 11; raised.add(m);   // its box from 10 up
+    seatOn(raised, new Vector3(0, 0, 0));
+    expect(raised.position.y).toBeCloseTo(-10);
+  });
+
+  it('a turned object is seated by its turned box; one with no geometry stands at the point', async () => {
+    const { BoxGeometry, Group, Mesh, Vector3 } = await import('three');
+    const { seatOn } = await import('../../src/forge/placement');
+    const bar = new Mesh(new BoxGeometry(2, 2, 40)); bar.rotation.x = Math.PI / 2;   // 40 tall once turned
+    const g = new Group(); g.add(bar);
+    seatOn(g, new Vector3(0, 0, 0));
+    expect(g.position.y).toBeCloseTo(20);
+    const empty = new Group();
+    seatOn(empty, new Vector3(1, 2, 3));
+    expect([empty.position.x, empty.position.y, empty.position.z]).toEqual([1, 2, 3]);
+  });
+});

@@ -43,7 +43,15 @@ export interface ForgeKeyState {
    * queued to place (the Place tool with a prop chosen). Escape cancels it first (`cancelPlace`), then deselects.
    */
   queued?: boolean;
+  /**
+   * The camera navigates (`../camera` `FlyCamera.navigating`: RMB held to fly, a pan, an orbit, a dolly): its fly
+   * letters (`FLY_LETTERS`) are the camera's then, never the editor's -- W / E / R would change the gizmo's mode mid-flight.
+   */
+  navigating?: boolean;
 }
+
+/** The letters the Forge's camera flies on (and its RMB C / Z field of view): the camera's alone while it navigates. */
+const FLY_LETTERS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyZ', 'KeyC']);
 
 /** R3-A: what a key does to a held focus lease -- `release` lets it go; `menu` lets it go, then opens the menu as M does. */
 export type ForgeLeaseExit = 'release' | 'menu';
@@ -63,7 +71,7 @@ export function forgeLeaseExit(e: ForgeKeyEvent, s: ForgeKeyState): ForgeLeaseEx
 
 export type ForgeKeyAction =
   | 'undo' | 'redo' | 'copy' | 'paste' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
-  | 'select' | 'place' | 'spawnA' | 'spawnB' | 'npc' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'translate' | 'rotate' | 'snap'
+  | 'select' | 'place' | 'spawnA' | 'spawnB' | 'npc' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'translate' | 'rotate' | 'scale' | 'snap'
   | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'cancelPlace'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
   | { menu: MenuInput };
@@ -76,7 +84,9 @@ const EDITOR_KEYS: Readonly<Record<string, ForgeKeyAction>> = {
   KeyH: 'docks', KeyF: 'frame',
   Digit1: 'select', Digit2: 'place', Digit3: 'spawnA', Digit4: 'spawnB', Digit5: 'npc',
   Digit6: 'bomb', Digit7: 'siteSeal', Digit8: 'siteTerrorist',                // FG-51: the bomb's start and the two plant sites
-  KeyT: 'translate', KeyR: 'rotate', KeyG: 'snap', KeyC: 'duplicate', Delete: 'delete', Backspace: 'delete',
+  // The gizmo's modes on W, E, R, as an engine editor's: the fly camera's W and E (and its R) move it only while RMB is
+  // held, and the camera keeps them from the editor then (`../camera` `onKeyDown`).
+  KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyG: 'snap', KeyC: 'duplicate', Delete: 'delete', Backspace: 'delete',
   BracketLeft: 'prevAsset', BracketRight: 'nextAsset', Comma: 'turnLeft', Period: 'turnRight', KeyM: 'menu',
 };
 
@@ -90,6 +100,7 @@ export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyActi
   if (chord && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) return e.code === 'KeyY' || e.shiftKey ? 'redo' : 'undo';
   if (chord && !e.altKey && !e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyV')) return e.code === 'KeyC' ? 'copy' : 'paste';
   if (chord || e.altKey) return null;
+  if (s.navigating && FLY_LETTERS.has(e.code)) return null;   // the camera's while it navigates
   if (e.code === 'KeyV') return s.playing ? 'stopWalk' : 'walk';     // FG-50: Walk and Edit, the camera kept
   if (e.code === 'KeyP') return s.playing ? 'stopWalk' : 'play';
   if (s.playing) {

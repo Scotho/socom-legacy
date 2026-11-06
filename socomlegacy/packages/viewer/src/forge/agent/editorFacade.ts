@@ -415,6 +415,14 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
       if (operation === 'piece.place') picked = [`piece:${next.pieces.length - 1}`];
       else if (operation === 'spawn.place') picked = [`spawn:${next.spawns.length - 1}`];
       else if (operation === 'npc.place') picked = [`npc:${(next.npcs?.length ?? 1) - 1}`];
+      else if (operation === 'door.place') picked = [`door:${(next.doors?.length ?? 1) - 1}`];
+      else if (operation === 'gate.place') picked = [`gate:${(next.gates?.length ?? 1) - 1}`];
+      else if (operation === 'barrier.place') picked = [`barrier:${(next.barriers?.length ?? 1) - 1}`];
+      else if (operation === 'turret.place') picked = [`turret:${(next.turrets?.length ?? 1) - 1}`];
+      else if (operation === 'point.place') picked = [`point:${(next.tacPoints?.length ?? 1) - 1}`];
+      else if (operation === 'view.place') picked = [`view:${(next.scenicViews?.length ?? 1) - 1}`];
+      else if (operation === 'extraction.place') picked = [`zone:${(next.extractionZones?.length ?? 1) - 1}`];
+      else if (operation === 'hostage.place') picked = [`hostage:${(next.hostages?.length ?? 1) - 1}`];
       else if (operation === 'bomb.place') picked = [`bomb:${args['kind'] as string}:0`];
       else if (operation === 'piece.delete' || operation === 'layout.new' || operation === 'layout.import') picked = [];
       else if (operation === 'piece.lock') picked = picked.filter((ref) => !(args['refs'] as string[]).includes(ref));

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ESCORT_UNREAD_MAP_PLACEHOLDER, escortScriptOf } from '../../../match/src/extraction';
 import type { MapAction } from '../../src/mapActions';
 import { plantSite } from '../../src/net/objective';
-import { applyForgeObjectives, bombReady, forgeTypePlayable, forgeTypeUnplayable, type ObjectiveMap } from '../../src/forge/objectives';
+import { applyForgeObjectives, bombReady, forgeTypePlayable, forgeTypeUnplayable, blankFloorOf, withoutBaseBomb, type ObjectiveMap } from '../../src/forge/objectives';
 import type { ForgeObjectives } from '../../src/forge/layout';
 
 /**
@@ -92,6 +92,18 @@ describe('FG-51: a layout plays the type it names only when the map can', () => 
     expect(forgeTypePlayable(4, { gameType: 4 }, { stem: 'MP52', escortees: hostages })).toBe(true);    // 3 and 4 not tied to their own base
   });
 
+  // The owner (2026-11-06; a browser adaptation, FG.R2): a layout that places its own escort zones plays ESCORT where no
+  // script is read -- the room's `ESCORT_UNREAD_MAP_PLACEHOLDER`, whose zones (Safety, Safety2) are then the layout's --
+  // with three VIPs, as SEALcheck counts (`sealCheck`). M2 still holds for a base alone.
+  it("escort on any base whose layout places a Safety zone and holds three VIPs, by the room's placeholder script", () => {
+    const three = [{}, {}, {}];
+    expect(forgeTypeUnplayable(3, { gameType: 3 }, { stem: 'MP6', escortees: three, forgeEscortZones: ['Safety', 'Safety2'] })).toBeNull();
+    expect(forgeTypeUnplayable(3, { gameType: 3 }, { stem: 'MP6', escortees: [{}, {}], forgeEscortZones: ['Safety'] })).toMatch(/three/);
+    expect(forgeTypeUnplayable(3, { gameType: 3 }, { stem: 'MP6', escortees: three, forgeEscortZones: ['Safety3'] })).toMatch(/Safety/);
+    expect(forgeTypeUnplayable(3, { gameType: 3 }, { stem: 'MP6', escortees: three })).toMatch(/escort map/);   // M2, a base alone
+    expect(applyForgeObjectives<ObjectiveMap>({ stem: 'MP6', escortees: three, forgeEscortZones: ['Safety'] }, { gameType: 3 }).gameType).toBe(3);
+  });
+
   // The review's low 2: the gate is the room's own choice of script (`escortScriptOf`), not a copy of its condition.
   it('escort agrees with the room\'s escortScriptOf on every stem: playable exactly where the room plays a read script', () => {
     for (const stem of ['MP52', 'mp53', 'MP82', 'MP6', 'MP10', 'MP11', 'MP71', 'MP2', 'MP72', 'M51', 'floor', '']) {
@@ -158,5 +170,33 @@ describe('FG-51: a layout plays the type it names only when the map can', () => 
     expect(map.gameType).toBe(5);
     expect(map.bombStart).toEqual([9, 8, 7]);
     expect(plantSite('terrorist', map.meta!.actions)?.node).toBe('seal_tent');
+  });
+});
+
+describe('withoutBaseBomb', () => {
+  it("a blank floor carries none of its library's bomb: no StartBomb, no MPBOMB site; its other actions kept", () => {
+    const floor = withoutBaseBomb(discMap());
+    expect(floor.bombStart).toBeUndefined();
+    expect(floor.meta!.actions.map((a) => a.node)).toEqual(['door_1']);
+    expect(plantSite('seal', floor.meta!.actions)).toBeNull();
+  });
+
+  it("the layout's own bomb is then the only one: Demolition places it, no type leaves no bomb at all", () => {
+    expect(applyForgeObjectives(withoutBaseBomb(discMap()), READY).bombStart).toEqual(READY.bomb!.start);
+    expect(applyForgeObjectives(withoutBaseBomb(discMap()), { bomb: READY.bomb }).bombStart).toBeUndefined();
+  });
+});
+
+describe('blankFloorOf', () => {
+  it("a blank floor keeps none of its library's map data or game type: only what it lends (its archive, bodies, kits)", () => {
+    const library = {
+      ...discMap([{ name: 'Hostage1' }]), gameType: 4, ai: { maps: [] }, tac: { points: [], zones: [] }, scenicViews: [{ name: 'v' }],
+      gates: [{}], cranes: [{}], doors: [{}], turrets: [{}], slots: [{}], respawns: [{}], arsenal: { kits: 1 }, types: { seal: [] },
+    };
+    const floor = blankFloorOf(library);
+    expect(floor).toMatchObject({ arsenal: { kits: 1 }, types: { seal: [] }, escortees: [], scenicViews: [], gates: [], cranes: [], doors: [], turrets: [], slots: [], respawns: [], tac: null });
+    expect([floor.gameType, floor.bombStart, floor.ai]).toEqual([undefined, undefined, undefined]);
+    expect(floor.meta!.actions).toEqual([]);
+    expect(forgeTypeUnplayable(4, { gameType: 4 }, floor)).not.toBeNull();   // no escortee of its own
   });
 });

@@ -32,7 +32,7 @@ const CONTEXTS: [string, LegendContext, [PadGlyphName, string][]][] = [
   ['Build, the Select tool, nothing selected', { kind: 'build', tool: 'select', selection: 0 },
     [['cross', 'Select'], ['cross', 'Hold: add'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['lstick', 'Fly'], ['rstick', 'Look'], ['select', 'Undo'], ['start', 'Menu']]],
   ['Build, the Select tool, a selection', { kind: 'build', tool: 'select', selection: 1 },
-    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Turn'], ['l1r1', 'Tool'], ['start', 'Menu']]],
+    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['l1r1', 'Tool'], ['start', 'Menu']]],
   ['Build, the Place tool', { kind: 'build', tool: 'place', selection: 0 },
     [['cross', 'Place'], ['dpad-v', 'Prop'], ['l1r1', 'Tool'], ['r3', 'Snap'], ['lstick', 'Fly'], ['select', 'Undo'], ['start', 'Menu']]],
   ['Build, the NPC tool', { kind: 'build', tool: 'npc', selection: 0 },
@@ -84,7 +84,7 @@ describe('FUI-3: the legend, one function of the context', () => {
 
   it('keys, not glyphs, without a pad: the keyboard and mouse words of the same context (OT.R68)', () => {
     const keys = legendFor({ kind: 'build', tool: 'select', selection: 0 }, 'keys');
-    expect(keys.map((p) => [p.key, p.label])).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
+    expect(keys.map((p) => [p.key, p.label])).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Shift+drag', 'Box'], ['Right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
     expect(legendFor({ kind: 'menu', depth: 1, sections: 1, item: undefined }, 'keys').map((p) => [p.key, p.label]))
       .toEqual([['↑ ↓', 'Choose'], ['← →', 'Change'], ['Enter', 'Select'], ['PgUp PgDn', 'Section'], ['Esc', 'Back'], ['M', 'Close']]);
     expect(legendFor({ kind: 'walk' }, 'keys').map((p) => p.key)).toEqual(['WASD', 'Mouse', 'Space', 'C', 'X', 'P / Esc']);

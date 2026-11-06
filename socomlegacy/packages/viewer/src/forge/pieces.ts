@@ -1,8 +1,13 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, RingGeometry, type Material, type Object3D } from 'three';
+import { HOSTAGE_GUIDE_COLOUR, keepWorldTurn } from './interactOverlay';
+import {
+  BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, CylinderGeometry, Group, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial,
+  RingGeometry, type Material, type Object3D,
+} from 'three';
 import type { LoadedMap } from '../loadMap';
 import { DEFAULT_LIGHTING } from '../lighting';
+import { SLOT_CELL, slotBoxSegments, slotSegments, SPAWN_COLOURS } from '../overlays';
 import { buildWorld, type WorldView } from '../world';
-import type { GlobalLighting } from '@s2u/scene';
+import { facingVector, type GlobalLighting, type SpawnSlot } from '@s2u/scene';
 import { parseAssetId } from './layout';
 import { prototypeMap } from './library';
 
@@ -45,6 +50,26 @@ export class PieceLibrary {
     return view.group;
   }
 
+  /**
+   * A placement drawn from a map of its own (a turret's template, `./turrets` `turretModelMap`): built once by `key`
+   * as a prototype is, then a clone each time.
+   */
+  modelOf(key: string, one: LoadedMap): Group | null {
+    if (!this.templates.has(key)) {
+      const view = buildWorld(one);
+      view.setLighting({ ...DEFAULT_LIGHTING, rig: one.lightRig, brighten: this.brighten });
+      for (const task of view.revealWorld) task();
+      for (const task of view.revealProps) task();
+      this.onBuild?.(view);
+      this.templates.set(key, { view, group: view.group, rig: one.lightRig });
+    }
+    const t = this.templates.get(key);
+    if (!t) return null;
+    const g = new Group();
+    g.add(t.group.clone(true));
+    return g;
+  }
+
   /** FG-24: the brighten on every template, built and to come; the same rig object, so `WorldView.setLighting` rebakes nothing. */
   setBrighten(brighten: number): void {
     this.brighten = brighten;
@@ -68,23 +93,63 @@ export class PieceLibrary {
   }
 }
 
-/** The team colours of the markers: the forge's own (no original), A gold and B cyan, as the design system's states. */
-const TEAM_COLOUR = { A: 0xd8a640, B: 0x40c8d8 } as const;
+/**
+ * A placed marker drawn as the disc's spawn slots are (`../overlays` `slotSegments`: a slot's 10-unit cell and its facing
+ * arrow, one cell along -z, the group's yaw turning it), in `colour`, over the geometry as the slots overlay draws; and an
+ * unseen box a body's size over the cell, so a click finds it and a frame has its extent. Its billboard
+ * (`./mapDataBillboards`) is its icon. `dispose` frees what it made.
+ */
+/**
+ * The placed spawns' cells shown or not: the page's Disc spawn slots switch (Billboards, Overlays) shows or hides the
+ * disc's slots and these alike, a browser adaptation (FG.R2). Every live cell, so a switch reaches each one, and a cell
+ * made later starts as the switch stands.
+ */
+const slotCells = new Set<LineSegments>();
+let slotCellsShown = true;
+export function setSlotCellsShown(on: boolean): void {
+  slotCellsShown = on;
+  for (const l of slotCells) l.visible = on;
+}
+
+/** `withSlots`: the cell shown and hidden with the Disc spawn slots switch (`setSlotCellsShown`), as a spawn's is. */
+function slotMark(colour: number | null, withSlots = true, arrow = true): { parts: Object3D[]; dispose(): void } {
+  // `null`: no cell drawn -- the unseen box alone, the billboard its whole look (a bomb marker's).
+  if (colour === null) {
+    const pickGeometry = new BoxGeometry(SLOT_CELL * 2, 20, SLOT_CELL * 2);
+    const pickMat = new MeshBasicMaterial({ visible: false });
+    const pick = new Mesh(pickGeometry, pickMat);
+    pick.position.y = 10;
+    return { parts: [pick], dispose: () => { pickGeometry.dispose(); pickMat.dispose(); } };
+  }
+  const at: SpawnSlot = { side: 0, index: 0, position: [0, 0.5, 0], onFloor: true, step: 0, facing: facingVector(0), loc: { map: 0, x: 0, z: 0 } };
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(arrow ? slotSegments([at]) : slotBoxSegments([at]), 3));
+  const lineMat = new LineBasicMaterial({ color: colour, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, fog: false });
+  const lines = new LineSegments(geometry, lineMat);
+  lines.renderOrder = 10_000;                                   // over the geometry, as the slots overlay draws
+  lines.raycast = () => undefined;                             // the box below is what a click finds
+  lines.visible = withSlots ? slotCellsShown : true;
+  if (withSlots) slotCells.add(lines);
+  const pickGeometry = new BoxGeometry(SLOT_CELL * 2, 20, SLOT_CELL * 2);
+  const pickMat = new MeshBasicMaterial({ visible: false });
+  const pick = new Mesh(pickGeometry, pickMat);
+  pick.position.y = 10;
+  return {
+    parts: [lines, pick],
+    dispose: () => { slotCells.delete(lines); geometry.dispose(); lineMat.dispose(); pickGeometry.dispose(); pickMat.dispose(); },
+  };
+}
 
 /**
- * A team spawn marker (the forge's own drawing): a post 25 units tall and an arrow along its facing (-z, as the camera
- * looks), its yaw the group's.
+ * A team spawn marker (the forge's own placement, drawn as a disc spawn slot is -- `slotMark` -- in the slots overlay's
+ * side colour, `../overlays` SPAWN_COLOURS: A blue, B orange), its facing -z as the camera looks, its yaw the group's.
  */
 export function spawnMarker(team: 'A' | 'B'): Group {
   const g = new Group();
-  const mat = new MeshBasicMaterial({ color: TEAM_COLOUR[team], fog: false });
-  const post = new Mesh(new CylinderGeometry(2, 2, 25, 8), mat);
-  post.position.y = 12.5;
-  const arrow = new Mesh(new ConeGeometry(4, 10, 8), mat);
-  arrow.rotation.x = -Math.PI / 2;
-  arrow.position.set(0, 25, -6);
-  g.add(post, arrow);
+  const mark = slotMark(team === 'A' ? SPAWN_COLOURS.a : SPAWN_COLOURS.b);
+  g.add(...mark.parts);
   g.userData['forgeSpawn'] = team;
+  g.userData['dispose'] = mark.dispose;
   g.name = `spawn ${team}`;
   return g;
 }
@@ -96,23 +161,100 @@ export const SIDE_COLOUR = { seal: 0x5a9cff, terrorist: 0xe0503c } as const;
 export type BombMarkerKind = 'start' | 'seal' | 'terrorist';
 
 /**
- * FG-51: a bomb start or a plant site, drawn as a spawn marker is -- a post and an arrow along its facing. The start is
- * sand, a site its planting team's colour (`SIDE_COLOUR`). `userData.forgeBomb` is the kind a pick and a save read.
+ * FG-51: a bomb start or a plant site: no drawing of its own -- its billboard (`./mapDataBillboards` userBombStart, a site
+ * its team's) is its look -- and the unseen box a click finds (`slotMark(null)`). `userData.forgeBomb` is the kind a pick
+ * and a save read.
  */
 export function bombMarker(kind: BombMarkerKind): Group {
   const g = new Group();
-  const color = kind === 'start' ? 0xf0e6c8 : SIDE_COLOUR[kind];
-  const mat = new MeshBasicMaterial({ color, fog: false });
-  const post = new Mesh(new CylinderGeometry(2, 2, 25, 8), mat);
-  post.position.y = 12.5;
-  const arrow = new Mesh(new ConeGeometry(4, 10, 8), mat);
-  arrow.rotation.x = -Math.PI / 2;
-  arrow.position.set(0, 25, -6);
-  g.add(post, arrow);
+  const mark = slotMark(null);
+  g.add(...mark.parts);
+  g.userData['dispose'] = mark.dispose;
   g.userData['forgeBomb'] = kind;
   g.name = kind === 'start' ? 'bomb start' : `bomb site ${kind}`;
   return g;
 }
+/**
+ * A placed hostage's marker (`Layout.hostages`; a browser adaptation, FG.R2): no drawing of its own -- the unseen pick
+ * box alone (`slotMark(null)`), its billboard (`./mapDataBillboards`, the map's hostages' H, square) its whole look.
+ */
+export function hostageMarker(): Group {
+  const g = new Group();
+  // A spawn's gizmo (the owner, 2026-11-06): its cell box alone, in the hostage's yellow, always shown -- no arrow, a
+  // hostage's facing does not matter -- square on the world, as the AI grid's cell it stands on, whatever the marker's turn.
+  const mark = slotMark(HOSTAGE_GUIDE_COLOUR, true, false);
+  for (const p of mark.parts) if (p instanceof LineSegments) keepWorldTurn(p);
+  g.add(...mark.parts);
+  g.userData['dispose'] = mark.dispose;
+  g.userData['forgeHostage'] = true;
+  g.name = 'hostage';
+  return g;
+}
+/**
+ * A placed extraction zone's marker (`Layout.extractionZones`; a browser adaptation, FG.R2): its rectangle on the ground,
+ * `w` along x and `d` along z about the group's origin, in the tactical zones' green (`./mapDataBillboards` `tacZones`)
+ * over the geometry, and an unseen box over it a click finds. Its billboard (Z, square) names it. Not turned: a zone is
+ * axis-aligned on the AI grid.
+ */
+export function extractionZoneMarker(w: number, d: number): Group {
+  const g = new Group();
+  const x = w / 2, z = d / 2, y = 0.5;
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([
+    -x, y, -z, x, y, -z, x, y, -z, x, y, z, x, y, z, -x, y, z, -x, y, z, -x, y, -z,
+  ]), 3));
+  const lineMat = new LineBasicMaterial({ color: 0x3fb58a, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, fog: false });
+  const lines = new LineSegments(geometry, lineMat);
+  lines.renderOrder = 10_000;
+  lines.raycast = () => undefined;
+  const pickGeometry = new BoxGeometry(w, 20, d);
+  const pickMat = new MeshBasicMaterial({ visible: false });
+  const pick = new Mesh(pickGeometry, pickMat);
+  pick.position.y = 10;
+  g.add(lines, pick);
+  g.userData['dispose'] = (): void => { geometry.dispose(); lineMat.dispose(); pickGeometry.dispose(); pickMat.dispose(); };
+  g.userData['forgeZone'] = { w, d };
+  g.name = 'extraction zone';
+  return g;
+}
+/**
+ * A placed tactical point's or spectator view's marker (`Layout.tacPoints`, `Layout.scenicViews`; a browser adaptation):
+ * no drawing of its own, the unseen pick box (`slotMark(null)`), its billboard (P, V, square) its whole look.
+ */
+export function pointMarker(kind: 'point' | 'view'): Group {
+  const g = new Group();
+  const mark = slotMark(null);
+  g.add(...mark.parts);
+  g.userData['dispose'] = mark.dispose;
+  g.name = kind === 'point' ? 'tactical point' : 'spectator view';
+  return g;
+}
+
+/** The tactical zones' outline colour: their billboard's green (`./mapDataBillboards` `tacZones`), a placed zone's too. */
+export const ZONE_OUTLINE_COLOUR = 0x3fb58a;
+
+/**
+ * The base map's tactical zones as ground rectangles (a browser adaptation, FG.R2), the placed zones' look
+ * (`extractionZoneMarker`): one line set, each rectangle at its own height, over the geometry, never picked (its
+ * billboard is). `dispose` frees it.
+ */
+export function zoneOutlines(rects: readonly { minX: number; minZ: number; maxX: number; maxZ: number; y: number }[]): LineSegments {
+  const v: number[] = [];
+  for (const r of rects) {
+    const y = r.y + 0.5;
+    v.push(r.minX, y, r.minZ, r.maxX, y, r.minZ, r.maxX, y, r.minZ, r.maxX, y, r.maxZ,
+      r.maxX, y, r.maxZ, r.minX, y, r.maxZ, r.minX, y, r.maxZ, r.minX, y, r.minZ);
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array(v), 3));
+  const lines = new LineSegments(geometry, new LineBasicMaterial({ color: ZONE_OUTLINE_COLOUR, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, fog: false }));
+  lines.renderOrder = 10_000;
+  lines.raycast = () => undefined;
+  lines.name = 'forge map tactical zones';
+  lines.userData['forgeLightingInstrument'] = true;          // an editor guide, as the billboards
+  return lines;
+}
+
 /** The figure's stand-in where the map has no body for the type: a post the height of a standing body, 72 units. */
 const STAND_IN_HEIGHT = 72;
 
@@ -165,7 +307,8 @@ export function missingPiece(asset: string): Group {
 export function forgeRootOf(o: Object3D | null): Object3D | null {
   for (let at = o; at; at = at.parent) {
     if (at.userData['forgeGhost']) return null;
-    if (at.userData['forgePiece'] || at.userData['forgeSpawn'] || at.userData['forgeNpc'] || at.userData['forgeBomb']) return at;
+    if (at.userData['forgePiece'] || at.userData['forgeSpawn'] || at.userData['forgeNpc'] || at.userData['forgeBomb']
+      || at.userData['forgeHostage'] || at.userData['forgeZone'] || at.userData['forgePoint'] || at.userData['forgeView'] || at.userData['forgeTurret'] || at.userData['forgeDoor'] || at.userData['forgeGate'] || at.userData['forgeBarrier']) return at;
   }
   return null;
 }

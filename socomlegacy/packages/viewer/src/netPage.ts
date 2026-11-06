@@ -1638,14 +1638,14 @@ export class NetPage {
    * stood it), and each kind-1 zone's centre of `ai` (the loaded map's `AIMAPS.MPS`); none before a welcome's hostages.
    * The HUD takes them by `Hud.setHostageMarks` once a frame (the wave-4 line, research 239 s7.2).
    */
-  hostageMarks(ai: AiMaps | null | undefined): CompassMark[] {
+  hostageMarks(ai: AiMaps | null | undefined, extra: readonly (readonly number[])[] = []): CompassMark[] {
     if (!this.hostageMap.size) return [];
     if (ai !== this.zonesOf.ai) this.zonesOf = { ai, points: extractionPoints(ai) };
     const list = [...this.hostageMap.values()].flatMap((h) => {
       const at = this.deps.remote.feet(h.id) ?? ('at' in h ? h.at : null);
       return at ? [{ at, alive: h.alive, rescued: h.ai === 0x11 || this.hostageSaid.rescued.has(h.id) }] : [];
     });
-    return hostageMarks(list, this.zonesOf.points);
+    return hostageMarks(list, extra.length ? [...this.zonesOf.points, ...extra] : this.zonesOf.points);   // `extra`: a Forge layout's escort zones
   }
 
   /** HX-1: the hostages as the room last told them, by body id (the welcome's list, the `hostageState`s). */

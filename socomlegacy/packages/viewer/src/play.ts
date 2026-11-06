@@ -1,4 +1,4 @@
-import type { Group, Object3D, PerspectiveCamera } from 'three';
+import type { Camera, Group, Object3D } from 'three';
 import { IDENTITY, multiply, partMatrix, sampleClip, Skeleton, transformPoint, type MotionClip, type Pnt3D, type WeaponPoint } from '@s2u/scene';
 import { Animator, type AnimEvent, type AnimStats, type MoverSnapshot, type PoseLayer } from './animator';
 import { EYE_MODEL, type LoadedBody } from './body';
@@ -147,7 +147,7 @@ export type PlayEvent =
   | { kind: 'land'; speed: number; clip: 'land' | 'landHard' | 'hit' | 'hitStomach' | 'landDeath' | 'landBackwards' | null; cls?: 0 | 1 | 2 | 3 };
 
 /** A camera's pose in the fly camera's convention (yaw 0 looks down -z; degrees). */
-function poseOf(camera: PerspectiveCamera): Pose {
+function poseOf(camera: Camera): Pose {
   camera.updateMatrixWorld();
   const e = camera.matrixWorld.elements, p = camera.position;
   const dx = -e[8]!, dy = -e[9]!, dz = -e[10]!, n = Math.hypot(dx, dy, dz) || 1;
@@ -212,7 +212,7 @@ export class Play {
   /** The mover's last state in play, for the body left standing in fly mode; null until the first play. */
   private last: (MoverSnapshot & { feet: [number, number, number]; drawnFeet?: [number, number, number] }) | null = null;
   private kind: ViewKind = 'fly';
-  private drawn: PerspectiveCamera | null = null;
+  private drawn: Camera | null = null;
   /** WEAPON: the rifle's raise (`./weaponRaise`), its layers over the clips (`./weaponPose`), the hand's node. */
   private readonly raise = new WeaponRaise();
   /** The raise's weight this frame, for the animator (`MoverSnapshot.aimWeight`). */
@@ -543,7 +543,7 @@ export class Play {
    * death state with its body node's opacity 0, made inactive (`FUN_002b7d60` D:L158634-158638 -> `FUN_00543d50`
    * D:L410437-410441) -- until the round's reload (`FUN_002232a0` D:L75846-75849 -> `FUN_00543b90`); the default, none.
    */
-  frame(dt: number, walk: Pick<WalkMode, 'snapshot' | 'view'> & Partial<Pick<WalkMode, 'setPosedRoot' | 'mover' | 'setActionRoots' | 'setMotionTable' | 'victoryMotionActive' | 'isDead' | 'spawns' | 'launcherSetOn'>>, camera: PerspectiveCamera, real = dt, ownCorpseS = Infinity, ghost = false): void {
+  frame(dt: number, walk: Pick<WalkMode, 'snapshot' | 'view'> & Partial<Pick<WalkMode, 'setPosedRoot' | 'mover' | 'setActionRoots' | 'setMotionTable' | 'victoryMotionActive' | 'isDead' | 'spawns' | 'launcherSetOn'>>, camera: Camera, real = dt, ownCorpseS = Infinity, ghost = false): void {
     // NU-12 B1 (research 328 R328.1-R328.2): a spawn of the walk's (`WalkMode.spawns`, counted by its `respawn`) is the
     // original's rebuild of the body: its animation dropped before this frame (`respawn`), so it draws `Stand` alone.
     const spawns = walk.spawns?.();

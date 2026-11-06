@@ -324,6 +324,8 @@ export interface LoadedMap {
    */
   ai?: AiMaps;
   escortees?: EscorteeStart[];
+  /** A Forge layout's escort zones' compass marks (`./forge/playObjectives` `FORGE_ESCORT_ZONE_MARK_ADAPTATION`); never the disc's. */
+  forgeZoneMarks?: [number, number, number][];
   /**
    * PF-31 (`./mapMeta` `scenicViewsOf`, SCENIC_VIEWS_READING): the spectator camera's fixed views, `mission.rdr`'s
    * `Scenic_Views` in file order (`./spectatorView` `scenicViews`). Absent when the map has none or they do not read.

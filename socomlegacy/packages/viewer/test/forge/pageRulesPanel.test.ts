@@ -104,7 +104,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     const { api } = await mount();
     const right = document.querySelector<HTMLElement>('.fx-right')!;
     const drawn = [...right.querySelectorAll<HTMLElement>(':scope > details.fx-panel')].filter((d) => !d.hidden).map((d) => d.dataset['forgePanel']);
-    expect(drawn).toEqual(['inspector', 'outliner', 'rules', 'settings']);
+    expect(drawn).toEqual(['outliner', 'inspector', 'rules']);   // the Object tab; Settings is under World
     expect(panel().querySelector(':scope > summary')!.textContent).toBe('Rules');
     expect(panel().open).toBe(false);
     expect(panel().querySelectorAll(':scope > .fx-section')).toHaveLength(1);
@@ -359,7 +359,7 @@ describe('FCW-32 step 4: the pad reaches the Rules panel and walks it with no ke
     row.click();
     await Promise.resolve();
     expect(panel().open).toBe(true);
-    expect(document.querySelector('.fx-right [data-forge-tab][aria-selected="true"]')!.textContent).toBe('Edit');
+    expect(document.querySelector('.fx-right [data-forge-tab][aria-selected="true"]')!.textContent).toBe('Object'   /* the right dock's tab, once Edit */);
     expect(shell.isShown('rules')).toBe(true);
     const ring = (): string => panel().querySelector<HTMLElement>('.is-pad-focused')?.dataset['rulesKey'] ?? '';
     await vi.waitFor(() => expect(ring()).toBe('config:reward'));

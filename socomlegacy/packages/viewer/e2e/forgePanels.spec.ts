@@ -30,7 +30,7 @@ const open = async (page: Page, size: { width: number; height: number }): Promis
   // At 760 px and under the docks are closed drawers (forge.css, LATER 176; the page opens on the viewport): the Docks button
   // opens both, the left list and the right dock's tabs with them.
   if (size.width <= 760) await page.locator('.fx-top button[aria-label="Docks"]').click();
-  await expect(page.locator('.fx-left > ul.fx-assets > li[data-asset]').first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first()).toBeVisible({ timeout: 120_000 });
 };
 const apart = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): boolean =>
   a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
@@ -42,7 +42,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     await shot(page, `left-${size.width}`, out);
     const tip = page.locator('.fx-asset-tip');
     await expect(tip).toBeHidden();
-    const tile = page.locator('.fx-left > ul.fx-assets > li[data-asset]').nth(1);
+    const tile = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').nth(1);
     await tile.locator('.fx-asset-name').hover();
     await expect(tip).toBeVisible({ timeout: 5_000 });
     await expect(tip.locator('.fx-preview-name')).not.toHaveText('', { timeout: 30_000 });
@@ -57,7 +57,7 @@ for (const size of [{ width: 1280, height: 720 }, { width: 760, height: 720 }]) 
     // The active tile: the prop step picks the next prop, its tooltip at once.
     await page.keyboard.press(']');
     await expect(tip).toBeVisible();
-    await expect(page.locator('.fx-left > ul.fx-assets > li.is-on')).toHaveCount(1);
+    await expect(page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li.is-on')).toHaveCount(1);
     await shot(page, `active-${size.width}`, out);
     await page.keyboard.press('Escape');
     await expect(tip).toBeHidden();
@@ -86,14 +86,14 @@ test.describe('touch', () => {
   test('a long press shows the tooltip; the lift keeps it; the next tap hides it', async ({ page }, info) => {
     await open(page, { width: 1280, height: 720 });
     const tip = page.locator('.fx-asset-tip');
-    const name = page.locator('.fx-left > ul.fx-assets > li[data-asset]').first().locator('.fx-asset-name');
+    const name = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first().locator('.fx-asset-name');
     await name.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, bubbles: true });
     await page.waitForTimeout(700);
     await expect(tip).toBeVisible();
     await name.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, bubbles: true });
     await expect(tip).toBeVisible();
     await shot(page, 'touch-1280', info.outputPath());
-    const other = page.locator('.fx-left > ul.fx-assets > li[data-asset]').nth(2).locator('.fx-asset-name');
+    const other = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').nth(2).locator('.fx-asset-name');
     await other.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, bubbles: true });
     await expect(tip).toBeHidden();
   });

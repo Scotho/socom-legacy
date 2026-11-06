@@ -15,7 +15,8 @@ const SPAWN_RADIUS = 4;
 const LABEL_ABOVE = 26;
 const LABEL_SIZE = 22;
 /** A's marker and B's, the two sides of every measured round. */
-const SPAWN_COLOURS = { a: 0x4d9bff, b: 0xff6a3d } as const;
+/** The spawn overlay's side colours (A blue, B orange); the Forge's placed spawns wear them too (`./forge/pieces`). */
+export const SPAWN_COLOURS = { a: 0x4d9bff, b: 0xff6a3d } as const;
 /** A slot's cell, in game units: 10 x 10 on all 83 sub-maps (socomlegacy/docs/research/75 §3). */
 export const SLOT_CELL = 10;
 /** A slot's facing arrow, in game units: one cell long from the cell's centre, its barbs a third of that. */
@@ -60,10 +61,7 @@ export class Overlays {
   /** Re-sizes the grid to the map that is now loaded and centres it on that map. */
   place(box: Box3): void {
     const visible = this.grid?.visible ?? false;
-    if (this.grid) {
-      this.scene.remove(this.grid);
-      this.grid.geometry.dispose();
-    }
+    this.dropGrid();
     const size = box.isEmpty() ? 2000 : Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
     const span = Math.ceil(size / GRID_STEP) * GRID_STEP;
     const centre = box.isEmpty() ? new Vector3() : box.getCenter(new Vector3());
@@ -262,6 +260,15 @@ export class Overlays {
     this.traces = null;
   }
 
+  private dropGrid(): void {
+    if (this.grid) {
+      this.scene.remove(this.grid);
+      this.grid.geometry.dispose();
+      (this.grid.material as LineBasicMaterial).dispose();
+      this.grid = null;
+    }
+  }
+
   private dropObjectives(): void {
     if (!this.objectives) return;
     this.scene.remove(this.objectives);
@@ -307,6 +314,14 @@ export function slotSegments(slots: readonly SpawnSlot[]): Float32Array {
       seg(tx, y, tz, tx - (ux * c - uz * s) * SLOT_BARB, y, tz - (ux * s + uz * c) * SLOT_BARB);
     }
   }
+  return out;
+}
+
+/** A slot's cell box alone (`slotSegments`' first four sides, no arrow): a placement whose facing does not matter. */
+export function slotBoxSegments(slots: readonly SpawnSlot[]): Float32Array {
+  const all = slotSegments(slots);
+  const out = new Float32Array(slots.length * 4 * 6);
+  for (let i = 0; i < slots.length; i++) out.set(all.subarray(i * 42, i * 42 + 24), i * 24);
   return out;
 }
 

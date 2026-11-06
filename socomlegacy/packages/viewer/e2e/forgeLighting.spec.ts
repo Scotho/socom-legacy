@@ -19,9 +19,7 @@ test('normal Settings saves Night, reloads it, and passes it to Play; Original r
   await page.goto('/forge?floor');
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
   await expect(page.locator('.fx-loading')).toBeHidden();
-  const look = page.getByLabel('Left drag to look (Shift to select)', { exact: true });
-  await expect(look).toBeChecked();
-  // Default-on camera gestures still allow ordinary placement clicks.
+  // Left-click remains an ordinary placement action.
   await page.getByRole('button', { name: /team A spawn/ }).click();
   await page.locator('.fx-input').click();
   await expect(page.locator('.fx-outliner')).toContainText('Spawn A');

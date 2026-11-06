@@ -9,6 +9,7 @@ import type { LoadedMap } from '../src/loadMap';
 
 const archiveLoad = vi.hoisted(() => vi.fn<(stem: string) => Promise<LoadedMap>>());
 const archiveEntries = vi.hoisted(() => [] as { stem: string; path: string; label: string; campaign: boolean }[]);
+const archiveCensus = vi.hoisted(() => vi.fn<(stem: string) => Promise<unknown>>());
 
 // Only the GPU and disc I/O are replaced. The mounted editor, pieces, selection, serializers and history are real.
 vi.mock('../src/renderer', () => ({ createRenderer: async () => ({
@@ -20,6 +21,7 @@ vi.mock('../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: archiveEntries, problems: [] });
   load = archiveLoad;
+  census = archiveCensus;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -32,6 +34,7 @@ describe('mounted Forge agent facade', () => {
     freshSavesDb();                                                 // R3-B: the page's lists are in IndexedDB
     archiveLoad.mockReset().mockRejectedValue(new Error('No disc supplied'));
     archiveEntries.length = 0;
+    archiveCensus.mockReset().mockResolvedValue(null);
   });
   afterEach(() => { window.dispatchEvent(new PageTransitionEvent('pagehide')); vi.unstubAllGlobals(); });
   it('uses normal saved Settings, one undo per lighting drag, and a true Original reset of legacy dimming', async () => {
@@ -42,36 +45,39 @@ describe('mounted Forge agent facade', () => {
     expect(document.querySelector('[aria-label="Lighting experiment"]')).toBeNull();
     const slider = document.querySelector<HTMLInputElement>('[aria-label="Night to day"]')!;
     const reset = document.querySelector<HTMLButtonElement>('[title="Restore original lighting"]')!;
-    // Original's thumb is already at Day: an explicit click at that endpoint
-    // must activate daylight even when the native range sends no input/change.
-    slider.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
-    slider.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }));
+    // A new blank floor opens at its Original: full day (the owner, 2026-11-06).
     expect(api.read().layout!.settings?.timeOfDay).toBe(1);
-    expect(await api.execute('undo', {}, api.read().revision)).toMatchObject({ ok: true });
     expect(api.read().canUndo).toBe(false);
     for (const value of ['0.8', '0.4', '0']) { slider.value = value; slider.dispatchEvent(new Event('input')); }
     slider.dispatchEvent(new Event('change'));
     expect(api.read().layout!.settings).toMatchObject({ timeOfDay: 0 });
     expect(await api.execute('undo', {}, api.read().revision)).toMatchObject({ ok: true });
-    expect(api.read().layout!.settings?.timeOfDay).toBeUndefined();
+    expect(api.read().layout!.settings?.timeOfDay).toBe(1);
     expect(api.read().canUndo).toBe(false);
     expect(await api.execute('redo', {}, api.read().revision)).toMatchObject({ ok: true });
     expect(api.read().layout!.settings?.timeOfDay).toBe(0);
+    // A layout with no saved time (an older one, or legacy dimming): its thumb at Day, an explicit click there activates
+    // daylight even when the native range sends no input/change.
     expect(await api.execute('settings.set', { settings: { timeOfDay: null, light: 0.4 } }, api.read().revision)).toMatchObject({ ok: true });
-    expect(document.querySelector('.fx-settings')!.textContent).toContain('legacy brightness');
-    reset.click();
-    expect(api.read().layout!.settings).toBeUndefined();
-    expect(document.querySelector('.fx-setting-value')!.textContent).toBe('Original');
-    slider.dispatchEvent(new KeyboardEvent('keyup', { key: 'End' }));
+    // The legacy brightness is the Environment panel's read-only row since lighting moved there (World tab).
+    expect(document.querySelector('.fx-environment')!.textContent).toMatch(/legacy brightness/i);
+    slider.value = '1';
+    slider.dispatchEvent(new MouseEvent('pointerdown', { button: 0, bubbles: true }));
+    slider.dispatchEvent(new MouseEvent('pointerup', { button: 0, bubbles: true }));
     expect(api.read().layout!.settings?.timeOfDay).toBe(1);
+    expect(await api.execute('settings.set', { settings: { timeOfDay: null, light: 0.4 } }, api.read().revision)).toMatchObject({ ok: true });
+    // Original: the legacy dimmer cleared, and on a blank floor full day again.
+    reset.click();
+    expect(api.read().layout!.settings).toMatchObject({ timeOfDay: 1 });
+    expect(api.read().layout!.settings?.light ?? 1).toBe(1);
+    expect(reset.disabled).toBe(true);
   }, 20_000);
-  it('default left look preserves a real click placement, while a real drag changes camera with no layout edit or undo', async () => {
+  it('left drag stays with the active tool and does not turn the camera; a click still places', async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
     await mountForge(document, { onAgentReady: target => { api = target; } });
-    const view = api.read().view as { leftDragLook: boolean; camera: { yaw: number } };
-    expect(view.leftDragLook).toBe(true);
+    const view = api.read().view as { camera: { yaw: number } };
     const input = document.querySelector<HTMLElement>('.fx-input')!;
     input.setPointerCapture = vi.fn(); input.releasePointerCapture = vi.fn();
     input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
@@ -80,14 +86,14 @@ describe('mounted Forge agent facade', () => {
       Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
       input.dispatchEvent(e);
     };
-    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
     const before = api.read();
     pointer('pointerdown', 400, 300); pointer('pointermove', 460, 320); pointer('pointerup', 460, 320);
     const afterDrag = api.read();
-    expect(afterDrag.layout!.spawns).toEqual(before.layout!.spawns);
+    expect(afterDrag.layout).toEqual(before.layout);
     expect(afterDrag.canUndo).toBe(false);
     expect(afterDrag.revision).toBe(before.revision);
-    expect((afterDrag.view as typeof view).camera.yaw).not.toBe(view.camera.yaw);
+    expect((afterDrag.view as typeof view).camera.yaw).toBe(view.camera.yaw);
+    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
     pointer('pointerdown', 400, 300); pointer('pointerup', 400, 300);
     expect(api.read().layout!.spawns).toHaveLength(1);
     expect(api.read().canUndo).toBe(true);
@@ -428,5 +434,140 @@ describe('mounted Forge agent facade', () => {
     document.querySelector<HTMLButtonElement>('button[title^="Duplicate"]')!.click();
     expect(api.read().layout!.spawns).toHaveLength(2);
     expect((await api.execute('layout.name', { name: 'Stale' }, current)).code).toBe('STALE_REVISION');
+  }, 20_000);
+  it("a copied door's Map changed: its Door field resets to that map's first door, the layout the same", async () => {
+    document.body.replaceChildren();
+    archiveEntries.push({ stem: 'MP2', path: 'RUN/MP2.ZDB', label: 'FROSTFIRE', campaign: false }, { stem: 'MP73', path: 'RUN/MP73.ZDB', label: 'SANDSTORM', campaign: false });
+    archiveCensus.mockImplementation(async (stem) => (stem === 'MP2'
+      ? { door: [['bdoor_4', 'bdoor_4 · a'], ['wdoor_1', 'wdoor_1 · b']], turret: [], hostage: [], ladder: [], gate: [], barrier: [] }
+      : { door: [['door_ft1', 'door_ft1 · c'], ['door_ft2', 'door_ft2 · d']], turret: [], hostage: [], ladder: [], gate: [], barrier: [] }));
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    expect(await api.execute('door.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const field = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+    await vi.waitFor(() => expect([...field('Map').options].map((o) => o.value)).toContain('MP73'));
+    field('Map').focus();
+    field('Map').value = 'MP73';
+    field('Map').dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(((api.read().layout as unknown as { doors: unknown[][] }).doors[0]!).slice(0, 2)).toEqual(['MP73', 'door_ft1']));
+    await vi.waitFor(() => expect([field('Map').value, field('Door').value]).toEqual(['MP73', 'door_ft1']));
+  }, 20_000);
+  it("a hostage's Map changed: its Character field resets to that map's first hostage character, the layout the same", async () => {
+    document.body.replaceChildren();
+    archiveEntries.push({ stem: 'MP6', path: 'RUN/MP6.ZDB', label: 'DESERT GLORY', campaign: false }, { stem: 'MP52', path: 'RUN/MP52.ZDB', label: 'THE MIXER', campaign: false });
+    archiveCensus.mockImplementation(async (stem) => ({ door: [], turret: [], ladder: [], gate: [], barrier: [], hostage: stem === 'MP6' ? [['mp_fem1', 'mp_fem1'], ['mp_fem2', 'mp_fem2']] : [['mp_algerian_h1', 'mp_algerian_h1'], ['mp_algerian_h2', 'mp_algerian_h2']] }));
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    expect(await api.execute('type.set', { type: 4 }, api.read().revision)).toMatchObject({ ok: true });
+    expect(await api.execute('hostage.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const field = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+    await vi.waitFor(() => expect([...field('Map').options].map((o) => o.value)).toEqual(expect.arrayContaining(['MP6', 'MP52'])));
+    for (const [stem, first] of [['MP52', 'mp_algerian_h1'], ['MP6', 'mp_fem1']] as const) {
+      field('Map').focus();
+      field('Map').value = stem;
+      field('Map').dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect([field('Map').value, field('Character').value]).toEqual([stem, first]));
+    }
+  }, 20_000);
+  it('Escape on any tool goes back to Select and lets the selection go', async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    expect(await api.execute('door.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    expect(api.read().selection).toEqual(['door:0']);
+    for (const title of ['Place a turret', 'Place a door', 'Place a hostage']) {
+      [...document.querySelectorAll('button')].find((b) => b.title.startsWith(title))!.click();
+      expect((api.read().view as { tool: string }).tool).not.toBe('select');
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
+      expect((api.read().view as { tool: string }).tool).toBe('select');
+      expect(api.read().selection).toEqual([]);
+    }
+  }, 20_000);
+
+  it('a new blank floor opens at full day', async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    expect(api.read().layout!.settings).toMatchObject({ timeOfDay: 1 });
+    expect(await api.execute('layout.new', {}, api.read().revision)).toMatchObject({ ok: true });
+    expect(api.read().layout!.settings).toMatchObject({ timeOfDay: 1 });
+  }, 20_000);
+  it('every placing tool previews its placement under the cursor and stays the tool, placing again on each click', async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    const input = document.querySelector<HTMLElement>('.fx-input')!;
+    input.setPointerCapture = vi.fn(); input.releasePointerCapture = vi.fn();
+    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
+    const pointer = (type: string, x: number, y: number) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+      Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+      input.dispatchEvent(e);
+    };
+    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
+    pointer('pointermove', 400, 300);
+    await vi.waitFor(() => expect(input.dataset['ghost']).toBe('spawnA'));        // the spawn's own marker, translucent
+    for (const x of [400, 420, 440]) { pointer('pointerdown', x, 300); pointer('pointerup', x, 300); }
+    expect(api.read().layout!.spawns).toHaveLength(3);
+    expect((api.read().view as { tool: string }).tool).toBe('spawnA');
+    expect(input.dataset['ghost']).toBe('spawnA');                                // still previewing the next
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
+    expect(input.dataset['ghost']).toBeUndefined();                               // Select: no preview
+  }, 20_000);
+  it("the wheel turns a placing tool's object as the Place tool's, a turn step a notch", async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    const input = document.querySelector<HTMLElement>('.fx-input')!;
+    input.setPointerCapture = vi.fn(); input.releasePointerCapture = vi.fn();
+    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
+    const pointer = (type: string, x: number, y: number) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
+      Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+      input.dispatchEvent(e);
+    };
+    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
+    pointer('pointermove', 400, 300);
+    pointer('pointerdown', 400, 300); pointer('pointerup', 400, 300);
+    input.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, deltaMode: 0, cancelable: true, bubbles: true }));
+    pointer('pointerdown', 420, 300); pointer('pointerup', 420, 300);
+    const spawns = (api.read().layout as unknown as { spawns: unknown[][] }).spawns;
+    const yawOf = (row: unknown[]) => Number(row[row.length - 1] === true ? row[row.length - 2] : row[row.length - 1]);
+    const step = (api.read().view as { turnStep: number }).turnStep;
+    const turned = ((yawOf(spawns[1]!) - yawOf(spawns[0]!)) % 360 + 360) % 360;
+    expect(turned).toBe(step);                                                      // one notch up: the step, to the left
+  }, 20_000);
+  it("duplicate and copy/paste copy every kind of placement, a named one taking the next name", async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    let api!: ForgeAgentApi;
+    await mountForge(document, { onAgentReady: target => { api = target; } });
+    expect(await api.execute('point.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    const key = (code: string, ctrl = false) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.replace('Key', '').toLowerCase(), ctrlKey: ctrl, bubbles: true }));
+    key('KeyC');                                                           // duplicate
+    await vi.waitFor(() => expect((api.read().layout as unknown as { tacPoints?: unknown[] }).tacPoints ?? []).toHaveLength(2));
+    key('KeyC', true); key('KeyV', true);                                  // copy, paste
+    await vi.waitFor(() => expect((api.read().layout as unknown as { tacPoints?: unknown[] }).tacPoints ?? []).toHaveLength(3));
+    const names = (api.read().layout as unknown as { tacPoints: unknown[][] }).tacPoints.map((r) => r[0]);
+    expect(new Set(names).size).toBe(3);
+  }, 20_000);
+  it('the placing tools sit on a row of their own under the toolbar; Select and Place stay on the toolbar', async () => {
+    document.body.replaceChildren();
+    const { mountForge } = await import('../src/forge/page');
+    await mountForge(document, { onAgentReady: () => undefined });
+    const top = document.querySelector('.fx-top')!, row = document.querySelector('.fx-tools-row')!;
+    expect(row).not.toBeNull();
+    const titled = (root: Element, t: string) => [...root.querySelectorAll('button')].some((b) => b.title.startsWith(t));
+    expect([titled(top, 'Select'), titled(top, 'Place the chosen prop')]).toEqual([true, true]);
+    for (const t of ['Place a door', 'Place a gate', 'Place a C4 barrier', 'Place a ladder', 'Place a turret', 'Place a hostage', 'Place a team A spawn']) {
+      expect(titled(row, t), t).toBe(true);
+      expect(titled(top, t), t).toBe(false);
+    }
   }, 20_000);
 });

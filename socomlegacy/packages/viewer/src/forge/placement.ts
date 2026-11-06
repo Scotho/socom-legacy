@@ -1,3 +1,4 @@
+import { Box3, type Object3D, type Vector3 } from 'three';
 import { probeGround, type Grid } from '@s2u/scene';
 import { groundGrid, type GroundData } from '../mover';
 import { centreOf, type Quat, type Vec3 } from './group';
@@ -131,4 +132,19 @@ export interface ClipOffset {
 export function clipOf(points: readonly Vec3[], turns: readonly Quat[]): ClipOffset[] {
   const offsets = offsetsFromCentre(points);
   return offsets.map((offset, i) => ({ offset, q: turns[i] ?? [0, 0, 0, 1] }));
+}
+
+/**
+ * `object` placed on `at` with the bottom of its bounding box on it (the owner, 2026-11-06; a browser adaptation,
+ * FG.R2): set at `at`, its turn as it is, then raised or lowered by the box's floor -- so a model whose geometry reaches
+ * below its origin (a door's hinge, part way up its leaf) stands on the surface, never under it. One with no geometry
+ * stands at `at`.
+ */
+export function seatOn(object: Object3D, at: Vector3): void {
+  object.position.copy(at);
+  object.updateMatrixWorld(true);
+  const box = new Box3().setFromObject(object);
+  if (box.isEmpty() || !Number.isFinite(box.min.y)) return;
+  object.position.y += at.y - box.min.y;
+  object.updateMatrixWorld(true);
 }

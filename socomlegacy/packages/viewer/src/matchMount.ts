@@ -1046,6 +1046,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let joinNow: (() => void) | null = null;
   o.assets.then((a) => {
     if (gone) return;
+    // A map the Forge composed (`./forge/playObjectives` names its escort zones on it): its escort's fallback lines on.
+    if (a) sound.roundAudio.round.forgeEscortLines = Array.isArray((a.map as { forgeEscortZones?: unknown }).forgeEscortZones);
     if (a) place(a);
     worldIn = true;
     joinNow?.();
@@ -1284,7 +1286,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         const tagGrid = walk.grid();
         hud.setTeamTags(page ? teamTags(teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined)) : null);   // NU-9 T4 (research 329)
       }
-      hud.setHostageMarks(net?.hostageMarks(map?.ai) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
+      hud.setHostageMarks(net?.hostageMarks(map?.ai, map?.forgeZoneMarks) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
       hud.render(renderer.renderer);
     }
     // PAR-2: `./main`'s -- the ARMORY's scripts stepped, pulled out 5 s before the next round (popup 47), drawn over everything.
