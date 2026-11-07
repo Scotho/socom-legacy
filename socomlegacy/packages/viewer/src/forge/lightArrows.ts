@@ -30,6 +30,23 @@ export function lightArrowSpecs(rig: GlobalLighting, centre: readonly [number, n
   });
 }
 
+/**
+ * The drop shadows' way (`LoadedMap.shadowVector`, the world root's; a new empty map's own `settings.shadowVector`): one
+ * more arrow, dark grey so it is no light, through the map's middle the way the characters' shadows fall -- in from the
+ * opposite side, as a light's comes in from its own. An editor's colour (FG.R2).
+ */
+export const SHADOW_ARROW_COLOUR: [number, number, number] = [0.22, 0.22, 0.24];
+
+/** The shadow's arrow: as a light's, from `centre - way * length` along `way` (its unit direction); none for a zero vector. */
+export function shadowArrowSpec(vector: readonly number[], centre: readonly [number, number, number], size: number):
+  { from: [number, number, number]; along: [number, number, number]; length: number; colour: [number, number, number] } | null {
+  const len = Math.hypot(vector[0]!, vector[1]!, vector[2]!);
+  if (!(len > 0)) return null;
+  const way: [number, number, number] = [vector[0]! / len, vector[1]! / len, vector[2]! / len];
+  const length = Math.max(ARROW_MIN, size * ARROW_SHARE);
+  return { from: [centre[0] - way[0] * length, centre[1] - way[1] * length, centre[2] - way[2] * length], along: way, length, colour: SHADOW_ARROW_COLOUR };
+}
+
 export class LightArrows {
   private readonly group = new Group();
 
@@ -40,11 +57,11 @@ export class LightArrows {
     parent.add(this.group);
   }
 
-  /** The rig's arrows across the map's middle, or none (no rig). */
-  set(rig: GlobalLighting | null, centre: readonly [number, number, number], size: number): void {
+  /** The rig's arrows across the map's middle, or none (no rig); and the drop shadows' way (`shadow`), where it has one. */
+  set(rig: GlobalLighting | null, centre: readonly [number, number, number], size: number, shadow: readonly number[] | null = null): void {
     this.clear();
-    if (!rig) return;
-    for (const a of lightArrowSpecs(rig, centre, size)) {
+    const shadowArrow = shadow ? shadowArrowSpec(shadow, centre, size) : null;
+    for (const a of [...(rig ? lightArrowSpecs(rig, centre, size) : []), ...(shadowArrow ? [shadowArrow] : [])]) {
       const arrow = new ArrowHelper(new Vector3(...a.along), new Vector3(...a.from), a.length, new Color(...a.colour), a.length * 0.15, a.length * 0.07);
       arrow.traverse((o) => {
         o.renderOrder = ARROWS_ORDER;

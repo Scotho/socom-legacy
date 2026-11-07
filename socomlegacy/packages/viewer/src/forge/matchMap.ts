@@ -224,7 +224,7 @@ export function blankLibraryMap(library: string, floorSize: number): LoadedMap {
     archive: library,
     camera: null,
     path: `forge/${library}`,
-    name: 'Blank floor',
+    name: 'New Empty Map',
     world: [],
     lines: null,
     props: [],

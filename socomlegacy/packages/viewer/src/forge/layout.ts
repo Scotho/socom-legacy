@@ -19,7 +19,7 @@ export {
 } from '@s2u/creator-contracts';
 export type {
   BombObjectives, BombSite, ContentLayout, ContentLayoutBase, ForgeGameType, ForgeObjectives, Layout, LayoutBase, LayoutCamera, LayoutObjectiveIds,
-  ExtractionZone, FlareMarker, HostageMarker, LayoutSettings, ScenicViewMarker, TacPointMarker, TurretMarker, DoorMarker, NpcBehaviour, NpcMarker, Piece, RetailLayoutBase, SpawnMarker,
+  ExtractionZone, FlareMarker, HostageMarker, LayoutSettings, LightRigSetting, ScenicViewMarker, TacPointMarker, TurretMarker, DoorMarker, NpcBehaviour, NpcMarker, Piece, RetailLayoutBase, SpawnMarker,
 } from '@s2u/creator-contracts';
 
 /** The layout's settings whole: what it names over the disc's defaults. */

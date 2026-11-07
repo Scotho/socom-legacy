@@ -14,7 +14,7 @@ import {
   MeshBasicMaterial, Euler, Object3D, PlaneGeometry, Quaternion, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { findLadders, HOSTAGE_START_LIFT_READING, spawnsFor, zonesOfKind, type Grid, type Ladder, type SpawnSlot, type WorldPoly } from '@s2u/scene';
+import { findLadders, HOSTAGE_START_LIFT_READING, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly } from '@s2u/scene';
 import { PLAY_CLIPS } from '../animator';
 import { buildBody, type BodyView } from '../bodyView';
 import { FlyCamera, FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION, type ForgeViewportView } from '../camera';
@@ -90,13 +90,16 @@ import { matchBackWords, menuCard, placeMenuCard } from './menuView';
 import { hullSegments } from './hull';
 import {
   assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
-  serializeLayout, settingsOf, withIds, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
+  serializeLayout, settingsOf, withIds, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
   type NpcBehaviour, BOMB_SITE_REACH, } from './layout';
-import { blankFloorOf, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
+import { blankFloorOf, breachReady, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
 import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
 import { turnFacade } from '../facade';
 import { flareModelMap, flareTemplates, withPlacedFlares, type FlareTemplate } from './placedFlares';
 import { SITE_OUTLINE_DONOR, withSiteOutlines } from './siteOutlines';
+import { skyDomeFor } from './skyDome';
+import { environmentOf } from './environmentCopy';
+import { BLANK_PRESETS, blankPresetOf, presetLayout, type PresetHostage } from './blankPresets';
 import { hostageCharactersOf, hostagesPlayIn, withLentHostageBodies, hostageDefault, nextHostageName } from './hostages';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
 import { floorAiMaps } from './floorAi';
@@ -130,6 +133,7 @@ import { buildOutliner, outlinerPanel, spawnSlotRows } from './panels/outlinerPa
 import { mapDataGroups, type MapDataSource } from './mapData';
 import { environmentSections } from './environment';
 import { buildEnvironment, drawEnvironment, environmentPanel } from './panels/environmentPanel';
+import { buildLightRigEditor, directionOf, type Atmosphere } from './panels/lightRigEditor';
 import { LightArrows } from './lightArrows';
 import {
   billboardRows, billboardSpecs, MAP_DATA_KIND_TOGGLES, MAP_DATA_MARKS, MapDataBillboards, placementOfMark, propMarkKey, userMarkKind,
@@ -241,11 +245,32 @@ type Mode = 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' |
  * its plant sites Demolition's (2, `FUN_002c9540`), the hostages and extraction zones Escort's and Extraction's (3, 4:
  * what `./playObjectives` reads under them). A tool not listed places under every type.
  */
+/**
+ * A new empty map's rig where the map it is built from has none (a browser adaptation, FG.R2; an editor's values, no
+ * original): one white key light from high in the south-east, one dim cool fill opposite, the third off (the disc's zero
+ * direction), and a soft ambient.
+ */
+const FALLBACK_RIG: LightRigSetting = {
+  directions: [directionOf(135, 50), directionOf(315, 30), [0, 0, 0]],
+  colours: [[0.85, 0.85, 0.8], [0.25, 0.28, 0.35], [0, 0, 0]],
+  ambient: [0.35, 0.35, 0.38],
+};
+/**
+ * A new empty map's drop-shadow vector where the map it is built from has none (an editor's value, as `FALLBACK_RIG`):
+ * falling north-west, 45 degrees down, as from `FALLBACK_RIG`'s key light.
+ */
+const FALLBACK_SHADOW: [number, number, number] = [-0.5, -0.7071, 0.5];
+/**
+ * The span a new empty map's Light directions arrows are sized to (world units; an editor's value): a multiplayer map's
+ * own size, so they stand in the sky as a disc map's do (`./lightArrows`: 0.3 of it, about 1000 long).
+ */
+const BLANK_RIG_ARROWS_SPAN = 3500;
+
 /** A placed flare's unseen pick box, world units a side (an editor's value, FG.R2): a glow's quad is too thin to click. */
 const FLARE_PICK_SIZE = 6;
 
 const MODE_TOOL_TYPES: Partial<Record<Mode, readonly ForgeGameType[]>> = {
-  bomb: [2], siteSeal: [2], siteTerrorist: [2], hostage: [3, 4], zone: [3, 4],
+  bomb: [2, 1], siteSeal: [2, 1], siteTerrorist: [2], hostage: [3, 4], zone: [3, 4],   // BREACH: the start and the SEALs' site (`breachReady`)
 };
 
 /**
@@ -620,7 +645,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   brand.append(el(doc, 'span', 'fx-logo', 'FORGE'), el(doc, 'span', 'fx-badge', 'EXPERIMENT'));
   const baseSel = el(doc, 'select', 'fx-select');
   baseSel.title = 'The base: a map’s world, or a blank floor';
-  const newBtn = tool('file', 'New', 'Start a new layout on this base');
+  const newBtn = tool('file', 'New', 'Start a new layout: a preset or a map as its base');
   const openBtn = tool('open', 'Open', 'Open a layout file');
   const saveBtn = tool('save', 'Saves', 'Named layouts in this browser, a file, or a share link');
   saveBtn.dataset['forge'] = 'saves';
@@ -757,13 +782,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const playSideIn = playChoice('playSide', 'Spawn as', 'The side you play; Auto takes the side the NPCs leave you',
     [['auto', 'Auto (from the NPCs)'], ['seal', 'SEAL'], ['terrorist', 'Terrorist']]);
   playSettings.append(el(doc, 'div', 'fx-tool-popup-note', 'Random draws from your placed spawns, or the map’s spawn slots where you placed none.'));
-  const baseLabel = el(doc, 'label', 'fx-label', 'Base');
   const layoutNameIn = el(doc, 'input', 'fx-search fx-name');
   layoutNameIn.type = 'text';
   layoutNameIn.maxLength = LAYOUT_NAME_MAX;
-  layoutNameIn.placeholder = 'Layout name';
+  layoutNameIn.placeholder = 'Untitled layout';
   layoutNameIn.setAttribute('aria-label', 'Layout name');
-  layoutNameIn.title = 'The name the downloaded file takes';
+  // The layout's name, shown not typed (the owner, 2026-11-06): Saves' Save as names it, and a file opened brings its own.
+  layoutNameIn.readOnly = true;
+  layoutNameIn.tabIndex = -1;
+  layoutNameIn.title = 'The layout’s name: Saves › Save as names it';
   const baseAsk = el(doc, 'span', 'fx-base-ask');
   baseAsk.hidden = true;
   const baseApply = el(doc, 'button', 'fx-tool fx-primary', 'Apply');
@@ -773,13 +800,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   baseAsk.append(el(doc, 'span', '', 'New layout on this base?'), baseApply, baseCancel);
   // R7-1: the base group's select and layout name shrink to their floors as the row's own items (`.fx-group--base`,
   // `display: contents`), and Walk sits with Check and Create lobby -- the row's natural width at most 1260 px.
-  const baseGroup = group(baseLabel, baseSel, baseAsk, newBtn, openBtn, layoutNameIn, saveBtn, file);
+  // No base list on the toolbar (the owner, 2026-11-06): New asks for the base (`chooseNewBase`). `baseSel` stays, off
+  // the page, the list of bases New offers and the row the current base answers to (`baseValue`).
+  const baseGroup = group(newBtn, openBtn, saveBtn, layoutNameIn, file);   // Saves beside Open (the owner, 2026-11-06)
   baseGroup.classList.add('fx-group--base');
   top.append(
     home, brand,
     group(menuBtn),
     baseGroup,
-    group(modeBtns.select, modeBtns.place),
+    (() => { const g = group(modeBtns.select, modeBtns.place); g.classList.add('fx-group--modes'); return g; })(),
     group(dupBtn, delBtn),
     group(undoBtn, redoBtn),
     el(doc, 'div', 'fx-spacer'),
@@ -1021,6 +1050,64 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // The Environment panel (World): the layout's lighting rows (Settings' controls, mounted here, wired as before) and
   // the disc's own lighting and atmosphere, read only (`drawEnvironmentPanel`).
   const environmentDom = buildEnvironment(doc, settingsDom.lightingRows);
+  /**
+   * A new empty map's own light rig (the owner, 2026-11-06; a browser adaptation, FG.R2): `settings.lightRig`, edited in
+   * the Environment panel (`./panels/lightRigEditor`) on a blank base only -- a disc map keeps its own. Absent, the rig of
+   * the map it is built from (its library's `GlobalLighting`); a library with none, `FALLBACK_RIG`.
+   */
+  const rigEditor = buildLightRigEditor(doc, {
+    get: () => atmosphereNow(),
+    own: () => !!(settings.lightRig || settings.fogColor || settings.shadowVector || settings.skyFrom || settings.fog || settings.night),
+    from: () => (base?.kind === 'blank' ? base.library : ''),
+    // Its sky: a disc map's own dome copied over the floor (`./skyDome`), or none.
+    skyChoices: () => entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const),
+    flares: () => roots.filter((r) => r.userData['forgeFlare']).length,
+    preview: (a) => { if (editsLocked()) return; settings = { ...settings, ...atmosphereSettings(a) }; applySettings(); },
+    commit: (a) => { if (refuseEdit()) { applySettings(); return; } settings = { ...settings, ...atmosphereSettings(a) }; applySettings(); settingsEdit(() => edit()); },
+    reset: () => {
+      if (refuseEdit()) return;
+      settings = { ...settings, lightRig: null, fogColor: null, shadowVector: null, skyFrom: null, fog: null, night: null };
+      applySettings();
+      rigEditor.draw(true);                                    // every field, the focused one too
+      settingsEdit(() => edit());
+    },
+    // Preset (the owner, 2026-11-06): a disc map's whole environment copied in (`./environmentCopy`), as a new empty map
+    // built from it starts; what that map lacks goes back to the built-from map's. One edit.
+    preset: () => { void (async () => {
+      if (refuseUnderCard() || refuseEdit()) return;
+      const maps = entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const);
+      if (!maps.length) { notifier.refused('No disc map to copy a light rig from'); return; }
+      const current = settings.skyFrom ?? (base?.kind === 'blank' ? base.library : '');
+      const stem = await askChoice('Light rig preset', 'Copy this map’s light rig, fog, night, shadows and sky into your map. Your own values are replaced.',
+        [['Multiplayer', maps]], maps.some(([v]) => v === current) ? current : maps[0]![0], 'Copy');
+      if (!stem) return;
+      const from = await hostageLibOf(stem);
+      if (!from) { notifier.refused(`${stem} would not load`); return; }
+      if (refuseEdit()) return;
+      // Every field the preset's: what the map lacks (a shadow vector) is the value now shown, kept as this map's own.
+      const now = atmosphereNow();
+      settings = { ...settings, ...atmosphereSettings(now), ...environmentOf(from) };
+      applySettings();
+      rigEditor.draw(true);                                    // every field, the focused one too
+      settingsEdit(() => edit());
+      say(`Light rig copied from ${stem}`);
+    })(); },
+  });
+  environmentDom.info.before(rigEditor.body);
+  environmentDom.body.prepend(rigEditor.top);                // Preset and Reset at the panel's top (the owner, 2026-11-06)
+  /**
+   * The layout lighting's two rows where they belong (the owner, 2026-11-06): on a new empty map, Day / night under the
+   * light rig and Fog distance under the fog (`rigEditor.slots`), the Layout lighting heading hidden; on a disc map, back
+   * under that heading (its own rig and fog are read only below).
+   */
+  const placeLightingRows = (): void => {
+    const [dayNightRow, fogRow] = settingsDom.lightingRows;
+    const blank = base?.kind === 'blank';
+    if (dayNightRow) (blank ? rigEditor.slots.dayNight : environmentDom.layout).append(dayNightRow);
+    if (fogRow) (blank ? rigEditor.slots.fogDistance : environmentDom.layout).append(fogRow);
+    environmentDom.layout.hidden = blank;
+    rigEditor.top.hidden = !blank;
+  };
   shell.register(environmentPanel(environmentDom));
 
   // The viewport and the status bar.
@@ -1855,6 +1942,58 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     handle = cards.open(card, { onBack: () => done(false), initialFocus: field, label: heading });
     field.select();
   });
+  /**
+   * The page's own question with a list to choose from (no browser dialog; the owner, 2026-11-06): the value chosen, or
+   * null when cancelled. `options` grouped (`[group, [[value, label], ...]]`), `value` chosen at first.
+   */
+  const askChoice = (heading: string, body: string, options: readonly (readonly [string, readonly (readonly [string, string])[]])[], value: string, yes: string): Promise<string | null> => new Promise((resolve) => {
+    const card = el(doc, 'form', 'fx-card');
+    const field = el(doc, 'select', 'fx-select');
+    field.setAttribute('aria-label', heading);
+    for (const [label, rows] of options) {
+      if (!rows.length) continue;
+      const g = el(doc, 'optgroup');
+      g.label = label;
+      for (const [v, w] of rows) { const o = el(doc, 'option', '', w); o.value = v; g.append(o); }
+      field.append(g);
+    }
+    if (value) field.value = value;
+    const no = el(doc, 'button', 'fx-tool', 'Cancel');
+    no.type = 'button';
+    const ok = el(doc, 'button', 'fx-tool fx-primary', yes);
+    ok.type = 'submit';
+    const foot = el(doc, 'footer');
+    foot.append(no, ok);
+    card.append(el(doc, 'h2', '', heading), el(doc, 'p', '', body), field, foot);
+    // FUI-2: on the card stack; the pad walks the list, Cancel and the act. Esc and Circle are Cancel.
+    padItems(field, no, ok);
+    let handle: CardHandle | null = null;
+    const done = (v: boolean): void => { handle?.close(); resolve(v && field.value ? field.value : null); };
+    no.addEventListener('click', () => done(false));
+    card.addEventListener('submit', (e) => { e.preventDefault(); done(true); });
+    handle = cards.open(card, { onBack: () => done(false), initialFocus: field, label: heading });
+  });
+  /**
+   * Before work is dropped (the owner, 2026-11-06: New over an edited layout): save it first, drop it, or stay. The
+   * page's own card (no browser dialog): 'save', 'discard', or null when cancelled (Esc, Circle, Cancel).
+   */
+  const askSaveFirst = (heading: string, body: string): Promise<'save' | 'discard' | null> => new Promise((resolve) => {
+    const card = el(doc, 'div', 'fx-card');
+    const no = el(doc, 'button', 'fx-tool', 'Cancel');
+    const drop = el(doc, 'button', 'fx-tool fx-danger', 'Don’t save');
+    const keep = el(doc, 'button', 'fx-tool fx-primary', 'Save first');
+    no.setAttribute(CARD_SAFE_ATTR, '');
+    padItems(no, drop, keep);
+    const foot = el(doc, 'footer');
+    foot.append(no, drop, keep);
+    card.append(el(doc, 'h2', '', heading), el(doc, 'p', '', body), foot);
+    let handle: CardHandle | null = null;
+    const done = (v: 'save' | 'discard' | null): void => { handle?.close(); resolve(v); };
+    no.addEventListener('click', () => done(null));
+    drop.addEventListener('click', () => done('discard'));
+    keep.addEventListener('click', () => done('save'));
+    handle = cards.open(card, { onBack: () => done(null), initialFocus: keep, label: heading });
+  });
   /** FG-26: the page's own notice card (one button). */
   const tellCard = (heading: string, body: string): Promise<void> => new Promise((resolve) => {
     const card = el(doc, 'div', 'fx-card');
@@ -2023,8 +2162,29 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let discFog: FogSettings = { ...fog, color: [...fog.color] };
   /** FG-24: the layout's settings, whole (`./layout` `settingsOf`); the layout keeps what differs from the disc's. */
   let settings: LayoutSettings = { ...DEFAULT_SETTINGS };
-  /** FG-51: the game type the settings name. Null is "Map's own" -- no objectives block unless a bomb marker is placed. */
+  /**
+   * FG-51: the game type the settings name. A layout that names none takes its base map's own (the owner, 2026-11-06: no
+   * "Map's own" choice): `ownTypeOf`. Null only while the disc's mission list is still being read (`typePending`).
+   */
   let authoredType: ForgeGameType | null = null;
+  /**
+   * The disc's mission list read (`labelBaseTypes`: READERC's `missionlist.rdr`, `../loadout` `kitGameType`), or not yet;
+   * `missionKits` null once read means the source has none.
+   */
+  let missionKits: Awaited<ReturnType<typeof loadKitSource>> = null;
+  let missionKitsRead = false;
+  /** The layout names no type and the mission list is not read yet: its type waits (and is written as none meanwhile). */
+  let typePending = false;
+  /**
+   * A base's own game type: a disc map's TYPE in `missionlist.rdr` (`FUN_002c9540` D:L168844-168906), the type a match on
+   * it plays with none named; SUPPRESSION (5) for a map off the list, a blank floor or an authored map -- what the room
+   * plays there (`../loadout` `kitGameType`: undefined, SUPPRESSION's rules). Null while the list is not read yet.
+   */
+  const ownTypeOf = (b: LayoutBase | null): ForgeGameType | null => {
+    if (!missionKitsRead) return null;
+    const own = b?.kind === 'map' ? kitGameType(missionKits, b.archive) : undefined;
+    return own === 1 || own === 2 || own === 3 || own === 4 || own === 5 ? own : 5;
+  };
   /** Keys of an opened objectives block this slice does not edit (`escortees`, ...), kept across a save. */
   let objectiveRest: Record<string, unknown> = {};
   /**
@@ -2170,7 +2330,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     mapBillboards.setOnTop(billboardsOnTop);
     // The user's marks show on a blank floor too; with no map the map's own are simply none.
     mapBillboards.setVisible(billboardsOn);
-    lightArrows.setVisible(lightDirections && !!baseMap);
+    // A disc map's rig, or a new empty map's own (or the one it is built from): the same arrows, the same switch.
+    lightArrows.setVisible(lightDirections && (!!baseMap || base?.kind === 'blank'));
     if (mapZoneLines) mapZoneLines.visible = billboardsOn && !billboardsOff.has('tacZones');   // with the Z marks' switch
     baseView?.setFlaresShown?.(flareGlows);                     // the map's own glows, drawn or out of the way
     drawBillboardSwitches();
@@ -2368,7 +2529,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   floor.userData['forgeLightingInstrument'] = true;
   // A neutral gray (the owner, 2026-11-06): the guide's own colour, no map's.
   floor.add(new GridHelper(FLOOR_SIZE, FLOOR_SIZE / FLOOR_STEP, FLOOR_GRID_CENTRE, FLOOR_GRID_LINES));
-  const floorPlane = new Mesh(new PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: FLOOR_GRID_GROUND, fog: false }));
+  // The floor fogs as the match's floor does (`./matchMap` `floorMesh`, `fog: true`): a new empty map's fog shows on it.
+  const floorPlane = new Mesh(new PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: FLOOR_GRID_GROUND, fog: true }));
   floorPlane.position.y = -0.5;
   floor.add(floorPlane);
   /** The layout's hull drawn over the world (`./hull`); a new object each time, as the renderer keys its draws by one. */
@@ -2610,8 +2772,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const g of [mapDoorGuides, mapLadderGuides, mapTurretGuides, mapHostageGuides, mapViewGuides, ...mapAccessGuides]) if (g) g.visible = view.spawns;
     for (const r of roots) r.traverse((o) => { if (o.userData['forgeGuideKind']) o.visible = view.spawns; });
     applyBillboards();
-    fog.enabled = view.fog && (base?.kind === 'map');
-    liftForgeFog(scene, fog, lighting, null, created.setClearColor, settings.timeOfDay);
+    // A new empty map fogs too (the owner, 2026-11-06): its fog the built-from map's, its own colour and distance over it.
+    fog.enabled = view.fog && (base?.kind === 'map' || (base?.kind === 'blank' && (settings.fog?.on ?? discFog.enabled)));
+    // A new empty map's own fog colour is kept over Day / night's tint (`lightingFog` `keepColour`).
+    liftForgeFog(scene, fog, lighting, null, created.setClearColor, settings.timeOfDay, base?.kind === 'blank' && !!settings.fogColor);
     if (base?.kind === 'blank' && settings.timeOfDay === null) created.setClearColor([12, 20, 24]);
     created.setPresentation(view.ps2 ? 'ps2' : 'native');
     fit();
@@ -2652,12 +2816,92 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * light as the brighten uniform's factor on the base's world and every piece template (`WorldView.setLighting` with
    * the same rig: a uniform, no rebake); the fog colour and the cleared background follow the brighten (`liftFog`).
    */
+  /** A new empty map's own rig, where it has one (a blank base only); null on a disc map, which keeps its own. */
+  const customRig = (): GlobalLighting | null => (base?.kind === 'blank' ? (settings.lightRig as GlobalLighting | null | undefined) ?? null : null);
+  /** The rig of the map a new empty map is built from (its library): what it plays with none of its own. */
+  const libraryRig = (): GlobalLighting | null => (base?.kind === 'blank' ? charMap?.lightRig ?? null : null);
+  /** A new empty map's drop-shadow way: its own, else the built-from map's, else `FALLBACK_SHADOW` (as the editor shows). */
+  const blankShadow = (): readonly number[] => settings.shadowVector ?? charMap?.shadowVector ?? FALLBACK_SHADOW;
+  /**
+   * A new empty map's sky in the editor (`settings.skyFrom`, `./skyDome`): the chosen disc map's dome, built as a world
+   * of its own over the floor, lit by its own rig, its clouds scrolling with each frame (`skyView.frame`). Drawn again only
+   * when the choice changes; none on a disc map (its own sky is its world's).
+   */
+  let skyView: WorldView | null = null;
+  let skyKey = '';
+  let skyToken = 0;
+  async function drawSky(): Promise<void> {
+    const want = base?.kind === 'blank' && settings.skyFrom ? settings.skyFrom : '';
+    if (want === skyKey) return;
+    skyKey = want;
+    const token = ++skyToken;
+    if (skyView) { scene.remove(skyView.group); skyView.dispose(); skyView = null; }
+    if (!want) return;
+    const lib = await hostageLibOf(want);
+    if (token !== skyToken || !lib) return;
+    const dome = skyDomeFor(lib, null);
+    if (!dome.world.length) { say(`${want} has no sky to copy (none of its world is textured as a sky)`, true); return; }
+    const view = buildWorld({ ...lib, world: dome.world, props: [], lines: null });
+    view.setLighting({ ...DEFAULT_LIGHTING, rig: lib.lightRig, brighten: lighting.brighten });
+    for (const task of view.revealWorld) task();
+    if (token !== skyToken) { view.dispose(); return; }
+    skyView = view;
+    scene.add(view.group);
+  }
+  /**
+   * A new empty map's environment as it plays (`./panels/lightRigEditor` `Atmosphere`): each value the layout's own
+   * (`settings`), else the map it is built from's -- its rig (`libraryRig`), its camera's fog (`discFog`), its night and
+   * its shadow -- else the editor's fallbacks.
+   */
+  const atmosphereNow = (): Atmosphere => {
+    const own = settings.fog, alt = discFog.altitude;
+    // The layout's own night wins whole: its lens none is none, not the built-from map's showing through.
+    const lens = settings.night ? settings.night.lens : charMap?.night?.lens ?? null;
+    return {
+      rig: (settings.lightRig ?? libraryRig() ?? FALLBACK_RIG) as LightRigSetting,
+      sky: settings.skyFrom ?? '',
+      fog: {
+        on: own?.on ?? discFog.enabled,
+        colour: (settings.fogColor ?? [discFog.color[0], discFog.color[1], discFog.color[2]]) as [number, number, number],
+        near: own?.near ?? fog.near,
+        far: settings.fogFar ?? discFog.far,
+        height: own
+          ? { on: own.height !== null, top: own.height?.top ?? alt?.top ?? 50, bottom: own.height?.bottom ?? alt?.bottom ?? 0 }
+          : { on: alt !== null, top: alt?.top ?? 50, bottom: alt?.bottom ?? 0 },
+      },
+      night: { mission: settings.night ? settings.night.mission : charMap?.night?.mission ?? false, lens: (lens ? [lens[0], lens[1], lens[2], lens[3]] : [0, 0, 0, 0]) as [number, number, number, number] },
+      shadow: (settings.shadowVector ?? (charMap?.shadowVector ? [...charMap.shadowVector] : FALLBACK_SHADOW)) as [number, number, number],
+    };
+  };
+  /** An environment as the layout keeps it: every part its own (a change makes the whole environment the map's). */
+  const atmosphereSettings = (a: Atmosphere): Partial<typeof settings> => ({
+    lightRig: a.rig, skyFrom: a.sky || null, fogColor: a.fog.colour, shadowVector: a.shadow,
+    fogFar: boundSetting('fogFar', a.fog.far),
+    fog: { on: a.fog.on, near: Math.max(0, Math.min(a.fog.near, a.fog.far - 1)), height: a.fog.height.on ? { top: a.fog.height.top, bottom: a.fog.height.bottom } : null },
+    night: { mission: a.night.mission, lens: a.night.lens },
+  });
   const applySettings = (): void => {
     agentMark();                                              // browser adaptation: the agent's layout revision
     Object.assign(fog, fogWithFar(discFog, settings.fogFar));
+    // A new empty map's own fog colour over the one it is built from (a blank base only).
+    if (base?.kind === 'blank' && settings.fogColor) fog.color = [settings.fogColor[0], settings.fogColor[1], settings.fogColor[2]];
+    // Its own near distance and height band likewise (its on is the view's, `applyView`).
+    if (base?.kind === 'blank' && settings.fog) {
+      fog.near = Math.max(0, Math.min(settings.fog.near, fog.far - 1));
+      fog.altitude = settings.fog.height ? { top: settings.fog.height.top, bottom: settings.fog.height.bottom } : null;
+    }
     lighting.brighten = brightenFor(DEFAULT_LIGHTING.brighten, settings.timeOfDay === null ? settings.light : 1);
     baseView?.setLighting(lighting);
+    pieces.setRig(customRig());                                // a new empty map's own rig over the pieces' own (a blank base only)
     pieces.setBrighten(lighting.brighten);
+    if (base?.kind === 'blank') {
+      // The rig it plays drawn as the Light directions arrows, across the floor's middle; the editor with it.
+      lightArrows.set((customRig() ?? libraryRig()) as GlobalLighting | null, [0, 0, 0], BLANK_RIG_ARROWS_SPAN, blankShadow());
+      rigEditor.draw();
+    }
+    rigEditor.body.hidden = base?.kind !== 'blank';
+    placeLightingRows();
+    void drawSky();
     // The bodies (the NPCs' figures, the walk's SEAL) on the same uniform, each with its own map's rig.
     for (const r of roots) (r.userData['forgeBrighten'] as ((b: number) => void) | undefined)?.(lighting.brighten);
     if (body) body.view.setLighting({ ...DEFAULT_LIGHTING, rig: body.from.lightRig, brighten: lighting.brighten });
@@ -2762,7 +3006,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const why = typeUnplayable(v);
       // Demolition, Escort and Extraction wait on what is placed under them (the bomb; the hostages and extraction zones,
       // the owner 2026-11-05): pickable, "cannot play yet" and the reason. Breach, which the editor cannot ready, never.
-      const placeable = v === 2 || v === 3 || v === 4;
+      const placeable = v === 1 || v === 2 || v === 3 || v === 4;   // BREACH: its start and site placed (`breachReady`)
       opt.disabled = why !== null && !placeable;
       opt.textContent = why === null ? FORGE_GAME_TYPE_NAME[v] : `${FORGE_GAME_TYPE_NAME[v]} · ${placeable ? 'cannot play yet' : 'this map can\'t play it'}`;
       opt.title = why ?? '';
@@ -2781,13 +3025,24 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }));
     const want = gameTypeValue();
     if (gameTypeSel.value !== want) gameTypeSel.value = want;
+    // A blank floor's row in the base list is its type's preset (`blankValue`): it follows the type.
+    if (base?.kind === 'blank') { const v = blankValue(); if (baseSel.value !== v) baseSel.value = v; }
     refreshModeTools();
   };
   /**
    * The tools a game type plays (a browser adaptation, FG.R2: the editor's own grouping), the rest greyed: a tool listed
-   * in `MODE_TOOL_TYPES` is on only under its types. The map's own type (none authored) and a rules mode (whose rule
+   * in `MODE_TOOL_TYPES` is on only under its types. A type still being read (`typePending`) and a rules mode (whose rule
    * host may read any placement) leave every tool on. Placements already made stay; only placing more is held.
    */
+  /**
+   * The base list's row for a blank floor (the owner, 2026-11-06: no blank floor without a type): its game type's preset
+   * (`./blankPresets`), Suppression's while the type is not known; the plain row where the list has no presets (a tree
+   * with no disc maps).
+   */
+  function blankValue(): string {
+    const v = `blank:${authoredType ?? 5}`;
+    return baseSel.querySelector(`option[value="${v}"]`) ? v : 'blank';
+  }
   function refreshModeTools(): void {
     const type = layoutMode ? null : authoredType;
     for (const [m, types] of Object.entries(MODE_TOOL_TYPES) as [Mode, readonly ForgeGameType[]][]) {
@@ -2833,9 +3088,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // FUI-6: the game type's entry; a refusal (the lobby's hold) puts the picker back, as before.
     if (!personEdit('type.set', { type: v }, () => {
       const picked = v === 1 || v === 2 || v === 3 || v === 4 || v === 5 ? v : null;
-      const why = picked !== null && picked !== 2 && picked !== 3 && picked !== 4 ? typeUnplayable(picked) : null;   // those three wait on their placements
+      const why = picked !== null && picked !== 1 && picked !== 2 && picked !== 3 && picked !== 4 ? typeUnplayable(picked) : null;   // those four wait on their placements
       if (why) { back(); say(why, true); return; }
       authoredType = picked;
+      typePending = false;
       edit();
     })) back();
   });
@@ -3105,9 +3361,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         else if (kind) marks.sites.push(r);
       }
     }
-    // L1: "Map's own" writes no type -- the base keeps its own (and the room its own bomb); the markers are kept, and an
-    // opened block's own keys whenever there are any (`./bombMarkers` `layoutObjectivesOf`).
-    const objectives = layoutObjectivesOf(authoredType, bombOfMarkers(), objectiveRest);
+    // The type shown is written (its base's own when none was picked, `ownTypeOf`); while it is still being read
+    // (`typePending`) none is, so the base keeps its own -- the same type. The markers are kept, and an opened block's
+    // own keys whenever there are any (`./bombMarkers` `layoutObjectivesOf`).
+    const objectives = layoutObjectivesOf(typePending ? null : authoredType, bombOfMarkers(), objectiveRest);
     if (objectives) l.objectives = objectives;
     const startId = marks.start?.userData['forgeId'], siteIds = marks.sites.map((r) => r.userData['forgeId']);
     if (objectives?.bomb && (typeof startId === 'string' || siteIds.some((id) => typeof id === 'string'))) {
@@ -5080,7 +5337,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The light rig's arrows across the map's middle, sized to it; the Environment panel's disc values with them.
     const box = baseView?.box;
     const centre: [number, number, number] = box && !box.isEmpty() ? box.getCenter(new Vector3()).toArray() : [0, 0, 0];
-    lightArrows.set(baseMap?.lightRig ?? null, centre, box && !box.isEmpty() ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) : 0);
+    if (base?.kind === 'blank') lightArrows.set(customRig() ?? libraryRig(), [0, 0, 0], BLANK_RIG_ARROWS_SPAN, blankShadow());   // a new empty map's rig
+    else lightArrows.set(baseMap?.lightRig ?? null, centre, box && !box.isEmpty() ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) : 0, baseMap?.shadowVector ?? null);
     // The map's tactical zones' rectangles, each at the floor under its middle (the file places them on the ground plane only).
     if (mapZoneLines) { scene.remove(mapZoneLines); mapZoneLines.geometry.dispose(); (mapZoneLines.material as Material).dispose(); mapZoneLines = null; }
     const tacZones = baseMap?.tac?.zones ?? [];
@@ -5450,12 +5708,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const lib = map;
       charMap = lib;
       lighting.rig = null;
+      // Its fog the built-from map's camera record's, as the match's (`./objectives` `blankFloorOf` keeps that camera);
+      // a library with none, the stand-in. The layout's own colour and distance go over it (`applySettings`).
+      if (!lib || !mapFog(fog, lib)) Object.assign(fog, { enabled: true, ...fogForExtent(4000), color: [...ELF_DEFAULT_FOGCOL], altitude: null });
+      discFog = { ...fog, color: [...fog.color], altitude: fog.altitude ? { ...fog.altitude } : null };
       scene.add(floor);
       fly.setScale(lib?.metersPerUnit && lib.metersPerUnit > 0 ? lib.metersPerUnit : 0.1);
       fly.setClipPlanes(4, FLOOR_SIZE * 2);
       fly.lookFrom([0, 250, 600], [0, 0, 0]);
       showContentOption(null);
-      baseSel.value = 'blank';
+      baseSel.value = blankValue();
     }
     paletteSel.value = stem;
     entriesOfPalette = loadedPalette;
@@ -5595,7 +5857,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     settings = settingsOf(l);                                // FG-24: the layout's settings, the panel with them
     applySettings();
     // FG-51: the layout's game type, kept even where it cannot play (shown so; ruling 4b), or the base's own.
-    authoredType = l.objectives?.gameType ?? null;
+    // No type named: the base map's own (`ownTypeOf`), or waiting on the mission list's read (`typePending`).
+    authoredType = l.objectives?.gameType ?? ownTypeOf(l.base);
+    typePending = authoredType === null;
     gameTypeSel.value = authoredType === null ? '' : String(authoredType);
     objectiveRest = l.objectives ? restOf(l.objectives, ['gameType', 'bomb']) : {};
     layoutRequires = (l.requires ?? []).map((p) => ({ ...p }));       // R3-B: the packs the layout declares, kept as they were
@@ -6113,7 +6377,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist') {
       // The bomb and its sites are Demolition's (the owner, 2026-11-05): another type, the player is told to change it.
-      if (authoredType !== 2) { notifier.refused('The bomb plays in Demolition: set the game type first (World tab, Settings)'); return; }
+      if (authoredType !== 2 && !(authoredType === 1 && kind !== 'terrorist')) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return; }
       const kind: BombMarkerKind = mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist';
       // One start, and one site a planting team: a new one replaces every marker of its kind (a file may name two).
       const prevs = roots.filter((r) => bombKindOf(r) === kind);
@@ -6905,13 +7169,42 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const flared = withPlacedFlares(accessed.map, layout.flares, (src, n) => flaresNow.get(`${src}:${n}`) ?? null).map;
     // The layout's own Demolition sites wear the map's bases' outlines (`./siteOutlines`): the disc's pulse at the sites
     // that plant, none left at the tents that no longer do.
-    const ownSites = type === 2 && why === null ? layout.objectives?.bomb?.sites ?? [] : [];
+    const ownSites = (type === 2 || (type === 1 && breachReady(layout.objectives?.bomb))) && why === null ? layout.objectives?.bomb?.sites ?? [] : [];
     // A base with no outline of its own (a blank floor) borrows the donor's (`SITE_OUTLINE_DONOR`), when it is on this disc.
     const outlineDonor = ownSites.length && !absent.has(SITE_OUTLINE_DONOR) ? await hostageLibOf(SITE_OUTLINE_DONOR) : null;
     const aimed = withSiteOutlines(flared, ownSites, outlineDonor);
     const unplayable = why === null ? undefined : `${why}; playing the base's mode`;
     // FG-24: the layout's fog and light on the map's camera and rig (`./matchMap` `withSettings`, its limit said there).
-    return { c, layout, own, fit, playerSide, composed, hostagesLeft: played.hostagesLeft, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, map: withSettings(aimed, own), gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
+    // A new empty map's own light rig (`settings.lightRig`) over the one its library lends: the match lit as the editor is.
+    // Its sky: the chosen disc map's dome over the floor (`./skyDome`), its textures carried as a turret's are.
+    const skyLib = base.kind === 'blank' && own.skyFrom ? await hostageLibOf(own.skyFrom) : null;
+    const skyDome = skyLib ? skyDomeFor(skyLib, aimed.archive) : null;
+    /**
+     * Its fog's on, near distance and height band (the camera record's) and its night (`NightMission`, `LensFX_NVG`), over
+     * the fog distance's own near (`withSettings`) -- set last, so the near it names is the near played.
+     */
+    const ownAtmosphere = (m: LoadedMap): LoadedMap => {
+      if (base.kind !== 'blank') return m;
+      const f = own.fog, cam = m.camera;
+      return {
+        ...m,
+        ...(f && cam ? { camera: { ...cam, fogEnabled: f.on, fogNear: Math.max(0, Math.min(f.near, cam.fogFar - 1)), fogAltitude: f.height !== null,
+          ...(f.height ? { fogTop: f.height.top, fogBottom: f.height.bottom } : {}) } } : {}),
+        ...(own.night ? { night: { mission: own.night.mission, lens: own.night.lens ? [...own.night.lens] as [number, number, number, number] : null } } : {}),
+      };
+    };
+    // Its fog colour (the camera record's) and drop-shadow direction likewise.
+    const lit = base.kind !== 'blank' ? aimed : {
+      ...aimed,
+      ...(own.lightRig ? { lightRig: own.lightRig as GlobalLighting } : {}),
+      ...(skyDome ? { world: [...aimed.world, ...skyDome.world], textures: { ...aimed.textures, ...skyDome.textures },
+        textureFlags: { ...aimed.textureFlags, ...skyDome.textureFlags },
+        ...(aimed.textureMips || skyDome.textureMips ? { textureMips: { ...(aimed.textureMips ?? {}), ...(skyDome.textureMips ?? {}) } } : {}) } : {}),
+      ...(own.shadowVector ? { shadowVector: [...own.shadowVector] as [number, number, number] } : {}),
+      // A colour chosen is a fog to see: on, whatever the built-from map's camera had.
+      ...(own.fogColor && aimed.camera ? { camera: { ...aimed.camera, fogEnabled: true, fogColor: [...own.fogColor] as [number, number, number] } } : {}),
+    };
+    return { c, layout, own, fit, playerSide, composed, hostagesLeft: played.hostagesLeft, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, map: ownAtmosphere(withSettings(lit, own)), gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
   };
   /** The map check (`./validate`) is running: Play and Create lobby wait, and a second click does not start another. */
   let checking = false;
@@ -7681,14 +7974,54 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   delBtn.addEventListener('click', remove);
   search.addEventListener('input', drawAssets);
   paletteSel.addEventListener('change', () => { void showPalette(paletteSel.value).catch((e: unknown) => say(String(e), true)); });
+  /**
+   * New's first question (the owner, 2026-11-06): what the layout starts from -- the bases `baseSel` lists, in its groups
+   * (Custom / Preset: the new empty maps; Multiplayer and Campaign: the disc's maps, each with its own game type), the
+   * current base's row chosen at first. Null when cancelled.
+   */
+  const chooseNewBase = (): Promise<string | null> => {
+    const groups: (readonly [string, (readonly [string, string])[]])[] = [];
+    for (const child of Array.from(baseSel.children)) {
+      if (child instanceof HTMLOptGroupElement) {
+        const rows = Array.from(child.querySelectorAll('option')).filter((o) => !o.disabled).map((o) => [o.value, o.textContent ?? o.value] as const);
+        groups.push([child.label, rows]);
+      } else if (child instanceof HTMLOptionElement && !child.disabled) {
+        groups.push(['Custom / Preset', [[child.value, child.textContent ?? child.value]]]);
+      }
+    }
+    const current = baseValue();
+    const first = groups.some(([, rows]) => rows.some(([v]) => v === current)) ? current : groups[0]?.[1][0]?.[0] ?? '';
+    return askChoice('New layout', 'Start from a preset (a new empty map set up for its mode) or one of the disc’s maps.', groups, first, 'Next');
+  };
   newBtn.addEventListener('click', () => { void (async () => {
     if (refuseUnderCard()) return;                                // FUI-2 (IA-1)
     baseAsk.hidden = true;
     if (refuseEdit()) return;
+    // The base first (a preset, a map); a preset then asks which map it is built from (`layoutForSelect`); the work this
+    // drops last, once everything is chosen. Any of them cancelled: the layout stays as it is.
+    const chosen = await chooseNewBase();
+    if (chosen === null) return;
+    const next = await layoutForSelect(chosen, paletteSel.value || entries[0]?.stem || BLANK_LIBRARY).catch((e: unknown) => { say(String(e), true); return null; });
+    if (!next) return;
     const entities = (layoutEntities.zones?.length ?? 0) + (layoutEntities.markers?.length ?? 0) + (layoutEntities.spawners?.length ?? 0);
     const asked = newLayoutDropWords(roots.length, layoutRules !== null, entities);
-    if (asked && !(await askConfirm('Start a new layout?', asked, 'Start new', true))) return;
-    await openLayout(newLayout(baseOfSelect(baseSel.value, paletteSel.value || entries[0]?.stem || BLANK_LIBRARY))).catch((e: unknown) => say(String(e), true));
+    if (asked) {
+      // Save it first (a named save in this browser, as the Saves card's), drop it, or stay where it is.
+      const answer = await askSaveFirst('Save this layout first?', asked);
+      if (answer === null) return;
+      if (answer === 'save') {
+        // As the Saves card's Save as: a named save in this browser, a save of the name replaced.
+        const current = layoutForSave();
+        if (!current) return;
+        const name = await askText('Save this layout', 'A save with this name is replaced. It stays in this browser.', layoutName, RECORD_LIMITS.name, 'Save');
+        if (!name) return;
+        const kept = saveNamedRules(named, name, recordOfLayout(current, name), (current as ForgeLayout).rules);
+        if (kept.error) { say(kept.error, true); return; }
+        if ((await persistNamed(kept.saves)) !== 'written') return;    // refused or saved elsewhere: said there, nothing dropped
+        pop(`Saved ${name}`);
+      }
+    }
+    await openLayout(next).catch((e: unknown) => say(String(e), true));
   })(); });
   layoutNameIn.addEventListener('change', () => {
     const next = layoutNameIn.value.trim().slice(0, LAYOUT_NAME_MAX);
@@ -8037,7 +8370,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           .map((r) => { const why = r.id === 'lobby-create' ? onlineWhy() : null; return why ? { ...r, note: why } : r; }),
       ]),
       ...sectioned('build', 'Build', [
-        { id: 'base', label: 'Base', value: optionLabel(baseSel), note: '← → another base · ✕ starts a new layout on it', left: () => { cycleSelect(baseSel, -1); }, right: () => { cycleSelect(baseSel, 1); }, act: () => newBtn.click() },
+        { id: 'base', label: 'New layout', value: optionLabel(baseSel), note: '✕ chooses a preset or a map to start from', act: () => newBtn.click() },
         { id: 'props', label: 'Props', value: chosen ? parseAssetId(chosen)?.model ?? chosen : 'Choose',
           note: 'Every prop as a grid: L1 / R1 a page, the filter as tabs, the recent ones', grid: PROPS_COLUMNS, page: propsScreen },
         { id: 'npc', label: 'NPC character', value: npcChoice ? charLabel(npcChoice.side, npcChoice.type) : characters().length ? 'Choose' : 'None on this base',
@@ -8120,10 +8453,60 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     menuByPointer = by;
     padMenu.toggle();
   };
-  const baseValue = (): string => (base?.kind === 'map' ? base.archive : base?.kind === 'content' ? contentBaseValue(base) : 'blank');
+  const baseValue = (): string => (base?.kind === 'map' ? base.archive : base?.kind === 'content' ? contentBaseValue(base) : blankValue());
   /** The base the select names: an authored map's own (its option, R6 fix-up), the blank floor on `library`, or a map. */
   const baseOfSelect = (v: string, library: string): LayoutBase =>
-    base?.kind === 'content' && v === contentBaseValue(base) ? { ...base } : v === 'blank' ? { kind: 'blank', library } : { kind: 'map', archive: v };
+    base?.kind === 'content' && v === contentBaseValue(base) ? { ...base } : v === 'blank' || blankPresetOf(v) ? { kind: 'blank', library } : { kind: 'map', archive: v };
+  /**
+   * A preset's hostages' body (`./blankPresets`): a blank floor has none of its own, so it is lent by a disc map that has
+   * hostages -- one whose own mode is the preset's first (an Escort map's VIPs for Escort), then any Escort or Extraction
+   * map (`missionlist.rdr`, `kitGameType`); null where none is on this disc.
+   */
+  const presetHostage = async (type: ForgeGameType, library: string): Promise<PresetHostage | null> => {
+    if (!missionKitsRead) { try { missionKits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { missionKits = null; } missionKitsRead = true; }
+    const stems = copyMaps().map(([stem]) => stem).filter((stem) => !absent.has(stem));
+    const typed = (t: number): string[] => stems.filter((stem) => kitGameType(missionKits, stem) === t);
+    // The map chosen to lend the empty map first: its own hostages where it has some.
+    for (const stem of [...new Set([...(absent.has(library) ? [] : [library]), ...typed(type), ...typed(3), ...typed(4)])]) {
+      const character = hostageCharactersOf(await hostageLibOf(stem))[0];
+      if (character) return { source: stem, character };
+    }
+    return null;
+  };
+  /**
+   * The layout a base choice opens: a preset's set up for its mode (`./blankPresets`), else a new layout on the base;
+   * null when its question is cancelled. A new empty map asks first which disc map it is built from (the owner,
+   * 2026-11-06): the one whose props fill its palette and whose characters and kits its match takes (`LayoutBase`
+   * `library`) -- only the maps of the preset's own mode, `library` chosen at first where it is one.
+   */
+  const layoutForSelect = async (v: string, library: string): Promise<Layout | null> => {
+    const preset = blankPresetOf(v);
+    if (!preset) return newLayout(baseOfSelect(v, library));
+    const row = (e: ArchiveEntry): readonly [string, string] => [e.stem, `${e.label} · ${e.stem}`] as const;
+    // The preset's own mode's maps: their TYPE in `missionlist.rdr` (`kitGameType`), read first if it is not yet. Where
+    // the disc names none of that mode (or has no list), every multiplayer map, and said so.
+    if (!missionKitsRead) { try { missionKits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { missionKits = null; } missionKitsRead = true; }
+    const mp = entries.filter((e) => !e.campaign && !absent.has(e.stem));
+    const same = mp.filter((e) => kitGameType(missionKits, e.stem) === preset.type);
+    const offered = same.length ? same : mp;
+    const modeName = FORGE_GAME_TYPE_NAME[preset.type];
+    const chosen = offered.length ? await askChoice(
+      `${preset.label}: built from which map?`,
+      `${same.length ? `The ${modeName} maps on this disc.` : `No ${modeName} map on this disc: every multiplayer map.`} `
+        + 'The one chosen fills the palette with its props, and the match takes its characters and weapons. Its world is not drawn: the empty map is a flat floor.',
+      [[modeName, offered.map(row)]],
+      offered.some((e) => e.stem === library) ? library : offered[0]!.stem, 'Create',
+    ) : library;
+    if (chosen === null) return null;
+    const lender = preset.type === 3 || preset.type === 4 ? await presetHostage(preset.type, chosen) : null;
+    if ((preset.type === 3 || preset.type === 4) && !lender) say('No disc map with hostages to lend their character: the hostages are placed bare', true);
+    const made = presetLayout(baseOfSelect(v, chosen), preset.type, lender);
+    // Its environment copied from the map it is built from (`./environmentCopy`): the rig, the fog, the night, the
+    // shadows and the sky -- the empty map's own from the start, to change in the Environment panel.
+    const from = await hostageLibOf(chosen);
+    if (from) made.settings = { ...(made.settings ?? {}), ...environmentOf(from) };
+    return made;
+  };
   let baseQuiet = false;
   baseSel.addEventListener('change', () => {
     if (baseQuiet || padMenu.isOpen()) return;
@@ -8136,7 +8519,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   baseApply.addEventListener('click', () => {
     if (refuseEdit()) { baseAsk.hidden = true; baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false; return; }
     baseAsk.hidden = true;
-    void openLayout(newLayout(baseOfSelect(baseSel.value, blankLibrary()))).catch((e: unknown) => say(String(e), true));
+    // A cancelled question (the empty map's library) leaves the layout as it was, the base list put back.
+    void layoutForSelect(baseSel.value, blankLibrary()).then((l) => {
+      if (l) return openLayout(l);
+      baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false;
+      return undefined;
+    }).catch((e: unknown) => say(String(e), true));
   });
   baseCancel.addEventListener('click', () => { baseAsk.hidden = true; baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false; });
 
@@ -8881,6 +9269,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       play.frame(dt, walk, fly.viewportCamera());
     }
     baseView?.frame(fly.viewportCamera(), dt);
+    skyView?.frame(fly.viewportCamera(), dt);               // a new empty map's copied sky: its clouds' scroll
     turnPlacedFlares(fly.viewportCamera().position);
     if (selected || isGroup()) refreshBox();
     forgeLighting.update([scene], forgeLightingOptions(settings, baseMap));
@@ -8983,7 +9372,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     fly.setScale(1);
     fly.setClipPlanes(4, FLOOR_SIZE * 2);
     fly.lookFrom([0, 250, 600], [0, 0, 0]);
-    const blankOpt = el(doc, 'option', '', 'Blank floor');
+    const blankOpt = el(doc, 'option', '', 'New Empty Map');
     blankOpt.value = 'blank';
     baseSel.append(blankOpt);
     baseSel.value = 'blank';
@@ -9115,7 +9504,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // A saved map layout is left alone: opening a blank floor would autosave over it.
     if (saved && saved.base.kind === 'map') { say(['no archives in the served tree (socomlegacy/public/maps)', asideWords(found)].filter(Boolean).join('. '), true); return; }
     keepEarlier = found.held;                                      // the review's F1: an unreadable autosave held in place
-    baseSel.append(opt('blank', 'Blank floor'));
+    baseSel.append(opt('blank', 'New Empty Map'));
     try {
       await openLayout(saved ?? newLayout({ kind: 'blank', library: BLANK_LIBRARY }));
       // After the open, whose own line would replace it (the fold's review, low 3).
@@ -9137,7 +9526,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   async function labelBaseTypes(): Promise<void> {
     let kits: Awaited<ReturnType<typeof loadKitSource>> = null;
-    try { kits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { return; }
+    try { kits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { kits = null; }
+    // The list read (or found absent): a layout waiting on its base's own type takes it now.
+    missionKits = kits;
+    missionKitsRead = true;
+    // Shown, not an edit: no undo step, no save of its own -- the layout's next edit writes it (a file naming no type and
+    // one naming its base's own play the same).
+    if (typePending) {
+      authoredType = ownTypeOf(base);
+      typePending = false;
+      refreshGameTypes();
+    }
     if (!kits) return;
     for (const o of Array.from(baseSel.querySelectorAll('option'))) {
       const type = kitGameType(kits, o.value);
@@ -9157,9 +9556,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     g.append(...rows.map((a) => opt(a.stem, `${a.label} \u00b7 ${a.stem}`)));
     return g;
   };
+  // The blank floor and its presets first (the owner, 2026-11-06: `./blankPresets`), then the disc's maps.
+  const custom = el(doc, 'optgroup');
+  custom.label = 'Custom / Preset';
+  custom.append(...BLANK_PRESETS.map((p) => opt(p.value, p.label)));   // no blank floor without a type (the owner, 2026-11-06)
+  baseSel.append(custom);
   if (mp.length) { baseSel.append(optgroup('Multiplayer', mp)); paletteSel.append(optgroup('Multiplayer', mp)); }
   if (camp.length) { baseSel.append(optgroup('Campaign', camp)); paletteSel.append(optgroup('Campaign', camp)); }
-  baseSel.append(opt('blank', 'Blank floor'));
   void labelBaseTypes();
   // FG-26: `/forge/lobby/<id>` (or an old `/forge?lobby=<id>`) opens as a joiner (the lobby's layout, read-only); a join
   // that stops opens the forge as ever.

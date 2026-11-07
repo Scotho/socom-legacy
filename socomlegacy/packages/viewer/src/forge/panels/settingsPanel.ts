@@ -118,7 +118,8 @@ function controls(doc: Document): Parts {
   const gameTypeSel = forgeEl(doc, 'select', 'fx-select fx-game-type');
   gameTypeSel.setAttribute('aria-label', 'Game type');
   const gameOpt = (value: string, label: string): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', label); o.value = value; return o; };
-  gameTypeSel.append(gameOpt('', 'Map’s own'), ...FORGE_GAME_TYPES.map((t) => gameOpt(String(t), FORGE_GAME_TYPE_NAME[t])));
+  // No "Map's own" (the owner, 2026-11-06): a layout naming no type shows its base map's own, read off the disc.
+  gameTypeSel.append(...FORGE_GAME_TYPES.map((t) => gameOpt(String(t), FORGE_GAME_TYPE_NAME[t])));
   const fogReset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Map’s own');
   fogReset.type = 'button';
   fogReset.title = 'The map’s own fog distance, from the disc';

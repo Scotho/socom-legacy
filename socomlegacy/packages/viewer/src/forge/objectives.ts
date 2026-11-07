@@ -45,6 +45,15 @@ export interface ObjectiveMap {
 const stemOfMap = (map: ObjectiveMap): string => (map.stem ?? (map.path ? stemOf(map.path) : '')).toUpperCase();
 
 /** A demolition bomb the match can run: a start and at least one site for each planting team. */
+/**
+ * BREACH from the layout's own markers (the owner, 2026-11-06; a browser adaptation, FG.R2 -- untested against a run):
+ * the room's BREACH reads StartBomb and the SEALs' site (`BombAuthority.of`, research 174 s2), so a layout's bomb start
+ * and a SEALs' site (team 0) stand for them where the base has none (a blank floor). The Terrorists' site plays no part.
+ */
+export function breachReady(bomb: BombObjectives | undefined): boolean {
+  return !!bomb?.start && bomb.sites.some((s) => s.team === 0);
+}
+
 export function bombReady(bomb: BombObjectives | undefined): boolean {
   if (!bomb?.start) return false;
   let seal = false;
@@ -74,7 +83,8 @@ export function bombReady(bomb: BombObjectives | undefined): boolean {
  */
 export function forgeTypeUnplayable(gameType: number, objectives: ForgeObjectives | undefined, map: ObjectiveMap): string | null {
   switch (gameType) {
-    case 1: return map.bombStart && plantSite('seal', map.meta?.actions ?? []) ? null : 'Breach needs the base\'s bomb start and the SEALs\' site';
+    case 1: return (map.bombStart && plantSite('seal', map.meta?.actions ?? [])) || breachReady(objectives?.bomb) ? null
+      : 'Breach needs a bomb start and the SEALs\' site: the base\'s, or placed (Bomb, Site SEAL)';
     case 2: return bombReady(objectives?.bomb) ? null : 'Demolition needs a start and one site for each team';
     case 3: {
       if (!map.escortees?.length) return 'Escort needs the base\'s escortees';
@@ -136,7 +146,10 @@ export function applyForgeObjectives<T extends ObjectiveMap>(map: T, objectives:
   if (!forgeTypePlayable(objectives.gameType, objectives, map)) return map;
   const next: T = { ...map, gameType: objectives.gameType };
   const bomb = objectives.bomb;
-  if (objectives.gameType !== 2 || !bomb?.start) return next;
+  // DEMOLITION plays the layout's bomb; BREACH too where the layout places its start and the SEALs' site (`breachReady`),
+  // else the base's own.
+  const own = objectives.gameType === 2 ? !!bomb?.start : objectives.gameType === 1 && breachReady(bomb);
+  if (!own || !bomb?.start) return next;
   const kept = (map.meta?.actions ?? []).filter((a) => a.typeCode !== ACTION_TYPE_CODES['MPBOMB']);
   const actions = [...kept, ...forgeBombActions(bomb)];
   const meta = map.meta ? { ...map.meta, actions } : { ...bareMeta(map.stem ?? ''), actions };

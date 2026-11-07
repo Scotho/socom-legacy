@@ -13,13 +13,20 @@ export interface EnvironmentDom {
   body: HTMLDivElement;
   /** The read-only sections, redrawn by `drawEnvironment` with each base. */
   info: HTMLDivElement;
+  /**
+   * The layout lighting (its heading and the Day / night and Fog distance rows) on a disc map; on a new empty map the page
+   * moves the rows into the light rig's own sections (`../panels/lightRigEditor` slots) and hides this (the owner, 2026-11-06).
+   */
+  layout: HTMLDivElement;
 }
 
 export function buildEnvironment(doc: Document, lightingRows: readonly HTMLElement[]): EnvironmentDom {
   const body = forgeEl(doc, 'div', 'fx-environment fx-section');
   const info = forgeEl(doc, 'div', 'fx-environment-info');
-  body.append(forgeEl(doc, 'h3', '', 'Layout lighting'), ...lightingRows, info);
-  return { body, info };
+  const layout = forgeEl(doc, 'div', 'fx-environment-layout');
+  layout.append(forgeEl(doc, 'h3', '', 'Layout lighting'), ...lightingRows);
+  body.append(layout, info);
+  return { body, info, layout };
 }
 
 /** The read-only sections drawn: a heading and its source each, then its rows (a swatch where a row has a colour). */
@@ -54,6 +61,7 @@ export function drawEnvironment(dom: EnvironmentDom, sections: readonly Environm
 }
 
 export function environmentPanel(dom: EnvironmentDom): ForgePanel {
-  return builtPanel({ id: 'environment', title: 'Environment', dock: 'right', order: 35, defaultOpen: true, tab: 'World',
+  // Titled Light rig (the owner, 2026-11-06); its id kept, so a saved dock layout and the tests still find it.
+  return builtPanel({ id: 'environment', title: 'Light rig', dock: 'right', order: 35, defaultOpen: true, tab: 'World',
     padLegend: [{ button: 'dpad', label: 'Change' }] }, dom.body);
 }

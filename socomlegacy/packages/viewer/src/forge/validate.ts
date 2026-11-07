@@ -49,7 +49,20 @@ const SAME_PLACE = 0.01;
 
 export type MapIssueKind =
   | 'spawn-floor' | 'spawn-inside' | 'spawn-facing' | 'spawn-reach' | 'spawn-count' | 'spawn-none'
-  | 'piece-float' | 'piece-buried' | 'piece-overlap' | 'missing' | 'budget' | 'bomb-missing' | 'extraction-missing' | 'escort-missing';
+  | 'piece-float' | 'piece-buried' | 'piece-overlap' | 'missing' | 'budget' | 'bomb-missing' | 'extraction-missing' | 'escort-missing'
+  | 'objective-unused';
+
+/**
+ * The game types each kind of placed objective plays in (the owner, 2026-11-06; a browser adaptation, FG.R2): the bomb's
+ * start and the SEALs' site in Demolition (2) and Breach (1, `./objectives` `breachReady`), the Terrorists' site in
+ * Demolition alone, hostages and extraction zones in Escort (3) and Extraction (4) -- the rooms' rules that read them
+ * (`./objectives` `forgeTypeUnplayable`). Placed under any other type, they are kept and nothing plays them.
+ */
+export const OBJECTIVE_TYPES = {
+  bombStart: [1, 2], sealSite: [1, 2], terroristSite: [2], hostage: [3, 4], zone: [3, 4],
+} as const satisfies Record<string, readonly number[]>;
+
+const TYPE_WORD: Readonly<Record<number, string>> = { 1: 'Breach', 2: 'Demolition', 3: 'Escort', 4: 'Extraction', 5: 'Suppression' };
 
 export interface MapIssue {
   kind: MapIssueKind;
@@ -323,6 +336,26 @@ export function checkMap(
     if (vips !== 3) issues.push({ kind: 'escort-missing', text: `Escort needs three hostages (the VIPs): it has ${vips}. Place them with the Hostage tool.`, at: null });
     const safety = baseExtraction.safety === true || (layout.extractionZones ?? []).some((z) => z.name.toLowerCase() === 'safety');
     if (!safety) issues.push({ kind: 'escort-missing', text: 'Escort has no Safety zone: place one with the Zone tool.', at: null });
+  }
+
+  // Objectives the layout's game type does not play (the owner, 2026-11-06): each placed one named, with its place for
+  // Jump. A rules mode is left alone (its rule host may read any placement); no type named, the base's own plays.
+  const type = layout.objectives?.gameType;
+  if (type !== undefined && !layout.mode) {
+    const word = TYPE_WORD[type] ?? `type ${type}`;
+    const unused = (what: string, plays: readonly number[], at: [number, number, number]): void => {
+      if (plays.includes(type)) return;
+      const where = plays.map((t) => TYPE_WORD[t]).join(' and ');
+      issues.push({ kind: 'objective-unused', text: `${what} plays no part in ${word} (only in ${where}): it is kept, but nothing uses it.`, at });
+    };
+    const bomb = layout.objectives?.bomb;
+    if (bomb?.start) unused('The bomb start', OBJECTIVE_TYPES.bombStart, [bomb.start[0], bomb.start[1], bomb.start[2]]);
+    for (const site of bomb?.sites ?? []) {
+      unused(site.team === 0 ? 'A SEAL plant site' : 'A Terrorist plant site', site.team === 0 ? OBJECTIVE_TYPES.sealSite : OBJECTIVE_TYPES.terroristSite,
+        [site.at[0], site.at[1], site.at[2]]);
+    }
+    for (const h of layout.hostages ?? []) unused(`Hostage ${h.name ?? ''}`.trim(), OBJECTIVE_TYPES.hostage, [h.p[0], h.p[1], h.p[2]]);
+    for (const z of layout.extractionZones ?? []) unused(`Zone ${z.name}`, OBJECTIVE_TYPES.zone, [z.at[0], z.at[1], z.at[2]]);
   }
 
   for (const p of pieces) {

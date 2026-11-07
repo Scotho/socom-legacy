@@ -145,7 +145,16 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
   switch (operation) {
     case 'layout.import': l = importedLayout(args['layout']); break;
     case 'layout.new': l = newLayout(l.base); break;
-    case 'layout.base': l = { ...l, base: args['base'] as Layout['base'] }; break;
+    // A new base takes its own game type (the owner, 2026-11-06): the old base's is dropped, the page then shows the new
+    // map's own (`../page` `ownTypeOf`).
+    case 'layout.base': {
+      l = { ...l, base: args['base'] as Layout['base'] };
+      if (l.objectives?.gameType !== undefined) {
+        const { gameType: _dropped, ...rest } = l.objectives;
+        if (Object.keys(rest).length) l.objectives = rest; else delete l.objectives;
+      }
+      break;
+    }
     case 'layout.name': l.name = args['name'] as string; break;
     case 'piece.place': {
       const m = new Matrix4().makeRotationY(yaw); m.setPosition(...at);

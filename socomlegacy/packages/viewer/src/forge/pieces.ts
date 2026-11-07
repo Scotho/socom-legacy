@@ -41,7 +41,7 @@ export class PieceLibrary {
     const one = id ? prototypeMap(map, id.model) : null;
     if (!one) { this.templates.set(asset, null); return null; }
     const view = buildWorld(one);
-    view.setLighting({ ...DEFAULT_LIGHTING, rig: map.lightRig, brighten: this.brighten });
+    view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? map.lightRig, brighten: this.brighten });
     // The reveal queues run at once: a piece is a few draws, not a map's thousands.
     for (const task of view.revealWorld) task();
     for (const task of view.revealProps) task();
@@ -57,7 +57,7 @@ export class PieceLibrary {
   modelOf(key: string, one: LoadedMap): Group | null {
     if (!this.templates.has(key)) {
       const view = buildWorld(one);
-      view.setLighting({ ...DEFAULT_LIGHTING, rig: one.lightRig, brighten: this.brighten });
+      view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? one.lightRig, brighten: this.brighten });
       for (const task of view.revealWorld) task();
       for (const task of view.revealProps) task();
       this.onBuild?.(view);
@@ -70,10 +70,20 @@ export class PieceLibrary {
     return g;
   }
 
+  /**
+   * A new empty map's own light rig (`LayoutSettings.lightRig`; a browser adaptation, FG.R2) over every template's own --
+   * built and to come -- or null for each template's archive's rig again. The vertex colours rebake under it.
+   */
+  private rigOverride: GlobalLighting | null = null;
+  setRig(rig: GlobalLighting | null): void {
+    this.rigOverride = rig;
+    for (const t of this.templates.values()) t?.view.setLighting({ ...DEFAULT_LIGHTING, rig: rig ?? t.rig, brighten: this.brighten });
+  }
+
   /** FG-24: the brighten on every template, built and to come; the same rig object, so `WorldView.setLighting` rebakes nothing. */
   setBrighten(brighten: number): void {
     this.brighten = brighten;
-    for (const t of this.templates.values()) t?.view.setLighting({ ...DEFAULT_LIGHTING, rig: t.rig, brighten });
+    for (const t of this.templates.values()) t?.view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? t.rig, brighten });
   }
 
   /** A new placement of `asset` (a clone of its template), tagged so a pick finds its root. */

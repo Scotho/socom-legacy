@@ -687,7 +687,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   /** The fog on the scene and behind it (`./matchCore` `liftFog`): with the goggles on, the camera's colour times the lens's. */
   let fogLens: readonly number[] | null = null;
   const refreshFog = (): void => {
-    if (o.forgeLighting) liftForgeFog(scene, fog, lighting, fogLens, (rgb) => renderer?.setClearColor(rgb), o.forgeLighting.timeOfDay);
+    if (o.forgeLighting) liftForgeFog(scene, fog, lighting, fogLens, (rgb) => renderer?.setClearColor(rgb), o.forgeLighting.timeOfDay, o.forgeLighting.keepFogColour === true);
     else liftFog(scene, fog, lighting, fogLens, (rgb) => renderer?.setClearColor(rgb));
   };
   // MATCH-THROW (research 222 §8): the throwables, the launcher and the R2 inventory -- `/testroom`'s (`./matchThrow`),

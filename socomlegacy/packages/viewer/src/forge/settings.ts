@@ -115,7 +115,15 @@ export const NPC_BEHAVIOUR_LABEL: Readonly<Record<NpcBehaviour, string>> = Objec
 /** The settings as the layout keeps them: only the fields that differ from the disc's values. */
 export function settingsDelta(s: LayoutSettings): Partial<LayoutSettings> {
   const keys = Object.keys(DEFAULT_SETTINGS) as (keyof LayoutSettings)[];
-  return Object.fromEntries(keys.filter((k) => s[k] !== DEFAULT_SETTINGS[k]).map((k) => [k, s[k]])) as Partial<LayoutSettings>;
+  const out = Object.fromEntries(keys.filter((k) => s[k] !== DEFAULT_SETTINGS[k]).map((k) => [k, s[k]])) as Partial<LayoutSettings>;
+  // A new empty map's own light rig (no default of the disc's to differ from): kept whenever it is set.
+  if (s.lightRig) out.lightRig = s.lightRig;
+  if (s.fogColor) out.fogColor = s.fogColor;                 // its fog colour and shadow direction likewise
+  if (s.shadowVector) out.shadowVector = s.shadowVector;
+  if (s.skyFrom) out.skyFrom = s.skyFrom;
+  if (s.fog) out.fog = s.fog;
+  if (s.night) out.night = s.night;
+  return out;
 }
 
 /**

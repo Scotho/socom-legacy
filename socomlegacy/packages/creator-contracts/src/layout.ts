@@ -260,9 +260,52 @@ export interface LayoutObjectiveIds {
 export const NPC_BEHAVIOURS = ["sentry", "patrol"] as const;
 export type NpcBehaviour = (typeof NPC_BEHAVIOURS)[number];
 
+/**
+ * A layout's own light rig (the owner, 2026-11-06; a browser adaptation, FG.R2): the disc's `GlobalLighting` record's
+ * shape (`@s2u/scene` `parseGlobalLighting`) -- three directional lights, each the unit direction it shines *from* and
+ * its rgb (1 full brightness), and the ambient rgb every surface takes. Only a new empty map (a blank base) plays one:
+ * a disc map keeps its own rig.
+ */
+export interface LightRigSetting {
+  directions: [[number, number, number], [number, number, number], [number, number, number]];
+  colours: [[number, number, number], [number, number, number], [number, number, number]];
+  ambient: [number, number, number];
+}
+
+/** A rig colour lane's bound: 0 off, 2 twice the disc's full brightness (an editor's bound). */
+export const LIGHT_RIG_COLOUR_MAX = 2;
+
 export interface LayoutSettings {
   /** Forge adaptation: null retains authored/legacy lighting; 0..1 is shared Night -> Day. */
   timeOfDay: number | null;
+  /** A new empty map's own light rig (`LightRigSetting`); absent or null, the rig of the map it is built from. */
+  lightRig?: LightRigSetting | null;
+  /**
+   * A new empty map's own fog colour (the owner, 2026-11-06; a browser adaptation): the camera record's `m_fog_color`
+   * (`@s2u/scene` `CameraParams.fogColor`), rgb 0..255; absent or null, the colour of the map it is built from.
+   */
+  fogColor?: [number, number, number] | null;
+  /**
+   * A new empty map's own drop-shadow direction (as `fogColor`): the world root's `shadowVector` (`@s2u/scene`
+   * `parseWorldRoot`), the way the characters' shadows fall; absent or null, the vector of the map it is built from.
+   */
+  shadowVector?: [number, number, number] | null;
+  /**
+   * A new empty map's sky (the owner, 2026-11-06; a browser adaptation): the disc map (`MP72`) whose sky dome is copied
+   * over the floor (`viewer/src/forge/skyDome`); absent or null, none -- the sky the fog colour clears.
+   */
+  skyFrom?: string | null;
+  /**
+   * A new empty map's own fog beyond its colour and far distance (`fogColor`, `fogFar`; as `fogColor`): the camera
+   * record's on/off (`fogEnabled`), its near distance (`m_fog_near`), and its height band (`fogAltitude`, `m_fog_top` /
+   * `m_fog_bottom`; null, none). Absent or null, the built-from map's.
+   */
+  fog?: { on: boolean; near: number; height: { top: number; bottom: number } | null } | null;
+  /**
+   * A new empty map's own night (as `fog`): the world root's `NightMission` (night vision offered) and `LensFX_NVG` (its
+   * lens, rgb 0..255 and an alpha, as `LoadedMap.night` reads it; null, none). Absent or null, the built-from map's.
+   */
+  night?: { mission: boolean; lens: [number, number, number, number] | null } | null;
   light: number;
   fogFar: number | null;
   players: number;
@@ -285,7 +328,39 @@ export const SETTINGS_BOUNDS = Object.freeze({
   roundSeconds: { min: 30, max: 3600, step: 30 },
 } as const);
 
-const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour"]);
+const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night"]);
+
+/** A night lens: rgb 0..255 and an alpha 0..1 (`settings.night.lens`). */
+function settingsTriple4(v: unknown): [number, number, number, number] {
+  if (!Array.isArray(v) || v.length !== 4 || !v.every(isNum) || v.slice(0, 3).some((n) => n < 0 || n > 255) || v[3] < 0 || v[3] > 1) {
+    throw new Error("settings.night.lens is not rgb 0..255 and an alpha 0..1");
+  }
+  return [v[0], v[1], v[2], v[3]];
+}
+
+/** Three numbers each passing `check`, or null; `what` names the field in the refusal. */
+function settingsTriple(v: unknown, what: string, check: (n: number) => boolean): [number, number, number] | null {
+  if (v === null) return null;
+  if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => isNum(n) && check(n))) throw new Error(`settings.${what} is not three numbers in range`);
+  return [v[0], v[1], v[2]];
+}
+
+/** `settings.lightRig` read: three directions (unit, or zero for a light the rig leaves off), three colours, an ambient. */
+function parseLightRig(v: unknown): LightRigSetting | null {
+  if (v === null) return null;
+  if (!isObj(v)) throw new Error("settings.lightRig is not an object");
+  const vec = (x: unknown, what: string, check: (n: number) => boolean): [number, number, number] => {
+    if (!Array.isArray(x) || x.length !== 3 || !x.every((n) => isNum(n) && check(n))) throw new Error(`settings.lightRig ${what} is not three numbers in range`);
+    return [x[0], x[1], x[2]];
+  };
+  const three = (x: unknown, what: string, check: (n: number) => boolean) => {
+    if (!Array.isArray(x) || x.length !== 3) throw new Error(`settings.lightRig ${what} is not three lights`);
+    return [vec(x[0], `${what} 1`, check), vec(x[1], `${what} 2`, check), vec(x[2], `${what} 3`, check)] as LightRigSetting["directions"];
+  };
+  const dir = (n: number): boolean => n >= -1 && n <= 1;
+  const lane = (n: number): boolean => n >= 0 && n <= LIGHT_RIG_COLOUR_MAX;
+  return { directions: three(v["directions"], "directions", dir), colours: three(v["colours"], "colours", lane), ambient: vec(v["ambient"], "ambient", lane) };
+}
 
 export function parseSettings(raw: unknown): Partial<LayoutSettings> {
   if (!isObj(raw)) throw new Error("settings is not an object");
@@ -309,6 +384,37 @@ export function parseSettings(raw: unknown): Partial<LayoutSettings> {
   if (raw["friendlyFire"] !== undefined) {
     if (typeof raw["friendlyFire"] !== "boolean") throw new Error("settings.friendlyFire is not a boolean");
     out.friendlyFire = raw["friendlyFire"];
+  }
+  if (raw["lightRig"] !== undefined) out.lightRig = parseLightRig(raw["lightRig"]);
+  if (raw["fog"] !== undefined) {
+    const v = raw["fog"];
+    if (v === null) out.fog = null;
+    else {
+      if (!isObj(v) || typeof v["on"] !== "boolean" || !isNum(v["near"]) || v["near"] < 0 || v["near"] > SETTINGS_BOUNDS.fogFar.max) throw new Error("settings.fog is not an on, a near distance and a height band");
+      const h = v["height"];
+      if (h !== null && (!isObj(h) || !isNum(h["top"]) || !isNum(h["bottom"]) || Math.abs(h["top"]) > 100000 || Math.abs(h["bottom"]) > 100000)) throw new Error("settings.fog.height is not a top and a bottom");
+      out.fog = { on: v["on"], near: v["near"], height: h === null ? null : { top: (h as Record<string, number>)["top"]!, bottom: (h as Record<string, number>)["bottom"]! } };
+    }
+  }
+  if (raw["night"] !== undefined) {
+    const v = raw["night"];
+    if (v === null) out.night = null;
+    else {
+      if (!isObj(v) || typeof v["mission"] !== "boolean") throw new Error("settings.night is not a mission and a lens");
+      const lens = v["lens"] === null ? null : settingsTriple4(v["lens"]);
+      out.night = { mission: v["mission"], lens };
+    }
+  }
+  if (raw["skyFrom"] !== undefined) {
+    const v = raw["skyFrom"];
+    if (v !== null && (typeof v !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(v))) throw new Error("settings.skyFrom is not a disc map's archive");
+    out.skyFrom = v as string | null;
+  }
+  if (raw["fogColor"] !== undefined) out.fogColor = settingsTriple(raw["fogColor"], "fogColor", (n) => n >= 0 && n <= 255);
+  if (raw["shadowVector"] !== undefined) {
+    const v = settingsTriple(raw["shadowVector"], "shadowVector", (n) => n >= -1000 && n <= 1000);
+    if (v && Math.hypot(v[0], v[1], v[2]) === 0) throw new Error("settings.shadowVector is a zero direction");
+    out.shadowVector = v;
   }
   if (raw["npcBehaviour"] !== undefined) {
     const v = raw["npcBehaviour"];
