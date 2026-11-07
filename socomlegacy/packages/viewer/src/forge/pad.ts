@@ -4,12 +4,18 @@
  * `PAD_BUTTON` order, `../gamepad`: Cross 0 ... Start 9, L3 10, R3 11, the d-pad 12-15) into the forge's actions:
  *
  *     left stick  fly (walk in Play)        right stick  look             L2 / R2   down / up
- *     Cross tap   select or place at the centre                          L1 / R1   previous / next tool
+ *     Cross tap   select or place at the centre                          L1 / R1   previous / next tool (every tool,
+ *                                                                                  the tools row's order)
  *     Cross held  add to or take out of the selection what is at the centre (FG-47)
  *     d-pad up/down  previous / next prop   d-pad left/right  turn the selection
  *     Circle tap  deselect                  Circle held  grab: the sticks move the selection
- *     Square      duplicate                 Triangle  delete              SELECT  undo   L3  redo   R3  snap
+ *     Square      duplicate                 Triangle  delete
+ *     SELECT tap  undo                      SELECT held  redo
+ *     L3          snap on / off             R3  frame the selection (the keyboard's F)
  *     START       the forge's menu (Play, Walk, the base, the palette, the view, save, the controls)
+ *
+ * The owner's remap (2026-11-06): redo moved from L3 to a held SELECT, beside its undo; snap to L3; R3 frames the
+ * selection, which the pad had no way to do.
  *     the left stick at its rim boosts the fly, as the touch stick's rim does (`../camera` `setStickBoost`)
  *
  * Pure: a frame in, the frame's actions out (edges, the d-pad's repeat, the tap-or-hold), so it is tested without a pad.
@@ -32,7 +38,7 @@ export interface PadSnapshot {
 
 export type PadAction =
   | 'act' | 'pick' | 'deselect' | 'duplicate' | 'delete' | 'prevTool' | 'nextTool' | 'prevAsset' | 'nextAsset'
-  | 'turnLeft' | 'turnRight' | 'undo' | 'redo' | 'snap' | 'menu';
+  | 'turnLeft' | 'turnRight' | 'undo' | 'redo' | 'snap' | 'frame' | 'menu';
 
 export interface PadFrame {
   actions: PadAction[];
@@ -86,7 +92,9 @@ const TRIGGER_REST = 0.1;
 /** The left stick's push (past the dead zone, 0..1) that counts as its rim: the boost. */
 const BOOST_PUSH = 0.95;
 
-const EDGE: [number, PadAction][] = [[2, 'duplicate'], [3, 'delete'], [4, 'prevTool'], [5, 'nextTool'], [8, 'undo'], [10, 'redo'], [11, 'snap'], [9, 'menu']];
+const EDGE: [number, PadAction][] = [[2, 'duplicate'], [3, 'delete'], [4, 'prevTool'], [5, 'nextTool'], [10, 'snap'], [11, 'frame'], [9, 'menu']];
+/** SELECT: a tap undoes (at its release), a hold past `PAD_HOLD_MS` redoes (at once), as Cross's tap-or-hold. */
+const SELECT = 8;
 const REPEAT: [number, PadAction][] = [[12, 'prevAsset'], [13, 'nextAsset'], [14, 'turnLeft'], [15, 'turnRight']];
 const CROSS = 0;
 const CIRCLE = 1;
@@ -142,6 +150,9 @@ export class ForgePad {
   private armed = false;
   private readonly repeatAt = new Map<number, number>();
   private circleGrabbed = false;
+  /** When SELECT went down (null: not pending), and whether its hold has redone. */
+  private selectAt: number | null = null;
+  private selectHeld = false;
   /** FG-47: when Cross went down as a tap-or-hold (null: not pending), and whether its hold has picked. */
   private crossAt: number | null = null;
   private crossPicked = false;
@@ -165,6 +176,8 @@ export class ForgePad {
     this.circleGrabbed = false;
     this.crossAt = null;
     this.crossPicked = false;
+    this.selectAt = null;
+    this.selectHeld = false;
   }
 
   frame(pad: PadSnapshot | null, now: number): PadFrame {
@@ -188,6 +201,15 @@ export class ForgePad {
       if (this.crossAt !== null && !this.crossPicked && this.crossHolds) actions.push('act');
       this.crossAt = null;
       this.crossPicked = false;
+    }
+    // SELECT: a tap the undo at its release; held past PAD_HOLD_MS the redo, once, its release then nothing.
+    if (pressed(SELECT)) { this.selectAt = now; this.selectHeld = false; }
+    else if (down.has(SELECT)) {
+      if (this.selectAt !== null && !this.selectHeld && now - this.selectAt >= PAD_HOLD_MS) { this.selectHeld = true; actions.push('redo'); }
+    } else if (this.held.has(SELECT)) {
+      if (this.selectAt !== null && !this.selectHeld) actions.push('undo');
+      this.selectAt = null;
+      this.selectHeld = false;
     }
     for (const [i, a] of EDGE) if (pressed(i)) actions.push(a);
     for (const [i, a] of REPEAT) {

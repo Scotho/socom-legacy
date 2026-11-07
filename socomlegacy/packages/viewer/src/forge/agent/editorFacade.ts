@@ -414,6 +414,8 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
       let picked = editor.selectionIds();
       if (operation === 'piece.place') picked = [`piece:${next.pieces.length - 1}`];
       else if (operation === 'spawn.place') picked = [`spawn:${next.spawns.length - 1}`];
+      else if (operation === 'flare.place') picked = [`flare:${(next.flares?.length ?? 1) - 1}`];
+      else if (operation === 'respawn.place') picked = [`respawn:${(next.respawns?.length ?? 1) - 1}`];
       else if (operation === 'npc.place') picked = [`npc:${(next.npcs?.length ?? 1) - 1}`];
       else if (operation === 'door.place') picked = [`door:${(next.doors?.length ?? 1) - 1}`];
       else if (operation === 'gate.place') picked = [`gate:${(next.gates?.length ?? 1) - 1}`];

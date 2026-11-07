@@ -185,8 +185,15 @@ export function composeMatchMap(base: LoadedMap, layout: Layout, libraries: Read
   // FG-31: `ground` is the base's hull without its hidden owners, the pieces' after them (`layoutGround`), so the doors'
   // owner indices are remapped from the base's own hull onto it.
   const doors = base.doors && base.ground ? doorsAfter(base.ground, ground, base.doors) : base.doors;
+  // The placed respawn points (`Layout.respawns`, a browser adaptation): where a side respawns when it has some; a side
+  // with none respawns at its slots, as every layout did before.
+  let respawns = slots;
+  if (layout.respawns?.length) {
+    const placed = slotsOfSpawns(layout.respawns, grid, ground);
+    respawns = [...placed, ...([0, 1] as const).flatMap((side) => (placed.some((s) => s.side === side) ? [] : slots.filter((s) => s.side === side)))];
+  }
   const map: LoadedMap = {
-    ...base, props, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ground, slots, respawns: slots,
+    ...base, props, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ground, slots, respawns,
     ...(doors ? { doors } : {}),
   };
   return { map, missing, content, misses };

@@ -701,7 +701,8 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-field-reset:hover, .fx-field-reset:focus-visible { color: var(--fx-gold); background: var(--fx-hover); }
 .fx-field-reset .fx-ico { width: 14px; height: 14px; }
 /* The scrub (`./scrub`): a number field not being typed in drags left or right; while one drags, the whole page says so. */
-.fx-scrub:not(:focus):not(:disabled) { cursor: ew-resize; }
+.fx-scrub:not(:focus):not(:disabled),
+.forge-page input[type="number"]:not(:focus):not(:disabled):not([readonly]) { cursor: ew-resize; }
 :root.fx-scrubbing, :root.fx-scrubbing * { cursor: ew-resize !important; user-select: none; }
 .fx-field-caption { font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-dim); white-space: nowrap; }
 .fx-fields.is-off { pointer-events: none; }
@@ -1642,3 +1643,12 @@ body.is-matching .fx-legend { display: none; }
 .fx-tools-row .fx-tool > span { display: inline; }
 .fx-tools-row .fx-tool > .fx-billboard-icon { display: grid; }
 .fx-tools-row .fx-tool { gap: 6px; padding: 0 8px; }
+/* A section a game mode (the owner, 2026-11-06): its caption, then its groups; greyed whole when its type is not played. */
+.fx-tools-row .fx-mode-section { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; height: 34px; border: 1px solid var(--fx-edge); border-radius: 4px; }
+.fx-tools-row .fx-mode-section > .fx-group:last-child { border-right: 0; }
+.fx-mode-section__label { font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); white-space: nowrap; padding-right: 4px; }
+.fx-tools-row .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; }
+.fx-tools-row .fx-mode-section.is-off { border-style: dashed; }
+.fx-tools-row .fx-mode-section.is-off > .fx-mode-section__label { opacity: var(--fx-disabled); }
+/* The View dropdown's sections (the toolbar's headers): a small caption over each group of switches, both columns alike. */
+.fx-billboards-section { margin: 8px 0 2px; font: var(--fx-type-caption); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); opacity: .8; height: 14px; line-height: 14px; white-space: nowrap; }

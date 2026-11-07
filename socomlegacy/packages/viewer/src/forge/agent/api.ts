@@ -42,7 +42,7 @@ export type ForgeAgentView = Record<ForgeAgentViewToggle, boolean> & {
   snap: boolean;
   gridStep: number;
   turnStep: number;
-  tool: 'select' | 'place' | 'spawnA' | 'spawnB' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'gate' | 'barrier' | 'ladder' | 'bomb' | 'siteSeal' | 'siteTerrorist';
+  tool: 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'flare' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'gate' | 'barrier' | 'ladder' | 'bomb' | 'siteSeal' | 'siteTerrorist';
   gizmo: string;
   camera: { x: number; y: number; z: number; yaw: number; pitch: number };
   /** The private scenario's status (`./play` `status`), null when none ran. */
@@ -193,7 +193,7 @@ export const FORGE_AGENT_OPERATIONS = [
   op('layout.base', 'edit', 'Stage and change base as one undoable edit', object({ base: arbitraryObject })),
   op('layout.name', 'edit', 'Set recipe name', object({ name: { ...text, maxLength: 48 } })),
   op('layout.batch', 'edit', 'Stage multiple edits as one undo step; destructive ref reindexing is refused before later ref writes', object({ edits: {
-    type: 'array', minItems: 1, maxItems: 100, items: object({ operation: choice('layout.name', 'piece.place', 'piece.move', 'piece.rotate', 'piece.delete', 'piece.lock', 'piece.unlock', 'piece.hide', 'piece.restore', 'spawn.place', 'npc.place', 'hostage.place', 'extraction.place', 'point.place', 'view.place', 'turret.place', 'door.place', 'gate.place', 'barrier.place', 'placement.set', 'bomb.place', 'objectives.set', 'settings.set', 'type.set', ...entityEdits, ...rulesEdits), args: arbitraryObject }),
+    type: 'array', minItems: 1, maxItems: 100, items: object({ operation: choice('layout.name', 'piece.place', 'piece.move', 'piece.rotate', 'piece.delete', 'piece.lock', 'piece.unlock', 'piece.hide', 'piece.restore', 'spawn.place', 'respawn.place', 'flare.place', 'npc.place', 'hostage.place', 'extraction.place', 'point.place', 'view.place', 'turret.place', 'door.place', 'gate.place', 'barrier.place', 'placement.set', 'bomb.place', 'objectives.set', 'settings.set', 'type.set', ...entityEdits, ...rulesEdits), args: arbitraryObject }),
   } })),
   op('piece.place', 'edit', 'Place an asset using the existing piece library', object({ asset: text, at: point, yaw: number }, ['asset', 'at'])),
   op('piece.move', 'edit', 'Move revision-scoped refs by a delta', object({ refs, delta: point })),
@@ -210,6 +210,8 @@ export const FORGE_AGENT_OPERATIONS = [
   op('selection.paste', 'edit', 'Paste editor clipboard at a world point', object({ at: point })),
   op('selection.duplicate', 'edit', 'Duplicate selection as one undoable edit', object({ delta: point }, [])),
   op('spawn.place', 'edit', 'Place a team spawn', object({ team: choice('A', 'B'), at: point, yaw: number }, ['team', 'at'])),
+  op('flare.place', 'edit', "Place a flare: a copy of one of a disc map's facade nodes (a glow the game turns to the camera), by its archive and node name; a browser adaptation", object({ source: { type: 'string', pattern: '^[A-Z]{1,3}\\d{1,3}$' }, name: { type: 'string', maxLength: 48 }, at: point }, ['source', 'name', 'at'])),
+  op('respawn.place', 'edit', "Place a team respawn point, beside the map's own respawn records; a browser adaptation", object({ team: choice('A', 'B'), at: point, yaw: number }, ['team', 'at'])),
   op('hostage.place', 'edit', "Place a hostage beside the base map's own; Escort or Extraction only (a browser adaptation)", object({ at: point, yaw: number, name: { type: 'string', maxLength: 32 } }, ['at'])),
   op('extraction.place', 'edit', "Place an extraction zone (Safety, Safety2...) beside the base map's own; Extraction only (a browser adaptation)", object({ at: point, size: { type: 'array', minItems: 2, maxItems: 2, items: number }, name: { type: 'string', maxLength: 32 } }, ['at'])),
   op('point.place', 'edit', 'Place a tactical point (kind 1 a nav point the compass marks; named Charlie, Delta... by default); a browser adaptation', object({ at: point, name: { type: 'string', maxLength: 32 }, kind: { type: 'integer', minimum: 0, maximum: 31 } }, ['at'])),

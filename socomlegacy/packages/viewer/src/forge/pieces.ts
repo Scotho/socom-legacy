@@ -154,6 +154,23 @@ export function spawnMarker(team: 'A' | 'B'): Group {
   return g;
 }
 
+/** A placed respawn point's colours: the map's respawn billboards' (`./mapDataBillboards` respawnA, respawnB). */
+export const RESPAWN_COLOURS = { a: 0x9cc8ff, b: 0xffa27f } as const;
+
+/**
+ * A placed respawn point (`Layout.respawns`; a browser adaptation, FG.R2): a spawn's cell and arrow in its team's respawn
+ * colour. `userData.forgeRespawn` is the team a pick and a save read.
+ */
+export function respawnMarker(team: 'A' | 'B'): Group {
+  const g = new Group();
+  const mark = slotMark(team === 'A' ? RESPAWN_COLOURS.a : RESPAWN_COLOURS.b);
+  g.add(...mark.parts);
+  g.userData['forgeRespawn'] = team;
+  g.userData['dispose'] = mark.dispose;
+  g.name = `respawn ${team}`;
+  return g;
+}
+
 /** The NPCs' side colours: the forge's own (no original), SEAL blue and terrorist red. */
 export const SIDE_COLOUR = { seal: 0x5a9cff, terrorist: 0xe0503c } as const;
 
@@ -307,7 +324,7 @@ export function missingPiece(asset: string): Group {
 export function forgeRootOf(o: Object3D | null): Object3D | null {
   for (let at = o; at; at = at.parent) {
     if (at.userData['forgeGhost']) return null;
-    if (at.userData['forgePiece'] || at.userData['forgeSpawn'] || at.userData['forgeNpc'] || at.userData['forgeBomb']
+    if (at.userData['forgePiece'] || at.userData['forgeSpawn'] || at.userData['forgeRespawn'] || at.userData['forgeFlare'] || at.userData['forgeNpc'] || at.userData['forgeBomb']
       || at.userData['forgeHostage'] || at.userData['forgeZone'] || at.userData['forgePoint'] || at.userData['forgeView'] || at.userData['forgeTurret'] || at.userData['forgeDoor'] || at.userData['forgeGate'] || at.userData['forgeBarrier']) return at;
   }
   return null;

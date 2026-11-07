@@ -1,5 +1,5 @@
 import type { MenuItem } from '../padMenu';
-import { scrubNumber } from '../scrub';
+import { scrubNumber, type ScrubDetail } from '../scrub';
 import { builtPanel, forgeEl, revealRow, type ForgePanel } from '../shell/panel';
 
 /**
@@ -137,6 +137,11 @@ export interface InspectorEditor {
   title?: string;
   disabled?: boolean;
   set(value: string | number | boolean): void;
+  /**
+   * A number field's live preview while it is scrubbed (`../scrub`; a browser adaptation, FG.R2): the scene follows each
+   * value with no edit made; null puts it back as it was (Escape, or just before the release's one edit, `set`).
+   */
+  preview?(value: number | null): void;
 }
 
 /**
@@ -172,9 +177,16 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
     if (e.title) input.title = e.title;
     input.addEventListener('change', () => {
       if (e.kind === 'check') e.set((input as HTMLInputElement).checked);
-      else if (e.kind === 'number') { const n = Number(input.value); if (Number.isFinite(n)) e.set(n); }
+      else if (e.kind === 'number') { e.preview?.(null); const n = Number(input.value); if (Number.isFinite(n)) e.set(n); }
       else e.set(input.value);
     });
+    // A scrub's values shown live (`preview`), the release's `change` the one edit.
+    if (e.kind === 'number' && e.preview) {
+      input.addEventListener('fx-scrub', (ev) => {
+        const { value, cancelled } = (ev as CustomEvent<ScrubDetail>).detail;
+        e.preview!(cancelled ? null : value);
+      });
+    }
     if (input instanceof HTMLInputElement && e.kind !== 'check') input.addEventListener('keydown', (k) => { if (k.key === 'Enter') input.blur(); });
     const dd = forgeEl(doc, 'dd', '');
     dd.append(input);

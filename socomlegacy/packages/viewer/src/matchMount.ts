@@ -731,7 +731,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       roundAudio: sound.roundAudio, hud, remotePlayers: remote, effects: firearm.effects, worldBomb: throws.grenade.worldBomb(),
       ownBody: ownBombBody(play, throws.throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1: `./main`'s, the own body
       sound: bombSound(sound.audio),                                                             // PB-1: the pickup's .FOOTBOMB
-      pulse: worldPulse(() => world?.world ?? null),                                             // PB-9b: `./main`'s, the bases' pulse
+      pulse: worldPulse(() => world?.world ?? null, () => map?.forgeSiteOutlines ?? []),       // PB-9b: `./main`'s, the bases' pulse; the forge's sites' outlines
     },
     win: win as unknown as EventTarget,
     drops: { ahead: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0), candidates: () => drops.holdCandidatesAt(walk.feet(), walk.snapshot()?.yaw ?? 0), second: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0, 2), item: (did) => drops.itemOf(did) },   // LkPaioX5 (c): the second TAKE and the names;   // PAR-34 group 7: `./main`'s   // PAR-4: `./main`'s PF-34 -- the weapon prompt's drop

@@ -24,6 +24,11 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   // A placed spawn in the disc spawn slot's colours (`../overlays` SPAWN_COLOURS); square, where a slot is round.
   userSpawnA: { glyph: 'Ss', colour: '#4d9bff', word: 'Spawn A (SEALs)', shape: 'square' },
   userSpawnB: { glyph: 'St', colour: '#ff6a3d', word: 'Spawn B (Terrorists)', shape: 'square' },
+  // A placed respawn point by its team, as the map's (Rs, Rt; their colours), square as every placement.
+  userRespawnA: { glyph: 'Rs', colour: '#9cc8ff', word: 'Respawn point A (SEALs)', shape: 'square' },
+  userRespawnB: { glyph: 'Rt', colour: '#ffa27f', word: 'Respawn point B (Terrorists)', shape: 'square' },
+  // A placed flare: a disc facade prop (`./mapCensus` `flarePropsOf`), the map's flares' F, square as every placement.
+  userFlares: { glyph: 'F', colour: '#fff2a8', word: 'Flare', shape: 'square' },
   userNpcs: { glyph: 'N', colour: '#b9a6ff', word: 'NPC', shape: 'square' },
   // The bomb's markers as `./pieces` colours them: the start sand, a site its planting team's (`SIDE_COLOUR`).
   userEscortees: { glyph: 'H', colour: MAP_HOSTAGE_COLOUR, word: 'Hostage', shape: 'square' },
@@ -81,16 +86,17 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
   { id: 'turrets', label: 'Turrets', kinds: ['turrets'], group: 'map' },
   { id: 'doors', label: 'Doors', kinds: ['doors'], group: 'map' },
   { id: 'gates', label: 'Gates', kinds: ['gates'], group: 'map' },
-  { id: 'cranes', label: 'Cranes', kinds: ['cranes'], group: 'map' },
   { id: 'ladders', label: 'Ladders', kinds: ['ladders'], group: 'map' },
   { id: 'actions', label: 'Context actions', kinds: ['actions'], group: 'map' },
   { id: 'tacPoints', label: 'Tactical points', kinds: ['tacPoints'], group: 'map' },
   { id: 'tacZones', label: 'Tactical zones', kinds: ['tacZones'], group: 'map' },
   { id: 'scenicViews', label: 'Spectator views', kinds: ['scenicViews'], group: 'map' },
   { id: 'flares', label: 'Flares (lights)', kinds: ['flares'], group: 'map' },
+  // Last (the owner, 2026-11-06): one map has cranes, and with no user counterpart its row left a gap mid-list.
+  { id: 'cranes', label: 'Cranes', kinds: ['cranes'], group: 'map' },
   { id: 'userProps', label: 'Props', kinds: ['userProps'], group: 'user' },
   { id: 'userSpawns', label: 'Spawns', kinds: ['userSpawnA', 'userSpawnB'], group: 'user' },
-  { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'], group: 'user' },
+  { id: 'userRespawns', label: 'Respawn points', kinds: ['userRespawnA', 'userRespawnB'], group: 'user' },
   { id: 'userEscortees', label: 'Hostages', kinds: ['userEscortees'], group: 'user' },
   { id: 'userTacZones', label: 'Tactical zones', kinds: ['userTacZones'], group: 'user' },
   { id: 'userTacPoints', label: 'Tactical points', kinds: ['userTacPoints'], group: 'user' },
@@ -99,12 +105,15 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
   { id: 'userDoors', label: 'Doors', kinds: ['userDoors'], group: 'user' },
   { id: 'userLadders', label: 'Ladders', kinds: ['userLadders'], group: 'user' },
   { id: 'userGates', label: 'Gates', kinds: ['userGates'], group: 'user' },
+  { id: 'userFlares', label: 'Flares', kinds: ['userFlares'], group: 'user' },
   { id: 'userObjectives', label: 'Bomb start', kinds: ['userBombStart'], group: 'user' },
   { id: 'userActions', label: 'Context actions', kinds: ['userSiteSeal', 'userSiteTerrorist', 'userBarriers'], group: 'user' },
+  // Last (the owner, 2026-11-06): NPCs have no map counterpart, so they take the user column's first free cell at the bottom.
+  { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'], group: 'user' },
 ];
 
 /** A user placement's mark kind by what it is (the page's `userData`: a piece, a spawn's team, an NPC, a bomb marker's kind). */
-export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean }): string | null {
+export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; flare?: boolean }): string | null {
   if (r.hostage) return 'userEscortees';
   if (r.zone) return 'userTacZones';
   if (r.point) return 'userTacPoints';
@@ -112,9 +121,11 @@ export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; npc?: boole
   if (r.turret) return 'userTurrets';
   if (r.door) return 'userDoors';
   if (r.ladder) return 'userLadders';
+  if (r.flare) return 'userFlares';
   if (r.gate) return 'userGates';
   if (r.barrier) return 'userBarriers';
   if (r.bomb) return r.bomb === 'start' ? 'userBombStart' : r.bomb === 'seal' ? 'userSiteSeal' : 'userSiteTerrorist';
+  if (r.respawn) return r.respawn === 'A' ? 'userRespawnA' : 'userRespawnB';
   if (r.team) return r.team === 'A' ? 'userSpawnA' : 'userSpawnB';
   if (r.npc) return 'userNpcs';
   if (r.piece) return 'userProps';
@@ -369,27 +380,54 @@ export class MapDataBillboards {
 
 /** Each user kind's map counterpart (the same billboard's kind): the dropdown's rows pair them. */
 export const BILLBOARD_PAIRS: Readonly<Record<string, string>> = {
-  userProps: 'mapProps', userSpawns: 'slots', userEscortees: 'escortees', userTacZones: 'tacZones', userTacPoints: 'tacPoints',
-  userScenicViews: 'scenicViews', userTurrets: 'turrets', userDoors: 'doors', userLadders: 'ladders', userGates: 'gates',
+  userProps: 'mapProps', userSpawns: 'slots', userRespawns: 'respawns', userEscortees: 'escortees', userTacZones: 'tacZones', userTacPoints: 'tacPoints',
+  userScenicViews: 'scenicViews', userTurrets: 'turrets', userDoors: 'doors', userLadders: 'ladders', userGates: 'gates', userFlares: 'flares',
   userObjectives: 'bombStart', userActions: 'actions',
 };
 
 type KindToggle = (typeof MAP_DATA_KIND_TOGGLES)[number];
 
 /**
- * The Billboards dropdown's rows (the owner, 2026-11-06): the map's switches in their own order, each beside its user
- * counterpart (`BILLBOARD_PAIRS`), an empty cell where a side has none; a user switch with no map counterpart (NPCs) on
- * a row of its own right after the user switch before it.
+ * The Billboards dropdown's sections (the owner, 2026-11-06): the placing toolbar's own headers (`./page` `modeSection`),
+ * each its map switches in this order; Other the kinds no tool places (cranes; and NPCs, the user switch with no map
+ * counterpart). Props sit with Objects; context actions with Demolition, where the disc's MPBOMB sites are.
  */
-export function billboardRows(): { user: KindToggle | null; map: KindToggle | null }[] {
+export const BILLBOARD_SECTIONS: readonly { heading: string; map: readonly string[]; user?: readonly string[] }[] = [
+  { heading: 'Spawn', map: ['slots', 'respawns'] },
+  { heading: 'Objects', map: ['mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares'] },
+  { heading: 'Demolition', map: ['bombStart', 'actions'] },
+  { heading: 'Escort · Extraction', map: ['escortees', 'tacZones'] },
+  { heading: 'Info', map: ['tacPoints', 'scenicViews'] },
+  { heading: 'Other', map: ['cranes'], user: ['userNpcs'] },
+];
+
+/**
+ * The Billboards dropdown's rows (the owner, 2026-11-06), by section (`BILLBOARD_SECTIONS`): a section's heading, then its
+ * map switches each beside its user counterpart (`BILLBOARD_PAIRS`), an empty cell where a side has none; a section's
+ * own user switches with no map counterpart (NPCs) fill its empty user cells, else rows of their own. A switch no section
+ * names goes to Other.
+ */
+export type BillboardRow = { heading: string } | { user: KindToggle | null; map: KindToggle | null };
+export function billboardRows(): BillboardRow[] {
   const users = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'user');
-  const rows: { user: KindToggle | null; map: KindToggle | null }[] = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'map')
-    .map((m) => ({ user: users.find((u) => BILLBOARD_PAIRS[u.id] === m.id) ?? null, map: m }));
-  users.forEach((u, i) => {
-    if (BILLBOARD_PAIRS[u.id]) return;
-    const before = users.slice(0, i).reverse().find((p) => rows.some((r) => r.user === p));
-    const at = before ? rows.findIndex((r) => r.user === before) + 1 : 0;
-    rows.splice(at, 0, { user: u, map: null });
-  });
-  return rows;
+  const maps = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'map');
+  const named = new Set(BILLBOARD_SECTIONS.flatMap((s) => [...s.map, ...(s.user ?? [])]));
+  const out: BillboardRow[] = [];
+  for (const section of BILLBOARD_SECTIONS) {
+    const other = section.heading === 'Other';
+    const mapIds = [...section.map, ...(other ? maps.filter((m) => !named.has(m.id)).map((m) => m.id) : [])];
+    const rows = mapIds.flatMap((id) => {
+      const map = maps.find((m) => m.id === id);
+      return map ? [{ user: users.find((u) => BILLBOARD_PAIRS[u.id] === id) ?? null, map }] : [];
+    });
+    const lone = [...(section.user ?? []), ...(other ? users.filter((u) => !BILLBOARD_PAIRS[u.id] && !named.has(u.id)).map((u) => u.id) : [])];
+    for (const id of lone) {
+      const u = users.find((t) => t.id === id);
+      if (!u) continue;
+      const free = rows.find((r) => !r.user);
+      if (free) free.user = u; else rows.push({ user: u, map: null });
+    }
+    if (rows.length) out.push({ heading: section.heading }, ...rows);
+  }
+  return out;
 }

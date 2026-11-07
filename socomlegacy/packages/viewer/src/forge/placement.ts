@@ -134,16 +134,24 @@ export function clipOf(points: readonly Vec3[], turns: readonly Quat[]): ClipOff
   return offsets.map((offset, i) => ({ offset, q: turns[i] ?? [0, 0, 0, 1] }));
 }
 
+/** Whether `o` is `root` or lies beneath it. */
+const isBeneath = (o: Object3D, root: Object3D): boolean => { for (let at: Object3D | null = o; at; at = at.parent) if (at === root) return true; return false; };
+
 /**
  * `object` placed on `at` with the bottom of its bounding box on it (the owner, 2026-11-06; a browser adaptation,
  * FG.R2): set at `at`, its turn as it is, then raised or lowered by the box's floor -- so a model whose geometry reaches
  * below its origin (a door's hinge, part way up its leaf) stands on the surface, never under it. One with no geometry
- * stands at `at`.
+ * stands at `at`. Its editor guides (`userData.forgeGuide`: a plant site's reach, a turret's arc) are drawings, not the
+ * object: left out of the box, or a guide reaching below the marker -- a site's reach cylinder -- lifts it off the floor.
  */
 export function seatOn(object: Object3D, at: Vector3): void {
   object.position.copy(at);
   object.updateMatrixWorld(true);
+  const guides: { guide: Object3D; parent: Object3D }[] = [];
+  object.traverse((o) => { if (o !== object && o.userData['forgeGuide'] && o.parent && !guides.some((g) => isBeneath(o, g.guide))) guides.push({ guide: o, parent: o.parent }); });
+  for (const { guide, parent } of guides) parent.remove(guide);
   const box = new Box3().setFromObject(object);
+  for (const { guide, parent } of guides) parent.add(guide);
   if (box.isEmpty() || !Number.isFinite(box.min.y)) return;
   object.position.y += at.y - box.min.y;
   object.updateMatrixWorld(true);

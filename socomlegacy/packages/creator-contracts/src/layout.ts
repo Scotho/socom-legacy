@@ -165,6 +165,18 @@ export interface Layout {
    */
   tacPoints?: TacPointMarker[];
   /**
+   * The layout's placed respawn points (a browser adaptation, FG.R2; the owner, 2026-11-06): each a team, a place and a
+   * yaw (radians) as a spawn's, beside the map's own respawn records (`LoadedMap.respawns`, research 91 section 4.2).
+   * Absent: none. Online refused (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own respawns.
+   */
+  respawns?: SpawnMarker[];
+  /**
+   * The layout's placed flares (a browser adaptation, FG.R2; the owner, 2026-11-06): each a copy of one of a disc map's
+   * facade nodes -- a glow the engine turns to the camera, not the lamp it hangs on -- by its archive (`source`) and its
+   * node's name (`name`), at `at`. Absent: none. Online refused (`onlineCreatorLayoutRefusal`).
+   */
+  flares?: FlareMarker[];
+  /**
    * The layout's placed spectator views (a browser adaptation, FG.R2): a name, a camera place and its yaw and pitch
    * (degrees, the port's convention, as `mission.rdr`'s Scenic_Views), beside the map's own. Absent: none. Online refused.
    */
@@ -376,6 +388,17 @@ export interface DoorMarker {
 const TURRET_SOURCE = /^[A-Z]{1,3}\d{1,3}$/;
 /** The disc's own spelling, a space and all (Enowapi's MGL turret is `mp62MGLturret `): letters, digits, `_` and spaces. */
 const TURRET_NAME = /^[A-Za-z0-9_ ]{1,48}$/;
+
+/** A placed flare (`Layout.flares`): the archive and facade node it copies, its place. No turn: the engine faces it. */
+export interface FlareMarker {
+  source: string;
+  name: string;
+  at: [number, number, number];
+  locked?: boolean;
+}
+
+/** A placed flare's node name: letters, digits, `_`, `.`, `-` and spaces, 1-48 (the viewer's `FLARE_NAME`). */
+const FLARE_NODE = /^[A-Za-z0-9_ .-]{1,48}$/;
 
 /** A placed tactical point (`Layout.tacPoints`): its name, its kind (0-31; 1 a nav point), its place. */
 export interface TacPointMarker {
@@ -755,6 +778,26 @@ export function parseLayout(text: string): Layout {
         return { source: t["source"], name: t["name"], at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"], ...(locked ? { locked: true as const } : {}) };
       }),
     }),
+    ...(raw["flares"] === undefined ? {} : {
+      flares: (Array.isArray(raw["flares"]) ? raw["flares"] : [null]).map((f, i): FlareMarker => {
+        if (!isObj(f) || typeof f["source"] !== "string" || !TURRET_SOURCE.test(f["source"]) || typeof f["name"] !== "string" || !FLARE_NODE.test(f["name"])
+          || !Array.isArray(f["at"]) || f["at"].length !== 3 || !f["at"].every(isNum)) {
+          throw new Error(`flare ${i} is not a source, a name and a place`);
+        }
+        const [x, y, z] = f["at"] as number[];
+        const locked = lockedFlag(f["locked"], `flare ${i} lock`);
+        return { source: f["source"], name: f["name"], at: [x!, y!, z!] as [number, number, number], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["respawns"] === undefined ? {} : {
+      respawns: (Array.isArray(raw["respawns"]) ? raw["respawns"] : [null]).map((s, i): SpawnMarker => {
+        if (!isObj(s) || (s["team"] !== "A" && s["team"] !== "B") || !Array.isArray(s["p"]) || s["p"].length !== 3
+          || !s["p"].every(isNum) || !isNum(s["yaw"])) throw new Error(`respawn point ${i} is not a team, a point and a yaw`);
+        const [x, y, z] = s["p"] as number[];
+        const locked = lockedFlag(s["locked"], `respawn point ${i} lock`);
+        return { team: s["team"], p: [x!, y!, z!] as [number, number, number], yaw: s["yaw"], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
     ...(raw["tacPoints"] === undefined ? {} : {
       tacPoints: (Array.isArray(raw["tacPoints"]) ? raw["tacPoints"] : [null]).map((t, i): TacPointMarker => {
         if (!isObj(t) || typeof t["name"] !== "string" || !ZONE_NAME.test(t["name"]) || !Number.isInteger(t["kind"]) || (t["kind"] as number) < 0
@@ -1002,6 +1045,8 @@ const HOSTAGE_CHARACTER = /^[A-Za-z0-9_]{1,32}$/;
 /** A placed turret's record row (`Layout.turrets`): its source and name, place, and yaw in whole degrees. */
 export type TurretRow = [source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: true];
 export type TacPointRow = [name: string, x: number, y: number, z: number, kind: number, locked?: true];
+/** A placed flare's record row (`Layout.flares`): its source and node name, its place. */
+export type FlareRow = [source: string, name: string, x: number, y: number, z: number, locked?: true];
 /** A placed spectator view's record row (`Layout.scenicViews`): yaw and pitch in degrees, on the lattice. */
 export type ScenicViewRow = [name: string, x: number, y: number, z: number, yaw: number, pitch: number, locked?: true];
 export type ExtractionZoneRow = [name: string, x: number, y: number, z: number, width: number, depth: number, locked?: true];
@@ -1079,6 +1124,10 @@ export interface CreatorLayoutRecord {
   extractionZones?: ExtractionZoneRow[];
   /** The placed tactical points and spectator views, each present only when the layout has some. */
   tacPoints?: TacPointRow[];
+  /** The placed respawn points (`Layout.respawns`), as the spawns' rows, present only when the layout has some. */
+  respawns?: SpawnRow[];
+  /** The placed flares (`Layout.flares`), present only when the layout has some. */
+  flares?: FlareRow[];
   scenicViews?: ScenicViewRow[];
   /** The placed turrets (`Layout.turrets`), present only when the layout has some. */
   turrets?: TurretRow[];
@@ -1125,7 +1174,7 @@ const BLANK_FLOOR = "floor";
 const ASSET = /^[A-Z]{1,3}\d{1,3}:[A-Za-z0-9_.\-]{1,64}$/;
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "scenicViews", "turrets", "doors", "gates", "barriers"];
+  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -1260,6 +1309,16 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     if (t.locked === true) row[6] = true;
     return row;
   });
+  if (l.flares?.length) record.flares = l.flares.map((f): FlareRow => {
+    const row: FlareRow = [f.source, f.name, tenth(f.at[0]), tenth(f.at[1]), tenth(f.at[2])];
+    if (f.locked === true) row[5] = true;
+    return row;
+  });
+  if (l.respawns?.length) record.respawns = l.respawns.map((s): SpawnRow => {
+    const row: SpawnRow = [s.team, tenth(s.p[0]), tenth(s.p[1]), tenth(s.p[2]), wholeDeg(s.yaw)];
+    if (s.locked === true) row[5] = true;
+    return row;
+  });
   if (l.tacPoints?.length) record.tacPoints = l.tacPoints.map((t): TacPointRow => {
     const row: TacPointRow = [t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), t.kind];
     if (t.locked === true) row[5] = true;
@@ -1340,6 +1399,12 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   }
   if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
     source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.flares?.length) layout.flares = r.flares.map(([source, name, x, y, z, locked]): FlareMarker => ({
+    source, name, at: [x, y, z], ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.respawns?.length) layout.respawns = r.respawns.map(([team, x, y, z, yaw, locked]): SpawnMarker => ({
+    team, p: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
   }));
   if (!isV2(r) && r.tacPoints?.length) layout.tacPoints = r.tacPoints.map(([name, x, y, z, kind, locked]): TacPointMarker => ({
     name, kind, at: [x, y, z], ...(locked === true ? { locked: true as const } : {}),
@@ -1524,6 +1589,24 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
       if (!Array.isArray(t) || (t.length !== 6 && t.length !== 7) || typeof t[0] !== "string" || !TURRET_SOURCE.test(t[0]) || typeof t[1] !== "string"
         || !TURRET_NAME.test(t[1]) || !inBound(t[2]) || !inBound(t[3]) || !inBound(t[4]) || !isDeg(t[5])) return `turret ${i} is not [source, name, x, y, z, yaw]`;
       if (t.length === 7 && t[6] !== true) return `turret ${i} lock is not true`;
+    }
+  }
+  if (r["flares"] !== undefined) {
+    const flares = r["flares"];
+    if (!Array.isArray(flares) || flares.length === 0 || flares.length > RECORD_LIMITS.spawns) return "flares is not a list";
+    for (const [i, f] of flares.entries()) {
+      if (!Array.isArray(f) || (f.length !== 5 && f.length !== 6) || typeof f[0] !== "string" || !TURRET_SOURCE.test(f[0]) || typeof f[1] !== "string"
+        || !FLARE_NODE.test(f[1]) || !inBound(f[2]) || !inBound(f[3]) || !inBound(f[4])) return `flare ${i} is not [source, name, x, y, z]`;
+      if (f.length === 6 && f[5] !== true) return `flare ${i} lock is not true`;
+    }
+  }
+  if (r["respawns"] !== undefined) {
+    const respawns = r["respawns"];
+    if (!Array.isArray(respawns) || respawns.length === 0 || respawns.length > RECORD_LIMITS.spawns) return "respawns is not a list";
+    for (const [i, s] of respawns.entries()) {
+      if (!Array.isArray(s) || (s.length !== 5 && s.length !== 6) || (s[0] !== "A" && s[0] !== "B") || !inBound(s[1]) || !inBound(s[2])
+        || !inBound(s[3]) || !isDeg(s[4])) return `respawn point ${i} is not [team, x, y, z, yaw]`;
+      if (s.length === 6 && s[5] !== true) return `respawn point ${i} lock is not true`;
     }
   }
   if (r["tacPoints"] !== undefined) {
@@ -1784,6 +1867,8 @@ export const RECORD_CODES = {
   onlineHostages: "record.ONLINE_HOSTAGES",
   onlineExtractionZones: "record.ONLINE_EXTRACTION_ZONES",
   onlineTacticalPoints: "record.ONLINE_TACTICAL_POINTS",
+  onlineRespawns: "record.ONLINE_RESPAWNS",
+  onlineFlares: "record.ONLINE_FLARES",
   onlineSpectatorViews: "record.ONLINE_SPECTATOR_VIEWS",
   onlineTurrets: "record.ONLINE_TURRETS",
   onlineDoors: "record.ONLINE_DOORS",
@@ -1860,6 +1945,8 @@ export function readCreatorRecord(text: string, options: ReadRecordOptions = {})
 export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
   return [...onlineRefusal(r.requires ?? [], r.mode, r.contentBase), ...hostagesRefusal(r.hostages?.length ?? 0), ...zonesRefusal(r.extractionZones?.length ?? 0),
     ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", r.tacPoints?.length ?? 0, "tactical points"),
+    ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", r.respawns?.length ?? 0, "respawn points"),
+    ...placedRefusal(RECORD_CODES.onlineFlares, "flares", r.flares?.length ?? 0, "flares"),
     ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", r.scenicViews?.length ?? 0, "spectator views"),
     ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", r.turrets?.length ?? 0, "turrets"),
     ...placedRefusal(RECORD_CODES.onlineDoors, "doors", r.doors?.length ?? 0, "doors"),
@@ -1903,6 +1990,8 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
   const packs = sortPackRefs([...(l.requires ?? []), ...(map ? [map.ref] : []), ...l.pieces.flatMap((p) => (p.content ? [p.content.pack] : []))]);
   return [...onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined), ...hostagesRefusal(l.hostages?.length ?? 0), ...zonesRefusal(l.extractionZones?.length ?? 0),
     ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", l.tacPoints?.length ?? 0, "tactical points"),
+    ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", l.respawns?.length ?? 0, "respawn points"),
+    ...placedRefusal(RECORD_CODES.onlineFlares, "flares", l.flares?.length ?? 0, "flares"),
     ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", l.scenicViews?.length ?? 0, "spectator views"),
     ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", l.turrets?.length ?? 0, "turrets"),
     ...placedRefusal(RECORD_CODES.onlineDoors, "doors", l.doors?.length ?? 0, "doors"),

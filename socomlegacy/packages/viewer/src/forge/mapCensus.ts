@@ -5,6 +5,7 @@ import { hostageCharactersOf } from './hostages';
 import { accessTemplates } from './placedAccess';
 import { doorTemplates } from './placedDoors';
 import { turretTemplates } from './turrets';
+import { flareTemplates } from './placedFlares';
 
 /**
  * Which disc maps hold doors, turrets and hostages (a browser adaptation, FG.R2, no original): the Inspector's Map choice
@@ -12,7 +13,7 @@ import { turretTemplates } from './turrets';
  * (`LoadedMap.doors`, `.turrets`, `.types.escortees`: `../doors` `readDoors`, `../simMap` `mapTurrets`, `chartype.rdr`'s
  * `escortees`), the forge worker reading each once and keeping only the counts (`./archives` `census`).
  */
-export type CopyKind = 'door' | 'turret' | 'hostage' | 'ladder' | 'gate' | 'barrier';
+export type CopyKind = 'door' | 'turret' | 'hostage' | 'ladder' | 'gate' | 'barrier' | 'flare';
 export type MapCensus = Record<CopyKind, number>;
 
 /** A map's doors, turrets and hostage characters (each character once). */
@@ -37,7 +38,8 @@ export function ladderPropsOf(map: Pick<LoadedMap, 'ground' | 'props'>): { model
 export function censusOf(map: Pick<LoadedMap, 'doors' | 'turrets' | 'types'>): MapCensus {
   const access = 'meta' in map ? accessTemplates(map as LoadedMap, (map as LoadedMap).archive) : [];
   return { door: map.doors?.length ?? 0, turret: map.turrets?.length ?? 0, hostage: hostageCharactersOf(map).length, ladder: 'ground' in map ? ladderPropsOf(map as LoadedMap).length : 0,
-    gate: access.filter((t) => t.kind === 'gate').length, barrier: access.filter((t) => t.kind === 'barrier').length };
+    gate: access.filter((t) => t.kind === 'gate').length, barrier: access.filter((t) => t.kind === 'barrier').length,
+    flare: 'props' in map ? flareTemplates(map as LoadedMap, (map as LoadedMap).archive).length : 0 };
 }
 
 /** Each kind's copies on a map, `[name, label]`: what its Door, Turret or Character choice lists. */
@@ -59,12 +61,14 @@ export function copiesOf(map: LoadedMap): MapCopies {
     // A map's gates and C4 barriers (`./placedAccess`): its access objects, by their root node.
     gate: access.filter((t) => t.kind === 'gate').map((t) => [t.name, `${t.name} \u00b7 slides ${Math.round(Math.hypot(...t.gate!.spec.open))}`] as const),
     barrier: access.filter((t) => t.kind === 'barrier').map((t) => [t.name, `${t.name} \u00b7 ${t.pieces.length} parts`] as const),
+    // A map's flares (`./placedFlares`): its facade nodes alone, by node name, each with the model it hangs on.
+    flare: flareTemplates(map, stem).map((t) => [t.name, `${t.name} \u00b7 ${t.prop.modelName}`] as const),
   };
 }
 
 /** The census of a map's copies: how many of each. */
 export function censusOfCopies(c: MapCopies): MapCensus {
-  return { door: c.door.length, turret: c.turret.length, hostage: c.hostage.length, ladder: c.ladder.length, gate: c.gate.length, barrier: c.barrier.length };
+  return { door: c.door.length, turret: c.turret.length, hostage: c.hostage.length, ladder: c.ladder.length, gate: c.gate.length, barrier: c.barrier.length, flare: c.flare.length };
 }
 
 /**

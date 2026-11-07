@@ -270,6 +270,35 @@ export function accessShapes(centre: readonly number[], prompt: readonly number[
   return { segments: range > 0 ? ringSegments([prompt[0]!, centre[1]!, prompt[2]!], range) : [], triangles: [] };
 }
 
+/** A bomb plant site's gizmo colour: the bomb's billboard red (`./mapDataBillboards` `bombStart`, B). An editor's value. */
+export const BOMB_SITE_GUIDE_COLOUR = 0xff4d4d;
+
+/**
+ * A bomb plant site's gizmo (a browser adaptation, FG.R2): the reach a planter must stand inside -- an MPBOMB context
+ * action's `range` (horizontal) and `elevation` (above or below; -1 none, `ACTION_ELEVATION_NONE`), the disc's
+ * `actions.rdr` 15 each when omitted (`BOMB_SITE_REACH`, research 173 s2). A cylinder of radius `range` round `at`: its
+ * floor ring filled, and with a height test its top and bottom rings joined by four uprights.
+ */
+export function bombSiteShapes(at: readonly number[], range: number, elevation: number, steps = 32): GuideShapes {
+  if (!(range > 0)) return { segments: [], triangles: [] };
+  const segments = ringSegments(at, range, steps);
+  const triangles: number[] = [];
+  const y = at[1]! + 1;
+  for (let k = 0; k < steps; k++) {
+    const a = (k / steps) * Math.PI * 2, b = ((k + 1) / steps) * Math.PI * 2;
+    triangles.push(at[0]!, y, at[2]!, at[0]! + Math.cos(a) * range, y, at[2]! + Math.sin(a) * range, at[0]! + Math.cos(b) * range, y, at[2]! + Math.sin(b) * range);
+  }
+  if (elevation > 0) {
+    // `ringSegments` lifts its ring 1 off `at`: the top and bottom rings at `at` ± elevation exactly.
+    segments.push(...ringSegments([at[0]!, at[1]! + elevation - 1, at[2]!], range, steps), ...ringSegments([at[0]!, at[1]! - elevation - 1, at[2]!], range, steps));
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2, x = at[0]! + Math.cos(a) * range, z = at[2]! + Math.sin(a) * range;
+      segments.push(x, at[1]! - elevation, z, x, at[1]! + elevation, z);
+    }
+  }
+  return { segments, triangles };
+}
+
 /**
  * A gate's gizmo: a ring of its lever's `range` round the lever's prompt (`lever`). The circle alone (the owner,
  * 2026-11-06): no slide arrow. `centre` and `slide` are kept for the callers' one shape.

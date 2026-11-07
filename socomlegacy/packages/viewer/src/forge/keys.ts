@@ -69,9 +69,39 @@ export function forgeLeaseExit(e: ForgeKeyEvent, s: ForgeKeyState): ForgeLeaseEx
   return e.code === 'Escape' ? 'release' : e.code === 'KeyM' ? 'menu' : null;
 }
 
+/**
+ * The placing tools' keys (the owner, 2026-11-06; a browser adaptation, FG.R2): Q the Select tool, and the number keys
+ * the placing tools in the tools row's order (`./page` `modeSection`: Spawn, Objects, Demolition, Escort and Extraction,
+ * Info, Other) -- 1 to 9 then 0 the first ten, Shift with 1 to 8 the rest. The Place tool has none: choosing a prop places.
+ */
+export const FORGE_TOOL_ORDER = [
+  'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'gate', 'barrier', 'ladder', 'turret', 'flare',
+  'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc',
+] as const;
+export type ForgeToolKey = 'select' | (typeof FORGE_TOOL_ORDER)[number];
+
+const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'] as const;
+
+/** A tool's key as its tooltip shows it (`Q`, `3`, `Shift+2`), or null for one with none. */
+export function forgeToolKeyLabel(tool: string): string | null {
+  if (tool === 'select') return 'Q';
+  const i = (FORGE_TOOL_ORDER as readonly string[]).indexOf(tool);
+  if (i < 0 || i >= DIGITS.length * 2) return null;
+  const digit = DIGITS[i % DIGITS.length]!.slice(5);
+  return i < DIGITS.length ? digit : `Shift+${digit}`;
+}
+
+/** The tool a key chooses (`forgeToolKeyLabel`'s inverse), or null. */
+function toolOfKey(e: ForgeKeyEvent): ForgeToolKey | null {
+  if (e.code === 'KeyQ' && !e.shiftKey) return 'select';
+  const d = (DIGITS as readonly string[]).indexOf(e.code);
+  if (d < 0) return null;
+  return FORGE_TOOL_ORDER[d + (e.shiftKey ? DIGITS.length : 0)] ?? null;
+}
+
 export type ForgeKeyAction =
   | 'undo' | 'redo' | 'copy' | 'paste' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
-  | 'select' | 'place' | 'spawnA' | 'spawnB' | 'npc' | 'bomb' | 'siteSeal' | 'siteTerrorist' | 'translate' | 'rotate' | 'scale' | 'snap'
+  | { tool: ForgeToolKey } | 'translate' | 'rotate' | 'scale' | 'snap'
   | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'cancelPlace'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
   | { menu: MenuInput };
@@ -82,8 +112,7 @@ const MENU_KEYS: Readonly<Record<string, MenuInput>> = {
 
 const EDITOR_KEYS: Readonly<Record<string, ForgeKeyAction>> = {
   KeyH: 'docks', KeyF: 'frame',
-  Digit1: 'select', Digit2: 'place', Digit3: 'spawnA', Digit4: 'spawnB', Digit5: 'npc',
-  Digit6: 'bomb', Digit7: 'siteSeal', Digit8: 'siteTerrorist',                // FG-51: the bomb's start and the two plant sites
+  // The tools' keys are `toolOfKey`'s (Q and the number keys, `FORGE_TOOL_ORDER`).
   // The gizmo's modes on W, E, R, as an engine editor's: the fly camera's W and E (and its R) move it only while RMB is
   // held, and the camera keeps them from the editor then (`../camera` `onKeyDown`).
   KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyG: 'snap', KeyC: 'duplicate', Delete: 'delete', Backspace: 'delete',
@@ -108,5 +137,7 @@ export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyActi
     return e.code === 'KeyX' && !e.repeat ? 'door' : null;          // the test room's action key (a door)
   }
   if (e.code === 'Escape') return s.pointerLocked ? null : s.queued ? 'cancelPlace' : 'deselect';   // FUI-22 (D4): the queue first
+  const tool = toolOfKey(e);
+  if (tool) return { tool };
   return EDITOR_KEYS[e.code] ?? null;
 }

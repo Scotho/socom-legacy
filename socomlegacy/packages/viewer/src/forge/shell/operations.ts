@@ -249,6 +249,8 @@ export const FORGE_EDIT_OPERATIONS: readonly ForgeEditOperation[] = [
   { id: 'gate.place', domain: 'layout', label: fixed('Place gate') },   // a browser adaptation: `Layout.gates`
   { id: 'barrier.place', domain: 'layout', label: fixed('Place C4 barrier') },   // a browser adaptation: `Layout.barriers`
   { id: 'turret.place', domain: 'layout', label: fixed('Place turret') },   // a browser adaptation: `Layout.turrets`
+  { id: 'flare.place', domain: 'layout', label: fixed('Place flare') },   // a browser adaptation: `Layout.flares`
+  { id: 'respawn.place', domain: 'layout', label: (args) => (args['team'] === 'A' || args['team'] === 'B' ? `Place respawn point ${args['team']}` : 'Place respawn point') },   // a browser adaptation: `Layout.respawns`
   { id: 'point.place', domain: 'layout', label: fixed('Place tactical point') },   // a browser adaptation: `Layout.tacPoints`
   { id: 'view.place', domain: 'layout', label: fixed('Place spectator view') },   // a browser adaptation: `Layout.scenicViews`
   { id: 'placement.set', domain: 'layout', label: (args) => `Set ${String(args['field'] ?? 'a field')}` },   // the Inspector's Data   // a browser adaptation: `Layout.extractionZones`   // a browser adaptation: `Layout.hostages`

@@ -27,7 +27,7 @@ export const FORGE_RULES_EDITS: readonly string[] = ['zone.place', 'marker.place
 /** Browser adaptation: prepare a recipe using the existing serializer; the page stages its real pieces before commit. */
 export const FORGE_LAYOUT_OPERATIONS = new Set(['layout.import', 'layout.new', 'layout.base', 'layout.name', 'layout.batch', 'piece.place', 'piece.move',
   'piece.rotate', 'piece.delete', 'piece.lock', 'piece.unlock', 'piece.hide', 'piece.restore', 'selection.move', 'selection.rotate',
-  'selection.duplicate', 'spawn.place', 'npc.place', 'hostage.place', 'extraction.place', 'point.place', 'view.place', 'turret.place', 'door.place', 'gate.place', 'barrier.place', 'placement.set', 'bomb.place', 'settings.set', 'objectives.set', 'type.set',
+  'selection.duplicate', 'spawn.place', 'respawn.place', 'flare.place', 'npc.place', 'hostage.place', 'extraction.place', 'point.place', 'view.place', 'turret.place', 'door.place', 'gate.place', 'barrier.place', 'placement.set', 'bomb.place', 'settings.set', 'objectives.set', 'type.set',
   // FCW-32 (a browser adaptation, the Forge's own authoring): the rules entities and the layout's rules pack.
   ...FORGE_RULES_EDITS]);
 const fail = (code: string, message: string): never => { throw new ForgeAgentError(code, message); };
@@ -78,6 +78,8 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
   };
   for (const [i, s] of l.spawns.entries()) marker(`spawn:${i}`, s, () => { l.spawns.splice(l.spawns.indexOf(s), 1); },
     (d) => { l.spawns.push({ ...s, p: s.p.map((v, k) => v + d[k]!) as [number, number, number] }); });
+  for (const [i, s] of (l.respawns ?? []).entries()) marker(`respawn:${i}`, s, () => { l.respawns!.splice(l.respawns!.indexOf(s), 1); },
+    (d) => { l.respawns!.push({ ...s, p: s.p.map((v, k) => v + d[k]!) as [number, number, number] }); });
   for (const [i, n] of (l.npcs ?? []).entries()) marker(`npc:${i}`, n, () => { l.npcs!.splice(l.npcs!.indexOf(n), 1); },
     (d) => { l.npcs!.push({ ...n, p: n.p.map((v, k) => v + d[k]!) as [number, number, number] }); });
   // A placed point's or view's row: moved, locked, removed and copied as a marker; never turned (a view's yaw is its field).
@@ -105,6 +107,9 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
       lock: (on) => { if (on) t.locked = true; else delete t.locked; }, remove: () => { l.turrets!.splice(l.turrets!.indexOf(t), 1); },
       duplicate: (d) => { l.turrets!.push({ ...t, at: t.at.map((v, k) => v + d[k]!) as [number, number, number] }); } });
   }
+  // A placed flare: moved, locked, removed and copied as a point; never turned (the engine faces it to the camera).
+  for (const [i, f] of (l.flares ?? []).entries()) pointRow(`flare:${i}`, f, () => { l.flares!.splice(l.flares!.indexOf(f), 1); },
+    (d) => { l.flares!.push({ ...f, at: f.at.map((v, k) => v + d[k]!) as [number, number, number] }); });
   for (const [i, t] of (l.tacPoints ?? []).entries()) pointRow(`point:${i}`, t, () => { l.tacPoints!.splice(l.tacPoints!.indexOf(t), 1); },
     (d) => { l.tacPoints!.push({ ...t, name: nextNavName(l.tacPoints!.map((x) => x.name)), at: t.at.map((v, k) => v + d[k]!) as [number, number, number] }); });
   for (const [i, v] of (l.scenicViews ?? []).entries()) pointRow(`view:${i}`, v, () => { l.scenicViews!.splice(l.scenicViews!.indexOf(v), 1); },
@@ -147,6 +152,10 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
       l.pieces.push({ asset: args['asset'] as string, m: m.toArray() }); break;
     }
     case 'spawn.place': l.spawns.push({ team: args['team'] as 'A' | 'B', p: at, yaw }); break;
+    // A placed respawn point (a browser adaptation, `Layout.respawns`): a team, a place and a yaw, as a spawn.
+    case 'respawn.place': (l.respawns ??= []).push({ team: args['team'] as 'A' | 'B', p: at, yaw }); break;
+    // A placed flare (a browser adaptation, `Layout.flares`): a disc map's facade node, by its archive and node name.
+    case 'flare.place': (l.flares ??= []).push({ source: args['source'] as string, name: args['name'] as string, at }); break;
     case 'placement.set': {
       // One field a placement keeps, set (a browser adaptation, FG.R2: the Inspector's Data, and the agent's): the record's
       // own checks then run on the whole layout (`checkedLayout`).
@@ -173,6 +182,12 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
         const m = field === 'model' && typeof value === 'string' ? /^([A-Z]{1,3}\d{1,3}):([A-Za-z0-9_ ]{1,48})$/.exec(value) : null;
         if (!m) bad('must be a model <archive>:<node>, as MP72:mp72_turret01 or MP2:bdoor_4');
         t.source = m![1]!; t.name = m![2]!;
+      } else if (kind === 'flare') {
+        // A placed flare's Map and Flare: the disc facade node it copies, `<archive>:<node>`.
+        const f = l.flares![Number(a)]!;
+        const m = field === 'model' && typeof value === 'string' ? /^([A-Z]{1,3}\d{1,3}):([A-Za-z0-9_ .-]{1,48})$/.exec(value) : null;
+        if (!m) bad('must be a flare <archive>:<node>');
+        f.source = m![1]!; f.name = m![2]!;
       } else if (kind === 'point') {
         const t = l.tacPoints![Number(a)]!;
         if (field === 'name') t.name = typeof value === 'string' && /^[A-Za-z0-9_ -]{1,32}$/.test(value) ? value : bad('must be 1-32 letters, digits, spaces, _ or -');
