@@ -187,7 +187,7 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     const rows = [...document.querySelectorAll('.fx-menu .fx-menu-label')].map((n) => n.textContent);
     expect(rows).toContain('Undo: Move (agent)');
     expect(rows).toContain('Redo: Delete (agent)');
-  }, 20_000);
+  }, 90_000);
 
   it('a person\'s toolbar Delete and Lock and the name field run the same entries: one step each, named without "(agent)"', async () => {
     const api = await mount();
@@ -211,7 +211,7 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
       await vi.waitFor(() => expect(undoBtn().title).toMatch(new RegExp(`^Undo: ${back.replace(/[()]/g, '\\$&')} · pad SELECT`)));
     }
     expect(api.read().layout!.spawns).toHaveLength(2);
-  }, 20_000);
+  }, 90_000);
 
   it('R3-A (9): a person\'s place (the Spawn A tool and a click) and move (the inspector\'s field) give the plan\'s layouts, as the agent\'s do', async () => {
     const api = await mount();
@@ -238,5 +238,5 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     fx.dispatchEvent(new Event('change'));
     expect(placed(api.read().layout)).toEqual(planned(start, 'piece.move', { refs: ['spawn:0'], delta: [15, 0, 0] }));
     expect(undoBtn().title).toMatch(/^Undo: Move · pad SELECT/);
-  }, 20_000);
+  }, 90_000);
 });

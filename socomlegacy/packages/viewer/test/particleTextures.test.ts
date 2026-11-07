@@ -123,7 +123,8 @@ describe('particle batches sort at their currently drawn location', () => {
   }
   it('updates the sorting location when particles move after their first render', () => {
     const ps = new ParticleSystem(() => 0.5), cam = camera();
-    emitAt(ps, 1000, { worldVelocity: [100, 0, 0] });
+    // Flag A 0x80: the command writes the world velocity it carries (`FUN_00266830` D:L113044; INV-RAIN F1).
+    emitAt(ps, 1000, { flagsA: 0x83, worldVelocity: [100, 0, 0] });
     ps.update(0.01, cam); ps.update(0.01, cam);
     const m = mesh(ps), before = m.geometry.boundingSphere!.center.x;
     ps.update(0.2, cam);

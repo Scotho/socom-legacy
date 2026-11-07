@@ -203,7 +203,7 @@ export function liveCustomMatches(doc: Document, notify: () => void, deps: Custo
   });
   const rows = (): CustomRow[] => (list ?? []).map((m) => ({
     id: m.id, name: m.name, map: customMatchMap(m.base, deps.missions()), players: m.players, max: m.max, inMatch: m.inMatch, locked: m.locked,
-    href: customMatchAddress(m.id, server()),
+    href: customMatchAddress(m.id, server()), ...(m.community === true ? { community: true as const } : {}),
   }));
 
   return {

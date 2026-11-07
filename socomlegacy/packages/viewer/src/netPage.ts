@@ -114,7 +114,7 @@ export interface NetPageDeps {
   /** The spectator's camera: the pose to stand the fly camera at (follow), or null to leave it free. */
   spectate(pose: { x: number; y: number; z: number; yaw: number; pitch: number } | null): void;
   /** WALL-CAM: actor follow uses the live map's shared player rig/pass (research 382 §2). */
-  spectateFollow?(body: SpectatorBody, dt: number): void;
+  spectateFollow?(body: SpectatorBody, dt: number, ease?: boolean): void;
   spectateFollowReset?(): void;
   /** SPECTATOR-VIEW W6 (`./spectatorView` SCENIC_ZOOM): the scenic view's magnification for the page's projection; 1 outside it. */
   spectateMagnify?(magnification: number): void;
@@ -210,6 +210,11 @@ export interface NetPageDeps {
    * Protocol 9: `char`, the character type held with it.
    */
   loadoutAnswer?(kit: readonly number[], refused: { reason: LoadoutRefusal; at: number } | null, request: LoadoutRequest | null, char?: number | null): void;
+  /**
+   * KIT-HELD: the room's `kitHeld` -- the side's type, the picks the room holds and their kit (`PlayerLoadout.held`).
+   * Handed on only with no `loadout` request in flight: an answer still to come settles what the room holds.
+   */
+  kitHeld?(team: Team, char: number, picks: readonly Pick[], kit: readonly number[]): void;
   /**
    * A seat taken (the S2 review, rounds 2 and 3): a socket's welcome, a promotion. `team` the seat's side (null for a
    * spectator's welcome), `char` the type the room seated it as (the welcome's and the promotion's `char`; null from a
@@ -839,7 +844,7 @@ export class NetPage {
     if (deps.room && (deps.game || !isRoomSeatOf(deps.room.seat, deps.room.provider?.room))) throw new TypeError('a standing room\'s socket needs its pinned room door (pinnedRoomDoor) and its pass\'s token');
     this.spectator = new SpectatorView({
       bodies: () => this.client.bodies(), spectate: (pose) => this.deps.spectate(pose), views: () => this.deps.scenicViews?.() ?? [],
-      follow: deps.spectateFollow ? (body, dt) => this.deps.spectateFollow!(body, dt) : undefined,
+      follow: deps.spectateFollow ? (body, dt, ease) => this.deps.spectateFollow!(body, dt, ease) : undefined,
       resetFollow: () => this.deps.spectateFollowReset?.(),
       magnify: (m) => this.deps.spectateMagnify?.(m), pitchSign: () => this.deps.spectatePitchSign?.() ?? 1,
       seat: () => ({ role: this.client.role, self: this.client.id, team: this.client.team, teams: this.teams, rules: this.rules, ghost: this.ghostSince !== null }),
@@ -870,7 +875,10 @@ export class NetPage {
     // LATER 498: a client without the signal (a hand-off's or a test's) holds no spawn: nothing to wait for.
     this.unsubscribeHeld = this.client.onSpawnHeld?.(() => { if (this.heldSpawn) this.ownSpawn(this.heldSpawn); }) ?? (() => undefined);
     this.listenVoice();                                              // SVC-20b-page: the room's voice frames, on the same unsubscribe
-    if (adopt) for (const ev of adopt.events) this.event(ev);   // ONL-18: the lobby's events, the welcome first
+    if (adopt) {                                                 // ONL-18: the lobby's events, the welcome first
+      this.adopting = true;
+      try { for (const ev of adopt.events) this.event(ev); } finally { this.adopting = false; }
+    }
     if (import.meta.env.DEV) {                                       // OT.R29: the keys a development build's only
       keyboardSite('s2u-kb-net-page');
       globalThis.addEventListener?.('keydown', this.onKey);
@@ -1439,10 +1447,19 @@ export class NetPage {
     return Number.isInteger(ev.char) ? ev.char as number : null;
   }
 
+  /**
+   * KIT-HELD (the review's F1): the lobby's events replayed into this page at the hand-off (`game.adopt`). The match
+   * page's kit store is new then -- its types the defaults, chosen by no one -- so a seat it replays is the room's
+   * as it stands: its type held, and no type of the page's asked for again (that ask, the default, reset a kept
+   * non-default type and its picks with no confirm). Every other seat (a socket's own welcome, a promotion heard live)
+   * is unchanged.
+   */
+  private adopting = false;
+
   /** A seat taken: the page holds the room's type (`deps.seated`) and sends what the seat needs (`resendPicks`). */
   private seat(team: Team | null, player: boolean, char: number | null): void {
     const again = this.deps.seated?.(player ? team : null, player ? char : null);
-    if (player) this.resendPicks(team, char, typeof again === 'number' ? again : null);
+    if (player) this.resendPicks(team, char, typeof again === 'number' && !this.adopting ? again : null);
   }
 
   /**
@@ -2145,9 +2162,13 @@ export class NetPage {
       case 'motion':
         if (ev.id !== this.client.id) remote.pushMotion(ev.id, ev.clip);
         else if (!this.dead) {
-          const at = performance.now(), clip = ev.clip;
+          const at = performance.now(), clip = ev.clip, cut = flinchCutWindow(ev, clip, this.deps.clips());
           this.deps.walk.setFlinchPose(() => flinchPose(clip, (performance.now() - at) / 1000, this.deps.clips()),
-            flinchCutWindow(ev, clip, this.deps.clips()), { reloadGate: false, pushed: true });
+            cut, { reloadGate: false, pushed: true, clip });
+          // The door-open body hold (research 92 section 2, "The body under the door clip"; PTW.R3 with `room.ts`
+          // `watchMoves`): the room's mover held the body from the window's start, a round trip ago -- the commands
+          // this page ran since run again under it (`WalkMode.pushHeard`), their predictions the run's (`replayed`).
+          this.deps.walk.pushHeard?.(cut, (after) => this.client.replayed(after));   // `?.`: a test page's stub walk
         }
         break;
       case 'blast':
@@ -2411,6 +2432,13 @@ export class NetPage {
       case 'votes': hud.postMessage(teamVoteLine(ev)); break;
       case 'spectatorVote': case 'spectatorsEjected': hud.postMessage(spectatorVoteLine(ev)); break;
       case 'loadout': this.deps.loadoutAnswer?.(ev.kit, ev.refused, this.inFlight.shift() ?? null, ev.char ?? null); break;
+      // KIT-HELD: the seat's held type, picks and kit -- its own event, so the answers' pairing above is never shifted; a
+      // request in flight is answered after it and settles the room's list itself, so this one is not taken then.
+      case 'kitHeld':
+        if (this.client.role === 'player' && this.inFlight.length === 0 && (ev.team === 'seal' || ev.team === 'terrorist')) {
+          this.deps.kitHeld?.(ev.team, ev.char, ev.picks, ev.kit);
+        }
+        break;
       // S2 round 4: this page's seat went to a newer connection of its session token (a duplicated tab, which starts
       // with a copy of this tab's session storage): a new token, and the usual rejoin -- as a new joiner.
       case 'kicked':

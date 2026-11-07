@@ -1,0 +1,74 @@
+---
+title: "Getting started"
+description: "What packs are for in SOCOM Legacy, what each status on this wiki means, and where to go next."
+status: "Format only"
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535"]
+---
+
+**Status: Format only.** The v2 pack format is defined and every v2 pack is checked against it, and a pack that
+passes is stored on your device; nothing in the game applies a v2 pack yet. The older formats on
+[The earlier formats](/kinds/earlier-formats/) are what changes the game's look in a build today.
+
+## What this wiki is for
+
+SOCOM Legacy is a port of SOCOM U.S. Navy SEALs II to the browser. A **pack** is a bundle of files you make yourself
+-- textures, models, data, the rules of a game mode -- that adds to it or changes it on your own device.
+
+This wiki describes the pack format **as the code holds it today**. It does not describe plans as if they were
+built: every page carries a status at the top, and a kind or a format inside a page carries its own.
+
+Packs are always optional. With no pack switched on, the game is the original (the pack-framework spec's first
+rule). A pack's files stay on your device; the game never sends them anywhere.
+
+## Read the status first
+
+Every page, and every kind or format on a page, has one of five statuses.
+
+| status | what it means |
+|---|---|
+| **Works** | It does what the page says in every build. |
+| **Test room only** | It does what the page says in the test room (`/testroom`), and nowhere else. |
+| **Forge, local only** | It runs only in the Forge's own Play, on your device, never in an online match. The Forge's development is paused. |
+| **Format only** | The format is defined and checked, and a pack that passes is stored. Nothing in the game applies it. |
+| **Planned** | It is not built. The page describes the design so you know where it is going. |
+
+Under each page's title the status is shown with **Owned by**: the files in the project's repository that decide it
+(a specification, or a line of the code). If a page and its owner ever disagree, the owner is right and the page is
+wrong.
+
+## Where things stand
+
+| what | status |
+|---|---|
+| A v2 pack (`s2u-pack.json`): importing and checking it | Format only -- checked and stored, never applied |
+| The `rules` kind | Forge, local only |
+| The `content` kind | Format only |
+| The `system` kind | Planned |
+| `s2u-mod` data mods, texture packs, the model pack | Test room only |
+| HD texture packs | Planned -- held off until the owner lifts the hold |
+| Publishing on Thunderstore | Format only -- nothing builds a store package yet |
+
+Each line is explained on [Pack kinds](/kinds/), [The earlier formats](/kinds/earlier-formats/) and
+[Publishing on Thunderstore](/publishing/thunderstore/).
+
+## Where to go next
+
+1. [What a pack is](/what-is-a-pack/) -- the idea, the rules every pack lives by, and the two generations of formats.
+2. [Pack anatomy](/anatomy/) -- the files inside a v2 pack and its manifest, `s2u-pack.json`, part by part.
+3. [Pack kinds](/kinds/) -- `content`, `rules` and `system`, and what each can do today.
+4. [Making your first pack](/guides/first-pack/) -- a small pack from an empty folder to a passing check.
+5. [Testing a pack locally](/guides/test-locally/) -- the test room and the Forge.
+
+When a check refuses your pack, [Refusal codes](/reference/codes/) lists every code and what it means, and
+[Troubleshooting](/troubleshooting/) how to fix it.
+
+## A few words this wiki uses
+
+| word | meaning |
+|---|---|
+| **member** | One file inside a pack. |
+| **manifest** | The JSON file that describes a pack. For a v2 pack it is `s2u-pack.json` at the pack's root. |
+| **the check** | The pack contract's validator: it reads a pack and either passes it or lists what is wrong. |
+| **the contract** | The pack format as code, in the repository's `creator-contracts` package. Every list on the reference pages is read from it. |
+| **the test room** | The page at `/testroom`, where you play and look around a map on your own. |
+| **the Forge** | The map and mode editor. Its Play runs a match on your device. |

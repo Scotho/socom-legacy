@@ -415,7 +415,7 @@ export type LobbyGameView =
     facts: readonly LobbyLine[]; details: readonly LobbyLine[]; players: LobbyPlayers;
   };
 /** CX-LOBBIES (FG-46): one listed forge lobby -- its name, its map, players / seats, in match, its lock (FG-48a), JOIN's address. */
-export interface CustomRow { id: string; name: string; map: string; players: number; max: number; inMatch: boolean; locked: boolean; href: string }
+export interface CustomRow { id: string; name: string; map: string; players: number; max: number; inMatch: boolean; locked: boolean; href: string; community?: true }
 /** CX-LOBBIES: the Custom matches list: not read yet, the route's refusal (its line), or the rows (`empty` the line for none). */
 export type CustomView = { kind: 'waiting' } | { kind: 'unavailable'; line: string } | { kind: 'ok'; rows: readonly CustomRow[]; empty: string | null };
 /**
@@ -1174,7 +1174,7 @@ export const BROWSE_CUSTOM = 2;
 export const CUSTOM_UNAVAILABLE_LINE = 'Custom matches are not available from this server';
 
 /** LR-37 (9): one custom match in the merged list -- the forge lobby's row, its JOIN locked over a game page. */
-export interface BrowseCustomRow { kind: 'custom'; id: string; name: string; map: string; players: number; max: number; locked: boolean; inMatch: boolean; joinLocked: boolean }
+export interface BrowseCustomRow { kind: 'custom'; id: string; name: string; map: string; players: number; max: number; locked: boolean; inMatch: boolean; joinLocked: boolean; community?: true }
 
 /** LR-37 (9): the custom matches the merged list shows under ALL and CUSTOM (none under CLASSIC, none unread). */
 export function browseCustom(s: ConsoleState, a: Adapters): BrowseCustomRow[] {
@@ -1182,7 +1182,7 @@ export function browseCustom(s: ConsoleState, a: Adapters): BrowseCustomRow[] {
   const v = a.custom?.view();
   if (v?.kind !== 'ok') return [];
   const joinLocked = overGame(s);
-  return v.rows.map((m) => ({ kind: 'custom', id: m.id, name: m.name, map: m.map, players: m.players, max: m.max, locked: m.locked, inMatch: m.inMatch, joinLocked }));
+  return v.rows.map((m) => ({ kind: 'custom', id: m.id, name: m.name, map: m.map, players: m.players, max: m.max, locked: m.locked, inMatch: m.inMatch, joinLocked, ...(m.community === true ? { community: true as const } : {}) }));
 }
 
 /** LR-37 (9): the merged list's rows -- the classic rooms the filter keeps, then the custom matches -- in focus order. */

@@ -1,3 +1,4 @@
+import { Matrix4 } from 'three';
 import { GAME_FRAME_DT, GameFrameAccumulator, type MotionClip } from '@s2u/scene';
 import type { ActionPrompt, ClimbPrompt as HudClimbPrompt } from './hud';
 import type { Input } from './gamepad';
@@ -71,6 +72,53 @@ export interface TraversalEffects {
 
 /** `seal_fall_in_water` (decomp 469892-469896): the splash of a fall into water, once, at the water's point. */
 export const FALL_IN_WATER = 'seal_fall_in_water';
+
+/**
+ * RIPPLE_NODE_BASIS_READING (research 86 s5.4, s7.2): the ripples' node -- the actor's own `+0x1380`, which
+ * `FUN_005b52b0` moves to the water point under the feet (`FUN_003157d0` D:L469859 writes its translation, +0x30..+0x38,
+ * and nothing else) -- is held with the identity basis, in the world's frame. Its construction (the basis it is made
+ * with, whether it hangs under another node) is not found in the decomp (no other `+0x1380` reference); the ripples'
+ * sources place their 0.8 and 0.2 offsets (flag A 0x4) through it, straight up under the identity.
+ */
+export const RIPPLE_NODE_BASIS_READING = 'identity, world-rooted';
+
+/**
+ * One body's wading ripples (`FUN_005b52b0`, decomp 469810-469920): the one running per size (the actor's `+0x1370` big,
+ * `+0x136c` small) and the node they play on (`actor+0x1380`). The page's own SEAL's (`TraversalPage`) and each other
+ * body's (`./remotePlayers`), the function having no locality test (research 86 s5.4).
+ * - `frame(fx, want)`: the ripple the water line asks for (`rippleOf`), following the body -- played on its node
+ *   (`FUN_00272bb0(anim, 1, 3, actor+0x1380, 0)`, type 3, D:L469881 / D:L469895), moved to the water point each frame as
+ *   a translation (`FUN_003157d0` D:L469859; RIPPLE_NODE_BASIS_READING), which the ripples' FOLLOW sources place every
+ *   particle through; a new one only when there is none or the last has ended, a change of pace waiting for it; the
+ *   other size's stopped on a switch.
+ * - `clear()`: both stopped and forgotten -- dead in the water (D:L469904-469913), a round's clear, the body gone.
+ */
+export class RippleKeeper {
+  private readonly ripples: Record<Ripple['size'], { handle: { readonly finished: boolean; stop(): void }; name: string; place: EffectPlace; node: Matrix4 } | null> = { big: null, small: null };
+
+  clear(): void {
+    for (const size of ['big', 'small'] as const) {
+      const cur = this.ripples[size];
+      if (cur && !cur.handle.finished) cur.handle.stop();
+      this.ripples[size] = null;
+    }
+  }
+
+  frame(fx: TraversalEffects | null, want: Ripple | null): void {
+    for (const size of ['big', 'small'] as const) {
+      const cur = this.ripples[size];
+      if (cur && cur.handle.finished) this.ripples[size] = null;
+      if (want && want.size !== size && cur && !cur.handle.finished) { cur.handle.stop(); this.ripples[size] = null; }
+    }
+    if (!fx || !want) return;
+    const cur = this.ripples[want.size];
+    if (cur) { cur.node.setPosition(want.at[0], want.at[1], want.at[2]); cur.place.position = [...want.at]; return; }
+    const node = new Matrix4().setPosition(want.at[0], want.at[1], want.at[2]);
+    const place: EffectPlace = { node, position: [...want.at], velocity: [0, 0, 0], normal: [0, 1, 0] };
+    const handle = fx.spawn(rippleAnimation(want), place);
+    if (handle) this.ripples[want.size] = { handle, name: rippleAnimation(want), place, node };
+  }
+}
 
 /**
  * RIPPLES_AT_ROUND_CLEAR_READING (PAR-10, web research 257 s3): at a round's clear (the round's start, an abandon:
@@ -150,9 +198,9 @@ export class TraversalPage {
   private readonly recent: TraversalEvent[] = [];
   /** Whether the HUD's action slot holds the ladder slide's icon because of us. */
   private slideShown = false;
-  /** The effects the water plays through, and the ripple now running per size (`+0x1370` big, `+0x136c` small). */
+  /** The effects the water plays through, and the ripples' keeper (`+0x1370` big, `+0x136c` small). */
   private effects: TraversalEffects | null = null;
-  private readonly ripples: Record<Ripple['size'], { handle: { readonly finished: boolean; stop(): void }; name: string; place: EffectPlace } | null> = { big: null, small: null };
+  private readonly ripples = new RippleKeeper();
 
   constructor(private readonly walk: WalkMode, private readonly sounds: TraversalSounds | null = null) {
     walk.useTraversal((walker, ground) => {
@@ -317,36 +365,23 @@ export class TraversalPage {
    * water starts one afresh.
    */
   clearRipples(): void {
-    for (const size of ['big', 'small'] as const) {
-      const cur = this.ripples[size];
-      if (cur && !cur.handle.finished) cur.handle.stop();
-      this.ripples[size] = null;
-    }
+    this.ripples.clear();
   }
 
   /**
    * One frame of the water's effects (`FUN_005b52b0`, decomp 469810-469920): the ripple the water line asks for,
-   * following the SEAL (its place moved each frame); a new one only when there is none or the last has ended, a change
+   * following the SEAL -- played on a node (`FUN_00272bb0(anim, 1, 3, actor+0x1380, 0)`, type 3, D:L469881 / D:L469895)
+   * the keeper moves to the water point each frame as a translation (`FUN_003157d0` D:L469859; RIPPLE_NODE_BASIS_READING),
+   * which the ripples' FOLLOW sources place every particle through; a new one only when there is none or the last has ended, a change
    * of pace waiting for it; the other size's stopped on a switch. Dead in the water -- the actor's `+0xe1` bit 4 clear
    * (research 180 U8: the death `FUN_00547af0` clears it) -- both are stopped (D:L469904-469913; research 257 s3.1) and
    * forgotten, and none is started; out of the water (no probe met it, so `FUN_005b52b0` does not run) a death stops
    * nothing.
    */
   effectsFrame(): void {
-    const fx = this.effects, t = this.traversal();
+    const t = this.traversal();
     if (t && this.walk.mode() === 'walk' && this.walk.isDead() && t.depth() > 0) { this.clearRipples(); return; }
-    const want = t && this.walk.mode() === 'walk' ? t.ripple() : null;
-    for (const size of ['big', 'small'] as const) {
-      const cur = this.ripples[size];
-      if (cur && cur.handle.finished) this.ripples[size] = null;
-      if (want && want.size !== size && cur && !cur.handle.finished) { cur.handle.stop(); this.ripples[size] = null; }
-    }
-    if (!fx || !want) return;
-    const cur = this.ripples[want.size];
-    if (cur) { cur.place.position = [...want.at]; return; }
-    const place: EffectPlace = { position: [...want.at], velocity: [0, 0, 0], normal: [0, 1, 0] };
-    const handle = fx.spawn(rippleAnimation(want), place);
-    if (handle) this.ripples[want.size] = { handle, name: rippleAnimation(want), place };
+    this.ripples.frame(this.effects, t && this.walk.mode() === 'walk' ? t.ripple() : null);
   }
 
   stats(): TraversalStats | null {

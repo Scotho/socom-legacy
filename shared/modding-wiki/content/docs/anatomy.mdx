@@ -1,0 +1,197 @@
+---
+title: "Pack anatomy"
+description: "Inside a v2 pack: the zip's layout, the manifest s2u-pack.json part by part, member paths, identity, dependencies, intents and handler claims."
+status: "Format only"
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535", "socomlegacy/packages/viewer/src/packs/registry.ts:167", "socomlegacy/packages/viewer/src/agent/localFiles.ts:37"]
+---
+
+**Status: Format only.** Everything on this page is checked by the pack contract, and a pack that passes is stored;
+nothing in the game applies a v2 pack yet ([What a pack is](/what-is-a-pack/)).
+
+This page explains how the parts of a v2 pack fit together. The exact rule for every field, generated from the
+contract's code, is on [Manifest reference](/reference/manifest/); every limit is on [Bounds](/reference/bounds/);
+every refusal is on [Refusal codes](/reference/codes/).
+
+## The layout of a pack
+
+A v2 pack is a zip whose root holds the manifest, `s2u-pack.json`, and the pack's other files, its **members**, in
+any folders you like:
+
+```text
+example-crate-retexture.zip
+  s2u-pack.json          the manifest
+  textures/crate.png     a member
+  models/crate.glb       a member
+  README.md              optional: one of Thunderstore's root files
+```
+
+The import also accepts a zip of a folder, where everything sits inside one top folder; it reads that folder as the
+root. Every member must be listed in the manifest's `files`, with one exception: Thunderstore's root files
+(`manifest.json`, `icon.png`, `README.md`, `CHANGELOG.md`) may sit beside `s2u-pack.json` without being listed
+([Publishing on Thunderstore](/publishing/thunderstore/)).
+
+## The manifest, part by part
+
+Here is the manifest of the made-up pack above. The two `sha256` values are left for you to fill: the hash of each
+file's own bytes ([Making your first pack](/guides/first-pack/) shows the commands), so as written this manifest
+fails the check.
+
+```json
+{
+  "format": "s2u-pack",
+  "formatVersion": 2,
+  "id": "example.crate-retexture",
+  "version": "1.0.0",
+  "name": "Crate retexture (example)",
+  "description": "A made-up example: one texture and one model.",
+  "target": "SCUS-97275",
+  "contract": "^0.1.1",
+  "kinds": ["content"],
+  "sides": "client",
+  "dependencies": [],
+  "files": [
+    { "path": "models/crate.glb", "sha256": "REPLACE-WITH-THE-FILE-SHA256", "size": 20480, "role": "mesh" },
+    { "path": "textures/crate.png", "sha256": "REPLACE-WITH-THE-FILE-SHA256", "size": 4096, "role": "texture" }
+  ],
+  "intents": [
+    { "kind": "cosmetic", "files": ["models/crate.glb", "textures/crate.png"] }
+  ]
+}
+```
+
+The fields fall into four groups. A field the format does not list is refused (`pack.FIELD_UNKNOWN`).
+
+| group | fields | what they say |
+|---|---|---|
+| what this file is | `format`, `formatVersion` | always `s2u-pack` and `2` |
+| which pack | `id`, `version`, `name`, `description` | the pack's id (lower case, digits, dots and hyphens), its semantic version, its display name and an optional description |
+| where it fits | `target`, `contract`, `dependencies` | the disc it is for, the engine contract versions it accepts, and the other packs or disc archives it needs |
+| what is inside | `kinds`, `sides`, `files`, `intents`, `handlers` | the kinds it contains, the side it is for, every member, what each member changes, and the engine features it claims |
+
+Two values come from the build, not from you:
+
+- `target` must be exactly the build's disc revision, `SCUS-97275` (the contract's `PACK_TARGET_US`). An older
+  spelling is refused, and the refusal names the right one.
+- `contract` is a version range that must include the build's engine contract version, `0.1.1` today (the contract's
+  `ENGINE_CONTRACT_VERSION`). A pack of kind `rules` must not admit any version before `0.1.1`.
+
+`sides` is `client`, `server` or `both`. The check tests only that it is one of the three; nothing else reads it yet.
+
+## Members: paths, roles and file types
+
+Each `files` row names one member: its `path`, its `sha256`, its `size` in bytes and its `role`.
+
+**Paths** are relative, with forward slashes, at most 240 characters and 16 folders deep. A path may not climb out of
+the pack (`..`), start with a drive or a slash, hold a colon, a percent sign, a backslash or a control character, or
+have a segment that is empty, starts with a dot, ends with a dot or a space, holds one of `<>"|?*`, or is a reserved
+device name. Two paths
+that differ only in letter case, or in Unicode form, collide. Any manifest text that looks like an address
+(`https://...`, `data:`, `file:` and the like) is refused: a pack cannot point outside itself.
+
+**Roles** say what a member is, and each role allows only some file types:
+
+| role | file types |
+|---|---|
+| `mesh` | `.glb`, `.gltf` |
+| `texture` | `.png`, `.ktx2`, `.rgba` |
+| `audio` | `.ogg`, `.wav` |
+| `collision` | `.json`, `.glb` |
+| `gameplay`, `rules`, `system`, `legacy-manifest` | `.json` |
+| `data` | any |
+
+[Manifest reference](/reference/manifest/) says what each role is for.
+
+**What the game's import reads.** The check above is the contract's. The game's local import, which hands files to
+the check, reads only these file types for a v2 pack: `.json`, `.zip`, `.glb`, `.gltf`, `.png`, `.ktx2`, `.ogg`,
+`.wav`, `.md`, `.txt`, `.bin`, `.dat`, `.cfg`, and a few of the game's own archive types (the viewer's
+`localFiles.ts`, line 37). So a member the contract allows can still be refused at import: an `.rgba` texture, or a
+`data` member of any type not in that list.
+
+**Sizes and hashes.** The check compares each member's stored size with its `size` row before reading a byte, then
+hashes the member and compares the hash with its `sha256` row. A member larger or smaller than its row, a member whose
+hash differs, a row with no member, and a member with no row are each refused by their own code.
+
+## Intents: what each member changes
+
+`intents` is a list of `{kind, files}` entries. Every member must be named by at least one, and the kind says what
+the change is:
+
+| intent | meaning |
+|---|---|
+| `cosmetic` | changes only how the game looks or sounds |
+| `gameplay-value` | changes values the game already has |
+| `new-behaviour` | adds behaviour the game does not have |
+
+A member whose role can change play -- `collision`, `gameplay` or `rules` -- cannot be covered by `cosmetic` alone.
+
+## Identity: id, version and hash
+
+A pack's identity is its `PackRef`: its `id`, its `version` and its **hash**. The hash is a SHA-256 over the manifest
+in a canonical form (the pack-framework spec, "Identity"):
+
+- The order you write lists in does not matter: `files` are sorted by path, and `kinds`, `dependencies`, `intents`
+  and `handlers` are put in a fixed order before hashing.
+- Every other part matters, `name` and `description` included: fixing a typo in the description gives the pack a new
+  hash.
+- The members enter the hash through their `sha256` rows, so changing one byte of a member changes the pack's hash.
+- Thunderstore's root files are outside it: editing the README or the icon leaves the hash as it was.
+
+A hash shows that two packs are the same files; it never proves that a player is using them (the spec's XT.R6).
+
+Once a pack is stored, its id and version name those exact files. Importing different files under the same id and
+version is refused until you remove the stored one; raise the `version` instead.
+
+## Dependencies and version ranges
+
+`dependencies` lists what the pack needs, at most 64 entries, each one of two forms:
+
+- `{id, range}` -- another pack, by its id and a version range. The check looks for a pack you have with that id and a
+  version inside the range (`pack.DEPENDENCY_MISSING` otherwise), and refuses a cycle of packs depending on each
+  other.
+- `{archive, sha256}` -- one of your own disc's archives, by its path and its SHA-256, for a pack made against an
+  exact disc file. The check compares the hash with your copy.
+
+A range is written the usual semantic-version way: `*` (anything), `1.2.3` or `=1.2.3` (exactly), `>`, `>=`, `<`,
+`<=`, `^1.2.3` (the left-most non-zero part fixed), `~1.2.3` (the minor fixed), several conditions separated by
+spaces (all must hold), and alternatives separated by two vertical bars. Pre-release versions such as
+`1.0.0-beta.1` are compared by semantic-version precedence and are not excluded.
+
+## Handler claims
+
+A pack never brings code. When it wants a behaviour the engine already has, it **claims** it: `handlers` is a list
+of at most 32 `{slot, handler, actions?, options?}` entries, each naming an engine-owned slot and the engine handler
+it asks for there, optionally the actions it uses and a small JSON object of options for the handler.
+
+- A pack claims a slot at most once, and a slot another pack already holds is refused unless the slot is shared
+  (`pack.HANDLER_CONFLICT`).
+- The handler must be one the build offers on that slot (`pack.HANDLER_UNKNOWN`), and its actions ones it offers
+  (`pack.ACTION_UNKNOWN`).
+- The options are bounded in shape (4096 bytes of JSON, nested at most 2 deep); the handler checks what they say.
+
+What the slots are and which of them anything uses today is on [Pack kinds](/kinds/).
+
+## The check's result
+
+The check reads the members and the build's context (its target, its engine contract version, the packs and disc
+archives you have, the engine's handlers) and gives a report with one status:
+
+| status | meaning |
+|---|---|
+| `pass` | every check ran and nothing is wrong: the pack can be stored |
+| `fail` | at least one error; the report lists each with its code, and where it helps the file or field, what was expected, what was found and a hint |
+| `incomplete` | nothing is wrong, but a check could not run (for example, no list of your packs was given to check dependencies against); this is never a pass |
+
+Only a `pass` is stored. The codes are on [Refusal codes](/reference/codes/), and their fixes on
+[Troubleshooting](/troubleshooting/).
+
+### What the game's import checks against today
+
+The game's local import runs the check with this build's target and engine contract version, the packs you have
+already stored, an **empty** list of engine handlers, and **no** list of your disc archives (the viewer's
+`registry.ts`, line 167). Two things follow:
+
+- a pack with any `handlers` claim is refused at import (`pack.HANDLER_UNKNOWN`: the import offers no handler yet);
+- a pack with an `{archive, sha256}` dependency is `incomplete` at import, so it is not stored.
+
+Both are checked in full by the contract itself, given a build context that has them; the game's import does not
+give one yet.

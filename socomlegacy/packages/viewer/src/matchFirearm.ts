@@ -786,6 +786,8 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   effects.setBlastPoint(hands?.blast ? (at) => hands.blast!(at) : null);   // FUN_003c8330 D:L319186-319195: the script round's shake
   scene.add(effects.object);
   effects.setWorld(() => walk.grid());
+  effects.setPlayer(() => walk.feet());             // INV-RAIN F3: PLAYER_INDOORS (72) from the floor under the feet
+  effects.setHull(() => walk.grid() ?? walk.gridOfGround());   // and CAMERA_INDOORS (66) off the walk (a spectator) too
   // The `LIGHT` passes re-draw the lit world, the held weapons and the SEAL's body (`./effectLights`, research 89 §10).
   effects.setLightReceivers(() => [d.view()?.group, heldKit.rifle?.object, heldKit.pistol?.object, d.body()?.group].filter((o): o is NonNullable<typeof o> => !!o));
   /** The map's `LensFX_NVG` colour; the scope lenses' rows off the effect data; the lens in play. */
@@ -1271,6 +1273,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       reticle.setBitmaps(map.reticle, map.hud?.[FONT_TEXT_01.texture] ?? null);   // NU-3b C4: the target's name's font
       fire.reset();                                   // a new map: no marks, full magazines
       effects.setData(null);                          // EFFECTS: the old map's effects go; the new map's follow it
+      effects.setAlphaPass(null);                     // LATER 593: the old world's alpha pass goes with it
       fire.setMarks(null);
       fire.setPenetration(null);
       fire.setBitmap(map.bulletMark);                 // decals.rdr's bullet mark off EFFE_TXR, or the dark disc
@@ -1284,6 +1287,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
       const clipper = new MarkClipper(built.group);
       fire.setClip(clipper);
       effects.setClip(clipper);
+      effects.setAlphaPass(built.alphaPass ?? null);  // LATER 593: the particles drawn between the alpha pass's items by range
       return { shade, clipper };
     },
     setView: (map) => {

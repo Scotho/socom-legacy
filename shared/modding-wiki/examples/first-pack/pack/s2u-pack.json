@@ -1,0 +1,19 @@
+{
+  "format": "s2u-pack",
+  "formatVersion": 2,
+  "id": "example.half-damage",
+  "version": "1.0.0",
+  "name": "Half damage (example)",
+  "description": "An example rules pack for the modding wiki: every hit does half its damage.",
+  "target": "SCUS-97275",
+  "contract": "^0.1.1",
+  "kinds": ["rules"],
+  "sides": "server",
+  "dependencies": [],
+  "files": [
+    { "path": "rules/half-damage.json", "sha256": "dee3643d50c593e518646236f6df02f0f9bd2be6e28e1cd372dfae9060655a3e", "size": 438, "role": "rules" }
+  ],
+  "intents": [
+    { "kind": "new-behaviour", "files": ["rules/half-damage.json"] }
+  ]
+}

@@ -340,6 +340,18 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     readIn: ['uiGpuSwitch.ts'],
   },
   {
+    key: 'uiGpuGuard', group: 'instruments', kind: 'enum', values: ['on'], sheet: false, pages: ['front end'],
+    meaning: 'The GPU menus\' guard under on (GM-14c, a dev and canary instrument; the Vite dev server only): a sampled frame the GPU drew compared with the shown scale\'s software frame, rastered in idle time; the records on window.__uiGpu.guard.',
+    absent: 'no guard under on (shadow guards as always); a built page ignores the key',
+    readIn: ['uiGpuSwitch.ts'],
+  },
+  {
+    key: 'uiGpuGuardPlant', group: 'instruments', kind: 'string', sheet: false, pages: ['front end'],
+    meaning: 'A test\'s plant for the guard under on (GM-14c; with uiGpuGuard=on, the Vite dev server only): the byte of the guard\'s rastered reference at this offset flipped -- or, given exact, the red byte of the first pixel of the frame\'s exact class, so the plant trips -- shown on window.__uiGpu.guard. With an @<scale> suffix (exact@4, <byte>@4) only frames whose plan targets that scale are planted; any other frame\'s record says it was not.',
+    absent: 'no plant; a built page ignores the key',
+    readIn: ['uiGpuSwitch.ts'],
+  },
+  {
     key: 'uiPerf', group: 'instruments', kind: 'flag', sheet: false, needsDevmode: true, pages: ['front end'],
     meaning: 'The menus\' frame-time ring for the GPU menus\' browser baseline (GM-02, an instrument; a development build with devmode only): window.__uiGpuPerf.',
     absent: 'no ring; the loop as always',

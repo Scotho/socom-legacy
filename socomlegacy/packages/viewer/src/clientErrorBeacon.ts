@@ -18,7 +18,8 @@ import { probeSoftwareRenderer } from './softwareRenderer';
  * (`CLIENT_ERROR_BEACON_SEND_ADAPTATION`); the record and the page's report block work either way. It changes nothing
  * the game does. The shape is v1, agreed with part B (2026-11-05).
  */
-export const CLIENT_ERROR_BEACON_SEND_ADAPTATION = false;
+/** On since CEB.R5 (2026-11-07): part B was deployed and checked end to end with v0.4.10 (H406, 2026-11-06). */
+export const CLIENT_ERROR_BEACON_SEND_ADAPTATION = true;
 export const BEACON_PATH_ADAPTATION = '/api/client-error';
 export const BEACON_MIN_GAP_MS_ADAPTATION = 30_000;
 export const BEACON_MAX_PER_LOAD_ADAPTATION = 20;
@@ -265,7 +266,7 @@ export function pageBeaconContext(now: number = globalThis.performance?.now() ??
   };
 }
 
-/** The page's one beacon (made at the first call), its send to the page's own origin, off until part B is deployed. */
+/** The page's one beacon (made at the first call), its send to the page's own origin (on since CEB.R5: part B is deployed). */
 export function pageClientErrorBeacon(): ClientErrorBeacon {
   if (page) return page;
   page = new ClientErrorBeacon({

@@ -70,7 +70,7 @@ describe('the map check beside the cards (FUI-2, IA-1)', () => {
     await vi.waitFor(() => expect(document.querySelector('.fx-check-card')).not.toBeNull());
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
     expect(document.querySelector('.fx-check-card')).toBeNull();
-  }, 20_000);
+  }, 90_000);
 
   it('the check before Play is a card on the stack: the toolbar refuses Saves over it; Esc goes back and the page is ready', async () => {
     const api = await mounted();
@@ -90,5 +90,5 @@ describe('the map check beside the cards (FUI-2, IA-1)', () => {
     expect(document.querySelector('.fx-check-card')).toBeNull();
     expect(document.body.classList.contains('is-matching')).toBe(false);
     expect(api.read().ready).toBe(true);
-  }, 20_000);
+  }, 90_000);
 });

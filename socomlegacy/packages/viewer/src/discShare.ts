@@ -3,7 +3,7 @@ import type { DiscExtractRecord, ExtractEnv } from './discExtract';
 import {
   ShareProtocolError, manifestOf, manifestTotal, receiveFiles, sendFiles, type ReceiveStore, type SendSource, type SharePipe,
 } from './discShareProtocol';
-import { rtcPeer, type PeerFactory, type PeerSession } from './discShareRtc';
+import { rtcPeer, type IceServersSource, type PeerFactory, type PeerSession, type SharePath } from './discShareRtc';
 import { DiscShareError, type DiscShareSignal } from './discShareSignal';
 import { readShareCode, shareLink, type DiscShareAdapter, type ReceiverView, type SenderView } from './discShareView';
 import { normaliseDiscShareCode, type DiscShareMsg, type DiscSharePageType } from './discShareWire';
@@ -15,14 +15,17 @@ import {
 /**
  * **Disc share, the real adapter** (`docs/plans/2026-10-18-disc-share.md`, DSH-4; DSH.R1-R13): the `DiscShareAdapter`
  * the launcher's screens read (`./discShareView`; DSH-5's row, area and dialog), over the pairing client
- * (`./discShareSignal`, central's `/api/discshare/*`, signalling only), the local-only connection (`./discShareRtc`) and
- * the transfer protocol (`./discShareProtocol`). **A browser adaptation, product track** (OT.R53): the original had no
- * disc share; nothing here changes what the game does. The files go only between the player's own devices on one
- * local network (DSH.R1, DSH.R2, DSH.R11); no relay and no server ever carries disc data.
+ * (`./discShareSignal`, central's `/api/discshare/*`, signalling only), the connection (`./discShareRtc`) and the
+ * transfer protocol (`./discShareProtocol`). **A browser adaptation, product track** (OT.R53): the original had no
+ * disc share; nothing here changes what the game does. The files go to the device that made the code, once the sender
+ * says Yes beside it (DSH.R11; DSH.R16, the owner, 2026-11-07: between players too, DSH.R1 overruled), on one network or
+ * across networks (DSH.R15, the owner, 2026-11-07): directly, or through Cloudflare's TURN
+ * relay, encrypted end to end; none of our servers ever carries disc data. Each side's connection takes its ICE
+ * servers from the pairing (`DiscShareSignal.ice`, its own id and secret), and its view says the path (`via`).
  *
  * **The receiver** (Play's "Request Game Files (XBOX)" row): `request()` asks central for a code (`requesting`), shows it
  * and the pairing link `${origin}/?discshare=<code>` (`waiting`, until the code's expiry), and long-polls the pair:
- * `claimed` (`paired`), the sender's offer and candidates answered (`./discShareRtc` `rtcPeer`, the pair checked local),
+ * `claimed` (`paired`), the sender's offer and candidates answered (`./discShareRtc` `rtcPeer`, the pair read),
  * then the copy (`copying`: bytes stored over the manifest's total -- `SHARE_READ_SET_BYTES` until it arrives) into the
  * extraction's own store (`pageReceiveStore`: DSH-2's streamed write; the record written only once every file matches),
  * then `done`, and `onReceived` hands the record to the launcher's disc (the path a finished extraction takes).
@@ -35,8 +38,9 @@ import {
  * while it is open, DSH.R9) and takes a typed one (`choose`).
  *
  * **Ending**: a cancel, a Stop (`decline` while sending) and a failure send `bye` and stop every poll, timer and
- * connection; the other side then fails with `SHARE_OTHER_STOPPED`. **Once both local-only checks passed** (the
- * protocol's `onLinked`: the sender heard `hello`, the receiver the manifest) the pairing has done its work: that side
+ * connection; the other side then fails with `SHARE_OTHER_STOPPED`. **Once both sides' checks passed** (each its
+ * connection's path read, `./discShareRtc` `pairVerdict`; the protocol's `onLinked`: the sender heard `hello`, the
+ * receiver the manifest) the pairing has done its work: that side
  * stops polling and sends `bye` at once (the disc share review's B2), so central's end of the pair -- `DISCSHARE_LIFE_MS`
  * after the claim -- never cuts a long copy; from the pipe's opening a `bye` or an ended pair heard on the poll is no
  * longer a failure, and the channel's own `fail` and close (and the protocol's inactivity bound) carry the end from then
@@ -202,7 +206,13 @@ class Run {
 /** The real adapter (the module's header). `dispose()` ends both sides. */
 export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose(): void } {
   const sig = deps.signal;
-  const peerOf: PeerFactory = deps.peer ?? ((role, send) => rtcPeer(role, send));
+  const peerOf: PeerFactory = deps.peer ?? ((role, send, iceServers) => rtcPeer(role, send, iceServers ? { iceServers } : {}));
+  /** DSH.R15: the run's ICE servers from the pairing (its own id and secret); absent, the connection's default. */
+  const iceOf = (run: Run): IceServersSource | undefined => {
+    const p = run.pair;
+    const ice = sig.ice?.bind(sig);
+    return p && ice ? () => ice(p.id, p.secret, run.ac.signal) : undefined;
+  };
   const readSet = deps.readSet ?? READ_SET_VERSION;
   const store = (): ReceiveStore => deps.store ?? pageReceiveStore(deps.env);
   const sendSource = deps.sendSource ?? (() => pageSendSource(deps.env));
@@ -327,10 +337,13 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
           if (listening(run)) fail(SHARE_OTHER_STOPPED);      // B2: once the pipe is up, the channel says it
         } else if (m.type === 'offer' || m.type === 'candidate') {
           if (!run.peer) {
-            run.peer = peerOf('answer', (out) => { post(run, out, fail); });
-            run.peer.ready.then((pipe) => {
+            const peer = peerOf('answer', (out) => { post(run, out, fail); }, iceOf(run));
+            run.peer = peer;
+            peer.ready.then((pipe) => {
               if (rxRun !== run) { pipe.close(); return; }
               run.clear(expiry); run.clear(connect);
+              const via = peer.via?.() ?? null;
+              if (via) rx = { ...rx, via };
               void rxCopy(run, pipe);
             }, (e: unknown) => { fail(e instanceof Error ? e.message : String(e)); });
           }
@@ -347,6 +360,8 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
   if (code) mode = 'link';
   let tx: Tx = { phase: 'open' };
   let txRun: Run | null = null;
+  /** DSH.R15: the sending connection's path, once linked. */
+  let txVia: SharePath | null = null;
   let nearby: string[] = [];
   let nearbyRun: Run | null = null;
   const txEnd = (sendBye: boolean): void => {
@@ -387,6 +402,7 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
   };
   const approve = (): void => {
     if (mode !== 'link' || tx.phase !== 'open' || !deps.complete()) return;
+    txVia = null;
     const run = new Run();
     txRun = run;
     tx = { phase: 'sending', bytes: 0, total: SHARE_READ_SET_BYTES };
@@ -405,7 +421,7 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
         if (txRun !== run) { run.pair = { id: a.id, secret: a.secret }; bye(run); return; }
         run.pair = { id: a.id, secret: a.secret };
       } catch (e) { if (txRun === run) fail(pairingWords(e, 'claim')); return; }
-      const peer = peerOf('offer', (out) => { post(run, out, fail); });
+      const peer = peerOf('offer', (out) => { post(run, out, fail); }, iceOf(run));
       run.peer = peer;
       void pollLoop(run, (m) => {
         if (m.type === 'bye') { if (listening(run)) fail(SHARE_OTHER_STOPPED); }   // B2: once the pipe is up, the channel says it
@@ -417,6 +433,8 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
       if (txRun !== run) { pipe.close(); return; }
       run.clear(connect);
       run.pipe = pipe;
+      txVia = peer.via?.() ?? null;
+      changed();
       try {
         await sendFiles(pipe, src, {
           signal: run.ac.signal,
@@ -441,7 +459,7 @@ export function liveDiscShare(deps: LiveShareDeps): DiscShareAdapter & { dispose
     }
     switch (tx.phase) {
       case 'open': return { phase: deps.complete() ? 'asked' : 'needs-extract', code };
-      case 'sending': case 'done': return { phase: tx.phase, code, bytes: tx.bytes, total: tx.total };
+      case 'sending': case 'done': return { phase: tx.phase, code, bytes: tx.bytes, total: tx.total, ...(txVia ? { via: txVia } : {}) };
       case 'failed': return { phase: 'failed', code, reason: tx.reason };
       default: return { phase: 'declined', code };
     }

@@ -344,7 +344,7 @@ describe('the page plays the room\'s flinch on the victim\'s body, its own inclu
     expect(own.sets).toBe(1);
     expect(own.pose!()).toMatchObject({ clip: 'seal_open_door', loop: false });
     expect(own.window).toEqual({ start: 10, until: 52, cutFrom: 33 });
-    expect(own.opts).toEqual([{ reloadGate: false, pushed: true }]);
+    expect(own.opts).toEqual([{ reloadGate: false, pushed: true, clip: 'seal_open_door' }]);   // the door-open body hold: the clip holds the body
   });
 
   it('another player hit: its body flinches in the room\'s clip, the page\'s own body untouched', () => {

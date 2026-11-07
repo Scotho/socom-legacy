@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PerspectiveCamera } from 'three';
+import { Matrix4, PerspectiveCamera } from 'three';
 import { FsAssetSource } from '@s2u/archive/node';
 import type { CollisionOwner, GridParams, WorldPoly } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { effectsFromDisc } from '../src/effectData';
-import { Effects } from '../src/effects';
+import { Effects, type EffectPlace } from '../src/effects';
 import { noInput } from '../src/gamepad';
 import type { ActionPrompt } from '../src/hud';
 import { TRAVERSAL_CLIP } from '../src/traversal';
@@ -395,5 +395,92 @@ describe.skipIf(!MP2)(`the keeper wades on the game's data${MP2 ? '' : ` (${FIXT
     for (let i = 0; i < 120 && walker.airborne; i++) { walker.tick(STILL); p.effectsFrame(); }
     expect(fx.stats().played['seal_fall_in_water']).toBe(1);
     expect(fx.stats().water.splashes).toBe(1);
+  });
+});
+
+/**
+ * The wake on the SEAL (research 86 s5.4; research 89 s11, "Water"): `FUN_005b52b0` moves the actor's own node
+ * (`actor+0x1380`) to the water point under the feet on every liquid hit (`FUN_003157d0`, D:L469859: the node's
+ * translation, +0x30..+0x38) and starts the ripple on that node (`FUN_00272bb0(anim, 1, 3, actor+0x1380, 0)`, type 3 a
+ * node; D:L469881, D:L469895). The ripples' sources (`rain_ripple1`-`3`) are `NODE_CALLER` with FOLLOW and no
+ * AT_CONTEXT, so every particle is placed through that node -- never at the map's origin, as the page's node-less place
+ * left them (the place had a position only; `particles.ts`' fallback put the source's offset in world space).
+ */
+describe('the ripple plays on a node the keeper moves to the water point (FUN_005b52b0 D:L469859, D:L469881)', () => {
+  it('the place holds a node at the water point, and the same node is moved there each frame', () => {
+    const { p, walker } = page();
+    const places: EffectPlace[] = [];
+    p.setEffects({
+      spawn: (_name, place) => { places.push(place); return { finished: false, stop: () => undefined }; },
+      play: () => true,
+    });
+    const at = (): readonly number[] => (p.traversal() as unknown as { ripple(): { at: number[] } }).ripple().at;
+    walker.place(-80, 0, 40);
+    walker.tick(STILL);
+    p.effectsFrame();
+    expect(places).toHaveLength(1);
+    const node = places[0]!.node as Matrix4;
+    expect(node).toBeInstanceOf(Matrix4);
+    const e = node.elements;
+    expect([e[12], e[13], e[14]]).toEqual([...at()]);
+    expect([e[0], e[5], e[10], e[15]]).toEqual([1, 1, 1, 1]);      // RIPPLE_NODE_BASIS_READING: the identity basis
+    walker.place(-70, 0, 45);
+    walker.tick(STILL);
+    p.effectsFrame();
+    expect(places).toHaveLength(1);                                  // the one ripple kept
+    expect(places[0]!.node).toBe(node);                              // the same node, moved in place
+    expect([e[12], e[13], e[14]]).toEqual([...at()]);
+    expect(e[12]).toBeCloseTo(-70, 6);
+    expect(e[14]).toBeCloseTo(45, 6);
+  });
+});
+
+const PC_ROOT_ENV = process.env.SOCOM_PC_ROOT ? resolve(process.env.SOCOM_PC_ROOT) : null;
+const DEV_DISC = process.env.SOCOM_DISC ? resolve(process.env.SOCOM_DISC) : PC_ROOT_ENV ? resolve(PC_ROOT_ENV, 'game', 'disc') : '';
+
+/**
+ * The dev disc's own ripples (research 86 s5.4): Crossroads' (MP12) `big_ripple_anim` -- `rain_ripple1` every 0.5 s
+ * (flag A 0x8000), `rain_ripple2` every 3.5 units moved and `rain_ripple3` every 0.4 (0x4000; `FUN_00266830`
+ * D:L113156-113167), each 0.8 or 0.2 over the node (flag A 0x4, the node's frame: D:L226869-226878) -- played by the
+ * keeper over a SEAL carried 20 units through a pool: the wake lies on his path, at the water, a trail behind him, and
+ * standing still lays none of the per-distance sources' particles.
+ */
+describe.skipIf(!DEV_DISC)(`the wake on the dev disc's ripples (MP12)${DEV_DISC ? '' : ' (no dev disc: SOCOM_DISC or SOCOM_PC_ROOT -- skipped)'}`, () => {
+  it('the particles land on the SEAL\'s path at the water, trailing him; standing still lays no per-distance particle', async () => {
+    const d = await effectsFromDisc(new FsAssetSource(DEV_DISC), 'RUN/MP12.ZDB', 'MP12');
+    const fx = new Effects(() => 0.5);
+    fx.setData(d);
+    const { p, walker } = page();
+    p.setEffects(fx);
+    const particles = (): { source: { name: string }; position: [number, number, number] }[] =>
+      (fx as unknown as { particles: { particles: { source: { name: string }; position: [number, number, number] }[] } }).particles.particles;
+    const dt = 1 / 60;
+    // Standing in the pool (x -100..-60, z 20..60, its water at 6) for 2 s: the ring source alone.
+    walker.place(-90, 0, 40);
+    for (let i = 0; i < 120; i++) { walker.tick(STILL); p.effectsFrame(); fx.update(dt, null); }
+    expect(fx.stats().water.ripples).toBe('big_ripple_anim');
+    const still = particles().map((q) => q.source.name);
+    expect(still.filter((n) => n === 'rain_ripple2' || n === 'rain_ripple3')).toEqual([]);
+    expect(still.filter((n) => n === 'rain_ripple1').length).toBeGreaterThan(0);
+    // Carried 20 units along +x, half a unit a frame: the per-distance sources lay their trail.
+    for (let i = 1; i <= 40; i++) { walker.place(-90 + i * 0.5, 0, 40); walker.tick(STILL); p.effectsFrame(); fx.update(dt, null); }
+    // The ripples' particles (the map's own rain, `rain_falling1`, falls about the camera: research 89 s12).
+    const all = particles().filter((q) => q.source.name.startsWith('rain_ripple'));
+    expect(all.length).toBeGreaterThan(0);
+    for (const q of all) {
+      expect(q.position[0]).toBeGreaterThan(-100);                 // on the path through the pool, not at the origin
+      expect(q.position[0]).toBeLessThan(-60);
+      expect(Math.abs(q.position[2] - 40)).toBeLessThan(10);
+    }
+    const spray = all.filter((q) => q.source.name === 'rain_ripple3').map((q) => q.position[0]);
+    const wake = all.filter((q) => q.source.name === 'rain_ripple2').map((q) => q.position[0]);
+    // Every 0.4 and every 3.5 units of the 20 moved (the first frame's move counted from the still place).
+    expect(spray.length).toBeGreaterThanOrEqual(45);
+    expect(spray.length).toBeLessThanOrEqual(50);
+    expect(wake.length).toBeGreaterThanOrEqual(5);
+    expect(wake.length).toBeLessThanOrEqual(6);
+    // A trail: spread from where he started to where he stands, not heaped on him.
+    expect(Math.min(...spray)).toBeLessThan(-85);
+    expect(Math.max(...spray)).toBeGreaterThan(-75);
   });
 });

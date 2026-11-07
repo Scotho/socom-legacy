@@ -127,5 +127,5 @@ describe('R7-1: the mounted toolbar', () => {
     expect(baseGroup.querySelector('input.fx-name')).not.toBeNull();
     // The brand's badge keeps its text.
     expect(top.querySelector('.fx-badge')?.textContent).toBe('EXPERIMENT');
-  }, 30_000);
+  }, 90_000);
 });

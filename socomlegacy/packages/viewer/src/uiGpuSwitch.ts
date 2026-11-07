@@ -131,7 +131,20 @@ export interface UiGpuUrl {
   readonly allowSoftwareAdapter: boolean;
   /** `?uiGpuBlend=`, as given; honoured only under the developer's tools (`devSwitches(search).tools`). */
   readonly blend: UiGpuBlend | null;
+  /** GM-14c: `?uiGpuGuard=on`, as given; honoured only on the Vite dev server (`UiGpuSwitchOptions.devBuild`). */
+  readonly guard: boolean;
+  /** GM-14c: `?uiGpuGuardPlant=<byte offset>` (a whole number), as given; honoured only with `guard` on the dev server. */
+  readonly guardPlant: UiGpuGuardPlant | null;
 }
+
+/**
+ * GM-14c: a test's plant -- a byte offset of the guard's rastered reference, or (review fold F1) `exact`: the red byte
+ * of the first pixel the frame's own plan puts in the exact class (`uiGpuExactMask`), so the plant trips on any frame.
+ * GM batch 2 part B (a browser adaptation, a dev-server test instrument; 6d's decision for the owner): with an `@<scale>`
+ * suffix (`exact@4`, `<byte>@4`) the plant applies only to frames whose plan targets that scale (`{ at, scale }`); any
+ * other frame's reference is not planted, its record saying so. Without the suffix, as before.
+ */
+export type UiGpuGuardPlant = number | 'exact' | { readonly at: number | 'exact'; readonly scale: number };
 
 /** Parse the page's address for the switch's keys. A malformed query asks for nothing. */
 export function parseUiGpuUrl(search: string): UiGpuUrl {
@@ -139,6 +152,8 @@ export function parseUiGpuUrl(search: string): UiGpuUrl {
   let surfaces: readonly UiGpuSurface[] = UI_GPU_SURFACES;
   let allowSoftwareAdapter = false;
   let blend: UiGpuBlend | null = null;
+  let guard = false;
+  let guardPlant: UiGpuGuardPlant | null = null;
   try {
     const q = new URLSearchParams(search);
     const m = q.get('uiGpu');
@@ -152,8 +167,17 @@ export function parseUiGpuUrl(search: string): UiGpuUrl {
     allowSoftwareAdapter = q.get('uiGpuAllowSoftwareAdapter') === '1';
     const b = q.get('uiGpuBlend');
     blend = BLENDS.find((x) => x === b) ?? null;
+    guard = q.get('uiGpuGuard') === 'on';
+    const plant = q.get('uiGpuGuardPlant');
+    if (plant !== null && /^\d+$/.test(plant.trim())) guardPlant = Number(plant.trim());
+    else if (plant?.trim() === 'exact') guardPlant = 'exact';
+    else {
+      // Part B: `<exact|byte>@<scale>`, the scale a whole number >= 1; anything else (`exact@`, `@4`, `12@0`) asks for nothing.
+      const scoped = plant === null ? null : /^(exact|\d+)@([1-9]\d*)$/.exec(plant.trim());
+      if (scoped) guardPlant = { at: scoped[1] === 'exact' ? 'exact' : Number(scoped[1]), scale: Number(scoped[2]) };
+    }
   } catch { /* a malformed query asks for nothing */ }
-  return { mode, surfaces, allowSoftwareAdapter, blend };
+  return { mode, surfaces, allowSoftwareAdapter, blend, guard, guardPlant };
 }
 
 /** The renderer strings of software adapters (case aside): SwiftShader, llvmpipe, the Microsoft Basic Render Driver. */
@@ -231,6 +255,12 @@ export interface UiGpuSwitchOptions {
   readonly table?: UiGpuSurfaceTable;
   /** The blend table; the landed `UI_GPU_BLEND_ADAPTATION` unless a test gives another. */
   readonly blendTable?: UiGpuBlendTable;
+  /**
+   * GM-14c: a page the Vite dev server serves (`uiGpuDevBuild`: DEV and MODE `development`, as GM-16b's table) -- the
+   * only page that honours `?uiGpuGuard=on` and `?uiGpuGuardPlant=`. Absent or false (every built page, the nightly
+   * included): both keys do nothing.
+   */
+  readonly devBuild?: boolean;
 }
 
 /** The read-out published as `window.__uiGpu` (a playtest and test instrument; nothing of the game). */
@@ -242,8 +272,15 @@ export interface UiGpuReadout {
   readonly storageKill: boolean;
   readonly url: UiGpuUrl;
   readonly blend: Record<UiGpuSurface, Record<UiGpuScaleKey, UiGpuBlend>>;
-  /** GM-16: the guard's compares this session, every trip (with its renderer), and the last record. */
-  readonly guard: { readonly compares: number; readonly trips: readonly UiGpuGuardRecord[]; readonly last: UiGpuGuardRecord | null };
+  /**
+   * GM-16: the guard's compares this session, every trip (with its renderer), and the last record; GM-14c: the surfaces
+   * whose `on` frames the dev server's `?uiGpuGuard=on` guards (`armed`), and the test's plant (`plant`, a byte offset or
+   * `exact`). Review fold F3: a compare skipped (an HD image not resident) is counted in `skips`, never in `compares`.
+   */
+  readonly guard: {
+    readonly compares: number; readonly skips: number; readonly trips: readonly UiGpuGuardRecord[]; readonly last: UiGpuGuardRecord | null;
+    readonly armed: readonly UiGpuSurface[]; readonly plant: UiGpuGuardPlant | null;
+  };
   /** GM-16c: why frames were L1 -- the last refusal and each reason's frames (`UI_GPU_REFUSAL_KEYS_MAX` keys at most). */
   readonly refusals: { readonly last: UiGpuRefusal | null; readonly counts: Record<string, number> };
 }
@@ -281,6 +318,7 @@ export class UiGpuSwitch {
   private readonly url: UiGpuUrl;
   private readonly storageKill: boolean;
   private readonly devTools: boolean;
+  private readonly devBuild: boolean;
   private readonly table: UiGpuSurfaceTable;
   private readonly blendTable: UiGpuBlendTable;
   private readonly killed = new Map<UiGpuSurface, UiGpuKillReason>();
@@ -289,6 +327,7 @@ export class UiGpuSwitch {
   private readonly levels: Record<UiGpuLevel, number> = { L0: 0, L1: 0, L2: 0, L3: 0, L4: 0 };
   private contexts = 0;
   private guardCompares = 0;
+  private guardSkips = 0;
   private readonly guardTrips: UiGpuGuardRecord[] = [];
   private guardLast: UiGpuGuardRecord | null = null;
   private refusalLast: UiGpuRefusal | null = null;
@@ -298,6 +337,7 @@ export class UiGpuSwitch {
     this.url = parseUiGpuUrl(opts.search);
     this.storageKill = readStorageKill(opts.storage);
     this.devTools = opts.devTools;
+    this.devBuild = opts.devBuild === true;
     this.table = opts.table ?? UI_GPU_SURFACES_ADAPTATION;
     this.blendTable = opts.blendTable ?? UI_GPU_BLEND_ADAPTATION;
   }
@@ -328,6 +368,20 @@ export class UiGpuSwitch {
     return { ...base, mode: requested, source, capability: 'ok' };
   }
 
+  /**
+   * GM-14c: whether `surface`'s `on` frames are guarded (`UiGpuSurfacePresenter`, the guard's idle raster at the shown
+   * scale): `?uiGpuGuard=on` on the Vite dev server, for the surfaces the address names (`uiGpuSurface`). It turns no
+   * surface on -- the mode is `resolve`'s -- and a built page never answers true.
+   */
+  guardOn(surface: UiGpuSurface): boolean {
+    return this.devBuild && this.url.guard && this.url.surfaces.includes(surface);
+  }
+
+  /** GM-14c: the test's plant for `surface` (`?uiGpuGuardPlant=`): a byte offset of the reference, only where `guardOn`. */
+  guardPlant(surface: UiGpuSurface): UiGpuGuardPlant | null {
+    return this.guardOn(surface) ? this.url.guardPlant : null;
+  }
+
   /** The blend mode for `surface` at `scale` (GM.R6): the dev URL, then a session escalation, then the table. */
   blend(surface: UiGpuSurface, scale: number): UiGpuBlend {
     if (this.devTools && this.url.blend !== null) return this.url.blend;
@@ -351,9 +405,13 @@ export class UiGpuSwitch {
     this.levels[level] += 1;
   }
 
-  /** GM-16: one guard record from a surface (`./uiGpuGuard`): counted, a trip kept for the session's read-out. */
+  /**
+   * GM-16: one guard record from a surface (`./uiGpuGuard`): counted, a trip kept for the session's read-out. Review fold
+   * F3: a skipped record (GM-14c, `record.skipped`) is counted in `skips`, not as a compare.
+   */
   guarded(record: UiGpuGuardRecord): void {
-    this.guardCompares += 1;
+    if (record.skipped) this.guardSkips += 1;
+    else this.guardCompares += 1;
     this.guardLast = record;
     if (record.trip) this.guardTrips.push(record);
   }
@@ -393,7 +451,10 @@ export class UiGpuSwitch {
     return {
       modes, blend, levels: { ...this.levels }, contexts: this.contexts,
       kills: this.kills.map((k) => ({ ...k })), storageKill: this.storageKill, url: this.url,
-      guard: { compares: this.guardCompares, trips: this.guardTrips.slice(), last: this.guardLast },
+      guard: {
+        compares: this.guardCompares, skips: this.guardSkips, trips: this.guardTrips.slice(), last: this.guardLast,
+        armed: UI_GPU_SURFACES.filter((s) => this.guardOn(s)), plant: this.guardPlant('front'),
+      },
       refusals: {
         last: this.refusalLast && { ...this.refusalLast, why: this.refusalLast.why.slice() },
         counts: Object.fromEntries(this.refusalCounts),
@@ -420,6 +481,7 @@ export function pageUiGpuSwitch(): UiGpuSwitch {
     storage: () => ({ getItem: (key: string) => pageSettings.get(key) }), // the page's settings path (pageStore.ts)
     devTools: devSwitches(search).tools,
     table: uiGpuPageTable(uiGpuDevBuild()),                               // GM-16b: front.hd shadow on a development build only
+    devBuild: uiGpuDevBuild(),                                             // GM-14c: ?uiGpuGuard / ?uiGpuGuardPlant on the dev server only
   });
   if (typeof window !== 'undefined') page.expose(window);
   return page;

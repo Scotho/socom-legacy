@@ -429,6 +429,26 @@ bounds the browser's ..." comment where it is defined.
   instance, flat, and decides no byte.
 - not an adaptation (GM-15a): the models' `depthScale` (`UiPlanPass.depthScale`, `passDepthScale` in `uiFramePlan.ts`; GM.R10) -- the largest power of two at most 1 that brings every vertex's f32 `invW` of the pass to at most 1, written as `gl_FragDepth = clamp(invW * depthScale, 0, 1)` -- decides no byte (a power of two scales an f32 exactly unless it underflows, GM-15b's edge), so it has no constant; the models' instancing (`UI_GPU_TRIANGLE_LAYOUT`) likewise.
 - not an adaptation (GM-15b, `uiFramePlan.ts`): `depthScale` now brings every vertex's f32 `invW` to at most 1/2 (a pixel's f32 `invW` can pass its largest vertex's by an ulp; at 1/2 no depth reaches the clamp at 1); `UI_GPU_MODEL_DEPTH_FLOOR` (2^-100, and a `depthScale` of at least 2^-126) and `UI_GPU_MODEL_TEXEL_RANGE` (2^30 on a vertex's `|u W|`, `|(1 - v) H|`) bound the range in which the GPU's f32 and int arithmetic is the twin's -- a pass or triangle outside is the software's (L1, named), so neither decides a byte and neither is a game value.
+- not an adaptation, a measurement (GM-15c, R1; the controller's ruling, b6 2026-11-06): **the seam double adds on the
+  corpus** (M3). The software tests a pixel's f64 `invW` against the f32 it stored, so where its own f32 equals the store
+  but the f64 is above it, it draws again (the texel added twice); an f32 GREATER test (the twin, a GPU) draws once.
+  Counted by `test/uiGpuSeamCount.ts` over every distinct model frame of GM-04's corpus at 1, 2 and 4
+  (`test/uiGpuModelsCorpus.disc.test.ts`, which pins the table), each hit classed by the triangle that stored the depth:
+  `seam` (two shared vertices, GM-15b's case), `coplanar` (all three: the same face again, GM-08's roller finding),
+  `other`. One mechanism, all three classes under R1. Reading, pending review -- of the port's own output, not the
+  original's; the count is the software's side (where it doubles), not a measured GPU difference. 85 of 2,256 frames
+  (752 distinct model frames x 3 scales) hit:
+
+  | entry | seam | coplanar | other | frames hit |
+  |---|---|---|---|---|
+  | `dlgMenu.rdr` (deep link) | 0 | 43,823 | 0 | frame 2 only (1x 2,181, 2x 8,312, 4x 33,330) |
+  | dlgMenu + MENULOOP | 0 | 43,823 | 0 | frame 2 only (the same) |
+  | ARMORY (MP51, seal) | 0 | 0 | 81 | frames 90-101 |
+  | ARMORY (MP51, terrorist) | 3,622 | 819 | 733 | frames 72-80, 95-101, 123-132, 248-250 |
+  | **corpus** | **3,622** | **88,465** | **814** | |
+
+  Pinned and deferred: no refusal is added; "hits = 0" stays an open precondition of GM-17's gate, where matching the
+  double add on the GPU or sending those frames to L1 is chosen with GM-27's real-GPU reading.
 
 ## 6. Performance
 

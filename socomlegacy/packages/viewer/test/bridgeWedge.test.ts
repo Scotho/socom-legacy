@@ -462,13 +462,16 @@ for (const c of FACE_DROPS) {
     // own answer, ticked until nothing is pending, then 1.5 s); a direction is clear when the body ends more than 8 (over
     // twice the radius 3.5) across the ground from its rest. Measured 2026-11-04: MP1's standing rest walks out at 90,
     // 180 and 270 (250-254 u). MP9's prone rest does not: it crawls 0.00 in all four -- the prone body against the face is
-    // put back on every move with a hit (D:L413602-413611) -- and the stand press is forgotten for want of headroom
-    // (`stanceGate('stand')` 'reset'), so it stays prone and no direction clears: stuck in every stance, where main
-    // dropped it to y 114.30. LATER 687 (closed 2026-11-05): no player's route reaches the rest (the sweep below), so the
-    // drop is a synthetic placement only. Pinned as measured, not as a gap: the original's answer there is not read.
+    // put back on every move with a hit (D:L413602-413611). LATER 687 (closed 2026-11-05): no player's route reaches the
+    // rest (the sweep below), so the drop is a synthetic placement only. Pinned as measured, not as a gap.
+    // Re-pinned by INV-WATER-CROUCH (2026-11-07; reading, pending review): the stand press was forgotten for want of
+    // headroom (`stanceGate('stand')` 'reset') because the two-sided camera-class cast met the trunk's own leaning faces
+    // (`land_04/congo2_tree4` and its instance, n_y 0.16, 7.85 over the feet) from behind; the cast is one-sided as the
+    // hull's `FUN_002d2890` side mode 0x20 makes it (D:L174831-174837; research 281 s4.3), so the press is now taken: the
+    // body stands (at about (1810.43, 162.02, 1736.93)) and walks out at 0, 90 and 270. Was: 'reset', stays prone, [].
     if ('rest' in c) {
       it(c.stance === 'prone'
-        ? 'LATER 687: stuck at the rest -- the stand press is forgotten for headroom, and no direction clears, prone or after it'
+        ? 'LATER 687: prone at the rest no direction clears; the stand press is taken (the one-sided headroom) and walks out'
         : 'walks out: from the rest, 4 s of full stick moves the body clear in two or more of four directions (stood up if it must)', () => {
         const press = (w: Walker): void => {
           w.changeStance('stand');
@@ -486,12 +489,12 @@ for (const c of FACE_DROPS) {
         const own = clear(false), stood = clear(true);
         if (c.stance === 'prone') {
           const w = drop();
-          expect(w.stanceGate('stand'), 'no headroom: the press is forgotten').toBe('reset');
+          expect(w.stanceGate('stand'), 'the trunk faces are met from behind: headroom clear').toBe('open');
           press(w);
-          expect(w.stance).toBe('prone');
+          expect(w.stance).toBe('stand');
           expect(w.pendingStance).toBeNull();
           expect(own, 'prone: the directions clear').toEqual([]);
-          expect(stood, 'after the stand press: the directions clear').toEqual([]);
+          expect(stood, 'after the stand press: the directions clear').toEqual([0, 90, 270]);
           return;
         }
         expect(own, `${c.stance}: the directions clear in its own stance`).toEqual([90, 180, 270]);

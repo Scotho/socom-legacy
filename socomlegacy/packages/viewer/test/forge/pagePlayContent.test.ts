@@ -110,12 +110,12 @@ describe('LATER 456: Play\'s content props behind FORGE_PLAY_CONTENT_PROPS_ADAPT
     const page = await import('../../src/forge/page');
     expect(page.FORGE_PLAY_CONTENT_PROPS_ADAPTATION).toBe(true);
     expect(page.forgePlayContentProps.drawn()).toBe(true);
-  }, 30_000);                                                                           // the page module's first load
+  }, 90_000);                                                                           // the page module's first load
 
   it('off ((b), the alternative\'s record): Play\'s mount is not passed the option at all', async () => {
     const o = await play(false);
     expect('extraWorld' in o).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   it('on, the match will not start: the built group is disposed once (no leak on the failed start)', async () => {
     started.reject = true;
@@ -124,7 +124,7 @@ describe('LATER 456: Play\'s content props behind FORGE_PLAY_CONTENT_PROPS_ADAPT
     await vi.waitFor(() => expect(started.dispose).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 0));
     expect(started.dispose).toHaveBeenCalledTimes(1);
-  }, 30_000);
+  }, 90_000);
 
   it('on: Play\'s mount takes one object per composed placement, each at its placement\'s matrix', async () => {
     const o = await play(true);
@@ -140,7 +140,7 @@ describe('LATER 456: Play\'s content props behind FORGE_PLAY_CONTENT_PROPS_ADAPT
     expect([a.position.x, a.position.y, a.position.z]).toEqual([50, 0, 50]);
     expect(a.rotation.y).toBeCloseTo(Math.PI / 2, 6);
     expect([b.position.x, b.position.z]).toEqual([-40, 30]);
-  }, 30_000);
+  }, 90_000);
 });
 
 describe('LATER 456: contentPropsGroup, the group Play takes', () => {

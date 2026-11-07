@@ -16,9 +16,12 @@ import { OpenedContexts } from './openedContexts';
  *    the read set (the disc share review's N2, `fitsReadSet`); the synthetic set is not, so its receiver is given the
  *    protocol's test seam (`ReceiveOptions.isReadSet`): the synthetic set's own paths, exactly (`syntheticPaths`). The
  *    read set's version is the page's own (`READ_SET_VERSION`, read from its source), so that check is the real one.
- * 2. **A relayed pair refused**: the same two pages, the selected pair reported as `relay` (the page's `getStats`
- *    answered for it -- this host has no TURN server to make a real one): both sides refuse it with the reason, and
- *    every connection is closed.
+ * 2. **A relayed pair accepted** (DSH.R15, the owner, 2026-11-07; it was refused under DSH.R2): the same two pages, the
+ *    selected pair reported as `relay` (the page's `getStats` answered for it -- this host has no TURN server to make a
+ *    real one): both sides accept it, say the path "relay", and the copy completes.
+ *
+ * Each page's connection is given `iceServers: []` explicitly (as `/api/discshare/ice` would answer an empty list): the
+ * default, Cloudflare's STUN, would reach outside this host, which a loopback test does not.
  *
  * A rendered browser run, the product track: nothing of the game is scored. Heavy (a browser): the host's lock rules
  * apply. Chromium is launched as a player's is (DSH.R14): its local addresses hidden behind mDNS names, so `getStats`
@@ -77,11 +80,11 @@ async function startReceiver(page: Page, readSet: number, paths: string[]): Prom
     const rtc = await import(/* @vite-ignore */ '/src/discShareRtc.ts' as string) as typeof import('../src/discShareRtc');
     const proto = await import(/* @vite-ignore */ '/src/discShareProtocol.ts' as string) as typeof import('../src/discShareProtocol');
     const share = await import(/* @vite-ignore */ '/src/discShare.ts' as string) as typeof import('../src/discShare');
-    const w = window as unknown as { __peer: unknown; __got: Promise<unknown>; __relay(j: string): Promise<void> };
-    const peer = rtc.rtcPeer('answer', (m) => { void w.__relay(JSON.stringify(m)); });
+    const w = window as unknown as { __peer: unknown; __got: Promise<unknown>; __via: unknown; __relay(j: string): Promise<void> };
+    const peer = rtc.rtcPeer('answer', (m) => { void w.__relay(JSON.stringify(m)); }, { iceServers: async () => [] });
     w.__peer = peer;
     const isReadSet = (ps: readonly string[]): boolean => ps.length === want.length && ps.every((p, i) => p === want[i]);
-    w.__got = peer.ready.then((pipe) => proto.receiveFiles(pipe, share.pageReceiveStore(), { readSet: rs, isReadSet }))
+    w.__got = peer.ready.then((pipe) => { w.__via = peer.via?.() ?? null; return proto.receiveFiles(pipe, share.pageReceiveStore(), { readSet: rs, isReadSet }); })
       .then((r) => ({ ok: true, files: r.files.map((f) => ({ path: f.path, size: f.size, sha256: f.sha256 })), total: r.total }),
         (e: unknown) => ({ ok: false, reason: e instanceof Error ? e.message : String(e) }));
   }, { rs: readSet, want: paths });
@@ -109,10 +112,10 @@ async function startSender(page: Page, readSet: number, sizes: number[]): Promis
       record,
       readRange: async (path: string, offset: number, length: number) => files.find((f) => f.path === path)!.data.slice(offset, offset + length),
     };
-    const w = window as unknown as { __peer: unknown; __sent: Promise<unknown>; __relay(j: string): Promise<void> };
-    const peer = rtc.rtcPeer('offer', (m) => { void w.__relay(JSON.stringify(m)); });
+    const w = window as unknown as { __peer: unknown; __sent: Promise<unknown>; __via: unknown; __relay(j: string): Promise<void> };
+    const peer = rtc.rtcPeer('offer', (m) => { void w.__relay(JSON.stringify(m)); }, { iceServers: async () => [] });
     w.__peer = peer;
-    w.__sent = peer.ready.then((pipe) => proto.sendFiles(pipe, source)).then(() => ({ ok: true }), (e: unknown) => ({ ok: false, reason: e instanceof Error ? e.message : String(e) }));
+    w.__sent = peer.ready.then((pipe) => { w.__via = peer.via?.() ?? null; return proto.sendFiles(pipe, source); }).then(() => ({ ok: true }), (e: unknown) => ({ ok: false, reason: e instanceof Error ? e.message : String(e) }));
     return listed;
   }, { rs: readSet, sz: sizes });
 }
@@ -143,7 +146,7 @@ test('two pages over loopback, iceServers []: the synthetic read set copied, sto
   });
   expect(back).toEqual({ state: 'whole', bad: [], checked: SIZES.length, files: listed });
 
-  // Every connection either page made had no ICE server (no STUN, no TURN: DSH.R2).
+  // Every connection either page made had the ICE servers it was given: none (the module's header).
   for (const p of [receiver, sender]) {
     const configs = await p.evaluate(() => (window as unknown as { __pcs: { config?: RTCConfiguration }[] }).__pcs.map((m) => m.config?.iceServers ?? null));
     expect(configs.length).toBeGreaterThan(0);
@@ -151,7 +154,7 @@ test('two pages over loopback, iceServers []: the synthetic read set copied, sto
   }
 });
 
-test('a relayed pair is refused on both sides with its reason, and every connection closed', async ({ baseURL }) => {
+test('DSH.R15: a relayed pair is accepted on both sides, said through the relay, and the copy completes', async ({ baseURL }) => {
   const receiver = await device(baseURL!);
   const sender = await device(baseURL!);
   // This host has no TURN server to make a real relayed pair: each page's getStats answers one (its addresses made from
@@ -171,21 +174,16 @@ test('a relayed pair is refused on both sides with its reason, and every connect
   }
   await relay(receiver, sender);
   await startReceiver(receiver, READ_SET_VERSION, syntheticPaths([1000]));
-  await startSender(sender, READ_SET_VERSION, [1000]);
-  const got = await receiver.evaluate(() => (window as unknown as { __got: Promise<unknown> }).__got) as { ok: boolean; reason?: string };
+  const listed = await startSender(sender, READ_SET_VERSION, [1000]);
+  const got = await receiver.evaluate(() => (window as unknown as { __got: Promise<unknown> }).__got) as { ok: boolean; reason?: string; files?: unknown[] };
   const sent = await sender.evaluate(() => (window as unknown as { __sent: Promise<unknown> }).__sent) as { ok: boolean; reason?: string };
-  expect(got.ok).toBe(false);
-  expect(sent.ok).toBe(false);
-  expect(got.reason).toMatch(/relay/);
-  expect(sent.reason).toMatch(/relay/);
-  for (const p of [receiver, sender]) {
-    const states = await p.evaluate(() => (window as unknown as { __pcs: { pc: RTCPeerConnection }[] }).__pcs.map((m) => m.pc.signalingState));
-    for (const s of states) expect(s).toBe('closed');
-  }
-  // Nothing was stored on the receiver.
+  expect(got, got.reason).toMatchObject({ ok: true });
+  expect(got.files).toEqual(listed);
+  expect(sent).toEqual({ ok: true });
+  for (const p of [receiver, sender]) expect(await p.evaluate(() => (window as unknown as { __via: unknown }).__via)).toBe('relay');
   const state = await receiver.evaluate(async () => {
     const rec = await import(/* @vite-ignore */ '/src/discExtractRecord.ts' as string) as typeof import('../src/discExtractRecord');
     return rec.extractionState();
   });
-  expect(state).toBe('none');
+  expect(state).toBe('whole');
 });

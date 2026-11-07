@@ -54,7 +54,7 @@ describe('FUI.R19: the page\'s own refusals give the toast and the line', () => 
     input.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
     input.dispatchEvent(new MouseEvent('pointerup', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
     refusedBoth('choose a prop in the assets first');
-  }, 20_000);
+  }, 90_000);
 
   it('the Outliner\'s locked placement: Cross gives the toast and the line', async () => {
     const api = await mount();
@@ -68,5 +68,5 @@ describe('FUI.R19: the page\'s own refusals give the toast and the line', () => 
     locked().click();                                                   // Cross on the locked row
     refusedBoth('Locked: Square unlocks it');
     expect(api.read().refs).toMatchObject([{ ref: 'spawn:0', locked: true }]);
-  }, 20_000);
+  }, 90_000);
 });

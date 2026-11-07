@@ -361,6 +361,11 @@ export interface CustomMatch {
   inMatch: boolean;
   /** FG-48a: it asks a password (the forge asks it at JOIN); false from a server before FG-48. */
   locked: boolean;
+  /**
+   * CHT-3 (a browser adaptation): the lobby's host record is community. The listing draws "unranked" and the
+   * HyperNode label. Absent on a trusted host.
+   */
+  community?: true;
 }
 
 /**
@@ -379,7 +384,7 @@ export function customMatchesOf(raw: unknown): CustomMatch[] {
       || typeof locked !== 'boolean') {
       throw new Error('forge lobbies: not the shape');
     }
-    return e['listed'] === true ? [{ id, name, base, players, max, inMatch, locked }] : [];
+    return e['listed'] === true ? [{ id, name, base, players, max, inMatch, locked, ...(e['community'] === true ? { community: true as const } : {}) }] : [];
   });
 }
 

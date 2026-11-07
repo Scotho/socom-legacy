@@ -1,0 +1,19 @@
+{
+  "schema": "s2u-rules",
+  "vocabulary": 0,
+  "id": "half-damage",
+  "name": "Half damage",
+  "description": "Every hit does half its damage.",
+  "rules": [
+    {
+      "id": "hello",
+      "when": "round.start",
+      "then": [{ "do": "message.show", "text": "Half damage: every hit does half its damage" }]
+    },
+    {
+      "id": "halve",
+      "when": "player.hit",
+      "then": [{ "do": "hit.scale", "factor": 0.5 }]
+    }
+  ]
+}

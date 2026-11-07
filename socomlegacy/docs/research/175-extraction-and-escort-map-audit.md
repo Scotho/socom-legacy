@@ -60,7 +60,7 @@ Archive identity (SHA-256, local retail files; no asset contents included):
 | MP53 Foxhunt | Escort | same Algerian types | same UN bodies |
 | MP82 Guidance | Escort | `mp_vip1`, `mp_vip2`, `mp_vip3` | `rus_escort01`, `rus_escort03`, `rus_escort03` |
 
-The facing field is 0 except MP71's first hostage and MP53's first VIP, which store 6. Do not confuse the `vehicles.rdr` facing field with an independently decoded world yaw until that loader path is checked. MP6/10/71 `Hostage_start1..3` call `ai::SETANIMSET` with `No_weapon anim set` and a STANCE payload `(2,1)`. MP11's corresponding starts have zero commands. A common initialization layer therefore matters; copying only MP6's script would miss this difference.
+The facing field is 0 except MP71's first hostage and MP53's first VIP, which store 6. HP-FACING (2026-11-04) re-read the loader path: `FUN_002b28d0` D:L155825-155826 passes heading 6 through `FUN_00518ea0` D:L386398-386441 with the extra half-turn, giving browser yaw 90; heading 0 gives yaw 0 (research 237 section 1.3, reading, independently reviewed 2026-11-04 under HP-FACING). This is semantic facing, not a comparison of the original rendered body. MP6/10/71 `Hostage_start1..3` call `ai::SETANIMSET` with `No_weapon anim set` and a STANCE payload `(2,1)`. MP11's corresponding starts have zero commands. A common initialization layer therefore matters; copying only MP6's script would miss this difference.
 
 ### 2.2 AI command and region semantics
 

@@ -7,9 +7,9 @@ import { encodeSnapshot } from '../src/net/codec';
  * NCW-17 (the netcode wave's claim-versus-picture instrument, `docs/plans/2026-11-05-netcode-wave.md` section 7; a
  * labelled adaptation, product track): the page's displayed tick (`NetClient.shownTick`) -- the room's tick the drawn
  * remote bodies stand at, by `bodies()`' own choice of snapshots. Bracketed, it is the view tick; in a snapshot gap,
- * where `bodies()` holds the newest snapshot while `viewTick` runs on from its arrival (Benny's §1:
- * `agent/fps-fidelity@4accc1142:socomlegacy/docs/plans/2026-11-04-fps-hitreg-audit.md:399-436`), it is the held
- * snapshot's tick. Unit tests on the client alone: an in-memory socket, a stubbed clock.
+ * where `bodies()` holds the newest snapshot (Benny's §1: `viewTick` ran on from its arrival,
+ * `agent/fps-fidelity@4accc1142:socomlegacy/docs/plans/2026-11-04-fps-hitreg-audit.md:399-436`; since INV-SPECTATE A's
+ * starvation guard it stops on that snapshot), it is the held snapshot's tick. Unit tests on the client alone: an in-memory socket, a stubbed clock.
  */
 
 const IDLE: NetWalk = { setNetTap: () => undefined, respawn: () => true, nudge: () => undefined, setLocked: () => undefined, setDead: () => undefined };
@@ -63,25 +63,27 @@ describe('NCW-17: the displayed tick', () => {
     expect(c.bodies()[0]!.feet[0]).toBeCloseTo(view * 10, 3);   // the picture at the view tick
   });
 
-  it("equals the held snapshot's tick through a 500 ms gap while viewTick runs on (24 ticks past the picture at its end)", () => {
+  it("equals the held snapshot's tick through a 500 ms gap, where viewTick stops on it (review A1's starvation guard)", () => {
+    // Was (before INV-SPECTATE A's guard): the view tick ran on through the gap, 24 ticks past the picture at its end
+    // (60 + 30 - 6 = 84), the displayed tick held at 60. The playout clock now never plays past the newest snapshot.
     const { c, snap, clock } = client();
     snap(58, 580); clock.now += SNAP_MS;
     snap(60, 600);                                           // the last before the gap (Benny's probe: 58 and 60)
-    clock.now += 500;
-    const view = c.viewTick();
-    expect(view).toBeCloseTo(60 + 30 - DELAY_TICKS, 6);      // 84: the claim ran on
-    expect(c.bodies()[0]!.feet[0]).toBe(600);                // the drawn body held at tick 60's place
-    expect(c.shownTick()).toBe(60);
-    expect(view - c.shownTick()!).toBeCloseTo(24, 6);
-    // Each moment of the gap: once the view passes the newest, the held tick 60; between 58 and 60, the view tick itself;
-    // before 58 (both snapshots newer than the view), the older held, 58 -- what `bodies()` draws at each.
+    // Each moment of the gap, forward: between 58 and 60, the view tick itself; once it reaches the newest, it stops
+    // there and the held tick is 60 -- what `bodies()` draws at each.
     for (let ms = 0; ms <= 500; ms += 25) {
       clock.now = 1_000_000 + SNAP_MS + ms;
       const v = c.viewTick(), x = c.bodies()[0]!.feet[0];
-      const want = v >= 60 ? 60 : v >= 58 ? v : 58;
-      expect(c.shownTick(), `${ms} ms into the gap`).toBe(want);
+      expect(v, `${ms} ms: never past the newest snapshot`).toBeLessThanOrEqual(60 + 1e-9);
+      const want = v >= 60 - 1e-9 ? 60 : v >= 58 ? v : 58;
+      expect(c.shownTick(), `${ms} ms into the gap`).toBeCloseTo(want, 9);
       expect(x, `${ms} ms: the drawn body at the displayed tick`).toBeCloseTo(want * 10, 3);
     }
+    const view = c.viewTick();
+    expect(view).toBeCloseTo(60, 6);                         // the claim stopped on the picture
+    expect(c.bodies()[0]!.feet[0]).toBe(600);                // the drawn body held at tick 60's place
+    expect(c.shownTick()).toBe(60);
+    expect(view - c.shownTick()!).toBeCloseTo(0, 6);
   });
 
   it('is the snapshot\'s own tick when every snapshot in hand is newer than the view tick (the first after a join)', () => {

@@ -38,8 +38,9 @@ import {
  * differing-byte count.
  *
  * The renderer: SwiftShader by default (the main config's flags); `S2U_UI_GPU_GL=native` for ANGLE on the host's
- * desktop GL past the blocklist (llvmpipe under xvfb), `S2U_UI_GPU_GL_ARGS` for the box's own flags (`./uiGpuGl.ts`).
- * A native leg that still reports SwiftShader is refused. Neither renderer's result is a claim about a player's GPU
+ * own GL or GPU past the blocklist (Mesa llvmpipe under xvfb on a Linux box without a GPU; that GPU on a GPU host),
+ * `S2U_UI_GPU_GL_ARGS` for the box's own flags (`./uiGpuGl.ts`). A native leg that still reports SwiftShader is refused
+ * (the refusal catches SwiftShader only, LATER 721). Neither renderer's result is a claim about a player's GPU
  * (GM-27's). From `socomlegacy/`: `E2E_PORT=5310 npx playwright test uiGpuParity.spec.ts`. The page is `/?uiGpuHarness`
  * (`./uiGpuHarness.ts`, served by a routed document as `./uiGpuHarness.spec.ts` serves it); each test uses Playwright's
  * own `page` fixture (closed at the test's end, issue #91).

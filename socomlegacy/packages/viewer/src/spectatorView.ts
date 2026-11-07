@@ -61,8 +61,12 @@ export interface SpectatorHost {
   seat(): SpectatorSeat;
   /** Stand the fly camera at a pose, or leave it free (null). */
   spectate(pose: SpectatorPose | null): void;
-  /** WALL-CAM: the live actor's camera, including its obstruction pass (research 382 §2). */
-  follow?(body: SpectatorBody, dt: number): void;
+  /**
+   * WALL-CAM: the live actor's camera, including its obstruction pass (research 382 §2). `ease` (INV-SPECTATE C,
+   * research 314 §5.7): the camera's +0x45 blend, the dead player's teammate view's only (`followWatched`); a
+   * spectator's follow passes none and stays rigid.
+   */
+  follow?(body: SpectatorBody, dt: number, ease?: boolean): void;
   /** A new binding starts a fresh pass; leaving follow discards the old obstruction hold. */
   resetFollow?(): void;
   /** The dead player's first cycle: the camera leaves the own body (the walk to the fly camera). */
@@ -797,11 +801,14 @@ export class SpectatorView {
    * the actor it holds (`FUN_002956e0` D:L139710-139714). A body gone from the room's list hands no pose: the view stays
    * where the last one stood it (FOLLOW_RETIRED_BODY_PLACEHOLDER, FOLLOW_AFTER_DELETE_PLACEHOLDER's stand-in).
    * (Was NU-11's: on to the next living teammate when the watched one died.)
+   * INV-SPECTATE C (research 314 §5.7; reading, pending review): eased -- the death camera at 7 sets the blend flag
+   * (`FUN_00297410` D:L141028-141032), so the rig is asked to ease (`SpectatorHost.follow`'s `ease`); a new bind snaps.
+   * The non-rendering hosts' `followPose` fallback stays rigid.
    */
   private followWatched(dt = 0): void {
     const body = this.host.bodies().find((b) => b.id === this.watchingNow);
     if (body) {
-      if (this.host.follow) this.host.follow(body, dt);
+      if (this.host.follow) this.host.follow(body, dt, true);
       else this.host.spectate(followPose(body)); // Compatibility for non-rendering hosts without a world.
     }
   }

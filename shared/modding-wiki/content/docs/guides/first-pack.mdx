@@ -1,0 +1,243 @@
+---
+title: "Making your first pack"
+description: "Build a small rules pack step by step: the rules, the manifest, the store files and the zip."
+status: "Forge, local only"
+source: ["socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "shared/modding-wiki/examples/first-pack"]
+---
+
+**Status: Forge, local only.** The pack you build here is a v2 pack of kind `rules`. Today a rules pack runs only in
+the Forge's local Play, on your own computer; nothing in a lobby match or on a server loads it, and the Forge itself is
+paused while other work comes first. Building and checking the pack works now; how to try it is on
+[Testing a pack locally](/guides/test-locally/).
+
+This guide walks through one small, complete pack from an empty folder to a zip. Every file in it is in the wiki's
+source at `shared/modding-wiki/examples/first-pack/`, and a test in the repository checks those files with the same
+checker the game uses, so the steps on this page cannot fall out of date without someone noticing.
+
+## What you will make
+
+A pack called **Half damage (example)**. When it runs, each round starts with a message, and every hit does half
+the damage it would normally do. That is two rules and nothing else, which makes it a good first pack: you will see
+every file a pack needs without a lot of content to get in the way.
+
+Nothing in it comes from the game. A pack never needs the game's own files to be built: rules are plain text, and
+the icon is drawn by a small script.
+
+## Before you start
+
+You need:
+
+- a text editor that saves plain UTF-8 text;
+- a terminal: bash on Linux or macOS, PowerShell on Windows;
+- [Node.js](https://nodejs.org/) (any current version), only to draw the example icon.
+
+## 1. Make the folder
+
+Make a folder for your work, and inside it a folder called `pack`. Everything inside `pack` goes into the zip, and
+nothing else does. The finished folder looks like this:
+
+```text
+first-pack/
+  draw-icon.mjs            the icon script (not part of the pack)
+  pack/
+    s2u-pack.json          the pack's manifest
+    rules/
+      half-damage.json     the rules
+    manifest.json          Thunderstore's manifest
+    icon.png               Thunderstore's icon (drawn by the script)
+    README.md              Thunderstore's readme
+    CHANGELOG.md           Thunderstore's changelog (optional)
+```
+
+## 2. Write the rules
+
+A rules file describes what happens in a match as "when this happens, do that". Make the folder `pack/rules` and
+save this as `pack/rules/half-damage.json`:
+
+```json title="pack/rules/half-damage.json"
+{
+  "schema": "s2u-rules",
+  "vocabulary": 0,
+  "id": "half-damage",
+  "name": "Half damage",
+  "description": "Every hit does half its damage.",
+  "rules": [
+    {
+      "id": "hello",
+      "when": "round.start",
+      "then": [{ "do": "message.show", "text": "Half damage: every hit does half its damage" }]
+    },
+    {
+      "id": "halve",
+      "when": "player.hit",
+      "then": [{ "do": "hit.scale", "factor": 0.5 }]
+    }
+  ]
+}
+```
+
+Reading it from the top:
+
+- `schema` and `vocabulary` say this is a rules file written in version 0 of the rules vocabulary: the list of
+  events and actions a rule may use. A name outside that list is refused when the rules are checked, before a match
+  ever starts.
+- `id`, `name` and `description` name the game mode the rules make.
+- The rule `hello` answers the event `round.start` with the action `message.show`: a line of text on screen.
+- The rule `halve` answers every `player.hit` with `hit.scale`, which multiplies the hit's damage before the match
+  applies it. `0.5` is half. The factor may be anything from 0 (no damage at all) to 10.
+
+The full list of events, conditions and actions, and what each one does, is in
+[Rules and limits](/rules-and-limits/).
+
+## 3. Measure the rules file
+
+The manifest you write next lists every file in the pack with its **SHA-256 hash** (a fingerprint of its exact
+bytes) and its **size**. The checker measures each file again and refuses the pack if either is different, so a file
+that was changed, cut short or swapped is caught.
+
+Measure the file from inside `pack`. In bash:
+
+```bash
+cd pack
+sha256sum rules/half-damage.json        # on macOS: shasum -a 256 rules/half-damage.json
+wc -c < rules/half-damage.json
+```
+
+In PowerShell:
+
+```powershell
+cd pack
+(Get-FileHash rules/half-damage.json -Algorithm SHA256).Hash.ToLower()
+(Get-Item rules/half-damage.json).Length
+```
+
+For the example's file the answers are:
+
+```text
+dee3643d50c593e518646236f6df02f0f9bd2be6e28e1cd372dfae9060655a3e
+438
+```
+
+That is a size of 438 bytes. If you typed the file yourself, your answers may differ, and that is fine: use your own.
+They only have to match your file. Two things change a file's bytes without changing how it looks: Windows line
+endings (an editor saving each line end as two characters instead of one) and an invisible byte-order mark at the
+start. Either one gives a new hash. Measure the file again whenever you save it, and copy the new values into the
+manifest.
+
+## 4. Write the manifest
+
+The manifest, `s2u-pack.json`, sits at the top of `pack`. It says what the pack is, which game and engine it is
+for, and which files it holds. Save this as `pack/s2u-pack.json`, with your own hash and size in the `files` row:
+
+```json title="pack/s2u-pack.json"
+{
+  "format": "s2u-pack",
+  "formatVersion": 2,
+  "id": "example.half-damage",
+  "version": "1.0.0",
+  "name": "Half damage (example)",
+  "description": "An example rules pack for the modding wiki: every hit does half its damage.",
+  "target": "SCUS-97275",
+  "contract": "^0.1.1",
+  "kinds": ["rules"],
+  "sides": "server",
+  "dependencies": [],
+  "files": [
+    { "path": "rules/half-damage.json", "sha256": "dee3643d50c593e518646236f6df02f0f9bd2be6e28e1cd372dfae9060655a3e", "size": 438, "role": "rules" }
+  ],
+  "intents": [
+    { "kind": "new-behaviour", "files": ["rules/half-damage.json"] }
+  ]
+}
+```
+
+What each field does here:
+
+- `format` and `formatVersion` are always `s2u-pack` and `2`.
+- `id` is your pack's own name for the checker: lower case letters, digits, dots and hyphens. Pick one that is yours,
+  such as `yourname.half-damage`. `version` is `1.0.0` for a first release; raise it each time you change the pack.
+- `name` and `description` are what people read.
+- `target` is the game disc the pack is for (`SCUS-97275`, the US release of SOCOM II), and `contract` is the range
+  of engine versions it works with. A rules pack must ask for `^0.1.1` or later, because that is the engine version
+  the rules vocabulary arrived in.
+- `kinds` says what the pack contains. This one holds rules only.
+- `sides` is `server`, because rules are decided by the match itself, never by one player's game.
+- `files` lists every file of the pack except the manifest and the store files below, each with its hash, its size
+  and its `role`. A rules file has the role `rules`.
+- `intents` says what kind of change each file makes. Rules change how the game plays, so they are `new-behaviour`.
+  The checker refuses rules files marked as only `cosmetic`.
+
+Every field, and every rule the checker applies to it, is listed in the [Manifest reference](/reference/manifest/);
+[Pack anatomy](/anatomy/) explains how they fit together.
+
+## 5. Add the store files
+
+Four more files sit beside the manifest at the top of `pack`: the files Thunderstore, a mod store, expects in a
+package. The checker lets them be there without listing them in `files`, and they are not part of the pack's identity:
+changing a readme does not change the pack.
+
+- `manifest.json`: the store's own short manifest. Its `name` is your pack's `id` with dots and hyphens turned into
+  underscores, and its `version_number` is your pack's `version`:
+
+```json title="pack/manifest.json"
+{
+  "name": "example_half_damage",
+  "version_number": "1.0.0",
+  "website_url": "",
+  "description": "An example rules pack for the modding wiki: every hit does half its damage.",
+  "dependencies": []
+}
+```
+
+- `README.md`: a page about your pack, in Markdown.
+- `CHANGELOG.md`: what changed in each version. It is optional.
+- `icon.png`: a square PNG, exactly 256 by 256 pixels. For the example, the script beside `pack` draws a made-up one
+  (an orange disc, half filled). From the `first-pack` folder, run:
+
+```bash
+node draw-icon.mjs
+```
+
+It writes `pack/icon.png`. For your own pack, use your own art at the same size.
+
+No pack is published to Thunderstore yet: the project has no team there, and the game does not download anything from
+the store. These files are here so a pack is ready when that changes; [Publishing to
+Thunderstore](/publishing/thunderstore/) has the details.
+
+## 6. Zip it
+
+The pack is a zip of the **contents** of `pack`, with `s2u-pack.json` at the top of the zip (a zip holding a single
+folder that holds `s2u-pack.json` is accepted too). From inside `pack`, in bash:
+
+```bash
+zip -D ../example-half-damage.zip s2u-pack.json rules/half-damage.json manifest.json icon.png README.md CHANGELOG.md
+```
+
+In PowerShell (Windows 10 and later include `tar`, which can write a zip):
+
+```powershell
+tar -a -cf ../example-half-damage.zip s2u-pack.json rules/half-damage.json manifest.json icon.png README.md CHANGELOG.md
+```
+
+Naming each file keeps stray files out of the zip: a file in the zip that the manifest does not list is refused
+(`pack.MEMBER_UNLISTED`), and paths inside the zip must use forward slashes.
+
+## 7. Check it
+
+There is no pack checker you can run on your own computer yet. A pack is checked when it is brought into the game's
+page, and every refusal names a code and the file or field it is about; [Testing a pack
+locally](/guides/test-locally/) shows where that happens today, and [Refusal codes](/reference/codes/) explains each
+code. The ones you are most likely to meet with a first pack:
+
+- `pack.MEMBER_HASH_MISMATCH`: a file's bytes are not the ones its `files` row names. Measure it again (step 3).
+- `pack.MEMBER_INFLATED` or `pack.MEMBER_TRUNCATED`: a file's size is not the size its row names.
+- `pack.MEMBER_UNLISTED`: the zip holds a file the manifest does not list.
+- `pack.FIELD_UNKNOWN`: the manifest has a field the format does not have, often a typing mistake.
+
+The example on this page passes every check, and the wiki's test fails if it ever stops passing.
+
+## Next steps
+
+- Try the pack: [Testing a pack locally](/guides/test-locally/).
+- Change the factor, add a rule, or read what else a rule can do in [Rules and limits](/rules-and-limits/).
+- Read the other kinds of pack, and what each can do today, in [Pack kinds](/kinds/).

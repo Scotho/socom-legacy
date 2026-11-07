@@ -1,11 +1,11 @@
-import { parseRdr, rdrGet, readZarMembers, readZdbMember, Zar, type AssetSource } from '@s2u/archive';
+import { parseRdr, parseRdrTyped, rdrGet, readZarMembers, readZdbMember, Zar, type AssetSource } from '@s2u/archive';
 import { PaletteTable, type Rgba } from '@s2u/gs';
 import {
   ARMORY_LAYOUT, ARMORY_SETS, armoryItemScripts, armoryRoster, arsenalOf, assetLibStem, decodeUiSet, FONTS_RDR, missionNameOf, missionValves, parseAnimSets,
-  parseCharacterTable,
+  missionUiVarEntries, parseCharacterTable,
   parseFontFaces, parseLocTable, parseUiLayout, parseWorldRoot, UI_MODEL_FILES, UI_MODEL_FORM_READING, UIMNLOC, uiSet, weaponLibrary,
   type ArmoryItemScript, type ArmoryRoster, type Arsenal, type DecodedWeapon, type FontFace, type LocEntry, type UiLayout, type UiProgram,
-  type GlobalLighting,
+  type GlobalLighting, type MissionUiVar,
 } from '@s2u/scene';
 import { decodeNamedTextures } from './hudBitmaps';
 import { flipRows } from './hudAssets';
@@ -57,6 +57,11 @@ export interface ArmoryData {
   bitmaps: [string, Rgba][];
   light: GlobalLighting | null;
   roster: ArmoryRoster | null;
+  /**
+   * LOBBY-MAPNAME (research 165 §9): `mission.rdr`'s `UiVars` entries, each node's type kept (`missionUiVarEntries` over
+   * `parseRdrTyped`) -- what the GAME LOBBY's `AdvanceMPMission` adds to the UI variables. Absent or null when not read.
+   */
+  missionUiVars?: MissionUiVar[] | null;
   /**
    * The match's world the screen needs, read when asked (`world: true`): `zweapon.rdr`'s arsenal and the map's
    * `mission.rdr` valves (`ENABLE_VALVE_DEFAULTS_READING`, research 182 §2.25) -- the game lobby's page, which has no map
@@ -221,6 +226,8 @@ export async function armoryFromDisc(source: AssetSource, mapPath: string, archi
         return parseRdr(rm.data(k));
       };
       const character = parseRdr(characterRdr), arsenal = arsenalOf(parseRdr(zweapon)), mission = script('mission.rdr');
+      const missionKey = rm.root.children.find((c) => c.name.toLowerCase() === 'mission.rdr')!;
+      data.missionUiVars = missionUiVarEntries(parseRdrTyped(rm.data(missionKey)));   // LOBBY-MAPNAME: the lobby's UiVars, typed
       // R4B-05: with the mission's name, r0004's valve after the loop (M63's Thermal Scope, `R0004_MISSION_VALVES`).
       if (opts.world) data.world = { arsenal, valves: missionValves(mission, missionNameOf(archive)) };
       return armoryRoster(arsenal, mission, script('chartype.rdr'), character, parseCharacterTable(character));

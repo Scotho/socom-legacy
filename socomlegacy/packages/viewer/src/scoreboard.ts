@@ -138,6 +138,12 @@ export interface ScoreboardInfo {
   wins?: { seal: number; terrorist: number };
   /** ONL-19: the details' source (`gameDetailLines`; line 3 is `type`); absent, the LAN fill: "LAN game", `game`, `type`. */
   details?: GameDetails;
+  /**
+   * BOMB-MARKS: the id of the player who holds the bomb (item 0x9a), or null / absent: his row takes the satchel
+   * (`SCOREBOARD_SATCHEL_RECT`), for every viewer (OT.R109 as amended: the original's). Fed by `./bombPage` through
+   * `Hud.setBombCarrier`.
+   */
+  bombCarrier?: number | null;
 }
 
 /** One player's scoreboard row; KILLS / DEATH / SCORE are the match totals (91 §18). */
@@ -185,6 +191,27 @@ export const SPECTATOR_ORDER_READING = 'the room\'s: its queue head first, then 
  * runs past it, and what the console then draws is unread. The port draws the whole tag, uncut. [reading]
  */
 export const CLAN_TAG_OVERRUN_READING = 'the whole tag, uncut';
+
+/**
+ * BOMB-MARKS (research 87 s12, 214 s3 "The scoreboard's satchel"): the satchel on the bomb carrier's row. `FUN_0022a290`
+ * (D:L78976) tests the row's player for item 0x9a (`FUN_005c8640(+0x5e0, 0x9a)`, D:L79026) and places the sprite 0x40dbf0
+ * (`hud_satchel.tif`, the string 0x3e5880 loaded at D:L80001-80003; HUD2 on MP2, MP6 and MP72) over x `DAT_003dc960`
+ * .. + `DAT_003dc968` and the row's baseline - `DAT_003dc970` .. + `DAT_003dc968` - `DAT_003dc970` (D:L79028-79029):
+ * 200.0, 16.0 and 12.0 off the ELF, so x 200..216, baseline - 12 .. + 4, the whole bitmap stretched over it. Drawn after
+ * the rest of the board (`FUN_00364a30(0x40dbf0)` D:L79156, last in `FUN_0022a8b0`). Shown to every viewer, both teams
+ * and a spectator alike, as the original: `FUN_00229d00` draws both teams' blocks (D:L80018-80019), `FUN_0022a290` tests
+ * nothing of the viewer (D:L79026), and the board opens for any seat (`FUN_0022be20`, SELECT; research 87 s12). OT.R109
+ * as amended 2026-11-06 (the owner: both teams).
+ */
+export const SCOREBOARD_SATCHEL_RECT = { x0: 200, x1: 216, up: 12, down: 4 } as const;
+/**
+ * SCOREBOARD_SATCHEL_RGBA_READING (BOMB-MARKS; research 87 s16): the satchel's colour, 0-1 of GS 128 -- the sprite's own.
+ * Its constructor `FUN_00364c50` (run on 0x40dbf0 by `FUN_003fe980` D:L327849) sets (128, 128, 128) (D:L262041-262046)
+ * and alpha 128 through its `+0x34` virtual (D:L262047; `+0x34` is the alpha setter by `FUN_00229d00`'s use, D:L78881,
+ * research 87 s12's bar alpha 80); nothing sets it after (D:L79028-79030, D:L80002-80003, D:L79156 and D:L327850 are the
+ * sprite's only other uses). [reading]
+ */
+export const SCOREBOARD_SATCHEL_RGBA_READING = [1, 1, 1, 1] as const;
 
 /** NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the PING cell of a bot, or of a seat with no reading yet. */
 export const PING_NONE = '--';
@@ -302,6 +329,8 @@ export function scoreboardLayout(
   // The teams' strings: the header lines, the columns, the rows (the one SEAL).
   const rowRgba = c128(L.rowRgb, L.rowAlpha);
   const wins = info.rows ? [info.wins?.seal ?? 0, info.wins?.terrorist ?? 0] : [0, 0];
+  // BOMB-MARKS: the carrier's row's baseline, if his row is drawn, for the satchel drawn last (every viewer: OT.R109 amended).
+  let satchelBase: number | null = null;
   const nameWidth = pingNameWidth();
   L.teams.forEach((t, i) => {
     text(`${t.name} :   ${wins[i]}`, L.title.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha]);
@@ -326,6 +355,7 @@ export function scoreboardLayout(
         text(r.clan ? `[${plainBotText(r.clan)}]` : NO_CLAN, L.rows.clanX, base, L.rows.scale, [kr * f, kg * f, kb * f, ka * f]);
         [r.kills, r.deaths, r.score].forEach((n, c) => text(String(n), L.columns[c]!.x, base, L.rows.scale, rgba, 'centre'));
         text(pingCell(r), L.ping.x, base, L.rows.scale, rgba, 'centre');   // NCW-7: the row's colour, dimmed with it
+        if (info.bombCarrier != null && r.id === info.bombCarrier) satchelBase = base;
       });
       return;
     }
@@ -343,5 +373,10 @@ export function scoreboardLayout(
   const spectatorRgba = c128(SPECTATOR_RGB_READING, L.rowAlpha);
   (info.spectators ?? []).slice(0, SPECTATOR_LINES.max).forEach((n, i) =>
     text(cutLine(n, C.lines.scale, C.lines.width), SPECTATOR_LINES.x, SPECTATOR_LINES.y0 + SPECTATOR_LINES.pitch * i, C.lines.scale, spectatorRgba));
+  // BOMB-MARKS: the satchel on the carrier's row, last (D:L79156), the whole bitmap at its own colour.
+  if (satchelBase !== null) {
+    const S = SCOREBOARD_SATCHEL_RECT;
+    rect('hud_satchel.tif', S.x0, satchelBase - S.up, S.x1, satchelBase + S.down, [...SCOREBOARD_SATCHEL_RGBA_READING]);
+  }
   return { quads, tris };
 }

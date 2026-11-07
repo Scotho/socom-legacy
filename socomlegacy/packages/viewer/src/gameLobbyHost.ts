@@ -291,7 +291,33 @@ export type LobbyVoiceDeps = Partial<Omit<MatchVoiceDeps, 'net' | 'headset'>> & 
   seconds?(): number;
   /** The lobby's headset UX (`./voice/headset`) on its line; absent, `mountHeadset` on the page's window and pads. */
   headset?(line: (text: string) => void): Headset;
+  /**
+   * True: the original's ARMORY -- RADIO OFF at its entry and RADIO ON at its return (`armoryToRoom`), the DEV key not
+   * read there. Absent or false: `LOBBY_ARMORY_VOICE_ADAPTATION`'s, the lobby's voice kept live over its ARMORY.
+   */
+  armoryRadioOff?: boolean;
 };
+
+/**
+ * LOBBY_ARMORY_VOICE_ADAPTATION (product track; a browser adaptation on the owner's word, seat b6, 2026-11-06: "work a
+ * little fix into the armory, allow lobbby mics to continue working"): the game lobby's voice stays live while the
+ * page has its ARMORY up. The original takes the seat off the lobby's channel there -- `InitializeOnlineArmory`
+ * (`FUN_0027d8c0`, D:L126098-126099) clears the talk flag (`FUN_0030e6e0(voice, 0)`) and then sets RADIO OFF
+ * (`FUN_0030e490`: the voice object joins channel 11, D:L210672-210681), so a seat in its ARMORY hears no one and no one
+ * hears it until the lobby's return asks 9 again (`FUN_0027c9f0`, D:L125568), as read. Here the page sends neither
+ * RADIO OFF nor its RADIO ON (`armoryToRoom` is not run), so the room keeps the seat on the lobby's 9: it hears the
+ * lobby, and the DEV talk key is read over the ARMORY as on the lobby's screen. The lobby's CIRCLE (`VCButton`,
+ * `dlgGameLobby.rdr`'s bindings) is not read while the ARMORY has the pad -- CIRCLE is the ARMORY's own there -- so a
+ * CIRCLE talk held into it is carried instead (the v0.4.11 review's F1, the controller's call, OT.R111): it keeps
+ * transmitting until the read pad's own CIRCLE is released, read raw through the headset's poll (`Headset.circle`), never
+ * through the ARMORY's menu input, which keeps every CIRCLE press for itself. A talk held in with no pad CIRCLE down (a
+ * DEV keyboard's) is let go at the entry, as before. Starting a NEW talk inside the ARMORY is not done: it waits on the
+ * owner's choice of a free button there (L1 or R1); until then a pad player in the ARMORY talks only by a CIRCLE held
+ * in from the lobby. The original's path stays behind `LobbyVoiceDeps.armoryRadioOff` and its tests
+ * (`gameLobbyVoice.test.ts`). The room is unchanged: it still takes the two `voiceRadio` events in its waiting phase
+ * (`Room.voiceLobbyArmory`) from a page that sends them.
+ */
+export const LOBBY_ARMORY_VOICE_ADAPTATION = "the game lobby's voice kept live over its ARMORY: no RADIO OFF, the DEV talk key read there" as const;
 
 /**
  * LOBBY_VOICE_LINE_ADAPTATION: where the headset's two lines (`VOICE_MIC_NOTICE_PLACEHOLDER`: the notice before the
@@ -334,7 +360,10 @@ const CIRCLE_HELD: ReadonlySet<PadButton> = new Set([LOBBY_TALK_BUTTON]);
  *   D:L125568). The menu's lobby seat never sets the room's `arming` (the front end's match has no `armory`
  *   capability), so the page carries both on the game socket (W20.R12; the close review's F2): `voiceRadio {on: false}`
  *   once as the valve `GoneToArmory` goes 1, `{on: true}` once as it goes 0, each on the client it is seen on -- the
- *   room takes exactly these two in its waiting phase (`Room.voiceLobbyArmory`, note 225 §4.2);
+ *   room takes exactly these two in its waiting phase (`Room.voiceLobbyArmory`, note 225 §4.2). That is the original's
+ *   path, kept behind `LobbyVoiceDeps.armoryRadioOff`; by default the page sends neither and keeps the DEV key live
+ *   there (`LOBBY_ARMORY_VOICE_ADAPTATION`, the owner's word of 2026-11-06, OT.R111), a pad CIRCLE talk held in
+ *   carried to its raw release (F1);
  * - **the hand-off**: the lobby's voice client disposed, the talk input handed on (`LobbyTalk`).
  *
  * Fed only while the game socket holds a client: from the hand-off until the match gives it back the match owns the
@@ -355,6 +384,8 @@ export class GameLobbyVoice implements GameLobbyVoicePort, GameSocketVoice {
   private headset: Headset | null = null;
   /** F2: the client the ARMORY's RADIO OFF went on (its return owed there), or null. */
   private armoryOf: VoiceLink | null = null;
+  /** LOBBY_ARMORY_VOICE_ADAPTATION (F1): a CIRCLE talk held into the ARMORY, kept until the pad's raw CIRCLE is up. */
+  private carried = false;
 
   constructor(private readonly o: {
     /** The game socket's client, or null (none yet, or the match holds it). */
@@ -399,29 +430,40 @@ export class GameLobbyVoice implements GameLobbyVoicePort, GameSocketVoice {
   }
   voiceFrame(down: VoiceDown): void { this.voice?.netDeps().voiceFrame(down); }
 
-  /** `InitializeOnlineArmory`'s `FUN_0030e6e0(voice, 0)` (D:L126098): the talk flag cleared; its RADIO OFF (D:L126099) follows in `frame` (`armoryToRoom`). */
-  armory(): void { this.circle = false; this.frame(); }
+  /**
+   * `InitializeOnlineArmory`'s `FUN_0030e6e0(voice, 0)` (D:L126098): the talk flag cleared; its RADIO OFF (D:L126099)
+   * follows in `frame` (`armoryToRoom`) only with `armoryRadioOff`. Without it (LOBBY_ARMORY_VOICE_ADAPTATION, F1) a
+   * CIRCLE talk held in is carried, not cleared, while the pad's raw CIRCLE stays down (`frame`).
+   */
+  armory(): void {
+    this.carried = this.o.deps.armoryRadioOff !== true && this.circle;
+    this.circle = false;
+    this.frame();
+  }
 
   /** Once a frame: the talk input's lobby phase, its flag to the voice client (mounted on the socket's first frame). */
   frame(): void {
     const link = this.o.link();
     if (link === null) return;
-    const { headset: makeHeadset, ...d } = this.o.deps;
+    const { headset: makeHeadset, armoryRadioOff, ...d } = this.o.deps;
     // SVC-22b's headset (the review's F6): the notice before the first microphone ask and the no-headset line, the
     // pad's loss and the window's focus as the talk input's releases, the DEV R key as CIRCLE; no modulation in the
     // lobby (`VOICE_MOD_LOBBY_OFF_READING`, the headset's phase).
     const headset = this.headset ??= (makeHeadset ?? ((line: (text: string) => void) => mountHeadset({ line })))((text) => { this.o.line(text); });
     this.voice ??= mountVoice({ ...d, net: () => { const l = this.o.link(); return l ? { client: l } : null; }, tuners: d.tuners ?? (() => this.o.tuners()), headset });
     const h = headset.frame({ phase: 'lobby', spectator: false });
-    // The DEV R key (`keys('lobby')`, H87 VOICE-KEY) is CIRCLE on the lobby's screen only, not over its ARMORY.
-    const key = !this.o.inArmory() && headset.keys('lobby').size > 0;
-    const f = this.talk.input.frame(this.seconds(), this.circle || key ? CIRCLE_HELD : NO_BUTTONS, {
+    // The DEV R key (`keys('lobby')`, H87 VOICE-KEY) is CIRCLE on the lobby's screen -- over its ARMORY too under
+    // LOBBY_ARMORY_VOICE_ADAPTATION, not in the original's ARMORY (`armoryRadioOff`).
+    const key = !(armoryRadioOff === true && this.o.inArmory()) && headset.keys('lobby').size > 0;
+    // F1: the carried talk ends at the read pad's raw CIRCLE release (or the pad's loss), seen by the headset's poll.
+    if (this.carried && headset.circle?.() !== true) this.carried = false;
+    const f = this.talk.input.frame(this.seconds(), this.circle || key || this.carried ? CIRCLE_HELD : NO_BUTTONS, {
       phase: 'lobby', preset: 'Default', runAndTalk: false, menuAllowed: false, talkAllowed: true,
       lateJoiner: this.o.lateJoiner(), padPresent: h.padPresent, focused: h.focused,
     });
     this.flag = f.talk;
     this.voice.pad(f.talk);
-    this.armoryToRoom(link);
+    if (armoryRadioOff === true) this.armoryToRoom(link);              // LOBBY_ARMORY_VOICE_ADAPTATION: else never sent
   }
 
   /**
@@ -448,7 +490,7 @@ export class GameLobbyVoice implements GameLobbyVoicePort, GameSocketVoice {
     this.voice = null;
     this.headset?.dispose();
     this.headset = null;
-    this.circle = false; this.flag = false; this.floor = null; this.floorOf = null; this.armoryOf = null;
+    this.circle = false; this.flag = false; this.floor = null; this.floorOf = null; this.armoryOf = null; this.carried = false;
   }
 }
 
@@ -1168,6 +1210,11 @@ export interface GameLobbyMount {
   serverUpdate?: () => void;
   /** P537-L2: `GameLobbyCommandsOptions.allBotGames` (the server's `CREATE_GAME_ALL_MAPS` word); absent, H314/H315's BOTS. */
   allBotGames?: () => boolean;
+  /**
+   * LOBBY-MAPNAME (research 165 §9): `GameLobbyCommandsOptions.missionVars` -- the mission's `mission.rdr` `UiVars`, which
+   * `AdvanceMPMission` adds to the UI variables (`mission_title`, the title bar's `MPgamename`); absent, none.
+   */
+  missionVars?: import('@s2u/ui').GameLobbyCommandsOptions['missionVars'];
 }
 
 /** The mount (`FrontEndSession`'s one call): the rows, the gate, the lobby's states 15 and 17, the game socket; `frame` once a frame. */
@@ -1205,6 +1252,7 @@ export function connectGameLobby(host: UiCommandHost, m: GameLobbyMount): { comm
     ...(m.clanId ? { clanId: m.clanId } : {}),
     ...(m.allBotGames ? { allBotGames: m.allBotGames } : {}),       // P537-L2: the server's all-maps word
     ...(m.joinRefused ? { joinRefused: m.joinRefused } : {}),
+    ...(m.missionVars ? { missionVars: m.missionVars } : {}),     // LOBBY-MAPNAME: FUN_002acc10's UiVars half
   });
   socket?.attach(commands);
   commands.register(host);

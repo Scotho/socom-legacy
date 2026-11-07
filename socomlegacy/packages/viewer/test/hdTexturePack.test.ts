@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {DataTexture,LinearFilter,LinearMipmapLinearFilter,NearestFilter} from 'three';
-import {HdPackRuntime,HdTextureRegistry,HD_LIMITS,HD_CONCURRENT_LOADS,HD_UI_SAMPLING,drawPlacements,fullAlpha,hdCompositeSize,hdKeyPeak,hdTextures,markDerived,upscaleRgba,validateHdManifest,
- type HdEntry,type HdManifest,type HdPlacement,type HdSampling} from '../src/hdTexturePack';
+import {HdPackRuntime,HdTextureRegistry,HD_LIMITS,HD_CONCURRENT_LOADS,HD_UI_SAMPLING,drawPlacements,fullAlpha,hdCompositeSize,hdKeyOf,hdKeyPeak,hdTextures,markDerived,seedHdKey,upscaleRgba,validateHdManifest,
+ type HdAlphaStep,type HdEntry,type HdManifest,type HdPlacement,type HdSampling} from '../src/hdTexturePack';
 import {sha256} from '../src/texturePack';
 import {flipRows} from '../src/hudAssets';
 
@@ -405,5 +405,90 @@ describe('GM-13c: a key\'s payloads decoded in turn',()=>{
   expect(hdKeyPeak(5,3,{outWidth:10,outHeight:6,bytes:10*6*4},[p([1,0,3,3],[0,0,9,9]),p([4,2,1,1],[0,0,4,4])])).toEqual({composite:20*12*4,payload:9*9*4});
   // a whole alone: its own size (or the target's, if larger), its payload
   expect(hdKeyPeak(5,3,{outWidth:20,outHeight:12,bytes:20*12*4},[])).toEqual({composite:20*12*4,payload:20*12*4});
+ });
+});
+
+// GM-13d (plan 2026-11-01-gpu-menus, row GM-13d): the payload's key and the whole replacement's alpha rescale off the main
+// thread for the menus' pack. PRODUCT TRACK, a browser adaptation: a key seeded by the decode worker (the same `sha256` over
+// the same bytes) is the one the check reads, and the check itself stays; the alpha step is injected, `fullAlpha` by default.
+describe('GM-13d: a seeded key, and the injected alpha step',()=>{
+ const fresh=()=>image(4,4,[30,60,90,64]);
+ it('a seeded key is what hdKeyOf answers; an image with none is hashed as before',async()=>{
+  const r=fresh(),s=fresh();
+  seedHdKey(r,'a'.repeat(64));
+  expect(await hdKeyOf(r)).toBe('a'.repeat(64));
+  expect(await hdKeyOf(s)).toBe(await keyOf(s));
+ });
+ it('a payload whose seeded key is its entry\'s is applied; one whose seeded key differs is refused with the same skip',async()=>{
+  const src=image(2,2,[1,2,3,255]),e=await entry(src,fresh());
+  const good=fresh();seedHdKey(good,e.sha256);
+  const a=new HdPackRuntime(new HdTextureRegistry(false),async()=>good);await a.setPack(manifest([e]));
+  expect((await a.replacement(src))?.width).toBe(4);
+  const lied=fresh();seedHdKey(lied,'b'.repeat(64));
+  const b=new HdPackRuntime(new HdTextureRegistry(false),async()=>lied);await b.setPack(manifest([e]));
+  expect(await b.replacement(src)).toBeNull();
+  expect(b.skipped()).toEqual([{key:e.key,source:e.source,reason:'payload hash does not match its entry'}]);
+ });
+ it('a payload with no seed whose computed key differs is refused with the same skip',async()=>{
+  const src=image(2,2,[1,2,3,255]),e=await entry(src,fresh());
+  const b=new HdPackRuntime(new HdTextureRegistry(false),async()=>image(4,4,[31,60,90,64]));await b.setPack(manifest([e]));
+  expect(await b.replacement(src)).toBeNull();
+  expect(b.skipped()[0]!.reason).toBe('payload hash does not match its entry');
+ });
+ it('the injected alpha step\'s output is what is applied, handed the checked whole once',async()=>{
+  const src=image(2,2,[1,2,3,255]),hd=fresh(),e=await entry(src,hd),seen:number[]=[];
+  const mark=image(4,4,[7,7,7,7]);
+  const alpha:HdAlphaStep=async(r)=>{seen.push(r.data.length);return {width:r.width,height:r.height,data:new Uint8ClampedArray(mark.data)};};
+  const runtime=new HdPackRuntime(new HdTextureRegistry(false),async()=>fresh(),undefined,alpha);await runtime.setPack(manifest([e]));
+  const got=(await runtime.replacement(src))!;
+  expect(seen).toEqual([hd.data.length]);
+  expect(Array.from(got.data)).toEqual(Array.from(mark.data));
+  const registry=new HdTextureRegistry(),t=texture(src);registry.register(t,src);
+  await new HdPackRuntime(registry,async()=>fresh(),undefined,alpha).setPack(manifest([e]));
+  expect(Array.from(t.image.data as unknown as Uint8ClampedArray)).toEqual(Array.from(mark.data));
+ });
+ it('the default is today\'s fullAlpha',async()=>{
+  const src=image(2,2,[1,2,3,255]),hd=fresh(),e=await entry(src,hd);
+  const runtime=new HdPackRuntime(new HdTextureRegistry(false),async()=>fresh());await runtime.setPack(manifest([e]));
+  expect(Array.from((await runtime.replacement(src))!.data)).toEqual(Array.from(fullAlpha(fresh().data)));
+ });
+ // Review F1 (REVIEW-GM-13D): the match's path is exactly today's. A whole whose rescale throws (here a payload whose
+ // pixels cannot be read, standing in for a copy that fails to allocate): with the default step `build` rejects as before
+ // GM-13d -- the texture keeps its original, its placements not composited, the skip today's (no key, the error's
+ // message); only an injected step's throw is the new skip, the build going on over the original.
+ describe('review F1: a rescale that throws',()=>{
+  const setup=async(alpha?:HdAlphaStep)=>{
+   const src=image(2,2,[10,20,30,255]),hd=image(4,4,[1,2,3,128]),part=image(4,4,[4,5,6,128]);
+   const whole=await entry(src,hd,'0.png'),place=await entry(src,part,'1.png',{placements:[{dst:[1,0,1,1],src:[0,0,4,4]}],placementKind:'crop'});
+   const unreadable=new Proxy(new Uint8ClampedArray(0),{get(_t,k){if(k==='length')return hd.data.length;if(k===Symbol.iterator)return undefined;throw new RangeError('Array buffer allocation failed');}});
+   const registry=new HdTextureRegistry(),t=texture(src);registry.register(t,src);
+   const runtime=new HdPackRuntime(registry,async(e)=>{
+    if(e.file==='1.png')return {width:4,height:4,data:new Uint8ClampedArray(part.data)};
+    const r={width:4,height:4,data:unreadable as unknown as Uint8ClampedArray};seedHdKey(r,whole.sha256);return r;
+   },undefined,alpha);
+   return {t,whole,report:await runtime.setPack(manifest([whole,place]))};
+  };
+  it('the default step: build rejects as before -- the original kept, no placements, today\'s skip',async()=>{
+   const {t,report}=await setup();
+   expect(report.applied).toBe(0);expect(t.image.width).toBe(2);
+   expect(report.skipped).toEqual([{key:'',source:'',reason:'Array buffer allocation failed'}]);
+  });
+  it('an injected step: the new skip, and the passing placements over the upscaled original',async()=>{
+   const {t,whole,report}=await setup(async()=>{throw new Error('the worker died');});
+   expect(report.skipped).toEqual([{key:whole.key,source:whole.source,reason:'alpha rescale unavailable (the worker died)'}]);
+   expect(report.applied).toBe(1);expect(t.image.width).toBe(8);
+  });
+ });
+ it('a payload another key also holds is never handed to the step: rescaled in place by fullAlpha, both keys right',async()=>{
+  const a=image(2,2,[1,2,3,255]),b=image(2,2,[4,5,6,255]),hd=fresh(),calls:number[]=[];
+  // The step hands the pixels over as a worker would (their buffer detached).
+  const alpha:HdAlphaStep=async(r)=>{calls.push(1);const d=structuredClone(r.data,{transfer:[r.data.buffer as ArrayBuffer]});return {width:r.width,height:r.height,data:fullAlpha(d)};};
+  const registry=new HdTextureRegistry(),ta=texture(a),tb=texture(b);registry.register(ta,a);registry.register(tb,b);
+  let loads=0;
+  const runtime=new HdPackRuntime(registry,async()=>{loads++;await new Promise(r=>setTimeout(r,5));return fresh();},undefined,alpha);
+  const r=await runtime.setPack(manifest([await entry(a,hd),await entry(b,hd)]));
+  expect(loads).toBe(1);expect(r).toEqual({applied:2,skipped:[]});expect(calls).toEqual([]);
+  const want=Array.from(fullAlpha(fresh().data));
+  expect(Array.from(ta.image.data as unknown as Uint8ClampedArray)).toEqual(want);expect(Array.from(tb.image.data as unknown as Uint8ClampedArray)).toEqual(want);
  });
 });

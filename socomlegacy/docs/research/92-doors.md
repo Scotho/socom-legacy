@@ -92,6 +92,60 @@ Frostfire's three doors all run `MZANIM.ZAR`'s `singleDoor_right` (dumped with `
     phase is strictly past its `NoInterrupt` (`FUN_00587c20` D:L445550-445556): from half the clip, the 23rd command
     after the push on the port's clock (`noInterruptCommands`: 0.5 x 0.8 x 13/14 x 60 = 22.3), where the flinches
     (none) are cut from the first frame.
+  - **The body under the door clip** (2026-11-07, `agent/door-open-lock`; the owner: "opening door animation still isnt
+    right / u shouldnt be able to open then move right away"; reading, pending review -- source inspection and the
+    disc's data through the repository's readers, no game run). *What the original does.* `seal_open_door` is a
+    full-body one-shot on the action stack: `motion.rdr` looped 0, no `BlendOverlay`, no `NoTurn`, no `NoFire`
+    (`READERC.ZAR`; the NoTurn count is read by eye off the bytes, not through `motionTable.ts`, which does not read
+    the flag -- the review's F1; the turn is governed by the driver's action-id zeroes below either way). While a non-looped play is on top the ground
+    driver `FUN_00550ef0` runs no ground state -- its top-is-one-shot branch (D:L418171-418203) asks only the stick's
+    cut (D:L418180-418190) and the end test (D:L418193), and `FUN_005870e0` (D:L418203), which hands the body back to
+    the ground state, runs only on one of them -- and the tick's advance feeds the **top** play's root velocity to the
+    actor (`FUN_0057a330` -> `FUN_0028c250` D:L438910, the scale D:L438985; research 217's "The speed the test reads",
+    proven by capture for the walk's own top). So the stick is read and not obeyed: the presser's body moves by the
+    clip's root alone -- the same rule as the throws' and the still reloads' holds (`mover.ts` `HOLD_CLIPS`, whose
+    header said "a door moves the leaf, not the SEAL": true of the leaf, wrong since this section's 2026-10-23
+    correction found the push) -- until the stick or the turn past 0.1 cuts it, which `FUN_00587c20` allows only past
+    `NoInterrupt` 0.5 (D:L445550-445556): commands 1-23 of the push held whatever the stick asks, the 24th the first
+    the stick may cut (`pushedWindow`'s `cutFrom`, `start + 23`), the ground state running on that command; with no
+    stick, the whole clip -- 42 commands, 0.69 s, `oneShotSeconds(0.8, 14)`. The kick holds the same way: 1.55 s and
+    cut from `start + 37` (`seal_kickopendoor`, playback 1.7, 22 keys, `NoInterrupt` 0.38; `seal_p_kickopendoor` 43
+    keys, no root track). The root (`MOTION_P.ZAR`, keys 0-13, z behind): the open lunges the body about 5.0 ahead by
+    key 8 and back to 0.29 ahead at key 13; the kick steps 6.5 ahead. *Turning, shooting, being pushed.* The turn
+    stays free -- the turn is laid every frame (D:L418340) unless the action is one the zeroes name
+    (D:L418302-418337: climbs, ladders and the `NoTurn` clips, research 83's table), and the door's is none -- and a
+    turn past 0.1 cuts the clip as the stick does (D:L418182-418185). No round is refused (no `NoFire`). The body's
+    collision still runs on the root's step (a leaf swinging into it pushes it out, `slideOrMove`). *When the door
+    moves.* Unchanged (above): the push one game frame after the press, the valve, the sound and the swing at the
+    ninth, 0.300 s -- inside the hold. *Whose decision.* The push is the presser's own console's (`FUN_00588bc0`'s 5th
+    argument 0, D:L446413-446414), sent to every console; the port's room is the authority: it pushes the clip
+    (`room.ts` `doorMotion`), keeps the window and holds its mover's body on it, so a page that walks under the clip is
+    corrected by the room, never believed. *Built (PTW.R3, room and page on one commit).* `mover.ts` `PUSHED_CLIPS` (the
+    three clips' `motion.rdr` and `MOTION_P.ZAR` values, pinned by `doorHold.test.ts`), their root keys in
+    `actionRoots`, and `Walker.pushedOnTop`: while a push stands on top of the window on the command run and that
+    command's stick does not cut it, the step moves the body by the clip's root along the facing (as `HOLD_CLIPS`'), the
+    stick read and not obeyed. The room's hook (`room.ts` `watchMoves`, the clip in `Player.flinchClip` from
+    `doorMotion`) and the page's (`walk.ts` `pushedTop`, the clip in `setFlinchPose`'s `clip`) read the one-shot slot
+    `oneShotOnTop` reads, a push's only (a flinch's window holds nothing: below). The bare page's own press (`main.ts`,
+    `matchMount.ts` `pushClip`) lays the window on its next command, so it holds at once. In a match the page hears the
+    room's push a round trip after its first command (the room pushes at its doors' step, `from` = the presser's next
+    command, `Room.step`): `WalkMode.pushHeard` runs the commands since again from the state kept before the window
+    (`rerunFrom`, the knock's and the dance's way, the flinch stepped on the re-run's commands), and the net client
+    drops their predictions (`NetClient.replayed`), so the page stands where the room's mover does -- no snap back; a
+    record that does not reach back (past `KEPT_COMMANDS`) leaves the snapshots' correction, as before. Tests:
+    `doorHold.test.ts` (viewer; the disc's values, the mover, the bare page, the late page against the on-time page)
+    and `roomDoorHold.test.ts` (match; the room ignores the move commands in the window), RED first.
+    *Not built, recorded* (LATER 731): (1) the flinch's own body hold -- the same rule holds a flinch's victim on the
+    flinch's root until its cut (none of the six has `NoInterrupt`: the third command at the earliest,
+    `FLINCH_CUT_COMMANDS`), and the port lets the stick walk under the flinch; (2) the phase of the root after a
+    clipless landing hands the push back (`flinchLanded`) restarts from the window's new start, where the original's
+    covered play keeps its phase (`FUN_0028da00` D:L135098-135110) -- a push covered by a fall is rare (pushed in the
+    air or carried off a ledge, which the hold now prevents); (3) a mover action under the push (a stance transition,
+    a landing's carry) keeps its own clock, where the original's covered play is frozen (only the top advances,
+    D:L438874, D:L438901) -- the port's flinch slot has always stood beside the mover's own actions; (4)
+    `DOOR_MOVE_ORDER_READING` (§7) is unchanged: the `ai::MOVE` to the point 18 units from the node is not run, and
+    whether a pad-controlled SEAL's MOVE blocks the ANIMATE is unread. Settles (1)-(3): a capture of a SEAL pressing a
+    door with the stick held (its position and top action per frame); (4): §7's.
   - `ai::EVENT` (5): an AI noise -- a radius 100 over 0.25 s at the node -- which online no AI hears (research 199 §6:
     the event masks are 0). Not run: there is no AI in a round.
 - `close`: `ai::MOVE` and `ai::ANIMATE` (no `ai::EVENT`), then the valve set 0, the turn `(0, 0.766, 0, 0.643)` and

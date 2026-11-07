@@ -356,6 +356,13 @@ describe('the game list (RefreshGameList -> FUN_002e28d0 -> FUN_002e2920; FUN_00
     expect(gameListRow(game('x', 1, { gameStats: stats({ ranks: 0x10 }) })).slice(8)).toEqual([]);   // byte 7 tested whole: high bits alone draw none
   });
 
+  it('a community host\'s game draws unranked and the HyperNode label (a browser adaptation)', () => {
+    const row = gameListRow(game('Night', 1, { community: true }));
+    expect(String(row[0])).toContain('unranked');
+    expect(String(row[0])).toContain('HyperNode');
+    expect(String(gameListRow(game('Day', 2))[0])).not.toContain('unranked');
+  });
+
   it('gameStatsD brings an older record up to the D record (FUN_002f7d90): C gains a zero byte 7', () => {
     const c = new Uint8Array(256); c[0] = 0x43; c[3] = 1; c[4] = 2; c[7] = 51;
     const d = gameStatsD([...c].map((x) => x.toString(16).padStart(2, '0')).join(''));

@@ -9,7 +9,8 @@ import {
   DISC_SHARE_ALPHABET, makeShareCode, readShareCode, shareLink, stubDiscShare,
   type DiscShareAdapter, type ReceiverView, type SenderView,
 } from '../../src/discShareView';
-import { SHARE_NOT_BUILT, SHARE_ROW_HINT, SHARE_ROW_LABEL } from '../../src/discShareWords';
+import { SHARE_NOT_BUILT, SHARE_ROW_HINT, SHARE_ROW_LABEL, SHARE_SEND_ROW_ABOUT, shareRowHint } from '../../src/discShareWords';
+import * as discShareWords from '../../src/discShareWords';
 import { GRAPHICS_BACKEND_KEY, readGraphicsBackend } from '../../src/graphicsBackend';
 import { qrMatrix, qrSvg } from '../../src/qr';
 import { mountShell } from './shell';
@@ -228,7 +229,7 @@ describe('DSH-5: the receiver\'s phases in the expanded area', () => {
 
   it('waiting: the other device awaited', () => {
     open({ phase: 'waiting', code: 'QX7K4M', link });
-    expect(area()!.querySelector('[data-share="status"]')!.textContent).toContain('Waiting for your other device');
+    expect(area()!.querySelector('[data-share="status"]')!.textContent).toContain('Waiting for the other device');
   });
 
   it('paired', () => {
@@ -242,6 +243,20 @@ describe('DSH-5: the receiver\'s phases in the expanded area', () => {
     expect(bar.getAttribute('aria-valuenow')).toBe('25');
     expect(area()!.querySelector('[data-share="pct"]')!.textContent).toBe('25%');
     expect(area()!.querySelector('[data-share="bytes"]')!.textContent).toBe('0.33 of 1.34 GB');
+  });
+
+  /** A fresh page for the next view (a function, so the compiler does not narrow `page` to null after it). */
+  const reset = (): void => { page?.dispose(); page = null; mountShell(document); };
+
+  it('DSH.R15: copying says the path -- directly, or through Cloudflare’s relay -- and nothing before it is known', () => {
+    open({ phase: 'copying', code: 'QX7K4M', link, bytes: 1, total: 2, via: 'relay' });
+    expect(area()!.querySelector('[data-share="via"]')!.textContent).toBe('Connected through Cloudflare’s relay, encrypted end to end.');
+    reset();
+    open({ phase: 'copying', code: 'QX7K4M', link, bytes: 1, total: 2, via: 'direct' });
+    expect(area()!.querySelector('[data-share="via"]')!.textContent).toBe('Connected directly between the devices.');
+    reset();
+    open({ phase: 'copying', code: 'QX7K4M', link, bytes: 1, total: 2 });
+    expect(area()!.querySelector('[data-share="via"]')).toBeNull();
   });
 
   it('done: the disc ready', () => {
@@ -286,7 +301,7 @@ describe('DSH-5: the sender\'s dialog the pairing link opens', () => {
     const { ctl } = boot(share);
     const d = dialog()!;
     expect(ctl.S.overlay).toBe('share');
-    expect(d.querySelector('.cx-dialog__title')!.textContent).toBe('Send game files to your other device');
+    expect(d.querySelector('.cx-dialog__title')!.textContent).toBe('Send game files to the other device');
     expect(d.querySelector('[data-share="code"]')!.textContent).toBe('QX7K4M');
     const buttons = [...d.querySelectorAll<HTMLElement>('[data-act="sharesend"]')].map((b) => b.textContent!.trim());
     expect(buttons.some((t) => t.includes('Yes, send'))).toBe(true);
@@ -298,6 +313,31 @@ describe('DSH-5: the sender\'s dialog the pairing link opens', () => {
     ctl.press('circle');
     expect(dialog(), 'Close').toBeNull();
     expect(ctl.S.overlay).toBeNull();
+  });
+
+  it('DSH.R16 (the owner, 2026-11-07: links intentionally open): the asking note says to match the code, never "your own devices"', () => {
+    boot(stubDiscShare({ search: '?discshare=QX7K4M', origin: ORIGIN, complete: () => true }));
+    const why = dialog()!.querySelector('[data-share="why"]')!.textContent!;
+    expect(why).toContain('Say Yes only if the code matches the one the other device shows.');
+    expect(why).not.toMatch(/your own/i);
+    expect(SHARE_SEND_ROW_ABOUT).not.toMatch(/your own/i);
+  });
+
+  it('DSH.R16: no disc-share word calls the other device "yours" ("your own", "your devices", "your other device")', () => {
+    const texts: string[] = [];
+    const collect = (v: unknown): void => {
+      if (typeof v === 'string') texts.push(v);
+      else if (typeof v === 'function') {
+        const out = (v as (...a: unknown[]) => unknown)('QX7K4M', 50);
+        collect(out);
+        if (v === shareRowHint) for (const p of ['idle', 'requesting', 'waiting', 'paired', 'copying', 'done', 'failed'] as const) collect(shareRowHint(p, 50));
+      } else if (Array.isArray(v)) v.forEach(collect);
+      else if (v && typeof v === 'object') Object.values(v).forEach(collect);
+    };
+    Object.values(discShareWords).forEach(collect);
+    expect(texts.length, 'every export read').toBeGreaterThan(60);
+    const yours = texts.filter((t) => /your own|your devices|your other device/i.test(t));
+    expect(yours).toEqual([]);
   });
 
   it('no complete extraction: no Yes; "Extract, then send" and why', () => {
@@ -340,6 +380,12 @@ describe('DSH-5: the sender\'s dialog the pairing link opens', () => {
     share.tx = { phase: 'done', code: 'QX7K4M' };
     ctl.render();
     expect(dialog()!.textContent).toContain('Sent.');
+  });
+
+  it('DSH.R15: sending says the path', () => {
+    const share = fake({ phase: 'idle' }, { phase: 'sending', code: 'QX7K4M', bytes: 1, total: 2, via: 'relay' });
+    boot(share);
+    expect(dialog()!.querySelector('[data-share="via"]')!.textContent).toBe('Connected through Cloudflare’s relay, encrypted end to end.');
   });
 });
 
@@ -452,7 +498,7 @@ describe('Setup onboarding: the disc share says which device to use, before and 
     expect(lead.textContent).toBe('Open this link on the PC or phone that already has the game set up. A phone without the game cannot send it.');
     expect(lead.compareDocumentPosition(area()!.querySelector('[data-share="steps"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const steps = [...area()!.querySelectorAll('ol[data-share="steps"] > li')].map((li) => li.textContent);
-    expect(steps[0]).toBe('On that PC or phone, on the same home network, open this site.');
+    expect(steps[0]).toBe('On that PC or phone, at home or anywhere else, open this site.');   // DSH.R15: no same-network step
   });
 
   it('the phone with no copy: the dialog leads with what to do', () => {

@@ -131,7 +131,7 @@ describe("the round script's conditions (FUN_0025e960)", () => {
     expect([ev(v('a'), v('b')), ev(v('b'), v('a'))]).toEqual([true, false]);
     expect(asked).toEqual(['a', 'b']);
     // A non-valve operand (a zone test of another set) is what valueOf says: here false.
-    expect(ev(v('a'), AND, { kind: 'other', cmd: 22 })).toBe(false);
+    expect(ev(v('a'), AND, { kind: 'other', cmd: 22, set: 1 })).toBe(false);
   });
 });
 

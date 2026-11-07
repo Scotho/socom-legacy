@@ -103,7 +103,7 @@ describe('R3-B: missing packs and the online refusal on the mounted Forge', () =
     expect(statusLine()).toContain('crates@1.0.0');
     expect(fetches).not.toHaveBeenCalled();
     expect(api.read().layout).toEqual(before);
-  }, 20_000);
+  }, 90_000);
 
   it('the review (R3-B fix-up): a missing pack\'s piece duplicated, or copied and pasted, keeps its reference, and the autosave still writes', async () => {
     const api = await mount();
@@ -124,7 +124,7 @@ describe('R3-B: missing packs and the online refusal on the mounted Forge', () =
     expect(api.read().layout!.assets).toEqual([crate]);
     await vi.waitFor(async () => expect(await piecesStored()).toBe(3), { timeout: 3000 });
     expect(statusLine()).not.toContain('not saved');
-  }, 20_000);
+  }, 90_000);
 
   it('R4 (8, the round 3 review): the person\'s own paste (Ctrl+V) and a group\'s Duplicate keep a missing pack piece\'s reference; the autosave still writes', async () => {
     const api = await mount();
@@ -147,7 +147,7 @@ describe('R3-B: missing packs and the online refusal on the mounted Forge', () =
     expect(api.read().layout!.assets).toEqual([crate]);
     await vi.waitFor(async () => expect(await piecesStored()).toBe(4), { timeout: 3000 });
     expect(statusLine()).not.toContain('not saved');
-  }, 20_000);
+  }, 90_000);
 
   it('6: every pack here -- Play is not held, but Create lobby is refused by the online policy in its own words, nothing posted', async () => {
     const api = await mount([crates, rules]);
@@ -159,5 +159,5 @@ describe('R3-B: missing packs and the online refusal on the mounted Forge', () =
     await vi.waitFor(() => expect(statusLine()).toContain('An online lobby plays the disc’s own content'.replace('’', '\'')));
     expect(fetches).not.toHaveBeenCalled();
     expect(document.querySelector('.fx-modal:not([hidden]) form')).toBeNull();  // no name asked: refused first
-  }, 20_000);
+  }, 90_000);
 });

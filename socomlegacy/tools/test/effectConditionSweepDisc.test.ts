@@ -11,6 +11,10 @@ import {
  * truth) and now, at the initial state and at every state of the valves it names. Printed: the table research 89 §18
  * holds. Pinned: the rows that change, by map, program, sequence, op and tokens, with the branch now at the initial
  * state; the evaluator's edges by kind; no reader error and no condition past the state cap.
+ *
+ * INV-RAIN F3 (research 89 §21): the runner's host answers set 0's `CAMERA_INDOORS` (66) and `PLAYER_INDOORS` (72) from
+ * the floor (`indoorsOperand`), so the sweep enumerates each as a flag, both answers, beside the random and range ones;
+ * the base's runner (before) answered neither. The rows holding one change with it, pinned apart (`INDOORS_CHANGED`).
  */
 
 const RUN = discRun();
@@ -65,6 +69,20 @@ const changes = (g: GroupedRow): boolean => g.change === 'initial' || g.change =
 /** A row the effect runner can reach: a map's or the common effect archive (`MZANIM`, `CZANIM`), the round script aside. */
 const reachable = (g: GroupedRow): boolean => /(^|\\)[CM]ZANIM\.ZAR$/i.test(g.member) && g.program !== 'objectives';
 
+/** A row holding set 0's `CAMERA_INDOORS` (66) or `PLAYER_INDOORS` (72): INV-RAIN F3's, not LATER 310's. */
+const indoors = (g: GroupedRow): boolean => /\bset 0 cmd (66|72)\b/.test(g.tokens);
+
+/**
+ * INV-RAIN F3: the reachable rows that change with an indoors operand answered, by program (grouped rows across the 34
+ * maps; read off the sweep's own output, 2026-11-07). Before: every one ran its else branch at every state (the base
+ * read every operand false; LATER 310's R2 kept the pre-fold false). Now each runs its own branch at the indoors states
+ * its tokens name -- `NOT set 0 cmd X` with X outdoors, `A OR B` with either indoors, MP64's adjacent pair with 66.
+ */
+const INDOORS_CHANGED: Readonly<Record<string, number>> = {
+  lightning_flash_bright: 34, check_camera_inside_state1: 23, check_camera_inside_state: 2, bugs_flying: 2, rain_falling: 2,
+  hide_dustfollow: 1, hide_rain_follow: 1, hide_water_inside: 1, helo_anims: 1, badhelo_anims: 1,
+};
+
 const line = (g: GroupedRow): string => `${g.maps.join(' ')} | ${g.program} | ${g.sequence}@${g.at} | ${g.tokens} | ${g.initialBefore} -> ${g.initial}`;
 
 describe.skipIf(!RUN)(`LATER 310: the effect runner's IF conditions over every map${RUN ? '' : ' (no dev disc: SOCOM_DISC or SOCOM_PC_ROOT -- skipped)'}`, () => {
@@ -114,19 +132,43 @@ describe.skipIf(!RUN)(`LATER 310: the effect runner's IF conditions over every m
   });
 
   it('the rows that change where the effect runner can reach them, pinned (CZANIM and MZANIM, the round script aside)', () => {
-    expect(rows.filter((g) => changes(g) && reachable(g)).map(line)).toEqual(CHANGED);
+    expect(rows.filter((g) => changes(g) && reachable(g) && !indoors(g)).map(line)).toEqual(CHANGED);
   });
 
-  it('R2 (ZANIM_UNREAD_OPERAND_PLACEHOLDER, narrowed by F1): where an unread operand turns the condition it keeps its pre-fold result -- shell_smoke_med and the camera checks unchanged', () => {
+  it('INV-RAIN F3: the rows holding CAMERA_INDOORS / PLAYER_INDOORS run their own branch at the indoors states their tokens name', () => {
+    const hit = rows.filter((g) => changes(g) && reachable(g) && indoors(g));
+    const by: Record<string, number> = {};
+    for (const g of hit) by[g.program] = (by[g.program] ?? 0) + 1;
+    expect(by).toEqual(INDOORS_CHANGED);
+    // The answer each state gives, read off its text (`cameraIndoors@i=T`, `playerIndoors@i=F`).
+    const flag = (state: string, who: 'camera' | 'player'): boolean | null => {
+      const m = new RegExp(`${who}Indoors@\\d+=([TF])`).exec(state);
+      return m ? m[1] === 'T' : null;
+    };
+    for (const g of hit) {
+      expect(g.initial, `${g.program} ${g.maps[0]}`).toBe('draw');
+      for (const s of g.states!) {
+        expect(s.before, `${g.program} before`).toBe('else');
+        const cam = flag(s.state, 'camera'), ply = flag(s.state, 'player');
+        const want = g.tokens === 'NOT set 0 cmd 72' ? !ply : g.tokens === 'NOT set 0 cmd 66' ? !cam
+          : g.tokens === 'set 0 cmd 66 OR set 0 cmd 72' ? !!cam || !!ply
+            : g.tokens === 'set 0 cmd 66 set 0 cmd 72' ? !!cam : null;
+        expect(want, `${g.program}: ${g.tokens}`).not.toBeNull();
+        expect([g.program, s.state, s.now]).toEqual([g.program, s.state, want ? 'then' : 'else']);
+      }
+    }
+    // M53, M81, M82 and MP1's cold_breath (`set 0 cmd 70 AND NOT ( set 0 cmd 66 )`): 70 is still unread and turns it.
+    const breath = rows.filter((g) => g.program === 'cold_breath');
+    expect(breath.flatMap((g) => g.maps).sort()).toEqual(['M53', 'M81', 'M82', 'MP1']);
+    for (const g of breath) expect(g.change).toBe('never');
+  });
+
+  it('R2 (ZANIM_UNREAD_OPERAND_PLACEHOLDER, narrowed by F1 and INV-RAIN F3): where an unread operand turns the condition it keeps its pre-fold result -- shell_smoke_med unchanged', () => {
     const smoke = rows.find((g) => g.program === 'shell_smoke_med' && g.tokens === 'NOT set 0 cmd 70');
     expect(smoke, 'shell_smoke_med').toBeDefined();
     expect(smoke!.maps).toHaveLength(34);
-    const camera = rows.filter((g) => /^check_camera_inside_state1?$/.test(g.program) && /^NOT set 0 cmd (66|72)$/.test(g.tokens));
-    expect(camera.length).toBeGreaterThan(0);
-    for (const g of [smoke!, ...camera]) {
-      expect(g.change, `${g.program} ${g.maps.join(' ')}`).toBe('never');
-      expect(g.states!.every((s) => s.now === 'else' && s.before === 'else')).toBe(true);
-    }
+    expect(smoke!.change).toBe('never');
+    expect(smoke!.states!.every((s) => s.now === 'else' && s.before === 'else')).toBe(true);
     // Where the sourced operands decide it, the fold stands: Corpse_Found's `set 2 cmd 33 OR valve_aware == 1` holds at
     // valve_aware 1 whatever cmd 33 answers (D:L108398-108402), and at no other value.
     const corpse = rows.find((g) => g.maps.includes('MP64') && g.program === 'Dead_Guy_1' && g.tokens === 'set 2 cmd 33 OR valve_aware == 1');
@@ -137,13 +179,16 @@ describe.skipIf(!RUN)(`LATER 310: the effect runner's IF conditions over every m
     expect(Math.max(...rows.map((g) => (g.tokens.match(/\bset \d+ cmd \d+\b/g) ?? []).length))).toBeLessThanOrEqual(8);
   });
 
-  it("MP64's adjacent pair (R1): bugs_flying's IF is else before and now; M51's copy carries the OR", () => {
+  it("MP64's adjacent pair (R1): bugs_flying's IF read else while both operands were unread; since INV-RAIN F3 the first, CAMERA_INDOORS, decides it; M51's copy carries the OR", () => {
     const mp64 = rows.find((g) => g.maps.includes('MP64') && g.program === 'bugs_flying' && g.at === 1);
     const m51 = rows.find((g) => g.maps.includes('M51') && g.program === 'bugs_flying' && g.at === 1);
     expect(mp64?.tokens).toBe('set 0 cmd 66 set 0 cmd 72');
     expect(m51?.tokens).toBe('set 0 cmd 66 OR set 0 cmd 72');
     expect(mp64!.edges).toEqual(['adjacentOperands']);
-    expect(mp64!.change).toBe('never');
+    expect(mp64!.change).toBe('initial');
+    expect(mp64!.states!.filter((s) => s.now === 'then').map((s) => s.state)).toEqual([
+      'cameraIndoors@0=T playerIndoors@1=F', 'cameraIndoors@0=T playerIndoors@1=T',
+    ]);
   });
 
   it("the changing rows past the runner counted: all the round script's; LDZANIM.ZAR's unchanged", () => {

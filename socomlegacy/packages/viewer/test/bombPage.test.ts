@@ -7,7 +7,7 @@ import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { PLACE_CLAYMORE_ANIM } from '@s2u/scene';
 import { parseBankFile, soundParams, soundScriptFromArchive } from '@s2u/sound';
 import {
-  BOMB_DROP_PUSH_PASS_READING, BOMB_MODEL_READING, BombPage, bombSound, DEFUSE_PROMPT_ICON_READING, HOLD_BAR_DIRECTION_READING, HOLD_BAR_PLACEMENT_READING,
+  BASE_MARK_SPECTATOR_PLACEHOLDER, BOMB_DROP_PUSH_PASS_READING, BOMB_MODEL_READING, BombPage, bombSound, DEFUSE_PROMPT_ICON_READING, HOLD_BAR_DIRECTION_READING, HOLD_BAR_PLACEMENT_READING,
   ownBombBody, PICKUP_SOUND,
   PLANT_ANIM, PLANT_PUSH_PASS, PLANT_SOUND_READING, type BombHud, type BombPageView,
 } from '../src/bombPage';
@@ -386,22 +386,23 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     me.bodies[3] = [10, 0, 20];
     me.bodies[4] = [50, 0, 60];
     const bitmaps = (): string[] => (marks.at(-1) ?? []).map((m) => m.bitmap);
-    // A SEAL (4) carries: his SEAL team mate sees only the base his side must reach; a Terrorist sees nothing.
+    // A SEAL (4) carries: no ret_bomb for anyone; both sides see only the base his side must reach (BOMB-MARKS: type 2
+    // for his side, type 3 for the other).
     emit({ type: 'bomb', ...ground, state: 2, carrier: 4 });
     me.team = 'seal';
     page.hudFrame();
     expect(bitmaps()).not.toContain('ret_bomb.tif');
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 2, pulse: true }]);
     me.team = 'terrorist';
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 3, pulse: true }]);
     // A Terrorist (3) carries: the same, the sides swapped.
     emit({ type: 'bomb', ...ground, state: 2, carrier: 3 });
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: -300, z: 300 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: -300, z: 300, type: 2, pulse: true }]);
     me.team = 'seal';
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: -300, z: 300, type: 3, pulse: true }]);
     // A viewer with no side (a watcher's page): no ret_bomb on the carrier either.
     me.team = null as unknown as Team;
     page.hudFrame();
@@ -414,6 +415,74 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     me.team = 'terrorist';
     page.hudFrame();
     expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 70, z: 80 }]);
+  });
+
+  // BOMB-MARKS (the owner, seat b6, 2026-11-06; research 214 s3 "The base mark for both sides"; reading, pending
+  // review): the pickup gives every console's viewer an ALL_YOUR_BASE mark at the base the CARRIER's side must reach
+  // (FUN_005bbf10 D:L473686-473701; the base chosen by FUN_002c30b0 as the plant check FUN_00594480 D:L452753-452760
+  // chooses it): type 2 when the viewer's +200 mask meets the carrier's, else type 3 (D:L473696-473699). Types 1-13
+  // pulse (FUN_00211510 D:L68125-68130). A side-less watcher: BASE_MARK_SPECTATOR_PLACEHOLDER, none.
+  it("BOMB-MARKS: while carried both sides see ret_base at the carrier's side's site -- type 2 for his side, type 3 for the other, pulsing; a side-less watcher none; a drop takes it away", () => {
+    const marks: CompassMark[][] = [];
+    const hud: BombHud = {
+      setExtraMarks: (m) => { marks.push(m.map((x) => ({ ...x }))); },
+      setDefuseTimer: () => {}, setHoldBar: () => {}, postMessage: () => {},
+    };
+    const { emit, page, me, ground } = harness({ hud }, { 3: 'terrorist', 4: 'seal' });
+    emit(welcome({ objective: ground }));
+    // A SEAL (4) carries: the SEALs' site is terrorist_tent (300, 300), for both sides.
+    emit({ type: 'bomb', ...ground, state: 2, carrier: 4 });
+    me.team = 'seal';
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 2, pulse: true }]);
+    me.team = 'terrorist';
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 3, pulse: true }]);
+    // A Terrorist (3) carries: the Terrorists' site is seal_tent (-300, 300), for both sides.
+    emit({ type: 'bomb', ...ground, state: 2, carrier: 3 });
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: -300, z: 300, type: 2, pulse: true }]);
+    me.team = 'seal';
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: -300, z: 300, type: 3, pulse: true }]);
+    // This page's own player carries: his own side's mark.
+    emit({ type: 'bomb', ...ground, state: 2, carrier: 2 });
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 2, pulse: true }]);
+    // A viewer with no side: none (the port's default, BASE_MARK_SPECTATOR_PLACEHOLDER).
+    expect(BASE_MARK_SPECTATOR_PLACEHOLDER).toBe('none');
+    me.team = null as unknown as Team;
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([]);
+    // Dropped: the base mark goes for everyone (FUN_0059dab0 D:L457531-457532); the bomb where it lies.
+    me.team = 'terrorist';
+    emit({ type: 'bomb', ...ground, state: 1, pos: [50, 0, 60] });
+    page.hudFrame();
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_bomb.tif', x: 50, z: 60 }]);
+  });
+
+  // BOMB-MARKS (research 87 s12, 214 s3 "The scoreboard's satchel"): the board's satchel is the row of the player who
+  // holds item 0x9a (FUN_0022a290 D:L79026) -- the carrier, in the carried state only; every viewer sees it (OT.R109 as amended).
+  it("BOMB-MARKS: hudFrame hands the scoreboard the carrier's id while carried, null otherwise", () => {
+    const carriers: (number | null)[] = [];
+    const hud: BombHud = {
+      setExtraMarks: () => {}, setDefuseTimer: () => {}, setHoldBar: () => {}, postMessage: () => {},
+      setBombCarrier: (id) => { carriers.push(id); },
+    };
+    const { emit, page, ground } = harness({ hud }, { 3: 'terrorist', 4: 'seal' });
+    emit(welcome({ objective: ground }));
+    page.hudFrame();
+    emit({ type: 'bomb', ...ground, state: 2, carrier: 3 });
+    page.hudFrame();
+    emit({ type: 'bomb', ...ground, state: 2, carrier: 2 });
+    page.hudFrame();
+    emit({ type: 'bomb', ...ground, state: 3, pos: [305, 0, 300], planter: 2, plantingTeam: 'seal', detonateTick: 5000 });
+    page.hudFrame();
+    expect(carriers).toEqual([null, 3, 2, null]);
+    // The real Hud takes it.
+    const real = new Hud();
+    page.hudFrame(real);
+    expect(real.state().model.bombCarrier).toBeNull();
   });
 
   it("the carrier's body shows its Satchel and the others' not; the world bomb is drawn on the ground and planted, never while carried; state 5 plays base_explosion1 at the bomb", () => {
@@ -445,12 +514,12 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     // The compass: no ret_bomb on the carrier (OT.R99), ret_base at the SEALs' target (terrorist_tent) for his side.
     me.bodies[4] = [50, 0, 60];
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 2, pulse: true }]);
     expect(timers.at(-1)).toBeNull();
-    // A Terrorist sees neither: no ret_bomb on the carrier (OT.R99), no base.
+    // A Terrorist: no ret_bomb on the carrier (OT.R99); the SEALs' base in type 3 (BOMB-MARKS).
     me.team = 'terrorist';
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 3, pulse: true }]);
     me.team = 'seal';
     // Dropped where he stood: his satchel off, the bomb on the ground; the drop's cue.
     emit({ type: 'bomb', ...ground, state: 1, pos: [50, 0, 60], pickupAfterTick: 1240 });
@@ -461,7 +530,7 @@ describe('the page\'s bomb (XR-05; research 214)', () => {
     expect(log).toEqual(['gear 2 Satchel true', 'bomb off', 'cue pickup seal seal', 'post LINE 0.7']);
     log.length = 0;
     page.hudFrame();
-    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300 }]);
+    expect(marks.at(-1)).toEqual([{ bitmap: 'ret_base.tif', x: 300, z: 300, type: 2, pulse: true }]);
     // Planted: the satchel off, the bomb drawn where it was set; the plant's cue by the planting side; the fuse on the HUD.
     emit({ type: 'bomb', ...ground, state: 3, pos: [305, 0, 300], planter: 2, plantingTeam: 'seal', detonateTick: 1000 + 30 * TICK_HZ });
     expect(log).toEqual(['gear 2 Satchel false', 'bomb 305,0,300', 'cue planted seal seal', 'post LINE 0.7']);

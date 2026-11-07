@@ -268,11 +268,28 @@ Sub-map 0 is "Base Map": min (705.263, -33.14, 1124.72), 167 x 128 cells of 10. 
 the jail's sub-maps 3 and 4 (190 B1). The +1.0 lift is the player spawn's (`FUN_002b8100` D:L158793; 190 V2 claim 3:
 the capture's SEAL at -30.08 + 1.0). `FUN_002b28d0`'s own placement of an AI body is unread, so the lift is a reading.
 
-The yaw is `HOSTAGE_FACING_READING` = 0. Setup heading 0 goes through `FUN_00518ea0` (D:L386383): case 0 builds a
-y-axis quaternion of pi, then with `param_3` = 1 composes a further pi, for a net yaw of 0. The mesh's rest facing is
-not established (190 B1, BELIEVED; U10). Only heading 0 is read. A record with another heading is noted and placed at
-yaw 0. A record whose point is absent, or whose cell the grid does not store, is dropped with a note. The load
-carries on.
+**HP-FACING (2026-11-04): every setup heading, reading, independently source-reviewed at 3a3821bd1 (PASS, high; 42 tests passed, zero skipped).** The heading parser is
+`FUN_00533a60` D:L400676-400710; `FUN_00532fc0` D:L400213-400219 returns the selected setup's word.
+The placement caller `FUN_002b28d0` D:L155825-155826 passes it to `FUN_00518ea0` with the third
+argument 1. That function takes a byte (D:L386385), so the port selects the low byte too. Its switch
+D:L386398-386424 selects y-axis rotations 180, 135, 90, 45, 0, 315, 270, 225 degrees for headings
+0 through 7, with 180 as the default; D:L386426-386441 composes a further 180. Thus
+`ESCORTEE_SETUP_YAWS_READING` is `[0, 315, 270, 225, 180, 135, 90, 45]`, and the existing scalar
+`HOSTAGE_FACING_READING` remains 0 for heading 0 and unrecognized bytes. The independent direction
+switch `FUN_00519130` D:L386483-386528 agrees: heading 0 is (0, 0, -1), heading 2 is (1, 0, 0),
+heading 4 is (0, 0, 1), and heading 6 is (-1, 0, 0). These are semantic directions in the port's
+yaw convention; this does not claim bit-exact quaternion arithmetic or original rendered-body parity.
+
+The former implementation read only heading 0, warning and placing all other headings at yaw 0.
+That limitation affected Fish Hook's first hostage and Foxhunt's first VIP: each stores setup heading
+6 in `RUN/MP71.ZDB` or `RUN/MP53.ZDB`, `READERM.ZAR/vehicles.rdr`, while their other two records store 0.
+Both now place at yaw 90, with the others still 0. `scene/test/escorteeFacing.test.ts` pins all eight
+headings, the default and byte wrapping with synthetic placement; its two dev-disc cases pin those
+actual records. RED: 13 failed / 1 passed; GREEN with the existing MP6 placement file: 16 passed /
+zero failed / zero skipped. The separate all-map census belongs to HP-MAPS. No new value is tuned.
+The mesh's rest facing and the original running comparison remain capture C2's work (190 B1, U10).
+A record whose point is absent, or whose cell the grid does not store, is still dropped with a note.
+
 
 `SimMap.escortees` is always read. The room uses it on EXTRACTION (game type 4; HX-1's `ExtractionAuthority.of`) and,
 from 2026-10-18, on ESCORT (game type 3). ESCORT is game type 3 (190 §10.2: the TYPE string 0x3f2ea0 ESCORT -> 3,
@@ -315,11 +332,15 @@ Both ends are half-open: on Safety, (6,76) and (13,90) are in, while (14,76), (1
 the actor's AI-map cell `+0xe4`. `ai::INREGION` mode 1 (`FUN_005ced60` D:L484881-484900) makes the same test, and every
 INREGION region word in the EXTRACTION scripts decodes to its zone's corner (190 B2: MP6 0x02600180 = 0:(6,76)).
 
-The port's stand-in for `+0xe4` is `aiCellOf(sub, x, z)`. It is the inverse of the cell-centre formula:
-floor((x - min) / size) on each axis, or null off the grid (stored or not), with the sub-map's index as the loc's
-`map`. The routine that sets `+0xe4` is not read in this task. Which sub-map an actor's cell is taken on (the room
-knows a body's x,z, not its sub-map) is HX-1's to settle where it calls the test. On Desert Glory the zone and the
-starts are all on Base Map.
+The original HX-0b implementation used `aiCellOf(sub, x, z)` on submap 0 as a stand-in for `+0xe4`.
+That historical limitation is corrected by HP-ZONE (2026-11-04; research 335 section 9, reading, independently
+reviewed 2026-11-04): `FUN_005b7ba0` D:L471278-471283 writes the raw cell through the layered `FUN_0052dc70` locator,
+retaining the previous raw cell only when that lookup fails. A blocked stored raw cell is still a valid
+region input, independent of last navigable `+0xe8`. Both EXTRACTION and ESCORT now use this same
+location for rescue and script regions; they do not project onto Base Map. The conversion's layer
+selection and thresholds are the existing research 335 section 2 reading. The new wiring is unit-tested,
+not compared with the original running; the r0004 source-re-read limit is stated in section 9.
+
 
 ## 2. The actors in the room
 
@@ -602,8 +623,9 @@ bookkeeping.
 | `HOSTAGE_TEAM_READING` | scene `escortees.ts` (`SimMap.escortees`' `team`) | `0xC0020000`: bits 17, 30, 31 (ESCORTEE, ENEMIES, ALLIES by the SOCOM 1 DWARF's FIRETEAM names, 189 s2 -- the names a reading with a step); the record parser's OR (D:L400381-400401, D:L400443), `FUN_0029ed10` D:L144915, the online swap D:L155859-155866 unchanging it (190 V2 claim 2). Owed: C2 reads `+0xc8` at round start (s7) |
 | `ESCORTEE_BIT_READING` | scene `escortees.ts` (`parseEscortees`) | `0x20000`: the test `+200 & 0x20000` every escortee path makes (190 V2 claim 2; 199 s2's friendly-fire exception `0x5ac720-0x5ac74c`) |
 | `HOSTAGE_START_LIFT_READING` | scene `escortees.ts` (`placeEscortees`) | `1.0`: the player spawn's lift (`FUN_002b8100` D:L158793; 190 V2 claim 3) applied to an AI body; `FUN_002b28d0`'s own placement unread. Owed: C2's round-start positions |
-| `HOSTAGE_FACING_READING` | scene `escortees.ts` (`placeEscortees`) | `0` (yaw) for setup heading 0: `FUN_00518ea0` D:L386383 case 0, pi then a further pi (190 B1, BELIEVED; U10: the mesh's rest facing not established). Owed: C2 (the starts' facing), HX-2's mesh |
-| `ZONE_CONTAINS_READING` | scene `aimaps.ts` (`zoneContains`) | `'same sub-map, half-open rectangle, on the cell'`: `FUN_0052a200` D:L395058-395098, `FUN_005ced60` mode 1 D:L484881-484900 (190 B2, V2 claim 4); the port's cell is `aiCellOf`'s, the stand-in for `+0xe4` (s1.5) |
+| `HOSTAGE_FACING_READING` | scene `escortees.ts` (`placeEscortees`) | `0` for heading 0 and default; `FUN_00518ea0` D:L386398-386441 and placement caller D:L155825-155826, section 1.3 (HP-FACING, independently source-reviewed reading). Owed: capture C2, mesh rest facing |
+| `ESCORTEE_SETUP_YAWS_READING` | scene `escortees.ts` (`placeEscortees`) | `[0, 315, 270, 225, 180, 135, 90, 45]` for setup headings 0..7 after the caller's half-turn; byte argument, same sources and level as section 1.3. Synthetic all-heading/default/wrapping tests and MP71/MP53 dev-disc records; no runtime comparison |
+| `ZONE_CONTAINS_READING` | scene `aimaps.ts` (`zoneContains`) | `'same sub-map, half-open rectangle, on the cell'`: `FUN_0052a200` D:L395058-395098, `FUN_005ced60` mode 1 D:L484881-484900 (190 B2, V2 claim 4); the port's rescue cell is the layered raw `+0xe4` reading (s1.5; research 335 section 9, independently source-reviewed) |
 | `ZONE_KIND_NAMES_READING` | -- (`aimaps.ts` `zonesOfKind`'s doc lists them) | *note only*: the seven zone kinds: 0 DEFAULT, 1 EXTRACT_ZONE, 2 SAFE_HOUSE, 3 WORM_HOLE, 4 ROUTER, 5 HUD_VISIBLE, 6 GUARD (`FUN_005d57c0` D:L488569; 190 B2); only kind 1 is used (`zonesOfKind(ai, 1)`), no constant stands in |
 | `AUTOSTART_RESET_READING` | viewer `mapMeta.ts` (`MapMeta.autostart`; `WorldState.reset`) | `'re-run'`: the round's reset starts the sets again after restoring the saved references -- online `FUN_002232a0` D:L75850-75866 (`FUN_0026c2e0`, `FUN_0026c4f0`, `FUN_0026c600` on `common` and `mission`), offline `FUN_002ac0e0` D:L151966-151983 then `FUN_002a7d40` D:L149735-149742; `FUN_0026c600` D:L116312-116387 runs while the set's `+1` is clear; 0x21 animations start through `FUN_002713f0` every time (bit 11 clear, kind 1: the kind-3 skip of `FUN_00271390` not theirs) (§0.2). Built: the restore, then every autostart's opening `OBJECT_ACTIVE_STATE` commands re-applied in order (VALVE ops passed over); the page then runs the programs (AS-1, 2026-10-22). The room runs no program. An opening valve's value is the reset's clear to 0. Owed: capture C2 (a Desert Glory bottle and Sandstorm's radio in round 2) |
 | `AUTOSTART_INITIAL_READING` | viewer `mapMeta.ts` (`startsWithSet`; `WorldState.startAutostarts`) The same gate is already read by the ui package as `flags & 7 == 1` (`FUN_002713f0` D:L119327-119333; research 106 §158-159; `zanimRuntime.ts:458-466`; `frontend.json:532-538`): the two readings differ for an animation with `& 7` in {3, 5, 7} -- LATER 486 counts them over the map MZANIMs and moves the viewer to `& 7` if any exist. | `flags & 3 == 1`: the animation starts with its set (research 115 R115.6's reading; research 209 §6's row). Not read in `FUN_0026c600`: its D:L116312-116387 run once per set and D:L116360-116372 start every animation of the set; the per-animation gate is elsewhere. **Lead, to read:** `FUN_002713f0` (opens D:L119312) tests byte +3 equal to 1 or 5 and byte +4 `& 7` with cases 1 and 3 (D:L119327-119333) -- a three-bit field, so an animation with `flags & 7 == 5` would be started by the port (`& 3 == 1`) and not by the original. Settled by reading which of those bytes is `params.flags` and what each case does, then counting the disc's animations with `flags & 7 == 5`. **Counted (LATER 486, 2026-10-26, dev-disc `packages/scene/test/startsWithSetDisc.test.ts`): none.** Over the 34 maps with an MZANIM, `params.flags & 7` is 1 (634), 2 (3623) or 3 (330), never 5 or 7, so the flags test agrees with the original's on every map (the state byte +3's test is outside this task); `& 3` is kept. The bytes are mapped by `zanim.ts:307` (+3 state, +4 flags), not re-read at the source by this task. |

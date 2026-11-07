@@ -423,6 +423,18 @@ against the map's own blocks and groups only (`soundData.ts` `characterVoicesOf`
   9-69 ms (887 ms once) on a click that landed before the map's sound data, which made the context itself: the context
   is now made on the task after the page wires `unlockOn` (a `setTimeout 0`, whether or not a map comes), so every
   click only resumes it. Re-measuring is `tools/audio-unlock.ts` (owed: the host's lock).
+- **A sample is decoded once, and the map's blasts and reports at the load** (LATER 730, 2026-11-07; product track, a
+  browser adaptation: the same sounds at the same times). A bank's samples were already decoded once each (`SampleCache`,
+  at a sample's first use); the cost found was the decode's array, sized to the rest of the bank and kept with the sample
+  (the flash's three samples held 4.0 MB for 0.21 MB of PCM; MP2's whole set decoded in 218-362 ms): `decodeVag` now
+  sizes it to the sample's end block (72-74 ms, the same values). The decoded PCM sits on one budget a map
+  (`SampleBudget`, `SOUND_DECODE_CACHE_BYTES_ADAPTATION` 32 MiB, above every map measured, the least recently used let
+  go past it), and the map's grenade callbacks, every weapon's three reports and `.RINGING_EARS` are decoded at the load
+  (`soundWarmSet`, `SOUND_DECODE_WARM_ADAPTATION`, a sound a step of the 4 ms `pump`) and held. A play that still has to
+  decode sounds in its own call, as before, and is counted (`stats().decode.cold`, the performance line's `sound` part).
+  What a play still costs is its render (the grain sequencer and the voices' mix at the play's volume and pan, measured
+  in node at about 4 ms for the flash, 6 ms for `.GREN_MED`, 2.3 ms for `.M16A2`) and the buffer's copy; both stay in the
+  play's frame, since a render elsewhere would sound a frame later.
 - **The stats** (`window.__viewer.audio()`): the banks (the borrowed marked), the map's `defaultMaterial`, the reverb
   (loaded, inside, zone, depth), the ambience (the beds, which is up, the emitters and their gains), the dropped plays
   by reason (locked, range, unknown, muted, silent -- a surface or zAnim that names no sound) and `unknownNames`;
@@ -441,8 +453,9 @@ against the map's own blocks and groups only (`soundData.ts` `characterVoicesOf`
   tone's flags **bit 0** (decomp 14339-14345: `DAT_0001cf1c`) and clears its dry mix (`VMIXL`/`VMIXR`) for bit 4
   (14189-14203) -- not the v3.01 reference's bit 1. 200 of `MP2_am`'s 281 tones send (the steps among them).
 - **The depth** (`FUN_00341a60`, decomp 241509-241560, each frame): the camera probes the floor under it (`FUN_00295b00`,
-  decomp 140035-140058) and keeps the hit polygon's `m_inside` (bit 23, `FUN_002dc180`) and a zone bit (27,
-  `FUN_002dc150`); on a change, `snd_AutoReverb(2, depth x 32767, seconds x 240, 3)` (989snd call 0x10) to the
+  decomp 140035-140058; the pick `FUN_002d4c20`, the highest hit at or below the camera, none written with no hit --
+  the viewer's `floorPick.ts` `cameraFloor`, the one probe `CAMERA_INDOORS` (66) answers too, research 89 §21) and keeps
+  the hit polygon's `m_inside` (bit 23, `FUN_002dc180`) and a zone bit (27, `FUN_002dc150`); on a change, `snd_AutoReverb(2, depth x 32767, seconds x 240, 3)` (989snd call 0x10) to the
   `IndoorReverb` or `OutdoorReverb` entry of that zone (`FUN_003416b0`/`FUN_00341500` read them from `mission.rdr`:
   `Depth`, `Seconds`), or to 0 over 0xf0 ticks (1 s) when the list has none. Frostfire: indoors 0.45 (the first of two
   `IndoorReverb` keys; the later says 0.3) and 0.2, outdoors 0.07 and 0.2, each over 1 s; the outdoor depths run 0 (Sujo)
@@ -555,7 +568,11 @@ Glory `.STEP_SAND` and `.SAND_JUMP`; nothing dropped.
 - Whether the console is silent where the viewer borrows (a capture on Rat's Nest would say).
 - The beds' script tests `PLAYER_INDOORS` (the player's `+0x1060` bit 2), the wind's `CAMERA_INDOORS` (the camera's
   floor); the viewer drives both from the camera's floor (`setEnvironment`) [reading: they differ only while the
-  camera and the SEAL stand on different sides of a door]. What sets the player's bit is not traced.
+  camera and the SEAL stand on different sides of a door]. What sets the player's bit is not traced. The effect
+  runner answers the two apart since INV-RAIN F3 (2026-11-07): 66 from the camera's floor, 72 from the floor under
+  the player's feet (`PLAYER_INDOORS_FEET_READING`, research 89 §21). The camera's floor is one pick for the sound and
+  the effects since 2026-11-07 (`floorPick.ts` `cameraFloor`, `FUN_002d4c20`; research 89 §21): the sound had the
+  actor's (`probeFloor`, up to 6 over), so under a low roof it heard outdoors while 66 answered indoors.
 - A camera script's delay is applied to its one-shots only; its loops (MP1's `~OUTDOOR_AMB` at 1.0) start with
   the ambience. Two scripts starting the same bed at the same volume are one loop here (the console has two voices).
 - Activation-1 scripts that start animations on other tests (the objectives' `VALVE`s, `RANDOM_WEIGHT` in Desert

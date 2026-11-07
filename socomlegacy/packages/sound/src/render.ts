@@ -28,19 +28,95 @@ export const PAN_RESET = -1;
  */
 export const MAX_RENDER_SECONDS_PLACEHOLDER = 4;
 
-/** The decoded samples of one bank, by VAG offset: decoded once, rendered from many times. */
+/**
+ * SOUND_DECODE_CACHE_BYTES_ADAPTATION (LATER 730; product track, a browser adaptation with no original -- the console's
+ * samples sit in the SPU's RAM as ADPCM and the voices decode them as they play): the most decoded PCM, in bytes, a
+ * page's `SampleBudget` holds across a map's banks before it lets the least recently used sample go (decoded again at
+ * its next use, and counted cold there). 32 MiB: above every map's whole bank set decoded as measured (MP2 26.5 MB, MP51
+ * 26.4 MB, 16-bit, LATER 730's harness on the dev disc), so a map lets nothing go and every play renders as before; the
+ * cap bounds only a bank set larger than any measured. The samples played are the same either way.
+ */
+export const SOUND_DECODE_CACHE_BYTES_ADAPTATION = 32 * 1024 * 1024;
+
+interface BudgetEntry { cache: SampleCache; offset: number; bytes: number; pinned: boolean }
+
+/**
+ * The decoded samples' byte budget over one page's banks (`SOUND_DECODE_CACHE_BYTES_ADAPTATION`): every sample a
+ * `SampleCache` on it decodes is counted, a use makes it the most recent, and past the cap the least recently used
+ * unpinned ones are let go until it fits. A pinned sample (the page's warm set) is never let go; with only those left
+ * the budget holds what it holds.
+ */
+export class SampleBudget {
+  /** Insertion order is recency: the first entry is the least recently used. */
+  private readonly entries = new Map<string, BudgetEntry>();
+  bytes = 0;
+  evictions = 0;
+  constructor(readonly capBytes: number = SOUND_DECODE_CACHE_BYTES_ADAPTATION) {}
+  get pinned(): number { let n = 0; for (const e of this.entries.values()) if (e.pinned) n++; return n; }
+  /** @internal `SampleCache`'s: a sample decoded. */
+  add(key: string, cache: SampleCache, offset: number, bytes: number, pinned = false): void {
+    this.entries.set(key, { cache, offset, bytes, pinned });
+    this.bytes += bytes;
+    if (this.bytes <= this.capBytes) return;
+    for (const [k, e] of this.entries) {
+      if (this.bytes <= this.capBytes) break;
+      if (e.pinned) continue;
+      this.entries.delete(k);
+      this.bytes -= e.bytes;
+      this.evictions++;
+      e.cache.drop(e.offset);
+    }
+  }
+  /** @internal `SampleCache`'s: a sample used, now the most recent. */
+  touch(key: string): void {
+    const e = this.entries.get(key);
+    if (!e) return;
+    this.entries.delete(key);
+    this.entries.set(key, e);
+  }
+  /** @internal `SampleCache`'s: a sample held for good. */
+  pin(key: string): void {
+    const e = this.entries.get(key);
+    if (e) e.pinned = true;
+  }
+}
+
+let cacheIds = 0;
+
+/**
+ * The decoded samples of one bank, by VAG offset: decoded once, rendered from many times. On a `SampleBudget` the
+ * samples it holds are counted against the page's cap and may be let go past it (decoded again at their next use);
+ * without one (the worker's loops, the tests) it keeps every sample it decodes.
+ */
 export class SampleCache {
   private readonly cache = new Map<number, VagSample | null>();
-  constructor(private readonly vag: Uint8Array) {}
-  get(offset: number): VagSample | null {
+  private readonly id = cacheIds++;
+  /** How many samples this cache has decoded (a re-decode after a let-go counts again). */
+  decodes = 0;
+  constructor(private readonly vag: Uint8Array, private readonly budget: SampleBudget | null = null,
+              private readonly decode: (data: Uint8Array, offset?: number) => VagSample = decodeVag) {}
+  private key(offset: number): string { return `${this.id}:${offset}`; }
+  get(offset: number): VagSample | null { return this.fetch(offset, false); }
+  /** Decodes the sample if need be and holds it for good (the page's warm set). */
+  pin(offset: number): VagSample | null { return this.fetch(offset, true); }
+  private fetch(offset: number, pin: boolean): VagSample | null {
     let s = this.cache.get(offset);
     if (s === undefined) {
-      s = offset < this.vag.byteLength ? decodeVag(this.vag, offset) : null;
+      s = offset < this.vag.byteLength ? this.decode(this.vag, offset) : null;
+      if (offset < this.vag.byteLength) this.decodes++;
       if (s && s.pcm.length === 0) s = null;
       this.cache.set(offset, s);
+      if (s) this.budget?.add(this.key(offset), this, offset, s.pcm.byteLength, pin);
+    } else if (s) {
+      this.budget?.touch(this.key(offset));
+      if (pin) this.budget?.pin(this.key(offset));
     }
     return s;
   }
+  /** Whether the sample at `offset` is held decoded now. */
+  has(offset: number): boolean { return this.cache.get(offset) != null; }
+  /** @internal The budget's: the sample let go. */
+  drop(offset: number): void { this.cache.delete(offset); }
   get size(): number { return this.cache.size; }
 }
 
@@ -340,6 +416,28 @@ interface Handler {
 }
 
 const param8 = (g: Grain, i: number): number => (((g.arg >> (8 * i)) & 0xff) << 24) >> 24;
+
+/**
+ * The VAG offsets of every sample sound `index` can start (LATER 730, the page's warm-up): each TONE and TONE2 grain's
+ * tone, on every branch (a RAND_PLAY's every pick, every marker's run), and its STARTCHILDSOUND children's, read as
+ * `renderSound` reads them. A static walk: what a play starts is a subset. Empty for a sound the bank lacks.
+ */
+export function soundSampleOffsets(bank: SoundBank, index: number): Set<number> {
+  const out = new Set<number>(), seen = new Set<number>();
+  const walk = (i: number): void => {
+    if (seen.has(i)) return;
+    seen.add(i);
+    for (const g of bank.sounds[i]?.grains ?? []) {
+      const tone = bankTone(bank, g);
+      if (tone) out.add(tone.sampleOffset);
+      if (g.type === GRAIN.STARTCHILDSOUND && g.arg + 16 <= bank.grainData.byteLength) {
+        walk(new DataView(bank.grainData.buffer, bank.grainData.byteOffset + g.arg, 16).getInt32(12, true));
+      }
+    }
+  };
+  walk(index);
+  return out;
+}
 
 /**
  * Renders sound `index` of `bank` from its first grain until its grains and voices are done. The buffers are the

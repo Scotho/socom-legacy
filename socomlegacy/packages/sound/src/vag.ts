@@ -34,7 +34,10 @@ export interface VagHistory { s1: number; s2: number }
 
 /** Decodes the run of blocks at `offset` in `data` up to its end block (or the data's end). */
 export function decodeVag(data: Uint8Array, offset = 0, history?: VagHistory): VagSample {
-  const blocks = Math.max(0, Math.floor((data.byteLength - offset) / 16));
+  let blocks = Math.max(0, Math.floor((data.byteLength - offset) / 16));
+  // LATER 730 (a browser adaptation, the same samples): the run's own length first, to its end block, so a sample is held
+  // in an array of its own size -- not one as long as the rest of its bank (a bank sample retained ~20x its PCM).
+  for (let b = 0; b < blocks; b++) if (data[offset + b * 16 + 1]! & 0x01) { blocks = b + 1; break; }
   const out = new Int16Array(blocks * 28);
   let n = 0, s1 = history?.s1 ?? 0, s2 = history?.s2 ?? 0, loops = false, loopStart = 0, used = 0;
   for (let b = 0; b < blocks; b++) {

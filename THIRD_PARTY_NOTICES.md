@@ -25,7 +25,14 @@ them. The SOCOM Legacy site's fonts and their OFL texts ship from `shared/fonts/
 | express | `socomlegacy/packages/forge-agent/package.json`; [upstream licence](https://github.com/expressjs/express/blob/v5.3.0/LICENSE) | 5.3.0 | MIT | 2009-2014 TJ Holowaychuk; 2013-2014 Roman Shtylman; 2014-2015 Douglas Christopher Wilson | yes (the Forge agent gateway's HTTP service) |
 | tsx | `socomlegacy/packages/forge-agent/package.json`; [upstream licence](https://github.com/privatenumber/tsx/blob/v4.23.15/LICENSE) | 4.23.15 | MIT | Hiroki Osame | yes (the Forge agent gateway's TypeScript launcher; server only) |
 | werift | `socomlegacy/packages/forge-agent/package.json`; [upstream licence](https://github.com/shinyoshiaki/werift-webrtc/blob/v0.25.2/LICENSE) | 0.25.2 | MIT | 2020 shinyoshiaki | yes (the Forge agent gateway's WebRTC implementation; server only) |
-| zod | `socomlegacy/packages/forge-agent/package.json`; [upstream licence](https://github.com/colinhacks/zod/blob/v4.6.7/LICENSE) | 4.6.7 | MIT | 2025 Colin McDonnell | yes (the Forge agent gateway's tool schema validation) |
+| zod | `socomlegacy/packages/forge-agent/package.json`, `shared/modding-wiki/package.json`; [upstream licence](https://github.com/colinhacks/zod/blob/v4.6.7/LICENSE) | 4.6.7 | MIT | 2025 Colin McDonnell | yes (the Forge agent gateway's tool schema validation; the modding wiki's page frontmatter schema, at build) |
+| next (Next.js) | `shared/modding-wiki/package.json` | 16.4.2 | MIT | 2025 Vercel, Inc. | yes (bundled into the modding wiki's static site, `shared/modding-wiki/out/`) |
+| react, react-dom | `shared/modding-wiki/package.json` | 19.3.1 | MIT | Meta Platforms, Inc. and affiliates | yes (bundled into the modding wiki's static site, `shared/modding-wiki/out/`) |
+| fumadocs-core, fumadocs-ui | `shared/modding-wiki/package.json` | 16.17.7 | MIT | 2023 Fuma | yes (bundled into the modding wiki's static site, `shared/modding-wiki/out/`: the docs layout, sidebar and search) |
+| fumadocs-mdx | `shared/modding-wiki/package.json` | 15.4.9 | MIT | 2023 Fuma | yes (compiles the wiki's MDX pages at build; its loader in the modding wiki's static site, `shared/modding-wiki/out/`) |
+| tailwindcss, @tailwindcss/postcss | `shared/modding-wiki/package.json` (`devDependencies`) | 4.3.3 | MIT | Tailwind Labs, Inc. | yes (the stylesheet it generates is in the modding wiki's static site, `shared/modding-wiki/out/`) |
+| postcss | `shared/modding-wiki/package.json` (`devDependencies`) | 8.5.31 | MIT | 2013 Andrey Sitnik | no (the wiki's build tool) |
+| typescript | `shared/modding-wiki/package.json` (`devDependencies`) | 5.9.3 | Apache-2.0 | Microsoft Corporation | no (the wiki's build tool) |
 
 ## References this project was modelled on (no code copied)
 

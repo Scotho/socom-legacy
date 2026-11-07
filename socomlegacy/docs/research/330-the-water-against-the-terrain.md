@@ -339,7 +339,10 @@ On the simulation track (what the game draws). RED first; one rule for every map
 | `ENV_PASS_TEST_READING` (*note only*; candidate, NU-15) | B2's assertion | the env pass's `TEST` is its texture's bind packet's (D:L252528-252530, D:L307770); read live as `0x5000c` on one mission's water only (research 26 §3.2); `gsState.ts:29` says `ZTE` is on throughout the corpus, but `decodeTest` reads no `ZTST` and defaults to on without a `TEST` register (`gsState.ts:72-76`, `:118`). **Read off the disc 2026-10-15 (B2):** MP71's `congo4s_sky01.tif` bind packet holds `TEST_1` `0x5000c` -- `ZTE` 1, `ZTST` 2 (GEQUAL) -- read raw from the packet's A+D quadwords in the test, no `gs` reader change; every env texture the 34 archives name holds `0x5000c` (§7). Still owed: NU15-2 at the console. (Was: "settles: B2 decoding bits 16-18 (or the raw value) of MP71's `congo4s_sky01.tif`, and NU15-2"; before that "settles: B2 on MP71's `congo4s_sky01.tif`" -- the review's F1.) |
 | `THREE_ORDER_WALK_HOLES_READING` (*note only*; candidate, NU-15; `world.ts` `apply` names it beside B1's line) | B1's doc | with B1 (built 2026-10-15), a translucent ramp earlier in the scene walk cuts a blended draw behind it drawn later, where the console's grid walk might have drawn the far one first -- a water rim fading by its vertex alpha among them (the review's F4); the draws B1 changes, by B2's count: every blended walk draw of 21 of the 22 multiplayer maps (MP72 has none) and of the 12 campaign archives (§7); settles: B3's courtyard, sky and shoreline checks, or the engine order made the default (W1.R3) |
 | `NU15_SLOPE_LOD_FADE_READING` (*note only*; candidate, NU-15) | B3; `world.ts` `drawFaded` | whether either slope under a patch is a LOD copy in its fade band (NU15-W3), drawn with a twin that writes no depth at its walk order, which B1 does not change (pinned, `worldWalkDepth.test.ts`); the world's parts have no LOD band, so only a prop slope. **On MP71, no:** B2 counts no LOD copy on the map (§7), so neither of the owner's patches is a fading copy. Other maps keep it open (MP2 234 copies, MP73 214, five campaign archives); settles there: B3 with the fades frozen. (Was: open on MP71 too, "settles: B3 with the fades frozen, or the listing of the draws under the two poses' patches" -- the review's F2.) |
-| `ENV_PASS_PLACE_READING` (*note only*; candidate, NU-15) | `world.ts` `addEnv` | the console draws the reflection right after its base in the walk (D:L307758-307779), the port after the whole walk, and under the engine order after the alpha pass; the visible effect is not read. Since B1 (NU-15's review, F2): the env pass is depth-tested against the blended walk draws on the water -- MP71's 12 `water_washup.tif` draws at y 50-54 over the `water.tif` sectors at y 50 -- so where a washup at y 50 precedes it the reflection meets an equal or near depth under `LessEqual` and may speckle (a finer buffer than Z16S); before B1 it was drawn over the washup; neither is the console's; settles: B3's shoreline check at MP71's washups, and NU15-1 over water with a flare or decal on it. (Was: "the visible effect is not read; settles: NU15-1 over water with a flare or decal on it".) |
+| `ENV_PASS_PLACE_READING` (*note only*; candidate, NU-15) | `world.ts` `addEnv`, `envOrderOf` | **The alpha pass's half built 2026-11-07 (LATER 593, INV-WATER-LOOK F2, `agent/inv-water-look`; reading, pending review; §9):** an alpha-pass draw's reflection is numbered right after its base and before its detail pass and the next item or particle bucket (`alphaEnvOrder`), as the console's visual list draws it (`FUN_003b5b90` D:L307758-307779 via `FUN_003b4580`, §1.2); was base + 0.75 (1.75), after the whole pass and every particle -- MP12's 22 alpha-pass water reflections among them (`alphaInterleaveDisc.test.ts`). **Still open, the walk's half:** the console draws the reflection right after its base in the walk (D:L307758-307779), the port after the whole walk, and under the engine order after the alpha pass; the visible effect is not read. Since B1 (NU-15's review, F2): the env pass is depth-tested against the blended walk draws on the water -- MP71's 12 `water_washup.tif` draws at y 50-54 over the `water.tif` sectors at y 50 -- so where a washup at y 50 precedes it the reflection meets an equal or near depth under `LessEqual` and may speckle (a finer buffer than Z16S); before B1 it was drawn over the washup; neither is the console's; settles: B3's shoreline check at MP71's washups, and NU15-1 over water with a flare or decal on it. (Was: "the visible effect is not read; settles: NU15-1 over water with a flare or decal on it".) |
+| `ALPHA_PASS_TIE_READING` | `alphaInterleave.ts`; `engineOrder.ts` `alphaPassOrder` | two items of the alpha pass at one key: the console's list insertion (`FUN_00336f60`) puts the newer before an equal one from its head and on its cursor's forward walk (D:L235223, D:L235247-235248) and after it on the cursor's backward walk (D:L235234-235239), so its tie follows the cursor, not one rule; the port keeps the walk's order (`order`, then as given), stable from frame to frame (`alphaInterleave.test.ts`, no flicker); settles: a GS dump of two alpha visuals at one centroid range (two flares at one spot), their order over several frames |
+| `ALPHA_INSTANCED_KEY_ADAPTATION` | `world.ts` `Drawn.centre` | an instanced draw of several placements of one alpha-pass visual is one draw with one key (its box's centre), where the console keys each placement by its own centroid (`FUN_003371b0` D:L235314-235317); a browser adaptation (one `InstancedMesh` a prop); MP12 has none in its pass, MP7 one (`alphaInterleaveDisc.test.ts`); settles nothing to read -- split the draw per placement if a map shows it |
+| `PARTICLE_BUCKETS_PER_TEXTURE_ADAPTATION` | `particles.ts` | 16: the most batches a texture's particles are split into in a frame, one per run of the alpha pass's slots; past it the nearer runs share the last batch at its nearest run's number, so the items whose keys lie inside that batch's particle ranges draw under its farther particles; a browser adaptation (the console drains particle by particle over one list of every texture, `FUN_00324c70`); 600 rain drops over MP12's sectors take 5-8 batches at the water poses, over MP7's pool 3-8 (`alphaInterleaveDisc.test.ts`); within a slot two textures' batches still sort by three at their clouds' centres (research 89 §20, unchanged) |
 | `NU15_SPOT_POSES_PLACEHOLDER` (*note only*; candidate, NU-15) | B3 | the two spots' positions and headings: not in the screenshots; settles: the owner's saved test report from the nightly, or a probe at the described places |
 
 Captures that would take R330.1 to proven (NU.R3: a row that needs a capture files one in `HUMAN_TASKS.md` with the
@@ -472,3 +475,45 @@ whose texture is `congo4s_sky01.tif`, the same texture §6 names for the water's
 may be the dome or the clouds rather than the water's reflection; both readings fit the frames' look, and B1 covers all
 of them. What settles it is §6's own test (the env pass switched off) on a tree before B1 (the first parent of
 bf44c631e).
+
+## 9. LATER 593: the alpha pass and the particles on one key (INV-WATER-LOOK F1-F3; 2026-11-07; reading, pending review)
+
+The water-look report (seat b6, 2026-11-07) found the water drawn over every particle on 12 of the 13 maps with water
+in the alpha pass: every particle batch at `renderOrder` 0.9375, every alpha-pass draw at 1, its reflection at 1.75.
+
+**The original [reading, pending review].** The alpha pass `FUN_00336cb0` walks its list far to near (sorted by the
+key at `+0x40`, `FUN_00336f60` D:L235220-235255) and, before each item, drains the particles whose key is above the
+item's (D:L235150-235153): `FUN_00324c70(particle key, item key)` draws while `item key < particle key` (D:L223757).
+The decompiler prints one argument at D:L235152; the disassembly settles the second (research 89 §20's open point): the
+item's `+0x40` is loaded into `$f13` (0x336d48), compared (`c.ole.s $f20, $f13`, 0x336d4c), the particle key moved
+into `$f12` in the delay slot (0x336d54) and the call made with both (0x336d58). The rest drain after the loop
+(`FUN_003250b0`, D:L235180). An item's key is `FUN_00290aa0(camera, centroid)` (`FUN_003371b0` D:L235314-235317): the
+range squared times the camera's `+0x2c8` (D:L137047-137059), one over the magnification (research 232 §1); a
+particle's is its plain range squared (`FUN_00327910` D:L225490-225494, the dot product `FUN_001bfc98` of the offset with itself, stored at `+0x1c`, D:L225599). The reflection
+goes out in its visual's own list, right after its base (§1.2).
+
+**The port** (`viewer/src/alphaInterleave.ts`; `world.ts` `orderAlphaPass`, `alphaPass`; `particles.ts` `draw`):
+with the engine order off (every page's default), `frame` numbers the pass every frame far to near by the range to each
+item's centroid (F3: a world draw's and a lone prop placement's own centroid, `LoadedMesh.centre`, carried through
+`mergeWorld`; an instanced draw's box centre, `ALPHA_INSTANCED_KEY_ADAPTATION`), each item at its own number in
+[1, 2), its reflection an eighth of a step after it (F2), its detail pass half a step after it. The particle system
+takes the pass's keys from the same eye (`WorldView.alphaPass`, wired through `matchFirearm`'s `setWorld`) and splits
+each texture's batch into runs by slot (`particleSlot`: the items not below the particle's key), each run at a quarter
+step before the item it precedes (`particleBucketOrder`), at most `PARTICLE_BUCKETS_PER_TEXTURE_ADAPTATION` a texture.
+Ties: `ALPHA_PASS_TIE_READING`. The cost on the dev disc (`alphaInterleaveDisc.test.ts`, node): MP12 25 items, MP7 34;
+the numbering and the keys well under a tenth of a millisecond a frame; no geometry rebuilt (the batches' buffers are
+rewritten in place, as before).
+
+**Not changed.** With the engine order on (a viewer instrument) the pass sits in three's opaque list
+(`alphaPassState`), drawn before every particle whatever the numbers; the keys are null there and the batches keep
+0.9375. The particles' eye is the camera's matrix at `effectsFrame`, the world's its position at `frame`: where the
+camera moved between the two, an item and a particle crossing in range in that frame may take the other order for that
+one frame. The walk's reflection (`ENV_PASS_PLACE_READING`'s open half) is unchanged.
+
+**Evidence.** Unit tests (`alphaInterleave.test.ts`: nearer after, farther before, the strict tie, the reflection
+right after its base in three's sorted list, the magnification on the items' keys only); a dev-disc test
+(`alphaInterleaveDisc.test.ts`, MP12 and MP7 at the water-look poses); a rendered browser run (`e2e/waterLook.spec.ts`,
+D3D11, before and after, the agent-mail evidence folder `water-look/after/`): MP12's rain rings show on the water at
+`06-splash` (before: almost none), MP7's splash comes out about as bright as the report's all-after what-if, and the
+mist behind MP7's pool stays under the water (the what-if drew its hard-edged sprite over it). No capture of the
+original: NU-15's and the report's owed captures stand.

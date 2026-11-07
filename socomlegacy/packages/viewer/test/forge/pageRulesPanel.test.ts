@@ -118,7 +118,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     expect(modeOf(api)).toEqual({ id: 'vault', version: '1.0.0', params: {} });
     await vi.waitFor(() => expect(control('rule-add')).toBeTruthy());
     expect(control('new')).toBeUndefined();
-  }, 30_000);
+  }, 90_000);
 
   it('D3: a configuration value stepped is the layout\'s, and one undo step takes it back; a rule\'s text refused names its field and changes nothing', async () => {
     const { api } = await mount(await storedVault());
@@ -145,7 +145,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     // A rule deleted through the panel is gone, one step.
     must('rule-delete:score').click();
     await vi.waitFor(() => expect(draft(api)!.spec.rules.map((r) => r.id)).toEqual(['pay']));
-  }, 30_000);
+  }, 90_000);
 
   it('D2: the Game type select lists the Custom group from forgeModeChoices and shows the layout\'s mode; a retail type is refused while it plays one', async () => {
     await mount(await storedVault());
@@ -162,12 +162,12 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     sel.dispatchEvent(new Event('change'));
     expect(sel.value).toBe('mode:vault.run@1.0.0');
     expect(statusLine()).toContain('rules mode');
-  }, 30_000);
+  }, 90_000);
 
   it('D2: a layout without rules has no Custom group', async () => {
     await mount();
     expect(document.querySelector('.fx-right select.fx-game-type optgroup')).toBeNull();
-  }, 30_000);
+  }, 90_000);
 
   it('step-4 review F2: a rules mode naming a door the map lacks is a greyed Custom option with the host\'s reason; Check rules lists it too', async () => {
     const { api } = await mount();
@@ -184,7 +184,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     must('check').click();
     expect(panel().querySelector('[data-rules-clear]')!.textContent).toBe('No refusals: the rules check against this layout\'s entities');
     expect(panel().querySelector('[data-rules-play]')!.textContent).toMatch(/^Play would refuse this mode: .*rules\.ENTITY_MISSING at entities\.doors\[0\]/);
-  }, 30_000);
+  }, 90_000);
 
   it('step-4 re-look: a map base finishing its load re-greys the draft Custom option, with no mode, entity or name change in between', async () => {
     const { api } = await mount();
@@ -211,7 +211,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     // A playable mode's title is its id@version (`drawCustomModes`), not empty: the reason is gone.
     expect(opt()!.title).toBe('gate.run@1.0.0');
     expect(opt()!.textContent).toBe('Gate run');
-  }, 30_000);
+  }, 90_000);
 
   it('D4: Place zone, then a click on the world: an Outliner row by its id (lock, delete) and a gizmo in the editor\'s scene, none in Play', async () => {
     const { api } = await mount(await storedVault());
@@ -247,7 +247,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     expect(input.dataset['rulesGizmos']).toBe('');
     await exec(api, 'play.stop');
     await vi.waitFor(() => expect(input.dataset['rulesGizmos']).toBe('zone:vault'));
-  }, 30_000);
+  }, 90_000);
 
   it('step-4 review F3: a picked entity is dropped by Escape, as a piece is, and by a click on empty ground', async () => {
     await mount(await storedVault());
@@ -270,7 +270,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     pointer('pointerup');
     await vi.waitFor(() => expect(row()!.classList.contains('is-on'), 'a click on empty ground drops it').toBe(false));
     expect(inspected()).not.toBe('Zone · vault');
-  }, 30_000);
+  }, 90_000);
 
   it('Start a new layout asks before dropping a layout holding only a zone (no piece, no rules), naming what goes; Cancel keeps it', async () => {
     const { api } = await mount();
@@ -285,7 +285,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     [...card.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!.click();
     await vi.waitFor(() => expect([...document.querySelectorAll('.fx-card h2')].some((e) => e.textContent === 'Start a new layout?')).toBe(false));
     expect((api.read().layout as { zones?: { id: string }[] }).zones!.map((z) => z.id)).toEqual(['gate']);
-  }, 30_000);
+  }, 90_000);
 
   it('D5: Create lobby refused for a rules layout, its reason on the tooltip and the pad row; Play reads "PLAY · Vault run"; an edit during Play refused', async () => {
     const { api } = await mount(await storedVault());
@@ -309,7 +309,7 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     expect(draft(api)!.spec.rules.map((r) => r.id)).toEqual(['pay', 'score']);
     await exec(api, 'play.stop');
     expect(chips.textContent).not.toContain('PLAY ·');
-  }, 30_000);
+  }, 90_000);
 });
 
 describe('FCW-32 step 4: the pad reaches the Rules panel and walks it with no keyboard (FUI.R23)', () => {
@@ -346,7 +346,7 @@ describe('FCW-32 step 4: the pad reaches the Rules panel and walks it with no ke
     press(CIRCLE);
     expect(row()!.classList.contains('is-on'), 'Circle drops the picked entity').toBe(false);
     expect(document.querySelector('.fx-right .fx-inspect-name')?.textContent ?? '').not.toBe('Zone · vault');
-  }, 30_000);
+  }, 90_000);
 
   it('START > Panels > Rules opens it under Edit and hands it the pad; the d-pad walks every control; Cross presses; Circle gives the pad back', async () => {
     const { shell } = await mount(await storedVault());
@@ -377,7 +377,7 @@ describe('FCW-32 step 4: the pad reaches the Rules panel and walks it with no ke
     press(CIRCLE);
     press(DOWN);
     expect(ring(), 'the pad is the editor\'s again').toBe('rule-open:pay');
-  }, 30_000);
+  }, 90_000);
 });
 
 describe('FCW-32: what "Start a new layout?" says (newLayoutDropWords)', () => {

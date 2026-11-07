@@ -4,6 +4,7 @@ import type { GameAudio, Vec3 } from './audio';
 import type { FireEvent } from './fire';
 import type { PlayEvent } from './play';
 import type { Stance } from './walk';
+import { cameraFloor } from './floorPick';
 
 /**
  * The walk's events turned into `GameAudio`'s (socomlegacy/docs/research/81 §4-§6): the body's (`Play.onEvent`: the game's
@@ -66,16 +67,20 @@ export class WalkSounds {
   }
 
   /**
-   * Once a frame: the ambience on while walking, and the camera's place -- the floor the ground probe picks under the
-   * camera (as `FUN_00295b00` probes under it each frame, decomp 140035-140058), its `m_inside` and reverb-zone bits --
-   * for the reverb's depth and the beds (`GameAudio.setEnvironment`).
+   * Once a frame: the ambience on while walking, and the camera's place for the reverb's depth and the beds
+   * (`GameAudio.setEnvironment`). `FUN_00295b00`'s one probe under the camera (D:L140037-140038) writes the camera's
+   * `+0x2b8` (`m_inside`, D:L140054-140055) and `+0x2bc` (the reverb zone, D:L140056-140057), which the reverb reads
+   * (`FUN_00341a60` D:L241520-241521) and `CAMERA_INDOORS` (66) answers: so the camera's own pick (`./floorPick`
+   * `cameraFloor`, `FUN_002d4c20`: the highest floor at or below the camera), the effects' 66's; with none, nothing is
+   * written (D:L140039) and the last answer stands (research 81 §9-§10, research 89 §21; reading, pending review). Was
+   * the actor's pick (`probeFloor`: up to 6 over), so a camera under a low roof's top heard outdoors.
    */
   frame(camera: Vec3 | null): void {
     const walking = this.walk.walking();
     this.audio.setAmbience(walking);
     const grid = this.walk.grid();
     if (!walking || !grid || !camera) return;
-    const floor = probeFloor(grid, camera[0], camera[1], camera[2])?.poly;
+    const floor = cameraFloor(grid, camera[0], camera[1], camera[2])?.poly;
     if (floor) this.audio.setEnvironment((floor.inside ?? 0) !== 0, floor.reverbZone ?? 0);
   }
 

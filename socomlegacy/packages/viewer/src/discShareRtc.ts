@@ -1,25 +1,30 @@
-import type { DiscShareMsg } from './discShareWire';
+import { DISCSHARE_STUN_ONLY, readIceServers, type DiscShareIceServer, type DiscShareMsg } from './discShareWire';
 import type { SharePipe } from './discShareProtocol';
-import {
-  SHARE_NO_CONNECT, SHARE_NO_RTC, SHARE_PAIR_UNREAD, shareNotLocalType,
-} from './discShareWords';
+import { SHARE_NO_CONNECT, SHARE_NO_RTC, SHARE_PAIR_UNREAD } from './discShareWords';
 
 /**
- * **Disc share's connection** (`docs/plans/2026-10-18-disc-share.md`, DSH-4; DSH.R2 "local to start", DSH.R11). **A
- * browser adaptation, product track** (OT.R53): the original had no disc share; nothing here changes what the game does.
+ * **Disc share's connection** (`docs/plans/2026-10-18-disc-share.md`, DSH-4; DSH.R11, DSH.R15). **A browser adaptation,
+ * product track** (OT.R53): the original had no disc share; nothing here changes what the game does.
  *
- * One `RTCPeerConnection` with **`iceServers: []`** (no STUN, no TURN: no relay is ever configured, DSH.R2) and one
- * ordered, reliable data channel (`SHARE_DC_LABEL`). The offer and the answer are sent as created -- before any
- * candidate is gathered, so each stays far under the pairing's 4096-byte body -- and each ICE candidate is its own
- * message (`discShareWire`: `offer`, `answer`, `candidate`), trickled through central's pairing routes.
+ * **Across networks** (DSH.R15, the owner, 2026-11-07: "remove the local exception ... it should work with our
+ * forwarded cloudflare tunnel p2p"): one `RTCPeerConnection` whose ICE servers come from the pairing (`iceServers`, the
+ * adapter's call to central's `/api/discshare/ice`): Cloudflare's STUN always, and Cloudflare Realtime TURN when central
+ * holds a key. Until they arrive nothing is made, and a message handed in meanwhile waits its turn; when the call fails
+ * (or none is given) the connection is made with `DISCSHARE_STUN_ONLY`, and a port-53 URL is dropped either way
+ * (`readIceServers`: browsers block the port). One ordered, reliable data channel (`SHARE_DC_LABEL`). The offer and the
+ * answer are sent as created -- before any candidate is gathered, so each stays far under the pairing's 4096-byte body
+ * -- and each ICE candidate is its own message (`discShareWire`: `offer`, `answer`, `candidate`), trickled through
+ * central's pairing routes.
  *
- * **The local-only check.** When the channel opens, the selected candidate pair is read from `getStats()`
- * (`selectedPair`) and judged (`pairVerdict`) by its candidates' types alone (DSH.R14, the owner, 2026-10-30): both
- * `host` or `prflx`, a direct path between the two devices -- with no STUN or TURN configured, the only kind there is.
- * A `relay` or `srflx` candidate (a path through another network), or a pair that cannot be read, closes the connection,
- * and `ready` rejects with the reason in a player's words. Addresses are not judged: a player's Chrome hides them
- * (mDNS names, and `getStats` answers none), so DSH.R2's address check refused every pair; the owner accepted that two
- * homes with public IPv6 addresses could pair directly. A connection that fails outright is `SHARE_NO_CONNECT`.
+ * **The path, read.** When the channel opens, the selected candidate pair is read from `getStats()` (`selectedPair`)
+ * and judged (`pairVerdict`) by its candidates' types: any of ICE's four -- `host`, `prflx`, `srflx`, `relay` -- is
+ * accepted (DSH.R15 lifts DSH.R2's and DSH.R14's refusal of `srflx` and `relay`), and the session says the path
+ * (`via`): `relay` when either end is a relayed candidate (through Cloudflare's TURN, the data encrypted end to end by
+ * the channel's DTLS), else `direct`. A pair that cannot be read (none, or a type ICE does not name) still closes the
+ * connection, and `ready` rejects with the reason in a player's words. DSH.R1's guard across networks is the sender's
+ * approval beside the matching (or typed) code, which stops an accident; DSH.R16 (the owner, 2026-11-07) opens the
+ * share to another player's device on purpose. A connection that fails outright (ICE found no path) is
+ * `SHARE_NO_CONNECT`.
  *
  * **A refusal is said on the channel** (the second disc share review's finding 2): the other side's check may already
  * have passed and its pipe be up -- from then on its page no longer reads the pairing's `bye` (B2) -- so a side whose own
@@ -34,15 +39,17 @@ export const SHARE_DC_LABEL = 's2u.discshare';
 /** One candidate of the pair: its ICE type. */
 export interface PairEnd { type: string }
 export interface SelectedPair { local: PairEnd; remote: PairEnd }
-export type PairVerdict = { ok: true } | { ok: false; reason: string };
+/** DSH.R15: the path the data takes -- directly between the devices, or through Cloudflare's TURN relay. */
+export type SharePath = 'direct' | 'relay';
+export type PairVerdict = { ok: true; via: SharePath } | { ok: false; reason: string };
 
-/** The pair's verdict (the module's header, DSH.R14): accepted only when both ends are `host` or `prflx` candidates. */
+/** ICE's candidate types (RTCIceCandidateType). */
+const ICE_TYPES: readonly string[] = ['host', 'prflx', 'srflx', 'relay'];
+
+/** The pair's verdict (the module's header, DSH.R15): any of ICE's types accepted, the path said; an unread pair refused. */
 export function pairVerdict(pair: SelectedPair | null): PairVerdict {
-  if (!pair) return { ok: false, reason: SHARE_PAIR_UNREAD };
-  for (const [side, end] of [['this device', pair.local], ['the other device', pair.remote]] as const) {
-    if (end.type !== 'host' && end.type !== 'prflx') return { ok: false, reason: shareNotLocalType(side, end.type) };
-  }
-  return { ok: true };
+  if (!pair || !ICE_TYPES.includes(pair.local.type) || !ICE_TYPES.includes(pair.remote.type)) return { ok: false, reason: SHARE_PAIR_UNREAD };
+  return { ok: true, via: pair.local.type === 'relay' || pair.remote.type === 'relay' ? 'relay' : 'direct' };
 }
 
 type Stat = Record<string, unknown>;
@@ -75,14 +82,21 @@ export class ShareConnectError extends Error {
   override readonly name = 'ShareConnectError';
 }
 
-/** One side's connection: the pairing's messages handed in (`handle`), the pipe once open and local, and its close. */
+/** One side's connection: the pairing's messages handed in (`handle`), the pipe once open and read, and its close. */
 export interface PeerSession {
   handle(msg: DiscShareMsg): void;
   readonly ready: Promise<SharePipe>;
   close(): void;
+  /** DSH.R15: the path once `ready` resolved (`pairVerdict`), else null. Optional: a test's fake may say none. */
+  via?(): SharePath | null;
 }
-/** Makes a side's connection: `send` posts a message to the other side through the pairing. */
-export type PeerFactory = (role: 'offer' | 'answer', send: (msg: DiscShareMsg & { type: 'offer' | 'answer' | 'candidate' }) => void) => PeerSession;
+/** Where a side's ICE servers come from (DSH.R15: the pairing's `/api/discshare/ice`). */
+export type IceServersSource = () => Promise<readonly DiscShareIceServer[]>;
+/**
+ * Makes a side's connection: `send` posts a message to the other side through the pairing; `iceServers` (DSH.R15)
+ * answers its ICE servers.
+ */
+export type PeerFactory = (role: 'offer' | 'answer', send: (msg: DiscShareMsg & { type: 'offer' | 'answer' | 'candidate' }) => void, iceServers?: IceServersSource) => PeerSession;
 
 /** The pacing's two marks (`./discShareProtocol` reads them through the pipe). Adaptations, ours: chosen, not measured. */
 export const SHARE_BUFFER_HIGH_ADAPTATION = 1024 * 1024;
@@ -97,12 +111,23 @@ export const SHARE_CLOSE_GRACE_MS_ADAPTATION = 2_000;
 export interface RtcDeps {
   /** The constructor (a test's fake); null: none. Absent, the browser's. */
   RTC?: typeof RTCPeerConnection | null;
+  /** DSH.R15: the ICE servers (the module's header). Absent, or failing, `DISCSHARE_STUN_ONLY`. */
+  iceServers?: IceServersSource;
+}
+
+/** The servers a connection is made with (the module's header): the source's, port 53 dropped; STUN only on a failure. */
+async function serversOf(source: IceServersSource | undefined): Promise<RTCIceServer[]> {
+  let got: DiscShareIceServer[] | null = null;
+  if (source) {
+    try { got = readIceServers(await source()); } catch { got = null; }
+  }
+  return (got ?? [...DISCSHARE_STUN_ONLY]).map((x) => ({ ...x }));
 }
 
 /**
  * The data channel as the protocol's pipe: binary as `ArrayBuffer`, `drained` on `bufferedamountlow` (or its close). Its
  * `onmessage` is attached here, at once, and what arrives before the protocol's `onMessage` is kept in order and handed
- * over when it attaches (the disc share review's B1: made when the channel is taken, before this side's local-only check,
+ * over when it attaches (the disc share review's B1: made when the channel is taken, before this side's connection check,
  * so nothing the other side sends once its own check passed is lost).
  */
 export function channelPipe(dc: RTCDataChannel, close: () => void): SharePipe {
@@ -141,15 +166,19 @@ export function rtcPeer(role: 'offer' | 'answer', send: Parameters<PeerFactory>[
   ready.catch(() => undefined);
   if (!Ctor) {
     reject(new ShareConnectError(SHARE_NO_RTC));
-    return { handle: () => undefined, ready, close: () => undefined };
+    return { handle: () => undefined, ready, close: () => undefined, via: () => null };
   }
-  const pc = new Ctor({ iceServers: [] });
+  // DSH.R15: made once its ICE servers are known (the module's header); every step below runs after that, in order.
+  let pc!: RTCPeerConnection;
+  let made = false;
+  let via: SharePath | null = null;
   let ended = false;
   let grace: ReturnType<typeof setTimeout> | null = null;
   const close = (): void => {
     if (grace !== null) { clearTimeout(grace); grace = null; }
     if (ended) return;
     ended = true;
+    if (!made) return;
     try { pc.close(); } catch { /* closed already */ }
   };
   const fail = (e: unknown): void => {
@@ -160,14 +189,6 @@ export function rtcPeer(role: 'offer' | 'answer', send: Parameters<PeerFactory>[
   let described = false;
   const outbox: RTCIceCandidateInit[] = [];
   const sendHeld = (): void => { described = true; for (const c of outbox.splice(0)) send({ type: 'candidate', candidate: c }); };
-  pc.onicecandidate = (e) => {
-    if (!e.candidate || ended) return;
-    const c = e.candidate.toJSON();
-    if (described) send({ type: 'candidate', candidate: c }); else outbox.push(c);
-  };
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed') fail(new ShareConnectError(SHARE_NO_CONNECT));
-  };
   const take = (dc: RTCDataChannel): void => {
     // B2: the pipe's close closes the channel first (what is queued still goes), then the connection at the channel's
     // close event, or after `SHARE_CLOSE_GRACE_MS_ADAPTATION`.
@@ -191,6 +212,7 @@ export function rtcPeer(role: 'offer' | 'answer', send: Parameters<PeerFactory>[
       try {
         const verdict = pairVerdict(selectedPair(await pc.getStats() as unknown as StatsLike));
         if (!verdict.ok) { refuse(new ShareConnectError(verdict.reason)); return; }
+        via = verdict.via;
         resolve(pipe);
       } catch (e) { refuse(e); }
     };
@@ -199,25 +221,39 @@ export function rtcPeer(role: 'offer' | 'answer', send: Parameters<PeerFactory>[
   let remoteSet = false;
   const held: RTCIceCandidateInit[] = [];
   let chain: Promise<void> = Promise.resolve();
-  const step = (f: () => Promise<void>): void => { chain = chain.then(f).catch(fail); };
+  /** A step after the connection is made; skipped once the session has ended. */
+  const step = (f: () => Promise<void>): void => { chain = chain.then(() => (ended ? undefined : f())).catch(fail); };
   const remote = async (d: RTCSessionDescriptionInit): Promise<void> => {
     await pc.setRemoteDescription(d);
     remoteSet = true;
     for (const c of held.splice(0)) await pc.addIceCandidate(c);
   };
-  if (role === 'offer') {
-    take(pc.createDataChannel(SHARE_DC_LABEL, { ordered: true }));
-    step(async () => {
+  step(async () => {
+    const iceServers = await serversOf(deps.iceServers);
+    if (ended) return;
+    pc = new Ctor({ iceServers });
+    made = true;
+    pc.onicecandidate = (e) => {
+      if (!e.candidate || ended) return;
+      const c = e.candidate.toJSON();
+      if (described) send({ type: 'candidate', candidate: c }); else outbox.push(c);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') fail(new ShareConnectError(SHARE_NO_CONNECT));
+    };
+    if (role === 'offer') {
+      take(pc.createDataChannel(SHARE_DC_LABEL, { ordered: true }));
       const o = await pc.createOffer();
       await pc.setLocalDescription(o);
       send({ type: 'offer', sdp: o.sdp ?? '' });
       sendHeld();
-    });
-  } else {
-    pc.ondatachannel = (e) => { if (e.channel.label === SHARE_DC_LABEL) take(e.channel); };
-  }
+    } else {
+      pc.ondatachannel = (e) => { if (e.channel.label === SHARE_DC_LABEL) take(e.channel); };
+    }
+  });
   return {
     ready,
+    via: () => via,
     close: () => { if (grace === null) close(); },        // a graceful close under way ends itself (the module's header)
     handle(msg) {
       if (ended) return;

@@ -1,5 +1,6 @@
 import type {Rgba} from '@s2u/gs';
-import {HdTextureRegistry,hdKeyOf,reverseRows,type HdManifest} from './hdTexturePack';
+import {decodeDds} from './dds';
+import {HdTextureRegistry,hdFullAlpha,hdKeyOf,reverseRows,seedHdKey,type HdManifest} from './hdTexturePack';
 import type {HdDecodeReply,HdDecodeRequest} from './hdMenuDecodeWorker';
 import {HdServedPack} from './hdTexturePackServed';
 import {pageHdStore} from './hdTexturePackStore';
@@ -76,6 +77,10 @@ const pageNextFrame=():Promise<void>=>new Promise<void>((r)=>{
 });
 const words=(e:unknown):string=>e instanceof Error?e.message:typeof (e as {message?:unknown})?.message==='string'?(e as {message:string}).message:String(e);
 const closedError=():Error=>new Error('HdMenuDecoder: closed');
+/** Pixels that are their whole buffer, so they can be transferred (a view into a larger buffer stays on this thread). */
+const handOver=(data:Uint8ClampedArray):boolean=>{
+  const buffer=data.buffer;return buffer instanceof ArrayBuffer&&data.byteOffset===0&&data.byteLength===buffer.byteLength;
+};
 type Waiting={resolve:(r:Rgba)=>void;reject:(e:Error)=>void;req:HdDecodeRequest};
 
 /**
@@ -86,15 +91,22 @@ type Waiting={resolve:(r:Rgba)=>void;reject:(e:Error)=>void;req:HdDecodeRequest}
  * decode in a frame of its own, a turn copying at most `HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION` bytes of rows a frame
  * (its first slice a frame after a decode that ran before it, review F4). Meanwhile the lookup answers null and the
  * menus draw today's frame. The fall to the main thread is said once to `onFailure` (the page's `[hd] menus:` line).
- * Still on the main thread whichever way (review F5): the pack runtime's checks of each payload -- its sha256 (a copy
- * of the payload, `texturePack.ts` `sha256`) and its alpha rescale (`fullAlpha`) -- in `HdPackRuntime`, shared with
- * the match's pack.
- * - `png`: the bytes are copied to the worker, never transferred, so a decode waiting when the worker fails is done on
- *   the main thread instead.
+ * GM-13d (plan row GM-13d): the DDS decode, the payload's key and the whole replacement's alpha rescale moved here too
+ * (review F5 had left the key and the rescale on the main thread). The pack runtime's check of each payload stays in
+ * `HdPackRuntime`; with the worker it reads the key the worker computed (`seedHdKey`) instead of hashing. The match's
+ * and the Experiments page's packs pass no decoder and keep all of it on the main thread.
+ * - `png`, `dds`: the bytes are copied to the worker, never transferred, so a decode waiting when the worker fails is
+ *   done on the main thread instead. The answer's key (the decoded RGBA's sha256) is seeded as `hdKeyOf`'s memo; a
+ *   main-thread decode seeds nothing (the check hashes it, as before).
  * - `turn`: the image's pixels are transferred to the worker (their buffer is detached: the caller hands the image
  *   over) and the turned pixels transferred back -- no copy of a 64 MiB image on the main thread. An image whose pixels
  *   are a view into a larger buffer is turned on the main thread. A turn waiting when the worker fails is refused (its
  *   pixels are gone with the worker): the lookup answers null for that bitmap.
+ * - `alpha` (GM-13d): `fullAlpha`'s copy of a whole replacement, its pixels handed over as `turn`'s are (the runtime
+ *   hands over only a payload nothing else holds); a view, or no worker, is rescaled on the main thread in a frame of its
+ *   own; one waiting when the worker fails is refused, and the runtime drops that whole with why (review F1/F2), as for a
+ *   whole its hash refuses: a key with the whole alone keeps its original; a key with placements gets its passing
+ *   placements drawn over the original carried to their scale.
  * - `close`: the worker ended, every request waiting refused; the next request starts a worker again.
  */
 export class HdMenuDecoder {
@@ -119,12 +131,21 @@ export class HdMenuDecoder {
     const w=this.start();
     return w?this.ask(w,{id:this.next++,op:'png',bytes,maxEdge},[]):this.onMain(()=>decodePngAsync(bytes,maxEdge),true);
   };
+  /** GM-13d: a DDS payload decoded at its entry's size (`decodeDds`); an arrow, so the menus' pack takes it (`HdDdsDecode`). */
+  readonly dds=(bytes:Uint8Array,size:{width:number;height:number}):Promise<Rgba>=>{
+    const w=this.start();
+    return w?this.ask(w,{id:this.next++,op:'dds',bytes,width:size.width,height:size.height},[]):this.onMain(()=>decodeDds(bytes,size),true);
+  };
+  /** GM-13d: `fullAlpha`'s copy of `r`; `r`'s pixels are handed over. An arrow: the menus' pack's `HdAlphaStep`. */
+  readonly alpha=(r:Rgba):Promise<Rgba>=>{
+    const data=r.data,w=handOver(data)?this.start():null;
+    return w?this.ask(w,{id:this.next++,op:'alpha',width:r.width,height:r.height,data},[data.buffer as ArrayBuffer])
+      :this.onMain(()=>hdFullAlpha(r),true);
+  };
   /** `r` with its rows reversed (`reverseRows`); `r`'s pixels are handed over (transferred to the worker). */
   turn(r:Rgba):Promise<Rgba>{
-    const data=r.data as Uint8ClampedArray,buffer=data.buffer;
-    const whole=buffer instanceof ArrayBuffer&&data.byteOffset===0&&data.byteLength===buffer.byteLength;
-    const w=whole?this.start():null;
-    return w?this.ask(w,{id:this.next++,op:'turn',width:r.width,height:r.height,data},[buffer as ArrayBuffer]):this.onMain((g)=>this.turnSpread(r,g),false);
+    const data=r.data,w=handOver(data)?this.start():null;
+    return w?this.ask(w,{id:this.next++,op:'turn',width:r.width,height:r.height,data},[data.buffer as ArrayBuffer]):this.onMain((g)=>this.turnSpread(r,g),false);
   }
   /** The worker ended and every request waiting refused; the next request starts again. */
   close():void{
@@ -152,7 +173,10 @@ export class HdMenuDecoder {
   private reply=(e:{data:HdDecodeReply}):void=>{
     const m=e.data,p=this.waiting.get(m.id);if(!p)return;
     this.waiting.delete(m.id);
-    if(m.ok)p.resolve({width:m.width,height:m.height,data:m.data});else p.reject(new Error(m.error));
+    if(!m.ok){p.reject(new Error(m.error));return;}
+    const r:Rgba={width:m.width,height:m.height,data:m.data};
+    if(m.key)seedHdKey(r,m.key);                       // GM-13d: the worker's hash of these bytes, read by the pack's check
+    p.resolve(r);
   };
   /** The worker failed: the main thread from now on (until `close`); the requests waiting redone there where they can be. */
   private fail(w:HdDecodeWorkerPort,e:unknown):void{
@@ -162,7 +186,11 @@ export class HdMenuDecoder {
     const left=[...this.waiting.values()];this.waiting.clear();
     for(const {req:q,resolve,reject} of left){
       if(q.op==='png')this.onMain(()=>decodePngAsync(q.bytes,q.maxEdge),true).then(resolve,reject);
-      else if(q.data.byteLength)this.onMain((g)=>this.turnSpread({width:q.width,height:q.height,data:q.data},g),false).then(resolve,reject);
+      else if(q.op==='dds')this.onMain(()=>decodeDds(q.bytes,{width:q.width,height:q.height}),true).then(resolve,reject);
+      else if(q.op==='alpha'){
+        if(q.data.byteLength)this.onMain(()=>hdFullAlpha({width:q.width,height:q.height,data:q.data}),true).then(resolve,reject);
+        else reject(new Error(`HdMenuDecoder: ${this.why}, holding the image to rescale`));
+      }else if(q.data.byteLength)this.onMain((g)=>this.turnSpread({width:q.width,height:q.height,data:q.data},g),false).then(resolve,reject);
       else reject(new Error(`HdMenuDecoder: ${this.why}, holding the image to turn`));
     }
   }
@@ -290,7 +318,8 @@ export class HdMenus {
   private cache:UiQuadRasterCache|null=null;
   /**
    * `maxScale`: a lower cap than the pack's (the page's `?hdMenuScale=`, for a slower machine); a browser adaptation.
-   * `decoder` (GM-13b): the menus' decode off the main thread, handed to `make` (the pack's PNG decode) and to each lookup
+   * `decoder` (GM-13b): the menus' decode off the main thread, handed to `make` (the pack's decodes; GM-13d: its DDS
+   * decode and alpha rescale too) and to each lookup
    * (the turn); ended when HD goes off. Null: today's main-thread decode.
    */
   constructor(private make:(decoder:HdMenuDecoder|null)=>HdServedPack,private maxScale=HD_MENU_SCALE_LIMIT,private decoder:HdMenuDecoder|null=null){ }
@@ -343,13 +372,14 @@ export const menuStatusKey=(text:string):string=>text.replace(/\d+(?![\d ]*in th
 /**
  * The page's: the pack this browser imported, else the served one (as the match's, `./matchMount`); its status logged once
  * a state. GM-13b: its PNG payloads and its turns decoded off the main thread (`HdMenuDecoder`, its worker started at the
- * first request).
+ * first request); GM-13d: its DDS payloads, their keys and the whole replacements' alpha rescale too (the decoder is the
+ * pack's `HdPackDecoders`).
  */
 export function pageHdMenus(maxScale=HD_MENU_SCALE_LIMIT,
   decoder:HdMenuDecoder|null=new HdMenuDecoder(pageHdDecodeWorker,undefined,undefined,(why)=>console.info(`[hd] menus: the decode runs on the main thread -- ${why}`))):HdMenus{
   let logged='';
   return new HdMenus((dec)=>new HdServedPack(undefined,(text)=>{const k=menuStatusKey(text);if(k!==logged){logged=k;console.info(`[hd] menus: ${text}`);}},
-    new HdTextureRegistry(false),pageHdStore(),dec?.png),maxScale,decoder);
+    new HdTextureRegistry(false),pageHdStore(),dec??undefined),maxScale,decoder);
 }
 
 /** The page's `?hdMenuScale=1..4` (a browser adaptation for the test run): a lower cap on the menus' scale; absent, the pack's. */

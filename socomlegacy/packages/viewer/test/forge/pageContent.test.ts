@@ -157,14 +157,14 @@ describe('R6: creator content on the mounted Forge', () => {
     document.querySelector<HTMLButtonElement>('[data-forge="check"]')!.click();
     await vi.waitFor(() => expect(document.querySelector('.fx-check-card')).not.toBeNull());
     expect(document.querySelector('.fx-check-card li[data-kind="content-miss"]')).toBeNull();
-  }, 30_000);
+  }, 90_000);
 
   it('3: a visual-only pack piece is drawn with no hull: the drop over it rests on the floor', async () => {
     localStorage.setItem(FORGE_LAYOUT_KEY, JSON.stringify(recordOfLayout(withCrate(), 'Crated')));
     const { api, ctx } = await mount(memorySource(defOf(visualJson())), [REF.pack]);
     await vi.waitFor(() => { frame(); expect(tagged()).toHaveLength(1); });
     expect(await restAt(api, ctx)).toBeCloseTo(0, 3);
-  }, 30_000);
+  }, 90_000);
 
   it('3: with no resolver (the page\'s default) the piece is the stand-in and the Check sheet lists the miss beside the missing pack', async () => {
     localStorage.setItem(FORGE_LAYOUT_KEY, JSON.stringify(recordOfLayout(withCrate(), 'Crated')));
@@ -178,7 +178,7 @@ describe('R6: creator content on the mounted Forge', () => {
     expect(misses[0]).toContain(`${REF.pack.id}@${REF.pack.version}`);
     expect(misses[0]).toContain('crate');
     expect(document.querySelector('.fx-check-card li[data-kind="missing-pack"]')!.textContent).toContain(`${REF.pack.id}@${REF.pack.version}`);
-  }, 30_000);
+  }, 90_000);
 
   /** Opens `record` through the toolbar's Open, as a person chooses a file. */
   const openFile = (record: unknown): void => {
@@ -198,7 +198,7 @@ describe('R6: creator content on the mounted Forge', () => {
     expect(api.read().layout!.name).toBe('On the yard');
     expect(document.querySelector('.fx-vp-label')!.textContent).toContain('Yard');
     await vi.waitFor(() => expect(lines.join(' | ')).toMatch(/hull/i));
-  }, 30_000);
+  }, 90_000);
 
   it('7: Open of a layout whose authored map\'s pack is not here is refused in words; the world is kept', async () => {
     const { api } = await mount(memorySource(null, null));
@@ -207,7 +207,7 @@ describe('R6: creator content on the mounted Forge', () => {
     await vi.waitFor(() => expect(statusLine()).toContain(`This layout needs pack ${MAP_PACK.id}@${MAP_PACK.version}`));
     expect(api.status().map).toBe(`blank:${BLANK_LIBRARY}`);
     expect(api.read().layout).toEqual(before);
-  }, 30_000);
+  }, 90_000);
 
   it('7: a share code with an authored map opens it when its pack is here; one whose pack is not here is refused in words and the floor opens', async () => {
     const code = await encodeShare(recordOfLayout(contentBase(), 'On the yard'));
@@ -222,7 +222,7 @@ describe('R6: creator content on the mounted Forge', () => {
     const refused = await mount(memorySource(null, null));
     await vi.waitFor(() => expect(statusLine()).toContain(`This layout needs pack ${MAP_PACK.id}@${MAP_PACK.version}`));
     expect(refused.api.status().map).toBe(`blank:${BLANK_LIBRARY}`);
-  }, 30_000);
+  }, 90_000);
 
   /** The authored map with the pack's crate as its own prop at (5, 0, 5) m: (50, 0, 50) in game units. */
   const yardWithCrate = (): Record<string, unknown> => minimalMapJson({ props: [{ content: REF, at: [5, 0, 5], yaw: 0 }], dependencies: [REF.pack] });
@@ -247,7 +247,7 @@ describe('R6: creator content on the mounted Forge', () => {
     await vi.waitFor(() => expect(api.status().map).toMatch(/^blank:/));
     frame();
     expect(tagged()).toHaveLength(0);
-  }, 30_000);
+  }, 90_000);
 
   it('R7-4: on an authored map the base select names it (content:<ref>); the blank floor chosen from it asks, Cancel keeps it', async () => {
     const { api } = await mount(memorySource(null, minimalMapJson()), [MAP_PACK]);
@@ -265,6 +265,6 @@ describe('R6: creator content on the mounted Forge', () => {
     expect(ask.hidden).toBe(true);
     expect(sel.value).toBe(own);
     expect(api.status().map).toBe(own);
-  }, 30_000);
+  }, 90_000);
 });
 

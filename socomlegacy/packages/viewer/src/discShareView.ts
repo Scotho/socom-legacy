@@ -10,14 +10,15 @@ import { SHARE_NOT_BUILT } from './discShareWords';
  */
 
 export type ReceiverPhase = 'idle' | 'requesting' | 'waiting' | 'paired' | 'copying' | 'done' | 'failed';
-export interface ReceiverView { phase: ReceiverPhase; code?: string; link?: string; expiresAt?: number; bytes?: number; total?: number; reason?: string }
+/** DSH.R15: `via`, once the devices are connected -- directly, or through Cloudflare's relay (`./discShareRtc`). */
+export interface ReceiverView { phase: ReceiverPhase; code?: string; link?: string; expiresAt?: number; bytes?: number; total?: number; reason?: string; via?: 'direct' | 'relay' }
 /**
  * DSH-4: `enter`, the sender's code entry (Settings' "Send game files to another device", DSH.R12 leaves the entry without
  * the QR to us): `code` is '' and `nearby` lists the codes of the requests found on this network (DSH.R9), polled only
  * while it is open.
  */
 export type SenderPhase = 'enter' | 'asked' | 'needs-extract' | 'sending' | 'done' | 'failed' | 'declined';
-export interface SenderView { phase: SenderPhase; code: string; bytes?: number; total?: number; reason?: string; nearby?: readonly string[] }
+export interface SenderView { phase: SenderPhase; code: string; bytes?: number; total?: number; reason?: string; nearby?: readonly string[]; via?: 'direct' | 'relay' }
 export interface DiscShareAdapter {
   /** The receiver's state (this page asking for the files). */
   receiver(): ReceiverView;

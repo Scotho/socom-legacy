@@ -1,0 +1,144 @@
+---
+title: "Troubleshooting / FAQ"
+description: "What to do about each refusal code, and answers to common questions."
+status: "Format only"
+source: ["socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535"]
+---
+
+**Status: Format only.** The pack check runs when you import a v2 pack, and a pack that passes is stored on your
+device. Nothing in the game applies a v2 pack yet, so passing the check does not make a pack do anything in play.
+
+When the check refuses a pack, its report lists findings. Each finding has a code, and where it helps it also names
+the file or field, what was expected, what was found, and a hint. The table on [Refusal codes](/reference/codes/) says
+when each code is raised; this page says what to do about it. Where the checker gives its own hint, it is quoted.
+
+An error refuses the pack. A note does not, but a report with a skipped check is incomplete, never a pass.
+
+## The manifest
+
+| code | what to do |
+|---|---|
+| `pack.MANIFEST_MISSING` | Put `s2u-pack.json` at the root of the zip (or in the one folder that zipping a folder adds). If the pack is in an earlier format, import it through that format's own loader. The checker's hint: "Add the v2 manifest, or import it through its earlier loader." |
+| `pack.MANIFEST_TOO_LARGE` | Make `s2u-pack.json` smaller than its bound (see [Bounds](/reference/bounds/)). A manifest that large usually lists far too many files; split the pack. |
+| `pack.MANIFEST_INVALID` | Save `s2u-pack.json` as UTF-8 and check that it is valid JSON whose top level is an object. A trailing comma or a comment is enough to break it. |
+| `pack.LEGACY_INVALID` | The earlier-format manifest (`mod.json`, `models.json` or a texture pack's `manifest.json`) does not match its own format. Fix it against that format's rules, and keep its own path a plain relative path. |
+| `pack.FIELD_UNKNOWN` | Remove the field the finding names: a v2 manifest and its `files` rows take only the fields listed on [Manifest reference](/reference/manifest/). Check for a typo in the field name. The checker's hint: "Remove it; v2 accepts only its listed fields." |
+| `pack.FIELD_INVALID` | Correct the field the finding names, using its expected value. Common causes: a number given as text, a name or description over its length, a value not in the field's list, a v2 `id` that starts with `mod.`, `model.` or `texture.` (those prefixes belong to the earlier formats), or a `target` written in an older spelling (use the canonical one the finding gives). |
+| `pack.FORMAT_VERSION` | Set `"formatVersion": 2` (and `"format": "s2u-pack"`). |
+| `pack.TARGET_MISMATCH` | Set `target` to the disc revision the build targets, `SCUS-97275`. A pack made for another revision cannot be used. |
+| `pack.CONTRACT_MISMATCH` | Your `contract` range must include the engine contract version of the build you are using. Widen the range, for example `^0.1.0`, which takes every `0.1.x`. The current version is on [Changelog](/changelog/). |
+| `pack.CONTRACT_FLOOR` | A `rules` pack's `contract` must not admit any engine before the first one with the rules vocabulary. Write `^0.1.1`, or a range where every alternative starts at 0.1.1 or above. `*`, `<0.2.0` and `^0.1.0` are all refused for a rules pack. |
+| `pack.EXTERNAL_URI` | Take every web address out of the manifest, including from `name` and `description`, and any path that looks like an address. Every byte a pack uses comes from the pack itself or from your own disc. A store's website address is given to the store export separately (see [Thunderstore](/publishing/thunderstore/)). |
+| `pack.STORE_FILE` | Remove the `files` row that names `manifest.json`, `icon.png`, `README.md` or `CHANGELOG.md`. Those are Thunderstore's root files and sit beside the pack outside its identity. The checker's hint: "Leave it out of files: the store files ride at the pack's root outside its identity." |
+
+## Paths
+
+| code | what to do |
+|---|---|
+| `pack.PATH_INVALID` | Rename the file or fix the path: forward slashes only, no backslash, colon, percent sign or control character, no segment that is empty, starts with a dot, ends with a dot or space, or is a reserved device name, and keep within the length and depth on [Bounds](/reference/bounds/). |
+| `pack.PATH_ESCAPE` | Write the path relative to the pack's root: no leading slash, no drive letter, no `..`. |
+| `pack.PATH_COLLISION` | Two paths are the same once letter case and Unicode forms are ignored (`Rules/Mode.json` and `rules/mode.json`). Rename one. |
+
+## Size and members
+
+| code | what to do |
+|---|---|
+| `pack.TOO_MANY_FILES` | Remove files you do not need, or split the work into two packs. Thunderstore's root files count too. |
+| `pack.TOO_LARGE` | The pack is over its total size. Shrink or remove members, or split the pack. Check the `size` values in `files` as well: the total is taken from them. |
+| `pack.MEMBER_TOO_LARGE` | One member is over its own bound. A `rules` member has a much smaller bound than other members, because it is read whole. Make the file smaller, or split it. |
+| `pack.MEMBER_INFLATED` | The file has more bytes than its `size` in `files`. Write the correct size (and sha256) again, or restore the file you meant to ship. |
+| `pack.MEMBER_TRUNCATED` | The file has fewer bytes than its `size` in `files`, often a copy or download cut short. Restore the whole file, or write the correct size (and sha256) again. |
+| `pack.MEMBER_MISSING` | A `files` row names a file that is not in the zip. Add the file at that path, or remove the row. |
+| `pack.MEMBER_HASH_MISMATCH` | The file changed after its sha256 was written. Compute the sha256 again ([Making your first pack](/guides/first-pack/) shows the commands) and update the row, or restore the bytes you meant. The checker's hint: "Write the member's sha256 again, or restore its bytes." |
+| `pack.MEMBER_UNLISTED` | The zip holds a file that `files` does not list. Add a row for it, or remove it from the zip. The checker's hint: "List it in files, or leave it out of the pack." |
+| `pack.ROLE_MISMATCH` | The file's type does not match its `role`. Each role takes certain file types (a `mesh` is `.glb` or `.gltf`, for example); the full list is on [Manifest reference](/reference/manifest/). Change the role or the file. |
+
+## Intents
+
+| code | what to do |
+|---|---|
+| `pack.INTENT_MISSING` | Every member must be named by an intent that says what it changes. Add the file to an intent. The checker's hint: "Add it to a cosmetic, gameplay-value or new-behaviour intent." |
+| `pack.INTENT_MISMATCH` | A `collision`, `gameplay` or `rules` member changes play, so a `cosmetic` intent alone cannot cover it. Add it to a `gameplay-value` or `new-behaviour` intent. |
+| `pack.LIMIT_EXCEEDED` | `dependencies`, `intents` or `handlers` has more entries than its bound on [Bounds](/reference/bounds/). Merge entries (one intent can list many files), or split the pack. |
+
+## Dependencies
+
+| code | what to do |
+|---|---|
+| `pack.DUPLICATE_ID` | List each pack or disc archive once in `dependencies`. |
+| `pack.DEPENDENCY_MISSING` | Install a version of the named pack that falls inside your range, or widen the range. For a disc archive dependency, the named archive must be on your own disc. |
+| `pack.DEPENDENCY_ARCHIVE_MISMATCH` | Your disc archive is present but is not the one the pack was made against: its sha256 differs. Check the hash written in the pack; if it is right, the pack is for a different copy of the file. |
+| `pack.DEPENDENCY_CYCLE` | The pack depends on itself, directly or through other packs. Remove one dependency so the chain ends. |
+
+## Handlers and rules packs
+
+| code | what to do |
+|---|---|
+| `pack.HANDLER_CONFLICT` | Only one claim may hold a slot. Remove the second claim from your pack, or turn off the other pack that holds the slot. |
+| `pack.HANDLER_UNKNOWN` | The build has no such handler for that slot. Check the slot and handler names for a typo, and claim only handlers the build offers. |
+| `pack.ACTION_UNKNOWN` | The claimed handler has no action by that name. Check the spelling, or remove the action from `actions`. |
+| `pack.RULES_MEMBER_INVALID` | A `rules` member must be a UTF-8 JSON object, and its `capabilities`, if present, a list of `{slot, handler, actions}` entries. Fix the file's JSON. |
+| `pack.CAPABILITY_MISMATCH` | The rules member's capabilities and the manifest's `handlers` must agree. Every capability needs a claim on the same slot with the same handler, its actions among the claim's; every claim on a `behaviour.` slot needs a rules member that names it. Add the missing claim or capability, or remove the extra one. |
+
+## Notes
+
+| code | what to do |
+|---|---|
+| `pack.CHECK_SKIPPED` | Nothing to fix in the pack. A check could not run because the place you imported it gave the checker nothing to compare with (the other installed packs, your disc archives, or the list of handlers). The report is incomplete rather than a pass; check again where that information is available. |
+
+## Thunderstore export and package
+
+These come from the store export and the store package check, which nothing in the game or its tools runs yet. See
+[Thunderstore](/publishing/thunderstore/).
+
+| code | what to do |
+|---|---|
+| `store.TEAM_INVALID` | A team name is 1 to 128 letters, digits and underscores. The project's team is not decided yet; leave the export's default. |
+| `store.NAME_INVALID` | The pack's `id` is not a valid pack id, so it has no store name. Fix the id first: the pack check would refuse it too. |
+| `store.NAME_COLLISION` | Two ids, the pack's own or ones in its dependency chain, become the same store name once `.` and `-` turn into `_`. Change one pack's id. The checker's hint: "Rename one of the packs: the store name is never changed to fit." |
+| `store.VERSION_INVALID` | The store takes only plain Major.Minor.Patch versions. Release the pack as, say, `1.2.0` rather than `1.2.0-beta.1`. The checker's hint: "Publish a release: the store's version_number is strictly Major.Minor.Patch." |
+| `store.DESCRIPTION_TOO_LONG` | The store description is at most 250 characters; ours may be longer. Shorten the pack's `description`, or give the export a shorter store description. It is never cut for you. |
+| `store.WEBSITE_INVALID` | Give `website_url` as an http or https address, or leave it empty. |
+| `store.DEPENDENCY_UNRESOLVED` | The export pins each dependency to one exact release and found none inside the range. Make a release of the dependency inside the range available to the export, or change the range. Pre-releases are never pinned. |
+| `store.ARCHIVE_DEPENDENCY` | Nothing to fix: a note. A dependency on your own disc archive has no store form, so it stays in `s2u-pack.json` only. |
+| `store.FILE_MISSING` | Add the named file (`manifest.json`, `icon.png` or `README.md`) at the root of the zip, not inside a folder. |
+| `store.MANIFEST_INVALID` | Fix the store `manifest.json` at the key the finding names: it must be a UTF-8 JSON object with `name`, `version_number`, `website_url`, `description` and `dependencies`, each keeping the store's rule. |
+| `store.MANIFEST_MISMATCH` | The store manifest's `name` or `version_number` is not the pack's own. Write them from the pack's `id` and `version`, as the export does. |
+| `store.ICON_INVALID` | Save `icon.png` as a real PNG of exactly 256 by 256 pixels. |
+
+## Common questions
+
+### My pack passed the check. Why does nothing change in the game?
+
+Because nothing in the game applies a v2 pack yet. A pack that passes is checked and stored on your device, and that
+is all. What each kind does today is on [Pack kinds](/kinds/); the earlier formats, which do work in the test room,
+are on [The earlier formats](/kinds/earlier-formats/).
+
+### Can I use a pack in an online match?
+
+No. Packs are not used in lobby matches or on the game's servers, and a Forge layout with a rules pack is refused
+online. Whether and how that changes is an open question for the project's owner.
+
+### Can a pack run code?
+
+No. A pack is data only. A `rules` pack describes rules that the engine itself runs; there is no way to ship a script,
+JavaScript or WebAssembly in a pack. See [Rules and limits](/rules-and-limits/).
+
+### Can a pack carry sounds?
+
+The format has an `audio` role (`.ogg`, `.wav`), and the import reads those files, but nothing in the game plays a
+pack's own audio yet.
+
+### Where are my packs kept?
+
+In your browser, on your device. A pack is never uploaded and never sent to the game's servers.
+
+### The report says "incomplete". Is my pack broken?
+
+Not necessarily. An incomplete report means a check was skipped (`pack.CHECK_SKIPPED`) because it had nothing to check
+against. It is not a pass, but it is not an error in your pack either.
+
+### Can I publish my pack on Thunderstore?
+
+Not through the project yet. Our packs are shaped to fit the store's format, but nothing builds the store package and
+the project's team is not decided yet. See [Thunderstore](/publishing/thunderstore/).

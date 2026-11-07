@@ -1,0 +1,140 @@
+---
+title: "Testing a pack locally"
+description: "Where you can try a pack today: the test room's loaders, the Forge's Play for rules, and what a v2 import does."
+status: "Test room only"
+source: ["socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-10-texture-pack-conventions.md", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts:27-32", "socomlegacy/packages/viewer/src/experimentalGraphics.ts:437", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
+---
+
+**Status: Test room only.** Packs are tried in the browser, on your own computer, and kept in that browser's storage.
+Nothing you load is uploaded, and nothing reaches a lobby match or another player. Most of what you can see today is
+in the **test room** (the game's page at `/testroom`), using the earlier pack formats; a rules pack runs in the
+**Forge**'s local Play; and a v2 pack can be checked and stored, but not yet applied. Each section below says which.
+
+You need the game set up in your browser with your own disc, as for playing: a pack changes what the game draws or
+does, so the game has to be there first.
+
+## At a glance
+
+| what you want to try | where | status |
+|---|---|---|
+| an `s2u-mod` data override (replace or add one of the game's files) | the test room's **Mods** panel | Test room only |
+| a texture pack for one map | the test room's Experimental view, **Import pack (.zip)** | Test room only |
+| an HD texture pack | the same **Import pack (.zip)** button: imported and stored, never drawn | Planned -- held off until the owner lifts the hold |
+| a model pack (GLB models in place of the game's meshes) | the test room with `modmodels` in the address | Test room only |
+| a v2 rules pack, like [your first pack](/guides/first-pack/) | the Forge's Rules panel or its agent connection, then Play | Forge, local only |
+| any v2 pack: is it valid? | the agent connection: the solo test room's **Connect your agent** (outside Play), or the Forge's | Format only: checked and stored, never applied |
+
+The formats themselves are described on [The earlier formats](/kinds/earlier-formats/) and [Pack kinds](/kinds/).
+
+## The test room's Mods panel (`s2u-mod`)
+
+Status: **Test room only.**
+
+Open the test room. Its side panel has a **Mods** section:
+
+1. Turn on **Enable mods**.
+2. Press **Add a mod (.zip)** and pick your zip, or **Add a mod folder** and pick the folder. A mod has its `mod.json`
+   at the top, or inside the one folder a zipped directory adds.
+3. The mod appears as a row. A mod with a problem shows `invalid:` and the reason instead; the other mods still load.
+4. Turning a mod on or off, or moving it, does not reload the map. Press **Reload map** when the panel asks.
+
+Mods apply from the top of the list down, so when two mods replace the same file, the lower one wins; the panel names
+every conflict and its winner. This browser keeps your mods, their order and their switches until you press
+**Remove**.
+
+The panel is in every build of the test room, offline and online. It is not used in a lobby match reached through the
+normal menus, and not in the replay viewer: there, the game always reads its own files.
+
+## Texture packs: the Experimental view
+
+Status: **Test room only.**
+
+A texture pack replaces some of one map's solid textures with your own images. In the test room, open the
+**Experimental (adaptation)** section and select the Experimental view. Its **Texture pack** row has:
+
+- **Import pack (.zip)**: a base pack zip whose PNGs you replaced at 2x or 4x. It is checked, built for the map and
+  kept in this browser only; a refusal says why.
+- the **Texture pack** chooser: **Original** (no pack) or a pack from the current map's library;
+- **Remove**, to drop the chosen pack.
+
+The base pack is made from your own copy of the game by a separate local tool; this wiki does not cover that step
+yet. A texture the pack does not cover, or cannot replace, keeps its original.
+
+## HD texture packs
+
+Status: **Planned** -- held off until the owner lifts the hold (the ui package's `screens/videoPicture.ts`,
+`VIDEO_PICTURE_HD_OFFERED`, lines 27-32; the viewer's `experimentalGraphics.ts`, line 437).
+
+The same **Import pack (.zip)** button also takes an HD texture pack (a replacement pack for every texture: world,
+characters, weapons, effects, menus). It is recognised by its own layout, checked, and kept in this browser; one HD
+pack at a time, so a new import replaces the old one (the viewer's `hdTexturePackServed.ts`, `importZip`). That is as
+far as it goes: in every build the **HD texture pack - PCSX2** switch that would turn it on is drawn but disabled, with
+the note "Held until after the GPU work", and the HD picture is offered nowhere. You can import and store a pack, but
+nothing draws it until the hold is lifted. [The earlier formats](/kinds/earlier-formats/) describes the format.
+
+## Model packs
+
+Status: **Test room only.**
+
+A model pack draws your own GLB models in place of some of the game's meshes. It is off unless the page is the test
+room **and** the address contains `modmodels`, for example `/testroom?modmodels`. Then:
+
+1. Open **Settings**. At the bottom is **Model pack**.
+2. **Choose model folder**, or **Import model pack (.zip)**. The pack holds a `models.json` and the GLB files it names;
+   anything else is ignored.
+3. If a map is already on screen, press **Reload map** once the status line says the pack is on.
+
+**Clear model pack** removes it. A model pack changes what is drawn only; what you collide with stays the game's.
+
+## Rules packs: the Forge's Play
+
+Status: **Forge, local only.** The Forge is the game's level editor, at `/forge`. Its work is paused while other
+parts of the game come first, so it may change before rules packs reach anywhere else.
+
+A rules pack, such as [your first pack](/guides/first-pack/), runs only in the Forge's own **Play**: an offline match
+on the layout you are editing, on your computer. There are two ways to give the Forge your rules:
+
+- **By hand, in the Rules panel.** Open the **Rules** panel (right side, under Edit), press **New rules**, then
+  **Add rule** and type each rule as JSON text, the same text as in your rules file. **Check rules** lists any
+  refusal with the field it is about.
+- **Through an agent.** The Forge's **Agent** tab (**Connect your agent**) lets an AI agent or tool you connect
+  yourself work in the editor. Its `rules.import` takes a rules pack's files (`s2u-pack.json` and the rules file) and
+  checks them with the same checker, then makes them the layout's rules.
+
+Then choose **Play the layout**. The match runs your rules: in the first pack's case, a message at the start of each
+round, and every hit at half damage. With no rules, the layout plays as before.
+
+Rules never travel with a share code, and a layout with rules cannot be played in a lobby: both are refused by name
+today.
+
+## A v2 pack's import: checked and stored, not applied
+
+Status: **Format only.**
+
+Any v2 pack, of any kind, can be given to the pack library through an agent connection's `packs.import`, with the
+kind `pack`, as a zip or a folder. Two places offer one:
+
+- **The test room.** At the bottom of the solo test room's settings panel, **Connect your agent** lets an AI agent or
+  tool you connect yourself bring packs in. It is there in the solo room only (not in an online match or a replay),
+  and it imports or removes a pack only while the room is in Build, not during Play (the viewer's
+  `agent/testroomInstall.ts`, line 29, and `agent/testroomTarget.ts`, line 23).
+- **The Forge.** The Forge's **Agent** tab (**Connect your agent**) does the same in the editor (the viewer's
+  `agent/forgePacks.ts`, line 17).
+
+What happens, in either place:
+
+1. The pack is read: `s2u-pack.json` at the top of the zip, or in the one folder a zipped directory adds.
+2. It is checked with the same checker as everywhere else: every field, every file's hash and size, every path. A
+   pack that fails is refused with a report, each line naming a code from the [Refusal codes](/reference/codes/)
+   and the file or field it is about.
+3. A pack that passes is stored in this browser and listed with its id, version and kinds.
+
+That is all, for now: nothing in the game applies a v2 pack yet, and asking to apply one is refused. Storing a pack
+is still useful as a check: if the library takes it, the pack is valid. Rules packs are the exception above, run
+through the Forge's Rules panel rather than from the library.
+
+## When something is refused
+
+Every refusal names a code, and most name the file or field. [Refusal codes](/reference/codes/) lists them all, and
+[Troubleshooting](/troubleshooting/) has a fix for each. Your pack never changes the game's own files: remove it,
+or reload without it, and the game is as it was.

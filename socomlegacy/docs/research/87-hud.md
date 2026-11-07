@@ -468,7 +468,7 @@ action prompts, the reticle and the timer every frame.
 | columns | locale 60523 "KILLS", "DEATH" (0x3e5790), "SCORE" (0x3e5798), centred (C2DString +0x69) | centres 455, 522, 588 (175 and 175/3 from `DAT_003dc8e8`), baseline y0 + 20, scale 1 | alpha 90 |
 | rows | 8 a team, by score (`FUN_0022de60` L80575: same team, not a spectator, named); the clan tag "[clan]" at x 163 in (128, 64, 32), the name at 223, the three numbers centred on the columns (kills +0x550 + 0x598, deaths +0x556 + 0x59e, score +0x580 + 0x5c8) | baseline y0 + 38 + 16.8 i (SEALs 142 .. 259.6, TERRORISTS 305 .. 422.6), scale 0.8 (`FUN_0022a290` L78951) | (115, 115, 115) alpha 110; the local player's blue 12 (yellow) [inferred: controller vtbl+0x2c]; the dead x 0.6 [inferred: +0xe1 bit 4] |
 | stripes | odd rows 1, 3, 5, 7: `newweapnbkrnd`'s centre texel | x 161..624, baseline - 12 .. + 4 (`DAT_003dc990..9b0`) | alpha 60 |
-| satchel | `hud_satchel.tif` on the row of the carrier of item 0x9a | x 200..216, baseline - 12 .. + 4 | -- |
+| satchel | `hud_satchel.tif` (HUD2; the string 0x3e5880, D:L80001-80003) on the row of the carrier of item 0x9a (`FUN_005c8640`, D:L79026); both teams' blocks drawn alike (`FUN_00229d00` D:L80018-80019), no test of the viewer's team | x 200..216, baseline - 12 .. + 4 (D:L79028-79029: `DAT_003dc960` 200, `DAT_003dc968` 16, `DAT_003dc970` 12 off the ELF) | the sprite's own, (128, 128, 128) alpha 128 (`FUN_00364c50` D:L262041-262047; `SCOREBOARD_SATCHEL_RGBA_READING`) |
 | GAME DETAILS | a (64, 128, 64) `newweapnbkrnd` strip y 104..129 over its body y 129..229; "GAME DETAILS" (0x3e57c0) at (20, 124), scale 1, alpha 90; three lines at x 24, y 145 / 165 / 185, scale 0.8, (115, 115, 115) alpha 110, cut with "-" to 118: online the lobby, the game's name and its type (1 BREACH, 2 DEMOLITION, 3 ESCORT, 4 EXTRACT, 5 SUPPRESSION); LAN "LAN game", the name, the type (`FUN_0022ac30` L79186) | x 10..152 | strip alpha 80 |
 | SPECTATORS | the same strip y 229..254, "SPECTATORS" (0x3e57b0) at (20, 249); up to 8 names at (24, 270 + 16.8 i), scale 0.8 | x 10..152, body to 430 | -- |
 | Modern place (owner ruling 2026-09-29: "try to bump up the location of the scoreboard a bit when in modern mode") | the whole board -- panel, bars, rows, GAME DETAILS, SPECTATORS -- raised by `MODERN_SCOREBOARD_LIFT` 4 in the Modern presentation only (`scoreboard.ts`); the PS2 presentation keeps the game's place | top 100: clear of the message window above (panel to 99, its newest line's glyph cells to ~99.9), the same at every aspect (both centre-anchored, height-scaled) | -- |
@@ -483,6 +483,17 @@ layer 1, the bars as its shapes. Filled with the one SEAL -- `hud.setPlayerName`
 in the local player's yellow, its three numbers 0; the TERRORISTS empty; the details "LAN game", the map's name and its
 game type (`./mapOrder`'s `mode`); no spectators. No console frame of the held scoreboard is in the captures
 (`A_rend050`'s "ROUND COMPLETE" is the round's end screen, another screen), so it is drawn from the code alone.
+
+**The satchel, built** (BOMB-MARKS, 2026-11-06, the owner's words in seat b6: "qol feature in the scoreboard add a bomb
+next to the player who has it"; reading, pending review; research 214 s3 "The scoreboard's satchel"). `scoreboardLayout`
+draws `hud_satchel.tif` (16x16 on MP2, MP6 and MP72, HUD2) stretched over x 200..216, baseline - 12 .. + 4 of the
+carrier's row (`SCOREBOARD_SATCHEL_RECT`), after everything else, at the sprite's own colour
+(`SCOREBOARD_SATCHEL_RGBA_READING`); the carrier is `ScoreboardInfo.bombCarrier`, fed by `./bombPage` `hudFrame`
+through `Hud.setBombCarrier` (the carried state only). Shown to every viewer, both teams and a spectator, as the
+original: no adaptation (**OT.R109** as amended the same day, the owner's players: "Both teams"; *was* the carrier's
+team only, `SCOREBOARD_SATCHEL_OWN_TEAM_ONLY_ADAPTATION`, §17, removed). A carrier off the board (past a team's 8 rows) has no row and no satchel, as in the original
+(the rows drawn, D:L78961-78966). Held by `scoreboard.test.ts` ("the satchel on the bomb carrier's row ...") and
+`bombPage.test.ts` ("BOMB-MARKS: hudFrame hands the scoreboard ...").
 
 ## 13. The zoom readout and the scope's range (2026-09-29, third round)
 
@@ -598,7 +609,8 @@ Filed 2026-10-26 by LATER 414's review fold (`packages/viewer/src/traversal.ts`)
 holds its row too (its LATER-414 group). LATER 492's review (2026-10-26) adds `STANCE_LAUNCHER_WATER_READING`
 (`packages/viewer/src/stanceButton.ts`). TAUNT-WRAP (2026-11-02, §14.1; reading, pending review) adds
 `MESSAGE_WRAP_APPEND_MEASURE_READING` (resolved in its review fold), `MESSAGE_WRAP_HARD_BREAK_READING` and
-`MESSAGE_TEXT_SCALE_READING` (`packages/viewer/src/hudMessagePanel.ts`).
+`MESSAGE_TEXT_SCALE_READING` (`packages/viewer/src/hudMessagePanel.ts`). BOMB-MARKS (2026-11-06, §12 "The satchel,
+built"; reading, pending review) adds `SCOREBOARD_SATCHEL_RGBA_READING` (`packages/viewer/src/scoreboard.ts`).
 
 | name | stands for | value in the code | the evidence that settles it |
 |---|---|---|---|
@@ -609,20 +621,23 @@ holds its row too (its LATER-414 group). LATER 492's review (2026-10-26) adds `S
 | `MESSAGE_WRAP_APPEND_MEASURE_READING` | the prefix's width as `FUN_002b6530` appends the text a character at a time with `FUN_00362e00` (D:L158018), whose decompiled width step (D:L260934-260947) was not read through (§14.1; TAUNT-WRAP 2026-11-02, reading, pending review) | `'each prefix measured whole, as FUN_00362b70'` (`packages/viewer/src/hudMessagePanel.ts`: `textWidth` of each prefix) | resolved 2026-11-02 by the review fold: `FUN_00362b70` re-measures the whole prefix right after each `FUN_00362e00` append (D:L158018-158019), as the port's `textWidth` of each prefix does (reading) |
 | `MESSAGE_TEXT_SCALE_READING` | the measure's +0x78 x font +0x34 (`FUN_00362b70` D:L260748-260750, D:L260794) beyond the post's scale (§14.1): the face's `scale` 1 (`fonts.rdr`) and +0x78 written 1.0 by `FUN_003631f0` (D:L261029) after a locale lookup (`FUN_003a3700`, `FUN_003a32f0`) whose result the decompilation drops; against it the Vigilance frames' 1.0 for the code's 1.0286 and 0.765 for 0.8 (§8), 0.97 and 0.96 (reading, pending review) | `1` (`packages/viewer/src/hudMessagePanel.ts`, `messageMeasureScale`) | the disassembly of `FUN_003631f0`'s +0x78 store (a per-string scale from the locale entry or not), or a frame of a line posted at a known scale measured against `textWidth` |
 | `MESSAGE_WRAP_HARD_BREAK_READING` | the break with no space within 24 characters back: `MESSAGE_WRAP_HARD` 32 when the text is longer than 32, else where the limit was reached (D:L158028-158032), transcribed as decompiled (§14.1; reading, pending review) | `'as decompiled: 32 characters when longer, else at the limit'` (`packages/viewer/src/hudMessagePanel.ts`) | the disassembly before `LAB_002b6978`, or a frame of a long unbroken word posted |
+| `SCOREBOARD_SATCHEL_RGBA_READING` | the scoreboard satchel's colour (§12): the sprite 0x40dbf0's own, set by its constructor `FUN_00364c50` (run by `FUN_003fe980` D:L327849): (128, 128, 128) at `+0x30..+0x38` and `+0x40..+0x48` (D:L262041-262046) and alpha 128 through the `+0x34` virtual (D:L262047; `+0x34` the alpha setter by `FUN_00229d00`'s use, D:L78881, the team bars' alpha 80); nothing sets it after (its other uses D:L79028-79030, D:L79156, D:L80002-80003, D:L327850). Reading, pending review | `[1, 1, 1, 1]` (`scoreboard.ts`): the bitmap's own colour, opaque | a console frame of the held board with a carrier on it |
 | `STANCE_LAUNCHER_WATER_READING` | `FUN_005857e0` allows the launcher's anim set (`+0x528` == `DAT_0044d408`) a crouch at any depth, before its depth test (D:L444334-444340); the deep crouch is then accepted and `FUN_00581990` stands the SEAL with the stance word's bit over 8.5 deep (D:L442580) | `'the depth alone: the launcher set not asked'` (`stanceButton.ts`; the port's press table, `Traversal.stanceAllows`, takes the depth alone) | the launcher's set read into `stanceAllows`, the accepted deep crouch then stood by the water with its bit |
 | `STANCE_WORD_ACTION_CROUCH_READING` | PICKUP BODY (action 8, bit 0x100, label record 9: `FUN_0021ded0` D:L73681-73682; `FUN_00592d50` D:L452069 -> `FUN_00546c00`, the nearest dead body, `FUN_005940d0` D:L452680-452684, cap 900; offered within a squared distance of at most 300 (about 17.3 units), `FUN_005a89c0` D:L463119, and taken by `FUN_00579a30` with the SEAL nearly still, its velocity's square at most 64, D:L438367-438371 -- ~~within 8 of the body~~, corrected by research 368 §0.1): `FUN_00579a30` writes the crouch request and the bit (D:L438417) when clip 0x12 is not playing and clips 0x11/0x13 are not or the top play is not crouched | `'not raised: PICKUP BODY unported (LATER 494)'` (`mover.ts`) | the body carry's port (LATER 494) |
 | `STANCE_WORD_CROUCH_FALLBACK_READING` | `FUN_00584c60`'s stand and bit (D:L444287) when the crouch move's clip (type 0x12) cannot be pushed | `'not raised: the clip is always held'` | `FUN_00589900`'s refusals of the push read, with the per-weapon-class motion record |
 | `STANCE_MEMORY_RETURNS_READING` | the crouch and stand states' early returns on a refused clip push before their memory writes (D:L444157, D:L444186, D:L444218, D:L444883, D:L444910, D:L444935; `FUN_00586050`'s when `+0x105d` bit 2 is clear, after its clip-0x10 push, D:L444681-444683; the crouch's clip-0x12 fallback, D:L444282-444311, `STANCE_WORD_CROUCH_FALLBACK_READING`'s path) and the crouch idle's `+0x21c` bit-2 clip (D:L444316-444317), which leave `+0x105e` as it was | `"not ported: the clip-push returns leave the memory unwritten that frame, and the crouch's idle under +0x21c bit 2 pushes a clip without clearing it"`: the port writes the memory every ground frame | the clip pushes' port: which of them a player's frame refuses |
 | `STANCE_WORD_DIVE_REQUEST_READING` | the dive's second entry: an accepted prone request raises the bit at once (`FUN_00552d60` D:L418879), then `FUN_0057e540` when the controller's `+0x30` answers; the player's `CSealCtrl` answers 0 (0x5499d0), so never the player's -- the player's dive is the press's, its bit at the later acceptance | `"never the player's: CSealCtrl's +0x30 answers 0"` | which controllers answer `+0x30` |
 
-## 17. Browser adaptations (NCW-7)
+## 17. Browser adaptations (NCW-7; BOMB-MARKS)
 
 Filed 2026-11-05 by NCW-7 part 1 (the owner's word, 2026-11-05: "build the scoreboard ping yeah"; plan
 `2026-11-05-netcode-wave.md`, its NCW-7 row); product track, a labelled browser adaptation. The original's SELECT board
 (§12) has the columns KILLS, DEATH and SCORE and no ping. The port draws a fourth column, PING, one pitch left of KILLS
 (`SCORE_LAYOUT.ping`, `packages/viewer/src/scoreboard.ts`), from the score rows' `ping` (the heartbeat's smoothed round trip, PT195-4, LATER 329).
-It changes no rule of play.
+It changes no rule of play. BOMB-MARKS (2026-11-06) listed the satchel's team filter here (OT.R109); retired the same
+day by OT.R109's amendment -- the satchel is the original's, shown to both teams.
 
 | name | stands for | value in the code | why |
 |---|---|---|---|
 | `PING_SCORE_RESEND_MS_ADAPTATION` | the board's rows are re-sent (`scoreDirty`) when a seat's shown ping moved this many whole ms from the value the last score rows broadcast to the room carried (`Room.broadcast`), or has its first reading; checked once a room per heartbeat sweep (`Room.notePingSweep`, called by `server.ts` before each sweep's pings) | `5` (`packages/match/src/room.ts`) | at most one extra `score` message a room per heartbeat (5 s), whatever the number of seats; a smaller drift is noise on the column |
+| `SCOREBOARD_SATCHEL_OWN_TEAM_ONLY_ADAPTATION` (BOMB-MARKS, 2026-11-06; OT.R109, an owner's ruling on the simulation track, not a product-track adaptation) | the scoreboard's satchel (§12 "The satchel, built") drawn only for a viewer on the carrier's team, the carrier included; a spectator (no row of his own) sees none (`satchelShown`) -- where the original shows it to both teams (`FUN_00229d00` draws both blocks, D:L80018-80019; `FUN_0022a290` tests no viewer's team, D:L79026) | was `true` (`packages/viewer/src/scoreboard.ts`) | retired 2026-11-06: OT.R109 as amended ("Both teams"), the constant removed and the satchel shown to every viewer as the original |

@@ -222,19 +222,19 @@
     },
     {
       "id": "movement.step.walls",
-      "claim": "The body meets a wall (bit 1 set, bit 18 clear, |n_y| < 0.7) with its size class's level probe at the feet + step_height 6.5 standing and crouched, and with its head line at the idle head + 2 (19.394 standing); it stops 3.5 off it and slides along it. Nothing between the two lines is met: no column.",
+      "claim": "The body meets a wall (bit 1 set, bit 18 clear, |n_y| < 0.7) with its size class's level probe at the feet + step_height 6.5 standing and crouched, and with its head line at the posed head + 2 (19.394 standing still, 17.761 running; WALL_HEAD_LINE_READING 'posed'); it stops 3.5 off it and slides along it. Nothing between the two lines is met: no column.",
       "level": "reading",
       "source": "FUN_0054aa30 D:L415110-415133, D:L415231-415233, D:L415418-415419, D:L415441-415443; the slide research 24 section 2 step 3; ruling PF.R44",
       "note": "docs/research/217-the-body-as-built.md",
       "tests": [
         { "file": "packages/viewer/test/walk.test.ts", "name": "a step toward a wall ends 3.5 from it, and slides along it", "data": "none" },
-        { "file": "packages/viewer/test/walk.test.ts", "name": "a wall is bit 18 clear and met by the body's probes: standing the feet + 6.5 and the head line at 19.394, no column between (FUN_0054aa30; WALL_PROBE_READING)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a wall is bit 18 clear and met by the body's probes: running the feet + 6.5 and the head line at 17.761, no column between (FUN_0054aa30; WALL_PROBE_READING)", "data": "none" },
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "standing and crouched the body meets a wall at the feet + 6.5 (step_height) and keeps 3.5 off it (FUN_0054aa30 D:L415110-415133, 415231-415233, 415418-415419; WALL_PROBE_READING)", "data": "none" }
       ]
     },
     {
       "id": "movement.body.probe-prone",
-      "claim": "Prone the probe stands at the feet + 3.0 (the class (8.0, 6.0) height x 0.5) and the head line at 5.637; a crawl into a wall stops 8.0 off it along the travel, the same on the page and in the room; the low line ahead rises with the root's tilt (PRONE_PROBE_TILT_READING 'root'; the head line's end is lifted through the root too, FUN_0054aa30 D:L415531-415535); on a level tread the root is level. A riser standing over the probe within 8.0 ahead stops a crawl: stairs of 2/4, 3/6 and 4/8 rise/run stop it, 1/4 and 2/8 and a 2.9 kerb are crawled, a 3.1 kerb stops it.",
+      "claim": "Prone the probe stands at the feet + 3.0 (the class (8.0, 6.0) height x 0.5) and the head line at 5.637 still, 6.996 crawling; a crawl into a wall stops 8.0 off it along the travel, the same on the page and in the room; the low line ahead rises with the root's tilt (PRONE_PROBE_TILT_READING 'root'; the head line's end is lifted through the root too, FUN_0054aa30 D:L415531-415535); on a level tread the root is level. A riser standing over the probe within 8.0 ahead stops a crawl: stairs of 2/4, 3/6 and 4/8 rise/run stop it, 1/4 and 2/8 and a 2.9 kerb are crawled, a 3.1 kerb stops it.",
       "level": "reading",
       "source": "FUN_0054aa30 D:L415110-415133, D:L415231-415233, D:L415426-415431, D:L415531-415535, FUN_0054ecd0 D:L416972-417027 (the tilt through the root's matrix, PRONE-TILT-2 (3), research 217 s7.8; level on a tread, s2.5); ruling PF.R44",
       "note": "docs/research/217-the-body-as-built.md",
@@ -242,14 +242,14 @@
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone meets a wall at 8.0 along the travel and no nearer; the 13-wide doorway and the 7.5-wide corridor of walk.test.ts still pass (the fan is cast along the travel, PRONE_FAN_READING)", "data": "none" },
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "prone at stairs: the level probe at 3.0 stops a crawl whose next riser stands over it within 8.0 ahead (2/4, 3/6, 4/8 rise/run) and passes 1/4, 2/8 and a 2.9 kerb; a 3.1 kerb stops it (PRONE_PROBE_TILT_READING; research 217 s2.5)", "data": "none" },
         { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone low line follows the root tilt (PRONE_PROBE_TILT_READING \"root\", FUN_0054ecd0 D:L416972-417027): up a 20-degree slope a fin 1.5 over the ground is crawled over, one 2.9 over it stops the crawl 8 short", "data": "none" },
-        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone head line is lifted on a slope too (FUN_0054ecd0 at D:L415531-415535): down a slope it passes under a bar 6 over the ground", "data": "none" },
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "the prone head line is lifted on a slope too (FUN_0054ecd0 at D:L415531-415535): down a slope it passes under a bar 7.5 over the ground", "data": "none" },
         { "file": "packages/viewer/test/bodyGates.test.ts", "name": "prone into a wall at 8: the page and the room agree (stopped at 8)", "data": "none" },
         { "file": "packages/central/test/roomGates.test.ts", "name": "prone into a wall at 8: the page and the room agree (stopped at 8)", "data": "none" }
       ]
     },
     {
       "id": "movement.body.overhang-passed",
-      "claim": "A bar from 7 to 10 over the floor stops no stance: it lies between the low probe (6.5, prone 3.0) and the head line (19.394, 12.138, 5.637), so a standing SEAL walks under it (the owner's yes, H92), on the page and in the room.",
+      "claim": "A bar from 7 to 10 over the floor stops no stance: it lies between the low probe (6.5, prone 3.0) and the head line (at rest 19.394, 12.138, 5.637; moving the posed head + 2, 14.990 or over standing or crouched), so a standing SEAL walks under it (the owner's yes, H92), on the page and in the room.",
       "level": "reading",
       "source": "FUN_0054aa30 D:L415231-415233, D:L415441-415443; HUMAN_TASKS H92; ruling PF.R44",
       "note": "docs/research/217-the-body-as-built.md",
@@ -272,13 +272,17 @@
     },
     {
       "id": "movement.body.head-line",
-      "claim": "The controlled body also meets walls at its head node + 2 (the port: the idle head, 19.394 standing, 12.138 crouched, 5.637 prone): a lintel from 16 up stops a standing SEAL and passes a crouched one; a bar from 5 to 7 stops a prone one.",
+      "claim": "The controlled body also meets walls at its head node as posed + 2 (WALL_HEAD_LINE_READING 'posed': at rest the idle head, 19.394 standing, 12.138 crouched, 5.637 prone; moving on the ground the greatest head of the clip's cycle, POSED_HEAD_READING -- the run 17.761, the crouch walk 14.990-15.274 by class, the crawl 6.996): a lintel from 16 up stops a running SEAL and passes a crouched one; a lintel at 18.23 stops a standing walk and passes a run and a crouch run (MP72's warehouse doorway); a bar from 5 to 7 stops a prone one.",
       "level": "reading",
-      "source": "FUN_0054aa30 D:L415441-415459; the head node actor+0x308 (CZSealBody D:L419620-419621); research 217 s2.2",
+      "source": "FUN_0054aa30 D:L415441-415459; the head node actor+0x308 (CZSealBody D:L419620-419621); FUN_00584c60 (the crouch run plays the standing blend); the posed heads off the port's animator over MOTION_P.ZAR; research 217 s2.2, s2.3",
       "note": "docs/research/217-the-body-as-built.md",
       "tests": [
-        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "a bar from 5 to 7 stops a standing and a crouched SEAL 3.5 short of it; prone its low probe at 3.0 passes under and its head line at 5.637 meets it (D:L415442-415443; WALL_HEAD_LINE_READING)", "data": "none" },
-        { "file": "packages/viewer/test/walk.test.ts", "name": "the head line lowers with the stance: a crouch passes under a lintel at 16 that stops a standing SEAL (the idle head + 2: 19.394 standing, 12.138 crouched, 5.637 prone; FUN_0054aa30 D:L415442-415443)", "data": "none" }
+        { "file": "packages/viewer/test/wallProbes.test.ts", "name": "a bar from 5 to 7 stops a standing and a crouched SEAL 3.5 short of it; prone its low probe at 3.0 passes under and its head line at the crawl head 4.996 + 2 meets it (D:L415442-415443; WALL_HEAD_LINE_READING)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the head line lowers with the stance: a crouch passes under a lintel at 16 that stops a running SEAL (the posed head + 2: 17.761 running, 15.122 crouch-walking, 6.996 crawling; FUN_0054aa30 D:L415442-415443)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "the crouch-run head line: a lintel at 18.23 stops a standing walk (16.707 + 2) and passes a full run and a crouch run (15.761 + 2; FUN_0054aa30 D:L415441-415443, FUN_00584c60)", "data": "none" },
+        { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "a crouch run (stick 1) passes under the lintel (underside 18.23 over the feet) -- the posed run head + 2 is 17.76 at most", "data": "disc" },
+        { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "a partial-push crouch run (0.86) is still stopped by the lintel (POSED_HEAD_READING takes 16.530 there); at 0.9 it passes", "data": "disc" },
+        { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "POSED_HEAD_READING is the port's animator over MOTION_P.ZAR: the head node's greatest height over each cycle", "data": "disc" }
       ]
     },
     {

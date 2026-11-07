@@ -175,7 +175,13 @@ export type EffectCondition =
    * 95 s1.4, 179 s9.9; `FUN_0025e960` D:L108288-108425 evaluates the list, `viewer/src/roundCues.ts` `evaluateCondition`).
    */
   | { kind: 'operator'; operator: number }
-  | { kind: 'other'; cmd: number };
+  /**
+   * Any other sub-command: its command and its set (the header's second byte, `zanim.ts`) -- the set 0 commands past
+   * the base set's registrations (66 `CAMERA_INDOORS`, 70, 72 `PLAYER_INDOORS`: `@s2u/sound` `catalog.ts`, research 81)
+   * and set 1's and set 2's. The viewer's effect runner answers set 0's 66 and 72 (`effectRunner.ts`
+   * `indoorsOperand`); the rest are its unread operands (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`).
+   */
+  | { kind: 'other'; cmd: number; set: number };
 
 /** The node numbers the engine resolves itself (`FUN_0026f4e0`, decomp 118145): the animation's instance, the caller's node. */
 export const NODE_ROOT = -7, NODE_CALLER = -6;
@@ -406,7 +412,7 @@ function condition(c: CmdBytes, names: readonly string[]): EffectCondition {
   if (cmd === ZCMD.RANDOM_WEIGHT) return { kind: 'random', p: c.f32(4) };
   if (cmd === ZCMD.RANGE_TEST) return { kind: 'range', flags: c.u32(4), node: c.i8(8), other: c.i8(9), rangeSquared: c.f32(0x24) };
   if (cmd === ZCMD.VALVE) return { kind: 'valve', ...valveOf(c, names) };
-  return { kind: 'other', cmd };
+  return { kind: 'other', cmd, set: c.u8(1) };
 }
 
 /**

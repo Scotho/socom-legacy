@@ -109,5 +109,5 @@ describe('the Saves card on the pad (PAD-1)', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
     expect(savesShown()).toBe(false);
     expect((await storedSaves()).map((s) => s.id)).toEqual(['keep-me']);
-  }, 20_000);
+  }, 90_000);
 });

@@ -56,7 +56,8 @@ const PC_ROOT = process.env.SOCOM_PC_ROOT ? resolve(process.env.SOCOM_PC_ROOT) :
 export const DISC = process.env.SOCOM_DISC ? resolve(process.env.SOCOM_DISC) : PC_ROOT ? join(PC_ROOT, 'game', 'disc') : '';
 const FIXTURES = process.env.S2U_TEST_FIXTURES ? resolve(process.env.S2U_TEST_FIXTURES) : resolve(dirname(fileURLToPath(import.meta.url)), '../../../../test-fixtures');
 const from = (root: string, p: string): Uint8Array | null => (root !== '' && existsSync(join(root, p)) ? new Uint8Array(readFileSync(join(root, p))) : null);
-const file = (p: string): Uint8Array | null => from(DISC, p) ?? from(FIXTURES, p);
+/** A file of the disc, else of the committed fixtures, or null. */
+export const file = (p: string): Uint8Array | null => from(DISC, p) ?? from(FIXTURES, p);
 const READERC = file('RUN/UI/READERC.ZAR'), UIZANIM = file('RUN/UIZANIM.ZAR'), LOC = file('RUN/LOCALE/STATES/UIMNLOC.ZAR');
 export const HAVE = READERC !== null && UIZANIM !== null && LOC !== null;
 export const HAVE_DISC = DISC !== '' && ['RUN/UI/READERC.ZAR', 'RUN/UIZANIM.ZAR'].every((f) => existsSync(join(DISC, f)));

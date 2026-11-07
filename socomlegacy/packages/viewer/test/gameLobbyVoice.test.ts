@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GAME_LOBBY_COMMAND_ROWS, talkerBarText, TALKER_BAR_FREE, uiCommandRowByName, UiCommandHost, UiVarManager, VALVE_TYPE, ValveStore, type GameLobbySeat, type GameLobbyView, type ZAnimUiCommand } from '@s2u/ui';
 import { pinnedMatchSocket } from '../src/connectHost';
-import { connectGameLobby, type GameLobbyHandOff } from '../src/gameLobbyHost';
+import { connectGameLobby, LOBBY_ARMORY_VOICE_ADAPTATION, type GameLobbyHandOff } from '../src/gameLobbyHost';
 import type { WebSocketLike } from '../src/net/client';
 import type { ClientEvent, ServerEvent } from '../src/net/protocol';
 import { mountTaunts } from '../src/matchTaunts';
@@ -52,6 +52,8 @@ function env() {
   return {
     win, doc, source: { getGamepads: () => pads },
     plug: (): void => { pads = [{ id: 'Wireless Controller', index: 0, connected: true, mapping: 'standard', axes: [], buttons: [] } as unknown as PadLike]; },
+    /** The plugged pad's raw CIRCLE (standard button 1) held or not (F1 of the v0.4.11 review). */
+    circle: (held: boolean): void => { pads = [{ id: 'Wireless Controller', index: 0, connected: true, mapping: 'standard', axes: [], buttons: [{ pressed: false, value: 0 }, { pressed: held, value: held ? 1 : 0 }] } as unknown as PadLike]; },
     unplug: (): void => { pads = []; },
     key: (type: 'keydown' | 'keyup', code: string): void => { win.dispatchEvent(Object.assign(new Event(type), { code })); },
   };
@@ -59,7 +61,7 @@ function env() {
 
 const settle = async (): Promise<void> => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); };
 
-function rig(o: { firstView?: Partial<GameLobbyView> } = {}) {
+function rig(o: { firstView?: Partial<GameLobbyView>; armoryRadioOff?: boolean } = {}) {
   const host = new UiCommandHost();
   const uiVars = new UiVarManager();
   const valves = new ValveStore();
@@ -95,6 +97,7 @@ function rig(o: { firstView?: Partial<GameLobbyView> } = {}) {
       workletUrl: async () => '/voice-capture.js',
       clock: () => t * 1000,
       seconds: () => t,
+      ...(o.armoryRadioOff !== undefined ? { armoryRadioOff: o.armoryRadioOff } : {}),
     },
   });
   const server = (ev: ServerEvent): void => { sock!.onmessage?.({ data: JSON.stringify(ev) }); };
@@ -270,7 +273,7 @@ describe('ONL-16b: the late joiner (game +0xcc, the late_joiner valve; C11)', ()
   });
 });
 
-describe('ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102)', () => {
+describe("ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102) -- the original's, kept behind `armoryRadioOff`", () => {
   /** `goto_eq_mp_set_return_valve`'s `GoneToArmory` 1, then `InitializeOnlineArmory`; back, `check_loop`'s 0 (research 167 §1). */
   const intoArmory = (r: ReturnType<typeof rig>): void => {
     if (!r.valves.find('GoneToArmory')) r.valves.acquire('GoneToArmory', VALVE_TYPE.PERM);
@@ -283,7 +286,7 @@ describe('ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102)', () => {
   };
 
   it("RED 5 (the close review's F2): the page carries the ARMORY to the room -- voiceRadio {on: false} as it enters (RADIO OFF, D:L126099), {on: true} as it leaves (the lobby's 9 again, D:L125568), and nothing else", () => {
-    const r = rig();
+    const r = rig({ armoryRadioOff: true });
     r.frames(5);
     expect(r.voiceSent()).toEqual([]);
     intoArmory(r);
@@ -300,7 +303,7 @@ describe('ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102)', () => {
   });
 
   it('RED 5: a talk held into the ARMORY is let go there -- the flag cleared first (FUN_0030e6e0(voice, 0), D:L126098), then RADIO OFF (D:L126099)', async () => {
-    const r = rig();
+    const r = rig({ armoryRadioOff: true });
     await press(r);
     intoArmory(r);
     r.frames(3);
@@ -310,7 +313,7 @@ describe('ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102)', () => {
   // LATER 23 (web sprint 20's close review, its nits): the reconnect's RADIO OFF re-send (`GameLobbyVoice.armoryToRoom`)
   // had no test -- a client that came after the entry is sent the entry again, and the return goes to it alone.
   it("LATER 23: a reconnect inside the ARMORY is sent RADIO OFF again on its new client; the return's RADIO ON goes to that client alone", () => {
-    const r = rig();
+    const r = rig({ armoryRadioOff: true });
     vi.spyOn(performance, 'now').mockImplementation(() => r.now() * 1000);           // the socket's backoff clock
     r.frames();
     intoArmory(r);
@@ -328,7 +331,7 @@ describe('ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102)', () => {
   });
 
   it('RED 5: let go inside the ARMORY (the lobby left) owes that client no return: nothing more is sent', () => {
-    const r = rig();
+    const r = rig({ armoryRadioOff: true });
     r.frames();
     intoArmory(r);
     r.frames(2);
@@ -336,6 +339,99 @@ describe('ONL-16b: the ARMORY (W20.R12; FUN_0027d8c0 D:L126094-126102)', () => {
     backFromArmory(r);
     r.frames(2);
     expect(r.voiceSent()).toEqual([{ type: 'voiceRadio', on: false }]);
+  });
+});
+
+describe("LOBBY_ARMORY_VOICE_ADAPTATION (the owner, 2026-11-06): the lobby's voice stays live over its ARMORY", () => {
+  const intoArmory = (r: ReturnType<typeof rig>): void => {
+    if (!r.valves.find('GoneToArmory')) r.valves.acquire('GoneToArmory', VALVE_TYPE.PERM);
+    r.valves.set('GoneToArmory', 1, VALVE_TYPE.PERM);
+    r.row('InitializeOnlineArmory');
+  };
+  const backFromArmory = (r: ReturnType<typeof rig>): void => {
+    r.valves.set('GoneToArmory', 0, VALVE_TYPE.PERM);
+    r.row('CheckForcedLaunch');
+  };
+
+  it("the constant names the adaptation and the owner's words", () => {
+    expect(LOBBY_ARMORY_VOICE_ADAPTATION).toMatch(/ARMORY/);
+  });
+
+  it("no RADIO OFF at the ARMORY's entry nor RADIO ON at its return: the seat stays on the lobby's channel", () => {
+    const r = rig();
+    r.frames(2);
+    intoArmory(r);
+    r.frames(5);
+    backFromArmory(r);
+    r.frames(5);
+    expect(r.voiceSent()).toEqual([]);
+  });
+
+  it("receives in the ARMORY: the lobby's floor and its talker reach the voice client and the bar", () => {
+    const r = rig();
+    r.frames();
+    intoArmory(r);
+    r.frames();
+    r.floor(1);                                                                      // the host talks on the lobby's 9
+    r.frames();
+    expect(r.g.voice!.state()).toMatchObject({ holder: 1, channel: 9 });
+    expect(r.g.voice!.holder()).toBe(1);
+  });
+
+  it('transmits in the ARMORY: the DEV R key talks there, sends voiceTalk, and its grant plays the talk cue', async () => {
+    vi.stubEnv('DEV', true);
+    const r = rig();
+    r.frames();
+    intoArmory(r);
+    r.frames(2);
+    r.e.key('keydown', 'KeyR');
+    r.frames();
+    await settle();
+    r.frames();
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }]);
+    r.floor(SELF);
+    r.frames(2);
+    expect(r.cues).toEqual(['.TCM_SELECT']);
+    r.e.key('keyup', 'KeyR');
+    r.frames();
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }, { type: 'voiceTalk', on: false }]);
+    vi.unstubAllEnvs();
+  });
+
+  it("a CIRCLE talk held into the ARMORY with no pad CIRCLE down is let go at its entry: the ARMORY's menu input never feeds the lobby's CIRCLE", async () => {
+    const r = rig();
+    await press(r);
+    intoArmory(r);
+    r.frames(3);
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }, { type: 'voiceTalk', on: false }]);
+  });
+
+  it("F1 (v0.4.11 review): a pad CIRCLE talk held into the ARMORY keeps transmitting until that CIRCLE's raw release, then sends off", async () => {
+    const r = rig();
+    r.e.circle(true);                                                                // the pad's CIRCLE down
+    r.frames();
+    await press(r);                                                                  // the lobby's FALLING: VCButton(1T)
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }]);
+    intoArmory(r);                                                                   // the ARMORY takes the menu's pad
+    r.frames(30);
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }]);                // still talking, no RADIO OFF
+    expect(r.g.voice!.state()).toMatchObject({ talking: true });
+    r.e.circle(false);                                                               // the raw release, unseen by the lobby's rows
+    r.frames();
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }, { type: 'voiceTalk', on: false }]);
+    r.e.circle(true);                                                                // a new CIRCLE inside the ARMORY is the ARMORY's own
+    r.frames(30);
+    expect(r.voiceSent()).toHaveLength(2);
+  });
+
+  it("F1: under `armoryRadioOff` (the original's ARMORY) a pad CIRCLE held in is let go at the entry, as FUN_0030e6e0(voice, 0) D:L126098", async () => {
+    const r = rig({ armoryRadioOff: true });
+    r.e.circle(true);
+    r.frames();
+    await press(r);
+    intoArmory(r);
+    r.frames(3);
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }, { type: 'voiceTalk', on: false }, { type: 'voiceRadio', on: false }]);
   });
 });
 
@@ -517,7 +613,7 @@ describe('ONL-16b fix round: the lobby\'s headset (F6; SVC-22b\'s `voice/headset
 
   it('DEV: R held is the lobby\'s CIRCLE (`keys(\'lobby\')`) into the same talk input; let go, off; in the ARMORY (GoneToArmory) it feeds nothing', async () => {
     vi.stubEnv('DEV', true);
-    const r = rig();
+    const r = rig({ armoryRadioOff: true });                                   // the original's ARMORY
     r.frames();                                                                      // the headset mounted (its listeners)
     r.e.key('keydown', 'KeyR');
     r.frames();

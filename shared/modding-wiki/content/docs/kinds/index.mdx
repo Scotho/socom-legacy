@@ -1,0 +1,97 @@
+---
+title: "Pack kinds"
+description: "The content, rules and system kinds of a v2 pack, each with its status."
+status: "Format only"
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/handlers.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535", "socomlegacy/packages/viewer/src/pageEntry.ts:117", "socomlegacy/packages/viewer/src/forge/page.ts:1553", "socomlegacy/packages/viewer/src/forge/page.ts:955-965", "socomlegacy/packages/viewer/src/forge/matchRules.ts"]
+---
+
+**Status: Format only.** Every kind is checked and a pack that passes is stored; the game's import applies none of
+them. Each kind below has its own status: only `rules` runs anywhere, in the Forge's local Play.
+
+A v2 pack's manifest lists its kinds in `kinds`: one, two or all three of `content`, `rules` and `system`, each at
+most once. The kinds say what the pack contains; each member's `role` and each `intents` entry say exactly what it
+changes ([Pack anatomy](/anatomy/)).
+
+| kind | what it holds | status |
+|---|---|---|
+| `content` | assets and maps: models, textures, sounds, collision, data, an authored map | **Format only** |
+| `rules` | the rules of a game mode, as data | **Forge, local only** |
+| `system` | claims on engine systems, such as a full-screen picture effect | **Planned** |
+
+The earlier formats (data mods, texture packs, the model pack, HD texture packs) are not v2 kinds; they have
+[their own page](/kinds/earlier-formats/).
+
+## `content`
+
+Status: **Format only** (the pack-framework spec, "Content"; the viewer's `pageEntry.ts`, line 117, and the Forge's
+`page.ts`, line 1553).
+
+A content pack carries things to draw, hear or stand on: `mesh`, `texture`, `audio`, `collision` and `data` members,
+and a complete authored map as the member `maps/<mapId>.json` (the contract's `maps.ts`). The check has no rule of its
+own for this kind beyond the member rules every pack follows.
+
+What exists: the contract reads a content pack's assets and authored maps, and the Forge's code to place a pack's
+props and play on a pack's map is written and unit-tested. What does not: the Forge page as the game mounts it is
+given no source of pack content, so that code has nothing to read and a content pack changes nothing in any build. A
+layout that uses a pack's content is refused in an online lobby.
+
+## `rules`
+
+Status: **Forge, local only** (the rules contract, §5 "What runs" and §8; the viewer's `forge/matchRules.ts`).
+
+A rules pack is the rules of a game mode written as data: `rules`-role JSON members of the form "when this event
+happens, if these conditions hold, do these actions" -- for example, *a player enters zone `vault`, holds item `key`,
+so door `vault-door` opens*. The events, conditions and actions are a fixed, versioned list the engine publishes; an
+unknown one is refused when the pack is checked, not when it is played. A pack configures the engine's own features
+and never re-implements them.
+
+Where it runs: the Forge's Play. A Forge layout whose mode is a rules mode -- one written in the Forge's Rules panel,
+or a rules pack brought in through the Forge's agent tools -- plays with those rules on the match room that runs on
+your device, which decides every outcome. Anywhere else nothing reads it:
+
+- An online lobby refuses a layout with a rules mode (the contract's `onlineCreatorLayoutRefusal`). Running rules
+  packs on the project's match servers is the owner's decision, not made yet.
+- The game's local pack import stores a rules pack like any other v2 pack and does not apply it.
+- The Forge's development is paused, so this is where rules packs stay for now.
+
+Two checks apply to this kind alone:
+
+- Its `contract` range must not admit any engine contract before `0.1.1`, the first with the rules vocabulary
+  (`pack.CONTRACT_FLOOR`). Write `^0.1.1` or `>=0.1.1`, not `*` or `^0.1.0`.
+- Each `rules` member is read as JSON, and the capabilities it names must agree with the manifest's `handlers`
+  claims (`pack.RULES_MEMBER_INVALID`, `pack.CAPABILITY_MISMATCH`).
+
+The repository's two example rules packs, capture the flag and paintball (`packages/creator-contracts/examples/`), are
+built on the published vocabulary only. What the rules may and may not do is on [Rules and limits](/rules-and-limits/).
+
+## `system`
+
+Status: **Planned** (the contract's `handlers.ts`; the Forge's `page.ts`, lines 955-965).
+
+A system pack changes an engine system through a **handler claim**: it names a slot the engine owns and a handler
+the engine has for it, with options, and the engine runs its own code ([Pack anatomy](/anatomy/), "Handler claims").
+No pack code runs.
+
+The page offers one slot, `visual.post`: one full-screen pass drawn over the finished picture, held by one pack at a
+time. The Forge page sets up the engine side, with one handler for that slot (a picture tint), but nothing yet hands
+it a pack's claim, and the game's import offers no handler to check a claim against, so it refuses one. A system
+pack does nothing in any build.
+
+### The `behaviour` slots
+
+The rules room has a second family of slots, the `behaviour` slots, for the engine features a rules pack configures:
+
+| slot | what it is | one pack at a time |
+|---|---|---|
+| `behaviour.npc` | the engine's non-player character brains (patrol, sentry) | no |
+| `behaviour.zombie` | the zombies' chase and melee, reserved until the room owns them | no |
+| `behaviour.bomb` | the bomb objective's authority | yes |
+| `behaviour.extraction` | the extraction objective's authority | yes |
+
+A rules pack claims these (`rules` kind, above); a claim on a `behaviour` slot must be named by one of its rules
+members' capabilities.
+
+## A pack with several kinds
+
+`kinds` may list more than one: a mode with its own props would be `["content", "rules"]`. The check applies each
+kind's rules to the pack, and each part of the pack is only as far along as its kind's status above.

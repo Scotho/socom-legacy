@@ -6,7 +6,10 @@
   the floor"): the world bomb's model read (s1 StartBomb, s3 the drawing, s6 `BOMB_MODEL_READING`). Amended
   2026-10-09 (PB-8, issue #120; the owner's playtest and ruling PB2.R2): the hold bar read and drawn for the plant and
   the defuse (s3 "The hold bar", s6 `HOLD_BAR_DIRECTION_READING`, `HOLD_BAR_PLACEMENT_READING`), retiring
-  `HOLD_PROGRESS_PLACEHOLDER`.
+  `HOLD_PROGRESS_PLACEHOLDER`. Amended 2026-11-06 (BOMB-MARKS, the owner's words in seat b6): the carried bomb's base
+  mark for both sides by type (s3 "The base mark for both sides", s6 `BASE_MARK_TYPE_RGB_READING`,
+  `BASE_MARK_SPECTATOR_PLACEHOLDER`) and the scoreboard's satchel on the carrier's row, for every viewer as the
+  original (s3 "The scoreboard's satchel", OT.R109 as amended the same day; research 87 s12).
 - Status: **reading, pending review.** Every value is a read of the decompilation (`D:L<n>` of
   `socom2_game.elf.decomp.c`) or of the disc (the MP72 fixture); nothing here is a capture of the original. Under
   AGENTS.md a source read is a reading until reviewed (research 206).
@@ -518,9 +521,9 @@ the remote players, the effects, the world bomb -- so `netPage.ts` needs nothing
   `viewer/test/bombBlastEffect.test.ts`.
 - **The HUD** (`hudFrame`, once a frame): `Hud.setExtraMarks` -- `ret_bomb.tif` at the bomb where it lies (states 1
   and 3; none while carried, for any viewer: OT.R99, "The compass while carried" below) and `ret_base.tif` at the tent
-  the carrier's side must reach, for that side (`COMPASS_BASE_MARK_READING`), drawn by the nav marks' rule (within
-  200 u at 0.005 x 65 px a unit, beyond it pinned at radius 64 at 1.2x with `ret_triangle`; never filtered to the
-  nearest) in `OBJECTIVE_MARK_RGB_READING`'s colour -- and
+  the carrier's side must reach, for both sides by type (`COMPASS_BASE_MARK_READING`, "The base mark for both sides"
+  below), drawn by the nav marks' rule (within 200 u at 0.005 x 65 px a unit, beyond it pinned at radius 64 at 1.2x
+  with `ret_triangle`; never filtered to the nearest) in its type's colour (`BASE_MARK_TYPE_RGB_READING`) -- and
   `Hud.setDefuseTimer`: the fuse's seconds (`defuseTimer()`) in the round timer's place (`DEFUSE_TIMER_LAYOUT_READING`).
   And (PB-8) `Hud.setHoldBar`: the hold bar below, while this page's player holds the plant or the defuse.
 - **The compass while carried** (OT.R99, the owner, 2026-11-02, amended the same night to match the original; task
@@ -537,13 +540,50 @@ the remote players, the effects, the world bomb -- so `netPage.ts` needs nothing
   is the investigator's reading, not re-read here. The port: `BombPage.marks()` draws `ret_bomb` for states 1 and 3 only; held by `bombPage.test.ts`
   ("OT.R99: ...") and `replaySeekFold.test.ts` (RE-6).
   Findings left open (out of this task's scope, recorded, not changed):
-  - **The other side's base mark.** `FUN_005bbf10` gives every viewer an `ALL_YOUR_BASE` mark at the carrier's side's
-    base (`DAT_00437dcc` / `DAT_00437dd0` + 0x30, chosen by `FUN_002c30b0`, D:L473686-473690): type 2 when the
-    viewer's `+200` mask meets the carrier's, else type 3 (D:L473696-473699) -- research 190 s5 loads types 2-3 as
-    `ret_base`; the port draws `ret_base` for the carrier's side only, none for the other side.
+  - **The other side's base mark.** *Resolved 2026-11-06 by BOMB-MARKS* ("The base mark for both sides" below). Was:
+    `FUN_005bbf10` gives every viewer an `ALL_YOUR_BASE` mark at the carrier's side's base, type 2 or 3; the port drew
+    `ret_base` for the carrier's side only, none for the other side.
   - **The planted bomb's mark.** The plant (state 3) calls `FUN_0059dab0(.., 1)` (`FUN_005bc200` D:L473724, or
     D:L163942-163943 with no planter), whose `param_2` 1 skips the `BOMB_GROUND` maker (D:L457516): the original
     makes no type-1 mark for the planted bomb, where the port draws `ret_bomb` at it in state 3.
+- **The base mark for both sides** (BOMB-MARKS, the owner, Craig, seat b6, 2026-11-06: "when the bomb is picked up the
+  radar should indicate where the respective bomb plant is depending on if seals or terr have picked it up"; reading,
+  pending review). At the pickup `FUN_005bbf10` runs on every console for its local viewer (the carrier himself when
+  his controller answers `+0x2c`, else `FUN_002b3580`'s local player, D:L473671-473681). It frees the `BOMB_GROUND`
+  mark (OT.R99, above), then picks the base the carrier's side must plant at -- `DAT_00437dcc` when `FUN_002c30b0`
+  answers for the carrier, else `DAT_00437dd0` (D:L473686-473690), the choice the plant check `FUN_00594480` makes
+  (D:L452753-452760) -- and makes an `ALL_YOUR_BASE` mark (0x65f870) at its `+0x30` (D:L473695): type 2 when the
+  carrier's `+200` mask meets the viewer's, else type 3 (D:L473696-473699), written into the mark's bits 4-19
+  (D:L473700) and held in the viewer's base slot (`FUN_00544c40`, D:L473701). Research 190 s5 loads types 2-3 as
+  `ret_base.tif`. Their colours are `FUN_002126f0`'s table (floats at `+0xa0` in threes, type 0 first): type 2
+  (40, 62, 36) green, `+0xb8..+0xc0` (D:L68684-68687); type 3 (62, 37, 36) red, `+0xc4..+0xcc` (D:L68680-68683)
+  (`BASE_MARK_TYPE_RGB_READING`); both pulse, as types 1-13 do (`FUN_00211510` D:L68125-68130,
+  `OBJECTIVE_MARK_PULSE_READING`). A drop takes the base mark away (`FUN_0059dab0` D:L457531-457532). *The port*:
+  `BombPage.marks()` draws `ret_base` at `plantSite` of the carrier's side for every viewer with a side while the bomb
+  is carried, `type` 2 for the carrier's side, 3 for the other, `pulse` on; `./hud` colours a typed mark by
+  `BASE_MARK_TYPE_RGB_READING` (`CompassMark.type`). *Was*: the carrier's side alone, in the nav marks' (32, 62, 32),
+  not pulsing. OT.R99 stands: the carried bomb itself is on nobody's compass. *Not traced*: the base mark after a plant
+  (the port keeps its own, none past the carried state); a side-less viewer's `+200` (`BASE_MARK_SPECTATOR_PLACEHOLDER`,
+  none, the port's default before). Held by `bombPage.test.ts` ("BOMB-MARKS: ...", and the OT.R99 and carrier tests'
+  base marks), `hud.test.ts` ("a typed ret_base ...") and `hostageMarks.test.ts` (the base's row).
+- **The scoreboard's satchel** (BOMB-MARKS, the owner, seat b6, 2026-11-06: "qol feature in the scoreboard add a bomb
+  next to the player who has it"; OT.R109 as amended 2026-11-06: both teams, as the original; reading, pending review). The original draws it: research 87
+  s12's satchel row, built here. `FUN_0022a290` (D:L78976), each row, tests the row's player for item 0x9a
+  (`FUN_005c8640(+0x5e0, 0x9a)`, D:L79026) and places `hud_satchel.tif` (the sprite 0x40dbf0, loaded at
+  D:L80001-80003 from the string 0x3e5880; HUD2 on MP2, MP6 and MP72) at x 200..216, baseline - 12 .. + 4 (D:L79027-79030;
+  `DAT_003dc960` 200.0, `DAT_003dc968` 16.0, `DAT_003dc970` 12.0 off the ELF), drawn after the rest of the board
+  (D:L79156). The two teams' blocks (`FUN_00229d00` D:L78848, called for both at D:L80018-80019; each row through
+  D:L78964) test nothing of the viewer's team: the original shows the satchel to both sides. *The port*: `BombPage.hudFrame`
+  hands the carrier's id (carried state only, else null) to `Hud.setBombCarrier`, and `scoreboardLayout` draws the satchel
+  on that row last, for every viewer -- both teams and a spectator, as the original, which opens the board for any seat
+  (`FUN_0022be20`, SELECT) and tests nothing of the viewer in the row draw. *Was* (OT.R109 before its amendment, the
+  same day): the carrier's team only, `SCOREBOARD_SATCHEL_OWN_TEAM_ONLY_ADAPTATION`, removed. Its colour is the sprite's own: `FUN_00364c50` (via
+  `FUN_003fe980` D:L327849) sets (128, 128, 128) and alpha 128 and nothing sets it after (`SCOREBOARD_SATCHEL_RGBA_READING`).
+  Held by `scoreboard.test.ts` ("the satchel ...") and `bombPage.test.ts` (the carrier's setter). *Not built*: the
+  original shows or hides the satchel (`+0x18`, D:L80003/80017) only when `FUN_0022cc10` rebuilds the board -- at the
+  SELECT press and then once a second while it is held (`FUN_0022be20` D:L79875, `DAT_00412e78 > 1.0`) -- so after a drop
+  its satchel can stay on the old row for up to ~1 s; the port clears it the frame the carried state ends (the review's
+  finding 3, 2026-11-06).
 - **The hold bar** (PB-8, issue #120, 2026-10-09; reading, pending review; ruling PB2.R2: "the same timer must show for
   defuses as well"). The prompt's widget (`CZActionBitmap`, research 87 s5) owns two untextured quads, made with it
   (`FUN_0021ded0` D:L73815-73829): a box, black (`FUN_00364930(0, 0, 0)` D:L73816), at 585-635 x 345-360
@@ -769,8 +809,11 @@ the room does not run.
 | `HOLD_BAR_DIRECTION_READING` (PB-8) | `{ plant: 'fills', defuse: 'empties' }`: the fill over the seconds held when `DAT_0044d4a0` is 0, over the timer's seconds left otherwise (D:L74434-74436); `DAT_0044d4a0` read as the world bomb's node (`FUN_0059dab0` D:L457506-457509, D:L457536; cleared at the pickup, `FUN_005bbf10` D:L473669), absent while carried, the planted bomb during a defuse (s3) | capture B items 7 and 8 (the plant's and the defuse's frames) | in code: viewer `bombPage.ts`; open (reading, pending review) |
 | `HOLD_BAR_PLACEMENT_READING` (PB-8) | `'ends-at-commit'`: the plant's bar fades at the commit (bit 5 cleared, `FUN_005920c0` D:L451516) and cannot return in the 2.25 s placement (`FUN_00594480` D:L452769 against the kit's +0x81c, 3.0 from `FUN_005be9a0` D:L475488); the defuse's box stays empty after its commit for 1.0 s (D:L451519-451524, D:L451520-451522; then the hold restarts, D:L452578-452587, D:L453267-453270) (s3) | capture B item 7 (the plant's frames) | in code: viewer `bombPage.ts`; open (reading, pending review) |
 | `HOLD_BAR_OTHER_ACTION_READING` (PB-8) | another action at the head of the list hides the bar at once (D:L74484-74486); the port fades it on every end of the hold instead -- the defuse's prompt is type 7 (bit 4 only for a type-7 head, D:L74304-74307; a hold needs bit 4, D:L453256; `FUN_002209c0` D:L74562-74564), the drop's is not read; no constant | a read of the defuse's and the drop's action records' type; capture B item 8 | *note only*; open |
-| `COMPASS_BASE_MARK_READING` (XR-06) | `'carrier-side'`: `ret_base` at the tent the carrier's side must reach, for that side while it carries the bomb; `ret_bomb` for everyone where the bomb lies (states 1 and 3); the marks beyond 200 u pinned at the rim as the nav marks are. The carried state's audience is settled (OT.R99 as amended 2026-11-02; reading, pending review, s3 "The compass while carried"): no `ret_bomb` on a carrier for any viewer (`FUN_005bbf10` D:L473680-473685, the one type-1 maker `FUN_0059dab0` D:L457516-457526). Still open: the other side's type-3 base mark (D:L473696-473699) and the planted bomb's mark (none in the original, D:L457516) -- s3's two findings | capture B (an enemy's compass while carried: its red base mark; any compass with the bomb planted) | in code: viewer `bombPage.ts`; open (the base's audience, the planted mark) |
-| `OBJECTIVE_MARK_RGB_READING` (XR-06) | the bomb's and the base's marks in the nav marks' (32, 62, 32): `FUN_002126f0`'s table gives each type its RGB (87 s1.7), these two rows unread | a read of the table's two rows; capture B (the bomb on the compass) | in code: viewer `hud.ts`; open |
+| `COMPASS_BASE_MARK_READING` (XR-06; BOMB-MARKS 2026-11-06) | `'both-sides-by-type'`: while the bomb is carried `ret_base` at the tent the carrier's side must reach on every side's compass, `type` 2 for the carrier's side and 3 for the other, pulsing (`FUN_005bbf10` D:L473686-473701; s3 "The base mark for both sides"; *was* `'carrier-side'`, that side alone); `ret_bomb` for everyone where the bomb lies (states 1 and 3); the marks beyond 200 u pinned at the rim as the nav marks are. The carried state's `ret_bomb` is settled (OT.R99 as amended 2026-11-02; reading, pending review, s3 "The compass while carried"): none on a carrier for any viewer (`FUN_005bbf10` D:L473680-473685, the one type-1 maker `FUN_0059dab0` D:L457516-457526). Still open: the planted bomb's mark (none in the original, D:L457516) and the base mark after a plant (not traced; the port draws none past the carried state) | capture B (an enemy's compass while carried: its red base mark; any compass with the bomb planted) | in code: viewer `bombPage.ts`; reading, pending review (the base's audience); open (the planted mark, the base after a plant) |
+| `OBJECTIVE_MARK_RGB_READING` (XR-06) | the bomb's mark in the nav marks' (32, 62, 32), its type's row unread; the base's row type 2's (40, 62, 36) since BOMB-MARKS (`BASE_MARK_TYPE_RGB_READING`; *was* (32, 62, 32)) | a read of the bomb's type and its row; capture B (the bomb on the compass) | in code: viewer `hud.ts`; open (the bomb's row) |
+| `BASE_MARK_TYPE_RGB_READING` (BOMB-MARKS, 2026-11-06) | the base mark's types' colours, GS 0-128: type 2 (40, 62, 36) for a viewer on the carrier's side, type 3 (62, 37, 36) for any other -- `FUN_002126f0`'s table, floats at `+0xa0` in threes, type 0 first (`+0xb8..+0xc0` D:L68684-68687; `+0xc4..+0xcc` D:L68680-68683), the type set by `FUN_005bbf10` D:L473696-473700 | capture B (an enemy's compass while carried) | in code: viewer `hud.ts`; reading, pending review |
+| `BASE_MARK_SPECTATOR_PLACEHOLDER` (BOMB-MARKS, 2026-11-06) | `'none'`: a viewer with no side (a watcher's page) sees no base mark while the bomb is carried -- the port's default before BOMB-MARKS. The original's test is the local player's `+200` mask against the carrier's (`FUN_005bbf10` D:L473697); a spectating console's local `+200` is not read | a spectator's compass while the bomb is carried (capture), or a read of the spectator's `+200` | in code: viewer `bombPage.ts`; open (placeholder) |
+| `SCOREBOARD_SATCHEL_RGBA_READING` (BOMB-MARKS, 2026-11-06; cross-reference, research 87 s16) | the scoreboard satchel at the bitmap's own colour, (128, 128, 128) alpha 128 of 128 | research 87 s16 | in code: viewer `scoreboard.ts`; reading, pending review |
 | `DEFUSE_TIMER_LAYOUT_READING` (XR-06) | `'round-timer-slot'`: the fuse's `"%02d:%02d"` in the round timer's place while it runs, the round's clock not drawn; no label ("MP DEFUSE BOMB" is TCM row 0x2e's, research 197 W2-R-05) | capture B item 8 (the defuse timer's first frame) | in code: viewer `hud.ts`; open |
 | `BOMB_MODEL_READING` (XR-06) | `{ item: 154, model: 'Satchel', node: 'MPFootBomb' }`: item 154 (MPBOMB) has no `ModelName` in `zweapon.rdr`; `FUN_0059dab0` hangs the model libraries' "Satchel" at the bomb's point unturned (D:L457497-457506), the fittings' (`FLIB_MDL.ZED`) on the disc -- read 2026-10-07 (s3), pending review; was C4's placed model as a stand-in | capture B items 5 and 11 (the bomb on the ground: its look) | in code: viewer `bombPage.ts`; open (reading, pending review) |
 | `TURRET_ACTION_BIT_READING` (XR-06; retired) | settled by the read (AD-6, 2026-10-16; reading, pending review): the mount is action 19 (0x80000, `FUN_005a88c0` D:L462999, set at `FUN_005937c0` D:L452472-452475) and the release action 20 (0x100000, `FUN_005a8850` D:L462973, set and returned at D:L452334-452338), the first two bits `FUN_0021f850` tests (D:L74050-74293), so `turret` heads `ACTION_CONTEXT_ORDER` and `ACTION_CONTEXT_BITS.turret` is [0x80000, 0x100000] (s4's table); was `'after-c4'`: the mount after C4 (0x40000) and before the drop (0x40), its bit unread | an original input trace (a turret beside a C4 target): the visible-parity check, owed | removed from viewer `actionContext.ts` 2026-10-16 (AD-6); retired |

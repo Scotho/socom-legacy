@@ -1,4 +1,5 @@
-import { probeFloor, probeGround, type Grid } from '@s2u/scene';
+import { probeFloor, type Grid } from '@s2u/scene';
+import { cameraFloor } from './floorPick';
 
 /**
  * LATER 415 (research 329 §1.2): the renderer's region gate, as far as the teammates' tags read it. The scene walk
@@ -85,13 +86,11 @@ const topBit = (m: number): number => 31 - Math.clz32(m >>> 0);
 /**
  * The region of the floor at or below `point` (`FUN_0031dfd0(0, world, point, 1)` then `FUN_002d4c20`: of the column's
  * hits, the highest whose height is at or under the point's); null with no hit, which writes nothing (D:L140039-140040).
+ * The pick is `./floorPick`'s `cameraFloor` -- the same probe whose hit the sound's and the effects' indoors read.
  */
 export function regionUnder(grid: Grid, point: readonly number[]): number | null {
-  let best: { y: number; region: number } | null = null;
-  for (const h of probeGround(grid, point[0]!, point[2]!)) {
-    if (h.y <= point[1]! && (best === null || h.y > best.y)) best = { y: h.y, region: h.poly.region >>> 0 };
-  }
-  return best ? best.region : null;
+  const hit = cameraFloor(grid, point[0]!, point[1]!, point[2]!);
+  return hit ? hit.poly.region >>> 0 : null;
 }
 
 /** One frame's inputs (`RegionCull.frame`): the shown body's feet, the eye, the spectator, the bodies' feet. */

@@ -200,9 +200,12 @@ ahead) plus the head line.
 `actor[0xc2]` is `+0x308`, the `head` node (`CZSealBody` constructor D:L419620-419621; research 180 §1.3's table). The
 line stands at the head as posed + 2 over the feet. The port's forward kinematics of each idle's first key
 (`MOTION_P.ZAR`, `seal_A_scuba`'s tree, research 180 §1.4's method) gives the head at 17.394 standing, 10.138
-crouched, 3.637 prone: **the lines at 19.394, 12.138 and 5.637**. The room has no posed skeleton, so both ends take
-the idle (as PF-15's `HEADROOM_HIPS_READING`); the posed head moves with the clip (§2.3 gives the error), owed a
-capture. The port gives the line the body's footprint (the disc, or prone the fan's), not one segment ahead.
+crouched, 3.637 prone: **the lines at 19.394, 12.138 and 5.637** at rest. The room has no posed skeleton; until
+2026-11-06 both ends took the idle for every state (as PF-15's `HEADROOM_HIPS_READING`), and the posed head moves with
+the clip (§2.3 gives the error). Since the crouch-run head line (2026-11-06, `WALL_HEAD_LINE_READING` `'posed'`;
+reading, pending review) a body moving on the ground takes the head the clip its ground state plays poses, at its
+greatest over the cycle (`POSED_HEAD_READING`, §2.3); at rest, in the air and under a one-shot it keeps the idle head.
+Owed a capture. The port gives the line the body's footprint (the disc, or prone the fan's), not one segment ahead.
 
 What it changes against the brief: H92's "yes" was asked as "a standing SEAL walks under an overhang lower than his
 head". In the original a standing SEAL passes anything between 6.5 and 19.394 that does not reach either line (the
@@ -231,10 +234,44 @@ Where the port departs from §2.1, each a reading:
 - **A still body** casts nothing ahead in the port (`ahead = 0` with no travel); the original casts along the facing.
   Only the prone line ahead depends on it: a still prone body facing a wall is not pushed back to 8.0.
 - **Turning prone** the port keeps the 0.39 r fan; the original swaps it for one turned 0.3-1.2 r line (§2.1). Not built.
-- **The head line's height.** Idle on both ends; the posed head moves with the clip. The port's forward kinematics over
-  each clip's keys: crouch-walking (`seal_crouchwalk`) the head stands 12.84 to 13.09, so the port's 12.138 line is
-  2.7 to 3.0 low; running (`seal_run`) 15.39 to 15.74, so the 19.394 line is 1.7 to 2.0 high (standing idle it is exact).
-  A running SEAL in the original meets a lintel lower, about 17.4 to 17.7, than the port's 19.4.
+- **The head line's height.** Was idle on both ends; the posed head moves with the clip. The port's forward kinematics
+  over each clip's keys: crouch-walking (`seal_crouchwalk`) the head stands 12.84 to 13.09, so the idle 12.138 line was
+  2.7 to 3.0 low; running (`seal_run`) 15.39 to 15.74, so the 19.394 line was 1.7 to 2.0 high (standing idle it is
+  exact). A running SEAL in the original meets a lintel lower, about 17.4 to 17.7, than the idle's 19.4 -- and passes
+  one between: seat b6's finding (2026-11-06), MP72's warehouse doorway at (569.28, 13.81, 1459.43) facing 184.8, whose
+  lintel slab's underside stands 18.23 over the feet 4 ahead, stopped a crouch run (the stick at 0.838 or over,
+  `FUN_00584c60`: it stands and runs the standing blend) where the crouch walk (12.138) and the crawl pass.
+  **Built 2026-11-06 (the crouch-run head line, `agent/crouch-headline`; reading, pending review):**
+  `WALL_HEAD_LINE_READING` `'posed'` -- moving on the ground (`Walker.ground` `stand`, `crouch`, `prone` with the
+  posture its own) the line is the posed head + 2 from `POSED_HEAD_READING`: the head node's greatest height over a
+  held cycle, measured on the port's animator (`Animator` over `MOTION_P.ZAR`, `READERC.ZAR`'s `motion.rdr`,
+  `seal_A_scuba` from `MP2.ZDB`; `crouchRunHeadLineDisc.test.ts` re-measures it). Standing (and the crouch run) the row
+  of the stick's class (`moveClass`), each the greatest of the class's direction and its two diagonals, at the stick's
+  length in steps of 0.1 (between two, the greater): forward the walk 16.705-16.891 (to 0.4), the jog to 17.383 (0.6),
+  the run 16.530 (0.8), 16.006 (0.9), **15.761 (1.0; the line 17.761)**; back 16.58-17.14; right 16.06-16.58; left
+  16.15-16.68. Crouch-walking by the held class, its own set with no blend (`FUN_00582d10`; review F1, 2026-11-07):
+  forward 13.122 (the line 15.122), back 13.114, right 12.990, left 13.274 (15.274); crawling 4.996 (6.996). **A
+  partial-push crouch run still stops at the MP72 doorway** (review F3): a stick in (0.8, 0.9] takes the greater of the
+  0.8 and 0.9 samples, 16.530, a line of 18.53 over the lintel's 18.23, so only a push of 0.9 or over (16.006, the line
+  18.006) clears it (`crouchRunHeadLineDisc.test.ts` pins 0.86 stopped, 0.9 through). The animator's own head between
+  the samples falls near-linearly (0.82 16.424, 0.84 16.319, 0.86 16.215, 0.88 16.112): taken straight it would stop
+  0.84 (18.32) and pass 0.86 (18.215, by 0.015), so the greater over-stops 0.85-0.9; it is kept, being the bound the
+  samples give -- nothing in the original says the head is linear in the stick (the jog's 0.5-0.7 is not: 17.138,
+  17.383, 17.024), and a 0.015 margin is inside what the unfollowed cycle phase decides. At rest, in the air and
+  while a one-shot owns the body (`action`), the idle head as before (standing idle 19.394 unchanged). The measured
+  spots (dev-disc, `crouchRunHeadLineDisc.test.ts`): the MP72 doorway's crouch run now passes (z over 1490 in 4 s;
+  before, it never left 1459.43); the crouch walk at 0.83 and the crawl pass as before. OBF-21's canopy band (MP72 --
+  the brief's "MP2" has no floor there -- at (1284.78, 56.87, 1545.75), y 75.8-76.9): the run and the crouch run facing
+  0 (and 315) were held (1.0, 1.3 moved in 3 s) and now pass (184, 181), the run's line at 74.63; the jog (0.5) is
+  still held there (its cycle's top + 2, 19.383, meets the band at 76.25 -- the cycle's phase is not followed, so the
+  original may slip under it on the low half of the cycle); the crouch walk and the crawl unchanged. What changed in
+  the synthetic tests (re-judged, `walk.test.ts`, `wallProbes.test.ts`): a lintel at 18 is now run under (the run's
+  17.761) and one at 17.5 meets it; a standing walk (0.3) is stopped by a lintel at 18.23 that the run and the crouch
+  run pass; the crawl's line 6.996 still meets a bar from 5 to 7, and down a 20-degree slope the lifted crawl line now
+  passes under a bar from 7.5 (was 6). Not followed: the cycle's phase (its top stands for every phase), the blend's
+  cross-fade between clips (the ramped stick's table at once), the sticks between the 0.1 samples (the greater of the
+  two), and whether the original's posed head is the port's animator's (the engine's blend as the animator transcribes
+  it). Owed: a capture, a SEAL walked, run and crouch-run under a lintel (this doorway, the canopy band).
 - **The probe's tilt** (`PRONE_PROBE_TILT_READING = 'root'`, PRONE-TILT-2 (3), §7.8; ruling PF.R44 for the level
   tread): the prone low line ahead rises with the root's tilt; the 3.12 disc and the crossing guard stay level; on a
   level tread the tilt is none, so stairs read as §2.5.
@@ -1474,7 +1511,8 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `CORPSE_TILT_READING` (`rootTilt.ts`) | `'by-span'`: a dead body runs the rule on its top play's window (the walker's `dead`); in the air its top is the dead's posture word 8 (0.8 / 0.99) | `FUN_00548090` D:L413207-413214; `FUN_005807d0` D:L442094-442102; `FUN_005a2490` D:L459804; `FUN_0059b440` D:L456563-456565 (§7.9) | a reading, pending review: `FUN_00550ef0` skips the pass and the rule for an actor in state 8 (D:L418070, D:L418112-418114, D:L418460; `FUN_005506a0` D:L417822) and where `+0x174` becomes 8 for the dead is not read; the page's death poses are not the walker's top and stay level (not built); `'level'` the alternative; settled by a PCSX2 read of the root and `+0x174` on a SEAL killed on M51's incline |
 | `HOSTAGE_PRONE_TILT_READING` (`remotePlayers.ts`) | `'unprone'`: a knocked hostage's tilt takes no prone ease on the page, as the room's `HostageFollow` walker (never prone) | `FUN_0058a4d0` D:L442089; `FUN_005807d0` D:L442094-442102; research 189 #13 (§7.10) | a reading, pending review (PRONE-TILT-2 review F1): whether the hostage's AI controller answers vtable +0x34 (`CRemoteCtrl::IsRemote`, research 193 §9) false where the room runs it, and whether `+0x174` follows the stack's top word, are not read; `'ai-stance'` the alternative (the AI's stance as the posture), not built for the room; settled by a PCSX2 read of a get-down hostage through a blast on a slope |
 | `TILT_HIT_TEST_READING` (`rootTilt.ts`) | `'posed'`: the room's capsules (and the page's copies of them) turn with the root's tilt about the posed root | `FUN_005abbc0` hits the skeleton's nodes (research 91 §1.3); whether after this rule's write is not read (§7.4) | a reading, pending review: `'level'` the alternative; settled by a capture of a shot along a prone body on a slope |
-| `WALL_HEAD_LINE_READING` (`mover.ts`) | `'idle'`: the line at the stance's idle head + 2 (19.394, 12.138, 5.637) on both ends | D:L415441-415459 (§2.2) | a reading: the original's is the posed head; owed a capture, a SEAL walked and crouch-run under a lintel. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 |
+| `WALL_HEAD_LINE_READING` (`mover.ts`) | `'posed'` (2026-11-06, the crouch-run head line): moving on the ground the line at the posed head + 2 of the clip the ground state plays (`POSED_HEAD_READING`); at rest, in the air and under a one-shot the stance's idle head + 2 (19.394, 12.138, 5.637); `'idle'` (the idle head for every state) the switch's other arm, as before | D:L415441-415459 (§2.2); `FUN_00584c60` (the crouch run plays the standing blend) | a reading, pending review: the cycle's phase and the blend's cross-fade are not followed (§2.3); MP72's warehouse doorway (a crouch run stopped under the 18.23 lintel) and the canopy band below now pass the run (dev-disc, `crouchRunHeadLineDisc.test.ts`); a partial push (0.84-0.9) still stops at the doorway (§2.3); the crouch-walk and crawl lines rose (15.0-15.3, 7.0) and only MP72's two spots were measured -- LATER 723, a dev-disc sweep of every map for wall faces whose underside sits in those bands over a walkable floor; owed a capture, a SEAL walked, run and crouch-run under a lintel. Before 2026-11-06 the idle head for every state. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 -- and since 2026-11-06 does (§2.3) |
+| `POSED_HEAD_READING` (`mover.ts`) | the head node's greatest height over a held cycle: standing by the stick's class and length (0.1 to 1.0; forward the walk 16.705 to the run's 15.761), crouch-walking by class 12.990-13.274 (forward 13.122), crawling 4.996 | the port's `Animator` over `MOTION_P.ZAR` / `READERC.ZAR` on `seal_A_scuba` (§2.3), re-measured by `crouchRunHeadLineDisc.test.ts` | a reading, pending review: measured on the port's animator, not the original's; the 0.1 samples and the greater of two stand for the sticks between; owed with `WALL_HEAD_LINE_READING`'s capture |
 | `WALL_PROBE_ACTIONS_READING` | the actions that set `bVar5` standing or crouched (heights 9.55 / 7.5) | D:L415088-415111 (§2.1) | *note only*: none of 0x1a / 0x1b / `DAT_003dec58` / `DAT_003decc0..d0` is a port action yet; owed a read |
 | `WALL_DEEP_REVERT_READING` | when the deepest contact is over 1.0 and `bVar6 || 2 < iVar25`, the displacement is zeroed (the body where the tick began); otherwise `depth - 1` along the deepest normal | `FUN_005483d0` D:L413406-413614, saved D:L413959-413962 (§2.3, §2.8) | resolved 2026-11-02 (SEGMENT-BODY, §2.9): built on the original's segments (`SEGMENT_BODY_READING` `depth`, `jamHits`); was *note only* on the disc, where it stuck MP72's emb01 step-down and froze a body placed deep (§2.3) |
 | `CROUCH_TOP_READING` (`mover.ts`) | was 14 | §2 | retired 2026-10-05 (PF-16): no column; `WALL_PROBE_READING` and the head line |

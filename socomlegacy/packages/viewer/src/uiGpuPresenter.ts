@@ -1,9 +1,10 @@
 import type { Rgba } from '@s2u/gs';
-import type { UiDrawItem } from '@s2u/ui';
-import { rasterizeUiDrawList, type RasterOptions, type UiTextures } from './uiCompositorView';
+import type { MoviePicture, UiDrawItem } from '@s2u/ui';
+import { rasterizeUiDrawList, type RasterOptions, type UiBitmap, type UiTextures } from './uiCompositorView';
 import { planFrame, type UiFramePlan, type UiPlanBlendMode, type UiPlanStep } from './uiFramePlan';
 import {
-  UI_GPU_GUARD_SAMPLE_ADAPTATION, UI_GPU_GUARD_TRIP_ADAPTATION, UiGpuGuard, uiGpuIdle, type UiGpuGuardBound, type UiGpuGuardRecord, type UiGpuIdle,
+  UI_GPU_GUARD_SAMPLE_ADAPTATION, UI_GPU_GUARD_TRIP_ADAPTATION, UiGpuGuard, uiGpuExactMask, uiGpuIdle, type UiGpuGuardBound, type UiGpuGuardRecord,
+  type UiGpuGuardReference, type UiGpuIdle,
 } from './uiGpuGuard';
 import type { UiGpuHdKeys, UiGpuTextureOptions } from './uiGpuTextures';
 import type { UiPresenter, UiPresented, UiPresentProbe } from './uiPresenter';
@@ -109,6 +110,8 @@ export class GpuUiPresenter implements UiPresenter {
   // dirty check.
   private onCanvas: { hash: string; keys: readonly string[] } | null = null;
   private attempting: string | null = null;
+  private planned: UiFramePlan | null = null;
+  private keepPlan = false;
 
   constructor(readonly backend: UiGpuBackend, private readonly o: GpuUiPresenterOptions = {}) {}
 
@@ -117,6 +120,15 @@ export class GpuUiPresenter implements UiPresenter {
 
   /** GM-12a: the hash of the plan the last present was drawing (set before its first GL call), for a failure's log line. */
   get attempt(): string | null { return this.attempting; }
+
+  /**
+   * GM-14c: the plan of the last `present`, kept only when `keepNextPlan` asked for it before (the guard under `on`);
+   * null otherwise -- review fold F2: a plan holds its textures' images (HD ones too), so no other frame keeps one alive.
+   */
+  get lastPlan(): UiFramePlan | null { return this.planned; }
+
+  /** GM-14c (review fold F2): the next `present` keeps its plan (`lastPlan`), until the one after. */
+  keepNextPlan(): void { this.keepPlan = true; }
 
   /** GM-12a: the next frame is drawn whatever its hash (the canvas may no longer hold the last one). */
   invalidate(): void { this.onCanvas = null; }
@@ -159,6 +171,8 @@ export class GpuUiPresenter implements UiPresenter {
     const plan = this.planOf(items, textures, options);
     const { width, height } = plan.target;
     this.attempting = plan.hash;
+    this.planned = this.keepPlan ? plan : null;
+    this.keepPlan = false;
     let refused = this.backend.refusal(plan);
     let undrawn: string[];
     // GM-12a, the dirty check by plan hash: a frame whose plan hashes as the one on the canvas and reads the same texture
@@ -288,6 +302,13 @@ export interface UiGpuSurfaceHost {
    * the read-out's `refusals` (`window.__uiGpu`; a test instrument, nothing of the game). Told after the frame is counted.
    */
   refused?(surface: UiGpuSurface, why: readonly string[]): void;
+  /** GM-14c: whether the surface's `on` frames are guarded (the switch's `guardOn`: `?uiGpuGuard=on`, the dev server only). */
+  guardOn?(surface: UiGpuSurface): boolean;
+  /**
+   * GM-14c: a test's plant -- the byte of the guard's rastered reference to flip, or `exact` (review fold F1: the first
+   * pixel of the frame's exact class) -- the switch's `guardPlant`; null: none.
+   */
+  guardPlant?(surface: UiGpuSurface): number | 'exact' | { readonly at: number | 'exact'; readonly scale: number } | null;
 }
 
 /** A software presenter that can keep the frame it puts (`CpuUiPresenter.retainNext` / `takeFrame`): the shadow's reference. */
@@ -337,6 +358,69 @@ export interface UiGpuSurfaceOptions {
   guardBound?: UiGpuGuardBound | null;
   /** GM-16: overrides of `UI_GPU_GUARD_SAMPLE_ADAPTATION` (a test's). */
   guardSample?: Partial<typeof UI_GPU_GUARD_SAMPLE_ADAPTATION>;
+  /**
+   * GM-14c (GM.R11): the guard under `on` -- a dev and canary instrument. Absent or false, as on every release surface
+   * (`UI_GPU_SURFACES_ADAPTATION` keeps them `off`; nothing in the page sets it): an `on` frame is drawn and shown as
+   * before, nothing read back, nothing scheduled.
+   */
+  guardOn?: boolean;
+  /** GM-14c: the guard's reference raster under `on`; absent, today's software path (`rasterizeUiDrawList`). A test plants through it. */
+  guardReference?: (items: readonly UiDrawItem[], textures: UiTextures, options: RasterOptions) => Rgba;
+}
+
+/**
+ * GM-14c: a draw list's data copied for the guard's idle raster -- every array and plain object, so a caller that
+ * rewrites its list or an item in place after the frame does not reach the reference; a movie `picture` and a widget's
+ * dialog `record` kept by reference (the picture keys the frame's kept pixels, `tapFrameInputs`; a record is read for
+ * its `type` only, as undrawn). Made only for a frame the guard samples.
+ */
+export function snapshotDrawItems(items: readonly UiDrawItem[]): UiDrawItem[] {
+  const copy = (v: unknown, key?: string): unknown => {
+    if (key === 'picture' || key === 'record' || v === null || typeof v !== 'object') return v;
+    if (Array.isArray(v)) return v.map((x) => copy(x));
+    if (ArrayBuffer.isView(v)) return typeof (v as { slice?: unknown }).slice === 'function' ? (v as unknown as { slice(): unknown }).slice() : v;
+    if (Object.getPrototypeOf(v) !== Object.prototype) return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) out[k] = copy(x, k);
+    return out;
+  };
+  return items.map((it) => copy(it) as UiDrawItem);
+}
+
+/**
+ * GM-14c: a frame's inputs as the frame read them -- the bank's bitmaps by name, the HD lookup's answers by bitmap, the
+ * movie pictures -- each asked of the page once and kept, so the guard's idle raster reads what the GPU's frame read and
+ * never asks the page's HD lookup again (an ask it had not had would start a load and a decode, `HdMenuTextures.lookup`).
+ * The answers are handed through unchanged (the same objects), so the frame's plan and bytes are the same.
+ */
+function tapFrameInputs(textures: UiTextures, options: RasterOptions) {
+  const bitmaps = new Map<string, UiBitmap | null>(), hd = new Map<UiBitmap, Rgba | null>(), pictures = new Map<MoviePicture, Rgba | null>();
+  const memo = <K, V>(m: Map<K, V>, ask: (k: K) => V) => (k: K): V => {
+    if (m.has(k)) return m.get(k)!;
+    const v = ask(k);
+    m.set(k, v);
+    return v;
+  };
+  const tapped: RasterOptions = { ...options };
+  if (options.hd) tapped.hd = memo(hd, options.hd);
+  if (options.movie) tapped.movie = memo(pictures, options.movie);
+  return {
+    textures: memo(bitmaps, textures) as UiTextures,
+    options: tapped,
+    /**
+     * The inputs for the idle raster, after the frame: the kept answers only (one never asked answers null -- the GPU's
+     * plan never drew it either); a movie picture's pixels copied now, since its decoder may reuse its buffer.
+     */
+    replay(): { textures: UiTextures; options: RasterOptions } {
+      const shots = new Map<MoviePicture, Rgba | null>();
+      for (const [k, v] of pictures) shots.set(k, v ? { width: v.width, height: v.height, data: v.data.slice() } : null);
+      const kept = <K, V>(m: Map<K, V | null>) => (k: K): V | null => (m.has(k) ? m.get(k)! : null);
+      const o: RasterOptions = { ...options };
+      if (options.hd) o.hd = kept(hd);
+      if (options.movie) o.movie = kept(shots);
+      return { textures: kept(bitmaps), options: o };
+    },
+  };
 }
 
 /**
@@ -493,7 +577,10 @@ export class UiGpuSurfacePresenter implements UiPresenter {
       const wasAfterLoss = this.afterLoss;
       try {
         this.backend!.setHdKeys(this.o.hdKeys?.() ?? null);   // GM-14a: the page's HD keys, on whichever backend is live
-        const out = this.gpu.present(items, textures, options, probe);
+        const guarded = this.o.guardOn ?? this.o.host?.guardOn?.(this.o.surface) === true;   // GM-14c: the option, else the switch's
+        const tap = guarded ? tapFrameInputs(textures, options) : null;                     // only under the guard
+        if (tap) this.gpu.keepNextPlan();                                                    // review fold F2: the plan kept only then
+        const out = tap ? this.gpu.present(items, tap.textures, tap.options, probe) : this.gpu.present(items, textures, options, probe);
         const rec = this.gpu.last!;
         this.frameAt(rec.path === 'gpu' ? 'L0' : 'L1');
         if (rec.path === 'software') this.o.host?.refused?.(this.o.surface, rec.why);   // GM-16c: why the frame was L1
@@ -501,6 +588,13 @@ export class UiGpuSurfacePresenter implements UiPresenter {
         if (wasAfterLoss) this.restoreDone();
         this.lastWas = 'gpu';
         this.show('gpu');
+        // Codex P2 on PR #706: an unchanged frame is offered too, so a static frame the guard refused at its first present
+        // (a compare in flight, or within gapMs) is compared once it is free, and re-sampled after repeatMs, as shadow is
+        // (`UiGpuGuard.wants` decides; nothing is done unless a sample is due). Its read-back reads that frame: the frame
+        // target is written only by `UiGpuBackend.draw`, `uploadFrame` (L1) and shadow's `drawOffscreen`, and each of
+        // those -- like `invalidate` and a new backend after a loss -- clears the dirty check's kept frame
+        // (`GpuUiPresenter.present`, `onCanvas`), so an unchanged frame's target still holds its last draw.
+        if (tap && rec.path === 'gpu') this.guardOnFrame(items, tap, probe);
         return out;
       } catch (e) {
         const lost = this.gl?.isContextLost() === true;
@@ -769,6 +863,50 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     this.lastWas = 'software';
     this.show('software');
     return out;
+  }
+
+  /**
+   * GM-14c (GM.R11): an `on` frame the GPU drew, offered to the guard. Sampled as shadow is (`UiGpuGuard.wants`): its
+   * read-back begun now (a pack buffer and a fence, nothing waits) and a raster handed over for the idle time -- nothing
+   * rastered or compared here. The raster first checks that every HD image the frame's plan drew is still resident in
+   * the page's lookup (the same pack, keyed by `gpuKeyOf`) and answers a skip, with why, when one is not; then draws the
+   * shown scale's software frame from the frame's own inputs (`tapFrameInputs`), never asking the page's lookup again.
+   */
+  private guardOnFrame(items: readonly UiDrawItem[], tap: ReturnType<typeof tapFrameInputs>, probe?: UiPresentProbe | null): void {
+    const plan = this.gpu?.lastPlan, backend = this.backend;
+    if (!plan || !backend) return;
+    const guard = this.guardOf(), at = this.o.clock.now();
+    if (!guard.wants(at, plan.hash)) return;
+    const readback = backend.beginReadback();
+    const pack = this.o.hdKeys?.()?.pack ?? null;
+    const hd = plan.textures.filter((t) => t.hd);
+    const inputs = tap.replay();
+    const kept = snapshotDrawItems(items);                     // the frame's list, whatever its caller does to it after
+    const plant = this.o.host?.guardPlant?.(this.o.surface) ?? null;
+    const draw = this.o.guardReference ?? ((i: readonly UiDrawItem[], t: UiTextures, o: RasterOptions): Rgba => rasterizeUiDrawList(i, t, o).frame);
+    const raster = (): UiGpuGuardReference => {
+      const live = this.o.hdKeys?.() ?? null;
+      for (const t of hd) {
+        if (!live) return { skip: `HD image ${t.name} not resident at ${plan.target.scale}x: the page's HD lookup is gone (no decode asked)` };
+        if (live.pack !== pack) return { skip: `HD image ${t.name} not resident at ${plan.target.scale}x: the pack changed (${pack} -> ${live.pack}; no decode asked)` };
+        if (live.gpuKeyOf(t.image) === null) return { skip: `HD image ${t.name} not resident at ${plan.target.scale}x: no longer kept by the page's lookup (no decode asked)` };
+      }
+      const frame = draw(kept, inputs.textures, inputs.options);
+      if (plant === null) return frame;
+      // GM-14c: a test's plant (`?uiGpuGuardPlant=`, the dev server only): one byte of the reference flipped, said in the
+      // record. Review fold F1: `exact` takes the red byte of the first pixel the plan puts in the exact class. Part B: a
+      // plant scoped to a scale (`exact@4`) leaves a frame at another scale unplanted, said in the record.
+      if (typeof plant === 'object' && plan.target.scale !== plant.scale) {
+        return { frame, note: `not planted: the frame is at ${plan.target.scale}x, the plant asks ${plant.scale}x` };
+      }
+      const what = typeof plant === 'object' ? plant.at : plant;
+      const at = what === 'exact' ? uiGpuExactMask(plan).indexOf(1) * 4 : what;
+      if (at < 0) return { frame, note: 'uiGpuGuardPlant exact: no pixel of the frame is in the exact class: nothing planted' };
+      if (at >= frame.data.length) return { frame, note: `uiGpuGuardPlant ${what} is past the reference's ${frame.data.length} bytes: nothing planted` };
+      frame.data[at] = frame.data[at]! ^ 1;
+      return { frame, note: `planted: byte ${at} of the reference flipped (uiGpuGuardPlant, a test's)` };
+    };
+    guard.submit({ readback, raster, plan, probe, at });
   }
 
   /** GM-16: the surface's guard, made at its first shadow frame. */

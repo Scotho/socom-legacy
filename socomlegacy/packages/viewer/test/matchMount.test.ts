@@ -903,6 +903,12 @@ describe('sprint 29 wave 4: the front end match mirrors main.ts\'s view and spec
       expect(src('matchMount.ts')).toMatch(inCopy);
     });
   }
+  it("LATER 671 (the v0.4.11 review's F3): the test room's tags take TEAMMATE NAMES' original setting as matchMount.ts does", () => {
+    for (const f of ['main.ts', 'matchMount.ts']) {
+      expect(src(f), f).toMatch(/hud\.setTeamTags\(page \? teamTags\(\{ \.\.\.teamTagInput\([^\n]*\), original: hud\.teammateNamesOriginal\(\) \}\) : null\);/);
+      expect(src(f), f).toMatch(/hud\.setTeammateNames\(teamNames !== 0, teamNames === TEAMMATE_NAMES_ORIGINAL_VALUE\);/);
+    }
+  });
   it('PF-31: the map\'s scenic views reach the page (NetPageDeps.scenicViews): once, in matchNet.ts', () => {
     expect(src('matchNet.ts')).toMatch(/scenicViews: \(\) => scenicViews\(p\.map\(\) \?\? \{\}\),/);
     expect(src('matchNet.ts')).toMatch(/import \{ scenicViews \} from '\.\/spectatorView';/);
@@ -1808,7 +1814,7 @@ describe('ACT-1: the action part on the menu-launched match (the playtest of 202
     // The room's pickup by proximity, told: this seat carries it.
     x.say({ type: 'bomb', ...onGround, state: 2, carrier: 2, pickupAfterTick: 240 } as unknown as ServerEvent);
     t.w.step(1);
-    expect(marks()).toEqual([{ bitmap: 'ret_base.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2] }]);
+    expect(marks()).toEqual([{ bitmap: 'ret_base.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2], type: 2, pulse: true }]);   // BOMB-MARKS: the carrier's side, type 2
     expect(satchel[0]!.visible).toBe(false);                                             // carried: no world bomb
     m.close();
   });
@@ -2060,7 +2066,7 @@ describe("ACT-4: the HUD's prompts on the menu-launched match", () => {
     expect(model().defuseTimer ?? null).toBeNull();
     a.x.say({ type: 'bomb', ...onGround, state: 2, carrier: 2 } as unknown as ServerEvent);
     a.t.w.step(1);
-    expect(model().extraMarks).toEqual([{ bitmap: 'ret_base.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2] }]);
+    expect(model().extraMarks).toEqual([{ bitmap: 'ret_base.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2], type: 2, pulse: true }]);   // BOMB-MARKS: the carrier's side, type 2
     a.x.say({ type: 'bomb', ...onGround, state: 3, pos: TERRORIST_TENT, carrier: null, planter: 2, plantingTeam: 'seal', detonateTick: 600 } as unknown as ServerEvent);
     a.t.w.step(1);
     expect(model().extraMarks).toEqual([{ bitmap: 'ret_bomb.tif', x: TERRORIST_TENT[0], z: TERRORIST_TENT[2] }]);

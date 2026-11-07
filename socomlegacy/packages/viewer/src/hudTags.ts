@@ -38,6 +38,34 @@ export const MP_TEAM_TAG_CULL_READING = 'the group visible, the zone drawn and t
  */
 export const MP_TEAM_TAG_TALKER_ADAPTATION = 'heardTalker' as const;
 
+/**
+ * TEAMMATE_NAME_DISTANCE_ADAPTATION (LATER 671; **a browser adaptation** on the owner's ruling OT.R101, H394 "Make it
+ * the default"): by default the tags are drawn at `scale` (the original's is 0.9, `TEAM_TAG_LAYOUT.scale`, D:L77539)
+ * and each tag's alpha is multiplied by a factor of its camera-to-head distance in world units -- 1 within `near`,
+ * falling linearly to `minAlpha` at `far` and held there -- the death fade (100 - 20 t) still on top. The original has
+ * no distance term (D:L77427-77433); TEAMMATE NAMES' "original" setting (`TEAMMATE_NAMES_ORIGINAL_VALUE`) keeps its
+ * tags exactly. The values are the controller's starting call for the owner to tune (seat b6, 2026-11-06): 10 world
+ * units a metre (`UNITS_PER_METRE`, research 84 §2; a standing body's headroom is the feet + 19, research 217), so full
+ * to 25 m and 35% from 100 m.
+ */
+export const TEAMMATE_NAME_DISTANCE_ADAPTATION = { scale: 0.7, near: 250, far: 1000, minAlpha: 0.35 } as const;
+/**
+ * The TEAMMATE NAMES setting that keeps the original's tags (LATER 671, OT.R101; **a browser adaptation**): the valve
+ * `DISPLAY_MP_TEAM_NAMES` at 2 -- beside the original's 0 (off) and 1 (on, here the adapted tags). Any value not 0
+ * is on to the original's own read (`!= 0`, D:L77558-77559), so 2 shows the names there too.
+ */
+export const TEAMMATE_NAMES_ORIGINAL_VALUE = 2;
+
+/** The adaptation's alpha factor at a distance (`TEAMMATE_NAME_DISTANCE_ADAPTATION`): 1 to `near`, linear to `minAlpha` at `far`. */
+export function teamTagDistanceFactor(distance: number): number {
+  const A = TEAMMATE_NAME_DISTANCE_ADAPTATION;
+  if (!(distance > A.near)) return 1;
+  if (distance >= A.far) return A.minAlpha;
+  return 1 - (1 - A.minAlpha) * (distance - A.near) / (A.far - A.near);
+}
+
+/** The original's text scale (`+0x58` 0x3f666666, D:L77539), as `./hud` `TEAM_TAG_LAYOUT.scale`. */
+const ORIGINAL_SCALE = 0.9;
 /** The anchor's rise over the `head` node, world units up (`fStack_1c + 3.0`, D:L77383-77384). */
 const HEAD_RAISE = 3.0;
 /** None behind the eye: the projected w at or under this (D:L77388). */
@@ -76,14 +104,25 @@ export interface TeamTagInput {
   camera: Camera;
   /** The seat holding the listener's channel (`iStack_f0`, D:L77345-77350), as the voice indicators name it; null none. */
   holder: number | null;
+  /** LATER 671: TEAMMATE NAMES' "original" setting -- the original's tags, no distance term, 0.9; absent, the adaptation (OT.R101). */
+  original?: boolean;
 }
 
 /** One tag's point: the text, the alpha (GS units, 100 full), the centre's place across (0..1) and its y on the 448 frame. */
-export interface TeamTagPoint { id: number; text: string; alpha: number; u: number; y: number }
-/** What `Hud.setTeamTags` takes (`./hud` `teamTagLayout` lays it out): the points in order, the talker, the page's own id. */
-export interface TeamTagsView { points: TeamTagPoint[]; holder: number | null; self: number | null }
+export interface TeamTagPoint {
+  id: number; text: string; alpha: number; u: number; y: number;
+  /** LATER 671: the camera-to-head distance, world units (`TEAMMATE_NAME_DISTANCE_ADAPTATION`'s input); absent on a hand-made point. */
+  distance?: number;
+}
+/**
+ * What `Hud.setTeamTags` takes (`./hud` `teamTagLayout` lays it out): the points in order, the talker, the page's own id;
+ * `scale`, the text's (LATER 671: the adaptation's or the original's 0.9 -- one value for the layout's width, its
+ * bounds and overlap push, and the draw); absent, 0.9.
+ */
+export interface TeamTagsView { points: TeamTagPoint[]; holder: number | null; self: number | null; scale?: number }
 
 const scratch = new Vector3();
+const eyeAt = new Vector3();
 
 /**
  * A world point through the camera: its w (`-z` in the view, the original's projected w, D:L77388) and its place on the
@@ -112,6 +151,9 @@ function headInView(camera: Camera, head: readonly number[]): boolean {
  * (w over 0.0001, D:L77388); its text "[tag] name" through `taggedName` for a tag of one character or more (the info box's
  * rule, 0x3e54f8, D:L77394-77398; online, the port's only mode); its alpha 100 alive, 100 - 20 t dead (D:L77427-77433).
  * Every eligible body is kept: the cap of eight counts drawn tags (D:L77357-77358), the layout's.
+ * LATER 671 (`TEAMMATE_NAME_DISTANCE_ADAPTATION`, a browser adaptation, OT.R101): unless `i.original`, the alpha is
+ * multiplied by the head's distance factor (`teamTagDistanceFactor`) and the view's scale is the adaptation's; with it,
+ * the points are the original's and the scale 0.9. Each point carries its distance either way.
  */
 export function teamTags(i: TeamTagInput): TeamTagsView {
   const self = i.self, points: TeamTagPoint[] = [];
@@ -122,10 +164,12 @@ export function teamTags(i: TeamTagInput): TeamTagsView {
     if (!headInView(i.camera, b.head)) continue;
     const p = project(i.camera, b.head[0]!, b.head[1]! + HEAD_RAISE, b.head[2]!);
     if (p.w <= EYE_W) continue;
-    const alpha = b.dead === null ? FADE.alive : FADE.alive - FADE.perSecond * b.dead;
-    points.push({ id: b.id, text: taggedName(b.clan, botDisplayName(b.name, b.bot === true)), alpha, u: p.u, y: p.y });
+    const fade = b.dead === null ? FADE.alive : FADE.alive - FADE.perSecond * b.dead;
+    const distance = i.camera.getWorldPosition(eyeAt).distanceTo(scratch.set(b.head[0]!, b.head[1]!, b.head[2]!));
+    const alpha = i.original ? fade : fade * teamTagDistanceFactor(distance);
+    points.push({ id: b.id, text: taggedName(b.clan, botDisplayName(b.name, b.bot === true)), alpha, u: p.u, y: p.y, distance });
   }
-  return { points, holder: i.holder, self: self?.id ?? null };
+  return { points, holder: i.holder, self: self?.id ?? null, scale: i.original ? ORIGINAL_SCALE : TEAMMATE_NAME_DISTANCE_ADAPTATION.scale };
 }
 
 /** What `teamTagInput` reads of a page's `NetPage` (structural). */

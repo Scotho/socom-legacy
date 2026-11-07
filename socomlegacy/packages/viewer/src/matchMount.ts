@@ -24,7 +24,7 @@ import { keepClearWatch } from './hudMessagePanel';
 import { sessionGameDetails } from './scoreboard';
 import { handRoundScreenBitmaps, type ArmoryBitmaps } from './roundScreens';
 import { HudVoiceElement, voiceHudFrame } from './hudVoice';
-import { teamTagInput, teamTags } from './hudTags';
+import { TEAMMATE_NAMES_ORIGINAL_VALUE, teamTagInput, teamTags } from './hudTags';
 import { NO_REGION, RegionCull, regionUnder } from './regionCull';
 import { DEFAULT_LIGHTING, type Lighting } from './lighting';
 import type { LoadedMap } from './loadMap';
@@ -597,7 +597,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       const clip = openDoorClip(type, firearm.item() === 'pistol');   // LATER 362b F4: the kick's pistol pair
       if (!clip) return;
       const at = performance.now();
-      walk.setFlinchPose(() => flinchPose(clip, (performance.now() - at) / 1000, remote.playClips()), pushedWindowOf(walk.nextCommand(), clip, remote.playClips()), { reloadGate: false, pushed: true });
+      // The door-open body hold (research 92 section 2): `clip` holds the body while the window is on top (`./walk` `pushedTop`).
+      walk.setFlinchPose(() => flinchPose(clip, (performance.now() - at) / 1000, remote.playClips()), pushedWindowOf(walk.nextCommand(), clip, remote.playClips()), { reloadGate: false, pushed: true, clip });
     },
   });
   // MAP-07: `./main`'s gates (`./gatePage`). The lever is the switch's action; the slide is the room's, drawn here.
@@ -717,6 +718,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const matchEffects = mountEffects({ effects: firearm.effects, walk, sound });
   play.onEvent(matchEffects.playEvent);
   traversal.setEffects(firearm.effects);             // PAR-10 (research 257 s3, 250 s9): `./main`'s -- the water's splash and ripples
+  remote.setEffects(firearm.effects);                // research 86 s5.4: the others' wakes and splashes on the same effects (`./main`'s)
   // ACT-1 (ruling ACT.R1, research 250 s1): sprint 27's action part (`./matchActions`, ONE-WIRE) -- `./main`'s `mountActions`
   // call with what this page lends it: the doors, the traversal, the throwables' C4, the others' bodies, and the bomb
   // drawn through the match's cues, HUD, bodies, effects and the throwables' world bomb (bomb-floor's Satchel). `drops`
@@ -1282,7 +1284,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         hud.setCommandMenu(attached && taunts.isOpen());   // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623); IP3: none before attach
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
-        hud.setTeamTags(page ? teamTags(teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined)) : null);   // NU-9 T4 (research 329)
+        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(map?.ai) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
       hud.render(renderer.renderer);
@@ -1414,7 +1416,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (o.normalInput && !normalInput) o.normalInput.end('Only a private loopback match accepts this input port');
     walk.bindKey(win as unknown as EventTarget);
     // NU-9 (c) T4 (research 329 §1.8): TEAMMATE NAMES read once at the mount, as the HUD's set-up reads it (D:L77558-77559); absent, the golden's 1
-    hud.setTeammateNames((o.gameVars?.valve('DISPLAY_MP_TEAM_NAMES') ?? 1) !== 0);
+    // LATER 671 (OT.R101; a browser adaptation): its "original" setting, 2, keeps the original's tags; else the adaptation's
+    const teamNames = o.gameVars?.valve('DISPLAY_MP_TEAM_NAMES') ?? 1;
+    hud.setTeammateNames(teamNames !== 0, teamNames === TEAMMATE_NAMES_ORIGINAL_VALUE);
     // PAR-3 (research 255 s3): `./main`'s `armoryData` line -- the round screens' two bitmaps out of the page's ARMORY read
     // (the lobby's), kept by the HUD across the map's own set.
     // PAR-2: and the seat ARMORY's data, `./main`'s `armoryData` (a seat waiting for it opens it then; no read, none).
@@ -1635,7 +1639,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         // ACT-5: and nothing offered from the round before (`hostages.reset()`): a port-side cache clear with no source in the
         // original, changing nothing a player sees (`HostagePage.frame` stales the offer each frame; research 250 s6).
         // PAR-4: and the world drops with the air (`./main`'s `clearAir`: DROP_LIFETIME_PLACEHOLDER).
-        roundClear: () => { firearm.fire.clearMarks(); firearm.effects.clearFootprints(); traversal.clearRipples(); throws.roundStart(); hostages.reset(); drops.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2
+        roundClear: () => { firearm.fire.clearMarks(); firearm.effects.clearFootprints(); traversal.clearRipples(); remote.clearWakes(); throws.roundStart(); hostages.reset(); drops.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2
       }, {
         ...exchange.netHooks(),                          // PAR-1: `./main`'s `answered` -- the menu shows the kit the room will spawn
         // `./main`'s: the pouch too at a spawn (the page's spent rings do not outlive it); WEAPON EXCHANGE closed over the kit (S8).

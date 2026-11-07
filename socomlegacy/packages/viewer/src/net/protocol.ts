@@ -125,6 +125,8 @@ import { isDead, MP_HEALTH, overall, PARTS, type Health } from './damage';
  * Additive since, the version kept: the `grenade` event's `age` (2026-11-02, LATER 643; research 85 §6.1: a hand throw's
  * ticks from its release as the room flew it, so every page starts its copy there); an older page starts its copy at
  * the event as before, an older room never sends it.
+ * Additive since, the version kept: the `kitHeld` event (2026-11-06, KIT-HELD: the seat's held type, picks and kit, so
+ * the front end's match page opens WEAPON EXCHANGE on them); an older page ignores it, an older room never sends it.
  */
 export const PROTOCOL_VERSION = 13;
 
@@ -1840,6 +1842,17 @@ export type ServerEvent =
     /** Protocol 9: the character type held for the next spawn (the kit's). */
     char?: CharType;
   }
+  /**
+   * KIT-HELD (additive, the version kept): to one seat, the type, the picks and the kit the room holds for its next
+   * spawn (`Room.tellKitHeld`: `Player.nextChar`, `picks`, `next` or the type's own kit) -- at the launch, at the page's
+   * `loaded` (the front end's match page after the lobby's hand-off) and after the welcome of a seat whose kept record
+   * restored its picks -- so the page's WEAPON EXCHANGE opens on the kit the player holds and its next confirm extends
+   * the list the room holds (`PlayerLoadout.held`), as the original's menu reads the type's kit (`FUN_0023e5e0`
+   * D:L88379; research 94 §A6, R94.3). Its own type, never an unsolicited `loadout`: the page pairs each `loadout`
+   * answer with its requests in order (`NetPage.inFlight`), and takes a `kitHeld` only with none in flight. An older
+   * page ignores it (its event switch's default); an older room never sends it.
+   */
+  | { type: 'kitHeld'; team: Team; char: CharType; picks: { slot: number; id: number }[]; kit: number[] }
   /**
    * PF-34 (additive JSON, PF.R33; ruling PF.R54; research 234 s1-s2): a world drop laid -- a classic death's (one bundle
    * and the weapons, `FUN_005a0040` D:L458646-458706), a claim's replaced slot, or a bundle's residual told again under

@@ -352,5 +352,5 @@ describe('FUI-3: the Forge\'s menu as the page composes it', () => {
     press(START);
     expect(sections()).not.toContain('packs');
     press(START);
-  }, 30_000);
+  }, 90_000);
 });

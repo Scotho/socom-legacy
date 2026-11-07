@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Rgba } from '@s2u/gs';
 import type { UiDrawItem } from '@s2u/ui';
-import { rasterizeUiDrawList, type RasterOptions, type UiTextures } from '../src/uiCompositorView';
+import { rasterizeUiDrawList, type RasterOptions, type UiBitmap, type UiTextures } from '../src/uiCompositorView';
 import { planFrame } from '../src/uiFramePlan';
 import {
   UI_GPU_GUARD_SAMPLE_ADAPTATION, UI_GPU_GUARD_TRIP_ADAPTATION, UiGpuGuard, boundExcess, exactClassDiffs, uiGpuExactMask,
@@ -12,6 +12,9 @@ import { UiGpuSwitch } from '../src/uiGpuSwitch';
 import { executeFramePlanOnTwin } from '../src/uiGpuTwin';
 import { createUiGpuBackend } from '../src/uiGpuWebgl2';
 import { CpuUiPresenter, type UiPresentProbe } from '../src/uiPresenter';
+import { solid } from './uiRasterCases';
+import { UiPerfProbe, UiPerfRing, summarizeUiPerf } from '../src/uiGpuPerf';
+import type { UiGpuHdKeys } from '../src/uiGpuTextures';
 import { fakeGl, type Fake, type FakeGlOptions } from './uiGpuFakeGl';
 import { UI_RASTER_CASES, UI_RASTER_CASE_MODES, caseRasterInputs } from './uiRasterCases';
 
@@ -67,20 +70,26 @@ class PlantedSoftware extends CpuUiPresenter {
 /** Idle callbacks run when the test says, each with the time it gives. */
 class Idle {
   readonly queue: ((d: UiGpuIdleDeadline) => void)[] = [];
+  /** GM-14c: true only while an idle callback runs (the guard's raster is checked to run inside one, never in a frame). */
+  inside = false;
   readonly schedule = (fn: (d: UiGpuIdleDeadline) => void): void => { this.queue.push(fn); };
   /** The callbacks queued now, once each (one a callback queues runs on the next call). */
-  runOnce(ms = 50): number { const fns = this.queue.splice(0); for (const fn of fns) fn({ timeRemaining: () => ms }); return fns.length; }
+  runOnce(ms = 50): number {
+    const fns = this.queue.splice(0);
+    for (const fn of fns) { this.inside = true; try { fn({ timeRemaining: () => ms }); } finally { this.inside = false; } }
+    return fns.length;
+  }
   /** Until nothing is queued (at most `n` rounds). */
   drain(n = 1000): void { for (let i = 0; i < n && this.queue.length; i++) this.runOnce(); }
 }
 
 interface Rig { f: Fake; s: UiGpuSurfacePresenter; swi: UiGpuSwitch; idle: Idle; target: Target; clock: { t: number }; shown: string[]; logs: string[] }
 
-const rig = (o: { search?: string; software?: (t: Target) => CpuUiPresenter; bound?: UiGpuGuardBound | null; fo?: FakeGlOptions; so?: Partial<UiGpuSurfaceOptions> } = {}): Rig => {
+const rig = (o: { search?: string; devBuild?: boolean; software?: (t: Target) => CpuUiPresenter; bound?: UiGpuGuardBound | null; fo?: FakeGlOptions; so?: Partial<UiGpuSurfaceOptions> } = {}): Rig => {
   const f = fakeGl({ unmaskedRenderer: GPU_RENDERER, ...o.fo });
   const target = target2d();
   const software = o.software ? o.software(target) : new CpuUiPresenter(target as unknown as ConstructorParameters<typeof CpuUiPresenter>[0]);
-  const swi = new UiGpuSwitch({ search: o.search ?? '?uiGpu=shadow', storage: () => null, devTools: false });
+  const swi = new UiGpuSwitch({ search: o.search ?? '?uiGpu=shadow', storage: () => null, devTools: false, ...(o.devBuild === undefined ? {} : { devBuild: o.devBuild }) } as ConstructorParameters<typeof UiGpuSwitch>[0]);
   const idle = new Idle(), clock = { t: 1000 }, shown: string[] = [], logs: string[] = [];
   const s = new UiGpuSurfacePresenter({
     canvas: f.canvas as unknown as UiGpuSurfaceOptions['canvas'], software, transparent: false, surface: 'front',
@@ -334,5 +343,487 @@ describe('GM-16: trips -- a planted diff, the bound, escalation to exact, the se
     idle.drain();
     expect(g.records).toEqual([]);
     expect(g.counts).toMatchObject({ lost: 1, compared: 0 });
+  });
+});
+
+// GM-14c (plan 2026-11-01-gpu-menus, row GM-14c; GM.R11; risk 17): the guard's like-for-like HD compare under `on` --
+// PRODUCT TRACK, a dev and canary instrument (no original). Under `on` the page shows the GPU's frame, so no software frame
+// at the shown scale exists: the guard rasters one (`rasterizeUiDrawList`, today's software path at the shown scale) in
+// an idle callback of its own, from the frame's inputs as the frame read them (the bitmaps, the HD images resident then,
+// the movie pictures), never asking the page's HD lookup again (no decode), and names the frame after that callback a
+// guard frame (`UiPerfProbe.guarded`), so its lost time is listed (`guardFrames`) and kept out of `lostSeconds`. A
+// surface made without `guardOn` -- every release surface -- does none of it. Evidence kind: unit tests on the fake
+// WebGL2 context (`./uiGpuFakeGl.ts`, a model of the call contract, not a GPU); the rendered browser leg is the box's.
+describe('GM-14c: the guard under `on` -- the shown scale\'s software frame rastered off the animation frame (GM.R11)', () => {
+  // Pixel (10, 10) of the 2560-wide 4x frame, its red byte.
+  const BYTE4 = (10 * 2560 + 10) * 4;
+
+  /** The guard's reference raster (`UiGpuSurfaceOptions.guardReference`): counted, each call's place and scale kept, optionally planted. */
+  const reference = (idle: Idle, o: { plant?: number; onCall?: () => void } = {}) => {
+    const calls: { inside: boolean; scale: number }[] = [];
+    const fn = (items: readonly UiDrawItem[], textures: UiTextures, options: RasterOptions): Rgba => {
+      calls.push({ inside: idle.inside, scale: options.scale ?? 1 });
+      o.onCall?.();
+      const f = rasterizeUiDrawList(items, textures, options).frame;
+      if (o.plant === undefined) return f;
+      const data = f.data.slice();
+      data[o.plant] = data[o.plant]! ^ 1;
+      return { width: f.width, height: f.height, data };
+    };
+    return { calls, fn };
+  };
+
+  const onRig = (o: { plant?: number; onCall?: () => void; guardOn?: boolean; search?: string; so?: Partial<UiGpuSurfaceOptions> } = {}) => {
+    const idle = new Idle();
+    const ref = reference(idle, o);
+    const r = rig({ search: o.search ?? '?uiGpu=on', so: { idle: idle.schedule, guardOn: o.guardOn ?? true, guardReference: ref.fn, ...o.so } as Partial<UiGpuSurfaceOptions> });
+    // The rig's own Idle is replaced by this one (the surface takes `so.idle` last).
+    return { r: { ...r, idle }, ref };
+  };
+
+  it('a planted 1-byte difference at 4x under `on` trips (exact class), recorded with its reason, the reference a raster at 4x', () => {
+    const { r, ref } = onRig({ plant: BYTE4 });
+    r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+    expect(r.s.lastPath).toBe('gpu');
+    expect(r.shown.at(-1)).toBe('gpu');                       // the page shows the GPU's frame
+    r.f.fences.signal();
+    r.idle.drain();
+    expect(ref.calls.map((c) => c.scale)).toEqual([4]);
+    const rec = r.s.guard!.records[0]!;
+    expect(rec).toMatchObject({ trip: 'exact', scale: 4, reference: 'raster', skipped: null });
+    expect(rec.why.some((w) => /E\/E\*: 1 pixels of the exact class differ/.test(w))).toBe(true);
+    expect(rec.stats).toMatchObject({ exactDiffering: 1, differing: 1, maxAbs: [1, 0, 0, 0] });
+    expect(rec.stats.first).toMatchObject({ x: 10, y: 10, channel: 0, exact: true });
+    expect(r.swi.blend('front', 4)).toBe('exact');            // escalated as in shadow (GM.R5, GM.R6)
+    expect(r.logs.some((l) => /guard trip \(exact\)/.test(l))).toBe(true);
+  });
+
+  it('the raster and the compare run off the animation frame: none in present; the raster in an idle callback of its own', () => {
+    const { r, ref } = onRig();
+    const guarded: number[] = [];
+    const probe: UiPresentProbe = { now: () => r.clock.t, rendered: () => {}, guarded: (ms) => { guarded.push(ms); } };
+    r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 }, probe);
+    expect(ref.calls).toEqual([]);                            // no software raster inside the frame
+    expect(r.s.guard!.records).toEqual([]);
+    expect(r.f.names()).not.toContain('getBufferSubData');
+    expect(r.f.names().filter((n) => n === 'fenceSync').length).toBe(1);
+    expect(r.idle.queue.length).toBe(1);
+    r.idle.runOnce();                                          // the fence has not signalled: polled, nothing else
+    expect(ref.calls).toEqual([]);
+    r.f.fences.signal();
+    r.idle.drain();
+    expect(ref.calls).toEqual([{ inside: true, scale: 4 }]);  // once, inside an idle callback
+    expect(r.f.fences.readEarly).toBe(0);
+    const rec = r.s.guard!.records[0]!;
+    expect(rec).toMatchObject({ trip: null, reference: 'raster', skipped: null });
+    expect(rec.stats.exactPixels).toBe(2560 * 1792);
+    expect(rec.stats.exactDiffering).toBe(0);
+    expect(guarded.length).toBeGreaterThan(0);
+  });
+
+  it('the frame after the raster\'s idle callback is a guard frame: its lost time listed in guardFrames, never in lostSeconds', () => {
+    let clockRef: { t: number } | null = null;
+    const { r } = onRig({ onCall: () => { clockRef!.t += 106; } });   // the 4x raster's p50 on either leg (Log 2026-11-04T08:30Z, D2)
+    clockRef = r.clock;
+    const probe = new UiPerfProbe(() => r.clock.t, new UiPerfRing(64));
+    probe.begin(0); probe.advanced(1);
+    r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 }, probe);
+    probe.end(0, null, -1, 4, 'dlgMenu');
+    r.f.fences.signal();
+    r.idle.drain();                                            // the raster's callback runs between frames: 106 ms
+    probe.begin(123); probe.advanced(1); probe.end(0.073, null, -1, 4, 'dlgMenu');   // the clock lost 73 ms over that frame
+    probe.begin(140); probe.advanced(1); probe.end(0.073, null, -1, 4, 'dlgMenu');
+    const sum = summarizeUiPerf(probe.ring.samples(), 0, 200);
+    expect(sum.guardFrames.length).toBe(1);
+    expect(sum.guardFrames[0]!.t).toBe(123);
+    expect(sum.guardFrames[0]!.guardMs).toBeGreaterThanOrEqual(106);
+    expect(sum.guardLostSeconds).toBeCloseTo(0.073, 9);
+    expect(sum.lostSeconds).toBeCloseTo(0, 9);
+  });
+
+  /** Case 13.hot at 4x (both bitmaps replaced): the page's HD lookup counted, its kept images keyed while `resident.on`. */
+  const hdFrame = () => {
+    const c = UI_RASTER_CASES.find((x) => x.key === '13.hot')!;
+    const { items, textures, options } = caseRasterInputs(c, 4, 'opaque');
+    const resident = { on: true }, keyOf = new Map<Rgba['data'], string>();
+    let asks = 0;
+    const hd = (b: UiBitmap): Rgba | null => {
+      asks++;
+      const got = options.hd!(b);
+      if (got && !keyOf.has(got.data)) keyOf.set(got.data, `hd|7|${keyOf.size}`);
+      return got;
+    };
+    const keys: UiGpuHdKeys = { pack: 7, version: 0, gpuKeyOf: (image) => (resident.on ? keyOf.get(image.data) ?? null : null) };
+    return { items, textures, options: { ...options, hd }, resident, keyOf, keys, asks: () => asks };
+  };
+
+  it('residency: the compare uses the HD images resident at the shown scale and never asks the page\'s lookup again (no decode)', () => {
+    const h = hdFrame();
+    const { r, ref } = onRig({ so: { hdKeys: () => h.keys } });
+    r.s.present(h.items, h.textures, h.options);
+    expect(r.s.lastPath).toBe('gpu');
+    expect(r.s.stats.frames.L0).toBe(1);
+    expect(h.keyOf.size).toBe(2);                              // both replacements picked by the frame
+    const asked = h.asks();
+    r.f.fences.signal();
+    r.idle.drain();
+    expect(h.asks()).toBe(asked);                              // the idle raster asked the page's lookup nothing
+    expect(ref.calls).toEqual([{ inside: true, scale: 4 }]);
+    const rec = r.s.guard!.records[0]!;
+    expect(rec).toMatchObject({ trip: null, reference: 'raster', skipped: null, scale: 4 });
+    expect(rec.stats.exactDiffering).toBe(0);
+  });
+
+  it('residency: a needed HD image no longer resident skips the compare, recorded as skipped with why; nothing rastered, nothing tripped', () => {
+    const h = hdFrame();
+    const { r, ref } = onRig({ so: { hdKeys: () => h.keys } });
+    r.s.present(h.items, h.textures, h.options);
+    h.resident.on = false;                                     // the lookup let its images go before the idle callback
+    r.f.fences.signal();
+    r.idle.drain();
+    expect(ref.calls).toEqual([]);
+    const rec = r.s.guard!.records[0]!;
+    expect(rec.trip).toBeNull();
+    expect(rec.skipped).toMatch(/not resident/);
+    expect(rec.why.some((w) => /not resident/.test(w))).toBe(true);
+    expect(r.s.guard!.counts).toMatchObject({ skipped: 1, compared: 0 });
+    expect(r.swi.blend('front', 4)).toBe('ff');
+  });
+
+  it('every release surface: without guardOn, `on` reads nothing back and schedules nothing; the GPU frame\'s bytes are the same either way', () => {
+    const plain = onRig({ guardOn: false });
+    plain.r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+    expect(plain.r.f.names()).not.toContain('fenceSync');
+    expect(plain.r.idle.queue.length).toBe(0);
+    expect(plain.r.s.guard).toBeNull();
+    expect(plain.ref.calls).toEqual([]);
+    const guarded = onRig();
+    guarded.r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+    const a = plain.r.s.readFrame()!, b = guarded.r.s.readFrame()!;
+    expect(byteDiff(a.data, b.data)).toEqual({ lengths: [a.data.length, a.data.length], differ: 0 });
+  });
+
+  it('shadow is unchanged by guardOn: its reference is the shown frame (no raster), the page\'s bytes today\'s', () => {
+    const { r, ref } = onRig({ search: '?uiGpu=shadow' });
+    const items = [clearItem([10, 20, 30])];
+    r.s.present(items, noTextures, { scale: 2 });
+    r.f.fences.signal();
+    r.idle.drain();
+    expect(ref.calls).toEqual([]);
+    const want = rasterizeUiDrawList(items, noTextures, { scale: 2 }).frame.data;
+    expect(byteDiff(r.target.puts[0]!, want)).toEqual({ lengths: [want.length, want.length], differ: 0 });
+    expect(r.s.guard!.records[0]).toMatchObject({ reference: 'shown', skipped: null, trip: null });
+  });
+
+  it('a guard used alone: a raster that answers a skip is recorded as skipped, with its reason, and counted', () => {
+    const idle = new Idle();
+    const g = new UiGpuGuard({ surface: 'front', now: () => 0, idle: idle.schedule, caps: () => null });
+    const frame = rasterizeUiDrawList([clearItem([1, 2, 3])], noTextures, { scale: 1 }).frame;
+    const plan = planFrame([clearItem([1, 2, 3])], noTextures, { scale: 1 });
+    g.submit({ readback: { poll: () => frame, cancel: () => {} }, raster: () => ({ skip: 'a test\'s reason' }), plan } as never);
+    idle.drain();
+    expect(g.records.length).toBe(1);
+    expect(g.records[0]).toMatchObject({ skipped: 'a test\'s reason', trip: null, reference: 'raster' });
+    expect(g.counts).toMatchObject({ skipped: 1, compared: 0 });
+  });
+});
+
+// GM-14c follow-up (the controller's round): the page's way in -- the switch arms the guard under `on` only on a page the
+// Vite dev server serves (`?uiGpuGuard=on`, `devBuild`: DEV and MODE `development`, as GM-16b's table), and a test's
+// plant (`?uiGpuGuardPlant=<byte>`) flips one byte of the guard's rastered reference so a trip shows on `window.__uiGpu`;
+// and the draw list a sampled frame keeps for its idle raster is the frame's, whatever the caller does to it after.
+describe('GM-14c: the page\'s dev switch, the plant, and the kept draw list', () => {
+  const BYTE4 = (10 * 2560 + 10) * 4;
+  const frames = (r: Rig): number => r.f.names().filter((n) => n === 'fenceSync').length;
+
+  it('a dev-server switch with uiGpuGuard=on guards an `on` frame (the surface given no guardOn of its own)', () => {
+    const r = rig({ search: '?uiGpu=on&uiGpuGuard=on', devBuild: true });
+    r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+    expect(frames(r)).toBe(1);
+    r.f.fences.signal();
+    r.idle.drain();
+    expect(r.s.guard!.records[0]).toMatchObject({ reference: 'raster', trip: null, skipped: null, scale: 4 });
+    expect(r.swi.readout().guard.last).toMatchObject({ reference: 'raster', trip: null });
+  });
+
+  it('a release build: the same address guards nothing -- no read-back, nothing scheduled, no guard', () => {
+    for (const devBuild of [false, undefined]) {
+      const r = rig({ search: `?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=${BYTE4}`, devBuild });
+      r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+      expect(r.s.lastPath).toBe('gpu');
+      expect(frames(r)).toBe(0);
+      expect(r.idle.queue.length).toBe(0);
+      expect(r.s.guard).toBeNull();
+    }
+  });
+
+  it('the plant: one byte of the rastered reference at 4x flipped, the trip and its reason on the read-out (window.__uiGpu)', () => {
+    const r = rig({ search: `?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=${BYTE4}`, devBuild: true });
+    r.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+    r.f.fences.signal();
+    r.idle.drain();
+    const out = r.swi.readout().guard;
+    expect(out.trips.length).toBe(1);
+    expect(out.last).toMatchObject({ trip: 'exact', reference: 'raster', scale: 4 });
+    expect(out.last!.why.some((w) => /E\/E\*: 1 pixels of the exact class differ/.test(w))).toBe(true);
+    expect(out.last!.why.some((w) => /planted/.test(w))).toBe(true);
+    expect(out.last!.stats.first).toMatchObject({ x: 10, y: 10, channel: 0, exact: true });
+  });
+
+  it('the kept draw list: changed in place after the frame, the idle raster still draws the frame\'s own', () => {
+    const r = rig({ search: '?uiGpu=on', so: { guardOn: true } as Partial<UiGpuSurfaceOptions> });
+    const quad: Extract<UiDrawItem, { kind: 'sprite' }> = {
+      kind: 'sprite', node: 'n', texture: null, x0: 0, y0: 0, x1: 64, y1: 64, u0: 0, v0: 0, u1: 1, v1: 1, rgba: [128, 0, 0, 128], clip: null,
+    };
+    const items: UiDrawItem[] = [clearItem([10, 20, 30]), quad];
+    r.s.present(items, noTextures, { scale: 4 });
+    quad.rgba[0] = 64;                                          // the caller rewrites its list after the frame
+    items.push(clearItem([200, 0, 0]));
+    r.f.fences.signal();
+    r.idle.drain();
+    const rec = r.s.guard!.records[0]!;
+    expect(rec.reference).toBe('raster');
+    expect(rec.stats.exactDiffering).toBe(0);
+    expect(rec.trip).toBeNull();
+  });
+});
+
+// GM batch 2 review 1 (F1, F2): the plant lands in the exact class whatever the frame (`?uiGpuGuardPlant=exact`: the
+// first pixel the frame's own plan puts in the class), so the box run's 4x plant must trip; and a surface keeps its last
+// plan (and the plan's HD images) only for a frame the guard samples under `on`.
+describe('GM-14c review fold: the plant in the exact class (F1); the last plan kept only under the guard (F2)', () => {
+  /** A frame whose top-left corner is a textured quad (out of the exact class): pixel (10, 10) is B, not E/E*. */
+  const covered = (): { items: UiDrawItem[]; textures: UiTextures } => {
+    const bitmap = solid(4, 4, [90, 40, 20, 128]);
+    const quad: UiDrawItem = { kind: 'sprite', node: 'q', texture: 't', x0: 0, y0: 0, x1: 64, y1: 64, u0: 0, v0: 0, u1: 1, v1: 1, rgba: [128, 128, 128, 128], clip: null };
+    return { items: [clearItem([10, 20, 30]), quad], textures: (n) => (n === 't' ? bitmap : null) };
+  };
+  const PIXEL_10_10 = (10 * 2560 + 10) * 4;
+
+  it('F1: a fixed byte under a textured quad is a B difference -- no trip; the trip is not guaranteed by a fixed byte', () => {
+    const { items, textures } = covered();
+    const r = rig({ search: `?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=${PIXEL_10_10}`, devBuild: true });
+    r.s.present(items, textures, { scale: 4 });
+    r.f.fences.signal();
+    r.idle.drain();
+    const rec = r.s.guard!.records[0]!;
+    expect(rec.stats.exactDiffering).toBe(0);
+    expect(rec.trip).toBeNull();
+  });
+
+  it('F1: ?uiGpuGuardPlant=exact plants the first pixel of the frame\'s exact class, so the plant trips; the byte named', () => {
+    const { items, textures } = covered();
+    const r = rig({ search: '?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=exact', devBuild: true });
+    r.s.present(items, textures, { scale: 4 });
+    r.f.fences.signal();
+    r.idle.drain();
+    const rec = r.s.guard!.records[0]!;
+    const plan = planFrame(items, textures, { scale: 4, blend: rec.blend });
+    const mask = uiGpuExactMask(plan), want = mask.indexOf(1) * 4;
+    expect(mask[PIXEL_10_10 / 4]).toBe(0);                     // pixel (10, 10) is out of the class (under the quad)
+    expect(want).toBe(256 * 4);                                // the first in it: (256, 0), past the 4x quad's edge
+    expect(rec.trip).toBe('exact');
+    expect(rec.stats.first).toMatchObject({ exact: true });
+    expect(rec.why).toContain(`planted: byte ${want} of the reference flipped (uiGpuGuardPlant, a test's)`);
+    expect(r.swi.readout().guard).toMatchObject({ plant: 'exact' });
+  });
+
+  it('F2: without the guard an `on` frame keeps no plan; under the guard only a frame it samples does, and only until the next', () => {
+    const plain = rig({ search: '?uiGpu=on' });
+    plain.s.present([clearItem([10, 20, 30])], noTextures, { scale: 4 });
+    expect((plain.s as unknown as { gpu: GpuUiPresenter }).gpu.lastPlan).toBeNull();
+    const b = createUiGpuBackend(fakeGl().canvas as unknown as HTMLCanvasElement, { transparent: false })!;
+    b.compilePrograms();
+    const p = new GpuUiPresenter(b);
+    p.present([clearItem([1, 2, 3])], noTextures, { scale: 1 });
+    expect(p.lastPlan).toBeNull();
+    p.keepNextPlan();
+    p.present([clearItem([4, 2, 3])], noTextures, { scale: 1 });
+    expect(p.lastPlan?.hash).toMatch(/^[0-9a-f]{16}$/);
+    p.present([clearItem([5, 2, 3])], noTextures, { scale: 1 });
+    expect(p.lastPlan).toBeNull();
+  });
+});
+
+// GM batch 2, Codex's P2 on PR #706 (`uiGpuPresenter.ts` `present`): under `on` with the guard an unchanged frame (the
+// dirty check drew nothing) was never offered to the guard, so a static frame whose first present the guard refused
+// (a compare in flight, or within gapMs) was never compared, and a compared one was never re-sampled after repeatMs
+// (GM.R11's sampling, as shadow keeps it). The frame target still holds the unchanged frame's pixels (only a draw, an
+// L1 upload or shadow's offscreen draw writes it, and each of those clears the dirty check's kept frame), so the guard
+// is offered it and `wants` decides. PRODUCT TRACK; evidence kind: unit tests on the fake WebGL2 context.
+describe('GM-14c, Codex P2: an unchanged `on` frame is offered to the guard; `wants` decides (GM.R11 sampling)', () => {
+  const S = UI_GPU_GUARD_SAMPLE_ADAPTATION;
+  const A = [clearItem([10, 20, 30])], B = [clearItem([200, 100, 50])];
+  const fences = (r: Rig): number => r.f.names().filter((n) => n === 'fenceSync').length;
+  const count = (r: Rig, name: string): number => r.f.names().filter((n) => n === name).length;
+  const onGuarded = (calls?: { n: number }) => rig({
+    search: '?uiGpu=on',
+    so: {
+      guardOn: true,
+      ...(calls ? { guardReference: (i: readonly UiDrawItem[], t: UiTextures, o: RasterOptions): Rgba => { calls.n++; return rasterizeUiDrawList(i, t, o).frame; } } : {}),
+    } as Partial<UiGpuSurfaceOptions>,
+  });
+  const caughtUp = (r: Rig): void => { r.f.fences.signal(); r.idle.drain(); };
+  const hashOf = (items: readonly UiDrawItem[]): string => planFrame(items, noTextures, { scale: 2, blend: 'ff' }).hash;
+
+  it('a static frame first presented while a compare is in flight is compared once the guard is free, by a later unchanged present', () => {
+    const r = onGuarded();
+    r.s.present(A, noTextures, { scale: 2 });                  // sampled
+    r.s.present(B, noTextures, { scale: 2 });                  // drawn; refused: A's compare in flight
+    expect(fences(r)).toBe(1);
+    caughtUp(r);
+    r.clock.t += S.gapMs;
+    r.s.present(B, noTextures, { scale: 2 });                  // unchanged: nothing drawn; the guard is free
+    expect(r.s.stats.frames.unchanged).toBe(1);
+    expect(fences(r)).toBe(2);
+    caughtUp(r);
+    const recs = r.s.guard!.records;
+    expect(recs.length).toBe(2);
+    expect(recs[1]).toMatchObject({ hash: hashOf(B), reference: 'raster', trip: null, skipped: null });
+    expect(recs[1]!.stats.exactDiffering).toBe(0);
+  });
+
+  it('a static frame first presented within gapMs of the last compare is compared by a later unchanged present', () => {
+    const r = onGuarded();
+    r.s.present(A, noTextures, { scale: 2 });
+    caughtUp(r);
+    r.clock.t += 1;
+    r.s.present(B, noTextures, { scale: 2 });                  // drawn; refused: within gapMs
+    expect(fences(r)).toBe(1);
+    r.clock.t += S.gapMs - 2;
+    r.s.present(B, noTextures, { scale: 2 });                  // unchanged, still within gapMs: refused
+    expect(fences(r)).toBe(1);
+    r.clock.t += 1;
+    r.s.present(B, noTextures, { scale: 2 });                  // unchanged, gapMs after: sampled
+    expect(fences(r)).toBe(2);
+    caughtUp(r);
+    expect(r.s.guard!.records[1]).toMatchObject({ hash: hashOf(B), trip: null, skipped: null });
+  });
+
+  it('a static frame compared once is compared again after repeatMs, from unchanged presents alone', () => {
+    const r = onGuarded();
+    r.s.present(A, noTextures, { scale: 2 });
+    const begun = r.clock.t;
+    caughtUp(r);
+    for (let k = 1; k < S.repeatMs / 500; k++) {
+      r.clock.t = begun + k * 500;
+      r.s.present(A, noTextures, { scale: 2 });
+    }
+    expect(fences(r)).toBe(1);                                 // the same frame: not before repeatMs
+    r.clock.t = begun + S.repeatMs;
+    r.s.present(A, noTextures, { scale: 2 });
+    expect(fences(r)).toBe(2);
+    caughtUp(r);
+    r.clock.t = begun + 2 * S.repeatMs;
+    r.s.present(A, noTextures, { scale: 2 });
+    expect(fences(r)).toBe(3);
+    caughtUp(r);
+    expect(r.s.guard!.records.map((x) => x.hash)).toEqual([hashOf(A), hashOf(A), hashOf(A)]);
+    expect(r.s.stats.frames.unchanged).toBe(S.repeatMs / 500 + 1);
+  });
+
+  it('unchanged presents between samples begin no read-back and hand no raster over: no work unless a sample is due', () => {
+    const calls = { n: 0 };
+    const r = onGuarded(calls);
+    r.s.present(A, noTextures, { scale: 2 });
+    caughtUp(r);
+    expect(calls.n).toBe(1);
+    const before = { reads: count(r, 'readPixels'), fences: fences(r), buffers: count(r, 'createBuffer'), draws: r.f.draws.length };
+    for (let k = 1; k <= 20; k++) {
+      r.clock.t += 100;
+      r.s.present(A, noTextures, { scale: 2 });
+      expect(r.idle.queue.length).toBe(0);
+    }
+    expect({ reads: count(r, 'readPixels'), fences: fences(r), buffers: count(r, 'createBuffer'), draws: r.f.draws.length }).toEqual(before);
+    expect(calls.n).toBe(1);
+    expect(r.s.guard!.counts.sampled).toBe(1);
+  });
+
+  it('the read-back of an unchanged sample reads the frame the canvas shows (the frame target still holds it)', () => {
+    const r = onGuarded();
+    const reads: Uint8Array[] = [];
+    const gl = r.f.gl as unknown as { getBufferSubData: (t: number, o: number, d: ArrayBufferView) => void };
+    const real = gl.getBufferSubData.bind(gl);
+    gl.getBufferSubData = (t, o, d) => { real(t, o, d); reads.push(new Uint8Array(d.buffer, d.byteOffset, d.byteLength).slice()); };
+    r.s.present(A, noTextures, { scale: 2 });
+    r.s.present(B, noTextures, { scale: 2 });                  // the canvas now shows B
+    caughtUp(r);
+    r.clock.t += S.gapMs;
+    r.s.present(B, noTextures, { scale: 2 });                  // unchanged: nothing drawn, B sampled
+    caughtUp(r);
+    expect(reads.length).toBe(2);
+    const W = 1280, H = 896, row = W * 4;
+    const shown = r.f.backbuffer();
+    expect([shown.w, shown.h]).toEqual([W, H]);
+    const flipped = new Uint8Array(W * H * 4);                 // the canvas's GL row H - 1 is the frame's row 0
+    for (let y = 0; y < H; y++) flipped.set(shown.data.subarray((H - 1 - y) * row, (H - y) * row), y * row);
+    expect(byteDiff(reads[1]!, flipped)).toEqual({ lengths: [W * H * 4, W * H * 4], differ: 0 });
+    expect(byteDiff(reads[0]!, flipped).differ).toBeGreaterThan(0);   // A's read: not B's pixels
+    expect(Array.from(reads[1]!.subarray(0, 4))).toEqual([200, 100, 50, 255]);
+  });
+});
+
+// GM batch 2, part B: `?uiGpuGuardPlant=exact@4` plants only a frame whose plan targets 4x; a frame at another scale is
+// compared unplanted, its record saying so. The plain forms (`exact`, a byte) stay byte for byte as before at every
+// scale: the same flipped byte, the same note. PRODUCT TRACK (6d's decision for the owner); unit tests on the fake GL.
+describe('GM-14c part B: the plant scoped to a scale (uiGpuGuardPlant=...@<scale>); the plain plant unchanged', () => {
+  const onPlant = (plant: string) => rig({ search: `?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=${plant}`, devBuild: true });
+  const frame = (r: Rig, scale: number, items: readonly UiDrawItem[] = [clearItem([10, 20, 30])]): void => {
+    r.s.present(items, noTextures, { scale });
+    r.f.fences.signal();
+    r.idle.drain();
+  };
+
+  it('exact@4: a 1x frame is compared unplanted (no trip, the note recorded); a 4x frame is planted and trips the exact class at 4x', () => {
+    const r = onPlant('exact@4');
+    frame(r, 1);
+    const one = r.s.guard!.records[0]!;
+    expect(one).toMatchObject({ scale: 1, trip: null, skipped: null, reference: 'raster' });
+    expect(one.stats.exactDiffering).toBe(0);
+    expect(one.why).toContain('not planted: the frame is at 1x, the plant asks 4x');
+    expect(r.s.state).toBe('ready');                            // no trip at 1x's exact blend: no kill
+    expect(r.swi.readout().kills).toEqual([]);
+    r.clock.t += UI_GPU_GUARD_SAMPLE_ADAPTATION.gapMs;
+    frame(r, 4);
+    const four = r.s.guard!.records[1]!;
+    expect(four).toMatchObject({ scale: 4, trip: 'exact', reference: 'raster', skipped: null });
+    expect(four.why.some((w) => /^E\/E\*: 1 pixels of the exact class differ/.test(w))).toBe(true);
+    expect(four.why.some((w) => /^planted: byte \d+ of the reference flipped/.test(w))).toBe(true);
+    expect(r.swi.readout().guard.trips.map((t) => t.scale)).toEqual([4]);
+  });
+
+  it('a byte@2 plant flips that byte at 2x only; at 4x the frame is compared unplanted', () => {
+    const BYTE = 40;
+    const r = onPlant(`${BYTE}@2`);
+    frame(r, 4);
+    expect(r.s.guard!.records[0]!.why).toContain('not planted: the frame is at 4x, the plant asks 2x');
+    expect(r.s.guard!.records[0]!.trip).toBeNull();
+    r.clock.t += UI_GPU_GUARD_SAMPLE_ADAPTATION.gapMs;
+    frame(r, 2);
+    const rec = r.s.guard!.records[1]!;
+    expect(rec.why).toContain(`planted: byte ${BYTE} of the reference flipped (uiGpuGuardPlant, a test's)`);
+    expect(rec.stats.first).toMatchObject({ x: 10, y: 0, channel: 0, exact: true });
+  });
+
+  it('the plain plant is unchanged at every scale: exact flips the first exact-class pixel\'s red byte, a byte that byte, with the same notes', () => {
+    for (const scale of [1, 2, 4]) {
+      const items = [clearItem([10, 20, 30])];
+      const ex = onPlant('exact');
+      frame(ex, scale, items);
+      const rec = ex.s.guard!.records[0]!;
+      const want = uiGpuExactMask(planFrame(items, noTextures, { scale, blend: rec.blend })).indexOf(1) * 4;
+      expect(rec.why, `exact ${scale}x`).toContain(`planted: byte ${want} of the reference flipped (uiGpuGuardPlant, a test's)`);
+      expect(rec).toMatchObject({ scale, trip: 'exact' });
+      expect(ex.swi.readout().guard.plant).toBe('exact');
+      const by = onPlant('40');
+      frame(by, scale, items);
+      const b = by.s.guard!.records[0]!;
+      expect(b.why, `byte ${scale}x`).toContain('planted: byte 40 of the reference flipped (uiGpuGuardPlant, a test\'s)');
+      expect(b.stats.first).toMatchObject({ x: 10, y: 0, channel: 0 });
+      expect(by.swi.readout().guard.plant).toBe(40);
+    }
+    const past = onPlant('999999999');
+    frame(past, 1);
+    expect(past.s.guard!.records[0]!.why).toContain('uiGpuGuardPlant 999999999 is past the reference\'s 1146880 bytes: nothing planted');
   });
 });

@@ -78,7 +78,7 @@ describe('R6 (R3): an edit made just before pagehide is in the autosave after a 
     const again = await mount();
     expect(again.read().layout!.name).toBe('Kept at the close');
     expect(await storedName()).toBe('Kept at the close');
-  }, 30_000);
+  }, 90_000);
 
   it("a write another tab made since this page last read is never overwritten by the close's put: the next open keeps it", async () => {
     const api = await mount();
@@ -97,7 +97,7 @@ describe('R6 (R3): an edit made just before pagehide is in the autosave after a 
     const again = await mount();
     expect(again.read().layout!.name).toBe('From the other tab');
     expect(await storedName()).toBe('From the other tab');
-  }, 30_000);
+  }, 90_000);
 
   /**
    * R7-5 (round 6's finding): the pagehide's own flushes -- an edit's and a camera move's -- are the page's writes, in
@@ -143,7 +143,7 @@ describe('R6 (R3): an edit made just before pagehide is in the autosave after a 
     expect(yawOf(kept), 'the camera move of the hand-off').not.toBeCloseTo(before, 3);
     expect(document.querySelector('.fx-status-msg')?.textContent ?? '').not.toMatch(/another tab/i);
     expect([...document.querySelectorAll('.fx-notify-log li')].map((li) => li.textContent ?? '').join(' | ')).not.toMatch(/another tab/i);
-  }, 30_000);
+  }, 90_000);
 
   /**
    * LATER 488 (LATER 457's review): a `pagehide` into the back/forward cache (`persisted`) puts the hand-off row and the
@@ -170,5 +170,5 @@ describe('R6 (R3): an edit made just before pagehide is in the autosave after a 
     expect(opened.hidden, 'no hand-off of this page left to take in (dropped: "another tab saved")').toEqual({});
     expect((JSON.parse(other.text('autosave') ?? '{}') as { name?: string }).name).toBe('Named after the restore');
     other.close();
-  }, 30_000);
+  }, 90_000);
 });

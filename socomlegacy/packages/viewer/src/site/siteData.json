@@ -1,5 +1,5 @@
 {
-  "commit": "9a7da4779",
+  "commit": "316314c11",
   "sprints": [
     {
       "number": 6,
@@ -713,7 +713,7 @@
     {
       "id": "2026-10-18-disc-share",
       "date": "2026-10-18",
-      "title": "Disc share: your own disc's copy, sent to your other device on your network (first target: Edge on Xbox) -- plan"
+      "title": "Disc share: a disc's copy, sent to another device (first target: Edge on Xbox) -- plan"
     },
     {
       "id": "2026-10-18-grenade-flow-playtest",
@@ -1136,6 +1136,11 @@
       "title": "The gate diet -- plan"
     },
     {
+      "id": "2026-11-04-hostage-polish",
+      "date": "2026-11-04",
+      "title": "Hostages on every map -- plan"
+    },
+    {
       "id": "2026-11-04-web-sprint-43-the-stats-api-and-the-discord-live-channels",
       "date": "2026-11-04",
       "title": "Web sprint 43 -- the stats API and the Discord LIVE channels -- plan"
@@ -1149,6 +1154,21 @@
       "id": "2026-11-05-netcode-wave",
       "date": "2026-11-05",
       "title": "The netcode wave: rubber banding at high ping, and late shots lost at the room -- plan"
+    },
+    {
+      "id": "2026-11-06-modding-wiki",
+      "date": "2026-11-06",
+      "title": "The modding wiki (B205) -- plan"
+    },
+    {
+      "id": "2026-11-06-mods-loader",
+      "date": "2026-11-06",
+      "title": "The MODS loader (B206) -- plan"
+    },
+    {
+      "id": "2026-11-07-operator-lobby",
+      "date": "2026-11-07",
+      "title": "The operator's lobby on any disc map (OPL) -- plan"
     }
   ],
   "issues": {

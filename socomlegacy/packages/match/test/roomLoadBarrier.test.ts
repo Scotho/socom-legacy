@@ -161,7 +161,13 @@ describe('ONL-18b: round 1 of a launched game waits for every seated player\'s `
     g.room.launch(0);
     marks = all.map((c) => c.events.length);
     expect(() => { g.loaded(3); g.loaded(99); }).not.toThrow();    // the spectator, a socket never seated
+    expect(since(all, marks)).toEqual([[], [], []]);
+    // KIT-HELD: the seat's own first `loaded` in the hold -- the one the barrier counts -- is told its held kit, and
+    // only that seat (`roomKitHeld.test.ts`); the ignored ones around it tell nothing.
+    marks = all.map((c) => c.events.length);
     g.loaded(1);
+    expect(since(all, marks).map((evs) => evs.map((e) => e.type))).toEqual([['kitHeld'], [], []]);
+    marks = all.map((c) => c.events.length);
     expect(() => g.loaded(1)).not.toThrow();                       // the duplicate
     expect(since(all, marks)).toEqual([[], [], []]);
     expect(g.rounds).toEqual([]);                                  // Lima still loading: the spectator neither waited for nor counted

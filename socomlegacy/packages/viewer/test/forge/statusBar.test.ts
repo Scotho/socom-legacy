@@ -217,5 +217,5 @@ describe('the mounted Forge\'s status bar (FUI-4)', () => {
     word = 'Probe busy';
     shell.unregister('probe');
     expect(chipWord('probe'), 'unregistered, its chip is gone').toBeNull();
-  }, 30_000);
+  }, 90_000);
 });

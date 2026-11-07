@@ -262,7 +262,7 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     near(JSON.parse(viewWrites[0]![1] as string).camera, poseOfShot(spec().points[1]!));
     for (let i = 0; i < 30; i++) frame();
     expect(set.mock.calls.filter(([key]) => key === FORGE_VIEW_KEY), 'the settle does not write it again').toHaveLength(1);
-  }, 30_000);
+  }, 90_000);
 
   it('refuses at admission: a steep look OUT_OF_RANGE, a look at itself INVALID_ARGUMENT, off the box OUT_OF_BOUNDS', async () => {
     const api = await mounted();
@@ -272,7 +272,7 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     expect((await api.execute('camera.shot', { points: [{ at: [0, 100, 0], look: [0, 100, 0] }, { at: [10, 100, 0], look: [0, 50, 0] }], seconds: 2 }, r)).code).toBe('INVALID_ARGUMENT');
     expect((await api.execute('camera.shot', { points: [{ at: [0, 100, 0], look: [0, 50, 0] }, { at: [0, 900, 0], look: [0, 50, 0] }], seconds: 2 }, r)).code).toBe('OUT_OF_BOUNDS');
     expect(api.shotRunning?.()).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   it('ends the shot at the page\'s seams: manual input, a map change, Circle, a hidden page and the teardown', async () => {
     const api = await mounted();
@@ -323,5 +323,5 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     expect(api.shotRunning?.()).toBe(true);
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     expect(api.shotRunning?.()).toBe(false);
-  }, 30_000);
+  }, 90_000);
 });

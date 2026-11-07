@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BEACON_BYTES_CAP_ADAPTATION, BEACON_COUNT_MAX_ADAPTATION, BEACON_MAX_PER_LOAD_ADAPTATION, BEACON_MIN_GAP_MS_ADAPTATION, beaconBackend, beaconMatchBegan, beaconMatchEnded, beaconMatchOrigin, buildReport, classifyKind,
   ClientErrorBeacon, encodeReport, installClientErrorBeacon, pageBeaconContext, pageBeaconText, pageClientErrorBeacon,
@@ -242,7 +242,21 @@ describe('the page\'s context and beacon', () => {
     expect(pageClientErrorBeacon()).toBe(a);
     expect(a.pageId.length).toBeGreaterThanOrEqual(16);
     expect(pageBeaconText()).toBe('ok');
-    a.report('error', 'x', null);
-    expect(pageBeaconText()).toBe('ok; errors error x1; first error: x; beacon sent 0');   // the send off until part B
+    const calls: { url: unknown; init: RequestInit | undefined }[] = [];
+    vi.stubGlobal('fetch', (url: unknown, init?: RequestInit) => { calls.push({ url, init }); return Promise.resolve(new Response(null, { status: 204 })); });
+    try {
+      a.report('error', 'x', null);
+      expect(pageBeaconText()).toBe('ok; errors error x1; first error: x; beacon sent 1');   // CEB.R5: on since part B (H406)
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.url).toBe('/api/client-error');
+      expect(calls[0]!.init).toMatchObject({ method: 'POST', credentials: 'omit', mode: 'same-origin', keepalive: true });
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+describe('CEB.R5: the page sends once part B is live (H406, 2026-11-06)', () => {
+  it('CLIENT_ERROR_BEACON_SEND_ADAPTATION is on -- part B (the Worker route and central intake) was deployed and checked end to end with v0.4.10', async () => {
+    const mod = await import('../src/clientErrorBeacon');
+    expect(mod.CLIENT_ERROR_BEACON_SEND_ADAPTATION).toBe(true);
   });
 });

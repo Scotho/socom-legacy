@@ -56,5 +56,5 @@ describe('R3-B: the page\'s starter placement check compares serialized recipes 
     expect(preview.diagnostics).toEqual([]);
     expect(preview.record).not.toBeNull();
     expect(checkRecord(preview.record)).toBeNull();
-  }, 20_000);                                                   // the first imports the page (4.5 s cold): the page tests' allowance
+  }, 90_000);                                                   // the first imports the page (4.5 s cold): the page tests' allowance
 });

@@ -3,6 +3,7 @@ import { pageFrameSampler, type FrameStats } from './frameSampler';
 import { probeSoftwareRenderer, type SoftwareProbe } from './softwareRenderer';
 import { readVideoSettings, type RenderScale } from './videoSettings';
 import { pageBeaconText } from './clientErrorBeacon';
+import { soundDecodeText } from './soundDecodeRecord';
 
 /**
  * CPS-5 (product track, **a browser adaptation with no original**): the player's performance line -- one line a player
@@ -18,7 +19,9 @@ import { pageBeaconText } from './clientErrorBeacon';
  * page renderer's backend, the device pixel ratio, the drawing buffer and the canvas's CSS size, the display's refresh
  * (`refreshOf`), the video settings (`./videoSettings`), where the frames were drawn (`placeOf`) and the sampler's
  * statistics (`./frameSampler`), and last the graphics record (`./graphicsLost` `graphicsText`: "ok", or the first
- * uncaptured GPU error with its count and the lost device -- the tag-trails instrument, 2026-11-05). A part not known
+ * uncaptured GPU error with its count and the lost device -- the tag-trails instrument, 2026-11-05), and after it the
+ * sound decodes (`./soundDecodeRecord`: plays that decoded a sample in their own call, samples warmed at the load and let
+ * go past the cap -- LATER 730). A part not known
  * prints "?"; nothing here throws. It reads the page and changes nothing
  * the game does. It names no player, address or disc file.
  */
@@ -45,6 +48,8 @@ export interface PerfParts {
   longTasks?: number | null;
   /** `graphicsText` of the page's record: "ok", or its first uncaptured error, count and lost device. */
   graphics?: string | null;
+  /** LATER 730: `soundDecodeText` -- the cold plays, the samples warmed, the samples let go. */
+  sound?: string | null;
 }
 
 const num = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
@@ -76,6 +81,7 @@ export function perfLine(p: PerfParts): string {
     p.place ? oneLine(p.place) : '?',
     `${frames}, long tasks ${num(p.longTasks) ? p.longTasks : '?'}`,
     `graphics ${p.graphics ? oneLine(p.graphics) : '?'}`,
+    `sound ${p.sound ? oneLine(p.sound) : '?'}`,
   ].join(' | ');
 }
 
@@ -158,5 +164,6 @@ export function pagePerfLine(o: PagePerfOptions = {}): string {
     stats,
     longTasks: stats ? frames.longTasks(now - stats.span_ms) : frames.longTasks(0),
     graphics: part(() => pageBeaconText()),
+    sound: part(() => soundDecodeText()),
   });
 }

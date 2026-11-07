@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRdr, rdrGet, RDR_VISIT_FACTOR, type RdrNode } from '../src/rdr';
+import { parseRdr, parseRdrTyped, rdrGet, RDR_VISIT_FACTOR, type RdrNode } from '../src/rdr';
 import { parseZdb, zdbMember } from '../src/zdb';
 import { Zar } from '../src/zar';
 import { fixture } from './fixtures';
@@ -101,6 +101,15 @@ function unknownTypeRdr(): Uint8Array {
 }
 
 describe('parseRdr', () => {
+  it('LOBBY-MAPNAME: parseRdrTyped keeps each leaf\'s node type -- an int, a float (its f32) and a string -- where parseRdr flattens them to text', () => {
+    const bytes = syntheticRdr();
+    expect(parseRdr(bytes)).toEqual([['description', ['FROSTFIRE'], 'count', ['7'], 'scale', ['0.5']]]);
+    const s = (value: string) => ({ type: 'string', value });
+    expect(parseRdrTyped(bytes)).toEqual([[
+      s('description'), [s('FROSTFIRE')], s('count'), [{ type: 'int', value: 7 }], s('scale'), [{ type: 'real', value: 0.5 }],
+    ]]);
+  });
+
   it('decodes a synthetic script: strings, ints, floats and nested lists', () => {
     const root = parseRdr(syntheticRdr());
     expect(root).toEqual([['description', ['FROSTFIRE'], 'count', ['7'], 'scale', ['0.5']]]);

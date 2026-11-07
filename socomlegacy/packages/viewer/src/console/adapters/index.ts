@@ -82,9 +82,10 @@ export function liveAdapters(doc: Document, win: Window): Adapters & { dispose()
   // CX-51 (CX.R19): the launcher page's UI sounds; the overlay's adapters take none (never over a game page).
   const sounds = liveUiSounds(win, doc);
   // DSH-4 (DSH.R11, DSH.R12): the disc share's screens over the real transfer -- pairing at central's /api/discshare/* (the
-  // account requests' base: this page's origin in a release, DSH.R10), the files only between this player's devices on
-  // one local network. "Has the disc in" is a complete extraction kept in this browser (DSH.R7); a copy received whole is
-  // taken by the disc as a finished extraction is. Its changes re-draw the page.
+  // account requests' base: this page's origin in a release, DSH.R10), the files sent to the device that made the code
+  // once the sender says Yes beside it (DSH.R16: between players too), on one network or across networks, directly or
+  // through Cloudflare's relay (DSH.R15). "Has the disc in" is a complete extraction kept in this browser (DSH.R7); a copy
+  // received whole is taken by the disc as a finished extraction is. Its changes re-draw the page.
   const discShare = liveDiscShare({
     search: win.location.search, origin: win.location.origin,
     signal: discShareSignal(accountServiceBase(win.location.search, win.location, (import.meta.env as Record<string, unknown> | undefined)?.['DEV'] === true)),

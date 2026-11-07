@@ -1,0 +1,155 @@
+{
+  "manifest": {
+    "format": "Required. Always the text `%PACK_FORMAT%`: it says the file is a v2 pack manifest.",
+    "formatVersion": "Required. Always the number `%PACK_FORMAT_VERSION%`. Any other value is refused with `pack.FORMAT_VERSION`.",
+    "id": "Required. The pack's id: 1 to %PACK_ID_CHARS_ADAPTATION% characters of lower-case `a-z`, `0-9`, dots and hyphens, starting and ending with a letter or digit, with no `..`. It may not begin with `mod.`, `model.` or `texture.`: those prefixes are kept for the earlier formats.",
+    "version": "Required. The pack's version, a semantic version such as `1.0.0` (a pre-release such as `1.0.0-beta.1` is allowed here, but not by Thunderstore).",
+    "name": "Required. The pack's display name: 1 to %PACK_NAME_CHARS_ADAPTATION% printable ASCII characters.",
+    "description": "Optional. A short description: up to %PACK_DESCRIPTION_CHARS_ADAPTATION% printable ASCII characters. It is part of the pack's identity hash, so changing it changes the pack's hash.",
+    "target": "Required. The disc revision the pack is for. It must be exactly the build's target (see `PACK_TARGET_US` below); an earlier spelling is refused and the finding names the canonical one.",
+    "contract": "Required. A version range, such as `^%RULES_PACK_CONTRACT_FLOOR%`, that the build's engine contract version (`ENGINE_CONTRACT_VERSION`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `||`. A pack of kind `rules` must not admit any engine before `%RULES_PACK_CONTRACT_FLOOR%`.",
+    "kinds": "Required. A list naming each of `content`, `rules` and `system` at most once, and at least one of them: what the pack contains.",
+    "sides": "Required. One of `client`, `server` or `both`. The check only tests that it is one of the three; nothing else in the contract reads it. The earlier formats are read as `client`.",
+    "dependencies": "Required, empty when there are none. A list of at most %PACK_DEPENDENCIES_ADAPTATION% entries, each either `{id, range}` (another pack, by its id and a version range) or `{archive, sha256}` (one of your own disc archives, by its path and SHA-256). The same id or archive may not appear twice, and a pack may not depend on itself.",
+    "files": "Required, at least one row. Every member of the pack except the manifest itself, one row each (see the `files` row below). A file in the zip that is not listed is refused, apart from Thunderstore's root files beside the manifest.",
+    "intents": "Required. A list of at most %PACK_INTENTS_ADAPTATION% entries, each `{kind, files}`: which members a change is declared to be, and what kind of change it is. Every member must be named by at least one intent.",
+    "handlers": "Optional. A list of at most %PACK_HANDLERS_ADAPTATION% claims on handler slots the engine owns (see the `handlers` claim below). No pack code runs: a claim only names a handler the engine already has."
+  },
+  "fileRow": {
+    "path": "The member's path inside the pack: relative, forward slashes, at most %PACK_PATH_CHARS_ADAPTATION% characters and %PACK_PATH_DEPTH_ADAPTATION% folders deep, with no `..`, drive, leading slash, colon, percent sign, control character, hidden (dot-led) or reserved segment. It may not be `%PACK_MANIFEST_FILE%` or one of Thunderstore's root files.",
+    "sha256": "The SHA-256 of the member's bytes, as 64 lower-case hex digits. The check hashes the member and refuses it when the hash differs.",
+    "size": "The member's size in bytes, a whole number of 0 or more. The check compares it with the stored size before reading any bytes.",
+    "role": "What the member is: one of the roles below. The path's file type must be one the role allows."
+  },
+  "handlerClaim": {
+    "slot": "The engine-owned slot the pack claims, a dotted lower-case name of at most 64 characters such as `visual.post`. A pack claims a slot at most once.",
+    "handler": "The engine handler the pack asks for on that slot, a dotted lower-case name of at most 64 characters. It must be one the build offers for that slot, or the claim is refused with `pack.HANDLER_UNKNOWN`.",
+    "actions": "Optional. A list of at most %PACK_HANDLER_ACTIONS_ADAPTATION% distinct dotted lower-case action names the claim uses; each must be one the handler offers.",
+    "options": "Optional. A plain JSON object handed to the handler: at most %PACK_HANDLER_OPTIONS_BYTES_ADAPTATION% bytes of JSON, nested at most %PACK_HANDLER_OPTIONS_DEPTH_ADAPTATION% deep, finite numbers only, and no `__proto__`, `constructor` or `prototype` key. The contract checks only this shape; the handler checks what is in it."
+  },
+  "kinds": {
+    "content": "Content: assets and maps (models, textures, sounds, collision, data, an authored map). The earlier formats are read as `content` packs. The check sets no rule of its own on this kind.",
+    "rules": "Declarative rules for a game mode, in `rules`-role JSON members: data only, never code. A `rules` pack's `contract` must start at `%RULES_PACK_CONTRACT_FLOOR%` or above, and its members' capabilities must agree with its `handlers` claims.",
+    "system": "Engine systems: changes made through claims on engine-owned handler slots (the one such slot today is the full-screen picture pass `visual.post`). The check sets no rule of its own on this kind."
+  },
+  "legacyKinds": {
+    "mod": "An `s2u-mod` v1 data-override mod. It is read as the pack `mod.` plus its id, its files as role `data` under a `gameplay-value` intent; a version that is not a semantic version is kept as `0.0.0+legacy.` plus the old version.",
+    "model": "The model pack (glTF models in place of the game's meshes). It is read as `model.current` version `1.0.0`, its files as role `mesh` under a `cosmetic` intent.",
+    "texture": "A texture pack for one map. It is read as `texture.` plus the map's name, version `1.0.0`, its files as role `texture` under a `cosmetic` intent with their own SHA-256 and sizes, and the map archive as a disc archive dependency when the pack records the archive's SHA-256."
+  },
+  "sides": {
+    "client": "The value `client`. The check accepts it; the contract gives it no further rule.",
+    "server": "The value `server`. The check accepts it; the contract gives it no further rule.",
+    "both": "The value `both`. The check accepts it; the contract gives it no further rule."
+  },
+  "roles": {
+    "mesh": "A 3D model in glTF form.",
+    "texture": "An image.",
+    "audio": "A sound.",
+    "collision": "Collision data, as JSON or a glTF binary model.",
+    "gameplay": "A JSON member of gameplay values.",
+    "rules": "A JSON rules member (a rules spec). It is bounded by `PACK_RULES_MEMBER_BYTES_ADAPTATION`, read whole once, and must be a UTF-8 JSON object whose `capabilities`, when present, is a list of `{slot, handler, actions?}`.",
+    "system": "A JSON member for a system claim.",
+    "data": "Any other data; any file type.",
+    "legacy-manifest": "An earlier format's own manifest, kept as a member when the contract reads an earlier pack."
+  },
+  "intents": {
+    "cosmetic": "The members change only how the game looks or sounds. A `collision`, `gameplay` or `rules` member cannot be covered by `cosmetic` alone.",
+    "gameplay-value": "The members change values the game already has.",
+    "new-behaviour": "The members add behaviour the game does not have."
+  },
+  "values": {
+    "PACK_FORMAT": "The manifest's `format`.",
+    "PACK_FORMAT_VERSION": "The manifest's `formatVersion`.",
+    "PACK_MANIFEST_FILE": "The manifest's file name at the pack's root.",
+    "ENGINE_CONTRACT_VERSION": "The engine contract version this build publishes; a pack's `contract` range must include it.",
+    "PACK_TARGET_US": "The disc revision this build targets (the US disc's product code); a pack's `target` must be exactly this.",
+    "RULES_PACK_CONTRACT_FLOOR": "The first engine contract with the rules vocabulary. A `rules` pack's `contract` must start at it or above in every `||` alternative; it stays the same when the build's contract moves on.",
+    "THUNDERSTORE_TEAM_PLACEHOLDER": "A stand-in for the Thunderstore team packs would publish under, used in exported dependency pins. It is not a real team: the team is not named yet."
+  },
+  "targetAliases": {
+    "socom2-us-r0001": "The `s2u-mod` v1 spelling of the target. Only the `mod` adapter accepts it; in a v2 manifest it is refused and the finding names the canonical target."
+  },
+  "bounds": {
+    "PACK_BYTES_ADAPTATION": "All members together, by their sizes in the manifest (`pack.TOO_LARGE`). The stored files are first held to this plus the manifest's own bound.",
+    "PACK_DEPENDENCIES_ADAPTATION": "Entries in `dependencies` (`pack.LIMIT_EXCEEDED`).",
+    "PACK_DESCRIPTION_CHARS_ADAPTATION": "Characters in `description` (`pack.FIELD_INVALID`).",
+    "PACK_FILES_ADAPTATION": "Files in the pack, and rows in `files` (`pack.TOO_MANY_FILES`).",
+    "PACK_HANDLERS_ADAPTATION": "Claims in `handlers` (`pack.LIMIT_EXCEEDED`).",
+    "PACK_HANDLER_ACTIONS_ADAPTATION": "Action names in one claim's `actions` (`pack.FIELD_INVALID`).",
+    "PACK_HANDLER_OPTIONS_BYTES_ADAPTATION": "Bytes of one claim's `options` written as JSON (`pack.FIELD_INVALID`).",
+    "PACK_HANDLER_OPTIONS_DEPTH_ADAPTATION": "How deep one claim's `options` nest: the options object is level 1, an object or list inside it level 2 (`pack.FIELD_INVALID`).",
+    "PACK_ID_CHARS_ADAPTATION": "Characters in `id`, not counting an earlier format's prefix (`pack.FIELD_INVALID`).",
+    "PACK_INTENTS_ADAPTATION": "Entries in `intents` (`pack.LIMIT_EXCEEDED`).",
+    "PACK_MANIFEST_BYTES_ADAPTATION": "The size of `s2u-pack.json` (`pack.MANIFEST_TOO_LARGE`), and of Thunderstore's `manifest.json` when the store checker reads it.",
+    "PACK_MEMBER_BYTES_ADAPTATION": "One member, other than a `rules` member (`pack.MEMBER_TOO_LARGE`).",
+    "PACK_NAME_CHARS_ADAPTATION": "Characters in `name` (`pack.FIELD_INVALID`).",
+    "PACK_PATH_CHARS_ADAPTATION": "Characters in one member path (`pack.PATH_INVALID`).",
+    "PACK_PATH_DEPTH_ADAPTATION": "Folders in one member path (`pack.PATH_INVALID`).",
+    "PACK_RULES_MEMBER_BYTES_ADAPTATION": "One `rules` member, which is read whole (`pack.MEMBER_TOO_LARGE`). It is the manifest's bound."
+  },
+  "storeRules": {
+    "required": "The files a Thunderstore package must hold at its root (not in a folder).",
+    "optional": "The root file a Thunderstore package may also hold.",
+    "manifestKeys": "The keys of Thunderstore's `manifest.json`, in the order the export writes them.",
+    "name": "The store name: letters, digits and underscores, at most %THUNDERSTORE_PACKAGE_RULES.name.maxChars% characters. Our id becomes it with each `.` and `-` written as `_`.",
+    "versionNumber": "The store version: strictly Major.Minor.Patch, with no pre-release or build part.",
+    "description": "The store description's length in characters. The export never cuts a longer one; it refuses it.",
+    "websiteUrl": "The store `website_url`: empty, or an http or https address. This rule is ours, not Thunderstore's; a pack manifest cannot carry an address, so the export takes it as an option.",
+    "dependency": "One store dependency: `Team-Name-x.y.z`, an exact version. The export pins each `{id, range}` dependency to the highest release it is given inside the range.",
+    "icon": "The size `icon.png` must be, in pixels. Only the PNG header is read."
+  },
+  "packCodes": {
+    "pack.MANIFEST_MISSING": "The pack has no `s2u-pack.json` and is not being read through an earlier format's loader.",
+    "pack.MANIFEST_TOO_LARGE": "`s2u-pack.json` is over `PACK_MANIFEST_BYTES_ADAPTATION`.",
+    "pack.MANIFEST_INVALID": "`s2u-pack.json` is not UTF-8 JSON, or is not a JSON object.",
+    "pack.LEGACY_INVALID": "An earlier format's manifest is not in that format's shape, or its own path is not a valid member path.",
+    "pack.FIELD_UNKNOWN": "The manifest, or a `files` row, has a field the format does not list.",
+    "pack.FIELD_INVALID": "A field's value breaks its rule: the wrong type, out of its bounds, not one of its allowed values, or a target written in an earlier spelling. Also a stored member whose size is not a byte count.",
+    "pack.FORMAT_VERSION": "`formatVersion` is not `%PACK_FORMAT_VERSION%`.",
+    "pack.TARGET_MISMATCH": "The pack's `target` is not the build's disc revision.",
+    "pack.CONTRACT_MISMATCH": "The build's engine contract version is outside the pack's `contract` range.",
+    "pack.PATH_INVALID": "A path is empty, uses backslashes, is too long or too deep, or has a control character, colon, percent sign, or an empty, hidden, reserved or unsafe segment.",
+    "pack.PATH_ESCAPE": "A path is absolute, names a drive, or leaves the pack with `..`.",
+    "pack.PATH_COLLISION": "Two files or rows are the same path once Unicode-normalised and compared without case.",
+    "pack.EXTERNAL_URI": "A path is a URI, or a manifest text holds an address such as `https://` or begins with `data:`, `javascript:`, `file:` or a similar scheme. Every byte comes from the pack or your own disc.",
+    "pack.TOO_MANY_FILES": "The pack holds, or `files` lists, more than `PACK_FILES_ADAPTATION` members.",
+    "pack.TOO_LARGE": "The members' sizes in the manifest add up to more than `PACK_BYTES_ADAPTATION`, or the stored files add up to more than that plus `PACK_MANIFEST_BYTES_ADAPTATION`.",
+    "pack.LIMIT_EXCEEDED": "`dependencies`, `intents` or `handlers` has more entries than its bound.",
+    "pack.MEMBER_TOO_LARGE": "One member is over its bound (`PACK_MEMBER_BYTES_ADAPTATION`, or `PACK_RULES_MEMBER_BYTES_ADAPTATION` for a `rules` member).",
+    "pack.MEMBER_INFLATED": "A member has more bytes than its declared size.",
+    "pack.MEMBER_TRUNCATED": "A member has fewer bytes than its declared size.",
+    "pack.MEMBER_MISSING": "A listed member is not in the pack.",
+    "pack.MEMBER_HASH_MISMATCH": "A member's bytes do not match the `sha256` its row names.",
+    "pack.MEMBER_UNLISTED": "A file in the pack is not listed in `files`.",
+    "pack.ROLE_MISMATCH": "A member's file type is not one its role allows.",
+    "pack.INTENT_MISSING": "No intent names a member.",
+    "pack.INTENT_MISMATCH": "A `collision`, `gameplay` or `rules` member is covered only by a `cosmetic` intent.",
+    "pack.DUPLICATE_ID": "`dependencies` names the same pack or archive twice.",
+    "pack.DEPENDENCY_MISSING": "No available pack with that id is inside the range, or the named disc archive is not present.",
+    "pack.DEPENDENCY_ARCHIVE_MISMATCH": "The disc archive is present but its SHA-256 is not the one the pack names.",
+    "pack.DEPENDENCY_CYCLE": "The pack depends on itself, directly or through the available packs.",
+    "pack.HANDLER_CONFLICT": "Two claims in the pack are on one slot, or the slot is held by another pack and only one pack may hold it.",
+    "pack.HANDLER_UNKNOWN": "The build offers no such handler for that slot.",
+    "pack.ACTION_UNKNOWN": "The claimed handler has no such action.",
+    "pack.STORE_FILE": "A `files` row names one of Thunderstore's root files. Leave them out of `files`: they sit at the pack's root outside its identity.",
+    "pack.CONTRACT_FLOOR": "A `rules` pack's `contract` admits an engine before `RULES_PACK_CONTRACT_FLOOR`.",
+    "pack.RULES_MEMBER_INVALID": "A `rules` member is not a UTF-8 JSON object, or its `capabilities` is not a list of `{slot, handler, actions?}`.",
+    "pack.CAPABILITY_MISMATCH": "A `rules` member's capabilities and the manifest's `handlers` claims disagree: a capability with no matching claim or action, or a claim on a `behaviour.` slot that no rules member names.",
+    "pack.CHECK_SKIPPED": "A note, not an error: a check could not run because the build gave it nothing to check against (the available packs, your disc archives or the handler list). The report is then incomplete, never a pass."
+  },
+  "storeCodes": {
+    "store.TEAM_INVALID": "The team name is not 1 to %THUNDERSTORE_PACKAGE_RULES.name.maxChars% letters, digits and underscores.",
+    "store.NAME_INVALID": "The pack's id has no store name.",
+    "store.NAME_COLLISION": "Two ids, the pack's own or ones it depends on, would become the same store name. Neither is renamed: one pack has to change its id.",
+    "store.VERSION_INVALID": "The pack's version is not strictly Major.Minor.Patch (a pre-release or build part).",
+    "store.DESCRIPTION_TOO_LONG": "The store description is over %THUNDERSTORE_PACKAGE_RULES.description.maxChars% characters.",
+    "store.WEBSITE_INVALID": "The `website_url` given is neither empty nor an http or https address.",
+    "store.DEPENDENCY_UNRESOLVED": "No release of a dependency inside its range was given to pin.",
+    "store.ARCHIVE_DEPENDENCY": "A note, not an error: a disc archive dependency has no store form and stays in `s2u-pack.json`.",
+    "store.FILE_MISSING": "A required root file is not at the package's root.",
+    "store.MANIFEST_INVALID": "The store `manifest.json` is not a UTF-8 JSON object within the manifest bound, or one of its keys breaks its rule.",
+    "store.MANIFEST_MISMATCH": "The store manifest's name or version is not the pack's own.",
+    "store.ICON_INVALID": "`icon.png` is not a PNG of the required size."
+  }
+}

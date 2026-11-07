@@ -28,7 +28,9 @@ export type { LocalCamera, PassState, Vec3 };
  *   FUN_0029a950(&eyeL, cam, &targetL, &dist)                     the target and the goal, actor space
  *   FUN_00297410(dt, cam, &eyeL, &targetL, &far)                  to the world, and the look line
  *   target = eye + normalize(far - eye) * dist                    the look target, re-placed on the eye's line
- *   [+0x45 blend between two cameras; a -5 / +5 nudge in an actor state not read here: neither modelled]
+ *   [+0x45 blend: the stored target and eye moved 6 dt toward the new pair (D:L140729-140788), on only with the
+ *    death camera at 7 -- the dead player's teammate view, `PlayerCamera.ease` (INV-SPECTATE C, research 314 §5.7);
+ *    a -5 / +5 nudge in an actor state not read here: not modelled]
  *   FUN_0029bf70(dt, cam, &target, &eye, &eye)                    the pass
  *   FUN_0029bc90(cam, &eye, &target, out)                         the placement
  *
@@ -158,6 +160,18 @@ export const INIT_AIM_PITCH = SEAL_TUNING.initAimPitch;
  * at 30 a second, 6.64 a second), which leaves out the clip's playback -- the port's one-shot law is taken]
  */
 export const ROOT_RATE_READING = (STANCE.stand.rootY - STANCE.crouch.rootY) / ACTION_SECONDS.standToCrouch;
+/**
+ * INV-SPECTATE C (research 314 §5.7; reading, pending review): the camera's blend rate, a second. With the blend flag
+ * +0x45 set and +0x46 clear, `FUN_00296f10` takes the factor `dt * 6` (D:L140739) and clamps it to 1 (D:L140747-140749);
+ * `FUN_00297410` sets the flag (and clears +0x46) only with the death camera at 7 and the new bind's latch +0x44 spent
+ * (D:L141028-141032). [reading: the rate of the original's camera calls -- the dt `FUN_002998f0` hands down -- is not
+ * traced against the page's frame; the port applies it once a page frame with the page's dt]
+ */
+export const WATCHED_EASE_RATE_READING = 6;
+/** The blend's factor for a frame of `dt` seconds: `dt * WATCHED_EASE_RATE_READING`, at most 1 (D:L140739, D:L140747-140749). */
+export function watchedEaseFactor(dt: number): number {
+  return Math.min(1, Math.max(0, dt) * WATCHED_EASE_RATE_READING);
+}
 
 const sub = (a: readonly number[], b: readonly number[]): Vec3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
 const add = (a: readonly number[], b: readonly number[]): Vec3 => [a[0]! + b[0]!, a[1]! + b[1]!, a[2]! + b[2]!];
@@ -463,6 +477,18 @@ export class PlayerCamera {
   /** The death camera (`./deathCamera`, `FUN_00297a30`) while the SEAL is dead, else null. */
   death: DeathCamera | null = null;
 
+  /**
+   * INV-SPECTATE C: the blend flag +0x45 -- set only by the dead player's teammate view (`SpectatorView.followWatched`,
+   * the original's death camera at 7, `FUN_00297410` D:L141028-141032); a spectator's and the own body's camera stay
+   * rigid. While on, each tick moves the stored target and eye toward the tick's new pair by `watchedEaseFactor(dt)`
+   * before the pass (`FUN_00296f10` D:L140739-140788, the vector helpers `FUN_00309200` / `FUN_00309180` /
+   * `FUN_00309240`); while off, they are written straight (D:L140729-140736). A new bind is a fresh rig or `reset`,
+   * whose first tick writes them straight (the latch +0x44, D:L141034-141041).
+   */
+  ease = false;
+  /** The stored target +0x38 and eye +0x2c, the last tick's pair before the pass; null before a tick (a new bind). */
+  private stored: { target: Vec3; eye: Vec3 } | null = null;
+
   /** Forgets the camera: the next tick places it at the goal with no hold, as a new camera does. */
   reset(): void {
     this.pass = newPassState();
@@ -470,6 +496,7 @@ export class PlayerCamera {
     this.leadFrom = null;
     this.prev = null;
     this.cur = null;
+    this.stored = null;
   }
 
   /**
@@ -502,13 +529,22 @@ export class PlayerCamera {
     // DEAD (`./deathCamera`): the orbit laid on the local eye and the aim, the killer's point blended into the aim.
     const d = this.death;
     const ahead = scale(local.ahead, CAM_FAR);
-    const eye0 = world(d ? deathEye(d, eyeL, feet, yawDegrees, dt) : eyeL);    // the orbit turns first (141213-141217)
+    let eye0 = world(d ? deathEye(d, eyeL, feet, yawDegrees, dt) : eyeL);    // the orbit turns first (141213-141217)
     let far = world(add(targetL, d ? orbit(d, ahead) : ahead));
     if (d) far = deathFar(d, far, dt);
     // FUN_00296f10: the target on the line from the eye to the aim, `dist` from the eye.
     const accept = this.peek !== 0 ? isPeekCameraSurface : isCameraClassSurface;
     // FUN_00296f10: the target on the line from the eye to the aim, `dist` from the eye.
-    const target = add(eye0, scale(unit(sub(far, eye0)), local.dist));
+    let target = add(eye0, scale(unit(sub(far, eye0)), local.dist));
+    // INV-SPECTATE C: the +0x45 blend (D:L140737-140788), the stored pair moved toward the new by the factor; else (and
+    // on a new bind's first tick) the stored pair written straight (D:L140729-140736, D:L141034-141041).
+    const was = this.stored;
+    if (this.ease && was) {
+      const f = watchedEaseFactor(dt);
+      target = add(was.target, scale(sub(target, was.target), f));
+      eye0 = add(was.eye, scale(sub(eye0, was.eye), f));
+    }
+    this.stored = { target, eye: eye0 };
     // The game's eye: FUN_0029bf70's pass alone, at every aspect -- the one the shot and the order are claimed from.
     const passed = cameraPass(this.grid, target, eye0, this.pass, dt, accept);
     // H309's drawn-camera protection also covers an ordinary downward target beyond a wall (research 382 §1).

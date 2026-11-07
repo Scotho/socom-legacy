@@ -8,7 +8,7 @@ import {
   ACTION_BOMB_CAPTION_IDS, ACTION_CAPTION_TEXT, ACTION_ICON_FADE, ACTION_ICONS, ACTION_PROMPT_COLOUR, ACTION_RECORD_CAPTIONS, AT_REST,
   actionCaptionOf, MAP_ACTION_CAPTION_READING, VICTORY_CAPTION_READING, DEFAULT_MODEL, DEFAULT_ROUND, FIRE_MODE_ROUNDS, HUD_LAYOUT, Hud, ammoLines, hudLayout, roundStartAt, timerText, capLines, messageAlpha,
   compassMarks, DEFUSE_TIMER_LAYOUT_READING, EXTRACT_CAPTION_READING, gameCaption, HOLD_BAR_FADE, HUD_COLOURS, hudPass,
-  OBJECTIVE_MARK_RGB_READING, OBJECTIVE_POST_OFFSET_READING, SPAWN_FADE, STANCE_FADE, type HudModel, type RoundInfo,
+  BASE_MARK_TYPE_RGB_READING, OBJECTIVE_MARK_RGB_READING, OBJECTIVE_POST_OFFSET_READING, SPAWN_FADE, STANCE_FADE, type HudModel, type RoundInfo,
 } from '../src/hud';
 import {
   helpAlpha, infoBoxName, SCOREBOARD_HIDES, SPECTATOR_HELP, SPECTATOR_HIDES, SPECTATOR_INFO_LAYOUT, spectatorHudView, spectatorInfoText, taggedName,
@@ -25,7 +25,8 @@ import { FONT_TEXT_01, layoutText, PEN_NUDGE, textWidth } from '../src/hudFont';
 import {
   GS_SAMPLE_OFFSET, MP_TEAM_TAG_COLOUR_READING, ROUND_SCREEN_HIDES, TEAM_TAG_LAYOUT, teamTagLayout, type HudQuad, type HudTri,
 } from '../src/hud';
-import type { TeamTagsView } from '../src/hudTags';
+import { TEAMMATE_NAME_DISTANCE_ADAPTATION, TEAMMATE_NAMES_ORIGINAL_VALUE, type TeamTagsView } from '../src/hudTags';
+import { CONTROLS, type ChoiceControl } from '../src/modern/settings/model';
 import { MESSAGE_WRAP_WIDTH, messageMeasureScale, wrapMessageLine } from '../src/hudMessagePanel';
 import { eliminationLines } from '../src/net/rules';
 import { integerFit, UI_SAMPLING_DEFAULTS, type UiSamplingSettings } from '../src/experimentalUiSampling';
@@ -691,6 +692,22 @@ describe('the bomb on the HUD (XR-06; research 214 s3, 87 s1.7, 192 G27)', () =>
     hud.setExtraMarks([]);
     hud.setDefuseTimer(null);
     expect(hud.state().model).toMatchObject({ extraMarks: [], defuseTimer: null });
+  });
+
+  // BOMB-MARKS (research 214 s3 "The base mark for both sides"; reading, pending review): the base mark's two types from
+  // FUN_002126f0's table (floats at +0xa0 in threes, type 0 first): type 2 (40, 62, 36) at +0xb8..+0xc0
+  // (D:L68684-68687), type 3 (62, 37, 36) at +0xc4..+0xcc (D:L68680-68683); a pulsing mark at the marks' pulse.
+  it("a typed ret_base is drawn in its type's colour: type 2 (40, 62, 36) green, type 3 (62, 37, 36) red, at the pulse's alpha", () => {
+    expect(BASE_MARK_TYPE_RGB_READING).toEqual({ 2: [40, 62, 36], 3: [62, 37, 36] });
+    expect(OBJECTIVE_MARK_RGB_READING['ret_base.tif']).toEqual([40, 62, 36]);
+    const MARKS = { ...SIZES, 'ret_base.tif': { width: 16, height: 16 }, 'ret_triangle.tif': { width: 16, height: 16 } };
+    const at = model({
+      yaw: 0, position: [0, 0],
+      extraMarks: [{ bitmap: 'ret_base.tif', x: 0, z: -100, type: 2, pulse: true }, { bitmap: 'ret_base.tif', x: 0, z: 100, type: 3, pulse: true }],
+    });
+    expect(compassMarks(at).map((m) => [m.bitmap, m.type])).toEqual([['ret_base.tif', 2], ['ret_base.tif', 3]]);
+    const quads = hudLayout(PS2, at, MARKS, { ...AT_REST, marks: 0.5 }).quads.filter((q) => q.texture === 'ret_base.tif');
+    expect(quads.map((q) => q.rgba)).toEqual([[40 / 128, 62 / 128, 36 / 128, 0.5], [62 / 128, 37 / 128, 36 / 128, 0.5]]);
   });
 
   it("every compass mark's bitmap is read out of HUD2 (research 87 s1.7: the marks are HUD2 16x16; 239 s5.1, s9) -- an unread one has no size and the draw skips it", () => {
@@ -1765,6 +1782,45 @@ describe('NU-9 (c) T3: the HUD draws the over-head tags (research 329 §5 T3)', 
     expect(hud.teammateNamesOn()).toBe(false);
     hud.setTeammateNames(true);
     expect(hud.teammateNamesOn()).toBe(true);
+  });
+
+  // LATER 671 (OT.R101; a browser adaptation, `TEAMMATE_NAME_DISTANCE_ADAPTATION`): the view's scale is the draw's.
+  it('LATER 671 (a): a view at the original\'s 0.9 (TEAMMATE NAMES "original", or no scale) is drawn at 0.9, as today', () => {
+    for (const v of [quiet, { ...quiet, scale: 0.9 }]) {
+      const ink = glyphs(drawn({ teamTags: v })).filter((q) => q.rgba[0] > 0);
+      const laid = teamTagLayout(v).tags;
+      const first = layoutText('BRAVO', laid[0]!.x, laid[0]!.y, 0.9).glyphs[0]!;
+      expect([ink[0]!.x - ink[0]!.w / 2, ink[0]!.y - ink[0]!.h / 2, ink[0]!.w]).toEqual([first.x, first.y, first.w]);
+    }
+  });
+
+  it('LATER 671 (b): the adaptation\'s view is drawn at its scale, below 0.9 -- the glyphs smaller, laid at the same scale\'s width', () => {
+    const v: TeamTagsView = { ...quiet, scale: TEAMMATE_NAME_DISTANCE_ADAPTATION.scale };
+    const ink = glyphs(drawn({ teamTags: v })).filter((q) => q.rgba[0] > 0);
+    const laid = teamTagLayout(v).tags;
+    const first = layoutText('BRAVO', laid[0]!.x, laid[0]!.y, TEAMMATE_NAME_DISTANCE_ADAPTATION.scale).glyphs[0]!;
+    expect([ink[0]!.x - ink[0]!.w / 2, ink[0]!.y - ink[0]!.h / 2, ink[0]!.w]).toEqual([first.x, first.y, first.w]);
+    expect(ink[0]!.w).toBeLessThan(layoutText('BRAVO', 0, 0, 0.9).glyphs[0]!.w);
+    expect(laid[0]!.width).toBe(textWidth('BRAVO', TEAMMATE_NAME_DISTANCE_ADAPTATION.scale));
+  });
+
+  it('LATER 671: setTeammateNames(on, original) -- the "original" setting is on (the reticle\'s valve) and read back by teammateNamesOriginal()', () => {
+    const hud = new Hud();
+    expect(hud.teammateNamesOriginal()).toBe(false);               // the adaptation, the default (OT.R101)
+    hud.setTeammateNames(true, true);
+    expect([hud.teammateNamesOn(), hud.teammateNamesOriginal()]).toEqual([true, true]);
+    hud.setTeammateNames(true);
+    expect([hud.teammateNamesOn(), hud.teammateNamesOriginal()]).toEqual([true, false]);
+    hud.setTeammateNames(false);
+    expect([hud.teammateNamesOn(), hud.teammateNamesOriginal()]).toEqual([false, false]);
+  });
+
+  it('LATER 671: OPTIONS > TEAMMATE NAMES offers Off, On (the adaptation) and Original over DISPLAY_MP_TEAM_NAMES 0, 1, 2', () => {
+    const row = CONTROLS.find((c) => c.id === 'DISPLAY_MP_TEAM_NAMES');
+    expect(row).toMatchObject({ kind: 'choice', valve: 'DISPLAY_MP_TEAM_NAMES', group: 'display', label: 'Teammate names' });
+    expect((row as ChoiceControl).options).toEqual([
+      { value: 0, label: 'Off' }, { value: 1, label: 'On' }, { value: TEAMMATE_NAMES_ORIGINAL_VALUE, label: 'Original' },
+    ]);
   });
 });
 

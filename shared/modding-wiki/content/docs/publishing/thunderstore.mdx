@@ -1,0 +1,134 @@
+---
+title: "Thunderstore"
+description: "How a pack fits Thunderstore's package format, how our identity maps onto the store's, and what is still open."
+status: "Format only"
+source: ["socomlegacy/docs/research/370-the-thunderstore-package-format.md", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts"]
+---
+
+**Status: Format only.** Our packs are shaped to fit Thunderstore's package format, and the pack contract can check a
+store package against that format. Nothing more than that exists today.
+
+## Read this first
+
+- **Nothing builds a store package yet.** The pack contract has the functions an export needs
+  (`thunderstoreManifest` writes the store's `manifest.json`, `checkThunderstorePackage` checks a package's files),
+  but no command or tool calls them. To make a store package today you would assemble the zip yourself.
+- **The team name is not decided yet.** Every store package belongs to a team. Until the project names ours, the
+  contract uses the stand-in `TEAM_PLACEHOLDER`. It is a valid store name, so the export's output is well formed, but it
+  is not a real team and nothing should be published under it.
+- **The game loads nothing from Thunderstore.** It does not fetch from the store, list its packages or install from it,
+  and there is no store page for the project.
+- **A v2 pack you install by hand is checked and stored, not applied.** See [What a pack is](/what-is-a-pack/) and
+  [Pack kinds](/kinds/) for what each kind does today.
+
+So this page describes a format, not a publishing service. It tells you how to lay out a pack so that it will fit
+the store once the open questions are settled.
+
+## What a store package is
+
+Thunderstore takes a zip with a few fixed files at its root. Our v2 pack is also a zip, with `s2u-pack.json` at its
+root. A pack bound for the store is both at once: our manifest and members, plus the store's root files beside them.
+
+```text
+example-paint-rules.zip
+  s2u-pack.json        our manifest (the pack's identity)
+  manifest.json        the store's manifest
+  icon.png             the store's icon
+  README.md            the store's readme
+  CHANGELOG.md         optional
+  rules/mode.json      a member, listed in s2u-pack.json's files
+```
+
+The store's rules are held as data in the pack contract, `THUNDERSTORE_PACKAGE_RULES`, taken from Thunderstore's own
+wiki page "Creating a package" (read 2026-10-26). The full list, generated from the code, is on
+[Bounds](/reference/bounds/), under "Thunderstore's package rules". In short:
+
+| file | required | what it holds |
+|---|---|---|
+| `manifest.json` | yes | The store's manifest: `name`, `version_number`, `website_url`, `description`, `dependencies`, in that order. |
+| `icon.png` | yes | A PNG of exactly 256x256 pixels. |
+| `README.md` | yes | The text the store shows for the package. |
+| `CHANGELOG.md` | no | The package's change history. |
+
+The files must sit at the root of the zip, not inside a folder.
+
+## The store files sit outside the pack's identity
+
+The four store files are a defined exception in our format. Next to a pack's own `s2u-pack.json` they are:
+
+- **not members.** Do not list them in `files`. A `files` row that names one is refused with `pack.STORE_FILE`.
+- **not hashed.** A pack's identity (its id, version and pack hash) is computed over `s2u-pack.json`, so editing the
+  README, the changelog, the icon or the store manifest does not change the pack's identity. Re-importing a pack where
+  only a store file changed matches the pack already installed.
+- **still counted.** They count toward the pack's file and byte bounds like any other file in the zip.
+
+Only these exact names at the root, and only when the zip has its own `s2u-pack.json`. Without one there is no
+exception: a root `manifest.json` in a zip with no `s2u-pack.json` is read as an earlier-format texture pack, as it
+always was.
+
+## How our identity maps onto the store's
+
+Our ids and versions follow our own grammar, which is not the store's. The contract converts them and refuses what
+does not convert cleanly. It never truncates or renames anything to make it fit.
+
+| ours (`s2u-pack.json`) | the store's (`manifest.json`) | how it maps |
+|---|---|---|
+| `id` | `name` | `thunderstoreName`: every `.` and `-` becomes `_`. Our ids are lower case letters, digits, `.` and `-`, at most 64 characters; the store's names allow letters, digits and `_`, at most 128 characters. |
+| (none) | the team | The team is not in our manifest. The full store identity is `Team-Name`; today the team is `TEAM_PLACEHOLDER`. |
+| `version` | `version_number` | `thunderstoreVersion`: our versions are SemVer, the store's strictly Major.Minor.Patch. A pre-release or build part (`1.0.0-beta.1`, `1.0.0+abc`) passes our check but cannot go to the store (`store.VERSION_INVALID`). |
+| `description` | `description` | Ours may be up to 400 characters (`PACK_DESCRIPTION_CHARS_ADAPTATION`); the store's at most 250 characters. A longer one is refused (`store.DESCRIPTION_TOO_LONG`), never cut. The export can take a shorter store description as an option. |
+| (none) | `website_url` | Our manifest cannot hold an address at all (`pack.EXTERNAL_URI`), so the export takes the store's `website_url` as an option: empty, or an http or https address (`store.WEBSITE_INVALID`). |
+| `dependencies` | `dependencies` | Each `{id, range}` becomes one exact pin, `Team-Name-x.y.z`. See below. |
+
+An example, with a made-up id: `example.paint-rules` version `1.2.0` becomes the store name `example_paint_rules`,
+version `1.2.0`, identity `TEAM_PLACEHOLDER-example_paint_rules`.
+
+### Name collisions
+
+The conversion is not one-to-one: `a.b` and `a-b` both become `a_b`. When two ids would meet on one store name -- the
+pack's own id, or any pack in its dependency chain -- the export refuses with `store.NAME_COLLISION`. Neither is
+renamed: one of the packs has to change its id.
+
+### Dependencies become exact pins
+
+Our dependencies name a range (`^1.0.0`, `>=1.2.0 <2.0.0`); the store's name one exact version. The export pins each
+`{id, range}` dependency to the highest release it is given that falls inside the range. Pre-releases are never pinned,
+because they are not store versions. If no release in the range is given, the export refuses with
+`store.DEPENDENCY_UNRESOLVED`.
+
+A dependency on your own disc archive (`{archive, sha256}`) has no store form. It stays in `s2u-pack.json` and the
+export notes it (`store.ARCHIVE_DEPENDENCY`, a note, not an error).
+
+## Checking a store package
+
+`checkThunderstorePackage` checks a zip's files against the store's rules as data, with no network:
+
+- each required root file is present at the root (`store.FILE_MISSING`);
+- the store `manifest.json` is a UTF-8 JSON object within the manifest bound, and each key keeps its rule
+  (`store.MANIFEST_INVALID`, naming the key);
+- `icon.png` is a PNG whose header says 256x256 (`store.ICON_INVALID`; only the header is read, no image is decoded);
+- given the pack's own manifest, the store name and version are the pack's (`store.MANIFEST_MISMATCH`).
+
+Passing this check says nothing about our own check. A pack bound for the store has to pass both: the store check, and
+the pack check every v2 pack goes through.
+
+The export, `thunderstoreManifest`, can also refuse with `store.TEAM_INVALID` (a team name outside the store's
+grammar) and `store.NAME_INVALID` (an id with no store name).
+
+Every `store.` code, with what it means, is on [Refusal codes](/reference/codes/); what to do about each one is on
+[Troubleshooting](/troubleshooting/).
+
+## Size
+
+Our pack bound is 512 MiB for all members together (`PACK_BYTES_ADAPTATION`). Thunderstore's own limit is far higher,
+about 5 GB, and the contract does not check it. The difference runs one way only: a package the store would accept can
+still be too large for us.
+
+## What is not built
+
+Named here so nobody assumes otherwise:
+
+- a command that builds a store package zip from a v2 pack;
+- the project's team on the store;
+- uploading, a store page, or any connection to Thunderstore from the game or its tools;
+- installing a pack from the store, or applying any v2 pack in the game.

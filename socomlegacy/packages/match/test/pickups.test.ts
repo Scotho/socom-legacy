@@ -3,17 +3,18 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_RIFLE, EMPTY_ITEM, HELD_RIFLE, HELD_SIDEARM, ITEM, readKitTable, readMapArsenal, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
 import { slotModel } from '../../viewer/src/loadout';
-import { MagazineRing } from '../../viewer/src/magazines';
+import { magazinesCarried, MagazineRing } from '../../viewer/src/magazines';
 import {
   AMMO_TRANSFER_PLACEHOLDER, claimWeapon, DROP_CONTENTS_READING, DROP_PLACEMENT_PLACEHOLDER, dropsOf, LAUNCHER_DROP_READING,
-  PICKUP_FAMILY_READING, PICKUP_HAND_READING, transferAmmo, WEAPON_DROP_AMMO_READING,
+  PICKUP_FAMILY_READING, PICKUP_HAND_READING, PICKUP_MAGAZINE_CAP_READING, transferAmmo, WEAPON_DROP_AMMO_READING,
 } from '../src/pickups';
 
 /**
  * PF-34 (ruling PF.R54; web research 234 s2-s4, 194 s2): the world inventory's pure half -- what a classic death lays
  * (`FUN_005a0040` D:L458646-458706 with `FUN_005ba040` D:L472580-472672), a weapon claim's same-family replacement
- * (`FUN_0059f0c0` D:L458178-458190), and an ammunition bundle's transfer into free ring slots (`AMMO_TRANSFER_PLACEHOLDER`:
- * the original's `FUN_005bb000`/`FUN_005ba770` redistribution is not read). The room's half is `roomPickups.test.ts`.
+ * (`FUN_0059f0c0` D:L458178-458190), and an ammunition bundle's transfer into free ring slots below the weapon's
+ * magazines (`PICKUP_MAGAZINE_CAP_READING`: `FUN_005ba3d0` through `FUN_005bb000`; the top-up of part-spent magazines
+ * is still `AMMO_TRANSFER_PLACEHOLDER`). The room's half is `roomPickups.test.ts`.
  */
 
 const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
@@ -99,22 +100,24 @@ describe('PF-34: the death drops, the claim and the bundle, pure (research 234 s
     expect(claimWeapon({ did: 5, kind: 'ammo', entries: [], at: feet, yaw: 0, from: 9 }, taker, TABLE)).toEqual({ refused: 'kind' });
   });
 
-  it('transferAmmo moves whole entries of a weapon the taker carries into free ring slots and leaves the rest as the residual bundle (AMMO_TRANSFER_PLACEHOLDER); an entry for a weapon not carried stays; nothing is created or rounded', () => {
+  it("transferAmmo moves whole entries of a weapon the taker carries into free ring slots below the record's magazines (PICKUP_MAGAZINE_CAP_READING; AMMO_TRANSFER_PLACEHOLDER) and leaves the rest as the residual bundle; an entry for a weapon not carried stays; nothing is created or rounded", () => {
     expect(AMMO_TRANSFER_PLACEHOLDER).toBe('whole entries into free slots');
-    // The rifle's ring: 8 slots holding rounds, the one in the weapon (slot 2) empty -- two free slots past it.
-    const rifle = ring(30, [30, 30, 0, 30, 30, 30, 30, 30, 30, 30].map((n, i) => (i === 8 || i === 9 ? 0 : n)), 2);
+    expect(PICKUP_MAGAZINE_CAP_READING).toBe('NumMags, 2X doubled, at most 10');
+    // The rifle's ring (HELD_RIFLE: NumMags 3): one full magazine, the one in the weapon (slot 1) empty -- of the first
+    // three slots (`FUN_005ba3d0` D:L472750) only slot 2 is free; slots 3-9 are past the cap and never written.
+    const rifle = ring(30, [30, 0, 0], 1);
     const pistol = ring(12, [12]);
     const rings: [MagazineRing, MagazineRing] = [rifle, pistol];
     const before = rifle.total() + pistol.total();
     const bundle = [{ item: HELD_RIFLE.id, rounds: [17, 30, 4] }, { item: DEFAULT_RIFLE.id, rounds: [30] }, { item: HELD_SIDEARM.id, rounds: [3] }];
     const out = transferAmmo(bundle, [HELD_RIFLE, HELD_SIDEARM], rings);
-    // Two free slots for the rifle (8 and 9; the empty one in the weapon is not one): the 17 and the 30 go, the 4 stays.
-    expect(rifle.state()).toEqual({ slots: [30, 30, 0, 30, 30, 30, 30, 30, 17, 30], current: 2 });
+    // One free slot under the rifle's cap: the 17 goes, the 30 and the 4 stay.
+    expect(rifle.state()).toEqual({ slots: [30, 0, 17, 0, 0, 0, 0, 0, 0, 0], current: 1 });
     // The pistol takes its 3; the M4A1 (not carried) stays whole.
     expect(pistol.state().slots.slice(0, 3)).toEqual([12, 3, 0]);
     expect(out.moved).toBe(true);
-    expect(out.filled).toEqual([[8, 9], [1]]);                   // the slots written: what the page's kit may touch
-    expect(out.residual).toEqual([{ item: HELD_RIFLE.id, rounds: [4] }, { item: DEFAULT_RIFLE.id, rounds: [30] }]);
+    expect(out.filled).toEqual([[2], [1]]);                      // the slots written: what the page's kit may touch
+    expect(out.residual).toEqual([{ item: HELD_RIFLE.id, rounds: [30, 4] }, { item: DEFAULT_RIFLE.id, rounds: [30] }]);
     // Conservation: what the rings gained is what left the bundle, round for round.
     const left = out.residual.flatMap((e) => e.rounds).reduce((a, b) => a + b, 0);
     expect(rifle.total() + pistol.total() - before).toBe(17 + 30 + 4 + 30 + 3 - left);
@@ -122,6 +125,30 @@ describe('PF-34: the death drops, the claim and the bundle, pure (research 234 s
     const again = transferAmmo(out.residual, [HELD_RIFLE, HELD_SIDEARM], rings);
     expect(again).toEqual({ moved: false, filled: [[], []], residual: out.residual });
     expect(bundle[0]!.rounds).toEqual([17, 30, 4]);
+    // The same ring with the Double Ammo Load's record (NumMags 6, applied once by the kit, `withDoubleAmmo`): 2-5.
+    const doubled = ring(30, [30, 0, 0], 1);
+    const twoX = transferAmmo([{ item: HELD_RIFLE.id, rounds: [17, 30, 4, 30, 30] }], [{ ...HELD_RIFLE, mags: 6 }, HELD_SIDEARM], [doubled, ring(12, [12])]);
+    expect(doubled.state()).toEqual({ slots: [30, 0, 17, 30, 4, 30, 0, 0, 0, 0], current: 1 });
+    expect(twoX.residual).toEqual([{ item: HELD_RIFLE.id, rounds: [30] }]);
+  });
+
+  it("the player report (2026-11-06, 9 MAG off bodies): an M4A1 ring never holds more than its NumMags magazines -- 3, or 6 with the 2X record -- however many bodies are walked over (FUN_005ba3d0 D:L472718-472763 via FUN_005bb000 D:L473174-473188)", () => {
+    const body = () => [{ item: DEFAULT_RIFLE.id, rounds: [30, 30, 30] }];
+    for (const [record, cap] of [[DEFAULT_RIFLE, 3], [{ ...DEFAULT_RIFLE, mags: magazinesCarried(DEFAULT_RIFLE.mags, true) }, 6]] as const) {
+      expect(record.mags).toBe(cap);
+      // A spent ring: the magazine in the weapon (slot 0) part-fired, nothing else.
+      const m4 = ring(30, [9]);
+      const rings: [MagazineRing, MagazineRing] = [m4, ring(12, [12, 12, 12])];
+      for (let walked = 0; walked < 3; walked++) {
+        transferAmmo(body(), [record, HELD_SIDEARM], rings);
+        const s = m4.state().slots;
+        expect(s.filter((n) => n > 0).length, `cap ${cap}, body ${walked + 1}`).toBeLessThanOrEqual(cap);
+        expect(s.slice(cap).every((n) => n === 0), `cap ${cap}: no slot past the cap`).toBe(true);
+        // The ammo box's MAG (`FUN_005c49b0`, less one) never above NumMags - 1: 2, or 5 with 2X -- never 9.
+        expect(m4.shownMags(), `cap ${cap}, body ${walked + 1}`).toBeLessThanOrEqual(cap - 1);
+      }
+      expect(m4.shownMags()).toBe(cap - 1);
+    }
   });
 });
 

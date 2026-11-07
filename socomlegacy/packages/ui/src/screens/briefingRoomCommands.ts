@@ -267,6 +267,11 @@ export interface GameListEntry {
    * absent (read 0) with no CPUs, on NoResult and from an older server. A product adaptation.
    */
   replaceable?: number;
+  /**
+   * CHT-3 (a browser adaptation): the game's host is a community host. The row draws "unranked" and the HyperNode
+   * label. Absent on a trusted host and on NoResult. Not a field of the original.
+   */
+  community?: true;
 }
 /** `MediusPlayerOnlineState` as a player list row carries it (+0x40: the status, the two world ids, the lobby's and the game's names). */
 export interface RoomPlayerOnlineState { connectStatus: number; lobbyWorldId: number; gameWorldId: number; lobbyName: string; gameName: string }
@@ -347,7 +352,8 @@ function rowCells(r: GameRecord): (string | number)[] {
   let spec = Math.min(players, d[3]!);                                                  // D:L184418-184422
   const max = Math.min((e.maxPlayers & 0xffff) - d[4]!, GAME_PLAYERS_MAX);              // D:L184423-184426
   const inPlayers = Math.min(players - spec, max);                                      // D:L184427-184432
-  const out: (string | number)[] = [drawnGameName(e.gameName), inPlayers, max];
+  const name = e.community === true ? `${drawnGameName(e.gameName)} · unranked · HyperNode` : drawnGameName(e.gameName);
+  const out: (string | number)[] = [name, inPlayers, max];
   spec = Math.min(spec, d[4]!);                                                         // D:L184433-184437
   out.push(spec, d[4]!);
   out.push(players === 0 ? 0 : e.genericField2 < 300 ? 1 : e.genericField2 < 600 ? 2 : 3);   // D:L184438-184452

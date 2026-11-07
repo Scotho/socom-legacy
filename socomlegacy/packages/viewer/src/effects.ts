@@ -1,21 +1,23 @@
 import { Euler, Group, LineSegments, Matrix4, Mesh, PlaneGeometry, Quaternion, Vector3, type Camera, type Material, type Object3D } from 'three';
 import type { LineBasicNodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu';
 import {
-  gridCast, launchGrenade, stepGrenade, materialAnim, launchMotion, launchTracer, NODE_CALLER, NODE_ROOT, segmentHit, stepMotion, stepTracer, tracerHead,
+  gridCast, launchGrenade, stepGrenade, materialAnim, launchMotion, launchTracer, NODE_CALLER, NODE_ROOT, probeFloor, segmentHit, stepMotion, stepTracer, tracerHead,
   GAME_FRAME_DT, TRACER_ANIM, TRACER_POOL,
   type DecalEntry, type EffectCondition, type EffectContext, type EffectOp, type EffectProgram, type Grenade, type Grid, type MotionState,
   type MotionWorld, type ObjectMotion, type TracerFlight, type TracerKind,
 } from '@s2u/scene';
 import type { Rgba } from '@s2u/gs';
-import { EffectRun, type EffectHost, type OpTick } from './effectRunner';
+import { EffectRun, indoorsOperand, type EffectHost, type OpTick } from './effectRunner';
 import { buildEffectModel, effectBrighten, markMaterial } from './effectMaterials';
 import { ParticleSystem } from './particles';
+import type { AlphaPassSource } from './alphaInterleave';
 import { EffectLights } from './effectLights';
 import type { EffectData, EffectTexture } from './effectData';
 import { markGeometry, paintMark, WALK_DECAL_RENDER_ORDER, type FireEvent, type MarkTable } from './fire';
 import type { SurfaceShade } from './surfaceShade';
 import { markClipGeometry, squareInto, type MarkClipper, type MarkFrame } from './markClip';
 import { fixSoundName } from '@s2u/sound';
+import { cameraFloor } from './floorPick';
 import { worldColumn } from './net/placing';
 
 /**
@@ -176,6 +178,21 @@ export const MAX_FOOTPRINTS = 150;
  */
 export const MAX_EFFECT_RUNS_ADAPTATION = 2048;
 
+/**
+ * PLAYER_INDOORS_FEET_READING (INV-RAIN F3; research 89 §21, research 81 §10): `PLAYER_INDOORS` (set 0 command 72)'s
+ * tick (0x2b3880) answers bit 2 of the player's byte `+0x1060`, 0 with no player; what sets that bit is not traced, and
+ * the `m_inside` of the floor the ground probe picks under the player's feet stands in for it (`Effects.indoors`), the
+ * same floor byte the camera's probe writes for `CAMERA_INDOORS` (66, `FUN_002dc180`). They differ in the original
+ * only if the bit is set from something other than the feet's floor. Settled by tracing the writes of `+0x1060` bit 2.
+ */
+export const PLAYER_INDOORS_FEET_READING = 'feetFloorInside' as const;
+
+/**
+ * The camera's floor pick and its constant (INV-RAIN's review F1, research 89 §21): `./floorPick`'s, the one transcription
+ * of `FUN_00295b00` -> `FUN_002d4c20` the sound (`./walkSounds`) and the eye's region (`./regionCull`) read too.
+ */
+export { CAMERA_FLOOR_ABOVE, cameraFloor } from './floorPick';
+
 /** One live instance of an effect model (a casing, a flash), made for a run and dropped with it. */
 interface Instance { object: Object3D; model: string }
 
@@ -334,6 +351,68 @@ export class Effects {
   /** The hull the casings bounce on (the walk's grid). */
   setWorld(grid: () => Grid | null): void {
     this.grid = grid;
+  }
+
+  /**
+   * INV-RAIN F3: the local player's feet (`Walk.feet`: the mover's while walking, else null -- the last answer kept), for
+   * `PLAYER_INDOORS` (72). Null (the default): no player, false.
+   */
+  setPlayer(feet: (() => Vec3 | null) | null): void {
+    this.playerFeet = feet;
+  }
+
+  /**
+   * INV-RAIN F3: the map's hull the indoors tests probe (`indoors`) -- the walk's grid while walking, else the map's own
+   * (`Walk.gridOfGround`): a page off the walk (a spectator, the free camera) still has a camera whose floor the
+   * original probes every frame (`FUN_00295b00`). Null (the default): `setWorld`'s grid.
+   */
+  setHull(grid: (() => Grid | null) | null): void {
+    this.hull = grid;
+  }
+
+  private playerFeet: (() => Vec3 | null) | null = null;
+  private hull: (() => Grid | null) | null = null;
+  /** The camera's and the player's last indoors answers (`indoors`): kept where no floor is found. */
+  private cameraInside = false;
+  private playerInside = false;
+
+  /**
+   * INV-RAIN F3 (research 89 §21; research 81 §10): set 0's `CAMERA_INDOORS` (66) and `PLAYER_INDOORS` (72) answered from
+   * the floor's `m_inside`, as `WalkSounds.frame` feeds `GameAudio.setEnvironment`.
+   *
+   * - **66**: the tick (0x2936b0, research 81) answers the byte the camera's floor probe writes at its `+0x2b8` from the
+   *   polygon's `m_inside` (`FUN_002dc180`); `FUN_00295b00` probes under the camera node's world origin (`FUN_00310980`,
+   *   D:L140037-140038) and writes the byte only when a floor is found (D:L140039, D:L140053-140055) -- so here the
+   *   camera's own pick (`cameraFloor`: the highest floor at or below the camera), the last answer kept where none is.
+   * - **72**: the tick (0x2b3880) answers bit 2 of the player's byte `+0x1060`, 0 with no player (research 81); what sets
+   *   that bit is not traced, and the floor under the player's feet stands in for it (`PLAYER_INDOORS_FEET_READING`). No
+   *   player (`setPlayer(null)`) answers false, the tick's 0. A player whose feet the walk does not give (`Walk.feet`
+   *   null: fly mode, a dead page watching) or whose feet find no floor keeps the last answer: the bit keeps its value
+   *   while the player object lives (the review's F4); `reset` (a new map) answers false again.
+   *
+   * Both probe `setHull`'s grid (the map's own off the walk), else `setWorld`'s.
+   */
+  private indoors(who: 'camera' | 'player'): boolean {
+    const grid = this.hull?.() ?? this.grid();
+    if (who === 'camera') {
+      const cam = this.camera;
+      if (!cam || !grid) return this.cameraInside;
+      const at = new Vector3().setFromMatrixPosition(cam.matrixWorld);
+      const floor = cameraFloor(grid, at.x, at.y, at.z)?.poly;
+      if (floor) this.cameraInside = (floor.inside ?? 0) !== 0;
+      return this.cameraInside;
+    }
+    if (!this.playerFeet) return (this.playerInside = false);
+    const feet = this.playerFeet();
+    if (!feet || !grid) return this.playerInside;
+    const floor = probeFloor(grid, feet[0], feet[1], feet[2])?.poly;
+    if (floor) this.playerInside = (floor.inside ?? 0) !== 0;
+    return this.playerInside;
+  }
+
+  /** LATER 593: the world's alpha pass the particles are drawn between by range (`WorldView.alphaPass`); null, none. */
+  setAlphaPass(source: AlphaPassSource | null): void {
+    this.particles.setAlphaPass(source);
   }
 
   /** The frame's brighten, `1 + FIX/128` (`./lighting`'s `brightenOf`). */
@@ -841,6 +920,8 @@ export class Effects {
     this.lights.clear();
     this.clearFootprints();
     this.lastShell = null;
+    this.cameraInside = false;
+    this.playerInside = false;
   }
 
   /**
@@ -1007,9 +1088,13 @@ export class Effects {
         const b = this.rangePoint(run, c.flags & 0x20, c.flags & 0x08 ? c.other : null);
         return rangeTestHolds(c.flags, a.distanceToSquared(b), c.rangeSquared);
       }
+      // INV-RAIN F3: set 0's CAMERA_INDOORS (66) and PLAYER_INDOORS (72) from the floor's `m_inside` (`indoors`).
+      const who = indoorsOperand(c);
+      if (who) return this.indoors(who);
       return false;
     },
     begin: (op: EffectOp, run: EffectRun): OpTick | void => this.begin(op, run),
+    answersIndoors: true,   // INV-RAIN F3: `test` answers set 0's 66 and 72 (`indoors`); other hosts fold them as unread
   };
 
   private begin(op: EffectOp, run: EffectRun): OpTick | void {

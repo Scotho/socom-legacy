@@ -10,7 +10,9 @@ import { ThrowPose } from './throwPose';
 import { corpseShownS, flinchRefused, pushPopped, type FlinchGateBody } from './net/deaths';
 import type { AnimStats, TraversalPose } from './animator';
 import { ACTION_CLIPS, ACTION_FAMILY, ACTION_SECONDS, groundGrid, STEP_PROBE_LIFT_READING, type PlaySnapshot, type SwapProgress } from './mover';
-import { GAME_FRAME_DT, probeGround, selectFloor, type Grid } from '@s2u/scene';
+import { GAME_FRAME_DT, probeGround, probeWater, selectFloor, type Grid } from '@s2u/scene';
+import { rippleOf } from './traversal';
+import { FALL_IN_WATER, RippleKeeper, type TraversalEffects } from './traversalPage';
 import { rootTiltStart, stepRootTilt, tiltTopOfSnapshot, tiltWindowOf, type RootTiltState } from './rootTilt';
 import { AXIS_DEAD, CIV_ANIM_SET, HOSTAGE_TOP_SPEED_READING, oneShotSeconds, SEAL_ANIMS } from './locomotion';
 import { fadeStep } from './net/escortee';
@@ -229,6 +231,11 @@ interface Remote {
    * seat; absent until the body's first living frame.
    */
   tilt?: { acc: number; state: RootTiltState; normal: Vec3 };
+  /**
+   * The remote wake (`wade`): the body's wading ripples, and its water depth and airborne bit the frame before (the
+   * splash's edge); made on its first frame, its ripples stopped when it goes.
+   */
+  wake?: { keeper: RippleKeeper; depth: number; airborne: boolean };
   /**
    * PAR-34 (research 252 s3; ACT.R8): seconds dead of real time (the frame's real seconds, `frame`'s `real`), what the
    * corpse rule counts (`corpseShownS`; NU-4: another seat's has no timer, so it never runs out -- was: the fade at
@@ -634,6 +641,21 @@ export interface SeenRemotes {
   readonly gearShown: ReadonlyMap<number, readonly string[]>;
 }
 
+/**
+ * REMOTE_WAKE_PACE_READING (research 86 s5.4, s7.2): the others' ripples' pace class -- `FUN_005b52b0` takes it from the
+ * body's own velocity (`FUN_0058a820`, speed^2 at 0.25 and 400); whether the remote controller (`CRemoteCtrl`) writes
+ * that velocity on another console's copy, and from what, is not read. The page takes the snapshot's replicated
+ * `vx` / `vy` / `vz` (the room's mover's), as the local walker's own.
+ */
+export const REMOTE_WAKE_PACE_READING = "the snapshot's velocity" as const;
+
+/**
+ * REMOTE_WAKE_HOSTAGE_READING (research 86 s5.4, s7.2): a hostage's copy keeps no wake. The investigation reads the
+ * probe chain to `FUN_005b52b0` for every SEAL body (the `CZSealBody` table's slots); whether the hostages' bodies are
+ * on that chain is not read, and the page leaves them out.
+ */
+export const REMOTE_WAKE_HOSTAGE_READING = 'none' as const;
+
 export class RemotePlayers {
   /** WALL-CAM: FUN_0029a950 reads the followed actor's posed skeleton root (research 382 §2). */
   cameraRoot(id: number): number | null {
@@ -707,6 +729,52 @@ export class RemotePlayers {
 
   /** `steps`: each living body's footfalls (`remoteFootfall`), for the page's sounds; null hears none. */
   constructor(private readonly scene: Scene, private readonly steps: RemoteStepHook | null = null) {}
+
+  /** The effects the others' wakes and splashes play through (`wade`): the page's own keeper's; null plays none. */
+  private effects: TraversalEffects | null = null;
+
+  /**
+   * The others' wake (research 86 s5.4): the effects their ripples and splashes play through -- the page's `Effects`, the
+   * one its own SEAL's `TraversalPage` keeper takes. The ripples the old ones ran are stopped first.
+   */
+  setEffects(effects: TraversalEffects | null): void {
+    this.clearWakes();
+    this.effects = effects;
+  }
+
+  /**
+   * Every body's wading ripples stopped and forgotten (RIPPLES_AT_ROUND_CLEAR_READING, `./traversalPage`): a round's
+   * clear, beside the page's own (`matchMount.ts`'s `roundClear`, `main.ts`'s `clearDecals`) -- a body whose seat's
+   * `spawns` is unchanged keeps its copy, so its respawn clears nothing. The next frame in the water starts one afresh.
+   */
+  clearWakes(): void {
+    for (const r of this.remotes.values()) r.wake?.keeper.clear();
+  }
+
+  /**
+   * The remote wake (research 86 s5.4): `FUN_005b52b0` (D:L469810-469913) runs on each liquid hit of every SEAL body's
+   * ground probe, with no locality test -- `FUN_00550570` -> `FUN_005b0420` (D:L417771) -> `FUN_005b5d40` (D:L467055) ->
+   * `FUN_005b52b0` (D:L470243) -- so the page draws another body's wake as its own SEAL's: the water over its replicated
+   * feet on this page's floor (`probeWater`, the first surface at or over the feet, as `Traversal.water`), the ripple
+   * that line asks for (`rippleOf`; its pace REMOTE_WAKE_PACE_READING) on the body's own keeper; dead in the water both
+   * stopped and forgotten and none started (D:L469904-469913), a death out of the water stopping nothing; and a fall into
+   * the water -- in the air this frame or the last, no water over the feet the frame before -- `seal_fall_in_water` at
+   * the water point (D:L469892-469896; the local `waterLand`).
+   */
+  private wade(r: Remote, snap: PlaySnapshot & { alive: boolean }): void {
+    const w = r.wake ??= { keeper: new RippleKeeper(), depth: 0, airborne: false };
+    if (this.tiltGrid === undefined) this.tiltGrid = this.map?.ground ? groundGrid(this.map.ground) : null;
+    const grid = this.tiltGrid, [x, y, z] = snap.feet;
+    const line = grid ? probeWater(grid, x, z).find((h) => h >= y) ?? null : null;
+    const depth = line === null ? 0 : line - y;
+    const at: [number, number, number] = [x, line ?? y, z];
+    const fx = this.effects;
+    if (fx && depth > 0 && w.depth <= 0 && (snap.airborne || w.airborne)) fx.play(FALL_IN_WATER, { position: [...at], velocity: [0, 0, 0], normal: [0, 1, 0] });
+    w.depth = depth;
+    w.airborne = snap.airborne;
+    if (!snap.alive) { if (depth > 0) w.keeper.clear(); return; }
+    w.keeper.frame(fx, rippleOf(line, y, snap.stance, [snap.vx, snap.vy, snap.vz], at));
+  }
 
   /** PF-25: the page's own feet, the footfall cap's listener (`footfallsHeard`); null hears every living body. */
   private listener: [number, number, number] | null = null;
@@ -1027,9 +1095,11 @@ export class RemotePlayers {
       const spawned = (b.spawns !== undefined && r.spawns !== undefined && b.spawns !== r.spawns)
         || (wasDead && r.snap.alive && REMOTE_RESPAWN_REBUILD_READING === 'rebuilt');
       r.spawns = b.spawns;
-      if (spawned) { r.play.respawn?.(); r.binocs.stop(); r.flinch = null; r.hands.stop(); }
+      if (spawned) { r.play.respawn?.(); r.binocs.stop(); r.flinch = null; r.hands.stop(); r.wake?.keeper.clear(); }
       // NU-11b H1 (the gameplay seat's condition 1): the seat's spawn ends the death this page heard.
       if (spawned) this.deathsHeard.delete(b.id);
+      // The remote wake (`wade`): every SEAL body's, whether drawn or not (REMOTE_WAKE_HOSTAGE_READING: no hostage's).
+      if (!hostage || REMOTE_WAKE_HOSTAGE_READING !== 'none') this.wade(r, r.snap);
       // LATER 512b (research 215 section 8.6, "The flinch at the take"): a body on its turret's pose has been taken,
       // and the take pops every play -- `FUN_0058c350`'s `FUN_0058a5e0(actor, 0, 1)` (D:L447984, its loop
       // D:L446796-446798) -- so its flinch, a door's push and the flinch under the push go there; drawn under the pose,
@@ -1442,6 +1512,7 @@ export class RemotePlayers {
   private remove(id: number): void {
     const r = this.remotes.get(id);
     if (!r) return;
+    r.wake?.keeper.clear();                                       // its wake stopped and forgotten with it
     this.dropLauncher(r);
     this.scene.remove(r.view.group);
     r.play.setWeapon(null, []);

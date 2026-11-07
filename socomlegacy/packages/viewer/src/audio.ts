@@ -1,6 +1,6 @@
 import {
   fireVariant, fixSoundName, footstepSound, globalRegister2, landingClass, landingSounds, landSpeeds, makeVolume, panDegrees, parseBankFile,
-  bankGroupOf, bankModifier, groupMasterOf, groupModifier, MUSIC_GROUP, MUSIC_VOLUME_DEFAULT, passingSound, TUNER_DEFAULTS, type StreamTuners, PAN_RESET, rangeGain, renderLoop, renderSound, reverbImpulse, roundStreamGains, SampleCache, SOUND_DEFAULT_RANGE,
+  bankGroupOf, bankModifier, groupMasterOf, groupModifier, MUSIC_GROUP, MUSIC_VOLUME_DEFAULT, passingSound, TUNER_DEFAULTS, type StreamTuners, PAN_RESET, rangeGain, renderLoop, renderSound, reverbImpulse, roundStreamGains, SampleBudget, SampleCache, soundSampleOffsets, SOUND_DEFAULT_RANGE,
   SLOT_FADE_TICKS, soundFor, soundRelease, STREAM_TICK_HZ, streamFadeCurve, streamGroupMaster, streamGroupModifier, streamVoiceGains, voiceLevel, type AmbienceLayer, type ReleaseCurve, type StreamVoiceGains, type LandingClass, type Material, type RenderedSound, type ReverbImpulse, type SoundBank, type SoundParams,
   type StanceCode, type WeaponSounds,
 } from '@s2u/sound';
@@ -10,6 +10,7 @@ import { deathVoiceSlot } from './net/deaths';
 import type { RoundCues } from './roundCues';
 import { LOOP_FADE_SECONDS_PLACEHOLDER, LOOP_SECONDS_PLACEHOLDER } from './loopLength';
 import { BLAST_DUCK_GROUPS, blastDuckedMaster, blastGroupGain } from './blastAudio';
+import { soundDecodeRecord } from './soundDecodeRecord';
 import { readGraphicsBackend } from './graphicsBackend';
 
 /**
@@ -134,6 +135,12 @@ export interface AudioStats {
   banks: { name: string; sounds: number; borrowed?: true }[];
   /** Samples decoded so far, over all banks. */
   decoded: number;
+  /**
+   * LATER 730: the samples' decodes -- `cold` the plays that decoded a sample in their own call (they sounded, in that
+   * call), `warmed` the samples decoded ahead (`soundWarmSet`), `pending` the warm set's sounds still to decode, `bytes`
+   * the decoded PCM held, `evicted` the samples let go past the cap (`SOUND_DECODE_CACHE_BYTES_ADAPTATION`).
+   */
+  decode: { cold: number; warmed: number; pending: number; bytes: number; evicted: number };
   /** Sounds rendered and started, in all, and by name. */
   played: number;
   byName: Record<string, number>;
@@ -791,6 +798,29 @@ function hold(p: AudioParam, now: number): void {
 
 interface Loaded { bank: SoundBank; samples: SampleCache; borrowed: boolean }
 
+/**
+ * SOUND_DECODE_WARM_ADAPTATION (LATER 730; product track, a browser adaptation with no original -- the console's voices
+ * read their ADPCM as they play): the sounds whose samples a map's load decodes ahead, so the first flash, grenade burst
+ * or round renders from samples already held rather than decoding them in the frame that plays it. The grenades'
+ * callbacks (every zAnim callback named `*_grenade`: `frag_grenade`'s `.GREN_MED`, `flashcrash_grenade`'s
+ * `.MARK_141_FLASH`, `smoke_grenade`'s `!SMK_CANISTER`), every weapon's three reports (`fireClose`, `fireMed`,
+ * `fireFar`), and the flash's ring (`.RINGING_EARS`, `./ringingEars`). About 50 samples, 2.1 MB of PCM, on MP2, MP51
+ * and MP72 (LATER 730's harness). Which sounds play, and when, is unchanged.
+ */
+export const SOUND_DECODE_WARM_ADAPTATION = /_grenade$/i;
+/** The flash's ring (`./ringingEars`), warmed beside the grenades' sounds. */
+const RINGING_EARS_SOUND = '.RINGING_EARS';
+
+/** The names `SOUND_DECODE_WARM_ADAPTATION` warms on a map's data, each once, in that order. */
+export function soundWarmSet(data: Pick<SoundData, 'callbacks' | 'weapons'>): string[] {
+  const names = new Set<string>();
+  // `?? []`: a page's partial data (the tests', a map's whose zAnims did not read) warms what it has.
+  for (const [callback, sounds] of data.callbacks ?? []) if (SOUND_DECODE_WARM_ADAPTATION.test(callback)) for (const n of sounds) names.add(n);
+  for (const w of data.weapons ?? []) for (const n of [w.fireClose, w.fireMed, w.fireFar]) if (n) names.add(n);
+  names.add(RINGING_EARS_SOUND);
+  return [...names];
+}
+
 /** The pan table's pair at `pan` against the centre's, after the square law: what a centred loop is scaled by. */
 export function panGains(pan: number): [number, number] {
   const [cl] = makeVolume(127, 0, 127, 0, 127, 0);
@@ -972,6 +1002,11 @@ export class GameAudio {
   /** Work queued behind the unlock: the reverb's buffer, then one loop's buffer a job; `pump` runs them frame by frame. */
   private jobs: { gen: number; run: () => void }[] = [];
   private gen = 0;
+  /** LATER 730: the map's decoded samples' byte budget, one over all its banks (`SampleBudget`). */
+  private budget = new SampleBudget();
+  /** LATER 730: the warm set's names still to decode (`soundWarmSet`), one a step of `pump`; and the counts. */
+  private warmQueue: string[] = [];
+  private readonly decodeCounts = { cold: 0, warmed: 0 };
   private readonly timing = { unlockMs: 0, pumpMaxMs: 0, reverbMs: 0 };
 
   /** The map's sound data from the worker (`./soundData`); null silences the walk. */
@@ -983,6 +1018,7 @@ export class GameAudio {
     // A new map, a new elevation: the register follows at once from where the listener stands.
     this.register2 = this.listener && data?.elevation ? globalRegister2(this.listener[13]!, data.elevation) : null;
     this.banks = [];
+    this.budget = new SampleBudget();
     this.lookup.clear();
     this.restartRenders.clear();
     this.grainState.clear();
@@ -991,7 +1027,7 @@ export class GameAudio {
     for (const { file, bytes, only } of data?.banks ?? []) {
       try {
         const bank = parseBankFile(bytes);
-        const loaded = { bank, samples: new SampleCache(bank.vag), borrowed: !!only };
+        const loaded = { bank, samples: new SampleCache(bank.vag, this.budget), borrowed: !!only };
         this.banks.push(loaded);
         for (const [name, index] of bank.names) {
           if (only && !only.includes(name) && !only.includes(name.trim())) continue;   // a borrowed bank lends only these
@@ -1029,6 +1065,8 @@ export class GameAudio {
     // Research 186 §3.1 STREAM_LEVEL: each stream's level is its group's (the line 2, the music 1), its channels its own.
     this.streamGroups = new Map((data?.streams ?? []).map((s) => [s.name, { group: streamGroupOf(s), channels: s.sound.voices > 1 ? 2 : 1 }]));
     this.roundCues_ = data?.roundCues ?? null;
+    // LATER 730: the map's flash, grenade bursts and reports decoded ahead, a sound a step of the frames' `pump`.
+    this.warmQueue = data ? soundWarmSet(data) : [];
     // The context made now, while the map comes in, so the first key press only resumes it.
     if (data && data.banks.length > 0) this.out.prepare?.();
     this.loadReverb();
@@ -1134,7 +1172,32 @@ export class GameAudio {
       if (job.gen === this.gen) job.run();
       if (performance.now() - t0 >= budgetMs) break;
     }
+    // LATER 730: the warm set in what the frame's budget leaves, after the reverb's and the loops' jobs.
+    while (this.warmQueue.length > 0 && performance.now() - t0 < budgetMs) this.warmSound(this.warmQueue.shift()!);
     this.timing.pumpMaxMs = Math.max(this.timing.pumpMaxMs, performance.now() - t0);
+  }
+
+  /** LATER 730: decodes and holds for good (`SampleCache.pin`) every sample sound `name` can start; nothing plays. */
+  private warmSound(name: string): void {
+    const found = this.find(name);
+    if (!found) return;
+    const { samples, bank } = found.loaded;
+    for (const offset of soundSampleOffsets(bank, found.index)) {
+      const fresh = !samples.has(offset);
+      if (samples.pin(offset) && fresh) { this.decodeCounts.warmed++; soundDecodeRecord.warmed++; }
+    }
+  }
+
+  /**
+   * LATER 730: `render` on `found`'s bank, counting a play that had to decode a sample in its own call (`cold`: it still
+   * sounds, in this call) and the samples the cap let go meanwhile.
+   */
+  private rendered(found: { loaded: Loaded }, render: () => RenderedSound): RenderedSound {
+    const decodes = found.loaded.samples.decodes, evicted = this.budget.evictions;
+    const r = render();
+    if (found.loaded.samples.decodes > decodes) { this.decodeCounts.cold++; soundDecodeRecord.cold++; }
+    soundDecodeRecord.evicted += this.budget.evictions - evicted;
+    return r;
   }
 
   private queue(run: () => void): void { this.jobs.push({ gen: this.gen, run }); }
@@ -1579,7 +1642,7 @@ export class GameAudio {
       pan = distance > 1e-6 ? panDegrees(right, forward) : 0;
     }
     const globals = this.register2 === null ? [] : [0, this.register2];
-    const r = renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol, pan, random: this.random, state: this.grainState, globals, modifier: this.bankModifier(found) });
+    const r = this.rendered(found, () => renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol, pan, random: this.random, state: this.grainState, globals, modifier: this.bankModifier(found) }));
     this.out.play(r, bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup));
     this.played++;
     this.byName[name] = (this.byName[name] ?? 0) + 1;
@@ -1603,7 +1666,7 @@ export class GameAudio {
     const modifier = this.bankModifier(found), key = `${name} ${modifier}`;   // one render a name at each master
     let r = this.restartRenders.get(key);
     if (!r) {
-      r = renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random: this.random, state: this.grainState, modifier });
+      r = this.rendered(found, () => renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random: this.random, state: this.grainState, modifier }));
       this.restartRenders.set(key, r);
     }
     this.restartVoices.get(name)?.stop();
@@ -1714,6 +1777,7 @@ export class GameAudio {
       unlocked: this.out.unlocked, state: this.out.state, activation: pageActivation(), resumeError: this.out.resumeError ?? null, muted: this.muted_, volume: this.volume_, map: this.map,
       banks: this.banks.map((b) => ({ name: b.bank.name, sounds: b.bank.sounds.length, ...(b.borrowed ? { borrowed: true } : {}) })),
       decoded: this.banks.reduce((n, b) => n + b.samples.size, 0),
+      decode: { ...this.decodeCounts, pending: this.warmQueue.length, bytes: this.budget.bytes, evicted: this.budget.evictions },
       played: this.played, byName: { ...this.byName }, events: { ...this.events }, dropped: { ...this.dropped },
       unknownNames: { ...this.unknownNames },
       recent: this.recent.map((r) => ({ ...r })),

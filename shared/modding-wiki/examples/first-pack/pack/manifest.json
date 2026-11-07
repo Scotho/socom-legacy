@@ -1,0 +1,7 @@
+{
+  "name": "example_half_damage",
+  "version_number": "1.0.0",
+  "website_url": "",
+  "description": "An example rules pack for the modding wiki: every hit does half its damage.",
+  "dependencies": []
+}

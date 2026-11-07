@@ -43,11 +43,11 @@ describe(`HX-5: the hostages on the compass${MP6 ? '' : ` (MP6: ${FIXTURES_ABSEN
       { bitmap: 'ret_hostage.tif', x: 1750.26, z: 1179.72, pulse: true },
       { bitmap: 'ret_extraction.tif', x: points[0]![0], z: points[0]![2], pulse: true },
     ]);
-    // The colours, per type (FUN_002126f0's table, GS 0-128): the bomb's and the base's rows as they were.
+    // The colours, per type (FUN_002126f0's table, GS 0-128): the bomb's row as it was; the base's type 2's (BOMB-MARKS).
     expect(OBJECTIVE_MARK_RGB_READING['ret_hostage.tif']).toEqual([62, 49, 36]);
     expect(OBJECTIVE_MARK_RGB_READING['ret_extraction.tif']).toEqual([36, 40, 62]);
     expect(OBJECTIVE_MARK_RGB_READING['ret_bomb.tif']).toEqual([32, 62, 32]);
-    expect(OBJECTIVE_MARK_RGB_READING['ret_base.tif']).toEqual([32, 62, 32]);
+    expect(OBJECTIVE_MARK_RGB_READING['ret_base.tif']).toEqual([40, 62, 36]);   // BOMB-MARKS: type 2's row (D:L68684-68687)
     // Always shown: 1500 u away, pinned at the ring's edge in its colour, at the pulse's alpha.
     const far = model({ position: [0, 0], yaw: 0, extraMarks: [], hostageMarks: marks });
     const quads = hudLayout(PS2, far, SIZES, { fade: 1, stance: 0, pulse: 0, marks: 0.5 }).quads.filter((q) => q.element === 'marks');

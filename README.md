@@ -17,6 +17,7 @@
   <a href="#calling-for-owners--contributors">Calling for owners &amp; contributors</a> ·
   <a href="#how-it-fits-together">How it fits together</a> ·
   <a href="#community-forks">Community Forks</a> ·
+  <a href="shared/modding-wiki">Modding wiki</a> (<a href="https://modding.socomlegacy.com">modding.socomlegacy.com</a>, being set up) ·
   <a href="https://discord.gg/RrtTEdvECV">Discord</a>
 </p>
 

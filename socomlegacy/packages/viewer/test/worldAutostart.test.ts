@@ -99,3 +99,28 @@ describe.skipIf(mp6 === null)(`AS-1: the page runs the autostart programs${mp6 =
     expect(seen.slice(n).some((e) => e.path === flash && e.on)).toBe(false);
   });
 });
+
+const mp2 = fixture('RUN/MP2.ZDB');
+
+/**
+ * The v0.4.12 shards' doors and footsteps reds (`e2e/doors.spec.ts`, `e2e/remoteCombat.spec.ts` test 2): INV-RAIN F3
+ * answered set 0's `CAMERA_INDOORS` (66) / `PLAYER_INDOORS` (72) in the effect runner's host (`./effects`), and the runner
+ * stopped folding them as unread for every host -- so the world's display run of Frostfire's camera-state scripts, whose
+ * host does not answer them (false), took the outdoor branch every pass and played the beds and gusts the audio's
+ * layers already own (`GameAudio` `crossBeds`, `@s2u/sound` `ambienceLayers`), ~15 a second, flooding `audio().recent`.
+ * A host that does not answer them folds them as unread, as before (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`).
+ */
+describe.skipIf(mp2 === null)(`the world's display run of the camera-state scripts${mp2 === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+  it('MP2: no bed or gust from the world\'s autostarts -- the ambience is the audio\'s layers\'', () => {
+    const toc = parseZdb(mp2!);
+    const meta = readMapMeta(mp2!, toc, 'MP2', parseSceneGraph(Zar.parse(zdbMember(mp2!, toc, 'MP2_GEO.ZED'))));
+    const sounds: string[] = [];
+    const ground = hull();
+    const world = new WorldState(meta, ground, groundGrid(ground), { sound: (name) => { sounds.push(name); } });
+    world.runAutostartPrograms = true;
+    world.autostartRandom = () => 0.5;
+    world.applyInitial();
+    for (let i = 0; i < 400; i++) world.step(0.05);                 // 20 s: past Frostfire's 8 s camera-state wait
+    expect(sounds.filter((n) => /OUTDOOR|INDOOR|OUTDR_WND|INDR_WND/i.test(n))).toEqual([]);
+  });
+});

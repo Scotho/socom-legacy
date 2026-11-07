@@ -664,6 +664,56 @@ none or the last has ended; a switch of size stops the other. `seal_fall_in_wate
 (F < W < T, airborne, not in water the frame before; 469892-469896). The viewer runs them through the map's effects
 (`TraversalPage.effectsFrame`, `Effects.spawn`). The condition bit `actor+0xe1` bit 4 was not identified (taken as set).
 
+**The wake's place and its pace (the water wading trail fix, 2026-11-06; reading, pending review).** The "tag-3
+pointer" is a node: `FUN_005b52b0` first moves the actor's own node `actor+0x1380` to the water point under the feet
+(`FUN_003157d0` D:L469859, which writes the node's translation at +0x30..+0x38 and nothing else, D:L215065-215074), then
+starts the ripple on it (`FUN_00272bb0(anim, 1, 3, actor+0x1380, 0)`, type 3 a node, D:L469881 and D:L469895). Every
+ripple program on the disc (MP2, MP12, MP62 read through `effectsFromDisc`: `big_ripple_anim*`, `small_ripple_anim*`)
+holds three sources, all `NODE_CALLER` (-6) with FOLLOW (flag A 0x10) set and AT_CONTEXT (0x8) clear, each offset
+straight up in the node's frame (0x4): `rain_ripple1` 0.8 up every 0.5 s (0x8000; `waterspray.tif` in the still
+`big_ripple_anim`, `wake01.tif` in the rest), `rain_ripple2` 0.8 up every 3.5 units moved and `rain_ripple3` 0.2 up
+every 0.4 units moved (0x4000 without 0x8000: `FUN_00266830` D:L113156-113167 sets the manager's `+0x1b`, the later
+flag winning; `wake01.tif` and `waterspray.tif`). The particle tick places a followed source through its node's matrix
+(`FUN_00329b40` D:L226869-226878) and, for a per-distance source, adds the distance that place moved since the last
+tick -- a move under 200 only (squared under 40000) -- instead of the time (D:L226896-226904), both times
+`DAT_004884c8`, 1.0 (`FUN_00324b20` D:L223720); the tick's end records the place (D:L227152-227156). So standing in
+the water lays only `rain_ripple1`'s rings, and walking lays a trail of wake and spray behind the SEAL.
+
+The port did neither until this fix: `TraversalPage.effectsFrame` handed a place with a position and no node, so the
+ripples' FOLLOW sources found no node and `particles.ts` put their offsets in world space -- every wake particle at the
+map's origin -- and `ParticleSystem.update` counted time for every source. Now the keeper holds one `Matrix4` a running
+ripple, hands it as `place.node` and sets its translation to the water point each frame (`RIPPLE_NODE_BASIS_READING`:
+the identity basis, world-rooted -- the node's construction is not in the decomp, s7.2), and `particles.ts` counts a
+per-distance source's move (`PER_DISTANCE_MOVE_LIMIT` 200, `PARTICLE_RATE_SCALE` 1). Held by
+`test/particlesPerDistance.test.ts` (unit) and `test/traversalPage.test.ts`'s node case (unit) and its MP12 case
+(dev disc). Not ported: the engine spreads a tick's several particles along the source's move within the frame
+(D:L226987-226990, D:L227094-227099); the port spreads them in time at the frame's end place (research 89 s3). The
+splash (`seal_fall_in_water`, type 5 at the water point, D:L469892-469896) is unchanged.
+
+**The others' bodies (the remote wake, 2026-11-06; reading, pending review).** `FUN_005b52b0` has no locality test
+(D:L469810-469913): it reads the body it is handed and its speed class (`FUN_0058a820`), and nothing asks whether the
+body is the console's own. It is reached from every SEAL body's ground probe: `FUN_00550570` calls `FUN_005b0420`
+(D:L417771), which calls `FUN_005b5d40` while the body's `+0x1061` bit 3 is clear and its probe index `+0x2cc` is set
+(D:L467052-467055), which calls `FUN_005b52b0` on a liquid hit (D:L470243). Seat b6's read-only investigation names the
+slots that run these per entity (the `CZSealBody` table 0x6691a0, +0x20 / +0x24 / +0x28: `FUN_005506a0`, which runs
+`FUN_005b0840` under `+0xf40`, D:L417822-417826, and `FUN_00550570`), the remote controller's `+0xc` answer
+(`FUN_005e6400`, whose return is 1, D:L497496) and `+0xe1` bit 0 written every frame by
+`FUN_0054aa30` (D:L415069, D:L415240) -- the decomp lines re-read here; the table's words are the ELF's data, not
+re-read. So a console draws the others' ripples and splashes as its own, players and CPU players alike (both arrive
+on a page as remote bodies).
+
+The port (`remotePlayers.ts` `wade`): each other body's copy keeps a `RippleKeeper` (`traversalPage.ts`, the local
+keeper's own logic lifted out) fed by `rippleOf` (`traversal.ts`, lifted out of `Traversal.water`: the local walker's
+rule unchanged) over the water on this page's floor at its replicated feet; dead in the water both stopped and
+forgotten (D:L469904-469913), a death out of the water stopping nothing, as the local keeper; its ripples stopped when
+the body goes, the map changes, the effects are handed over or the copy is rebuilt at a respawn
+(`REMOTE_RESPAWN_REBUILD_READING`); and `seal_fall_in_water` on the local `waterLand`'s edge (in the air this frame or
+the last, no water over the feet the frame before). Wired on both pages to the effects the local keeper takes (`main.ts`,
+`matchMount.ts`). Two readings: `REMOTE_WAKE_PACE_READING` (the pace from the snapshot's velocity) and
+`REMOTE_WAKE_HOSTAGE_READING` (no hostage's wake) (s7.2). A round's clear stops every body's ripples beside the page's
+own (`RemotePlayers.clearWakes`, RIPPLES_AT_ROUND_CLEAR_READING). Held by `test/remoteWake.test.ts` (unit; and MP12's
+ripples, dev disc). Owed: the particle budget of many wading bodies in the one pool (LATER 725).
+
 ## 6. Crawling and headroom [read]
 
 The headroom ray `FUN_0057efe0` (decomp 441190-441240) goes up from pos + (0, hips.y + 2, 0) to pos.y + 12 (to crouch)
@@ -944,6 +994,9 @@ Named in the code:
 | `DIVE_ROOT_FALL_READING` (`traversal.ts`) | 98.100006 | the dive's hidden timer's speed gained a second on the ground: `FUN_0059b440`'s literal (D:L456552-456557), not the table's 235 (section 6.1, DIVE-ROOT) | open, a reading, pending review; a memory trace of `+0x133c` and `+0xfac` through a dive settles it |
 | `DIVE_ROOT_SEED_READING` (`traversal.ts`) | 235 x 525/15734 (7.84) | the timer's speed at the hold's end: one airborne frame of gravity (D:L456496, after the reset D:L466797-466802) (section 6.1) | open, a reading, pending review; settled by the frame's order (`FUN_005af930` D:L466809, `FUN_005b0420` D:L467105, `FUN_0057a330` D:L439149) and the hold's 6 or 7 frames, or a memory trace |
 | `DIVE_END_BLEND_READING` (`traversal.ts`) | `"the animator's own end"` | the blend from the dive's play to the prone base after the pop at rest (`FUN_00589aa0`, D:L418158-418163), unread (section 6.1); the port's animator cross-fades into its next play -- the prone base's (0.4), a crawl's (0.4) or a turn's (`seal_prone_turn`, 0.9) -- and the seam (`Traversal.rootY`: the room's hit volumes and shot cone, the bots' aim) follows that play's clock (`diveEnd`, `diveEndPlay`; review F2 and the second review) | open, a placeholder; the pop's blend read, or a capture of the root from rest to prone |
+| `RIPPLE_NODE_BASIS_READING` (`traversalPage.ts`) | `'identity, world-rooted'` | the wading ripples' node `actor+0x1380`: `FUN_005b52b0` writes only its translation, the water point (`FUN_003157d0` D:L469859); the basis it is made with and whether it hangs under another node are not read (no other `+0x1380` reference in the decomp), and the port holds it at the identity in the world's frame, so the ripples' 0.8 and 0.2 offsets go straight up (s5.4) | open, a reading, pending review; the actor's constructor read, or a memory read of `+0x1380`'s matrix while wading |
+| `REMOTE_WAKE_PACE_READING` (`remotePlayers.ts`) | `"the snapshot's velocity"` | the pace class (still, walk, run) of another body's ripple: `FUN_005b52b0` takes it from the body's own velocity (`FUN_0058a820`, speed^2 at 0.25 and 400); whether the remote controller (`CRemoteCtrl`) writes that velocity on another console's copy, and from what, is not read; the page takes the room's replicated `vx` / `vy` / `vz` (s5.4) | open, a reading, pending review; a read of `CRemoteCtrl`'s writes to the body's velocity, or a capture of another player wading on a second console |
+| `REMOTE_WAKE_HOSTAGE_READING` (`remotePlayers.ts`) | `'none'` | whether a hostage's body wakes: the probe chain to `FUN_005b52b0` is read for the SEAL bodies; whether the hostages' bodies run it is not, and the page keeps no hostage's wake (s5.4) | open, a reading, pending review; the hostage body's table read for the probe slots |
 | `STANCE_HOLD_S_PLACEHOLDER` (`stanceButton.ts`) | 0.4 s | how long Triangle (the pad) or `C` (the PC) is held before it means prone: the game reads the button's pressure, not a time (a light press toggles crouch at release, a full press goes prone at once; `host_crouch_shortcut.h`, KNOWN R139), and a browser's button is only on or off, so the owner's rule (2026-09-28: tap crouches, hold goes prone) needs a length | open, the owner's to set (handoff section 6) |
 
 Retired: the airborne column's `step_height` allowance (section 6.3; the ground's pick replaced it, OWNER-5).

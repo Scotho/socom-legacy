@@ -506,35 +506,51 @@ const NCW_CASES: NcwCase[] = [
  * for NCW-4 to tighten: each row is pinned both ways within its margin, so a fix shows as a change to re-pin here and a
  * regression as a failure. dash: the ratio; held: ms; count: corrections; max, total: units. The hitch rows re-pinned
  * for the review's F2 (the long step, then the held frames, then five steps): they were 7.47/167, 15.33/400, 29.84/733.
+ * Re-pinned 2026-11-07 for INV-SPECTATE fix A (the watcher's view tick on the slewed playout clock,
+ * `viewer/src/net/playoutClock.ts`; product track), dash/held against the "were" below. The dash falls on 19 of the 23
+ * line rows (0 ms none 2.03 -> 1.07, 150 ms none 3.26 -> 2.54, 400 ms none 4.71 -> 3.51; the no-jitter long lines
+ * 2.17/2.20 -> 1.08/1.07) and is unchanged on four: 100 ms stalls up 8.95, 150 ms stalls up 10.45, 300 ms stalls up
+ * 10.95, 400 ms stalls down 4.47. The hold falls one frame on 16 rows (all the "none" and "down" rows but 300 ms
+ * none and 400 ms none -- 16.7 -> 0 at 0 and 50 ms and on both no-jitter lines -- and 0 ms and 400 ms stalls up,
+ * 266.7 -> 250 and 333.3 -> 316.7), is unchanged on three (50 ms stalls up 316.7, 100 ms stalls up 250, 300 ms none
+ * 83.3) and rises one frame on four: 150 ms stalls up 300 -> 316.7, 200 ms stalls up 366.7 -> 383.3, 300 ms stalls up
+ * 300 -> 316.7, 400 ms none 66.7 -> 83.3. The hitch rows, re-pinned again the same day for review A1's starvation
+ * guard (the clock stops on the newest snapshot, and drops the stale floor, rather than running past it for up to
+ * 5 s): 0 ms 2.17/16.7 -> 1.06/0; 260 ms 16.40/200 -> 8.87/200 (ac3ddfe95, the clock without the guard: 17.93/283.3);
+ * 500 ms 32.47/416.7 -> 16.09/416.7 (30.65/416.7); 800 ms 40.71/700 -> 24.93/716.7 (47.49/716.7). The line rows did
+ * not move with the guard. Were, line rows:
+ * 2.03/16.7, 10.70/266.7, 2.16/16.7, 3.03/16.7, 11.28/316.7, 2.79/16.7, 3.14/33.3, 8.95/250, 3.41/33.3, 3.26/33.3,
+ * 10.45/300, 3.42/33.3, 4.31/66.7, 16.39/366.7, 4.04/66.7, 4.91/83.3, 10.95/300, 5.14/100, 4.71/66.7, 14.12/333.3,
+ * 4.47/100, 2.17/16.7, 2.20/16.7; hitch rows 2.17/16.7, 16.40/200, 32.47/416.7, 40.71/700. The corrections are unchanged.
  */
 const NCW_BASELINE: Record<string, NcwRow> = {
-  '0 ms, stalls none': { dash: 2.03, held: 16.7, count: 0, max: 0, total: 0 },
-  '0 ms, stalls up': { dash: 10.70, held: 266.7, count: 0, max: 0, total: 0 },
-  '0 ms, stalls down': { dash: 2.16, held: 16.7, count: 0, max: 0, total: 0 },
-  '50 ms, stalls none': { dash: 3.03, held: 16.7, count: 0, max: 0, total: 0 },
-  '50 ms, stalls up': { dash: 11.28, held: 316.7, count: 0, max: 0, total: 0 },
-  '50 ms, stalls down': { dash: 2.79, held: 16.7, count: 0, max: 0, total: 0 },
-  '100 ms, stalls none': { dash: 3.14, held: 33.3, count: 0, max: 0, total: 0 },
+  '0 ms, stalls none': { dash: 1.07, held: 0.0, count: 0, max: 0, total: 0 },
+  '0 ms, stalls up': { dash: 9.45, held: 250.0, count: 0, max: 0, total: 0 },
+  '0 ms, stalls down': { dash: 1.05, held: 0.0, count: 0, max: 0, total: 0 },
+  '50 ms, stalls none': { dash: 1.56, held: 0.0, count: 0, max: 0, total: 0 },
+  '50 ms, stalls up': { dash: 10.94, held: 316.7, count: 0, max: 0, total: 0 },
+  '50 ms, stalls down': { dash: 1.54, held: 0.0, count: 0, max: 0, total: 0 },
+  '100 ms, stalls none': { dash: 2.04, held: 16.7, count: 0, max: 0, total: 0 },
   '100 ms, stalls up': { dash: 8.95, held: 250.0, count: 0, max: 0, total: 0 },
-  '100 ms, stalls down': { dash: 3.41, held: 33.3, count: 0, max: 0, total: 0 },
-  '150 ms, stalls none': { dash: 3.26, held: 33.3, count: 0, max: 0, total: 0 },
-  '150 ms, stalls up': { dash: 10.45, held: 300.0, count: 0, max: 0, total: 0 },
-  '150 ms, stalls down': { dash: 3.42, held: 33.3, count: 0, max: 0, total: 0 },
-  '200 ms, stalls none': { dash: 4.31, held: 66.7, count: 0, max: 0, total: 0 },
-  '200 ms, stalls up': { dash: 16.39, held: 366.7, count: 0, max: 0, total: 0 },
-  '200 ms, stalls down': { dash: 4.04, held: 66.7, count: 0, max: 0, total: 0 },
-  '300 ms, stalls none': { dash: 4.91, held: 83.3, count: 6, max: 0.94, total: 3.04 },
-  '300 ms, stalls up': { dash: 10.95, held: 300.0, count: 6, max: 1.20, total: 4.11 },
-  '300 ms, stalls down': { dash: 5.14, held: 100.0, count: 5, max: 1.83, total: 4.12 },
-  '400 ms, stalls none': { dash: 4.71, held: 66.7, count: 6, max: 3.00, total: 7.14 },
-  '400 ms, stalls up': { dash: 14.12, held: 333.3, count: 5, max: 1.84, total: 6.10 },
-  '400 ms, stalls down': { dash: 4.47, held: 100.0, count: 5, max: 2.56, total: 6.10 },
-  '300 ms, no jitter, stalls none': { dash: 2.17, held: 16.7, count: 10, max: 2.24, total: 6.46 },
-  '400 ms, no jitter, stalls none': { dash: 2.20, held: 16.7, count: 10, max: 2.03, total: 8.13 },
-  '128 ms steady, room hitch 0 ms': { dash: 2.17, held: 16.7, count: 0, max: 0, total: 0 },
-  '128 ms steady, room hitch 260 ms': { dash: 16.40, held: 200.0, count: 0, max: 0, total: 0 },
-  '128 ms steady, room hitch 500 ms': { dash: 32.47, held: 416.7, count: 0, max: 0, total: 0 },
-  '128 ms steady, room hitch 800 ms': { dash: 40.71, held: 700.0, count: 0, max: 0, total: 0 },
+  '100 ms, stalls down': { dash: 2.49, held: 16.7, count: 0, max: 0, total: 0 },
+  '150 ms, stalls none': { dash: 2.54, held: 16.7, count: 0, max: 0, total: 0 },
+  '150 ms, stalls up': { dash: 10.45, held: 316.7, count: 0, max: 0, total: 0 },
+  '150 ms, stalls down': { dash: 2.55, held: 16.7, count: 0, max: 0, total: 0 },
+  '200 ms, stalls none': { dash: 3.49, held: 50.0, count: 0, max: 0, total: 0 },
+  '200 ms, stalls up': { dash: 12.40, held: 383.3, count: 0, max: 0, total: 0 },
+  '200 ms, stalls down': { dash: 3.16, held: 50.0, count: 0, max: 0, total: 0 },
+  '300 ms, stalls none': { dash: 3.52, held: 83.3, count: 6, max: 0.94, total: 3.04 },
+  '300 ms, stalls up': { dash: 10.95, held: 316.7, count: 6, max: 1.20, total: 4.11 },
+  '300 ms, stalls down': { dash: 3.53, held: 83.3, count: 5, max: 1.83, total: 4.12 },
+  '400 ms, stalls none': { dash: 3.51, held: 83.3, count: 6, max: 3.00, total: 7.14 },
+  '400 ms, stalls up': { dash: 11.42, held: 316.7, count: 5, max: 1.84, total: 6.10 },
+  '400 ms, stalls down': { dash: 4.47, held: 83.3, count: 5, max: 2.56, total: 6.10 },
+  '300 ms, no jitter, stalls none': { dash: 1.08, held: 0.0, count: 10, max: 2.24, total: 6.46 },
+  '400 ms, no jitter, stalls none': { dash: 1.07, held: 0.0, count: 10, max: 2.03, total: 8.13 },
+  '128 ms steady, room hitch 0 ms': { dash: 1.06, held: 0.0, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 260 ms': { dash: 8.87, held: 200.0, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 500 ms': { dash: 16.09, held: 416.7, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 800 ms': { dash: 24.93, held: 716.7, count: 0, max: 0, total: 0 },
 };
 
 /** Within the margin: 15 % of the pin, or the absolute slack, whichever is wider. */

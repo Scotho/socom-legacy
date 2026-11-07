@@ -209,6 +209,15 @@ Flag A 0x1 sets the source active to A 0x2 (`FUN_00329ac0`); A 0x8 places it at 
 - The first tick after activation records the source's place and emits nothing.
 - Then an accumulator counts events (`int(acc × rate)`), each of `perEvent` particles spread over the frame, until
   the events allowed are spent or the animation ends.
+- The accumulator gains the frame's time (D:L226897) -- or, for a per-distance source (flag A 0x4000 without 0x8000,
+  the manager's `+0x1b`: `FUN_00266830` D:L113156-113167, the later flag winning), the distance its place moved since
+  the last tick (D:L226899-226904), counted only for a move under 200 (squared under 40000). The place is its node's
+  matrix times `+0x54` while it has a node, else `+0x54` (D:L226869-226878); the tick's end records it (`+4`,
+  D:L227152-227156). Both counts are times `DAT_004884c8`, which `FUN_00324b20` sets to 1.0 (D:L223720; its only
+  write in the decomp). The port: `particles.ts` `PER_DISTANCE_MOVE_LIMIT`, `PARTICLE_RATE_SCALE` (2026-11-06, the
+  water wading trail fix; reading, pending review). Not ported: the engine places a tick's several particles along
+  the place's move within the frame (D:L226987-226990, D:L227094-227099); the port spreads them in time at the
+  frame's end place.
 - A particle's size, lifetime and starting age are drawn from their ranges. Its velocity is `Node·base + world +
   U(box)`.
 - Each tick: `pos += v·dt`, then `v += a·dt`, then the friction `v = w + (v − w)/P(k·dt)`, where
@@ -491,7 +500,10 @@ geometry (the body on its own skeleton), per fragment, with the face's normal. T
 **Water** (`FUN_005b52b0`, decomp 469808-469920). The SEAL's ground probe calls it over LIQUID water:
 - With the water line across the body, `big_ripple_anim[_walk|_run]` plays by speed class (`|v|^2` at 0.25 and 400).
   With it up to 10 over the top, `small_ripple_anim*`.
-- The ripples play on a node moved each frame to the water under the SEAL.
+- The ripples play on a node moved each frame to the water under the SEAL: the actor's `+0x1380`, its translation set
+  to the water point (`FUN_003157d0` D:L469859), handed as type 3 (D:L469881, D:L469895). Their three sources follow
+  it; two of them (`rain_ripple2` every 3.5 units, `rain_ripple3` every 0.4) emit by the distance moved, so a wading
+  SEAL leaves a trail and a still one only rings (research 86 s5.4; `TraversalPage`'s node since 2026-11-06).
 - The first frame in the water in the air plays `seal_fall_in_water` at the water point: the traversal's `waterLand`.
 - Walking into water splashes nothing.
 - A round on water is `bullet_hit_water` (its flat `theripple`), nothing special.
@@ -786,7 +798,9 @@ the defect: `tools/sweepHeading.ts` now picks the nearest first strikable surfac
 | `MARK_CLIP_MAX_TRIANGLES_READING` (`markClip.ts`) | 32 world triangles a mark | `FUN_003b3ab0` has no cap per mark (306654-306659): each kept triangle is a pool entry; 32 bounds the mesh's buffers (a mark is at most 3.4 units across) |
 | `CANDIDATE_MAX_READING` (`markClip.ts`) | 256 candidates a clip | a buffer bound of the viewer's; the game walks the node's visuals (306470-306483) |
 | `SCORCH_PARTIAL_ORDER_READING` (`grenade.ts` `scorchClipped`) | the clipper's candidate order | a scorch that only partly fits the permanent pool keeps its first triangles in the viewer's order (oversized list, then the cell walk), not the game's visual walk (`FUN_003b3800` 306401-306417) |
-| `ZANIM_UNREAD_OPERAND_PLACEHOLDER` (`effectRunner.ts`; LATER 310, ruling R2 as narrowed by the review's F1, 2026-10-22) | `'decidedElseFalse'` | an IF / ELSEIF holding an operand the reader keeps undecoded (`EffectCondition` `other`) is folded with every answer of those operands: one result stands (the sourced operands decide it); a result the unread answer turns keeps the pre-fold false; no host answers set 0 commands 66, 70, 72 (nor set 1's command 1, set 2's) from a source, and their ticks' own acts are not modelled: settled by reading their registering modules and ticks (§18) |
+| `ZANIM_UNREAD_OPERAND_PLACEHOLDER` (`effectRunner.ts`; LATER 310, ruling R2 as narrowed by the review's F1, 2026-10-22; narrowed by INV-RAIN F3, 2026-11-07, §21) | `'decidedElseFalse'` | an IF / ELSEIF holding an operand the reader keeps undecoded (`EffectCondition` `other`) and no host answers is folded with every answer of those operands: one result stands (the sourced operands decide it); a result the unread answer turns keeps the pre-fold false. Unread now: set 0 command 70, set 1's command 1, set 2's; set 0's 66 (`CAMERA_INDOORS`) and 72 (`PLAYER_INDOORS`) are answered from the floor since INV-RAIN F3 (§21) by the effect runner's host only (`EffectHost.answersIndoors`, `effects.ts`); on the world's display runs (`worldState.ts`), the doors' and the gates' hosts, which do not answer them, they stay unread (FIX-SOUND, 2026-11-07: asked there, the hosts' false took Frostfire's camera-state scripts' outdoor branch every pass, beside the audio's own layers). Their ticks' own acts are not modelled: settled by reading command 70's registering module and tick, and sets 1 and 2 (§18) |
+| `STREAK_TICK_READING` (`particles.ts`; INV-RAIN F2, 2026-11-07, §21; reading, pending review) | `'oneGameTickBack'` | a streaked particle (type 3) is drawn from its place one game tick ago (`+0x10`) to its place now (`+0x20`): `FUN_00326350` projects both (D:L224670-224699), `FUN_00327cd0` writes the spawn place to `+0x10` (D:L225673); the step that copies the old place to `+0x10` is `FUN_003282b0` (0x3282b0), outside the decompilation, so "one tick" (`GAME_FRAME_DT`) is read from the two ends. The port's tail is one `GAME_FRAME_DT` of its own step back (`tickBack`), never past the spawn. Settled by a memory trace of `+0x10` / `+0x20` over two ticks, or a read of 0x3282b0 in the ELF |
+| `PLAYER_INDOORS_FEET_READING` (`effects.ts`; INV-RAIN F3, 2026-11-07, §21; reading, pending review) | `'feetFloorInside'` | `PLAYER_INDOORS` (set 0 command 72)'s tick (0x2b3880, research 81 §10) answers bit 2 of the player's byte `+0x1060`, 0 with no player; what sets the bit is not traced, and the `m_inside` of the floor the ground probe picks under the player's feet stands in for it. No player (`setPlayer(null)`) answers false; a player whose feet the walk does not give (fly mode, a dead page watching) keeps the last answer, as the bit keeps its value while the player object lives (the review's F4, 2026-11-07). Settled by tracing the writes of `+0x1060` bit 2 |
 | `UNTEXTURED_PARTICLE_BLEND_READING` (`effectMaterials.ts`) | source alpha | `FUN_003251b0`'s untextured branch (D:L223980-223983) sends PRIM 0xE6 (a sprite, `ABE` on, no texture) and no bind packet, so the `ALPHA_1` in force is the last bind's; which bitmap drew before is the frame's sort (§17) |
 | `TRACER_START_ROLL_READING` (`tracerFlight.ts`) | the page's effects generator | the start's roll is `rand() % 990` (`FUN_00197740`, D:L327213-327214; the start `(roll + 1) / 10` units down the shot, D:L327214-327223). The page rolls it with its effects' own generator (`Math.random` in the match pages), not the console's `rand()`: a cosmetic offset no other page or the room needs to share (#425's takeover, the merge controller's note) |
 | `TRACER_SIDE_READING` (`tracerFlight.ts`) | `viewer-team` | ally is the viewer's own side, enemy the other; the anim is the ally's (`DAT_004b5340`) unless the round's model is the enemy's (`DAT_004b5330`), then the enemy's (`DAT_004b5348`) (D:L327204-327207), the round setting its model by `+0xb4` (D:L320544-320548). Confirmed against D:L479356-479360 by #425's first review |
@@ -1129,3 +1143,142 @@ MP2 smoke under 1% -- owed off it. No console capture compared.
 (D:L307119-307127); what `+0x6c` holds is not read, so whether a mark on one is drawn is not settled. Which disc visuals
 are kind 1 is not read either (`FUN_003c4190`'s key at `0x3fc4e8`, over every map's visuals); the `+0x6c` list's writer
 read, or a frame of the original with a round fired into one, would settle it. The port draws a mark on whatever the clipper finds.
+
+## 21. The rain on The Ruins (INV-RAIN, 2026-11-07; reading, pending review)
+
+Seat b6's investigation (`agent/inv-rain`, the report in the controller's evidence folder `rain-mp12/REPORT.md`) found
+three causes behind The Ruins' (MP12) rain drawn as short dashes hanging over the player. All three are fixed here
+(seat b6's implementer). Every value below is a reading, pending review. The fourth finding, the streak's shading, is
+LATER 729.
+
+**F1: a `PARTICLE_SOURCE` command writes only the velocities its flags name.** `FUN_00266830` writes the source's base
+velocity (`+0x90`) from the context's normal (flag B 0x2), its velocity (B 0x40, reflected with B 0x100) or its
+velocity reflected (B 0x100), else the fixed xyz with flag A 0x40 (D:L112949-113039). It writes the world velocity
+(`+0x9c`) the same way with B 0x4 / 0x80 / 0x200 and flag A 0x80 (D:L113041-113119). A context form whose operand
+the context lacks writes nothing (each branch's `lVar != 0` guard). A new source's two velocities are zero
+(`FUN_0032ab20` D:L227450-227473). The port's `ParticleSystem.emit` re-resolved both on every command, so the WHILE
+loop's on / off commands (flags A 0x1 / 0x3) zeroed them after the first switch. MP12's rain then fell from rest under
+(0,-95,0): -28 u/s at 0.3 s instead of -70, and 13.5 u in a drop's life instead of 36.7, so it died above eye level.
+Now `commandVelocities` returns null where a command writes nothing, and the old value stands.
+- [dev-disc] `rainDisc.test.ts`: 194 flagless re-commands of a moving source over every map keep their velocities
+  (RED: all 194 changed). MP12's `rain_falling1` keeps (0,-45,0) through the loop, its drops at -67 u/s at a mean age
+  of 0.27 s. The probe (`rainMp12.probe.test.ts`, camera only) reads -70.0 u/s at 0.30 s.
+- What else moves, from the probe's list (every source re-commanded without its velocity flag):
+  - rain on MP52 and MP61 (world (0,-100,0)) and on M52;
+  - snow on MP1, MP82 and M82 (`snow_flakes`, base (0,-4,0), world (0,-12,0));
+  - MP2's `firey_flames` (`flames` base (-180,150,0) world (-30,0,0), `smallconstantflame` base (-100,90,0) world
+    (-20,0,0)): the vent flames now keep their throw after the first switch;
+  - MP64's `butterflies1` (base (0,10,0));
+  - MP12's `fog_mist` (world (30,-40,0)), which has alpha 0 at every key and is not seen.
+  `knife_blood_squirt` (every map) and the common `cigarette_flame` are re-commanded only to switch off: their
+  particles keep their own velocities, and nothing they draw changes.
+
+**F2: a streak runs from one game tick back (`STREAK_TICK_READING`).** A type-3 particle is drawn from its place a
+tick ago (`+0x10`) to its place now (`+0x20`) (`FUN_00326350` D:L224670-224699; `FUN_00327cd0` D:L225673 writes the
+spawn place to `+0x10`). The write that moves `+0x10` each step sits in `FUN_003282b0` (0x3282b0), outside the
+decompilation, so the tick is a reading: `GAME_FRAME_DT`, the core's 30 Hz. The port took the place one browser frame
+ago, so the band shrank with the refresh rate (MP12, with F1 present: 1.67 u at 30 Hz, 1.28 u at 60 Hz, 1.03 u at
+144 Hz). Of the two forms the brief offered -- a previous position sampled at the game tick, or `position - velocity x
+GAME_FRAME_DT` -- the second is taken, refined: `tickBack` undoes one `GAME_FRAME_DT` step of the port's own
+integrator (`pos += v dt`, `v += a dt`, then the friction), so a falling drop's tail sits where that step started and
+not 0.1 u off under (0,-95,0). It never reaches past the spawn place: a particle younger than a tick draws from where
+it spawned. A sampled position would have made the band's length jump between one and two ticks within a tick.
+- [unit] `particlesRain.test.ts`: one drop's band, the same at 30, 60 and 144 Hz within 3% (RED: 36% at 60 Hz); a
+  steady (0,-45,0) drop draws 45 x `GAME_FRAME_DT` plus its head and tail at every rate.
+- [dev-disc] `rainDisc.test.ts`: MP12's mean travel a tick 2.15 / 2.19 / 2.23 u at 30 / 60 / 144 Hz, each within 1%
+  of one tick of its own speed. The spread is the drops' speed: a sub-frame spawn leaves a new drop's velocity at the
+  frame's start, up to 95 x dt slower at 30 Hz. With F1 the probe's band reads 3.07 / 3.08 / 3.09 u.
+
+**F3: `CAMERA_INDOORS` (66) and `PLAYER_INDOORS` (72) answered from the floor.** Both are set 0 commands past the base
+set's registrations, numbered by `FUN_002ad290`'s registration order (research 81 §10; `@s2u/sound` `catalog.ts`).
+The effect runner held both unread (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`): MP12's `rain_falling` (`IF set 0 cmd 72`)
+ran its near source under every roof and its far curtain (offset (0,25,-250), far fade 350-450) never.
+`EffectCondition` `other` now carries its set, and `indoorsOperand` names set 0's 66 and 72; the placeholder narrows
+to the rest. The page's effects answer them as `WalkSounds.frame` feeds `setEnvironment` (research 81 §10):
+- **66**: the byte the camera's floor probe writes from the polygon's `m_inside` (`FUN_002dc180`). `FUN_00295b00`
+  probes under the camera node's world origin (`FUN_00310980`, D:L140037-140038) and writes the byte only when it finds
+  a floor (D:L140039, D:L140053-140055). So: the camera's own pick under its place (`cameraFloor`, below), the last
+  answer kept where none is found; false before any camera. A page off the walk (a spectator, the free camera) probes the map's own
+  hull (`Effects.setHull`: `Walk.gridOfGround`), since the original's camera probes every frame, player or none.
+- **72**: bit 2 of the player's `+0x1060` (0x2b3880), 0 with no player. What sets the bit is not traced; the floor under
+  the local player's feet stands in (`PLAYER_INDOORS_FEET_READING`). No player (`setPlayer(null)`) answers false, the
+  tick's 0. A player whose feet the walk does not give (`Walk.feet` null: fly mode, a dead page watching) or whose
+  feet find no floor keeps the last answer: the bit keeps its value while the player object lives (the review's F4);
+  a new map (`Effects.reset`) answers false again. Whether a spectating console has a player object behind its camera
+  is not read; a page that spectates from the map's start answers false.
+- [unit] `effectsIndoors.test.ts` (the probe stubbed): 72 runs the far source and stops the near one indoors, the
+  reverse outdoors, false with no player; 66 the camera's floor, kept where none is found, and the map's hull off the
+  walk; set 0's 70 still unread.
+- [dev-disc] `rainDisc.test.ts`: under `worldmodel/g372_1` at (719,106,1930), an `m_inside` floor, `rain_falling2`
+  runs and `rain_falling1` stops; at spawn A (2063,68,1114), in the open, the reverse.
+- What else moves (every program that tests 66 or 72; the effect runner runs a map's activation-1 programs that draw):
+  - `wind_effect` (MP12, `IF 66`): `fog_mist` off with the camera indoors (unseen: alpha 0).
+  - `rain_falling` on M52 and MP52 (`66 OR 72`) and MP61 (`66`), `snow_falling` on M82, MP1 and MP82 (`66`): the near
+    source off indoors.
+  - `bugs_flying` (M51 `66 OR 72`; MP64 `66 72`, the adjacent pair, where 66 now decides: R1, §18).
+  - `hide_dustfollow` (MP52), `hide_rain_follow` (M52), `hide_water_inside` (M83) (`66 OR 72`).
+  - `lightning_flash_bright` (`inside_check`, `66 OR 72`, on all 34 maps' `MZANIM`): its `flash` sequence is now
+    called only with both camera and player outdoors. Before, the unread pair kept the pre-fold false and the ELSE
+    called it everywhere. The flash is `SCALE_COLOR` commands the effect host does not draw, so nothing seen moves.
+    On MP12 nothing starts it; on MP52 and MP61 `lightning_flashes` calls it.
+  - The camera-state scripts (`check_camera_inside_state1`, `check_camera_inside_state`, `helo_anims`,
+    `badhelo_anims`): they draw nothing, so the effect runner does not run them; their sounds are `@s2u/sound`'s
+    `ambienceLayers` (research 81 §10), unchanged. **FIX-SOUND (2026-11-07):** the world's display run of the
+    autostarts (`worldState.ts` `startAutostarts`, AS-1) does run them, and its host answers only valves; with 66 and
+    72 no longer unread for every host, it was asked, answered false, took the outdoor branch on every pass and played
+    Frostfire's `~OUTDOOR_AMB`, `SND_OUTDOOR_WIND_GUST_LOOP` and `.OUTDR_WND_GST2`/`_GST3` about 15 times a second
+    beside the layers -- flooding `audio().recent` (the v0.4.12 shards' `doors.spec.ts:45` and `remoteCombat.spec.ts:375`
+    reds). 66 and 72 are answered only by a host that says so (`EffectHost.answersIndoors`: the effect runner's); on the
+    world's, the doors' and the gates' hosts they stay unread, as before F3. [unit] `effectRunner.test.ts` (per host);
+    [dev-disc] `worldAutostart.test.ts` (MP2: no bed or gust from the world's autostarts over 20 s).
+  - `cold_breath` (`set 0 cmd 70 AND NOT ( 66 )`): 70 is still unread and turns it -- unchanged.
+  The sweep (`tools/effectConditionSweep.ts`) enumerates 66 and 72 as flags. `effectConditionSweepDisc.test.ts` pins the
+  68 grouped rows they change apart from LATER 310's 32, by program, each running its own branch at exactly the indoors
+  states its tokens name.
+
+**The review's fold (2026-11-07; reading, pending review).** The review (PASS WITH FINDINGS) found 66 on the actor's
+floor rule; findings 1, 2 and 4 are folded:
+- **F1: 66 takes the camera's own pick, `cameraFloor`.** `FUN_00295b00` calls `FUN_0031dfd0` (D:L140038), which runs
+  the world column at the camera's x and z (`FUN_002d49c0`) and hands it to `FUN_002d4c20` (D:L175859-175900): the
+  highest hit at or below `pos.y + param_1` (D:L175882), the first of equal heights (D:L175888), none (0) when no hit
+  is at or below. There is no lowest-hit fallback and no 20-over cut-off; with no hit nothing is written
+  (D:L140039), so the last answer stands. Ghidra shows `param_1` as the call's leading 0; it is a float argument in
+  `$f12`, read off the ELF's code (`socom2_game.elf`): `mtc1 $zero, $f12` at 0x295e40 before the call at 0x295e44,
+  and `FUN_0031dfd0` keeps `$f12` in `$f20` (0x31e004) and hands it back in `$f12` to `FUN_002d4c20` (0x31e05c). So
+  `CAMERA_FLOOR_ABOVE` is 0: settled from the code, a cited constant, no ledger row. The port had used the actor's
+  pick (`probeFloor`, `FUN_005b5d40`: the highest at or below the point + 6, else the lowest, nothing over 20 above),
+  so a camera less than 6 under a roof's walkable top answered outdoors, and the rain ran under that roof (MP61, MP52,
+  MP1, MP82, MP12 -- every map whose program tests 66). `regionCull.ts`'s `regionUnder` (LATER 415) already read the
+  same pick for the eye's region.
+  - **Sound and effects share one probe** (2026-11-07, the follow-up; reading, pending review). `FUN_00295b00` probes
+    once (D:L140038) and from that one hit writes the camera's `+0x2b8` (`m_inside`, `FUN_002dc180`, D:L140054-140055)
+    and `+0x2bc` (the reverb zone, `FUN_002dc150`, D:L140056-140057), only for a hit with params (D:L140053) and
+    nothing with no hit (D:L140039). 66's tick reads `+0x2b8`; the reverb (`FUN_00341a60`) reads `+0x2bc` and `+0x2b8`
+    (D:L241520-241521) -- one flag, not two (72's `+0x1060` bit 2 is the player's, apart). So the pick is one
+    transcription, viewer `src/floorPick.ts` (`cameraFloor`, `CAMERA_FLOOR_ABOVE`; `effects.ts` re-exports both), read by
+    `Effects.indoors` (66), `WalkSounds.frame` (the reverb's depth and the beds, `setEnvironment`) and `regionUnder` (the
+    eye's region, LATER 415: the same comparisons, `h.y <= y` and a strictly higher hit replacing, null with none --
+    identical at `CAMERA_FLOOR_ABOVE` 0, so it now calls the pick). `WalkSounds.frame` had the actor's pick
+    (`probeFloor`): a camera under 6 of a roof's walkable top heard outdoors while the rain knew indoors. With no floor
+    at or below it writes nothing, and the last answer stands (`GameAudio` keeps its environment).
+    - [unit] `walkSoundsIndoors.test.ts` (the probe stubbed, `effectsIndoors.test.ts`'s shapes): a camera 3 under a
+      roof's top over an `m_inside` floor sets indoors; the open outdoors; a floor only over the camera writes nothing
+      (RED at e0c4ab505: the roof's outdoors, and the over floor's outdoors written).
+    - [dev-disc] `rainDisc.test.ts`: MP12's (563, 1554), the camera 3 under the roof's top at 100.46 over the
+      `m_inside` floor at 41.82, sets indoors, then spawn A's open outdoors (RED at e0c4ab505: outdoors under the roof).
+- **F2: the cases.** [unit] `effectsIndoors.test.ts`: a camera 2 under a roof's top (outdoors) over an inside floor is
+  indoors; a floor 0.5 over the camera with none under it is not taken and the last answer stands, indoors or out
+  (RED at ceb288de7: both answered the roof's or the over floor's outdoors). [dev-disc] `rainDisc.test.ts`: MP12's
+  column at (563, 1554) -- a roof's top at 100.46, not `m_inside`, over an `m_inside` floor at 41.82 -- with the
+  camera 3 under the roof's top: `wind_effect`'s `fog_mist` (`IF 66`) off; in the open, on (RED at ceb288de7: on).
+  The same column shape (a roof over an `m_inside` floor, the actor's pick answering outdoors 3 under the roof) was
+  found on MP61 (483, 1709), MP52 (2284, 3088), MP1 (2272, 3253) and MP82 (770, 2893) by a probe not kept.
+- **F4: 72 keeps its value while the player lives** (above, and `PLAYER_INDOORS_FEET_READING`'s row). [unit]
+  `effectsIndoors.test.ts`: feet gone null after an indoors answer keep it; `setPlayer(null)` answers false (RED at
+  ceb288de7: the null feet answered false).
+- **F3 (frame rate), no change:** the after-render pictures ran at about 43 frames a second against 60 before, on a
+  busy host, so the change's frame cost is unmeasured until a re-run on a quiet host.
+
+**Not done.** The render check (the brief's re-render of MP12, MP1 and MP2) is the report's, not this note's. No
+console capture is compared. The captures owed are the report's list: a still frame at spawn A over several frames (F1,
+F2), under the roof looking out (F3), and a memory trace of `+0x10` / `+0x20` over two ticks (`STREAK_TICK_READING`).

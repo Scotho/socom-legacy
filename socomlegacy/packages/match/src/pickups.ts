@@ -1,6 +1,6 @@
 import { EMPTY_ITEM, itemClass, slotKindOf, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
 import { kitRecords, type FirearmSlot } from '../../viewer/src/loadout';
-import { MagazineRing } from '../../viewer/src/magazines';
+import { magazinesCarried, MagazineRing } from '../../viewer/src/magazines';
 import { rocketRoundOf } from '../../viewer/src/equipment';
 import type { BundleEntryWire, DropWire } from '../../viewer/src/net/protocol';
 import { launcherClaimSlots, launcherRoundOf, PICKUP_LAUNCHER_ROUNDS_READING, type PickupKitSlot } from '../../viewer/src/net/pickupRules';
@@ -62,11 +62,30 @@ export const PICKUP_FAMILY_READING = 'same slot' as const;
  */
 export const WEAPON_DROP_AMMO_READING = 'empty ring' as const;
 /**
- * How a bundle's rounds go into the taker's magazines: the port moves whole entries (one magazine's rounds) of a weapon
- * the taker carries into its ring's free slots (0 rounds, not the one in the weapon), in order, and leaves the rest. The
- * original's redistribution (`FUN_005bb000` D:L473158+, `FUN_005ba770` D:L472842+: capacity and partial entries) is not
- * read -- "do not implement ... full-mag transfer to fill those gaps" (194 L78). Settles: those two functions' read, or
- * capture B's ammo-only pickup with a nearly full ring. [placeholder]
+ * How many magazines a bundle may fill (the 2026-11-06 player report: "9 MAG" off bodies): a weapon's first `NumMags`
+ * ring slots and no more. `FUN_005bb000` (D:L473174-473188; its other branch D:L473344, D:L473351; caller `FUN_0059dfb0` D:L457700-457795) hands the bundle's rounds, slot by slot of the kit, to
+ * `FUN_005ba3d0(kit, slot, rounds)`, which reads the record's `NumMags` (D:L472718), doubles it when the kit holds the
+ * Double Ammo Load (item -0x3e, D:L472725) and the record's class is a firearm's (D:L472737-472740), caps it at 10
+ * (D:L472744-472745), writes rounds only into the slots below it (D:L472750-472758) and zeroes the rest (D:L472763) --
+ * so no pickup ever carries a weapon past the magazines it spawns with (`magazinesCarried`, `../viewer/src/magazines`).
+ * The port's records reach the room with 2X applied (`kitRecords` -> `withDoubleAmmo`), so the cap is
+ * `magazinesCarried(record.mags)` with no second doubling. From the disc's ZWEAPON.ZAR (`readKitTable`, `NumMags`):
+ * 3 for most firearms (M4A1, Mark 23: 6 with 2X), 1 for the M40A1 (2), 2 for the machine guns (4), 4 for both
+ * M16A2s, the 226, P228, SR-1, HK5 and Dragunov (8), 5 for the 9mm Pistol and the 870, 6 for the MP5K (10); the
+ * grenade launchers' classes are not doubled (MGL 2, M79 1). [reading]
+ */
+export const PICKUP_MAGAZINE_CAP_READING = 'NumMags, 2X doubled, at most 10' as const;
+/**
+ * How a bundle's rounds go into the taker's magazines below that cap (`PICKUP_MAGAZINE_CAP_READING`): the port moves
+ * whole entries (one magazine's rounds) of a weapon the taker carries into its ring's free slots (0 rounds, not the one
+ * in the weapon) under the cap, in order, and leaves the rest as a smaller bundle. Still owed of the original's
+ * redistribution: `FUN_005ba3d0` D:L472750-472758 pours a round count, topping each slot under the cap up to
+ * `Ammo_Capacity` -- the part-spent magazines and the one in the weapon among them -- where the port moves whole
+ * entries into empty slots only; which records take which bundle (`FUN_003d2680` D:L473181, the ammo type, where the
+ * port matches the record id; the fallback D:L473191+ and `FUN_005ba770` D:L472842+ not read); and what of the bundle
+ * stays on the ground online after the pour (`FUN_005bb000` returns the remainder through `param_4`, its caller's use
+ * not read) -- "do not implement ... full-mag transfer to fill those gaps" (194 L78). Settles: those reads, or capture
+ * B's ammo-only pickup with a nearly full ring. [placeholder]
  */
 export const AMMO_TRANSFER_PLACEHOLDER = 'whole entries into free slots' as const;
 /**
@@ -210,10 +229,12 @@ function claimLauncher(item: number, taker: TakingBody): Claimed | { refused: 'f
 
 /**
  * A bundle walked over (AMMO_TRANSFER_PLACEHOLDER): each entry of a weapon the taker carries (a firearm slot's record
- * id) goes whole into the first free slot of that ring -- 0 rounds and not the magazine in the weapon -- in order; an
- * entry with no free slot, or for a weapon not carried, stays. The rings are changed in place; the bundle is not. No
- * round is created, split or rounded: what the rings gain is what leaves the bundle. `filled`: each ring's slots written,
- * the only ones the taker's `kit` lets the page set (its magazine in the weapon falls as it fires, ahead of the room's).
+ * id) goes whole into the first free slot of that ring below the record's magazines (PICKUP_MAGAZINE_CAP_READING:
+ * `magazinesCarried(record.mags)`, the record already 2X-applied) -- 0 rounds and not the magazine in the weapon -- in
+ * order; an entry with no free slot under the cap, or for a weapon not carried, stays. The rings are changed in place;
+ * the bundle is not. No round is created, split or rounded: what the rings gain is what leaves the bundle. `filled`:
+ * each ring's slots written, the only ones the taker's `kit` lets the page set (its magazine in the weapon falls as it
+ * fires, ahead of the room's).
  */
 export function transferAmmo(
   bundle: readonly BundleEntryWire[], records: readonly [WeaponRecord, WeaponRecord], rings: readonly [MagazineRing, MagazineRing],
@@ -227,7 +248,8 @@ export function transferAmmo(
     for (const n of entry.rounds) {
       const ring = s === null ? null : rings[s];
       const state = ring?.state();
-      const free = state ? state.slots.findIndex((r, i) => r === 0 && i !== state.current) : -1;
+      const cap = s === null ? 0 : magazinesCarried(records[s].mags);
+      const free = state ? state.slots.findIndex((r, i) => i < cap && r === 0 && i !== state.current) : -1;
       if (!ring || !state || free < 0 || n > ring.capacity) { kept.push(n); continue; }
       state.slots[free] = n;
       ring.restore(state);

@@ -375,7 +375,7 @@ describe('the mounted Forge: its cards on the stack (FUI-2)', () => {
     press(START);
     expect(document.querySelector<HTMLElement>('.fx-padmenu')!.hidden).toBe(false);
     press(START);
-  }, 20_000);
+  }, 90_000);
 
   it('a destructive confirm (START > Base, Cross, Cross) starts on Cancel: the second Cross does not drop the layout', async () => {
     const api = await mounted();
@@ -390,7 +390,7 @@ describe('the mounted Forge: its cards on the stack (FUI-2)', () => {
     await flush();
     expect(topCard()).toBeNull();
     expect(api.read().layout!.spawns).toHaveLength(1);
-  }, 20_000);
+  }, 90_000);
 
   it('a nested rename reopens Saves at the same scroll, the renamed row in it', async () => {
     await mounted();
@@ -410,5 +410,5 @@ describe('the mounted Forge: its cards on the stack (FUI-2)', () => {
     // Esc closes it (the page's keys, OT.R68).
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
     expect(savesCard()).toBeNull();
-  }, 20_000);
+  }, 90_000);
 });

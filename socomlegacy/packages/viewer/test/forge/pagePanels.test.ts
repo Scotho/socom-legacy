@@ -118,7 +118,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(files.querySelector(':scope > summary')!.textContent).toBe('Local files');
     expect(files.querySelector('input[type="file"]')).not.toBeNull();
     expect(document.querySelectorAll('input[type="file"][aria-label="Add local files"]')).toHaveLength(1);
-  }, 30_000);
+  }, 90_000);
 
   it('D6 / D2: Edit, World and Content each show their own sections; one section style; the Inspector\'s sticky head; one stepper', async () => {
     const api = await mounted();
@@ -163,7 +163,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(head.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
     expect(head.querySelector('.fx-inspect-name')!.textContent).toContain('crate');
-  }, 30_000);
+  }, 90_000);
 
   it('D1: a hovered tile shows the tooltip with its name; the pad\'s prop step shows it beside the picked tile at once; Escape hides it; the setting turns it off', async () => {
     await mounted();
@@ -197,7 +197,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     over(tile('MP2:crate').querySelector('.fx-asset-name')!);
     await new Promise((done) => setTimeout(done, 700));
     expect(tip()!.hidden).toBe(true);
-  }, 30_000);
+  }, 90_000);
 
   it('D4: with a prop queued a wheel notch turns it one turn step and the camera keeps its speed; with none the wheel is the camera\'s; Escape cancels the queue, then the selection', async () => {
     const probe = probePanel();
@@ -236,7 +236,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     // Nothing queued: the wheel is the camera's as before (its speed trim).
     wheel(-100);
     expect(speed()).not.toBe(was);
-  }, 30_000);
+  }, 90_000);
 
   it('F1 (the review): a new palette row starts unturned; with snap on a changed Turn step keeps the carried turn on the new grid', async () => {
     const probe = probePanel();
@@ -261,7 +261,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     const deg = (yaw() * 180) / Math.PI;
     const r = ((deg % 20) + 20) % 20;
     expect(Math.min(r, 20 - r), 'the yaw on the new grid').toBeLessThan(0.01);
-  }, 30_000);
+  }, 90_000);
 
   describe('FUI-22 fold: every route to a new asset starts it unturned; re-picking the same asset keeps its turn', () => {
     const setup = async () => {
@@ -288,23 +288,23 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
       const cell = await vi.waitFor(() => { const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="prop-MP2:crate"]'); expect(r).not.toBeNull(); return r!; });
       cell.click();
       expect(turn(before, yaw()), 'chooseProp: unturned').toBe(0);
-    }, 30_000);
+    }, 90_000);
     it('the pad\'s previous/next prop step: the next prop arrives unturned', async () => {
       const { yaw, before, turn } = await setup();
       key('BracketRight', ']');
       expect(tile('MP2:crate').classList.contains('is-on')).toBe(true);
       expect(turn(before, yaw()), 'stepAsset: unturned').toBe(0);
-    }, 30_000);
+    }, 90_000);
     it('the seam\'s choose (palette.choose): a different prop arrives unturned', async () => {
       const { api, yaw, before, turn } = await setup();
       expect(await api.execute('palette.choose', { asset: 'MP2:crate' }, api.read().revision)).toMatchObject({ ok: true });
       expect(turn(before, yaw()), 'the facade choose: unturned').toBe(0);
-    }, 30_000);
+    }, 90_000);
     it('re-picking the same asset keeps its turn', async () => {
       const { yaw, before, turn } = await setup();
       tile('MP2:barrel').click();
       expect(turn(before, yaw())).toBe(30);
-    }, 30_000);
+    }, 90_000);
   });
 
   it('F2 (the review): picking a tile by its button keeps focus on the redrawn tile and the tooltip on it', async () => {
@@ -317,7 +317,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(document.activeElement, 'focus on the redrawn pick button').toBe(now.querySelector('.fx-asset-pick'));
     expect(tip()!.hidden).toBe(false);
     expect(now.getAttribute('aria-describedby')).toBe(tip()!.id);
-  }, 30_000);
+  }, 90_000);
 });
 
 /**

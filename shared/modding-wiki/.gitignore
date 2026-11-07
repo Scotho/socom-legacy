@@ -1,0 +1,15 @@
+# The wiki's own products (MW-1): its install, Next's build and export, the generated collections, and what
+# scripts/sync-theme.mjs copies in from the design system at build (never edited here, MW.R4).
+node_modules/
+.next/
+.source/
+out/
+next-env.d.ts
+*.tsbuildinfo
+public/fonts/
+public/brand/
+app/s2u-tokens.css
+app/s2u-fonts.css
+# Next.js's own agent notes (next.config.mjs sets agentRules: false; the repository's one rule file is the root's)
+/AGENTS.md
+/CLAUDE.md

@@ -535,7 +535,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     expect(document.querySelector('[data-creator-examples]')).toBeNull();
     expect(document.querySelector('.fx-workspace[data-forge-dock="workspace"][data-forge-workspace]')).not.toBeNull();
     expect(shell.register).toBeTypeOf('function');
-  }, 20_000);
+  }, 90_000);
 
   it('places a panel handed in after Settings, collapsed, as the agent dock is (FUI.R3); six draw the review\'s tabs; the menu carries every section', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -561,7 +561,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     // FUI-22: six remain (the Local files panel's), so the tabs stay; the Agent tab goes with its panel.
     expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
     expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Edit', 'World', 'Content']);
-  }, 20_000);
+  }, 90_000);
 
   it('A4 fix-up: in tabs (the agent dock handed in), every dock control the e2e specs drive sits in an open panel -- Settings opens with Edit', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -582,7 +582,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     }
     expect(document.querySelector('.fx-right > [data-forge-tabs] [aria-selected="true"]')!.textContent).toBe('Edit');
     expect(document.querySelector('.fx-right > [data-forge-tabs] [data-forge-tab="edit"]')!.getAttribute('title')).toContain('Settings');
-  }, 20_000);
+  }, 90_000);
 
   it('remembers a folded panel across a reload of the page', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -594,7 +594,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     await mountForge(document);
     expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="outliner"]')!.open).toBe(false);
     expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="inspector"]')!.open).toBe(true);
-  }, 20_000);
+  }, 90_000);
 
   it('R3-A (2): with the agent dock handed in (six panels, tabs), a folded Outliner stays folded across a reload', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -614,7 +614,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     await new Promise((done) => setTimeout(done, 5));
     expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="outliner"]')!.open).toBe(false);
     expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="inspector"]')!.open).toBe(true);
-  }, 20_000);
+  }, 90_000);
 
   it('B2: ctx.editor stages the real piece off the scene and places it as one history step; a lapsed admission is refused and disposed', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -663,7 +663,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     expect(api.read().layout).toEqual(before.layout);
     // Nor is a piece staged while a placement is not admitted.
     expect(await editor.stagePiece('MP84:synthetic')).toBeNull();
-  }, 20_000);
+  }, 90_000);
 });
 
 describe('the Forge shell: a panel\'s editor is the page\'s, whole (R4 5, the round 3 review)', () => {

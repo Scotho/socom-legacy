@@ -28,6 +28,7 @@ import { holdFamily, holdOf,
   backblastReaches, c4InReach, c4Line, plantPickFrom, craneActionMiss, craneSurfaceOffRay, C4_PLANT_SECONDS, C4_REFUSED_MATERIAL, C4_START_EYE_FEET_PLACEHOLDER, C4_START_EYE_TICKS_PLACEHOLDER, equipmentKind, equipmentSlotsOf, type EquipmentSlots, EQUIPMENT_SLOTS, LAUNCHER_BODY_READING, wadingDepth, launcherLowerSeconds, launcherRaiseSeconds, rocketRoundOf, serverNameOf, type CraneActionMiss,
   LAUNCHER_RAISE_CLIPS, LAUNCHER_SET_MOVES_READING, playedOutCommand,
   launcherBaseCommand, launcherClipName, launcherMovingLowerCommands, launcherMovingLowerSeconds, launcherStickLowers, SCOPED_STICK, type LauncherUp, type HoldPass,
+  isPushedClip, type PushedClip,
   type BodyState, type ClientEvent, type EnvWire, type LookContext, type Command, type ExtraSurface, type Health, type KillHow, type LobbyChange,
   type LoadoutRefusal, type Member, type PlaySnapshot, type RoomPhase, type ScoreRow, type ServerEvent, type SimClips, type SimMap, type SimSkeleton, type Team,
 } from '../../viewer/src/sim';
@@ -1934,6 +1935,12 @@ class Player {
   flinchGatesReload = true;
   flinchCutFrom = -1;
   /**
+   * The door-open body hold (research 92 section 2, "The body under the door clip"; reading, pending review): the clip a
+   * door's push laid in the slot (`doorMotion`, one of `PUSHED_CLIPS`), read only while the slot is a push's
+   * (`flinchGatesReload` false): on top, it holds the body on its root (`watchMoves`' `pushedOnTop`). Null: none.
+   */
+  flinchClip: PushedClip | null = null;
+  /**
    * #485's re-read, N1: the span of a flinch's refusal a door push cut short (`doorMotion`), kept when the push takes the
    * slot -- the flinch was the top up to the push (`FUN_005b4340` D:L469494-469504 reads the top's flag 0x4), so a reload
    * named on a command before it is still refused, as the page undoes it on the flinch's event. -1: none.
@@ -3007,6 +3014,7 @@ export class Room {
     if (as.late === true && resumed === null) { this.lateMembers.add(id); this.joinedLate.add(id); }   // RC4: kept past `loaded`
     else if (resumed === null) { this.lateMembers.delete(id); if (keptLate) this.joinedLate.add(id); else this.joinedLate.delete(id); }
     const seat = m.role === 'player' && resumed === null ? this.seat(id, m.team!) : null;   // OT.R59: a resumed body is not reseated
+    const keptKit = seat !== null && this.lastSeatKeptPicks;      // KIT-HELD: told after the welcome (`tellKitHeld`)
     // LATER 85 / 266 (`LATE_SEAT_ACTOR_READING`): no body until the late console's load, under either rule.
     if (seat) seat.awaitingLoad = this.lateMembers.has(id);
     // The ARMORY on this seat (ARMORY_SEAT_READING): a page that opens it, on a first seat (a ghost's or a waiting one
@@ -3046,6 +3054,7 @@ export class Room {
     });
     if (resumed !== null) this.send(id, this.resumeEvent(this.players.get(id)!));   // OT.R59: right after its welcome
     if (resumed !== null) this.tellMags(this.players.get(id)!);   // TURRET-AMMO: a resumed occupant's magazines, after its resume
+    if (keptKit) this.tellKitHeld(seat!);                         // KIT-HELD: the kept record's picks, after the welcome
     for (const [dancer, dance] of this.victoryPlaying) this.send(id, {
       type: 'victory', id: dancer, serial: dance.serial, clip: dance.clip, elapsed: (this.tick - dance.start) / TICK_HZ,
     });
@@ -3634,6 +3643,8 @@ export class Room {
     p.char = p.nextChar;
     if (locked) p.spawnedIn = held!.spawnedIn;
     if (held && held.char === p.nextChar) { p.picks = held.picks; p.next = held.next; p.lobbyChoice = held.lobbyChoice === true; }   // ARMORY-SAVE: the same console's IDFromBriefing
+    // KIT-HELD: a kept record's picks restored -- its page is told them after its welcome or promotion (`tellKitHeld`).
+    this.lastSeatKeptPicks = held !== undefined && held.char === p.nextChar && held.picks.length > 0;
     // SVC-12d: seated now, and in progress when its match had begun before (JOIN_IN_PROGRESS_MARK_READING): classic, its
     // first round started (the room left `waiting`); respawn, a tick after the match's start. Research 350 §1: a held
     // respawn room has no match while waiting; only an unheld one's first match begins with its first seat.
@@ -3747,6 +3758,7 @@ export class Room {
         // late joiner (research 91 section 12, `FUN_001f97b0` L57047-57097).
         const ghost = this.seatsGhosts();
         const seat = this.addPlayer(c.id, c.team);
+        const keptKit = this.lastSeatKeptPicks;                    // KIT-HELD: told after `promoted`
         // S2 round 3: the type the seat took (`char`), so the page holds the room's, not the one it last sent.
         const countdown = this.countdownWith(null);
         this.toldCountdown(c.id, countdown);
@@ -3754,6 +3766,7 @@ export class Room {
           type: 'promoted', team: c.team, ghost, char: seat.nextChar, ...(this.waitingWith(null) ? { waiting: true } : {}), ...(seat.arming ? { armory: true } : {}),
           ...(countdown !== null ? { countdown } : {}),
         });
+        if (keptKit) this.tellKitHeld(seat);
         this.broadcast({ type: 'joined', id: c.id, name: this.lobby.member(c.id)!.name, team: c.team, ...this.botMark(c.id) }, c.id);
         if (seat.deadAtLoad) { this.tellLoadDeath(seat); enteredDead.push(c.id); }   // RC4: after `promoted`, a player seat's
       }
@@ -5197,6 +5210,25 @@ export class Room {
     p.next = null;
   }
 
+  /**
+   * KIT-HELD (the player report of 2026-11-06, "the loadout resets to the default M4 after death"): the seat's own page
+   * told what the room holds for its next spawn -- its type (`nextChar`), its picks (the list a `loadout` request
+   * replays, the one the page's next confirm extends) and the kit they replay to (`next`, else the type's own) -- as
+   * `kitHeld`, a unicast of its own: never an unsolicited `loadout`, whose answers the page pairs with its requests in
+   * order. The front end's match page starts with no kit after the lobby's hand-off (the lobby ARMORY's answers went to
+   * the lobby's socket; a stored record is applied here, `launchStored`), and without this its WEAPON EXCHANGE opened on
+   * the type's own kit and its confirm replayed from it -- every lobby pick lost at the next spawn. The original keeps
+   * the kit on the type across rounds and respawns (`FUN_0023e5e0` writes the confirm to the type's kit, `FUN_00599f00`
+   * rebuilds the body from it at each spawn; research 94 §A6, R94.3); this tells the page that state, no more. Told at
+   * the launch (`firstRound`), at the page's `loaded` (`loaded`: the match page's own, after the hand-off), at the load
+   * hold's ceiling to each seat still loading (`barrierPassed`, LATER 726) and after the welcome or promotion of a seat
+   * whose kept record restored its picks (`seat`). A CPU seat's controller is not told.
+   */
+  private tellKitHeld(p: Player): void {
+    if (this.conns.get(p.id)?.cpu === true) return;
+    this.send(p.id, { type: 'kitHeld', team: p.team, char: p.nextChar, picks: p.picks.map((q) => ({ slot: q.slot, id: q.id })), kit: [...(p.next ?? this.typeKit(p))] });
+  }
+
   /** Whether the player spawned in the round in play (the ARMORY's type is held to the round's end then: W5.R1). */
   private spawnedThisRound(p: Player): boolean {
     return this.inRound() && p.spawnedIn === this.roundSerial;
@@ -5234,6 +5266,8 @@ export class Room {
    * reconnect, no first seat for the ARMORY (ARMORY_SEAT_READING).
    */
   private lastSeatReturned = false;
+  /** KIT-HELD: whether the last `seat` restored a kept record's picks (its page is told them: `tellKitHeld`). */
+  private lastSeatKeptPicks = false;
   /** Protocol 9: each connection's hello types, one a side (`helloTypes`), read when the room seats it (`seat`). */
   private readonly types = new Map<number, { seal?: number; terrorist?: number }>();
   /** NCW-10 (an instrument): each connection's page build and build time, its hello's (`clientBuildOf`, `clientBuiltAtOf`), for `roundReport`'s signals. */
@@ -6542,6 +6576,7 @@ export class Room {
       if (p.flinchGatesReload && p.flinchFrom >= 0 && p.flinchUntil > p.flinchFrom) { p.flinchKeptFrom = p.flinchFrom; p.flinchKeptUntil = p.flinchUntil; }
       p.flinchFrom = w.start; p.flinchAt = w.start; p.flinchUntil = w.until; p.flinchCutFrom = w.cutFrom;
       p.flinchGatesReload = false;
+      p.flinchClip = isPushedClip(clip) ? clip : null;              // the door-open body hold: the push holds the body (`watchMoves`)
       p.flinchAir = p.sim.walker.airborne ? w.start : -1;           // pushed in the air: the fall covers it (`flinchLanding`)
       if (under) p.flinchUnder = under;                             // a push over a push keeps the flinch below both
     }
@@ -7295,6 +7330,18 @@ export class Room {
       const seq = p.sim.seq;
       if (p.flinchFrom < 0 || seq < p.flinchFrom || seq >= p.flinchUntil) return false;
       return !(p.flinchAir >= 0 && seq >= p.flinchAir);
+    };
+    // The door-open body hold (the owner, 2026-11-07: "u shouldnt be able to open then move right away"; research 92
+    // section 2, "The body under the door clip"; reading, pending review; PTW.R3 with `../../viewer/src/walk` `pushedTop`):
+    // a door's push (`doorMotion`) on top on command `sim.seq` -- the slot above, a push's (`flinchGatesReload` false) --
+    // holds the body on its clip's root (`Walker.step60`; `FUN_00550ef0` D:L418171-418203, `FUN_0028c250` D:L438910): the
+    // move commands in it are read, not obeyed, until the command whose stick may cut it (`cuttable`, `flinchCutAt`: past
+    // its `NoInterrupt`, `FUN_00587c20` D:L445550-445556), which `flinchCut` ends the window at after the command.
+    p.sim.walker.pushedOnTop = () => {
+      const clip = p.flinchClip, seq = p.sim.seq;
+      if (clip === null || p.flinchGatesReload || !p.sim.walker.oneShotOnTop?.()) return null;
+      const window = { start: p.flinchAt, until: p.flinchUntil, ...(p.flinchCutFrom >= 0 ? { cutFrom: p.flinchCutFrom } : {}) };
+      return { clip, t: (seq - p.flinchAt) / TICK_HZ, cuttable: flinchCutAt(window, seq) };
     };
     const moves = p.sim.moves;
     if (!(moves instanceof Traversal)) return;
@@ -8985,6 +9032,7 @@ export class Room {
   private firstRound(): void {
     for (const p of this.players.values()) p.lobbyChoice = false;   // ARMORY-SAVE: the map's load drops IDFromBriefing (research 309 §2.3)
     for (const r of this.kept.values()) r.lobbyChoice = false;       // and a record kept for a rejoin
+    for (const p of this.players.values()) this.tellKitHeld(p);      // KIT-HELD: each seat's held kit, the stored records' applied
     const ceiling = this.opts.loadBarrierS;
     if (ceiling === undefined || ceiling <= 0 || this.players.size === 0) { this.startRound(true); return; }
     const loading = new Set<string>();
@@ -9006,6 +9054,12 @@ export class Room {
     // LATER 85 / 266: a late console's load publishes its actor dead (`FUN_00543d50`, research 322 §5.3).
     const late = this.players.get(id);
     this.lateMembers.delete(id);
+    // KIT-HELD: the page's load -- the front end's match page after the lobby's hand-off -- is told its seat's held kit,
+    // on a `loaded` the room accepts only: a late seat's first (`awaitingLoad`), or a seat's first in the launch's hold,
+    // the one the barrier counts. A spectator's, an unseated socket's, a duplicate, or one outside a hold or after the
+    // ceiling tells nothing (ONL-18b: nothing sent).
+    const hold0 = this.state.phase === 'waiting' ? this.state.hold : undefined;
+    if (late && (late.awaitingLoad || (hold0 !== undefined && hold0.startAt === undefined && hold0.pending.has(id)))) this.tellKitHeld(late);
     if (late?.awaitingLoad) {
       late.awaitingLoad = false;
       this.scoreDirty = true;
@@ -9088,6 +9142,11 @@ export class Room {
    */
   private barrierPassed(hold: { startAt?: number; pending?: Set<number> }, by: 'all' | 'ceiling'): void {
     hold.startAt = this.tick + Math.round(ROUND1_AFTER_BARRIER_S_READING * TICK_HZ);
+    // LATER 726 (KIT-HELD's ceiling gap; the port's own wire, an adaptation with no original): a seat still loading at
+    // the ceiling heard the launch's tell on its lobby socket, before the hand-off, and its `loaded` after the pass is
+    // refused (ONL-18b) -- so it is told here, once per hold on the socket that holds it now (a seat may also have heard the launch's tell on its lobby socket, or a welcome tell: the page takes each wholesale, `PlayerLoadout.held`) (a takeover's pending id is rekeyed,
+    // `takeOver`); the match page's loader keeps an event that arrives mid-load for its replay (viewer `LobbyMatch`).
+    if (by === 'ceiling') for (const id of hold.pending ?? []) { const p = this.players.get(id); if (p) this.tellKitHeld(p); }
     // IP3 (`onLoadEvent`): the pass, and the seats round 1 did not wait for.
     this.opts.onLoadEvent?.({ kind: 'passed', tick: this.tick, sinceHold: this.loadHoldAt === null ? 0 : this.tick - this.loadHoldAt, by, waiting: [...(hold.pending ?? [])] });
   }

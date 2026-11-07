@@ -1,4 +1,4 @@
-import { rdrGet, type RdrNode } from '@s2u/archive';
+import { rdrGet, type RdrNode, type RdrTypedNode } from '@s2u/archive';
 import { mapKits, type Arsenal, type Loadout, type Side } from './arsenal';
 import type { CharacterTable } from './character';
 
@@ -148,6 +148,63 @@ export function missionUiVars(mission: RdrNode): Map<string, string> {
     const name = rdrGet([v], 'NAME'), value = rdrGet([v], 'VALUE');
     const text = typeof value === 'string' ? value : Array.isArray(value) ? value.filter((x) => typeof x === 'string').join(' ') : undefined;
     if (typeof name === 'string' && text !== undefined && !out.has(name)) out.set(name, text);
+  }
+  return out;
+}
+
+/** A `UiVars` entry's value as `CUIVariableSpec` copies it: the node itself, its type kept (`RdrTypedNode`'s leaves, or a list). */
+export type MissionUiVarValue =
+  | { readonly type: 'int'; readonly value: number }
+  | { readonly type: 'real'; readonly value: number }
+  | { readonly type: 'string'; readonly value: string }
+  | { readonly type: 'array'; readonly value: readonly MissionUiVarValue[] };
+
+/** One `mission.rdr` `UiVars` entry as `CUIVariableSpec` reads it: NAME, VALUE (null without one), the LONGEVITY word. */
+export interface MissionUiVar { name: string; value: MissionUiVarValue | null; longevity?: string }
+
+const typedValue = (n: RdrTypedNode): MissionUiVarValue =>
+  Array.isArray(n) ? { type: 'array', value: (n as readonly RdrTypedNode[]).map(typedValue) } : (n as MissionUiVarValue);
+/** A typed record's value list after `key` (a string leaf), or undefined. */
+function typedAfter(record: RdrTypedNode, key: string): RdrTypedNode | undefined {
+  if (!Array.isArray(record)) return undefined;
+  const list = record as readonly RdrTypedNode[];
+  for (let i = 0; i + 1 < list.length; i++) {
+    const k = list[i]!;
+    if (!Array.isArray(k) && (k as { type: string }).type === 'string' && (k as { value: string }).value === key) return list[i + 1];
+  }
+  return undefined;
+}
+/** A key's one string (`FUN_0032ee10`): the list's single string leaf, or undefined. */
+function typedString(record: RdrTypedNode, key: string): string | undefined {
+  const v = typedAfter(record, key);
+  const one = Array.isArray(v) && (v as readonly RdrTypedNode[]).length === 1 ? (v as readonly RdrTypedNode[])[0]! : v;
+  return one !== undefined && !Array.isArray(one) && (one as { type: string }).type === 'string' ? (one as { value: string }).value : undefined;
+}
+
+/**
+ * `mission.rdr`'s `UiVars` (parsed with `parseRdrTyped`) as `FUN_002acc10` hands each entry to `CUIVariableSpec`
+ * (`FUN_00386ff0` D:L280284-280350): NAME (`FUN_0032ee10`, D:L280299); VALUE's node copied with its type
+ * (`FUN_0032f390`, D:L280324), a one-element list taken as its element (D:L280305-280312) -- so an int stays an int and a
+ * float a real, where `missionUiVars` flattens both to text; the LONGEVITY word, if any (D:L280329). Entries in order.
+ */
+export function missionUiVarEntries(mission: RdrTypedNode): MissionUiVar[] {
+  let root: RdrTypedNode | undefined = mission;
+  for (let d = 0; d < 64 && root !== undefined && typedAfter(root, 'UiVars') === undefined; d++) {
+    root = Array.isArray(root) && (root as readonly RdrTypedNode[]).length === 1 ? (root as readonly RdrTypedNode[])[0] : undefined;
+  }
+  const list = root === undefined ? undefined : typedAfter(root, 'UiVars');
+  if (!Array.isArray(list)) return [];
+  const entries = list as readonly RdrTypedNode[];
+  // One entry stands bare (`UiVars` holding the record itself), as `missionUiVars` reads it; else a list of records.
+  const records = entries.length > 0 && !Array.isArray(entries[0]) ? [list] : entries;
+  const out: MissionUiVar[] = [];
+  for (const rec of records) {
+    const name = typedString(rec, 'NAME');
+    if (name === undefined) continue;
+    const raw = typedAfter(rec, 'VALUE');
+    const node = Array.isArray(raw) && (raw as readonly RdrTypedNode[]).length === 1 ? (raw as readonly RdrTypedNode[])[0]! : raw;
+    const longevity = typedString(rec, 'LONGEVITY');
+    out.push({ name, value: node === undefined ? null : typedValue(node), ...(longevity !== undefined ? { longevity } : {}) });
   }
   return out;
 }

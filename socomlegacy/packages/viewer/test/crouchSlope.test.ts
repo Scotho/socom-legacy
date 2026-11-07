@@ -13,8 +13,10 @@ function climb(push: number, degrees: number, options: { right?: number; roof?: 
     points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 400 * k, -200, -200, 400 * k, -200]),
   };
   const polys = [p];
+  // The roof is the ramp lifted 15 and wound the other way round, so its own normal faces down at the walker as a real
+  // ceiling's does: the headroom cast is one-sided (FUN_002d2890 side mode 0x20, D:L174831-174837; research 281 s4.3).
   if (options.roof) polys.push({ ...p, path: 'worldmodel/roof', ditype: 2,
-    points: p.points.map((v, i) => i % 3 === 1 ? v + 15 : v) });
+    points: Float32Array.from([3, 2, 1, 0].flatMap((k) => [p.points[k * 3]!, p.points[k * 3 + 1]! + 15, p.points[k * 3 + 2]!])) });
   if (options.water) polys.push({ ...p, path: 'worldmodel/water', material: 11,
     points: p.points.map((v, i) => i % 3 === 1 ? v + options.water! : v) });
   const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },

@@ -117,6 +117,13 @@ const ROLE_TYPES: Readonly<Record<PackFileRole, RegExp | null>> = {
 };
 /** Roles whose bytes change play, so a cosmetic intent cannot cover them. */
 const GAMEPLAY_ROLES: ReadonlySet<PackFileRole> = new Set(["collision", "gameplay", "rules"]);
+/**
+ * The validator's own role tables, exported for the modding wiki's generated reference (B205 MW-2, MW.R5; exports
+ * only): the same objects the check reads, so the wiki describes what the validator does, never a copy. Read-only by
+ * type; nothing is to change them at run time.
+ */
+export const PACK_ROLE_TYPES: Readonly<Record<PackFileRole, RegExp | null>> = ROLE_TYPES;
+export const PACK_GAMEPLAY_ROLES: ReadonlySet<PackFileRole> = GAMEPLAY_ROLES;
 
 export const PACK_CODES = {
   manifestMissing: "pack.MANIFEST_MISSING",
@@ -522,6 +529,14 @@ function scanUris(value: unknown, at: string, f: Findings, flagged: Set<string>)
 const TOP_KEYS = new Set(["format", "formatVersion", "id", "version", "name", "description", "target", "contract", "kinds", "sides", "dependencies", "files", "intents", "handlers"]);
 const ROW_KEYS = new Set(["path", "sha256", "size", "role"]);
 const CLAIM_KEYS = new Set(["slot", "handler", "actions", "options"]);
+/**
+ * The fields the validator accepts -- a manifest's top level (beside `legacy`, an adapter's alone), a `files` row, a
+ * `handlers` claim -- exported for the modding wiki's generated reference and its drift test (B205 MW-2, MW.R5; exports
+ * only): the same `Set`s `readManifest` reads, so the wiki's field list is the validator's. Read-only by type.
+ */
+export const PACK_MANIFEST_KEYS: ReadonlySet<string> = TOP_KEYS;
+export const PACK_FILE_ROW_KEYS: ReadonlySet<string> = ROW_KEYS;
+export const PACK_HANDLER_CLAIM_KEYS: ReadonlySet<string> = CLAIM_KEYS;
 
 interface Parsed {
   manifest: PackManifest;

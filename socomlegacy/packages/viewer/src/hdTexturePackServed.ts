@@ -1,6 +1,6 @@
 import type {Rgba} from '@s2u/gs';
 import {decodeDds} from './dds';
-import {HdPackRuntime,HdRefusal,HD_LIMITS,hdTextures,validateHdManifest,type HdEntry,type HdManifest,type HdTextureRegistry} from './hdTexturePack';
+import {HdPackRuntime,HdRefusal,HD_LIMITS,hdTextures,validateHdManifest,type HdAlphaStep,type HdEntry,type HdManifest,type HdTextureRegistry} from './hdTexturePack';
 import {importHdZip,type HdStore} from './hdTexturePackStore';
 import {decodePngAsync} from './png';
 import {boundedBytes,hashString,sha256} from './texturePack';
@@ -16,6 +16,15 @@ export const HD_ROOT='/experimental-packs/hd/';
 type Fetch=(url:string,init?:RequestInit)=>Promise<Response>;
 /** A PNG payload's decode (`png.ts` `decodePngAsync` by default; GM-13b: the menus' pack passes their worker's). */
 export type HdPngDecode=(bytes:Uint8Array,maxEdge:number)=>Promise<Rgba>;
+/** GM-13d: a DDS payload's decode at its entry's size (`dds.ts` `decodeDds` here by default; the menus' pass their worker's). */
+export type HdDdsDecode=(bytes:Uint8Array,size:{width:number;height:number})=>Rgba|Promise<Rgba>;
+/**
+ * GM-13d (plan 2026-11-01-gpu-menus, row GM-13d): the pack's decodes, each defaulting to today's -- `decodePngAsync`,
+ * `decodeDds` and `fullAlpha` (`HdPackRuntime`'s alpha step) on this thread. The menus' pack passes its `HdMenuDecoder`
+ * (all three in its worker); the match's (`matchMount.ts`) and the Experiments page's (`main.ts`) pass none. PRODUCT
+ * TRACK, a browser adaptation: the same functions, so the same bytes.
+ */
+export interface HdPackDecoders {png?:HdPngDecode;dds?:HdDdsDecode;alpha?:HdAlphaStep}
 const reasonOf=(e:unknown)=>e instanceof HdRefusal?e.reason:e instanceof Error?e.message:String(e);
 
 export class HdServedPack {
@@ -32,9 +41,14 @@ export class HdServedPack {
   /** The pack in use came from this browser's store (an import), not the server. */
   private imported=false;
   ready:Promise<void>=Promise.resolve();
+  private readonly decodePng:HdPngDecode;
+  private readonly decodeDds:HdDdsDecode;
+  /** `decoders`: the pack's decodes (GM-13d, `HdPackDecoders`), or a PNG decode alone (GM-13b's form); today's by default. */
   constructor(private fetcher:Fetch=(u,i)=>fetch(u,i),private status:(text:string)=>void=()=>undefined,registry:HdTextureRegistry=hdTextures,
-    private store:HdStore|null=null,private decodePng:HdPngDecode=decodePngAsync){
-    this.runtime=new HdPackRuntime(registry,e=>this.load(e),()=>this.say());
+    private store:HdStore|null=null,decoders:HdPngDecode|HdPackDecoders={}){
+    const d:HdPackDecoders=typeof decoders==='function'?{png:decoders}:decoders;
+    this.decodePng=d.png??decodePngAsync;this.decodeDds=d.dds??decodeDds;
+    this.runtime=new HdPackRuntime(registry,e=>this.load(e),()=>this.say(),d.alpha);
   }
   /**
    * The import button's HD path: null when `file` is not an HD pack zip (the per-map import reads it), else the status
@@ -107,6 +121,6 @@ export class HdServedPack {
       const b=await this.store!.file(e.file);if(!b)throw new Error(`${e.file} is not in the imported pack`);
       if(b.length>e.bytes+1024)throw new Error(`${e.file} is over its entry's size`);bytes=b;
     }else bytes=await this.bytes(`${HD_ROOT}${id}/${e.file}`,max,signal,'default');
-    return e.format==='dds'?decodeDds(bytes,{width:e.outWidth,height:e.outHeight}):this.decodePng(bytes,HD_LIMITS.outputEdge);
+    return e.format==='dds'?this.decodeDds(bytes,{width:e.outWidth,height:e.outHeight}):this.decodePng(bytes,HD_LIMITS.outputEdge);
   }
 }

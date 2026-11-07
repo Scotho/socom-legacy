@@ -105,8 +105,8 @@ describe('the effect sequencer', () => {
   it('LATER 310 R2 (narrowed, review F1): the sourced operands decide where every answer of the unread ones agrees; else the pre-fold false (ZANIM_UNREAD_OPERAND_PLACEHOLDER)', () => {
     // Corpse_Found's `set 2 cmd 33 OR valve_aware == 1` with valve_aware 1 holds in the original whatever cmd 33 answers
     // (D:L108398-108402): the fold decides it. shell_smoke_med's `NOT set 0 cmd 70` turns on the unread answer: false.
-    const unread = { kind: 'other' as const, cmd: 72 };
-    const unread2 = { kind: 'other' as const, cmd: 33 };
+    const unread = { kind: 'other' as const, cmd: 70, set: 0 };   // set 0's 72 is answered since INV-RAIN F3 (`indoorsOperand`)
+    const unread2 = { kind: 'other' as const, cmd: 33, set: 2 };
     const run = (conditions: EffectCondition[], a: boolean, randoms: number[] = []): { log: string[]; draws: number; asked: number } => {
       const h = host([...randoms]);
       let draws = 0, asked = 0;
@@ -135,9 +135,9 @@ describe('the effect sequencer', () => {
   });
 
   it('LATER 310 R2 (first form, kept as written): NOT of an unread operand is not a taken branch', () => {
-    // shell_smoke_med's `NOT set 0 cmd 70`, the camera checks' `NOT set 0 cmd 72`: no host answers the command from a
-    // source, so the fold's NOT must not make the hosts' unread false a taken branch.
-    const unread = { kind: 'other' as const, cmd: 70 };
+    // shell_smoke_med's `NOT set 0 cmd 70` (and the camera checks' `NOT set 0 cmd 72` until INV-RAIN F3 answered 72): no
+    // host answers the command from a source, so the fold's NOT must not make the hosts' unread false a taken branch.
+    const unread = { kind: 'other' as const, cmd: 70, set: 0 };
     const run = (conditions: EffectCondition[], a: boolean): { log: string[] } => {
       const h = host();
       h.test = (c) => (c.kind === 'valve' ? a : false);
@@ -149,6 +149,28 @@ describe('the effect sequencer', () => {
     expect(run([not, unread], false).log).toEqual(['m2']);
     expect(run([not, unread], true).log).toEqual(['m2']);
     expect(run([valve, and, not, unread], true).log).toEqual(['m2']);
+  });
+
+  it('INV-RAIN F3 per host: set 0\'s 66 / 72 are asked only of a host that answers them (`answersIndoors`); any other folds them as unread', () => {
+    // The v0.4.12 shards' doors and footsteps reds: the world's display run (`./worldState`), whose host answers only
+    // valves, was asked `NOT CAMERA_INDOORS`, answered false, and took the branch -- Frostfire's beds and gusts ~15 a second.
+    const camera = { kind: 'other' as const, cmd: 66, set: 0 }, player = { kind: 'other' as const, cmd: 72, set: 0 };
+    const not = { kind: 'operator' as const, operator: 1 };
+    const run = (conditions: EffectCondition[], answers: boolean, inside: boolean): { log: string[]; asked: number } => {
+      const h = host();
+      let asked = 0;
+      h.test = (c) => { if (c.kind === 'other') asked++; return c.kind === 'other' ? inside : false; };
+      new EffectRun(program({ ops: [{ op: 'if', conditions }, mark(1), { op: 'else' }, mark(2), { op: 'endif' }] }), answers ? { ...h, answersIndoors: true } : h).update(0);
+      return { log: h.log, asked };
+    };
+    for (const c of [camera, player]) {
+      // A host that does not answer them: unread, never asked; NOT of one is not a taken branch.
+      expect(run([not, c], false, false)).toEqual({ log: ['m2'], asked: 0 });
+      expect(run([c], false, true)).toEqual({ log: ['m2'], asked: 0 });
+      // The effect runner's host (`./effects`): asked, and its answer decides.
+      expect(run([not, c], true, false)).toEqual({ log: ['m1'], asked: 1 });
+      expect(run([c], true, true)).toEqual({ log: ['m1'], asked: 1 });
+    }
   });
 
   it('nests: an inner IF inside a skipped branch is skipped whole', () => {

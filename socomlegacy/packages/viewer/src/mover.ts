@@ -269,12 +269,45 @@ export const PRONE_PROBE_TILT_READING = 'root' as ProneProbeTilt;
  * The head line (`FUN_0054aa30` D:L415441-415459): the controlled body casts a second segment along the travel at the
  * head node (`actor+0x308`, the `CZSealBody` constructor's `head`, research 180 s1.3) as posed + 2 (`fStack_1dc + 2.0`,
  * D:L415443; again at D:L415459 when `+0x52f` is set), reaching `r x 1.4` -- the second height research 180 s1.6
- * believed absent (its owed read; PF-16, research 217 s2.2). The room has no posed skeleton, so both ends take the
- * stance's idle head (`IDLE_HEAD`): `'idle'` [reading: the posed head moves with the clip -- crouch-walking 12.84 to
- * 13.09 (the line 2.7 to 3.0 low), running 15.39 to 15.74 (1.7 to 2.0 high), research 217 s2.3; the line is given the
- * body's footprint, not one segment ahead; owed a capture, a SEAL walked under a lintel].
+ * believed absent (its owed read; PF-16, research 217 s2.2). The mover has no posed skeleton (the room runs none), so
+ * the head is the clip's the ground state plays: `'posed'` (the crouch-run head line, seat b6's finding, 2026-11-06;
+ * research 217 s2.3) -- at rest, in the air and while a one-shot owns the body the stance's idle head (`IDLE_HEAD`,
+ * standing idle unchanged); moving on the ground the head node's greatest height over the cycle the stick plays
+ * (`POSED_HEAD_READING`), the crouch run (`FUN_00584c60`: it stands and runs the standing blend) the standing table's.
+ * `'idle'`: the idle head for every state, as before (a running body's line 1.6 to 2.0 too high: it stopped a crouch run
+ * under MP72's warehouse lintel, 18.23 over the feet). [reading, pending review: the cycle's phase is not followed (the
+ * greatest head of the cycle stands for every phase, so a lintel inside the cycle's span stops the body as the
+ * original's would at the cycle's top); the blend's cross-fade from one clip to the next is not followed (the table
+ * takes the ramped stick's clip at once); the line is given the body's footprint, not one segment ahead; owed a
+ * capture, a SEAL walked, run and crouch-run under a lintel]
  */
-export const WALL_HEAD_LINE_READING = 'idle';
+export const WALL_HEAD_LINE_READING = 'posed' as 'posed' | 'idle';
+/**
+ * The head node's greatest height over the feet over a held cycle, the port's animator (`Animator` over `MOTION_P.ZAR`'s
+ * clips and `READERC.ZAR`'s `motion.rdr`, on `seal_A_scuba`'s tree from `MP2.ZDB`'s `CLIB_GEO.ZED`; the engine's blend
+ * `FUN_00577000` / `FUN_00576e30` as the animator transcribes it) -- re-measured by `crouchRunHeadLineDisc.test.ts`.
+ * `stand`: each direction class (`moveClass`: 0 right, 1 forward, 2 left, 3 back) at the stick's length 0.1 to 1.0,
+ * the greatest over the class's own direction and its two diagonals (the blend between them); a length between two
+ * samples takes the greater of the two (between 0.8 and 0.9 the animator's head falls near-linearly, 16.530 to 16.006,
+ * 16.215 at 0.86: the greater over-stops a stick there by up to 0.3, research 217 s2.3). Forward: the walk
+ * (`seal_walk_alert`) to 0.4, the jog to 0.7, the run (`seal_run`) at 1.0 15.40 to 15.76 (research 217 s2.3's 15.39 to
+ * 15.74 off the clip's keys). `crouch`: by the held class (`Walker.ground`'s `cls`), its own set and no blend
+ * (`FUN_00582d10`: one set by the class), the greatest over the stick's lengths -- forward `seal_crouchwalk` 13.122
+ * (research 217 s2.3's 12.84 to 13.09 off its keys), back `_bw` 13.114, right `seal_crouchstrafe_right_fast` 12.990,
+ * left `seal_crouchstrafe_left` 13.274; `prone`: the crawl's and the prone strafes'. [reading, pending review: measured
+ * on the port's animator, not the original's; the samples' spacing (0.1) and the greater of two stand for the sticks
+ * between; owed with `WALL_HEAD_LINE_READING`'s capture]
+ */
+export const POSED_HEAD_READING = {
+  stand: {
+    forward: [16.705, 16.705, 16.707, 16.891, 17.138, 17.383, 17.024, 16.530, 16.006, 15.761],
+    back: [17.137, 17.137, 17.131, 17.140, 17.135, 16.945, 16.569, 16.581, 16.584, 16.582],
+    right: [16.354, 16.370, 16.396, 16.419, 16.453, 16.584, 16.407, 16.158, 16.063, 16.063],
+    left: [16.166, 16.269, 16.435, 16.555, 16.567, 16.682, 16.462, 16.186, 16.147, 16.149],
+  },
+  crouch: { forward: 13.122, back: 13.114, right: 12.990, left: 13.274 },
+  prone: 4.996,
+} as const;
 /**
  * A wall the body's footprint meets at the face's END (the nearest point of the face's band is one of its ends, not a
  * point on the face). The original's contact is a segment of the fan crossing the polygon inside its edges, and its
@@ -458,14 +491,38 @@ interface BodySegment { a: [number, number, number]; b: [number, number, number]
  * on `seal_A_scuba`'s tree, research 217 s2.2): `seal_stand` 17.394, `seal_crouch` 10.138, `seal_prone` 3.637 (research
  * 180 s1.4's).
  */
-const IDLE_HEAD: Readonly<Record<typeof WALL_HEAD_LINE_READING, Readonly<Record<Stance, number>>>> = {
+const IDLE_HEAD: Readonly<Record<'idle', Readonly<Record<Stance, number>>>> = {
   idle: { stand: 17.394, crouch: 10.138, prone: 3.637 },
 };
 /** The head line over the head node: + 2 (D:L415443). */
 const HEAD_LINE_LIFT = 2;
-/** The heights over the feet a wall is met at in `stance`: the low probe, then the head line (PF-16). */
+/** The heights over the feet a wall is met at in `stance` at rest: the low probe, then the head line (PF-16). */
 export function wallProbeHeights(stance: Stance): readonly [number, number] {
-  return [WALL_PROBE_READING[stance].h, IDLE_HEAD[WALL_HEAD_LINE_READING][stance] + HEAD_LINE_LIFT];
+  return [WALL_PROBE_READING[stance].h, IDLE_HEAD.idle[stance] + HEAD_LINE_LIFT];
+}
+const POSED_CLASS = ['right', 'forward', 'left', 'back'] as const;
+/**
+ * The head line's height over the feet (`FUN_0054aa30` D:L415441-415443: the head node as posed + 2) for the body in
+ * `posture` on the ground state `ground` (`WALL_HEAD_LINE_READING`): moving on the ground the posed head of the clip it
+ * plays (`POSED_HEAD_READING`; standing, the row of the stick's class, `moveClass`), else -- at rest, `busy` (in the
+ * air, a one-shot owning the body), or `'idle'` -- the stance's idle head (`wallProbeHeights`).
+ */
+export function wallHeadLine(posture: Stance, ground: GroundMotion, busy = false): number {
+  const idle = IDLE_HEAD.idle[posture] + HEAD_LINE_LIFT;
+  if (WALL_HEAD_LINE_READING !== 'posed' || busy || ground.state !== posture) return idle;
+  if (posture === 'crouch') {
+    const c = POSED_HEAD_READING.crouch;
+    const head = ground.cls < 0 ? Math.max(c.forward, c.back, c.right, c.left) : c[POSED_CLASS[ground.cls as 0 | 1 | 2 | 3]];
+    return head + HEAD_LINE_LIFT;
+  }
+  if (posture === 'prone') return POSED_HEAD_READING.prone + HEAD_LINE_LIFT;
+  const f = Math.abs(ground.forward) <= FORWARD_DEAD ? 0 : ground.forward, m = Math.min(1, Math.hypot(f, ground.right));
+  if (m === 0) return idle;
+  // The standing blend is picked by the stick, not a held class (`locomotion`; the ground state keeps none standing):
+  // its class here only picks the table's row, the row holding its two diagonals.
+  const row = POSED_HEAD_READING.stand[POSED_CLASS[moveClass(ground.right, f, -1) as 0 | 1 | 2 | 3]];
+  const lo = Math.max(0, Math.floor(m * 10 + 1e-9) - 1), hi = Math.max(0, Math.ceil(m * 10 - 1e-9) - 1);
+  return Math.max(row[lo]!, row[hi]!) + HEAD_LINE_LIFT;
 }
 /**
  * `FUN_00552ec0`'s prone gate (D:L418935-418940): from stand or crouch, `FUN_0054d620(11.2, 8.0, step_height x 0.5)`
@@ -730,10 +787,15 @@ export function isCameraClassSurface(p: WorldPoly): boolean {
  * `FUN_0031e1d0` -> `FUN_002d4780`, each node through `FUN_002d2890` -- its owner gate (`m_active` and `m_hasDI`,
  * D:L174789-174790: `segmentHit`'s `modelGate`, all layers; D16) and `isCameraClassSurface` -- and the hit nearest the
  * start (`FUN_002d4cc0` D:L175904). Clear when nothing is hit, or when that nearest hit's `m_cameratype` is exactly 1
- * (word bits 18-19 == 1: `FUN_0057efe0` D:L441232, `FUN_0057f150` D:L441279).
+ * (word bits 18-19 == 1: `FUN_0057efe0` D:L441232, `FUN_0057f150` D:L441279). One-sided (INV-WATER-CROUCH, 2026-11-07;
+ * reading, pending review): `FUN_002d2890` starts each collider's test in side mode 0x20 unless its `+0x80` bit 1 is set
+ * (D:L174831-174837), and the hull's colliders clear that bit (`FUN_00316e30` D:L215827-215828), so a face counts only
+ * entered from its front (research 281 s4.3; `segmentHits`' `frontOnly`, LATER 250) -- the up-ray passes up-facing
+ * water from below, where the two-sided cast took it for a ceiling and refused a crouched SEAL 7.5-8.5 deep its stand
+ * and its crouch run.
  */
 export function cameraClassClear(grid: Grid, a: readonly [number, number, number], b: readonly [number, number, number]): boolean {
-  const hit = segmentHit(grid, a, b, isCameraClassSurface);
+  const hit = segmentHits(grid, a, b, isCameraClassSurface, ALL_LAYERS, true)[0] ?? null;
   return hit === null || ((surfaceWord(hit.poly) >>> 18) & 3) === 1;
 }
 /** Ticks one `advance` may run: a stalled tab catches up this far and drops the rest (the page caps dt at 0.1 s). */
@@ -1154,8 +1216,10 @@ export const CROUCH_PRONE_PUSH_READING = 8;
  * - **What does not lock.** Holding the throw (the power's chase, `FUN_00594cf0` 0x595ea0-0x595f28: nothing there
  *   touches the move axes); the standing reload (`seal_reload` has no `NoInterrupt`: the first push cuts it, and
  *   `FUN_00550ef0` 418202-418214 carries it on as `Moving rifle reload`, the upper body's); a reload started moving
- *   (that overlay from the start); the Detonator (`CZKit_DetonateRemoteExplosives` plays no SEAL clip); a door (the
- *   action runs the door's zAnim, `FUN_002b44e0` from `FUN_00592d50` 452017-452018, which moves the leaf, not the SEAL).
+ *   (that overlay from the start); the Detonator (`CZKit_DetonateRemoteExplosives` plays no SEAL clip). *Was* "a door
+ *   (the action runs the door's zAnim, which moves the leaf, not the SEAL)": corrected 2026-10-23 (research 92 section
+ *   2) -- the door's program pushes `Open door` on the presser, and since 2026-11-07 that push holds the body as these
+ *   do, from the window its owner keeps (`PUSHED_CLIPS`, `Walker.pushedOnTop`).
  *
  * Each as `motion.rdr`'s `playback` and `NoInterrupt` and `MOTION_P.ZAR`'s key count and root travel, pinned against
  * both by `test/moverHold.test.ts`. `still`: only started at 20 a second or under (`FUN_005a82e0`'s `bVar3`).
@@ -1194,6 +1258,39 @@ export const HOLD_SECONDS: Readonly<Record<HoldClip, number>> = Object.freeze(Ob
 
 /** Whether a clip name is one of the holds. */
 export const isHoldClip = (clip: string): clip is HoldClip => Object.prototype.hasOwnProperty.call(HOLD_CLIPS, clip);
+
+/**
+ * The door-open body hold (the owner, 2026-11-07: "u shouldnt be able to open then move right away"; research 92
+ * section 2, "The body under the door clip"; reading, pending review): the clips a door's program pushes on the presser
+ * (`ai::ANIMATE` -> `FUN_00588bc0(actor, type, stance, 0, 0)`, D:L487256-487260; `./doors` `openDoorClip`) -- `Open
+ * door` and the kick with either hand. Each is a full-body one-shot on the action stack (`motion.rdr`: looped 0, no
+ * `BlendOverlay`), so while it is on top `FUN_00550ef0` runs no ground state (D:L418171-418203: `FUN_005870e0` only on
+ * the stick's cut or the end test) and the tick's advance feeds the top play's root velocity to the actor
+ * (`FUN_0057a330` -> `FUN_0028c250` D:L438910, scaled D:L438985): the stick is read, not obeyed, as under a hold. The
+ * turn stays free (none carries `NoTurn`: the zeroes at D:L418302-418337 do not name them; the turn D:L418340), and no
+ * round is refused (no `NoFire`). The stick or the turn past 0.1 cuts it once its phase is strictly past its
+ * `NoInterrupt` (`FUN_00587c20` D:L445550-445556, the test D:L418180-418185) -- the window's `cutFrom` its owner keeps
+ * (the room's `doorMotion`, the page's `./walk` `setFlinchPose`) -- or it ends (`until`). `motion.rdr`'s `playback` and
+ * `NoInterrupt`, `MOTION_P.ZAR`'s key count and root travel (key n - 1 less key 0, x right and z behind), pinned against
+ * the disc by `test/doorHold.test.ts`. `Open door`'s root lunges about 5 ahead and back (keys 0 to 8), the kick's
+ * steps 6.5 ahead, the pistol's kick has no root track.
+ */
+export const PUSHED_CLIPS = Object.freeze({
+  seal_open_door: { playback: 0.8, frames: 14, noInterrupt: 0.5, travel: [0.01, -0.29] },
+  seal_kickopendoor: { playback: 1.7, frames: 22, noInterrupt: 0.38, travel: [0.4, -6.47] },
+  seal_p_kickopendoor: { playback: 1.7, frames: 43, noInterrupt: 0.38, travel: [0, 0] },
+} as const);
+export type PushedClip = keyof typeof PUSHED_CLIPS;
+
+/** Whether a clip name is one a door's program pushes (`PUSHED_CLIPS`). */
+export const isPushedClip = (clip: string): clip is PushedClip => Object.prototype.hasOwnProperty.call(PUSHED_CLIPS, clip);
+
+/**
+ * A pushed clip on top of the body's stack on the command the mover runs now (`Walker.pushedOnTop`): its clip, the seconds
+ * since its push on the commands' clock (its window's start), and whether that command may cut it (`cuttable`: the
+ * window's `flinchCutAt` -- past its `NoInterrupt` and `FLINCH_CUT_COMMANDS` -- before the stick is asked).
+ */
+export interface PushedTop { clip: PushedClip; t: number; cuttable: boolean }
 
 /**
  * The reload's clip that holds the mover (`FUN_005a82e0`, decomp 462786-462930), or null: crouched `Rifle crouch
@@ -2546,6 +2643,15 @@ export class Walker {
    * adaptation's scope under a flinch (OT.R67), for the owner to overturn.
    */
   oneShotOnTop: (() => boolean) | null = null;
+  /**
+   * The door-open body hold (research 92 section 2, "The body under the door clip"; reading, pending review): a door
+   * program's push on top of the body's stack on the command the mover runs now, or null -- the window its owner keeps
+   * (`room.ts` `watchMoves` from `doorMotion`; `./walk` `pushedTop` from `setFlinchPose`), the same slot `oneShotOnTop`
+   * reads (`[start, until)`, not under the fall). While one stands and this command's stick does not cut it, the step
+   * moves the body by the clip's root alone (`PUSHED_CLIPS`; `FUN_00550ef0` D:L418171-418203, `FUN_0028c250`
+   * D:L438910). Null: never (a mover nobody tells walks under it, as before).
+   */
+  pushedOnTop: (() => PushedTop | null) | null = null;
   /**
    * LATER 504: a prone press under the launcher's set -- the crouch state's prone request (`FUN_00584c60`) and whether the
    * set allows it are not read, so the port takes it as off the set (the stance gate's own answer). Settled by reading
@@ -3967,6 +4073,24 @@ export class Walker {
         return;
       }
     }
+    // The door-open body hold (the owner, 2026-11-07; research 92 section 2, "The body under the door clip"): a door's
+    // `Open door` (or kick) pushed on top -- `FUN_00588bc0` puts it over whatever plays (D:L487256-487260) -- owns the
+    // body as a hold does: no ground state (`FUN_00550ef0` D:L418171-418203), the clip's root alone along the facing
+    // (`FUN_0028c250` D:L438910), the stick read and not obeyed. The command whose stick or turn passes 0.1 once the
+    // window lets the cut (`cuttable`: past `NoInterrupt`, `FUN_00587c20` D:L445550-445556; D:L418180-418185) pops it
+    // first, and the ground state runs on that command (`FUN_005870e0` D:L418203) -- the owner ends the window there.
+    const pushed = this.pushedOnTop?.() ?? null;
+    if (pushed && !(pushed.cuttable && this.cutAsked && this.stickCuts(cutStick.forward, cutStick.right))) {
+      const c = PUSHED_CLIPS[pushed.clip];
+      s.stickForward = forward; s.stickRight = right;
+      this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
+      const [tx, tz] = this.clipVelocity(pushed.clip, c, oneShotSeconds(c.playback, c.frames), pushed.t, false);
+      const yaw = (s.yaw * Math.PI) / 180, co = Math.cos(yaw), sn = Math.sin(yaw);
+      s.vx = tx * co + tz * sn;
+      s.vz = -tx * sn + tz * co;
+      this.slideOrMove(forward, right, dt);
+      return;
+    }
     const hold = this.hold_;
     if (hold && !this.action_) {
       if (this.holdCut(cutStick.forward, cutStick.right)) this.endHold('cut');   // FUN_00587c20: cut; the ground state takes over
@@ -4212,6 +4336,14 @@ export class Walker {
   }
 
   /**
+   * The heights over the feet the walls are met at now: the low probe (`WALL_PROBE_READING`) and the head line at the
+   * posed head (`wallHeadLine`, `WALL_HEAD_LINE_READING`).
+   */
+  private probeHeights(): readonly [number, number] {
+    return [WALL_PROBE_READING[this.posture_].h, wallHeadLine(this.posture_, this.ground_, this.inAir || this.action_ !== null)];
+  }
+
+  /**
    * `FUN_0057f150` (D:L441263-441285): the jump's camera-class cast (`cameraClassClear`) from the stance's head + 1
    * (`JUMP_HEAD_READING`) up 20. The query only: `jump` does not ask it yet -- D13's refusal waits for its capture
    * (PTW.R1; research 230 s3.1, s7), so a roof over the head still lets a jump start.
@@ -4260,7 +4392,7 @@ export class Walker {
     const centre: BodySegment = { a: [s.x, s.y + h, s.z], b: [s.x + fx * k + d[0], s.y + fy * k + d[1] + h, s.z + fz * k + d[2]], line: 0 };
     if (prone) centre.b[1] += lift(centre.a, centre.b);
     out.push(centre);
-    const headY = s.y + wallProbeHeights(posture)[1];
+    const headY = s.y + this.probeHeights()[1];
     const forward = ux * Fx + uz * Fz > 0;
     const transition = this.action_?.name === 'standToCrouch' || this.action_?.name === 'crouchToProne' || this.action_?.name === 'standToProne';
     const envelope = HEAD_LINE_MUZZLE_READING === 'held' && this.bodyOwner() === null;   // FUN_00286c90(+0x458) over 0
@@ -4591,7 +4723,7 @@ export class Walker {
    * are -- the radius less the nearest face's distance, or the radius plus it inside a footprint; 0 or less is clear.
    */
   private penetration(x: number, z: number, r: number): number {
-    const heights = wallProbeHeights(this.posture_).map((h) => this.state.y + h);
+    const heights = this.probeHeights().map((h) => this.state.y + h);
     const bounds = [x - r, z - r, x + r, z + r] as const;
     let depth = -Infinity;
     for (const w of this.crossingWallsNear(x, z, bounds)) {
@@ -4913,7 +5045,7 @@ export class Walker {
     const lift = ahead > 0 && q && PRONE_PROBE_TILT_READING === 'root' && PRONE_TILT_EASE_BASIS_READING === 'root-up'
       ? rotateByQuat(q, worldToBody(s.yaw, [tx, 0, tz]))[1] : 0;
     const reach = Math.max(r, ahead);
-    const heights = wallProbeHeights(this.posture_).map((h) => s.y + h);
+    const heights = this.probeHeights().map((h) => s.y + h);
     const nearWalls = this.nearWalls(x, z);
     let index = wallBoundsIndexes.get(nearWalls.walls);
     if (!index) { index = new OrderedBoundsIndex(nearWalls.walls); wallBoundsIndexes.set(nearWalls.walls, index); }
@@ -5103,7 +5235,7 @@ export class Walker {
    */
   private crosses(x0: number, z0: number, x1: number, z1: number, feet = this.state.y, frontOnly = false): boolean {
     if (x0 === x1 && z0 === z1) return false;
-    const heights = wallProbeHeights(this.posture_).map((h) => feet + h);
+    const heights = this.probeHeights().map((h) => feet + h);
     const bounds = [Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1)] as const;
     const fromWalls = this.crossingWallsNear(x0, z0, bounds);
     // One synchronous query sees one door pose. In the same cell both calls have the identical candidates, even
@@ -5201,7 +5333,7 @@ export class Walker {
  * frame: what the mover's per-key root motion reads (`Walker.actionVelocity`, `FUN_0028c250`).
  */
 export function actionRoots(clips: readonly MotionClip[]): Map<string, Float32Array> {
-  const wanted = new Set<string>([...Object.keys(ACTION_CLIPS).map((k) => SEAL_ANIMS[k as keyof typeof ACTION_CLIPS]), ...HOLD_CODES]);
+  const wanted = new Set<string>([...Object.keys(ACTION_CLIPS).map((k) => SEAL_ANIMS[k as keyof typeof ACTION_CLIPS]), ...HOLD_CODES, ...Object.keys(PUSHED_CLIPS)]);
   const out = new Map<string, Float32Array>();
   for (const c of clips) {
     if (!wanted.has(c.name)) continue;

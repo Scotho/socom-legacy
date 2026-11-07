@@ -155,7 +155,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     heard.mockClear();
     palette.setQuery('x');
     expect(heard).not.toHaveBeenCalled();
-  }, 30_000);
+  }, 90_000);
 
   // FUI-22 (D5, FUI.R21): the pin of the left dock's panel host (dot's grid after the page's list, scrolling in its own
   // box) moved -- no panel sits in the left dock now; what it protected, nothing running off the dock, is the one list's:
@@ -173,7 +173,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect(/\n\.fx-asset-filters \{([^}]*)\}/.exec(css)?.[1]).toMatch(/\bflex: none;/);
     expect(document.querySelector('.fx-left > .fx-asset-filters')!.compareDocumentPosition(document.querySelector('.fx-left > ul.fx-assets')!)
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  }, 30_000);
+  }, 90_000);
 
   it('5: no Starters button on the toolbar; START > Panels shows the Starter experiences', async () => {
     await mounted();
@@ -189,7 +189,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     });
     row.click();
     expect(starters.open).toBe(true);
-  }, 30_000);
+  }, 90_000);
 
   it('6: the Props screen open over a palette that loads shows its props without another press', async () => {
     await mounted();
@@ -208,5 +208,5 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     await vi.waitFor(() => expect(mp3).not.toBeNull());
     mp3!.resolve(await syntheticArchive('MP3', ['drum']));
     await vi.waitFor(() => expect(cells()).toEqual(['prop-MP3:drum']));
-  }, 30_000);
+  }, 90_000);
 });

@@ -1,7 +1,8 @@
 import type { DiscShareAdapter, ReceiverView, SenderView } from '../../discShareView';
 import {
   RECEIVER_FAILED_EARLY, RECEIVER_WORDS, SENDER_CLOSE, SENDER_CODE_LINE, SENDER_ENTER_NONE, SENDER_ENTER_SOME, SENDER_EXTRACT, SENDER_NO, SENDER_STOP,
-  SENDER_TITLE, SENDER_TYPE, SENDER_WORDS, SENDER_YES, SHARE_LEAD, SHARE_RETRY, shareHostLine, shareRowHint, shareSteps,
+  SENDER_TITLE, SENDER_TYPE, SENDER_WORDS, SENDER_YES, SHARE_LEAD, SHARE_RETRY, SHARE_VIA_DIRECT, SHARE_VIA_RELAY, shareHostLine, shareRowHint,
+  shareSteps,
 } from '../../discShareWords';
 import { qrMatrix, qrSvg } from '../../qr';
 import { btn, esc, ico } from '../icons';
@@ -30,6 +31,12 @@ function barHtml(label: string, bytes: number | undefined, total: number | undef
       <div class="cx-bar cx-share__bar" role="progressbar" aria-label="${esc(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-valuetext="${esc(said)}"><i style="--s2u-progress: ${(pct / 100).toFixed(2)}"></i></div>`;
 }
 
+/** DSH.R15: the connection's path in words, while the copy runs or once done; '' before it is known. */
+function viaHtml(via: 'direct' | 'relay' | undefined, phase: string): string {
+  if (!via || (phase !== 'copying' && phase !== 'sending' && phase !== 'done')) return '';
+  return `<p class="cx-dialog__note" data-share="via">${esc(via === 'relay' ? SHARE_VIA_RELAY : SHARE_VIA_DIRECT)}</p>`;
+}
+
 /** The host a link names (DSH.R10), or '' when it is not an address. */
 function hostOf(link: string | undefined): string {
   if (!link) return '';
@@ -51,7 +58,7 @@ function statusHtml(v: ReceiverView): string {
     ? `<button type="button" class="cx-toggle is-focused" data-act="sharerx" data-share="retry"><span>${btn('cross')}${esc(SHARE_RETRY)}</span></button>` : '';
   return `<div class="cx-share__status is-${v.phase}" data-share="status" role="status" aria-live="polite">
       <p class="cx-share__head">${ico(v.phase === 'done' ? 'check' : v.phase === 'failed' ? 'alert' : 'download')}<span>${esc(v.phase === 'failed' && !v.link ? RECEIVER_FAILED_EARLY : w.head)}</span></p>
-      ${line ? `<p class="cx-share__line">${esc(line)}</p>` : ''}${bar}${retry}
+      ${line ? `<p class="cx-share__line">${esc(line)}</p>` : ''}${bar}${viaHtml(v.via, v.phase)}${retry}
     </div>`;
 }
 
@@ -119,7 +126,7 @@ export function senderDialogHtml(v: SenderView, row: number): string {
       ${asking ? `<p class="cx-dialog__note">${esc(SENDER_CODE_LINE)}</p>` : ''}
       ${v.code ? `<p class="cx-share__code" data-share="code" aria-label="Code ${esc([...v.code].join(' '))}">${esc(v.code)}</p>` : ''}${found}
       ${w.note ? `<p class="cx-dialog__note" data-share="why">${esc(w.note)}</p>` : ''}
-      ${bar}${reason}
+      ${bar}${viaHtml(v.via, v.phase)}${reason}
       ${buttons.map((b, i) => `<button type="button" class="cx-toggle ${i === focus ? 'is-focused' : ''}" data-act="sharesend" data-i="${i}" data-fk="share-${i}"${b.act === 'pick' ? ' data-share="pick"' : ''}><span>${btn(buttons.length > 1 && i < buttons.length - 1 ? 'cross' : 'circle')}${esc(b.words)}</span></button>`).join('')}
     </div></div>`;
 }

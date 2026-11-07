@@ -402,4 +402,26 @@ describe('WALL-CAM: both pages share the spectator obstruction rig', () => {
     reset.tick(open.feet, open.yaw, open.pitch, 15, 1 / 60, true);
     expect(pose!.z).toBeCloseTo(reset.view(1).eye[2], 8);
   });
+
+  it("INV-SPECTATE C: eases the rig only when the view asks (the dead player's teammate view), snapping on a new bind", () => {
+    const { p } = parts(TESTROOM_CAPABILITIES); const hull = grid(); let pose: SpectatorPose | null = null;
+    const map = p.map(); p.map = () => map;
+    p.walk = { gridOfGround: () => hull } as never;
+    p.fly = { setPose: (v: SpectatorPose) => { pose = v; }, aspect: () => 16 / 9 } as never;
+    const d = matchNetDeps(p, { ...everyHook }, { ...everyPart } as never);
+    const follow = (d as unknown as { spectateFollow: (body: object, dt: number, ease?: boolean) => void }).spectateFollow;
+    const b = { id: 1, feet: [0, 0, -50], yaw: 0, flags: 64, pitch: 0, stance: 0, peek: 0 };
+    const eased = new PlayerCamera(hull), rigid = new PlayerCamera(hull);
+    for (const c of [eased, rigid]) c.nearAspect = 16 / 9;
+    eased.ease = true;
+    follow(b, 1 / 60, true); eased.tick(b.feet, 0, 0, STANCE.stand.rootY, 1 / 60); rigid.tick(b.feet, 0, 0, STANCE.stand.rootY, 1 / 60);
+    expect(pose!.x).toBeCloseTo(rigid.view(1).eye[0], 8);                         // the bind: straight
+    const moved = { ...b, feet: [40, 0, -50] };
+    follow(moved, 1 / 60, true); eased.tick(moved.feet, 0, 0, STANCE.stand.rootY, 1 / 60); rigid.tick(moved.feet, 0, 0, STANCE.stand.rootY, 1 / 60);
+    expect(pose!.x).toBeCloseTo(eased.view(1).eye[0], 8);
+    expect(Math.abs(pose!.x - rigid.view(1).eye[0])).toBeGreaterThan(30);        // 0.1 of 40 moved, not 40
+    // A spectator's follow of the same body (no ease) stands where the body puts it.
+    follow({ ...moved, feet: [80, 0, -50] }, 1 / 60); rigid.tick([80, 0, -50], 0, 0, STANCE.stand.rootY, 1 / 60);
+    expect(pose!.x).toBeCloseTo(rigid.view(1).eye[0], 8);
+  });
 });

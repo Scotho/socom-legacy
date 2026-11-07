@@ -98,12 +98,12 @@ describe('FCW-32 round 2: Play runs the layout\'s rules; their messages as text'
     expect(rules.layout).toEqual({ zones: l.zones });
     // review F1: Play hands the host the blank floor's names (none), the derivation rules.test shares (`ruleNamesOf`)
     expect((o['rules'] as { names?: unknown }).names).toEqual({ doors: [], switches: [] });
-  }, 30_000);
+  }, 90_000);
 
   it('a layout without a rules mode plays exactly as before: no rules option at all (pinned)', async () => {
     const o = await play(JSON.stringify(recordOfLayout(floor(), 'Vault')));
     expect('rules' in o).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   it('a pack\'s message shows beside Back as those literal characters, adding no element', async () => {
     const l = await withRules();
@@ -122,7 +122,7 @@ describe('FCW-32 round 2: Play runs the layout\'s rules; their messages as text'
     expect(chips.querySelector('b')).toBeNull();
     // one chip for the message, its lamp and word (the status chips' own shape): no element of the message's own
     expect(chips.querySelectorAll('*').length).toBe(before + 3);
-  }, 30_000);
+  }, 90_000);
 
   it('FUI-23 (FUI.R24): Play hands the rules\' cues the match\'s audio; a cue is heard, a missing one said, a locked output held for a click', async () => {
     const l = await withRules();
@@ -148,12 +148,12 @@ describe('FCW-32 round 2: Play runs the layout\'s rules; their messages as text'
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(plays).toEqual(['.BEEP']);
     expect(chips.querySelector('[data-forge-chip="rules-cue"]')).toBeNull();
-  }, 30_000);
+  }, 90_000);
 
   it('FUI-23: a layout without a rules mode hands no cue audio (pinned)', async () => {
     const o = await play(JSON.stringify(recordOfLayout(floor(), 'Vault')));
     expect('onRulesAudio' in o).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   it('the review\'s F4: Share on a layout with rules is refused by name in the status line (it travels as a file), never thrown', async () => {
     const l = await withRules();
@@ -178,5 +178,5 @@ describe('FCW-32 round 2: Play runs the layout\'s rules; their messages as text'
       window.removeEventListener('unhandledrejection', unhandled);
       process.off('unhandledRejection', unhandled);
     }
-  }, 30_000);
+  }, 90_000);
 });

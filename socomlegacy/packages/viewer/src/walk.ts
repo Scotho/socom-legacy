@@ -1,5 +1,5 @@
 import type { MotionClip } from '@s2u/scene';
-import { groundGrid, launcherBaseCommand, launcherClipName, type PickupClipName, launcherMovingLowerCommands, LAUNCHER_SET_MOVES_READING, launcherStickLowers, moverSnapshot, playedOutCommand, STEP_PROBE_LIFT_READING, reloadHold, rootY, STANCES, TICK, Walker, type ActionEnd, type GroundData, type HoldClip, type HoldPass, type LauncherUp, type MoverState, type PlaySnapshot, type PopOutcome, type Stance, type SwapPick, type SwapProgress, type TraversalHooks, type TraversalKept, type WalkerState, type WalkInput } from './mover';
+import { groundGrid, isPushedClip, launcherBaseCommand, launcherClipName, type PickupClipName, launcherMovingLowerCommands, LAUNCHER_SET_MOVES_READING, launcherStickLowers, moverSnapshot, playedOutCommand, STEP_PROBE_LIFT_READING, reloadHold, rootY, STANCES, TICK, Walker, type ActionEnd, type GroundData, type HoldClip, type HoldPass, type LauncherUp, type MoverState, type PlaySnapshot, type PopOutcome, type PushedClip, type PushedTop, type Stance, type SwapPick, type SwapProgress, type TraversalHooks, type TraversalKept, type WalkerState, type WalkInput } from './mover';
 import type { Grid } from '@s2u/scene';
 import type { TraversalPose } from './animator';
 import { Button, COMMAND_STANCE_CODES, holdBits, STANCE_CODES, type Command } from './net/protocol';
@@ -89,7 +89,16 @@ interface FlinchState {
   pose: (() => TraversalPose | null) | null; pushed: boolean; gates: boolean; clock: (() => TraversalPose | null) | null;
   cut: FlinchCut | null; air: number; back: boolean; under: { cut: FlinchCut; at: number; pose: (() => TraversalPose | null) | null } | null;
   ended: number | null;
+  /** The door-open body hold: the pushed clip that holds the body while the window is on top (`WalkMode.pushedTop`), or null. */
+  hold: PushedClip | null;
 }
+
+/**
+ * `WalkMode.setFlinchPose`'s options: `reloadGate` false for a program's push (no motion flag 0x4), `pushed` for one
+ * (`FUN_00588bc0` alone, no `FUN_005a2690` gate), and `clip` -- the door-open body hold -- the push's clip, which holds
+ * the body while its window is on top when it is one of `PUSHED_CLIPS` (`./mover`).
+ */
+export interface FlinchOpts { reloadGate?: boolean; pushed?: boolean; clip?: string }
 
 /** PAR-37: a victory dance's run under it (`WalkMode.syncVictoryMotion`). */
 interface VictoryReplay {
@@ -397,6 +406,7 @@ export class WalkMode {
     const stepped = opts.flinch ?? (base ? (seq: number): void => { layBefore(seq, seq === early ? earlyLaid : 0); } : undefined);
     // LATER 549: the slot at the command the sim runs now (`MoverSim.prepare` sets `seq` before the stance is asked).
     this.rerunSlot = () => (stepped ? this.slotAt(sim.seq) : this.cutLog.find((c) => c.seq === sim.seq)?.slot ?? this.slotAt(sim.seq));
+    this.rerunSeq = () => sim.seq;                               // the door-open body hold: the push on the command run again
     this.basePopped = false;                                     // LATER 560: none carried into the run
     try {
       for (let k = i + 1; k < this.kept.length; k++) {
@@ -425,6 +435,7 @@ export class WalkMode {
       if (base) layBefore(this.taps + 1, this.taps + 1 === early ? earlyLaid : 0);   // LATER 551: laid after the last command
     } finally {
       this.rerunSlot = null;
+      this.rerunSeq = null;
     }
     if (opts.relog && seen) this.poppedLanding = seen;           // LATER 526: the next tick's own landing judged after the run's
     this.jumps += Math.max(0, jumps - firstJumps);              // the count only grows: a take-off drawn stays drawn
@@ -705,6 +716,7 @@ export class WalkMode {
     w.pistolHand = () => this.weapon_ === 1;                     // LATER 509: the hand, for the gate's throw term
     w.launcherSetOn = () => this.launcherSetOn();                // LATER 504: the launcher's set kneels the mover
     w.oneShotOnTop = () => this.oneShotOnTop();                  // LATER 512c: a stance request waits under the flinch's slot
+    w.pushedOnTop = () => this.pushedTop();                      // the door-open body hold: the push's clip holds the body
     if (!this.heard.has(w)) {                                    // PAR-19: every mover the walk makes is heard (`onActionEnd`)
       this.heard.add(w);
       w.onActionEnd((e) => { if (this.walker === w) for (const f of [...this.actionEnds]) f(e); });
@@ -1082,7 +1094,7 @@ export class WalkMode {
    * (`flinchLanded`). The commands already run are replayed from `cutLog` through the step each tick takes
    * (`flinchStep`), so a cut, a cover and a landing among them are taken in their order.
    */
-  setFlinchPose(pose: (() => TraversalPose | null) | null, cut: FlinchCut | null = null, opts: { reloadGate?: boolean; pushed?: boolean } = {}): number | null {
+  setFlinchPose(pose: (() => TraversalPose | null) | null, cut: FlinchCut | null = null, opts: FlinchOpts = {}): number | null {
     // NU-1b B7 (`./traversal` `CLIMB_HIT_CANCELS_READING`): the flinch taken pops a running climb first (FUN_005a2690
     // D:L460018-460019), as the room's `flinch` pops its mover's. NU-1b's review F2: the room popped the climb its mover
     // ran at the hit -- after command `cut.start - 1` -- so a climb this page began after it (heard a round trip later)
@@ -1126,6 +1138,9 @@ export class WalkMode {
     if (pose && !popped && !opts.pushed && this.walking && this.walker && (cut === null || begun === null || begun <= cut.start - 1)) this.moves?.flinchPop?.(this.walker);
     this.flinchPose = pose;
     this.flinchPushed = !!pose && !!opts.pushed;
+    // The door-open body hold (research 92 section 2, "The body under the door clip"): a push of a door's clip holds the
+    // body while its window is on top (`pushedTop`), as the room's mover holds it (`room.ts` `watchMoves`).
+    this.flinchHold = pose && opts.pushed && opts.clip !== undefined && isPushedClip(opts.clip) ? opts.clip : null;
     // #485's review F2: whether this window refuses a reload at all -- a flinch's does (its motion flag 0x4), a program's push
     // does not -- so a hand-back by a clipless landing (`flinchDown`) does not turn the refusal on for the push.
     this.flinchGates = opts.reloadGate !== false;
@@ -1171,6 +1186,12 @@ export class WalkMode {
   private flinchPose: (() => TraversalPose | null) | null = null;
   /** DOORS: the pose is a program's push (`setFlinchPose` `pushed`): `FUN_005a2690`'s gate (`flinchRefused`) is not asked of it. */
   private flinchPushed = false;
+  /**
+   * The door-open body hold: the pushed clip that holds the body while the window is on top (`setFlinchPose`'s `clip`),
+   * or null. Kept apart from `flinchPushed`, which the drawing clears when it drops the pose (`snapshot`): the hold is the
+   * window's, as the room's is.
+   */
+  private flinchHold: PushedClip | null = null;
   /** #485's review F2: the window refuses reloads (a flinch's), or not (a program's push: `setFlinchPose` `reloadGate` false). */
   private flinchGates = true;
   /** PAR-60: the playing flinch's window for the stick's cut (`setFlinchPose`), or null. */
@@ -1290,10 +1311,42 @@ export class WalkMode {
     return !(this.flinchAir >= 0 && seq >= this.flinchAir);
   }
   /**
+   * The door-open body hold (research 92 section 2, "The body under the door clip"; reading, pending review; PTW.R3 with
+   * `room.ts`'s `watchMoves` hook): a door's push on top on the command run now -- the live `taps + 1`, or inside a re-run
+   * the command its sim runs (`rerunSeq`) -- its window the slot `oneShotOnTop` reads (`slotAt`: `[start, until)`, not
+   * under the fall), with its clip (`flinchHold`), the seconds since the window's start and whether that command may cut
+   * it (`flinchCutAt`). `Walker.step60` holds the body on it; the window ends at the cut after the command (`flinchStep`).
+   */
+  private pushedTop(): PushedTop | null {
+    const clip = this.flinchHold, c = this.flinchCut, seq = this.rerunSeq ? this.rerunSeq() : this.taps + 1;
+    if (clip === null || c === null || !this.slotAt(seq)) return null;
+    return { clip, t: (seq - c.start) * TICK, cuttable: flinchCutAt(c, seq) };
+  }
+
+  /**
+   * The door-open body hold (PTW.R3 with `room.ts` `doorMotion`): the room's push heard on the page's own body (`./netPage`'s
+   * `motion`, after `setFlinchPose` laid its window) a round trip after its first command -- the commands this page ran
+   * since walked the body where the room's mover held it, so they run again from the state kept after the command before
+   * the window (`rerunFrom`, the knock's and the dance's way: the flinch stepped on the re-run's own commands), and the
+   * page stands where the room does instead of being pulled there by the reconcile. `replayed` hears the command run
+   * after (the net client's predictions after it are the run's, `NetClient.replayed`). Nothing when the window starts on
+   * the next command (the bare page's own press) or the record does not reach back (then the snapshots correct it).
+   * True when it ran again.
+   */
+  pushHeard(cut: FlinchCut | null, replayed?: (after: number) => void): boolean {
+    if (!cut || !this.walking || !this.walker || this.flinchHold === null) return false;
+    const from = cut.start - 1;
+    if (from >= this.taps || from < 0) return false;
+    return this.rerunFrom(from, () => undefined, null, replayed, 'redone', { relog: true });
+  }
+
+  /**
    * LATER 549: while `rerunFrom` runs commands again, the slot's answer for the command its sim runs (`MoverSim.seq`) --
    * `oneShotOnTop` asks it in place of the live `taps + 1`. Null: no re-run.
    */
   private rerunSlot: (() => boolean) | null = null;
+  /** The door-open body hold: inside `rerunFrom`, the command its sim runs (`MoverSim.seq`), for `pushedTop`. Null: no re-run. */
+  private rerunSeq: (() => number) | null = null;
   /** LATER 549: inside a stepped re-run, the last command it has run again: `setFlinchPose` replays `cutLog` to it alone. Null: none. */
   private rerunAt: number | null = null;
 
@@ -1375,13 +1428,13 @@ export class WalkMode {
   private takeKept: {
     taps: number;
     flinch: FlinchState | null;
-    heard: { pose: (() => TraversalPose | null) | null; cut: FlinchCut; opts: { reloadGate?: boolean; pushed?: boolean }; taps: number }[];
+    heard: { pose: (() => TraversalPose | null) | null; cut: FlinchCut; opts: FlinchOpts; taps: number }[];
     moves: { of: TraversalHooks; state: TraversalKept } | null;
     /**
      * LATER 525 (a): every flinch or push event heard while the take stands, as heard (its window uncut), in order -- for
      * the room's take on a later command than M (`mountRekey`) to judge them again against it.
      */
-    log: { pose: (() => TraversalPose | null) | null; cut: FlinchCut | null; opts: { reloadGate?: boolean; pushed?: boolean } }[];
+    log: { pose: (() => TraversalPose | null) | null; cut: FlinchCut | null; opts: FlinchOpts }[];
     /**
      * LATER 526's review F1: the state object kept after command M - 1 at the take (`KeptCommand.walker`). A replay during the
      * wait (a knock heard after a command before M - 1: `replayKnock` -> `rerunFrom`) writes every kept state after it anew,
@@ -1395,6 +1448,7 @@ export class WalkMode {
   private endFlinch(): void {
     this.flinchPose = null;
     this.flinchPushed = false;
+    this.flinchHold = null;
     this.flinchGates = true;
     this.flinchClock = null;
     this.flinchCut = null;
@@ -1407,7 +1461,7 @@ export class WalkMode {
   private flinchNow(): FlinchState {
     return {
       pose: this.flinchPose, pushed: this.flinchPushed, gates: this.flinchGates, clock: this.flinchClock, cut: this.flinchCut,
-      air: this.flinchAir, back: this.flinchBack, under: this.flinchUnder, ended: this.flinchEnded,
+      air: this.flinchAir, back: this.flinchBack, under: this.flinchUnder, ended: this.flinchEnded, hold: this.flinchHold,
     };
   }
 
@@ -1415,6 +1469,7 @@ export class WalkMode {
   private flinchLay(s: FlinchState): void {
     this.flinchPose = s.pose; this.flinchPushed = s.pushed; this.flinchGates = s.gates; this.flinchClock = s.clock;
     this.flinchCut = s.cut; this.flinchAir = s.air; this.flinchBack = s.back; this.flinchUnder = s.under; this.flinchEnded = s.ended;
+    this.flinchHold = s.hold;
   }
 
   /**
@@ -1472,6 +1527,7 @@ export class WalkMode {
     if (pose?.at) pose.at((u.at - u.cut.start + Math.max(0, this.taps - pop)) * TICK);
     this.flinchPose = pose?.at ? pose : null;
     this.flinchPushed = false;
+    this.flinchHold = null;                                       // the flinch handed back holds no body
     this.flinchGates = true;
     this.flinchClock = null;
     this.flinchCut = flinchLanded(u.cut, pop, true, u.at);

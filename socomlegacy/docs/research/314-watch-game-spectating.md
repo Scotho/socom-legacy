@@ -839,6 +839,39 @@ walker stands -- not re-placed at the fly camera's pose -- with its death camera
 Tests: `spectatorView.test.ts`'s DEAD-CYCLE block and the
 corrected cases, `rules.test.ts`, `nu11GhostWalk.test.ts`'s DEAD-CYCLE cases (the own body's stop, and the walk back: feet kept, walk mode, the death camera's eye).
 
+### 5.7 The dead watcher's teammate view eases; a spectator's follow does not (INV-SPECTATE C, 2026-11-07)
+
+Seat b6's INV-SPECTATE investigation (`agent-mail/evidence/spectate-smoothness/REPORT.md`, suspect 3) found the gap;
+fix C builds it. Each line re-read at the source by the implementer (source inspection; no test of the original, no
+run); **reading, pending review**. Nothing is measured on the original running.
+
+1. **The blend.** `FUN_00296f10`, after placing the frame's target and eye (`FUN_0029a950`, `FUN_00297410`, D:L140696-140697),
+   tests the camera's +0x45 (D:L140729). Clear: the stored target +0x38 and eye +0x2c are written with the frame's pair
+   (D:L140730-140735). Set, with +0x46 clear: the factor +0x48 is `dt * 6` (D:L140739), `dt` the call's first argument;
+   it is clamped to 1 (D:L140747-140749); the stored target moves toward the new by it -- `FUN_00309200` subtracts
+   (D:L207498), `FUN_00309180` scales (D:L207463), `FUN_00309240` adds (D:L207510) -- and is stored back (D:L140752-140770),
+   then the eye the same (D:L140771-140788). The pass (`FUN_0029bf70`, D:L140791) runs on the blended pair. So it is an
+   exponential follow, about a sixth of a second's time constant. (+0x46 set instead accumulates `dt` and clears the flag
+   at 1, D:L140741-140746: a one-shot blend this path never sets up.)
+2. **Who sets it: the death camera at 7 only.** `FUN_00297410` sets +0x45 = 1, +0x46 = 0, +0x48 = 0 when the online flag
+   `DAT_0045a0c1` is set, the death camera's state +0x144 is 7 and the bind latch +0x44 is clear (D:L141028-141032).
+   State 7 is set every frame a bound actor's controller is not the page's (`FUN_002980d0` D:L141378-141389) and on the
+   stick check's bind (D:L141604-141619) -- the dead player's teammate view (§5.6 item 3). A spectator's death camera
+   stays at 0 (§5.6, W5): its follow is never blended. Every bind clears +0x45 (`FUN_002956e0` D:L139716), and a bind
+   of another object sets the latch +0x44 (D:L139735-139737).
+3. **A new bind snaps.** With the latch set, `FUN_00297410` clears it and writes the stored target and eye straight
+   (D:L141034-141041), leaving +0x45 clear for that frame; the blend starts the frame after.
+
+**Against the port** (`spectatorView.ts` `followWatched`, `matchNet.ts` `spectateFollow`, `playerCamera.ts`): the
+teammate view was rigid. *Built 2026-11-07 (INV-SPECTATE C; reading, pending review):* `PlayerCamera.ease` is the flag;
+on, each tick moves the stored target and eye by `watchedEaseFactor(dt)` = min(1, dt x `WATCHED_EASE_RATE_READING`)
+before the pass, off they are written straight; a fresh rig or `reset` (a new bind: another body, map or ground) writes
+its first tick straight. `followWatched` asks for it (`SpectatorHost.follow`'s `ease`); the spectator's `follow` does not.
+The non-rendering hosts' `followPose` fallback stays rigid. Tests: `viewer/test/watchedEase.test.ts` (the factor, the
+clamp, the snap, which view eases) and `matchNet.test.ts`'s INV-SPECTATE C case. Open: the rate of the camera's calls --
+the `dt` `FUN_002998f0` hands down -- is not traced against the page's frame; the port applies the factor once a page
+frame with the page's dt (`WATCHED_EASE_RATE_READING`, §8).
+
 ### 5.3 The pad (`SPECTATOR_PAD_PLACEHOLDER`)
 
 Settled before this note (R314.8): `FUN_00295260` tests bytes +7, +10, +5, +6 (D:L139476, D:L139480, D:L139531,
@@ -969,6 +1002,7 @@ Proposed for ONL-21; none is in code yet, so each is *note only* until the build
 | `SPECTATOR_TURNOVER_POSE_PLACEHOLDER` (viewer `spectatorView.ts`; 2026-10-17, AD-9) | `'the fly camera where it stands'` | where a spectator's camera stands after a turnover: the reset leaves the bound object (+0xbc / +0xc0); the turnover's respawn loop attaches the camera to the console's own actor (`FUN_00598b90` D:L75925-75933 -> `FUN_00599b60` D:L455697-455701 -> `FUN_0029b3c0` D:L142748-142781) only if a spectator's actor is a type-2, unretired entry of the list (D:L75927-75930, unread for a spectator's actor) -- then free on its own object, placed as at its entry (`SPECTATOR_ENTRY_POSE_PLACEHOLDER`); if not, the camera keeps orbiting the actor it followed (+0x139 2, `FUN_0029b330` D:L142720-142725) while the pad's mode reads free (§5.5 item 3). The port's stand-in: no pose handed, the page's fly camera where it was | a read of the list entry a spectator's actor is (its +0x10 at `FUN_002b7d60`'s spawn, D:L158609-158650, and `FUN_00543d50`); ONL-32's capture of a spectator following a player across a round's turnover (the first frame's place) | open: in code 2026-10-17 (AD-9 step 2: the reset hands no pose), pending review; was *note only* (proposed) |
 | `SPECTATOR_OWN_SLOT_PLACEHOLDER` (viewer `spectatorView.ts`; 2026-10-17, DEAD-CYCLE) | `'before every player'` | where a spectator's Right / Left walk starts in free and scenic: at its own object's slot (the camera's +0xbc, `FUN_0029f180` D:L412584, D:L412637; X from follow and Up / Down onto a view bind the own object, D:L139501-139504, D:L139552-139555, D:L139580-139583), a slot the walk never takes (a spectator, D:L412601-412603) and whose place among the players' is unread; the port starts from before every player -- Right the first living body in id order, Left the last (a slot after every player gives the same) (§5.6 W5) | a read of the spectator object's list entry (`FUN_002b7d60` D:L158609-158650); ONL-32's capture of a spectator's Right and Left from free with players on both sides of its join | open: in code 2026-10-17 (DEAD-CYCLE), reading pending review |
 | `DEAD_CYCLE_OWN_VIEW_READING` (viewer `spectatorView.ts`; 2026-10-17, DEAD-CYCLE) | `'the death camera as before the cycle'` | the own body's view when a dead player's cycle comes back to it: the original keeps the death camera at 7, set every frame a remote teammate was bound (`FUN_002980d0` D:L141378-141389) and written back only by the initialiser (`FUN_00299150` D:L141657) -- the orbit about the own body turned by the stick (`FUN_00297a30` D:L141219-141221), not the 3 or 6 the death began in; the port's death camera has no state 7 (`deathCamera.ts`), so the own view comes back as before the cycle through `SpectatorHost.returnSelf` (the page's `WalkMode.resumeBody`) (§5.6 W6) | state 7 ported; ONL-32's capture of a dead player cycling back to his body (the stick turning the view about it) | open: in code 2026-10-17 (DEAD-CYCLE), reading pending review |
+| `WATCHED_EASE_RATE_READING` (viewer `playerCamera.ts`; 2026-11-07, INV-SPECTATE C) | `6` (a second; the factor `min(1, 6 dt)` a frame) | the camera's +0x45 blend in the dead player's teammate view: `FUN_00296f10`'s factor `dt * 6` (D:L140739) clamped to 1 (D:L140747-140749), set only with the death camera at 7 (`FUN_00297410` D:L141028-141032); the port applies it once a page frame with the page's dt, where the rate of the original's camera calls (the `dt` `FUN_002998f0` hands down) is not traced (§5.7) | a trace of `FUN_00296f10`'s calls and its first argument while a dead player watches a teammate (ONL-32); a capture of the teammate view following a runner | open: in code 2026-11-07 (INV-SPECTATE C), reading pending review |
 | `DEATH_KILLER_FOLLOW_S_ADAPTATION` (viewer `deathCamera.ts`; 2026-11-05, OT.R104) | `5` (seconds) | an adaptation on the owner's ruling OT.R104 (MISSION), against the original: how long the dead player's own death camera reads the killer's place in state 3 before it goes on as state 6's own orbit about the body (0.8725 rad/s, from the turn state 3 left); the original's state 3 reads the killer's place (+0x154) for as long as the player is dead, no timer (`FUN_00297a30` D:L141145-141215, `FUN_002980d0` D:L141369-141376; §5.4 item 4). The 5 s counts the camera's own ticks: it pauses while the camera is not ticked (a dead cycle to a teammate, a refused respawn holding the camera aside) | the owner's word (it is his ruling, not a reading of the original) | adaptation: in code 2026-11-05 (agent/deathcam-limit), pending review |
 
 The names this note leans on are each listed, retired or *note only*, where they live: `SPECTATOR_PASSWORD_READING`

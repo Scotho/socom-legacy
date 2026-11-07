@@ -3,7 +3,7 @@ import {
   DISCSHARE_CALL_TIMEOUT_MS_ADAPTATION, DISCSHARE_POLL_TIMEOUT_MS_ADAPTATION, DiscShareError, discShareSignal,
 } from '../src/discShareSignal';
 import {
-  DISCSHARE_CLAIM_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_POLL_HOLD_MS, DISCSHARE_REQUEST_ROUTE, DISCSHARE_SECRET_HEADER, DISCSHARE_SIGNAL_ROUTE,
+  DISCSHARE_CLAIM_ROUTE, DISCSHARE_ICE_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_POLL_HOLD_MS, DISCSHARE_REQUEST_ROUTE, DISCSHARE_SECRET_HEADER, DISCSHARE_SIGNAL_ROUTE,
   isPageMsg, normaliseDiscShareCode,
 } from '../src/discShareWire';
 
@@ -157,5 +157,25 @@ describe('DSH-4: the pairing client never hangs and tells a route\'s refusal fro
     await expect(discShareSignal(BASE, html(405)).nearby()).rejects.toMatchObject({ status: 405, routed: false });
     const s = stub([{ status: 404, body: { error: 'no such request' } }]);
     await expect(discShareSignal(BASE, s.fetchFn).claim('QX7K4M')).rejects.toMatchObject({ status: 404, reason: 'no such request', routed: true });
+  });
+
+  it('DSH.R15 ice: GET with the id, the secret in its header; the servers read, a malformed one or a port-53 URL dropped', async () => {
+    const s = stub([{ status: 200, body: { iceServers: [
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: ['turn:turn.example.test:3478?transport=udp', 'turn:turn.example.test:53?transport=udp'], username: 'u', credential: 'c' },
+      { urls: 7 },
+      { urls: 'https://not.ice.test/' },
+    ] } }]);
+    const got = await discShareSignal(BASE, s.fetchFn).ice!('i d', 'sec');
+    expect(got).toEqual([
+      { urls: ['stun:stun.cloudflare.com:3478'] },
+      { urls: ['turn:turn.example.test:3478?transport=udp'], username: 'u', credential: 'c' },
+    ]);
+    expect(s.seen[0]!.url).toBe(`${BASE}${DISCSHARE_ICE_ROUTE}?id=i+d`);
+    expect(s.seen[0]!.init.method).toBe('GET');
+    expect(headerOf(s.seen[0]!.init, DISCSHARE_SECRET_HEADER)).toBe('sec');
+    expect(s.seen[0]!.url).not.toContain('sec');
+    const bad = stub([{ status: 200, body: { nothing: 1 } }]);
+    await expect(discShareSignal(BASE, bad.fetchFn).ice!('i', 's')).rejects.toMatchObject({ status: 200, reason: 'malformed answer' });
   });
 });

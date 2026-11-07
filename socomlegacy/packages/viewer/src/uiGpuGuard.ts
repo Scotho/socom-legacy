@@ -27,6 +27,14 @@ import type { UiGpuCaps, UiGpuSurface } from './uiGpuSwitch';
  *   keeps its lost seconds out of `lostSeconds` (`./uiGpuPerf`).
  * - **Trip records** (`UiGpuGuardRecord`): every compare is recorded (the last `keep` kept), each trip with its reason;
  *   what a trip does -- escalate the surface to `exact`, or end its GPU path -- is the surface's (`./uiGpuPresenter`).
+ * - **GM-14c: the reference rastered** (`UiGpuGuardJob.raster`; GM.R11, risk 17). Under `on` the page shows the GPU's
+ *   frame and no software frame at the shown scale exists, so the surface hands over a raster instead of a frame: once
+ *   the read-back's bytes are mapped, the next idle callback runs it -- the shown scale's software frame
+ *   (`rasterizeUiDrawList`, about 106 ms p50 at 4x on either leg, the Log 2026-11-04T08:30Z, D2), one indivisible step
+ *   in a callback of its own, past `sliceMs` and the browser's deadline -- and reports its ms to the frame ring like any
+ *   slice, so the frame it delays is a guard frame, listed and kept out of `lostSeconds` (`./uiGpuPerf`). The compare
+ *   after it is sliced as ever. A raster may answer a skip instead (an HD image the frame used no longer resident):
+ *   recorded as skipped, with why, never a trip. In shadow the reference stays the shown frame (`reference`).
  */
 
 /**
@@ -171,6 +179,14 @@ export function uiGpuIdle(win: { requestIdleCallback?: (fn: (d: UiGpuIdleDeadlin
 /** What the guard tells the frame ring (`./uiGpuPerf` `UiPerfProbe.guarded`): the ms of one idle slice that read or compared. */
 export interface UiGpuGuardProbe { guarded?(ms: number): void }
 
+/**
+ * GM-14c: a reference raster's answer -- the frame (with a note the record carries in `why`, e.g. a test's plant), or why
+ * the compare is skipped (recorded, never a trip).
+ */
+export type UiGpuGuardReference = Rgba | { frame: Rgba; note: string } | { skip: string };
+/** GM-14c: the shown scale's software frame, rastered in an idle callback of its own (`UiGpuGuardJob.raster`). */
+export type UiGpuGuardRaster = () => UiGpuGuardReference;
+
 /** One compare, as recorded. */
 export interface UiGpuGuardRecord {
   /** When its frame was drawn (the surface's clock). */
@@ -187,12 +203,18 @@ export interface UiGpuGuardRecord {
   stats: UiGpuGuardStats;
   /** The bound B was judged against; null: none pinned, B recorded only. */
   bound: UiGpuGuardBound | null;
-  /** `exact`: a pixel of the exact class differs; `bound`: B beyond the bound; null: within. */
+  /** `exact`: a pixel of the exact class differs; `bound`: B beyond the bound; null: within (or skipped). */
   trip: 'exact' | 'bound' | null;
   why: string[];
   /** The idle time the compare took, and in how many slices. */
   idleMs: number;
   slices: number;
+  /** GM-14c: the reference -- the frame the page showed (`shown`, shadow) or one rastered in idle time (`raster`, `on`). */
+  reference: 'shown' | 'raster';
+  /** GM-14c: the raster's own idle ms (0 for a shown reference). */
+  rasterMs: number;
+  /** GM-14c: why the compare was skipped (its stats empty, no trip); null when it ran. */
+  skipped: string | null;
 }
 
 export interface UiGpuGuardOptions {
@@ -213,15 +235,27 @@ export interface UiGpuGuardOptions {
   onTrip?: (record: UiGpuGuardRecord, trips: number) => void;
 }
 
-/** One compare handed to the guard: the read-back, the reference frame, the plan, the frame ring's probe. */
-export interface UiGpuGuardJob { readback: UiGpuReadbackLike; reference: Rgba; plan: UiFramePlan; probe?: UiGpuGuardProbe | null; at?: number }
+/**
+ * One compare handed to the guard: the read-back, the reference -- the shown frame (`reference`, shadow) or, GM-14c, a
+ * raster run in an idle callback of its own (`raster`, `on`) -- the plan, the frame ring's probe.
+ */
+export type UiGpuGuardJob = { readback: UiGpuReadbackLike; plan: UiFramePlan; probe?: UiGpuGuardProbe | null; at?: number }
+  & ({ reference: Rgba; raster?: undefined } | { raster: UiGpuGuardRaster; reference?: undefined });
 
-/** The guard's counts: compares begun, finished, read-backs lost with the context, references of another size, cancelled, idle ms. */
-export interface UiGpuGuardCounts { sampled: number; compared: number; lost: number; mismatched: number; cancelled: number; idleMs: number }
+/**
+ * The guard's counts: compares begun, finished, read-backs lost with the context, references of another size, cancelled,
+ * GM-14c's skipped (a raster's answer), idle ms.
+ */
+export interface UiGpuGuardCounts { sampled: number; compared: number; lost: number; mismatched: number; cancelled: number; skipped: number; idleMs: number }
 
-interface Running extends UiGpuGuardJob {
-  gpu: Rgba | null; mask: Uint8Array | null; stats: UiGpuGuardStats | null; row: number; idleMs: number; slices: number; at: number;
+interface Running {
+  readback: UiGpuReadbackLike; plan: UiFramePlan; probe: UiGpuGuardProbe | null; raster: UiGpuGuardRaster | null;
+  reference: Rgba | null; gpu: Rgba | null; mask: Uint8Array | null; stats: UiGpuGuardStats | null; row: number; idleMs: number; slices: number; at: number;
+  rasterMs: number;
+  note: string | null;
 }
+
+const fits = (a: Rgba, b: Rgba): boolean => a.width === b.width && a.height === b.height && a.data.length === b.data.length;
 
 /** The guard of one surface (see the module's comment). */
 export class UiGpuGuard {
@@ -233,7 +267,7 @@ export class UiGpuGuard {
   private lastEnd = -Infinity;
   private kept: UiGpuGuardRecord[] = [];
   private tripped: UiGpuGuardRecord[] = [];
-  private readonly n: UiGpuGuardCounts = { sampled: 0, compared: 0, lost: 0, mismatched: 0, cancelled: 0, idleMs: 0 };
+  private readonly n: UiGpuGuardCounts = { sampled: 0, compared: 0, lost: 0, mismatched: 0, cancelled: 0, skipped: 0, idleMs: 0 };
 
   constructor(private readonly o: UiGpuGuardOptions) {
     this.sample = { ...UI_GPU_GUARD_SAMPLE_ADAPTATION, ...o.sample };
@@ -257,7 +291,10 @@ export class UiGpuGuard {
   submit(job: UiGpuGuardJob): void {
     if (this.job) { job.readback.cancel(); return; }
     const at = job.at ?? this.o.now();
-    this.job = { ...job, gpu: null, mask: null, stats: null, row: 0, idleMs: 0, slices: 0, at };
+    this.job = {
+      readback: job.readback, plan: job.plan, probe: job.probe ?? null, raster: job.raster ?? null, reference: job.reference ?? null,
+      gpu: null, mask: null, stats: null, row: 0, idleMs: 0, slices: 0, at, rasterMs: 0, note: null,
+    };
     this.lastHash = job.plan.hash;
     this.lastBegin = at;
     this.n.sampled++;
@@ -279,7 +316,10 @@ export class UiGpuGuard {
     this.o.idle((d) => { this.scheduled = false; this.pump(d); });
   }
 
-  /** One idle slice: the fence polled; once the bytes are there, mapped, masked and compared, a few rows at a time. */
+  /**
+   * One idle slice: the fence polled; once the bytes are there, mapped and masked; GM-14c: a reference to raster is
+   * rastered in the next slice, alone; then compared, a few rows at a time.
+   */
   private pump(deadline: UiGpuIdleDeadline): void {
     const job = this.job;
     if (!job) return;
@@ -289,13 +329,27 @@ export class UiGpuGuard {
       if (got === 'pending') { this.schedule(); return; }                 // a poll is no compare: no frame is marked for it
       if (got === 'lost') { this.job = null; this.n.lost++; this.lastEnd = t0; return; }
       const ref = job.reference;
-      if (got.width !== ref.width || got.height !== ref.height || got.data.length !== ref.data.length || got.data.length !== got.width * got.height * 4) {
+      if (got.data.length !== got.width * got.height * 4 || (ref && !fits(got, ref))) {
         this.job = null; this.n.mismatched++; this.lastEnd = t0; return;     // the reference is not this frame's size: nothing to compare
       }
       if (job.plan.target.transparent) this.o.divide?.(got.data);
       job.gpu = got;
       job.mask = uiGpuExactMask(job.plan);
       job.stats = emptyStats(got.width * got.height);
+      if (!ref) { this.slice(job, t0); this.schedule(); return; }        // GM-14c: the raster gets an idle callback of its own
+    }
+    if (!job.reference) {
+      // GM-14c: the shown scale's software frame, in one step (GM.R11): its ms marks the next frame a guard frame.
+      const r = job.raster!();
+      job.rasterMs = this.o.now() - t0;
+      this.slice(job, t0);
+      if ('skip' in r) { this.skip(job, r.skip); return; }
+      const frame = 'frame' in r ? r.frame : r;
+      if ('note' in r) job.note = r.note;
+      if (!fits(job.gpu, frame)) { this.job = null; this.n.mismatched++; this.lastEnd = this.o.now(); return; }
+      job.reference = frame;
+      this.schedule();
+      return;
     }
     const budget = Math.max(0, Math.min(this.sample.sliceMs, deadline.timeRemaining()));
     const H = job.gpu.height;
@@ -304,11 +358,40 @@ export class UiGpuGuard {
       diffRows(job.gpu, job.reference, job.mask!, job.stats!, job.row, y1);
       job.row = y1;
     } while (job.row < H && this.o.now() - t0 < budget);
+    this.slice(job, t0);
+    if (job.row < H) { this.schedule(); return; }
+    this.finish(job);
+  }
+
+  /** A slice that worked (never a poll): its ms counted and told to the frame ring (`UiGpuGuardProbe.guarded`). */
+  private slice(job: Running, t0: number): void {
     const ms = this.o.now() - t0;
     job.idleMs += ms; job.slices++; this.n.idleMs += ms;
     job.probe?.guarded?.(ms);
-    if (job.row < H) { this.schedule(); return; }
-    this.finish(job);
+  }
+
+  /** GM-14c: a compare skipped (the raster's answer): recorded with why, its stats empty, never a trip. */
+  private skip(job: Running, why: string): void {
+    this.job = null;
+    this.lastEnd = this.o.now();
+    this.n.skipped++;
+    this.keep(this.recordOf(job, emptyStats(job.gpu ? job.gpu.width * job.gpu.height : 0), null, null, [why], why));
+  }
+
+  private recordOf(job: Running, stats: UiGpuGuardStats, bound: UiGpuGuardBound | null, trip: UiGpuGuardRecord['trip'], why: string[], skipped: string | null): UiGpuGuardRecord {
+    const caps = this.o.caps();
+    return {
+      at: job.at, surface: this.o.surface, hash: job.plan.hash, scale: job.plan.target.scale, blend: job.plan.blend,
+      transparent: job.plan.target.transparent, renderer: caps?.renderer ?? null, rendererSource: caps?.rendererSource ?? 'unknown',
+      stats, bound, trip, why, idleMs: job.idleMs, slices: job.slices,
+      reference: job.raster ? 'raster' : 'shown', rasterMs: job.rasterMs, skipped,
+    };
+  }
+
+  private keep(record: UiGpuGuardRecord): void {
+    this.kept.push(record);
+    if (this.kept.length > this.sample.keep) this.kept.splice(0, this.kept.length - this.sample.keep);
+    this.o.onRecord?.(record);
   }
 
   private finish(job: Running): void {
@@ -320,16 +403,10 @@ export class UiGpuGuard {
     if (stats.exactDiffering > 0) why.push(`E/E*: ${stats.exactDiffering} pixels of the exact class differ`);
     const over = bound ? boundExcess(stats, bound) : [];
     why.push(...over.map((e) => `B: ${e}`));
+    if (job.note) why.push(job.note);                                    // GM-14c: the reference's own note (a plant)
     const trip = stats.exactDiffering > 0 ? 'exact' : over.length ? 'bound' : null;
-    const caps = this.o.caps();
-    const record: UiGpuGuardRecord = {
-      at: job.at, surface: this.o.surface, hash: job.plan.hash, scale: job.plan.target.scale, blend: job.plan.blend,
-      transparent: job.plan.target.transparent, renderer: caps?.renderer ?? null, rendererSource: caps?.rendererSource ?? 'unknown',
-      stats, bound, trip, why, idleMs: job.idleMs, slices: job.slices,
-    };
-    this.kept.push(record);
-    if (this.kept.length > this.sample.keep) this.kept.splice(0, this.kept.length - this.sample.keep);
-    this.o.onRecord?.(record);
+    const record = this.recordOf(job, stats, bound, trip, why, null);
+    this.keep(record);
     if (trip) {
       this.tripped.push(record);
       this.o.onTrip?.(record, this.tripped.length);

@@ -109,6 +109,7 @@ export const EVENT_CLASS: Record<ServerEvent['type'], EventClass> = {
   kicked: 'transient',         // to one page
   loadout: 'transient',        // to one page
   kit: 'transient',            // to one page
+  kitHeld: 'transient',        // KIT-HELD: to one page (`send`, never recorded)
   resume: 'transient',         // OT.R59 (RECONNECT-GHOST): to one page (`send`, never recorded)
   deadAtLoad: 'transient',     // VRJ-1: to the loading seat alone (`send`, never recorded)
   victoryOffer: 'transient',   // to one page

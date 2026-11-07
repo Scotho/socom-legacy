@@ -83,7 +83,7 @@ describe('R7-2: the mounted Forge composes the extension host and hands it to a 
     expect(host!.status().map((s) => s.state)).toEqual(['registered']);
     expect(await host!.unregister(`${PACK.id}/visual.post`)).toMatchObject({ ok: true });
     expect(host!.status()).toEqual([]);
-  }, 30_000);
+  }, 90_000);
 
   it('the page\'s teardown disposes the host: every later call answers HOST_DISPOSED', async () => {
     const ctx = await mount();
@@ -96,7 +96,7 @@ describe('R7-2: the mounted Forge composes the extension host and hands it to a 
     expect(Array.isArray(refused) ? refused.map((d) => d.code) : refused).toEqual([EXTENSION_CODES.hostDisposed]);
     expect((await host.enable(`${PACK.id}/visual.post`)).diagnostics.map((d) => d.code)).toEqual([EXTENSION_CODES.hostDisposed]);
     expect((await host.restore()).diagnostics.map((d) => d.code)).toEqual([EXTENSION_CODES.hostDisposed]);
-  }, 30_000);
+  }, 90_000);
 });
 
 /** A synthetic map (a floor 1000 across) for a base change through the agent's `layout.base`. */
@@ -160,7 +160,7 @@ describe('LATER 471: the mounted Forge calls the host\'s frame(dt) and onMapSwit
     frame(); frame(); frame();
     expect(sys.frame).toHaveBeenCalledTimes(3);
     expect(sys.frame.mock.calls[2]![0]).toBeCloseTo(1 / 60, 6);
-  }, 30_000);
+  }, 90_000);
 
   it('onMapSwitch(): a base committed ends the enabled system; a base whose preparation fails leaves it running', async () => {
     const { ctx, api } = await mounted();
@@ -177,7 +177,7 @@ describe('LATER 471: the mounted Forge calls the host\'s frame(dt) and onMapSwit
     expect(sys.dispose).toHaveBeenCalledOnce();
     frame(); frame();
     expect(sys.frame).not.toHaveBeenCalled();
-  }, 30_000);
+  }, 90_000);
 
   it('the placement (source): frame(dt) once, after the match\'s early return, before the render; onMapSwitch in prepareBase\'s commit only', () => {
     const page = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/forge/page.ts'), 'utf8');

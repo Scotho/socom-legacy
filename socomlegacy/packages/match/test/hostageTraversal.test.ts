@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ITEM, readKitTable, zoneContains, zonesOfKind } from '@s2u/scene';
+import { parseZdb, zdbMember } from '@s2u/archive';
+import { ITEM, parseAiMaps, readKitTable, zoneContains, zonesOfKind } from '@s2u/scene';
 import { fixture } from '../../archive/test/fixtures';
 import { simClipsFromBytes, simMapFromBytes } from '../../viewer/src/simMap';
 import { DoorSet } from '../../viewer/src/doors';
@@ -10,6 +11,9 @@ import { FOLLOW_RULES_READING, FollowTrail, HostageFollow, type FollowLeader } f
 import { HostagePathPlanner } from '../src/hostagePath';
 import { HostageObstacles } from '../src/hostageObstacles';
 import type { HostageActor } from '../src/hostageActors';
+import { ESCORT_ZONES_READING } from '../src/extraction';
+import { planFixtureLeaderRoute } from './helpers/hostageLeaderRoute';
+import { sampleFixtureLeader } from './helpers/hostageLeaderSample';
 
 // Test adaptation: a scripted leader steers a real Walker along the disc-derived route in XZ, waiting
 // when the follower is more than 100 world units behind. Both bodies use physical floor/collision;
@@ -59,12 +63,30 @@ function detour(map: ReturnType<typeof simMapFromBytes>, from: number[], targets
   }
   return null;
 }
-for (const stem of ['MP6', 'MP10', 'MP11', 'MP71']) {
+// Research 192 §1 / READERC.ZAR missionlist.rdr: the four EXTRACTION and three ESCORT maps.
+// Extraction walks to every kind-1 zone. Escort walks to each script's staging/extraction region:
+// research 175 §4 (MP52 Rescue1 @3764, MP53 @3796, MP82 @3696), held against the script's
+// corner words by central/test/escort.test.ts. The tiny initial kind-1 zones need not be traversable.
+// The promotion/countdown itself remains separate coverage in central/test/escort.test.ts.
+// VIP physical routes are an opt-in diagnostic expansion while Guidance terrain remains unresolved
+// (LATER590). Keep every row registered so normal runs report skips, never all-map acceptance.
+for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
   const bytes = fixture(`RUN/${stem}.ZDB`);
-  describe.skipIf(!bytes || !weapons || !clips)(`${stem} physical hostage traversal (dev-disc)`, () => {
+  const ai = bytes ? parseAiMaps(zdbMember(bytes, parseZdb(bytes), 'AIMAPS.MPS')) : null;
+  const escortZones = ESCORT_ZONES_READING[stem]?.stage;
+  const authoredTargets = ai ? (escortZones
+    ? ai.maps.flatMap(sub => sub.zones).filter(zone => escortZones.includes(zone.name))
+    : zonesOfKind(ai, 1).map(({ zone }) => zone)) : [];
+  const targetZones = authoredTargets.length ? authoredTargets : [null]; // Missing data skips; missing regions fail.
+  const vipAuditSkipped = !!escortZones && process.env.S2U_HOSTAGE_VIP_TRAVERSAL !== '1';
+  const auditStatus = escortZones ? ` (VIP audit ${vipAuditSkipped ? 'skipped; enable S2U_HOSTAGE_VIP_TRAVERSAL=1' : 'enabled'}; Guidance terrain/LATER590 unresolved)` : '';
+  describe.skipIf(!bytes || !weapons || !clips || vipAuditSkipped)(`${stem} physical hostage traversal (dev-disc)${auditStatus}`, () => {
     let map: ReturnType<typeof simMapFromBytes>;
     beforeAll(() => {
       map = simMapFromBytes(bytes!, `RUN/${stem}.ZDB`);
+      expect(map.escortees).toHaveLength(3);
+      expect(targetZones.every(Boolean), `${stem}: an authored rescue target is required`).toBe(true);
+      if (escortZones) expect(authoredTargets.map(zone => zone.name).sort()).toEqual([...escortZones].sort());
       const doors = new DoorSet(map.doors ?? [], map.ground);
       const world = new WorldState(map.meta!, map.ground, map.grid);
       world.skipEffects = ROOM_SKIP_EFFECTS_READING;
@@ -85,9 +107,9 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71']) {
       for (let i = 0; i < 600; i++) { doors.step(DT); world.step(DT); }
       for (const barrier of barriers) expect(world.isActive(barrier.targetPath), `${stem}: breached collision is inactive`).toBe(false);
     });
-    for (const startIndex of [0, 1, 2]) for (const zoneIndex of stem === 'MP71' ? [0, 1] : [0]) {
+    for (const startIndex of [0, 1, 2]) for (const [zoneIndex, targetZone] of targetZones.entries()) {
       it(`spawn ${startIndex + 1} physically reaches extraction zone ${zoneIndex + 1}`, () => {
-        const start = map.escortees![startIndex]!, zone = zonesOfKind(map.ai!, 1)[zoneIndex]!.zone;
+        const start = map.escortees![startIndex]!, zone = targetZone!;
         const obstacles = new HostageObstacles(), planner = new HostagePathPlanner(map.ai!, obstacles);
         // A geometric zone centre can be nonwalkable (Fish Hook Safety). Select the
         // nearest authored traversable cell, in stable row order, without changing the map.
@@ -98,7 +120,13 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71']) {
           Math.hypot(a.x - centre.x, a.z - centre.z) - Math.hypot(b.x - centre.x, b.z - centre.z));
         expect(candidates.length).toBeGreaterThan(0);
         const target = candidates[0]!;
-        const route = planner.plan(start.loc, target);
+        // Test-only human-leader itinerary. MP53/MP82 full crossings exceed the original closed
+        // capacity (24577 pops, cap24576), although short FOLLOW legs use that capacity normally.
+        // Keep the original planner first (the existing extraction/Mixer routes); fallback only
+        // supplies the leader's points, never a follower route or an altered gameplay limit.
+        const authored = planner.plan(start.loc, target);
+        const fallback = authored ? null : planFixtureLeaderRoute(planner, start.loc, target, 150000);
+        const route = authored ?? (fallback ? { points: fallback, cost: 0 } : null);
         expect(route, `${start.name}: no route to ${zone.name}`).not.toBeNull();
         // Continue inside the zone after its centre, so the original trailing formation and
         // arrival radius do not leave the follower outside a narrow zone (MP6). This is a
@@ -119,7 +147,7 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71']) {
             position: follower.feet, rawCell: planner.locate(follower.feet),
             ai: true, stance: follower.stance, excluded: false, yieldTo: follower.yieldTo, probeRefused: false },
         ];
-        const follower: HostageFollow = new HostageFollow(planner, map.grid, [...start.at], 0, map.defaultMaterial, clips,
+        const follower: HostageFollow = new HostageFollow(planner, map.grid, [...start.at], start.yaw, map.defaultMaterial, clips,
           { id: 240, actors: actorViews }), trail = new FollowTrail();
         const leaderWalker = new Walker(map.grid);
         leaderWalker.place(...start.at);
@@ -132,7 +160,6 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71']) {
         let leaderStalled = 0, leaderAnchor = [...start.at];
         let bypass: number[][] = [], bypassResume = 0, detours = 0;
         for (let tick = 0; tick < MAX_TICKS; tick++) {
-          const previous = [...leader.feet];
           const moving = segment < points.length && gap(leader.feet, follower.feet) < MAX_LEAD;
           const body = leaderWalker.state;
           // Test driver presses the existing player action only when the real contact offers it.
@@ -166,10 +193,8 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71']) {
             leader: leader.feet, follower: follower.feet, climb: leaderMoves.climbPrompt(),
             contacts: [...new Set(leaderWalker.wallHits().map(h => h.poly.path))],
           })}`);
-          leader.velocity = leader.feet.map((v, i) => (v - previous[i]!) / DT) as [number, number, number];
-          const cell = planner.locate(leader.feet);
+          const cell = sampleFixtureLeader(body, leader, planner, trail, DT);
           expect(cell, 'scripted leader left the authored AI map').not.toBeNull();
-          trail.add(cell!, planner.width(cell!)); trail.updateHeading(DT, leader);
           // Same retained-cell occupancy binding as ExtractionAuthority; both bodies remain physical.
           if (planner.traversable(cell!)) obstacles.moveActor(leader.id, cell!);
           const followerCell = planner.locate(follower.feet);

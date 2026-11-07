@@ -3,39 +3,53 @@ import {
   SHARE_CLOSE_GRACE_MS_ADAPTATION, SHARE_DC_LABEL, pairVerdict, rtcPeer, selectedPair, type PairEnd,
 } from '../src/discShareRtc';
 import { receiveFiles } from '../src/discShareProtocol';
-import { SHARE_NO_CONNECT, SHARE_OTHER_STOPPED } from '../src/discShareWords';
+import { SHARE_NO_CONNECT, SHARE_OTHER_STOPPED, SHARE_PAIR_UNREAD } from '../src/discShareWords';
+import * as words from '../src/discShareWords';
+import { DISCSHARE_STUN_ONLY } from '../src/discShareWire';
 import { store, syntheticSet } from './discShareFakes';
 
 /**
- * DSH-4 (the disc share plan, DSH.R2 "local to start", as DSH.R14 enforces it): the transfer's connection is accepted
- * only when its selected candidate pair is direct -- both candidates `host` or `prflx` -- whatever their addresses (a
- * player's Chrome hides them); a `relay` or `srflx` candidate is refused with its reason. A browser adaptation, product
- * track.
+ * DSH-4 (the disc share plan), as DSH.R15 (the owner, 2026-11-07) amends DSH.R2 and DSH.R14: the transfer's connection
+ * is accepted on any path ICE finds -- `host`, `prflx`, `srflx` or `relay` -- and the selected pair is read to say which:
+ * direct, or through Cloudflare's relay. Its ICE servers come from the pairing (central's `/api/discshare/ice`), with
+ * Cloudflare's STUN when that fails. A browser adaptation, product track.
  */
 
 const host: PairEnd = { type: 'host' };
 /** An IPv4 address from its octets (the tree's leak check refuses a dotted literal). */
 const q = (...o: number[]): string => o.join('.');
 
-describe('DSH-4: the verdict on the selected pair (DSH.R14: types only)', () => {
-  it('host and prflx on both ends: accepted', () => {
-    expect(pairVerdict({ local: host, remote: host })).toEqual({ ok: true });
-    expect(pairVerdict({ local: host, remote: { type: 'prflx' } })).toEqual({ ok: true });
-    expect(pairVerdict({ local: { type: 'prflx' }, remote: { type: 'prflx' } })).toEqual({ ok: true });
+describe('DSH-4: the verdict on the selected pair (DSH.R15: every path ICE finds)', () => {
+  it('host and prflx on both ends: accepted, direct', () => {
+    expect(pairVerdict({ local: host, remote: host })).toEqual({ ok: true, via: 'direct' });
+    expect(pairVerdict({ local: host, remote: { type: 'prflx' } })).toEqual({ ok: true, via: 'direct' });
+    expect(pairVerdict({ local: { type: 'prflx' }, remote: { type: 'prflx' } })).toEqual({ ok: true, via: 'direct' });
   });
 
-  it('a relay or a server-reflexive candidate on either side: refused, the type named', () => {
-    for (const type of ['relay', 'srflx'] as const) {
-      const near = pairVerdict({ local: { type }, remote: host });
-      const far = pairVerdict({ local: host, remote: { type } });
-      expect(near.ok).toBe(false);
-      expect(far.ok).toBe(false);
-      if (!near.ok) expect(near.reason).toContain(type === 'relay' ? 'relay' : 'reflected');
+  it('DSH.R15 (was: refused, DSH.R14): a server-reflexive candidate is accepted, direct across networks', () => {
+    expect(pairVerdict({ local: { type: 'srflx' }, remote: host })).toEqual({ ok: true, via: 'direct' });
+    expect(pairVerdict({ local: host, remote: { type: 'srflx' } })).toEqual({ ok: true, via: 'direct' });
+    expect(pairVerdict({ local: { type: 'srflx' }, remote: { type: 'prflx' } })).toEqual({ ok: true, via: 'direct' });
+  });
+
+  it('DSH.R15 (was: refused, DSH.R2): a relayed candidate on either side is accepted, through the relay', () => {
+    expect(pairVerdict({ local: { type: 'relay' }, remote: host })).toEqual({ ok: true, via: 'relay' });
+    expect(pairVerdict({ local: { type: 'srflx' }, remote: { type: 'relay' } })).toEqual({ ok: true, via: 'relay' });
+    expect(pairVerdict({ local: { type: 'relay' }, remote: { type: 'relay' } })).toEqual({ ok: true, via: 'relay' });
+  });
+
+  it('no pair, or a type ICE does not name: refused as unread', () => {
+    expect(pairVerdict(null)).toEqual({ ok: false, reason: SHARE_PAIR_UNREAD });
+    expect(pairVerdict({ local: { type: 'bogus' }, remote: host })).toEqual({ ok: false, reason: SHARE_PAIR_UNREAD });
+  });
+
+  it('DSH.R15: no word says the devices must share a network, and none refuses a relay', () => {
+    for (const [k, v] of Object.entries(words)) {
+      const text = typeof v === 'function' ? String((v as (...a: string[]) => unknown)('this device', 'relay')) : JSON.stringify(v);
+      expect(text, k).not.toMatch(/same (home |local )?network/i);
+      expect(text, k).not.toMatch(/through a relay server, so nothing was sent/);
     }
-  });
-
-  it('no pair: refused', () => {
-    expect(pairVerdict(null).ok).toBe(false);
+    expect(SHARE_NO_CONNECT).toMatch(/could not find a way to reach each other/);
   });
 });
 
@@ -120,7 +134,7 @@ function wire(): void {
 }
 
 describe('DSH-4: the peer connection', () => {
-  it('iceServers is empty, one ordered reliable channel; offer, answer and candidates relayed; a local pair is a pipe', async () => {
+  it('the ICE servers the pairing answers (port 53 dropped), one ordered reliable channel; offer, answer and candidates relayed; a pipe', async () => {
     made.length = 0;
     stats = new Map<string, Record<string, unknown>>([
       ['P', { id: 'P', type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'R', selected: true }],
@@ -129,11 +143,14 @@ describe('DSH-4: the peer connection', () => {
     ]);
     const RTC = FakePc as unknown as typeof RTCPeerConnection;
     const toB: unknown[] = []; const toA: unknown[] = [];
-    const a = rtcPeer('offer', (m) => { toB.push(m); }, { RTC });
-    const b = rtcPeer('answer', (m) => { toA.push(m); }, { RTC });
+    const turn = { urls: ['turn:turn.example.test:3478?transport=udp', 'turn:turn.example.test:53?transport=udp'], username: 'u', credential: 'c' };
+    const iceServers = async (): Promise<RTCIceServer[]> => [{ urls: 'stun:stun.example.test:53' }, turn];
+    const a = rtcPeer('offer', (m) => { toB.push(m); }, { RTC, iceServers });
+    const b = rtcPeer('answer', (m) => { toA.push(m); }, { RTC, iceServers });
     await new Promise((r) => setTimeout(r, 0));
-    expect(made[0]!.config).toEqual({ iceServers: [] });
-    expect(made[1]!.config).toEqual({ iceServers: [] });
+    const kept = { iceServers: [{ urls: ['turn:turn.example.test:3478?transport=udp'], username: 'u', credential: 'c' }] };
+    expect(made[0]!.config).toEqual(kept);
+    expect(made[1]!.config).toEqual(kept);
     expect(made[0]!.channel!.label).toBe(SHARE_DC_LABEL);
     expect(made[0]!.channel!.init).toEqual({ ordered: true });
     expect(toB.map((m) => (m as { type: string }).type)).toEqual(['offer', 'candidate']);
@@ -185,7 +202,42 @@ describe('DSH-4: the peer connection', () => {
     expect(made[0]!.closed).toBe(true);
   });
 
-  it('a relayed pair is refused, the connection closed, with its reason', async () => {
+  it('DSH.R15: the ICE servers fetch fails, or none is given: Cloudflare\'s STUN, and the connection is still made', async () => {
+    made.length = 0;
+    const RTC = FakePc as unknown as typeof RTCPeerConnection;
+    const toB: unknown[] = [];
+    const a = rtcPeer('offer', (m) => { toB.push(m); }, { RTC, iceServers: () => Promise.reject(new Error('no answer')) });
+    const b = rtcPeer('answer', () => undefined, { RTC });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(made[0]!.config).toEqual({ iceServers: [...DISCSHARE_STUN_ONLY] });
+    expect(made[1]!.config).toEqual({ iceServers: [...DISCSHARE_STUN_ONLY] });
+    expect(DISCSHARE_STUN_ONLY).toEqual([{ urls: 'stun:stun.cloudflare.com:3478' }]);
+    expect(toB.map((m) => (m as { type: string }).type)).toEqual(['offer', 'candidate']);
+    a.close(); b.close();
+  });
+
+  it('DSH.R15: a message handed in before the ICE servers arrive is held, and a close meanwhile makes no connection', async () => {
+    made.length = 0;
+    const RTC = FakePc as unknown as typeof RTCPeerConnection;
+    let give!: (l: RTCIceServer[]) => void;
+    const b = rtcPeer('answer', () => undefined, { RTC, iceServers: () => new Promise((ok) => { give = ok; }) });
+    b.handle({ type: 'offer', sdp: 'v=0 early' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(made).toHaveLength(0);
+    give([]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(made[0]!.remote).toBe('v=0 early');
+    b.close();
+    let late: ((l: RTCIceServer[]) => void) | null = null;
+    const c = rtcPeer('offer', () => undefined, { RTC, iceServers: () => new Promise((ok) => { late = ok; }) });
+    await new Promise((r) => setTimeout(r, 0));                 // the servers asked for
+    c.close();                                                   // closed while they are on their way
+    late!([]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(made).toHaveLength(1);
+  });
+
+  it('DSH.R15 (was: a relayed pair is refused): a relayed pair is a pipe, said through the relay', async () => {
     made.length = 0;
     stats = new Map<string, Record<string, unknown>>([
       ['T', { id: 'T', type: 'transport', selectedCandidatePairId: 'P' }],
@@ -198,9 +250,12 @@ describe('DSH-4: the peer connection', () => {
     const b = rtcPeer('answer', () => undefined, { RTC });
     await new Promise((r) => setTimeout(r, 0));
     wire();
-    await expect(a.ready).rejects.toThrow(/relay/);
-    await expect(b.ready).rejects.toThrow(/relay/);
-    expect(made[0]!.closed && made[1]!.closed).toBe(true);
+    const [pa, pb] = await Promise.all([a.ready, b.ready]);
+    expect(pa && pb).toBeTruthy();
+    expect(a.via?.()).toBe('relay');
+    expect(b.via?.()).toBe('relay');
+    expect(made[0]!.closed || made[1]!.closed).toBe(false);
+    a.close(); b.close();
   });
 
   it('review B1: a message that arrives before the pipe is handed out is kept, not lost', async () => {
@@ -299,11 +354,7 @@ describe('DSH-4: the peer connection', () => {
       ['L', { id: 'L', type: 'local-candidate', candidateType: 'host', address: q(192, 168, 1, 2) }],
       ['R', { id: 'R', type: 'remote-candidate', candidateType: 'host', address: q(192, 168, 1, 3) }],
     ]);
-    const relayed = new Map<string, Record<string, unknown>>([
-      ['P', { id: 'P', type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'R', selected: true }],
-      ['L', { id: 'L', type: 'local-candidate', candidateType: 'relay', address: q(198, 51, 100, 4) }],
-      ['R', { id: 'R', type: 'remote-candidate', candidateType: 'host', address: q(192, 168, 1, 3) }],
-    ]);
+    const unread = new Map<string, Record<string, unknown>>();   // DSH.R15: a relay is accepted; an unread pair still refused
     stats = local;
     const RTC = FakePc as unknown as typeof RTCPeerConnection;
     const a = rtcPeer('offer', () => undefined, { RTC });
@@ -311,7 +362,7 @@ describe('DSH-4: the peer connection', () => {
     await new Promise((r) => setTimeout(r, 0));
     let openGate!: () => void;
     const gate = new Promise<void>((r) => { openGate = r; });
-    made[0]!.getStats = async () => { await gate; return relayed; };   // the offerer's check is the slower, and fails
+    made[0]!.getStats = async () => { await gate; return unread; };    // the offerer's check is the slower, and fails
     const ca = made[0]!.channel!;
     // A real channel's close sends what is queued first, then fires its close event: deferred here to a later task.
     ca.close = () => { setTimeout(() => { FakeChannel.prototype.close.call(ca); }, 0); };
@@ -319,7 +370,7 @@ describe('DSH-4: the peer connection', () => {
     const pb = await b.ready;                                     // the receiver's check passed: its pipe is up
     const rx = receiveFiles(pb, store(), { readSet: 3, isReadSet: syntheticSet });
     openGate();
-    await expect(a.ready).rejects.toThrow(/relay/);
+    await expect(a.ready).rejects.toThrow(SHARE_PAIR_UNREAD);
     a.close();                                                    // the adapter's own stop at the refusal: it waits for the channel
     expect(made[0]!.closed, 'the connection not cut before the channel has sent its fail').toBe(false);
     await expect(rx).rejects.toMatchObject({ kind: 'stopped', message: SHARE_OTHER_STOPPED });

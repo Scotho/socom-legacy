@@ -19,6 +19,7 @@ import {
   type DetailSpec, type DrawState, type Factor, type MaterialSpec, type TextureFlags,
 } from './materialSpec';
 import { alphaPassOrder, engineOrder, inAlphaPass } from './engineOrder';
+import { ALPHA_PASS_REST_ORDER, alphaDetailOrder, alphaEnvOrder, alphaItemOrder, type AlphaPassSource } from './alphaInterleave';
 import { under } from './mapMeta';
 import { facadeAlphaKey, FacadeRelight, turnFacade } from './facade';
 import { shadowFactor } from './charShadow';
@@ -194,6 +195,12 @@ export interface WorldView {
    */
   frame(camera: Camera, dt: number, view?: RenderView): void;
   /**
+   * LATER 593 (`./alphaInterleave`): the alpha pass's keys for a particle system to draw its batches between, as `frame`
+   * numbers the pass (with the engine order off) -- each item's range squared to its centroid times one over the last
+   * frame's magnification (`+0x2c8`), far to near; null with the engine order on. Absent on a stand-in world.
+   */
+  readonly alphaPass?: AlphaPassSource;
+  /**
    * DOORS (`./doors`): moves every prop placement at or under the scene node `path` (its own path, or one starting
    * `path/` or `path=`) by `delta`, a column-major 4x4 applied after the placement's own matrix from the disc -- the
    * door leaf's swing. The identity puts them back. Returns how many placements it moved.
@@ -308,10 +315,11 @@ interface Built {
 const LOD_SAME_SPOT_SQ = 5 * 5;
 /**
  * With the engine order off (`restOrder`): a draw's `renderOrder` is its place in the scene walk scaled under a
- * detail pass's half step (`LoadedMesh.order` runs to a few hundred times 256), and the alpha pass sits at 1,
- * after every draw of the walk and its detail passes.
+ * detail pass's half step (`LoadedMesh.order` runs to a few hundred times 256), and the alpha pass sits at 1
+ * (`./alphaInterleave` `ALPHA_PASS_REST_ORDER`), after every draw of the walk and its detail passes, until `frame` numbers
+ * it in [1, 2) by the console's key (LATER 593).
  */
-const REST_WALK_SCALE = 2 ** -24, ALPHA_PASS_REST_ORDER = 1;
+const REST_WALK_SCALE = 2 ** -24;
 
 /** A drawn object with the facts its visibility and its place in the draw order depend on. */
 interface Drawn {
@@ -328,8 +336,11 @@ interface Drawn {
   /** The engine's alpha pass (`LoadedMesh.alphaPass`): drawn after the walk, far to near (`./engineOrder`). */
   alphaPass: boolean;
   /**
-   * The alpha pass's sort key in the group's frame: the object's centre when built; a turned facade's, its centroid
-   * through its turn, moved every frame with the engine order on (`frame`, `facadeAlphaKey`, LATER 113).
+   * The alpha pass's sort key in the group's frame: the visual's centroid through its matrix where the draw is one
+   * visual at one placement (`LoadedMesh.centre`: a world draw of the pass, a prop's lone or LOD placement; `FUN_003371b0`
+   * D:L235314-235317, LATER 593's F3), else the object's centre when built (an instanced draw of many placements, one
+   * key for them all: `ALPHA_INSTANCED_KEY_ADAPTATION`, research 330); a turned facade's, its centroid through its turn,
+   * moved every frame (`frame`, `facadeAlphaKey`, LATER 113).
    */
   centre: [number, number, number];
   line: boolean;
@@ -870,7 +881,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     } else mesh = new Mesh(base.geometry, material);
     mesh.name = `${base.name} (env)`;
     mesh.frustumCulled = base.frustumCulled;
-    mesh.renderOrder = detailRenderOrder(base.renderOrder, true) + 0.25;   // after the detail pass, as the list orders it; the base's number is its list's (`restOrder`, `reorder`)
+    mesh.renderOrder = envOrderOf(base);                // the walk's: after the detail pass; the alpha pass's: right after its base (LATER 593)
     mesh.visible = envOn && !wireframeOn;
     base.add(mesh);
     envPasses.push({ mesh, base });
@@ -947,6 +958,20 @@ export function buildWorld(map: LoadedMap): WorldView {
    * but number: a decal over the world.
    */
   const restOrder = (d: Drawn): number => (inAlphaPass(d) ? ALPHA_PASS_REST_ORDER : d.order * REST_WALK_SCALE);
+  /**
+   * An env pass's `renderOrder` from its base's. A walk draw's goes after the detail pass, after the whole walk in three's
+   * order (`ENV_PASS_PLACE_READING`'s NU15-W2, unchanged). An alpha-pass draw's (INV-WATER-LOOK F2) is its base's own
+   * number until `frame` numbers the pass, then right after it (`alphaEnvOrder`): the console draws the reflection in
+   * the visual's own list, straight after its base (`FUN_003b5b90` D:L307758-307779 via `FUN_003b4580`; research 330
+   * §1.2). Was base + 0.75 -- 1.75, after the whole pass and every particle.
+   */
+  const envOrderOf = (base: Object3D): number => {
+    const d = drawnByObject.get(base);
+    return d && inAlphaPass(d) && !engineOn ? base.renderOrder : detailRenderOrder(base.renderOrder, true) + 0.25;
+  };
+  /** An alpha-pass prop placement's key point: the visual's model-space centroid through `m` (LATER 593, F3); else none. */
+  const alphaKeyAt = (part: LoadedMesh, m: Matrix4): number[] | null =>
+    part.alphaPass && part.centre ? new Vector3(...part.centre).applyMatrix4(m).toArray() : null;
   /** Each drawn object's record, for the passes hung under it (`addDetail`, `addEnv`). */
   const drawnByObject = new WeakMap<Object3D, Drawn>();
   /**
@@ -955,14 +980,16 @@ export function buildWorld(map: LoadedMap): WorldView {
    */
   const later = (
     queue: (() => void)[], object: Object3D, order: number, cells: readonly number[], alternate: boolean,
-    texture: string | null, line = false, lod: Drawn['lod'] = null, alphaPass = false,
+    texture: string | null, line = false, lod: Drawn['lod'] = null, alphaPass = false, key: readonly number[] | null = null,
   ): void => {
     object.updateWorldMatrix(false, false);
     // An alternate state is not part of the extent the camera frames: it sits where its twin sits.
     if (!alternate) box.expandByObject(object);
     const shadow = texture !== null && SHADOW_TEXTURE.test(texture);
     const c = new Box3().setFromObject(object).getCenter(new Vector3());
-    const d: Drawn = { object, order, cells, alternate, off: alternate, shadow, alphaPass, centre: [c.x, c.y, c.z], line, lod };
+    // LATER 593 (F3): the alpha pass keys by the visual's centroid where the caller has it (`Drawn.centre`).
+    const centre: [number, number, number] = key ? [key[0]!, key[1]!, key[2]!] : [c.x, c.y, c.z];
+    const d: Drawn = { object, order, cells, alternate, off: alternate, shadow, alphaPass, centre, line, lod };
     drawn.push(d);
     drawnByObject.set(object, d);
     object.renderOrder = restOrder(d);
@@ -992,7 +1019,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     mesh.name = part.textureName ?? 'untextured';
     if (!part.textureName) untexturedDraws++;
     mesh.frustumCulled = false;                           // one mesh spans the whole map; culling it hides it
-    later(revealWorld, mesh, part.order, part.cells ?? [], part.alternate, part.textureName, false, null, part.alphaPass === true);
+    later(revealWorld, mesh, part.order, part.cells ?? [], part.alternate, part.textureName, false, null, part.alphaPass === true, part.alphaPass ? part.centre ?? null : null);
     switchMesh(part.switchPath ? `w:${part.switchPath}` : undefined, part.switchPath, mesh);
     // OBF-22: the marks' clip files a mark on it under its switch path (`./markClip`, `lastNodePath`), so `setNodeActive`
     // at or above that path takes the mark (`holdOnNode`). Not `nodePath`: the world chunk is not a placement that moves.
@@ -1160,7 +1187,7 @@ export function buildWorld(map: LoadedMap): WorldView {
           movableMesh(prop.paths?.[i], mesh, m);
           if (craneRide(prop.paths?.[i])) mesh.frustumCulled = false;
           const at = new Vector3().setFromMatrixPosition(m);
-          later(revealProps, mesh, part.order, cellsOf(i), prop.alternate, part.textureName, false, { band: prop.lod, at, visible: lodVisible(prop.lod, 0), last: false }, part.alphaPass === true);
+          later(revealProps, mesh, part.order, cellsOf(i), prop.alternate, part.textureName, false, { band: prop.lod, at, visible: lodVisible(prop.lod, 0), last: false }, part.alphaPass === true, alphaKeyAt(part, m));
           switchMesh(`${propIndex}:${i}`, prop.paths?.[i], mesh);
           if (rest) lodRest.set(mesh, rest);
           addDetail(mesh, part);
@@ -1175,7 +1202,7 @@ export function buildWorld(map: LoadedMap): WorldView {
         mesh.applyMatrix4(new Matrix4().fromArray(prop.matrices, 0));
         movableMesh(prop.paths?.[0], mesh, new Matrix4().fromArray(prop.matrices, 0));
         if (craneRide(prop.paths?.[0])) mesh.frustumCulled = false;
-        later(revealProps, mesh, part.order, cellsOf(0), prop.alternate, part.textureName, false, null, part.alphaPass === true);
+        later(revealProps, mesh, part.order, cellsOf(0), prop.alternate, part.textureName, false, null, part.alphaPass === true, alphaKeyAt(part, new Matrix4().fromArray(prop.matrices, 0)));
         switchMesh(`${propIndex}:0`, prop.paths?.[0], mesh);
         addDetail(mesh, part);
         addEnv(mesh, part);
@@ -1372,6 +1399,51 @@ export function buildWorld(map: LoadedMap): WorldView {
     for (const { mesh, base: b } of details) if (inAlphaPass(drawnOf(b))) mesh.renderOrder = detailRenderOrder(b.renderOrder, true);
     for (const { mesh, base: b } of envPasses) if (inAlphaPass(drawnOf(b))) mesh.renderOrder = detailRenderOrder(b.renderOrder, true) + 0.25;
   };
+  /**
+   * The alpha pass's draws and the detail and env passes hung under them, made again only when a draw or a pass was
+   * added since (a model-pack swap adds draws after the build).
+   */
+  let alphaDrawn: Drawn[] = [], alphaDrawnFor = -1;
+  let alphaPasses: { details: { mesh: Mesh; base: Drawn }[]; envs: { mesh: Mesh; base: Drawn }[] } | null = null, alphaPassesFor = '';
+  const alphaPassDraws = (): Drawn[] => {
+    if (alphaDrawnFor !== drawn.length) { alphaDrawn = drawn.filter((d) => inAlphaPass(d)); alphaDrawnFor = drawn.length; }
+    return alphaDrawn;
+  };
+  /**
+   * LATER 593 (F1, F3): the alpha pass numbered every frame by the console's key with the engine order off -- far to near
+   * by the range to each item's centroid (`alphaPassOrder`, `FUN_003371b0`, `FUN_00336f60`), each at its own number in
+   * [1, 2) (`alphaItemOrder`), its reflection right after it (`alphaEnvOrder`, F2) and its detail pass half a step on;
+   * the particles' batches take the numbers between (`./particles`, `alphaPass` below). Was: every item at 1, three's
+   * back-to-front sort by the clip depth of its bounding sphere's centre standing in for the console's.
+   */
+  const orderAlphaPass = (x: number, y: number, z: number): void => {
+    const pass = alphaPassDraws();
+    if (pass.length === 0) return;
+    const passesFor = `${drawn.length}|${details.length}|${envPasses.length}`;
+    if (alphaPassesFor !== passesFor) alphaPasses = null;
+    alphaPassesFor = passesFor;
+    alphaPasses ??= {
+      details: details.flatMap(({ mesh, base }) => { const d = drawnByObject.get(base); return d && inAlphaPass(d) ? [{ mesh, base: d }] : []; }),
+      envs: envPasses.flatMap(({ mesh, base }) => { const d = drawnByObject.get(base); return d && inAlphaPass(d) ? [{ mesh, base: d }] : []; }),
+    };
+    const n = pass.length;
+    const rank = new Map<Drawn, number>();
+    alphaPassOrder(pass, x, y, z).forEach((d, i) => { rank.set(d, i); d.object.renderOrder = alphaItemOrder(i, n); });
+    for (const { mesh, base } of alphaPasses.details) { const i = rank.get(base); if (i !== undefined) mesh.renderOrder = alphaDetailOrder(i, n); }
+    for (const { mesh, base } of alphaPasses.envs) { const i = rank.get(base); if (i !== undefined) mesh.renderOrder = alphaEnvOrder(i, n); }
+  };
+  /** LATER 593: the pass's keys from an eye in world space, far to near, for the particles (`WorldView.alphaPass`). */
+  const alphaPass: AlphaPassSource = {
+    keys: (eye) => {
+      if (engineOn) return null;
+      const pass = alphaPassDraws();
+      const x = eye.x - group.position.x, y = eye.y - group.position.y, z = eye.z - group.position.z;
+      const scale = rangeSqScale.value as number;   // `+0x2c8`: one over the magnification (research 232 §1)
+      const keys = new Float64Array(pass.length);
+      pass.forEach((d, i) => { keys[i] = ((d.centre[0] - x) ** 2 + (d.centre[1] - y) ** 2 + (d.centre[2] - z) ** 2) * scale; });
+      return keys.sort().reverse();
+    },
+  };
   const drawnOf = (o: Object3D): Drawn =>
     drawnByObject.get(o) ?? { object: o, order: 0, cells: [], alternate: false, off: false, shadow: false, alphaPass: false, centre: [0, 0, 0], line: false, lod: null };
 
@@ -1397,6 +1469,7 @@ export function buildWorld(map: LoadedMap): WorldView {
   const texturePack = new TexturePackTarget((roles) => packSourcesFor(map, roles), textures, map.archive);
   return {
     texturePack,
+    alphaPass,
     group,
     warmExtras,
     revealWorld,
@@ -1460,7 +1533,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       }
       // LATER 113: the alpha pass keys a facade by its centroid through the matrix it is drawn with, every frame
       // (`facadeAlphaKey`); a pose put back by `setBillboards(false)` keys the same way.
-      if (engineOn) for (const b of billboards) if (inAlphaPass(b.drawn)) facadeAlphaKey(b.drawn.centre, b.centroid, b.mesh);
+      for (const b of billboards) if (inAlphaPass(b.drawn)) facadeAlphaKey(b.drawn.centre, b.centroid, b.mesh);   // LATER 593: in either order
       // The engine order follows the camera's cell: a new cell, a new walk; the same cell, the same order.
       lastCamera.x = camera.position.x - group.position.x;
       lastCamera.y = camera.position.y - group.position.y;
@@ -1469,7 +1542,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       if (engineOn) {
         if (cellAt(grid, lastCamera.x, lastCamera.z).index !== orderCell) reorder(lastCamera.x, lastCamera.z);
         else reorderAlphaPass(lastCamera.x, lastCamera.y, lastCamera.z);
-      }
+      } else orderAlphaPass(lastCamera.x, lastCamera.y, lastCamera.z);   // LATER 593: three's order too, every frame
       let lodChanged = false;
       for (const d of drawn) {
         if (d.lod === null) continue;
@@ -1634,7 +1707,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       }
       for (const d of drawn) d.object.renderOrder = restOrder(d);
       for (const { mesh, base } of details) mesh.renderOrder = detailRenderOrder(base.renderOrder, true);
-      for (const { mesh, base } of envPasses) mesh.renderOrder = detailRenderOrder(base.renderOrder, true) + 0.25;
+      for (const { mesh, base } of envPasses) mesh.renderOrder = envOrderOf(base);   // the next frame numbers the pass
     },
     dispose: () => {
       texturePack.dispose();

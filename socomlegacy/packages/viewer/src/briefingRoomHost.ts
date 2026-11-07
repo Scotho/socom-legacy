@@ -62,6 +62,7 @@ export function gameListOf(raw: unknown): GameListEntry[] {
     return {
       ...ints(e, GAME_INTS), gameName: e['gameName'], gameStats: e['gameStats'], endOfList: e['endOfList'], ...(lobbyId ? { lobbyId } : {}),
       ...(replaceable ? { replaceable } : {}),
+      ...(e['community'] === true ? { community: true as const } : {}),
     };
   });
 }

@@ -1,4 +1,4 @@
-import { PadWatch, type PadButton, type PadSource } from '../gamepad';
+import { PAD_BUTTON, PAD_PRESS, PadWatch, type PadButton, type PadSource } from '../gamepad';
 import { keyboardSite } from '../keyboardTesting';
 import { createModulator, VOICE_MODULATION_PLACEHOLDER } from './modulation';
 import { VOICE_THROTTLE_NOTICE_PLACEHOLDER } from './voiceThrottle';
@@ -116,6 +116,11 @@ export interface Headset {
   setVoiceMask(on: boolean): void;
   /** The DEV talk key held for `phase`, as CIRCLE (empty in a release build). */
   keys(phase: VoicePhase): ReadonlySet<PadButton>;
+  /**
+   * The read pad's own CIRCLE (standard button 1) down at the last `frame`'s poll -- the raw button, not the menus'
+   * input (LOBBY_ARMORY_VOICE_ADAPTATION's carried talk, `../gameLobbyHost`). False with no pad. Absent, never down.
+   */
+  circle?(): boolean;
   /** The listeners let go. */
   dispose(): void;
 }
@@ -141,6 +146,8 @@ export function mountHeadset(d: HeadsetDeps): Headset {
   let blurred = false, hidden = doc?.hidden ?? false;
   /** The pad the page read at the last frame (`PadWatch.poll`'s choice), by its index and id. */
   let read: { index: number; id: string } | null = null;
+  /** The read pad's raw CIRCLE at the last frame's poll (`circle`). */
+  let circleDown = false;
   let phase: VoicePhase | null = null, spectator = false;
   /** The page's choice of pad, as the page's own `PadWatch` makes it (`main.ts`, `matchMount.ts`). */
   const watch = new PadWatch({ connected: () => undefined, disconnected: () => undefined });
@@ -193,6 +200,8 @@ export function mountHeadset(d: HeadsetDeps): Headset {
       const chosen = pads ? watch.poll(pads) : null;
       if (read !== null && (chosen === null || chosen.index !== read.index || chosen.id !== read.id)) padLost = true;
       read = chosen ? { index: chosen.index, id: chosen.id } : null;
+      const c = chosen?.buttons[PAD_BUTTON.Circle];
+      circleDown = c !== undefined && (c.pressed || c.value >= PAD_PRESS);
       const out = { padPresent: !padLost, focused: !focusLost && !blurred && !hidden };
       padLost = false; focusLost = false;
       return out;
@@ -205,6 +214,7 @@ export function mountHeadset(d: HeadsetDeps): Headset {
     },
     setVoiceMask: (on) => { voiceMask = on; },
     keys: (p) => (down.has(VOICE_TALK_KEY_PLACEHOLDER[p]) ? CIRCLE : NONE),
+    circle: () => circleDown,
     dispose: () => {
       for (const [t, type, fn, capture] of on) t.removeEventListener(type, fn, capture);
       on.length = 0;

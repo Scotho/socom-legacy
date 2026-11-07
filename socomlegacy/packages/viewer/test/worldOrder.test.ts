@@ -4,6 +4,7 @@ import type { GridParams, LodBand } from '@s2u/scene';
 import { buildWorld } from '../src/world';
 import type { LoadedMap, LoadedMesh } from '../src/loadMap';
 import type { TextureFlags } from '../src/materialSpec';
+import { alphaItemOrder } from '../src/alphaInterleave';
 
 /**
  * The engine order wired into `buildWorld` (W1.2), without a GPU. A 3 x 3 grid of 100-unit cells (cell
@@ -70,8 +71,9 @@ describe('buildWorld: the engine draw order', () => {
     const { ground, glow, crate, detail, at, orders } = setUp();
     at(150, 150);
     // The walk's own order, scaled (research 82 round 5): ground 0, glow 20, wall 10, crate 30; the drop shadow is
-    // the engine's alpha pass, held at 1, after every draw of the walk.
-    expect(orders()).toEqual([0, 20 * S, 10 * S, 30 * S, 1]);
+    // the engine's alpha pass, after every draw of the walk. LATER 593: a frame numbers the pass by the console's key in
+    // [1, 2) (`alphaItemOrder`; the shadow the only item, rank 0 of 1). Was 1, every item of the pass at one number.
+    expect(orders()).toEqual([0, 20 * S, 10 * S, 30 * S, alphaItemOrder(0, 1)]);
     expect(crate).toBeInstanceOf(InstancedMesh);
     expect(detail.name).toBe('ground.tif (detail)');
     expect(detail.renderOrder).toBe(0.5);

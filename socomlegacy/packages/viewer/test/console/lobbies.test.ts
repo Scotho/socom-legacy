@@ -32,8 +32,9 @@ beforeEach(() => {
 afterEach(() => { page?.dispose(); page = null; vi.useRealTimers(); });
 
 const flush = async (): Promise<void> => { for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(10); };
-const forgeLobby = (id: string, name: string, players: number, o: { locked?: boolean } = {}) => ({
+const forgeLobby = (id: string, name: string, players: number, o: { locked?: boolean; community?: true } = {}) => ({
   id, name, base: 'MP72', players, max: 16, settings: {}, created: 1, listed: true, inMatch: false, ...(o.locked ? { locked: true } : {}),
+  ...(o.community ? { community: true } : {}),
 });
 const LISTED = { lobbies: [forgeLobby('L1', 'Crate maze', 3, { locked: true }), forgeLobby('L2', 'Open floor', 1)] };
 
@@ -570,6 +571,20 @@ describe('in the overlay: read only (OT.R60 (c))', () => {
 });
 
 describe('Custom matches (FG-46): the Online row, the list, JOIN', () => {
+  it('a community host\'s lobby is listed unranked, with the HyperNode label', async () => {
+    const { ctl } = boot({ custom: { body: { lobbies: [forgeLobby('L9', 'Night op', 2, { community: true })] } } });
+    online(ctl, 'Browse rooms');
+    ctl.press('cross');
+    await flush();
+    const row = document.querySelector('#stage .cx-room.is-custom');
+    expect(row?.textContent).toContain('unranked');
+    expect(row?.textContent).toContain('HyperNode');
+    ctl.S.rooms.row = Number((row as HTMLElement).dataset['i']);
+    page!.render();
+    expect(document.querySelector('#stage .cx-drawer')?.textContent).toContain('unranked');
+    expect(document.querySelector('#stage .cx-drawer')?.textContent).toContain('HyperNode');
+  });
+
   // LR-37 (9): Browse rooms lists the custom matches after the classic rooms (ALL, at every open); was: their own Online row.
   it('Browse rooms lists them (ALL): read only while shown; each marked; Cross is JOIN, the forge at the lobby; CLASSIC stops the read', async () => {
     const { ctl, f, assigned } = boot();

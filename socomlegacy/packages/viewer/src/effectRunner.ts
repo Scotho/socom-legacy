@@ -1,4 +1,5 @@
 import type { EffectCondition, EffectOp, EffectProgram } from '@s2u/scene';
+import { ZANIM_CAMERA_INDOORS, ZANIM_PLAYER_INDOORS } from '@s2u/sound';
 import { evaluateCondition } from './roundCues';
 
 /**
@@ -14,8 +15,8 @@ import { evaluateCondition } from './roundCues';
  *   research 89 §18, 106 §3). Two operands with no operator between them: the first decides and the second is not
  *   asked; the original then runs the rest of the tokens as statements when it holds (D:L108375-108379), which is not
  *   modelled (ruling R1): the disc's one pair, MP64's `bugs_flying` (`set 0 cmd 66 set 0 cmd 72`, where M51's copy has
- *   an OR), is an unread operand's (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`), so its IF reads false before and now
- *   (`tools/test/effectConditionSweepDisc.test.ts`).
+ *   an OR), read false while both were unread; since INV-RAIN F3 its first operand, `CAMERA_INDOORS`, decides it
+ *   (`indoorsOperand`; `tools/test/effectConditionSweepDisc.test.ts`).
  * - **WAIT** holds for its seconds, or its frames; **LOOP** returns to the sequence's start (forever at -1, as the
  *   flash's `fire_fix` does until `STOP_SEQUENCE` ends it); **STOP_SEQUENCE** ends a named sequence.
  * - **FOR_CHILDREN ... END_FOR_CHILDREN** (XR-04; research 213 s2.3): the block is skipped whole -- its body never runs,
@@ -61,10 +62,11 @@ export function opacityTick(op: Extract<EffectOp, { op: 'opacity' }>, set: (opac
 }
 
 /**
- * ZANIM_UNREAD_OPERAND_PLACEHOLDER (LATER 310, ruling R2 as narrowed by the review's F1; research 89 §18): an IF /
- * ELSEIF operand the reader keeps as an undecoded command (`EffectCondition` `other`: on the disc, set 0 commands 66, 70
- * and 72 -- numbered past the base set's `FUN_0025bc20` registrations -- and set 1's and set 2's) has no host that
- * answers it from a source. A condition holding one is folded with every answer of its unread operands, true and false
+ * ZANIM_UNREAD_OPERAND_PLACEHOLDER (LATER 310, ruling R2 as narrowed by the review's F1; research 89 §18; narrowed again
+ * by INV-RAIN F3, research 89 §21): an IF / ELSEIF operand the reader keeps as an undecoded command (`EffectCondition`
+ * `other`) that no host answers from a source -- on the disc, set 0 command 70 (numbered past the base set's
+ * `FUN_0025bc20` registrations) and set 1's and set 2's. Set 0's 66 (`CAMERA_INDOORS`) and 72 (`PLAYER_INDOORS`) are
+ * answered (`indoorsOperand`) by a host that answers them (`EffectHost.answersIndoors`) and are not unread there. A condition holding one is folded with every answer of its unread operands, true and false
  * (its sourced operands asked once each, in order): where every answer gives one result, the sourced operands decide it
  * and it stands (Corpse_Found's `set 2 cmd 33 OR valve_aware == 1` at valve_aware 1, D:L108398-108402); where the unread
  * answer turns it, the condition keeps the runner's result before the fold, false -- so the fold's `NOT` cannot turn
@@ -80,8 +82,25 @@ export const ZANIM_UNREAD_OPERAND_PLACEHOLDER = 'decidedElseFalse' as const;
  */
 const UNREAD_TRIED_MAX = 8;
 
-/** An operand no host answers from a source (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`). */
-const unreadOperand = (c: EffectCondition): boolean => c.kind === 'other';
+/**
+ * INV-RAIN F3 (research 89 §21, research 81 §10): set 0's `CAMERA_INDOORS` (66) and `PLAYER_INDOORS` (72), which the host
+ * answers from the floor's `m_inside` (`EffectHost.test`; `effects.ts`): 'camera', 'player', or null for any other
+ * operand. The numbering is `FUN_002ad290`'s registration order (`@s2u/sound` `catalog.ts`).
+ */
+export function indoorsOperand(c: EffectCondition): 'camera' | 'player' | null {
+  if (c.kind !== 'other' || c.set !== 0) return null;
+  return c.cmd === ZANIM_CAMERA_INDOORS ? 'camera' : c.cmd === ZANIM_PLAYER_INDOORS ? 'player' : null;
+}
+
+/**
+ * An operand `host` does not answer from a source (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`): set 0's 66 and 72 aside only on
+ * a host that answers them (`EffectHost.answersIndoors`: the effect runner's, `./effects`). On any other -- the world's
+ * display runs (`./worldState`), the doors' and the gates' -- they stay unread, as before INV-RAIN F3: answered there as
+ * the host's false, Frostfire's camera-state scripts took their outdoor branch on every pass and played the beds and
+ * gusts the audio's layers own (`GameAudio` `crossBeds`; the v0.4.12 shards' doors and footsteps reds).
+ */
+const unreadOperand = (c: EffectCondition, host: EffectHost): boolean =>
+  c.kind === 'other' && (host.answersIndoors !== true || indoorsOperand(c) === null);
 
 /** `FUN_0026d870`'s step for a guard or a cleanup sequence: one 1.0 s tick (D:L117118). */
 const CLEANUP_DT = 1.0;
@@ -89,8 +108,16 @@ const CLEANUP_DT = 1.0;
 export interface EffectHost {
   /** Starts a command; a function is its tick (the sequence waits until it answers true), anything else is done. */
   begin(op: EffectOp, run: EffectRun): OpTick | void;
-  /** A condition of an `IF` other than a random weight. */
+  /**
+   * A condition of an `IF` other than a random weight -- set 0's `CAMERA_INDOORS` / `PLAYER_INDOORS` among them when
+   * `answersIndoors` (`indoorsOperand`); an unread operand is never asked.
+   */
   test(c: EffectCondition, run: EffectRun): boolean;
+  /**
+   * INV-RAIN F3: whether `test` answers set 0's `CAMERA_INDOORS` (66) and `PLAYER_INDOORS` (72) from a source (the
+   * effect runner's host, `./effects` `indoors`). Absent: they are unread operands here (`ZANIM_UNREAD_OPERAND_PLACEHOLDER`).
+   */
+  readonly answersIndoors?: boolean;
   /** `FUN_0025dcf0`: a unit draw, `rand() / 2^31`, for this run (`RANDOM_WEIGHT`, a `WAIT`'s range). */
   random(run: EffectRun): number;
 }
@@ -318,7 +345,7 @@ export class EffectRun {
     // `FUN_0025e960` (research 106 §3, 179 s9.9): the operands folded left to right through the EXPRESSION operators
     // between them (2 AND, 3 OR, 1 NOT, 4/5 a group), the same evaluator as the round's cues. Was every token's truth,
     // which read an operator as false: Enowapi's `woodgate == 0 OR woodgate2 == 0` never held (MAP-07).
-    const unread = conditions.filter(unreadOperand);
+    const unread = conditions.filter((c) => unreadOperand(c, this.host));
     if (!unread.length) return evaluateCondition(conditions, ask);
     // ZANIM_UNREAD_OPERAND_PLACEHOLDER (LATER 310, R2 as narrowed): each sourced operand asked once, in order, as the fold
     // reaches it; the fold tried with every answer of the unread ones. One result: the sourced operands decide it.

@@ -334,6 +334,29 @@ export class PlayerLoadout {
     this.answer(side, kit);
   }
 
+  /**
+   * KIT-HELD: the room's `kitHeld` for the side -- the type `char`, the picks it holds (the list its next request
+   * extends) and the kit they replay to -- taken whole: the side's type, its list and the list a refusal returns to, its
+   * next kit, a staging ended. The front end's match page starts from nothing after the lobby's hand-off, and without it
+   * WEAPON EXCHANGE opened on the type's own kit and its confirm replayed from it, the lobby's picks lost (the player
+   * report, 2026-11-06); the original's menu reads the type's kit, which holds every pick (`FUN_0023e5e0` D:L88379;
+   * research 94 §A6, R94.3). False, nothing changed, for a type the map's side does not offer, a kit not five ids, or
+   * picks that are not a list of whole slots and ids within `MAX_LOADOUT_PICKS`.
+   */
+  held(side: Side, char: number, picks: readonly Pick[], kit: readonly number[]): boolean {
+    const l = wireLoadout(kit);
+    if (!l || !armoryTypeAllowed(this.map, side, char)) return false;
+    if (!Array.isArray(picks) || picks.length > MAX_LOADOUT_PICKS) return false;
+    if (!picks.every((p) => p !== null && typeof p === 'object' && Number.isInteger(p.slot) && Number.isInteger(p.id))) return false;
+    this.types[side] = char;
+    this.staged[side] = null;
+    this.was[side] = null;
+    this.confirmed[side] = picks.map((p) => ({ slot: p.slot, id: p.id }));
+    this.accepts[side] = picks.map((p) => ({ slot: p.slot, id: p.id }));
+    this.next[side] = l;
+    return true;
+  }
+
   /** The side's type for its next spawn (index 0-3 within the side). */
   type(side: Side): number {
     return this.types[side];

@@ -75,7 +75,11 @@ export const CONTROLS: readonly Control[] = [
   // Display (dlgOptions_Video: OPT-11)
   { id: 'BRIGHTNESS', group: 'display', label: 'Brightness', kind: 'slider', tuner: 'BRIGHTNESS' },
   onOff('BOBBING_1ST_PERSON', 'display', 'Head bob'),
-  onOff('DISPLAY_MP_TEAM_NAMES', 'display', 'Teammate names'),
+  // LATER 671 (OT.R101; a browser adaptation): On draws the tags smaller and fading with distance (`../../hudTags`
+  // `TEAMMATE_NAME_DISTANCE_ADAPTATION`); Original, 2 (`TEAMMATE_NAMES_ORIGINAL_VALUE`), the original's tags exactly --
+  // the original's own read is `!= 0` (D:L77558-77559), so 2 is on there. Off 0 / On 1 are Disable_ / Enable_TeamNames'.
+  { id: 'DISPLAY_MP_TEAM_NAMES', group: 'display', label: 'Teammate names', kind: 'choice', valve: 'DISPLAY_MP_TEAM_NAMES',
+    options: [{ value: 0, label: 'Off' }, { value: 1, label: 'On' }, { value: 2, label: 'Original' }] },
   onOff('HelpWindowsEnabled', 'display', 'Help windows'),
   // Controls (dlgControllerSelection: OPT-13)
   onOff('VIBRATION_CONTROLLER', 'controls', 'Vibration'),

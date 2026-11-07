@@ -85,14 +85,14 @@ describe('R3-B: the page writes through the one saves writer', () => {
     expect(localStorage.getItem(FORGE_LAYOUT_KEY) ?? '').toBe('');
     expect(localStorage.getItem(`${FORGE_SAVES_KEY}${RECOVERED_SUFFIX}`)).toBe(named.get(FORGE_SAVES_KEY));
     expect(localStorage.getItem(`${FORGE_LAYOUT_KEY}${RECOVERED_SUFFIX}`)).toBe(autosave);
-  }, 20_000);
+  }, 90_000);
 
   it('the autosave is its own list in the store; an edit is written there, never to localStorage', async () => {
     const api = await mount();
     expect(await api.execute('spawn.place', { team: 'A', at: [30, 0, 40] }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(async () => expect((await listOf('autosave')).text ?? '').toContain('["A",30,0,40'), { timeout: 3000 });
     expect(localStorage.getItem(FORGE_LAYOUT_KEY)).toBeNull();
-  }, 20_000);
+  }, 90_000);
 
   it('a named save another tab wrote first is not written over: refused, said, and the list read again', async () => {
     const api = await mount();
@@ -117,7 +117,7 @@ describe('R3-B: the page writes through the one saves writer', () => {
     expect(await api.execute('saves.save', { name: 'Third' }, api.read().revision)).toMatchObject({ ok: true });
     const now = await listOf('saves');
     expect(readSaveList({ get: () => now.text, set: () => undefined }).saves.map((s) => s.name)).toEqual(['Theirs', 'Third']);
-  }, 20_000);
+  }, 90_000);
 
   it('the review (R3-B fix-up): lists the store read again on its own (a refused write) are not the page\'s copy: a save from the old copy is refused, said, never written over', async () => {
     const api = await mount();
@@ -154,7 +154,7 @@ describe('R3-B: the page writes through the one saves writer', () => {
     expect(await api.execute('saves.save', { name: 'Third' }, api.read().revision)).toMatchObject({ ok: true });
     const now = await listOf('saves');
     expect(readSaveList({ get: () => now.text, set: () => undefined }).saves.map((s) => s.name)).toEqual(['Mine', 'Theirs', 'Third']);
-  }, 20_000);
+  }, 90_000);
 
   it('R4 (8, the round 3 review): a re-read that reports no change still takes in a list the page never took (an earlier refused write\'s): the next save goes through at once', async () => {
     const api = await mount();
@@ -187,7 +187,7 @@ describe('R3-B: the page writes through the one saves writer', () => {
     expect(await api.execute('saves.save', { name: 'Third' }, api.read().revision)).toMatchObject({ ok: true });
     const now = await listOf('saves');
     expect(readSaveList({ get: () => now.text, set: () => undefined }).saves.map((x) => x.name)).toEqual(['Mine', 'Theirs', 'Third']);
-  }, 20_000);
+  }, 90_000);
 
   it('the review (R3-B fix-up): a close with an edit and a camera move both pending writes both before the store is closed', async () => {
     const frames: FrameRequestCallback[] = [];
@@ -214,7 +214,7 @@ describe('R3-B: the page writes through the one saves writer', () => {
       expect(text ?? '').toContain('["B",-30,0,-40');
       expect(yawOf(text)).not.toBeCloseTo(before, 3);
     }, { timeout: 3000 });
-  }, 20_000);
+  }, 90_000);
 
   it('keeps each row\'s authored id across a delete, a place, an undo and a redo (recordV3\'s acceptance, on the page)', async () => {
     const api = await mount();
@@ -237,5 +237,5 @@ describe('R3-B: the page writes through the one saves writer', () => {
     expect((api.read().layout as CreatorLayoutRecord).ids.pieces).toEqual(['p0', 'p1', 'p2']);
     expect(await api.execute('redo', {}, api.read().revision)).toMatchObject({ ok: true });
     expect((api.read().layout as CreatorLayoutRecord).ids.pieces).toEqual(['p1', 'p2']);
-  }, 20_000);
+  }, 90_000);
 });

@@ -397,3 +397,99 @@ describe('GM-16c: the refusal read-out (why a frame was L1; a test instrument, n
     expect((target.__uiGpu as { refusals: unknown }).refusals).toEqual({ last: { surface: 'front', why: ['why'], at: 1 }, counts: { why: 1 } });
   });
 });
+
+describe('GM-14c: the guard under `on` on the Vite dev server only (uiGpuGuard, uiGpuGuardPlant); a release build ignores both', () => {
+  const Q = '?uiGpu=on&uiGpuSurface=front&uiGpuGuard=on&uiGpuGuardPlant=102440';
+
+  it('parses the keys: uiGpuGuard only as on, uiGpuGuardPlant only as a whole byte offset', () => {
+    expect(parseUiGpuUrl(Q)).toMatchObject({ guard: true, guardPlant: 102440 });
+    expect(parseUiGpuUrl('?uiGpuGuard=1&uiGpuGuardPlant=-3')).toMatchObject({ guard: false, guardPlant: null });
+    expect(parseUiGpuUrl('?uiGpuGuardPlant=1.5')).toMatchObject({ guard: false, guardPlant: null });
+    expect(parseUiGpuUrl('')).toMatchObject({ guard: false, guardPlant: null });
+  });
+
+  it('a dev-server page arms the guard, and its plant, for the surfaces the address names', () => {
+    const dev = sw(Q, { devBuild: true } as never);
+    expect(dev.guardOn('front')).toBe(true);
+    expect(dev.guardOn('armory')).toBe(false);
+    expect(dev.guardPlant('front')).toBe(102440);
+    expect(dev.guardPlant('armory')).toBeNull();
+    expect(sw('?uiGpu=on&uiGpuGuardPlant=8', { devBuild: true } as never).guardPlant('front')).toBeNull();   // a plant needs the guard
+    expect(dev.readout().guard).toMatchObject({ armed: ['front'], plant: 102440 });
+  });
+
+  it('a release build (devBuild false, the default): the keys do nothing, and they never turn a surface on', () => {
+    for (const s of [sw(Q), sw(Q, { devBuild: false } as never)]) {
+      for (const x of UI_GPU_SURFACES) { expect(s.guardOn(x), x).toBe(false); expect(s.guardPlant(x), x).toBeNull(); }
+      expect(s.readout().guard).toMatchObject({ armed: [], plant: null });
+    }
+    const keysOnly = sw('?uiGpuGuard=on&uiGpuGuardPlant=4', { devBuild: true, table: uiGpuPageTable(false) } as never);
+    for (const scale of [1, 2, 4]) for (const x of UI_GPU_SURFACES) expect(keysOnly.resolve(x, scale).mode, `${x} ${scale}x`).toBe('off');
+  });
+
+  it('the page\'s switch takes devBuild from uiGpuDevBuild() (DEV and MODE development, as GM-16b\'s table)', () => {
+    const src = readFileSync(fileURLToPath(new URL('../src/uiGpuSwitch.ts', import.meta.url)), 'utf8');
+    const page = src.slice(src.indexOf('export function pageUiGpuSwitch('));
+    expect(page).toMatch(/devBuild: uiGpuDevBuild\(\)/);
+  });
+
+  it('the launch settings table carries both keys, read in uiGpuSwitch.ts, off the sheet', () => {
+    const row = (k: string) => LAUNCH_PARAMS.find((p) => p.key === k);
+    expect(row('uiGpuGuard')).toMatchObject({ kind: 'enum', values: ['on'], readIn: ['uiGpuSwitch.ts'], sheet: false });
+    expect(row('uiGpuGuardPlant')).toMatchObject({ kind: 'string', readIn: ['uiGpuSwitch.ts'], sheet: false });   // review fold F1: a byte or `exact`
+  });
+});
+
+describe('GM-14c review fold (F1, F3): the plant may name the exact class; a skipped compare is counted apart', () => {
+  it('F1: ?uiGpuGuardPlant=exact parses as the exact-class plant, honoured as a number is (the dev server only)', () => {
+    expect(parseUiGpuUrl('?uiGpuGuardPlant=exact')).toMatchObject({ guardPlant: 'exact' });
+    expect(sw('?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=exact', { devBuild: true } as never).guardPlant('front')).toBe('exact');
+    expect(sw('?uiGpu=on&uiGpuGuard=on&uiGpuGuardPlant=exact').guardPlant('front')).toBeNull();
+  });
+
+  it('F3: a skipped record is counted in skips, not compares; a compare that ran in compares', () => {
+    const s = sw();
+    const rec = (skipped: string | null) => ({ trip: null, skipped } as unknown as Parameters<UiGpuSwitch['guarded']>[0]);
+    s.guarded(rec('HD image bg not resident'));
+    expect(s.readout().guard).toMatchObject({ compares: 0, skips: 1 });
+    s.guarded(rec(null));
+    expect(s.readout().guard).toMatchObject({ compares: 1, skips: 1 });
+  });
+});
+
+// GM batch 2, part B (6d's decision, the lane controller's for the owner; a dev-server test instrument, PRODUCT TRACK):
+// `?uiGpuGuardPlant=` takes an optional `@<scale>` suffix -- `exact@4`, `<byte>@4` -- so a plant applies only to frames
+// whose plan targets that scale. Without the suffix the key parses as before (pinned above); malformed values ask for
+// nothing; the suffixed key is honoured on the Vite dev server only, as the plain one.
+describe('GM-14c part B: uiGpuGuardPlant=<exact|byte>@<scale> -- the plant scoped to one scale (the dev server only)', () => {
+  it('parses exact@4 and 12@2 as a scoped plant; the plain forms are unchanged', () => {
+    expect(parseUiGpuUrl('?uiGpuGuardPlant=exact@4')).toMatchObject({ guardPlant: { at: 'exact', scale: 4 } });
+    expect(parseUiGpuUrl('?uiGpuGuardPlant=12@2')).toMatchObject({ guardPlant: { at: 12, scale: 2 } });
+    expect(parseUiGpuUrl('?uiGpuGuardPlant=exact')).toMatchObject({ guardPlant: 'exact' });
+    expect(parseUiGpuUrl('?uiGpuGuardPlant=12')).toMatchObject({ guardPlant: 12 });
+  });
+
+  it('a malformed suffix asks for nothing: exact@, exact@x, @4, 12@0, 12@-1, exact@4@4', () => {
+    for (const v of ['exact@', 'exact@x', '@4', '12@0', '12@-1', 'exact@4@4', 'exact@1.5']) {
+      expect(parseUiGpuUrl(`?uiGpuGuardPlant=${encodeURIComponent(v)}`).guardPlant, v).toBeNull();
+    }
+  });
+
+  it('honoured with the guard on the dev server only: production and the nightly\'s DEV-true build ignore the suffixed key', () => {
+    const Q = '?uiGpu=on&uiGpuSurface=front&uiGpuGuard=on&uiGpuGuardPlant=exact@4';
+    const dev = sw(Q, { devBuild: uiGpuDevEnv({ DEV: true, MODE: 'development' }) } as never);
+    expect(dev.guardPlant('front')).toEqual({ at: 'exact', scale: 4 });
+    expect(dev.readout().guard).toMatchObject({ armed: ['front'], plant: { at: 'exact', scale: 4 } });
+    for (const env of [{ DEV: false, MODE: 'production' }, { DEV: true, MODE: 'production' }]) {
+      const s = sw(Q, { devBuild: uiGpuDevEnv(env) } as never);
+      expect(s.guardPlant('front'), env.MODE).toBeNull();
+      expect(s.readout().guard).toMatchObject({ armed: [], plant: null });
+    }
+    expect(sw('?uiGpu=on&uiGpuGuardPlant=exact@4', { devBuild: true } as never).guardPlant('front')).toBeNull();   // needs the guard
+  });
+
+  it('the launch settings row names the suffix', () => {
+    const row = LAUNCH_PARAMS.find((p) => p.key === 'uiGpuGuardPlant')!;
+    expect(row.meaning).toMatch(/@<scale>/);
+  });
+});

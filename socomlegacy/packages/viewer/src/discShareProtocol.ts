@@ -13,7 +13,8 @@ import {
  * Pure: no DOM, no network; it runs over a `SharePipe` (`./discShareRtc` `channelPipe`, a data channel; a test's fake).
  *
  * The exchange, one file at a time, in the manifest's order:
- * 0. The receiver: `hello`, once its own local-only check passed (it is handed the pipe only then); the sender sends
+ * 0. The receiver: `hello`, once its own connection check passed (its path read, `./discShareRtc` `pairVerdict`, DSH.R15;
+ *    it is handed the pipe only then); the sender sends
  *    nothing until it hears it (the disc share review's B1), so nothing flows before both sides' checks passed. Each
  *    side's `onLinked` says so: the sender's at `hello`, the receiver's at the manifest.
  * 1. The sender: `manifest` (`manifestOf`: the identity, the read set's version, and each file's path, size and SHA-256
@@ -34,7 +35,7 @@ import {
  *    mismatch discards the file (`ReceiveStore.discard`), tells the sender (`fail { why: 'mismatch', i }`) and stops.
  * 5. When every file matches -- and only then -- the record is committed (`ReceiveStore.commit`: `./discExtractRecord`'s
  *    form, so START reads the copy as a local extraction) and the receiver says `done`.
- * A stop on either side is `fail { why: 'stopped' }` (a side whose own local-only check failed once the other's pipe was
+ * A stop on either side is `fail { why: 'stopped' }` (a side whose own connection check failed once the other's pipe was
  * up says `fail { why: 'local' }`, `./discShareRtc`; the other reads both as `SHARE_OTHER_STOPPED`, the second disc share
  * review's finding 2); a closed channel is `dropped`; a side waiting on the other that hears nothing for
  * `SHARE_IDLE_MS_ADAPTATION` fails `idle` and closes the pipe (the review's B1: a stall never hangs). **The keepalive**
@@ -121,7 +122,7 @@ export interface ShareHooks {
   onProgress?: (bytes: number, total: number) => void;
   signal?: AbortSignal;
   /**
-   * Both sides' local-only checks passed (the sender heard `hello`, the receiver the manifest): the pairing has nothing
+   * Both sides' connection checks passed (the sender heard `hello`, the receiver the manifest): the pairing has nothing
    * more to carry (the disc share review's B2: the adapter ends its polls here; the channel carries the end from now).
    */
   onLinked?: () => void;

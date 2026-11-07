@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseRdr, parseZdb, zdbMember, Zar, type RdrNode } from '@s2u/archive';
+import { parseRdr, parseRdrTyped, parseZdb, rdrGet, zdbMember, Zar, type RdrNode, type RdrTypedNode } from '@s2u/archive';
 import { decodeUiProgram, parseAnimSets, type UiProgram } from '@s2u/scene';
 import {
   LOAD_STATE_FADE_SECONDS, LOADING_SCRIPTS, loadingBinding, loadingFade, loadingFaderAlpha, loadingSpin, loadStateFaderAlpha, spinScale,
@@ -139,6 +139,40 @@ describe.skipIf(MAPS.length === 0)(`every multiplayer map's loading binding and 
       // The description: a blank " " on 21 maps, empty on MP64 (research 125 R125.6); neither draws anything.
       expect(b.description, file).toBe(n === 64 ? '' : ' ');
     }
+  });
+
+  // LOBBY-MAPNAME (research 165 §9): `FUN_002acc10` adds each entry at its `CUIVariableSpec`'s longevity (`FUN_00386ff0`
+  // D:L280328-280346: TEMPORARY unless a LONGEVITY names another) and value (a one-element VALUE list taken as its
+  // element, D:L280305-280312, the node copied with its type, D:L280324). The raw node types, read with `parseRdrTyped`
+  // (`parseRdr` flattens ints and floats to text): every VALUE one string node but LOAD_PROGRESS, one FLOAT node (type 2)
+  // on the 12 maps that carry it; no entry names a LONGEVITY.
+  it('LOBBY-MAPNAME: every map\'s UiVars entries are NAME and a one-node VALUE -- a string, LOAD_PROGRESS a float on 12 maps -- none naming a LONGEVITY', () => {
+    const floats: string[] = [];
+    for (const file of MAPS) {
+      const bytes = new Uint8Array(readFileSync(resolve(RUN as string, file)));
+      const readerm = Zar.parse(zdbMember(bytes, parseZdb(bytes), 'READERM.ZAR'));
+      const key = readerm.root.children.find((k) => k.name.toLowerCase() === 'mission.rdr')!;
+      const typed = parseRdrTyped(readerm.data(key));
+      expect(typed, file).toBeTruthy();
+      const flat = rdrGet(parseRdr(readerm.data(key)), 'UiVars') as RdrNode[];
+      expect(flat.length, file).toBeGreaterThan(0);
+      // The typed walk mirrors the flat one: the root's record, then UiVars' list of { NAME (..) VALUE (..) } records.
+      const root = typed as readonly RdrTypedNode[];
+      const record = (root.length === 1 && Array.isArray(root[0]) ? root[0] : root) as readonly RdrTypedNode[];
+      const at = record.findIndex((n) => !Array.isArray(n) && (n as { value: unknown }).value === 'UiVars');
+      const entries = record[at + 1] as readonly (readonly RdrTypedNode[])[];
+      expect(entries.length, file).toBe(flat.length);
+      for (const e of entries) {
+        expect(e.filter((_, i) => i % 2 === 0), file).toEqual([{ type: 'string', value: 'NAME' }, { type: 'string', value: 'VALUE' }]);
+        const name = ((e[1] as readonly RdrTypedNode[])[0] as { value: string }).value;
+        const value = e[3] as readonly RdrTypedNode[];
+        expect(value.length, `${file} ${name}`).toBe(1);
+        const node = value[0] as { type: string; value: unknown };
+        if (name === 'LOAD_PROGRESS') { expect(node.type, `${file} ${name}`).toBe('real'); floats.push(file); }
+        else expect(node.type, `${file} ${name}`).toBe('string');
+      }
+    }
+    expect(floats.length).toBe(12);
   });
 
   it('SpinLoadingCD is in each map\'s LDZANIM.ZAR set dlgLoad.rdr: two 0.75 s scale segments on load_CD_Parent, looped', () => {

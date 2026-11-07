@@ -1,6 +1,8 @@
 import {describe,expect,it} from 'vitest';
 import {DataTexture} from 'three';
 import {HdTextureRegistry,type HdManifest} from '../src/hdTexturePack';
+import type {Rgba} from '@s2u/gs';
+import {decodeDds} from '../src/dds';
 import {HdServedPack,HD_ROOT} from '../src/hdTexturePackServed';
 import {sha256} from '../src/texturePack';
 
@@ -51,5 +53,40 @@ describe('the browser cache (HD.R8: the served files are immutable a year)',()=>
     const pack=new HdServedPack(async(u,i)=>{seen.push([u.split('/').pop()!,i?.cache]);return fetcher(u);},()=>undefined,registry);
     await pack.setEnabled(true);
     expect(seen).toEqual([['current.json','no-store'],['manifest.json','default'],['0.dds','default']]);
+  });
+});
+
+// GM-13d (plan 2026-11-01-gpu-menus): a DDS payload goes through the decode the pack is given (the menus' worker); a pack
+// given none decodes it as today, `decodeDds` on the calling thread. PRODUCT TRACK, a browser adaptation.
+describe('GM-13d: the DDS decode is injected',()=>{
+  it('a DDS entry goes through the injected decode, with its entry\'s size; the bytes it answers are applied',async()=>{
+    const {leaf,fetcher}=await served(),registry=new HdTextureRegistry(),calls:[number,{width:number;height:number}][]=[];
+    const t=new DataTexture(leaf.data,2,2);registry.register(t,leaf);
+    const dds=(b:Uint8Array,size:{width:number;height:number}):Promise<Rgba>=>{calls.push([b.length,size]);return Promise.resolve(decodeDds(b,size));};
+    const pack=new HdServedPack(fetcher,()=>undefined,registry,null,{dds});
+    await pack.setEnabled(true);
+    expect(calls).toEqual([[128+8*8*4,{width:8,height:8}]]);
+    expect(t.image.width).toBe(8);expect(t.image.data?.[3]).toBe(239);
+  });
+  it('a PNG decode alone (the fifth argument before GM-13d) still decodes DDS as today',async()=>{
+    const {leaf,fetcher}=await served(),registry=new HdTextureRegistry(),pngs:number[]=[];
+    const t=new DataTexture(leaf.data,2,2);registry.register(t,leaf);
+    const pack=new HdServedPack(fetcher,()=>undefined,registry,null,async()=>{pngs.push(1);throw new Error('not a PNG pack');});
+    await pack.setEnabled(true);
+    expect(pngs).toEqual([]);expect(t.image.width).toBe(8);expect(t.image.data?.[3]).toBe(239);
+  });
+  it('a pack constructed without a decode decodes DDS as today',async()=>{
+    const {leaf,fetcher}=await served(),registry=new HdTextureRegistry();
+    const t=new DataTexture(leaf.data,2,2);registry.register(t,leaf);
+    await new HdServedPack(fetcher,()=>undefined,registry).setEnabled(true);
+    expect(t.image.width).toBe(8);expect(t.image.data?.[3]).toBe(239);
+  });
+  it('a refusal from the injected decode keeps the original, with the decoder\'s message',async()=>{
+    const {leaf,fetcher}=await served(),registry=new HdTextureRegistry();
+    const t=new DataTexture(leaf.data,2,2);registry.register(t,leaf);
+    const pack=new HdServedPack(fetcher,()=>undefined,registry,null,{dds:async()=>{throw new Error('DDS: truncated image data');}});
+    await pack.setEnabled(true);
+    expect(t.image.width).toBe(2);
+    expect(pack.runtime.skipped()[0]!.reason).toBe('payload unavailable (DDS: truncated image data)');
   });
 });

@@ -65,7 +65,7 @@ import { Hud, ownHudName, spectatorHudView } from './hud';
 import { keepClearWatch } from './hudMessagePanel';
 import { servedRoomDetails } from './scoreboard';
 import { HudVoiceElement, voiceHudFrame } from './hudVoice';
-import { teamTagInput, teamTags } from './hudTags';
+import { TEAMMATE_NAMES_ORIGINAL_VALUE, teamTagInput, teamTags } from './hudTags';
 import { RegionCull } from './regionCull';
 import { DoorPage } from './doorPage';
 import { DOOR_CLIPS, openDoorClip } from './doors';
@@ -374,7 +374,8 @@ const doors = new DoorPage({
     if (!clip) return;
     const at = performance.now();
     // #485's review F4: the stick cuts it past its NoInterrupt here too -- its window from the walk's own commands.
-    walk.setFlinchPose(() => flinchPose(clip, (performance.now() - at) / 1000, playClips), pushedWindowOf(walk.nextCommand(), clip, playClips), { reloadGate: false, pushed: true });
+    // The door-open body hold (research 92 section 2): `clip` holds the body while the window is on top (`./walk` `pushedTop`).
+    walk.setFlinchPose(() => flinchPose(clip, (performance.now() - at) / 1000, playClips), pushedWindowOf(walk.nextCommand(), clip, playClips), { reloadGate: false, pushed: true, clip });
   },
 });
 /**
@@ -501,7 +502,7 @@ const armoryPart = mountArmory({
   // W5.R1: the offline match's room, made when the ARMORY it opened on first is left (before the first spawn).
   done: () => { const go = soloAfterArmory; soloAfterArmory = null; go?.(); },
   warm: () => { void warmArmory?.(); },             // its programs linked before it first draws (S3 part 2)
-  clearDecals: () => { fire.clearMarks(); effects.clearFootprints(); traversal.clearRipples(); },   // PAR-10: the ripples too
+  clearDecals: () => { fire.clearMarks(); effects.clearFootprints(); traversal.clearRipples(); remote.clearWakes(); },   // PAR-10: the ripples too, the others' with them
   // The throwables' own round start (`./matchThrow`, as the front end's `roundClear`): the air, the scorches and the
   // flashbang's wash -- a blind set off in the last round does not run on into the next (LATER 12, research 222 §8).
   clearAir: () => { throws.roundStart(); drops.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2   // PF-34: the drops go with the air (DROP_LIFETIME_PLACEHOLDER)
@@ -1014,6 +1015,9 @@ const matchEffects = mountEffects({ effects, walk, sound });
 // The others' footfalls heard at the foot (`remoteFootfall`, FUN_005a3570/FUN_005a39b0; REMOTE_STEP_STICK_READING), and
 // since PAR-8 printed there (FUN_005a3280).
 const remote = new RemotePlayers(scene, matchEffects.footfall);
+// The others' wading ripples and splashes (research 86 s5.4: `FUN_005b52b0` for every SEAL body) on the effects the
+// page's own keeper takes (`traversal.setEffects(effects)` above).
+remote.setEffects(effects);
 /** LATER 415: the camera's region masks and the bodies' zones, for the teammates' tags (`./regionCull`). */
 const regionCull = new RegionCull();
 /**
@@ -1989,6 +1993,10 @@ async function boot(): Promise<void> {
         nearby: acts.prompt(walking),  // XR-06: the action context's prompt, in the picker's order (`./matchActions`)
       });
       {                               // MATCH-05 (research 170 §5.2, note 227 §2): the voice element and the hud_talk mark
+        // LATER 671 (the v0.4.11 review's F3): TEAMMATE NAMES as `./matchMount` reads it, its "original" setting (2) the
+        // original's tags. `/testroom` has no session's set-up: the page's native OPTIONS' valve, read each frame; absent, 1.
+        const teamNames = pageOptions?.valves.find('DISPLAY_MP_TEAM_NAMES')?.value ?? 1;
+        hud.setTeammateNames(teamNames !== 0, teamNames === TEAMMATE_NAMES_ORIGINAL_VALUE);
         const page = net;
         const vf = page ? voiceHudFrame(voiceEl, performance.now() / 1000, {
           voice: voice.state(), self: { id: page.client.id, team: page.client.role === 'player' ? page.client.team : null },
@@ -2000,7 +2008,7 @@ async function boot(): Promise<void> {
         hud.setCommandMenu(taunts.isOpen());             // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623)
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
-        hud.setTeamTags(page ? teamTags(teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined)) : null);   // NU-9 T4 (research 329)
+        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(loaded?.ai) ?? []);   // HX-5: the hostages' and the zones' compass marks (research 239 s7.2)
       hud.render(created.renderer);

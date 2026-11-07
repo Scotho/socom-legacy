@@ -373,12 +373,38 @@ bit 1 is set by a path not found here.)
 counts a face only entered from its front. Scene `segment.ts`' `segmentHits` takes a `frontOnly` flag (`crossing`:
 `n . d < 0`, a start in front of the polygon's own normal and an end behind it), which viewer `throwCommit.ts`
 `throwClear` alone passes; every other caller (the mover, fire, doors, the camera, climb, traversal, the rocket,
-effects, the room's queries) stays two-sided as before. The one-sided test takes the micro's own sides (micro 290-321:
+effects, the room's queries) stays two-sided as before. (Since then the walk's segment body and the overhead casts
+below ask it too.) The one-sided test takes the micro's own sides (micro 290-321:
 the raw normal, an end behind only below -1e-5), so an end exactly on a face is no hit (the review's F1); its review
 decoded micro 279-363 from the ELF's bytes and confirmed the normal's sign, the front-only mode and that the edge
 test cannot turn a rejected crossing into a hit (the EE routine at 0x2dd150 returns before it). Pinned: `segment.test.ts` and `grenade.test.ts` ("LATER 250",
 RED first at a wall wound so the clearance enters it from behind); Frostfire's yaw-90 container (a front entry) still
 refuses. Not read: what `FUN_0032ad20`'s two-sided collider (D:L227611) makes, and whether any is in the port's grid.
+
+**Built for the overhead casts (INV-WATER-CROUCH, 2026-11-07; reading, pending review):** the stand's headroom
+(`FUN_0057efe0` D:L441190-441245: the stance's hips + 2 to the feet + 19, or + 12 from prone) and the jump's
+(`FUN_0057f150` D:L441263-441285) both cast through `FUN_0031e1d0` -> `FUN_002d4780` -> the same per-collider
+`FUN_002d2890`, so on the hull they too count a face only entered from its front. Viewer `mover.ts` `cameraClassClear`
+now asks `segmentHits(.., isCameraClassSurface, ALL_LAYERS, true)`; it was `segmentHit`, two-sided, since PF-15
+(37feb5aa4) and PAR-50. The finding it closes: water polygons are wound facing up (MP12's 127, MP7's 61, all ditype 3,
+cameratype 0, passing the camera-class filter), so in water 7.5-8.5 deep -- over the crouched ray's start, the feet +
+7.504, and under the 8.5 crouch limit (`FUN_005857e0` D:L444334-444355) -- the two-sided up-ray met the water from
+below and the port refused a crouched SEAL his stand (`placeGate` 'reset', the press forgotten) and his crouch run (the
+crouch walk at 10.5 instead), on MP12 and MP7 among 15 maps (seat b6's investigation,
+`agent-mail/evidence/water-crouch/REPORT.md`). The callers: `Walker.headroom` (`placeGate`, `stanceRefused`,
+`stanceGate`, `popStand`, `Traversal.cancelDive`, the crouch run's branch) and `Walker.jumpClear` (the bots' dodge in
+match `matchBots.ts`; the jump itself still does not ask it, D13). A down-facing ceiling still refuses; an up-facing face
+over the head (a roof's top seen from under it, a floor above) no longer does. The same flip opens non-water places on
+every map (the census, `agent-mail/evidence/water-crouch/census.md`: 73,992 water and 37,327 other flips over 3.66
+million crouched floor samples of the 34 maps; 36,757 of the other flips meet an up-facing face, and 35,064 of all 37,327 other flips sit under
+the stood head, 17.394 -- under tables, consoles, crates, pipes, a raised shack's floor, a dredge's deck; M62's are
+mostly a terrain sheet stacked 10 under another); no capture yet of the original standing up under an up-facing face,
+the evidence that would move this from reading to proven. Pinned: viewer `waterCrouchStand.test.ts` (unit), `waterCrouchDisc.test.ts`
+(MP12 (1532, 35.5, 1892) and MP7 (1484, 39.4, 1724), the dev disc), `crouchSlope.test.ts`'s low ceiling re-wound
+facing down. Re-pinned: `bridgeWedge.test.ts`'s LATER 687 case (MP9's `congo2_tree4` rest, a synthetic placement no
+player's route reaches): the up-ray met the trunk's own leaning faces from behind, so the stand press there is now taken
+and the body walks out at 0, 90 and 270 (was: forgotten, stuck). The bot graphs' hashes (`navigationGraphIdentity`) are
+unchanged. No constant added or renamed.
 
 **The behind test.** `FUN_005b3890` D:L468985-468989: `FUN_00309200` (a subtract) of the actor's position `+0x1c` and
 the stored hit point `+0x1090`, its y zeroed, dotted with the stored normal `+0x10a0..+0x10a8` (the slot's

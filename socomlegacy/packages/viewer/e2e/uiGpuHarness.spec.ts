@@ -25,7 +25,8 @@ import type { UiGpuHarness, UiGpuHarnessCompare } from './uiGpuHarness';
  *   GM-11a-3 also corrected the stale "case 9 L1 until GM-11a-2" expectation: case 9 is drawn on the GPU since GM-11a-2.
  * The renderer strings are recorded on the run (annotations); SwiftShader is the default config's renderer, and its
  * result is not a claim about a player's GPU (GM-27's). GM-11b: the renderer by env (`./uiGpuGl.ts`: `S2U_UI_GPU_GL=native`
- * for the host's desktop GL, llvmpipe under xvfb), a native leg still on SwiftShader refused.
+ * for ANGLE on the host's own GL or GPU past the blocklist: Mesa llvmpipe under xvfb on a Linux box without a GPU, that
+ * GPU on a GPU host), a native leg still on SwiftShader refused (the refusal catches SwiftShader only, LATER 721).
  */
 
 test.use({ launchOptions: uiGpuLaunchOptions() });

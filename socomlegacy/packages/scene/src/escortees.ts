@@ -38,11 +38,18 @@ export const HOSTAGE_TEAM_READING = 0xc0020000;
 export const HOSTAGE_START_LIFT_READING = 1.0;
 
 /**
- * [reading] An escortee's start yaw for setup heading 0: `FUN_00518ea0` (D:L386383) case 0 builds a y-axis quaternion of
- * pi and, with `param_3` = 1, composes a further pi -- net yaw 0 (research 190 s3.1 B1, BELIEVED; U10: the mesh's rest
- * facing is not established). Only heading 0 is read; every Desert Glory record has it.
+ * Heading 0 and the default of FUN_00518ea0 D:L386398-386424, followed by the placement's half-turn
+ * (D:L386426-386441): yaw 0. Kept as the existing scalar API; research 237 section 1.3.
  */
 export const HOSTAGE_FACING_READING = 0;
+
+/**
+ * Reading, pending review: setup headings 0..7 converted to browser yaw, in degrees. FUN_00518ea0
+ * D:L386398-386424 selects 180/135/90/45/0/315/270/225, then D:L386426-386441 adds 180 because
+ * FUN_002b28d0 D:L155825-155826 passes its third argument as 1. Research 237 section 1.3.
+ * This is semantic facing, not quaternion-bit parity or a comparison of the original rendered body.
+ */
+export const ESCORTEE_SETUP_YAWS_READING = [0, 315, 270, 225, 180, 135, 90, 45] as const;
 
 /** One escortee record of `vehicles.rdr`. */
 export interface EscorteeRecord {
@@ -66,7 +73,7 @@ export interface EscorteeStart {
   loc: AiLoc;
   /** The cell's centre, at its quantised height plus `HOSTAGE_START_LIFT_READING`. */
   at: [number, number, number];
-  /** `HOSTAGE_FACING_READING`. */
+  /** Setup heading converted through `ESCORTEE_SETUP_YAWS_READING`. */
   yaw: number;
   /** The record's mask (`HOSTAGE_TEAM_READING` on Desert Glory). */
   team: number;
@@ -109,8 +116,9 @@ export function parseEscortees(vehicles: RdrNode): EscorteeRecord[] {
 /**
  * The escortees at their starts: each record's named point (`namedPoint`, the sub-map its loc names), the cell's centre
  * (`aiCellCentre`, `FUN_0052d480` D:L396879) at the cell word's height (`aiCellY`, `FUN_00516940` D:L385082) plus
- * `HOSTAGE_START_LIFT_READING`, yaw `HOSTAGE_FACING_READING`, the record's mask. A record whose point is absent, or whose
- * cell the grid does not store, is dropped and noted (`note`); a heading other than 0 is noted and placed at yaw 0.
+ * `HOSTAGE_START_LIFT_READING`, the setup heading's yaw, the record's mask. A record whose point is absent, or whose
+ * cell the grid does not store, is dropped and noted (`note`). The original's byte argument selects the heading;
+ * an unrecognized byte follows its default, `HOSTAGE_FACING_READING`.
  */
 export function placeEscortees(records: readonly EscorteeRecord[], ai: AiMaps, note: (line: string) => void = () => {}): EscorteeStart[] {
   const out: EscorteeStart[] = [];
@@ -121,11 +129,12 @@ export function placeEscortees(records: readonly EscorteeRecord[], ai: AiMaps, n
     const sub = ai.maps[loc.map] ?? found.sub;
     const i = aiCellIndex(sub, loc.x, loc.z);
     if (i < 0) { note(`escortee ${r.name}: cell ${loc.map}:(${loc.x},${loc.z}) of '${r.point}' is not stored -- not placed`); continue; }
-    if (r.heading !== 0) note(`escortee ${r.name}: setup heading ${r.heading} unread (FUN_00518ea0 case 0 only) -- yaw ${HOSTAGE_FACING_READING}`);
+    // FUN_00518ea0 takes an unsigned byte (D:L386385), even though the setup stores a word.
+    const yaw = ESCORTEE_SETUP_YAWS_READING[r.heading & 0xff] ?? HOSTAGE_FACING_READING;
     const [x, z] = aiCellCentre(sub, loc.x, loc.z);
     out.push({
       name: r.name, character: r.character, loc: { ...loc },
-      at: [x, aiCellY(sub, sub.cells[i]!) + HOSTAGE_START_LIFT_READING, z], yaw: HOSTAGE_FACING_READING, team: r.teamBits,
+      at: [x, aiCellY(sub, sub.cells[i]!) + HOSTAGE_START_LIFT_READING, z], yaw, team: r.teamBits,
     });
   }
   return out;

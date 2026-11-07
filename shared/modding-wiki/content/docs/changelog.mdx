@@ -1,0 +1,104 @@
+---
+title: "Changelog / format versions"
+description: "The pack formats and the contract versions, newest first, each with what it does today."
+status: "Format only"
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/creator-contracts/src/rules.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts:27-32", "socomlegacy/packages/viewer/src/experimentalGraphics.ts:437"]
+---
+
+**Status: Format only.** The current format, `s2u-pack` version 2, is checked and stored but not applied in the game.
+The earlier formats below each keep their own status, given with each entry; they are the ones a player can see work
+today, in the test room.
+
+## The current versions
+
+Read from the pack contract's code. A pack names the engine contract it needs in its `contract` range; the build
+publishes its own version, and a pack whose range does not include it is refused (`pack.CONTRACT_MISMATCH`).
+
+| name | value | what it is |
+|---|---|---|
+| `PACK_FORMAT` | `s2u-pack` | The `format` every v2 manifest names. |
+| `PACK_FORMAT_VERSION` | `2` | The `formatVersion` every v2 manifest names. |
+| `ENGINE_CONTRACT_VERSION` | `0.1.1` | The engine contract this build publishes. |
+| `RULES_PACK_CONTRACT_FLOOR` | `0.1.1` | The lowest engine contract a `rules` pack may admit. It stays 0.1.1 when the engine contract moves on. |
+| `RULES_VOCABULARY_VERSION` | `0` | The version of the rules vocabulary (events, conditions, actions). |
+| `PACK_TARGET_US` | `SCUS-97275` | The disc revision a pack's `target` names. |
+
+How the engine contract moves: under the caret ranges the project uses, `^0.1.0` takes any `0.1.x`. An addition that
+breaks no existing pack raises the last number, so older packs keep loading; a change that would break packs raises
+the middle one.
+
+## History
+
+Newest first. Dates are when the change landed in the code.
+
+### 2026-10-31 -- HD texture packs import from a zip
+
+The test room's "Import pack (.zip)" takes an HD texture pack and keeps it in this browser only, one pack at a time.
+An earlier-format pack, not a v2 one.
+*Today: Planned -- held. A pack can be imported and stored, but nothing draws it until the owner lifts the hold: the HD
+picture is offered nowhere and the test room's HD switch cannot be turned on (the ui package's
+`screens/videoPicture.ts`, `VIDEO_PICTURE_HD_OFFERED`, lines 27-32; the viewer's `experimentalGraphics.ts`, line
+437). See [The earlier formats](/kinds/earlier-formats/).*
+
+### 2026-10-27 -- Thunderstore's package format, and the rules-pack checks
+
+- The store's root files (`manifest.json`, `icon.png`, `README.md`, optional `CHANGELOG.md`) may sit beside a v2 pack's
+  `s2u-pack.json`, outside the pack's identity. New code `pack.STORE_FILE` for a `files` row that names one.
+- The store's rules held as data (`THUNDERSTORE_PACKAGE_RULES`), the export mapping our id and version onto the store's,
+  and a store package check, with the `store.` codes.
+- A `rules` pack must not admit an engine before 0.1.1 (`pack.CONTRACT_FLOOR`); its rules members must be JSON objects
+  (`pack.RULES_MEMBER_INVALID`) whose capabilities agree with the manifest's handler claims (`pack.CAPABILITY_MISMATCH`).
+- A v2 pack can be imported: checked and stored. The import also reads `.md`, `.gltf`, `.ktx2`, `.ogg` and `.wav`
+  members for v2 packs.
+
+*Today: format only. Nothing builds a store package, the project's store team is not decided yet, and the game loads
+nothing from the store. See [Thunderstore](/publishing/thunderstore/).*
+
+### 2026-10-27 -- the rules vocabulary, version 0; engine contract 0.1.0 to 0.1.1
+
+The events, conditions and actions a rules pack may use, frozen as data, with their budgets
+(`RULES_VOCABULARY_VERSION` 0). Because the vocabulary is an addition, the engine contract moved from 0.1.0 to 0.1.1,
+the last number, so packs written for `^0.1.0` keep loading. (The contract's first draft of this change said 0.2.0; it
+was corrected to 0.1.1 the same day.) A rules pack states `^0.1.1`.
+*Today: rules packs run in the Forge's local Play only, and the Forge is paused. See
+[Rules and limits](/rules-and-limits/).*
+
+### 2026-10-26 -- options on a handler claim
+
+A `handlers` claim may carry `options`: plain JSON data for the claimed handler, its size and nesting bounded by the
+contract (`PACK_HANDLER_OPTIONS_BYTES_ADAPTATION`, `PACK_HANDLER_OPTIONS_DEPTH_ADAPTATION`), its content checked by the
+handler.
+*Today: format only.*
+
+### 2026-10-25 -- `s2u-pack` version 2
+
+The v2 pack: a manifest, `s2u-pack.json`, with an id, a SemVer version, a target, an engine contract range, kinds
+(`content`, `rules`, `system`), sides, dependencies, a sha256 and size for every file, intents and handler claims; the
+pack hash as the pack's identity; the bounds; the `pack.` refusal codes; and one model of findings and reports. Engine
+contract 0.1.0. The three earlier formats are read through adapters as v2 `content` packs, so one checker covers them
+all.
+*Today: format only -- checked and stored, never applied.*
+
+### 2026-10-20 -- the model pack (`s2u-model-pack` version 1)
+
+A folder or zip with `models.json` and GLB files, drawing a GLB in place of one of the game's meshes. Collision stays
+the game's.
+*Today: test room only, with `modmodels` in the page's address.*
+
+### 2026-10-18 -- `s2u-mod` version 1
+
+A zip or folder with `mod.json`, replacing files of the game's data with your own bytes, chosen in the test room's mod
+panel. The bytes are substituted, never run.
+*Today: test room only. Refused in a lobby match and in the replay viewer.*
+
+### 2026-10-08 -- texture packs (`s2u-local-texture-pack` version 1)
+
+Replacement images for one map's opaque textures, served from a local folder the repository never holds. They change the colour of solid texels only,
+never how anything is drawn.
+*Today: test room only, with the Experimental view.*
+
+## Not yet in any version
+
+- JSON Schema files for editors.
+- A command that builds a Thunderstore package.
+- Applying a v2 pack in the game, pack code of any kind, a pack's own audio in play, and packs in online matches.

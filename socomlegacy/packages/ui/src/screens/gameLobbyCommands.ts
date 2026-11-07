@@ -1,6 +1,6 @@
 import { DIALOG_EVENTS } from '../dialog';
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
-import type { UiVarManager, UiVarValue } from '../uiVars';
+import type { UiVarEntry, UiVarManager, UiVarValue } from '../uiVars';
 import { VALVE_TYPE, type ValveStore } from '../valves';
 import { SKB_RECIPIENT_VALVE } from '../keyboard/softKeyboard';
 import type { ZAnimUiCommand } from '../zanimRuntime';
@@ -583,6 +583,14 @@ export interface GameLobbyEntry {
   lobbyId?: string;
 }
 
+/**
+ * LOBBY-MAPNAME (research 165 §9): `FUN_002acc10`'s read of the mission's `mission.rdr` is synchronous, inside
+ * `AdvanceMPMission`; the page reads the map's archive asynchronously (`GameLobbyCommandsOptions.missionVars`), so a
+ * mission's `UiVars` reach the variables when the read resolves -- a frame or more after the row answers -- and only
+ * while the lobby still stands on that mission. An adaptation of when, not of what: the same entries, the same Add.
+ */
+export const MISSION_VARS_ASYNC_ADAPTATION = 'the mission UiVars added when the page reads them, while the lobby stands on that mission' as const;
+
 /** What the lobby hands ONL-18 at the match's start (`GameLobbyCommandsOptions.matchStart`): the game and its first map. */
 export interface GameLobbyMatchStart { mediusWorldId: number; gameName: string; mission: string; lateJoiner: boolean }
 
@@ -638,6 +646,13 @@ export interface GameLobbyCommandsOptions {
   chat?: LobbyTextChat;
   /** LOBBY-INVITE (INVITE_REFUSAL_ADAPTATION, `./inviteJoin`): JoinGame refused for `worldId` -- true when the page showed its own line (the invite's join of that world); absent or false, the original's event. */
   joinRefused?: (status: number, worldId: number) => boolean;
+  /**
+   * LOBBY-MAPNAME: a mission's ("mp<n>") `mission.rdr` `UiVars` entries as `CUIVariableSpec` reads them -- NAME, the
+   * VALUE node with its type, the LONGEVITY word (`missionUiVarEntries` over `parseRdrTyped`) -- from the map's
+   * `READERM.ZAR`; a promise when the page reads the archive (`MISSION_VARS_ASYNC_ADAPTATION`); null when it is not held.
+   * Absent, `AdvanceMPMission` adds none.
+   */
+  missionVars?: (mission: string) => readonly UiVarEntry[] | Promise<readonly UiVarEntry[] | null> | null;
 }
 
 /** One line of the bridge's `chat` (`net/protocol.ts`): the sender's seat, its account's name, the text (63 at most). */
@@ -994,10 +1009,12 @@ export class GameLobbyCommands {
     return this.answer('CheckJoinMP', cmd, true);
   };
 
+  /** CREATOR_MASTER_READING: the creator is the session's master before any welcome -- its report accepted, its socket opened. */
+  private creatorMaster(): boolean { return this.hosting && this.reportState === 'accepted' && this.opened; }
+
   /** `FUN_0027e380` (D:L126407-126428): 0 unless the seat is held (the welcome); then 1, the lobby this page's. */
   JoinGameServer: UiCommandHandler = (cmd) => {
-    const master = this.hosting && this.reportState === 'accepted' && this.opened;                            // CREATOR_MASTER_READING
-    if (!this.connected && !master) return this.answer('JoinGameServer', cmd, false);
+    if (!this.connected && !this.creatorMaster()) return this.answer('JoinGameServer', cmd, false);
     this.inLobby = true;
     return this.answer('JoinGameServer', cmd, true);
   };
@@ -1121,9 +1138,36 @@ export class GameLobbyCommands {
   };
   /**
    * `FUN_00279490` (D:L123842-123884): the lobby's deadline to now + 30 s (45 s after a match) and the host's mission set
-   * -- the server's (`READY_GATE_MS_READING`, research 159 §5); the seat's gate reaches the page in `readyIn`. 1.
+   * -- the server's (`READY_GATE_MS_READING`, research 159 §5); the seat's gate reaches the page in `readyIn`. Then, with
+   * the game object and the network up (D:L123856; here `inSession`: the seat held, or the creator let in as the master
+   * before its welcome, as `JoinGameServer` lets it in), the current mission's load `FUN_002acc10(0x4364e0, 0x414e00)`
+   * (D:L123881): its UiVars half (`loadMissionVars`), LOBBY-MAPNAME. 1.
    */
-  AdvanceMPMission: UiCommandHandler = (cmd) => this.answer('AdvanceMPMission', cmd, true);
+  AdvanceMPMission: UiCommandHandler = (cmd) => {
+    if (this.inSession()) this.loadMissionVars();
+    return this.answer('AdvanceMPMission', cmd, true);
+  };
+  /** D:L123856's test as the port holds it: the seat held (the welcome), or the creator's master (`creatorMaster`). */
+  private inSession(): boolean { return this.connected || this.creatorMaster(); }
+  /**
+   * `FUN_002acc10`'s UiVars half (D:L152356-152381, research 104 §4 "Mission vars"): each `mission.rdr` `UiVars` entry of
+   * the current mission (0x414e00, `this.mission`) through `CUIVariableSpec` (`FUN_00386ff0`) and `CUIVarManager_Add`
+   * (`FUN_003857c0(0x437e80, ..)`) at the spec's longevity, with its node's type (`UiVarManager.loadUiVars`) --
+   * `mission_title` among them, the title bar's `MPgamename`. Its Valves half (D:L152384-152420) and the rest of the load are not done here (research 165
+   * §9). An asynchronous read adds them when it resolves, if the lobby still stands on the mission
+   * (`MISSION_VARS_ASYNC_ADAPTATION`).
+   */
+  private loadMissionVars(): void {
+    const mission = this.mission;
+    const read = this.o.missionVars;
+    if (!read || mission === '') return;
+    const add = (entries: readonly UiVarEntry[] | null): void => { if (entries) this.o.uiVars.loadUiVars(entries); };
+    let got: ReturnType<typeof read>;
+    try { got = read(mission); } catch { return; }
+    if (got instanceof Promise) {
+      got.then((entries) => { if (this.mission === mission && this.inSession()) add(entries); }, () => {});
+    } else add(got);
+  }
   /** 0x2776b0 (D:L122948-122955): the host's world report -- the server reports a game's room itself (research 159 §2). 1. */
   ForceMediusStatusReport: UiCommandHandler = (cmd) => this.answer('ForceMediusStatusReport', cmd, true);
 

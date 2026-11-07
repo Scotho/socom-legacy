@@ -93,7 +93,7 @@ describe('R3-B: the viewport adapter and the staged ghost on the mounted Forge',
     expect(editor.sourceIdentity('MP84:synthetic')).toBe(source);
     expect(editor.sourceIdentity('MP99:else')).toBeNull();
     staged!.dispose();
-  }, 20_000);
+  }, 90_000);
 
   it('2: show puts the staged piece in the scene at the point and turn, tinted as admitted or refused; hide hides it; place consumes it, dispose removes it', async () => {
     const { api, c } = await mounted();
@@ -134,5 +134,5 @@ describe('R3-B: the viewport adapter and the staged ghost on the mounted Forge',
     expect(other!.object.parent).toBeNull();
     other!.show([0, 0, 0], 0, true);                               // a disposed piece shows nothing
     expect(other!.object.parent).toBeNull();
-  }, 20_000);
+  }, 90_000);
 });

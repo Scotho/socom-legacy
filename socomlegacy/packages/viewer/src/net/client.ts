@@ -9,6 +9,7 @@ import {
 import type { WorldState } from '../worldState';
 import type { GameType } from '@s2u/scene';
 import { decodeVoiceDown, type VoiceDown } from './voiceWire';
+import { PlayoutClock } from './playoutClock';
 import { SeatToldBoard } from './seatTold';
 import { SeatClanBoard } from './seatClans';
 import { equipmentLimit } from '../equipmentLimit';
@@ -286,6 +287,8 @@ export class NetClient {
   requestFloor(kind: 'taunt' | 'communication'): number { return this.floors[kind]; }
   private readonly history: Sent[] = [];
   private readonly snaps: Received[] = [];
+  /** INV-SPECTATE fix A: the remote bodies' playout clock, told every snapshot's arrival (`viewTick` reads it). */
+  private readonly playout = new PlayoutClock();
   private correction: [number, number, number] = [0, 0, 0];
   private correctionTicks = 0;
   /** LATER 528: the command whose snapshot found the correction being spread (the newer, where two were merged). */
@@ -682,7 +685,9 @@ export class NetClient {
     if (this.opts.simulate?.loss && this.random() < this.opts.simulate.loss) return;
     let snap: Snapshot;
     try { snap = decodeSnapshot(bytes); } catch { return; }
-    this.snaps.push({ snap, at: performance.now() });
+    const at = performance.now();
+    this.snaps.push({ snap, at });
+    this.playout.hear(at, snap.tick);
     if (this.deathTickPending) { this.deathTick = snap.tick; this.deathTickPending = false; }   // B138: no tick heard at the death
     if (this.snaps.length > SNAPSHOTS) this.snaps.shift();
     // HARD-FLOOD (research 169 measure 8): a watcher sends no commands, so its snapshots carry the player's 2 s ping up
@@ -1160,9 +1165,15 @@ export class NetClient {
     return last ? last.snap.tick + ((now - last.at) / 1000) * TICK_HZ : 0;
   }
 
-  /** The tick the others are drawn at: `INTERP_DELAY_MS` behind the server (what a shot's rewind asks for). */
+  /**
+   * The tick the others are drawn at: `INTERP_DELAY_MS` behind the server (what a shot's rewind asks for), on the
+   * playout clock (INV-SPECTATE fix A, `./playoutClock`; product track, the port's own netcode): slewed toward the
+   * least-delayed arrivals rather than restarted at each, so the drawn time never steps at an arrival. With every arrival
+   * on time it equals `serverTick(now)` less the delay, as before; in a snapshot gap it stops on the newest snapshot's
+   * tick rather than running past it (review A1's starvation guard). `serverTick` itself is unchanged.
+   */
   viewTick(now = performance.now()): number {
-    return Math.max(0, this.serverTick(now) - (INTERP_DELAY_MS / 1000) * TICK_HZ);
+    return Math.max(0, this.playout.tick(now) - (INTERP_DELAY_MS / 1000) * TICK_HZ);
   }
 
   /**
@@ -1186,10 +1197,10 @@ export class NetClient {
    * drawn remote bodies stand at now -- what `bodies(now)` draws, by the same choice (`drawnAt`):
    * - when two snapshots bracket the view tick and `bodies` interpolates between them, the view tick itself
    *   (`viewTick(now)`, fractional);
-   * - when `bodies` HOLDS a snapshot -- nothing newer than the view tick has come (a snapshot gap: the view tick runs on
-   *   from the newest's arrival while the drawn bodies stay at it), or nothing older is in hand -- that snapshot's tick,
-   *   a whole number: below `viewTick(now)` in a gap, by the claim's lead over the picture; above it only when every
-   *   snapshot in hand is newer than the view tick (the first after a join);
+   * - when `bodies` HOLDS a snapshot -- nothing newer than the view tick has come (a snapshot gap: since review A1's
+   *   guard the view tick stops on the newest snapshot's tick, so the two are equal), or nothing older is in hand --
+   *   that snapshot's tick, a whole number: above `viewTick(now)` only when every snapshot in hand is newer than the
+   *   view tick (the first after a join);
    * - null before any snapshot (no body drawn).
    * One number for the frame: a body spawned between the two bracketing snapshots, which `bodies` draws whole from the
    * newer (NU-12 D6), is not told apart. The page's round carries it beside `viewTick` (`ClientEvent` `fire`'s

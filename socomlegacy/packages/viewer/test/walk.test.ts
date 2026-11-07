@@ -13,7 +13,7 @@ import {
   STANCES, TICK,
   type GroundData, type Stance, type WalkInput,
 } from '../src/walk';
-import { PRONE_ROOT, SWAP_OVERLAY_SECONDS, swapPlayedOut, type ActionEnd } from '../src/mover';
+import { PRONE_ROOT, SWAP_OVERLAY_SECONDS, swapPlayedOut, wallHeadLine, type ActionEnd } from '../src/mover';
 import { PICKUP_SWAP_OWN_LAG_READING } from '../src/walk';
 import { playedOutCommand } from '../src/mover';
 import { motionTableFromArchive } from '../src/motionTable';
@@ -249,7 +249,11 @@ describe('the stances (W2.2b): C cycles stand, crouch, prone', () => {
     expect(lookHeight(rootY('prone'))).toBeCloseTo(7.668, 3);  // research 88 section 4 item 3's target
   });
 
-  it('the head line lowers with the stance: a crouch passes under a lintel at 16 that stops a standing SEAL (the idle head + 2: 19.394 standing, 12.138 crouched, 5.637 prone; FUN_0054aa30 D:L415442-415443)', () => {
+  // The crouch-run head line (2026-11-06, re-judged against FUN_0054aa30 D:L415441-415443: the line is the head node AS
+  // POSED + 2, not the stance's idle head): was "the idle head + 2: 19.394 standing, 12.138 crouched, 5.637 prone". The
+  // case's outcome holds -- the full run's posed head + 2 is 17.761 (over 16), the crouch walk's 15.122 and the crawl's
+  // 6.996 (under it) -- but its heights are now the moving clips' (`POSED_HEAD_READING`); at rest the idle heads stay.
+  it('the head line lowers with the stance: a crouch passes under a lintel at 16 that stops a running SEAL (the posed head + 2: 17.761 running, 15.122 crouch-walking, 6.996 crawling; FUN_0054aa30 D:L415442-415443)', () => {
     const lintel = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 16, 40)]);
     const x = (stance: Stance): number => {
       const w = new Walker(lintel);
@@ -262,7 +266,23 @@ describe('the stances (W2.2b): C cycles stand, crouch, prone', () => {
     expect(x('stand')).toBeLessThan(50);
     expect(x('crouch')).toBeGreaterThan(60);
     expect(x('prone')).toBeGreaterThan(60);
-    expect(wallProbeHeights('stand')).toEqual([6.5, 17.394 + 2]);   // PF-16: no column; the low probe and the head line
+    expect(wallProbeHeights('stand')).toEqual([6.5, 17.394 + 2]);   // PF-16: no column; the low probe and the head line at rest
+    expect(wallHeadLine('stand', { state: 'stand', forward: 1, right: 0, cls: 1 })).toBeCloseTo(17.761, 9);
+  });
+
+  it('the crouch-run head line: a lintel at 18.23 stops a standing walk (16.707 + 2) and passes a full run and a crouch run (15.761 + 2; FUN_0054aa30 D:L415441-415443, FUN_00584c60)', () => {
+    const lintel = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 18.23, 40)]);
+    const x = (stance: Stance, forward: number): number => {
+      const w = new Walker(lintel);
+      w.place(0, 0, 0);
+      w.stance = stance;
+      w.state.yaw = facing(0, 0, 1, 0);
+      for (let i = 0; i < 600; i++) w.tick({ forward, right: 0, boost: false });
+      return w.state.x;
+    };
+    expect(x('stand', 0.3)).toBeLessThan(50);                   // the walk's head rises to 16.707: the line 18.707
+    expect(x('stand', 1)).toBeGreaterThan(60);                  // the run's to 15.761: 17.761, under the lintel
+    expect(x('crouch', 1)).toBeGreaterThan(60);                 // the crouch run stands and runs the same blend
   });
 });
 
@@ -738,7 +758,9 @@ describe('the mover, continued (W1.4)', () => {
     }
   });
 
-  it('a wall is bit 18 clear and met by the body\'s probes: standing the feet + 6.5 and the head line at 19.394, no column between (FUN_0054aa30; WALL_PROBE_READING)', () => {
+  // The crouch-run head line (2026-11-06, re-judged): the run's head line is the run's posed head + 2, 17.761
+  // (`POSED_HEAD_READING`), not the standing idle's 19.394 -- a lintel at 18 is now run under; one at 17.5 meets it.
+  it('a wall is bit 18 clear and met by the body\'s probes: running the feet + 6.5 and the head line at 17.761, no column between (FUN_0054aa30; WALL_PROBE_READING)', () => {
     const through = (poly: WorldPoly): number => {
       const w = new Walker(world([floor(-200, -200, 200, 200, 0), poly]));
       w.place(0, 0, 0);
@@ -751,7 +773,8 @@ describe('the mover, continued (W1.4)', () => {
     expect(through(wallX(50, -150, 150, 0, 5))).toBeGreaterThan(60);         // under the low probe: a kerb's face
     expect(through(wallX(50, -150, 150, 21, 40))).toBeGreaterThan(60);       // over the head line: a lintel
     expect(through(wallX(50, -150, 150, 7, 17))).toBeGreaterThan(60);        // between the two (PF-16): no column
-    expect(through(wallX(50, -150, 150, 18, 40))).toBeLessThan(50);          // the head line (19.394) meets it
+    expect(through(wallX(50, -150, 150, 18, 40))).toBeGreaterThan(60);       // over the run's head line (17.761)
+    expect(through(wallX(50, -150, 150, 17.5, 40))).toBeLessThan(50);        // the run's head line meets it
   });
 
   it('a step over a 1-unit kerb climbs it', () => {

@@ -1,0 +1,126 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+/* Copied in at build from shared/ds/ by scripts/sync-theme.mjs (MW.R4); never edited here. */
+@import './s2u-tokens.css';
+@import './s2u-fonts.css';
+
+/*
+ * The S2U design system on Fumadocs UI's theme variables (MW.R4). Every value is a design-system token
+ * (shared/ds/tokens.json) or a mix of two.
+ *
+ * Dark is the design system's own "briefing" theme. Light is an adaptation for the wiki: the design system has
+ * no light theme, so the light palette inverts its ground and text tokens and takes the highlight teal as its
+ * primary (text-strong on highlight is the pairing the design system names as readable, 6.29:1).
+ */
+:root {
+  --color-fd-background: var(--s2u-text-strong);
+  --color-fd-foreground: var(--s2u-ground);
+  --color-fd-muted: color-mix(in srgb, var(--s2u-text) 35%, var(--s2u-text-strong));
+  --color-fd-muted-foreground: var(--s2u-panel);
+  --color-fd-popover: var(--s2u-text-strong);
+  --color-fd-popover-foreground: var(--s2u-ground);
+  --color-fd-card: color-mix(in srgb, var(--s2u-text) 20%, var(--s2u-text-strong));
+  --color-fd-card-foreground: var(--s2u-ground);
+  --color-fd-border: color-mix(in srgb, var(--s2u-text-dim) 55%, transparent);
+  --color-fd-primary: var(--s2u-highlight);
+  --color-fd-primary-foreground: var(--s2u-text-strong);
+  --color-fd-secondary: color-mix(in srgb, var(--s2u-text) 30%, var(--s2u-text-strong));
+  --color-fd-secondary-foreground: var(--s2u-ground);
+  --color-fd-accent: color-mix(in srgb, var(--s2u-highlight) 18%, transparent);
+  --color-fd-accent-foreground: var(--s2u-ground);
+  --color-fd-ring: var(--s2u-focus);
+  --color-fd-overlay: color-mix(in srgb, var(--s2u-ground-deep) 25%, transparent);
+  --color-fd-warning: var(--s2u-warn);
+}
+
+.dark {
+  --color-fd-background: var(--s2u-ground);
+  --color-fd-foreground: var(--s2u-text);
+  --color-fd-muted: var(--s2u-tab);
+  --color-fd-muted-foreground: var(--s2u-text-dim);
+  --color-fd-popover: var(--s2u-panel);
+  --color-fd-popover-foreground: var(--s2u-text-strong);
+  --color-fd-card: var(--s2u-panel);
+  --color-fd-card-foreground: var(--s2u-text-strong);
+  --color-fd-border: var(--s2u-tab-lit);
+  --color-fd-primary: var(--s2u-gold);
+  --color-fd-primary-foreground: var(--s2u-ground-deep);
+  --color-fd-secondary: var(--s2u-tab);
+  --color-fd-secondary-foreground: var(--s2u-text-strong);
+  --color-fd-accent: var(--s2u-highlight);
+  --color-fd-accent-foreground: var(--s2u-text-strong);
+  --color-fd-ring: var(--s2u-focus);
+  --color-fd-overlay: color-mix(in srgb, var(--s2u-ground-deep) 60%, transparent);
+  --color-fd-warning: var(--s2u-warn);
+}
+
+.dark #nd-sidebar {
+  --color-fd-muted: var(--s2u-tab);
+  --color-fd-secondary: var(--s2u-tab-lit);
+  --color-fd-muted-foreground: var(--s2u-text-dim);
+}
+
+/* The design system's faces: Oswald for the body, Saira Condensed for the display, JetBrains Mono for code. */
+@theme {
+  --font-sans: var(--s2u-font-body);
+  --font-mono: var(--s2u-font-mono);
+}
+
+body {
+  font-family: var(--s2u-font-body);
+  letter-spacing: 0.01em;
+}
+
+h1,
+.s2u-wordmark {
+  font-family: var(--s2u-font-display);
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.s2u-wordmark {
+  text-transform: uppercase;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--s2u-font-mono);
+}
+
+/* The page's MW.R6 status (components/status-badge.tsx, MW-3): the label in the primary for a shipped status, the
+   warning colour for the two that are not shipped, the owners beside it in the muted text. */
+.s2u-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.s2u-status-label {
+  border: 1px solid var(--color-fd-primary);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.5rem;
+  color: var(--color-fd-primary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.s2u-status[data-status='Planned'] .s2u-status-label,
+.s2u-status[data-status='Format only'] .s2u-status-label {
+  border-color: var(--color-fd-warning);
+  color: var(--color-fd-warning);
+}
+
+.s2u-status-source {
+  color: var(--color-fd-muted-foreground);
+}
+
+.s2u-status-source code {
+  font-size: 0.8125rem;
+}

@@ -1091,10 +1091,16 @@ export function mergeWorld(
     cells: unionCells(list.map((part) => part.cells ?? [])),
     ...(list[0]!.vertexAlpha ? { vertexAlpha: true } : {}),
     ...(list[0]!.alphaPass ? { alphaPass: true } : {}),
+    // LATER 593 (F3): an alpha-pass draw is one visual's (its own run, `b<order>`), keyed by its centroid
+    // (`FUN_003371b0` D:L235314-235317); kept where its parts agree on it, else the world keys it by its box.
+    ...(list[0]!.alphaPass && list[0]!.centre && list.every((p) => sameCentre(p.centre, list[0]!.centre)) ? { centre: list[0]!.centre } : {}),
     ...(list[0]!.centroids && list[0]!.detailOn === false ? { detailOn: false } : {}),
     ...(list[0]!.centroids && list[0]!.detailRange !== undefined ? { detailRange: list[0]!.detailRange } : {}),
   })).sort((a, b) => a.order - b.order);
 }
+
+const sameCentre = (a: readonly number[] | undefined, b: readonly number[] | undefined): boolean =>
+  a !== undefined && b !== undefined && a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 
 /**
  * Whether a decoded texture's alpha is a ramp rather than a switch. A corona, a glow or a soft-edged

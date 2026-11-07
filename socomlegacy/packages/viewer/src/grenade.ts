@@ -2758,7 +2758,11 @@ export class GrenadeThrower {
       this.scorchClipWarm.name = 'scorch clipped (warm-up)';
       this.scorchClipWarm.frustumCulled = false;
     }
-    return [this.arcLine, this.scorchWarm, this.scorchClipWarm!];
+    // FLASH-WARM (product track, a renderer warm-up): the map's throwable models -- the templates the hand's model and
+    // every thrown copy are cloned from, sharing their geometries and bitmaps -- are in no scene, so their buffers and
+    // textures were made at the first selection or throw (the owner's measurement at bb133165e: the first Mark141's
+    // window made 4 geometries and a texture the second did not). Parked by `prepare` for the call, like the scorch.
+    return [this.arcLine, this.scorchWarm, this.scorchClipWarm!, ...Object.values(this.modelTemplates ?? {})];
   }
 
   private scorchWarm: Mesh | null = null;

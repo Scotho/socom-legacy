@@ -367,13 +367,16 @@ describe('NCW-2 B-bound: the per-seat cap, recovered share by latency (a model s
       expect(at(25, j, true).after.map((x) => x.cls), `control 25 j${j}`).toEqual(at(25, j, true).before.map((x) => x.cls));
       expect(at(25, j, false).after.map((x) => x.cls), `control 25 still j${j}`).toEqual(at(25, j, false).before.map((x) => x.cls));
     }
-    // Pinned (the model's exact answer, so a change shows): the strafe at 150 ms recovers every lost round with no jitter
-    // (the 2 ticks past the ceiling still strike); with +-30 ms 5 of 26 on-screen hits stay lost. At 200 ms 19 (no
-    // jitter) and 18 (+-30 ms) of 26 stay lost: the ceiling binds.
+    // Pinned (the model's exact answer, so a change shows): the strafe at 150 ms recovers every lost round, with no jitter
+    // (the 2 ticks past the ceiling still strike) and with +-30 ms. At 200 ms 19 (no jitter) and 17 (+-30 ms) of 26 stay
+    // lost: the ceiling binds. INV-SPECTATE fix A (2026-11-07) moved the jittered pins (were 5 and 18): the page's view
+    // tick is now on the slewed playout clock (`viewer/src/net/playoutClock.ts`), set by the least-delayed arrivals, not
+    // restarted at the newest, so under jitter a round's rewind age is about a tick shorter (the median at 150 ms +-30 ms
+    // 26.3 -> 24.6 ticks) and fewer rounds pass the ceiling; the no-jitter cells are unchanged.
     expect(countOf(at(150, 0, true).after, 'b')).toBe(0);
-    expect(countOf(at(150, 30, true).after, 'b')).toBe(5);
+    expect(countOf(at(150, 30, true).after, 'b')).toBe(0);
     expect(countOf(at(200, 0, true).after, 'b')).toBe(19);
-    expect(countOf(at(200, 30, true).after, 'b')).toBe(18);
+    expect(countOf(at(200, 30, true).after, 'b')).toBe(17);
     // The cost, named: at the ceiling a low-ping victim can be struck up to 13 units further behind cover than today.
     expect(RUN_SPEED * (REWIND_CEILING_MS_ADAPTATION - MAX_REWIND_MS) / 1000).toBeCloseTo(13, 9);
   });

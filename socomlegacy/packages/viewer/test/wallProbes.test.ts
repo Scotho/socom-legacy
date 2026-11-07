@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildGrid, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
 import {
-  PRONE_FAN_READING, PRONE_PROBE_TILT_READING, WALL_HEAD_LINE_READING, WALL_PROBE_READING, Walker, wallProbeHeights,
-  type Stance,
+  POSED_HEAD_READING, PRONE_FAN_READING, PRONE_PROBE_TILT_READING, WALL_HEAD_LINE_READING, WALL_PROBE_READING, Walker,
+  wallHeadLine, wallProbeHeights, type Stance,
 } from '../src/mover';
 
 /**
@@ -87,18 +87,28 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
     expect(drive(slot, 'prone').state.x).toBeGreaterThan(60);                    // 3.0 and 5.637 under
   });
 
-  it('a bar from 5 to 7 stops a standing and a crouched SEAL 3.5 short of it; prone its low probe at 3.0 passes under and its head line at 5.637 meets it (D:L415442-415443; WALL_HEAD_LINE_READING)', () => {
+  it('a bar from 5 to 7 stops a standing and a crouched SEAL 3.5 short of it; prone its low probe at 3.0 passes under and its head line at the crawl head 4.996 + 2 meets it (D:L415442-415443; WALL_HEAD_LINE_READING)', () => {
     const bar = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 5, 7)]);
     stoppedAt(drive(bar, 'stand').state.x, STAND_CENTRE);
     stoppedAt(drive(bar, 'crouch').state.x, CROUCH_CENTRE, 0.2);
-    expect(WALL_HEAD_LINE_READING).toBe('idle');
+    // The crouch-run head line (2026-11-06): the line at the posed head + 2 of the clip the ground state plays. At rest
+    // the idle heads + 2 (19.394, 12.138, 5.637); crawling the crawl's greatest posed head 4.996 + 2.
+    expect(WALL_HEAD_LINE_READING).toBe('posed');
     expect(wallProbeHeights('prone')).toEqual([3, 3.637 + 2]);
+    expect(wallHeadLine('prone', { state: 'prone', forward: 1, right: 0, cls: 1 })).toBeCloseTo(POSED_HEAD_READING.prone + 2, 9);
     stoppedAt(drive(bar, 'prone').state.x, PRONE_HEAD, 0.3);
-    // A bar from 3.2 to 5.5 lies between the prone lines (3.0 under it, 5.637 over it): it crawls through.
+    // A bar from 3.2 to 5.5 lies between the prone lines (3.0 under it, the crawl's 6.996 over it): it crawls through.
     expect(drive(world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 3.2, 5.5)]), 'prone').state.x).toBeGreaterThan(60);
-    // The head line lowers with the stance: 19.394 standing, 12.138 crouched (the idle heads + 2).
+    // The head line lowers with the stance: at rest 19.394 standing, 12.138 crouched (the idle heads + 2); moving the
+    // posed heads + 2 -- the full run forward 17.761, the crouch walk forward 15.122 (left 15.274).
     expect(wallProbeHeights('stand')).toEqual([6.5, 17.394 + 2]);
     expect(wallProbeHeights('crouch')).toEqual([6.5, 10.138 + 2]);
+    expect(wallHeadLine('stand', { state: 'idle', forward: 0, right: 0, cls: -1 })).toBeCloseTo(19.394, 9);
+    expect(wallHeadLine('stand', { state: 'stand', forward: 1, right: 0, cls: 1 })).toBeCloseTo(17.761, 9);
+    expect(wallHeadLine('stand', { state: 'stand', forward: 0.85, right: 0, cls: 1 })).toBeCloseTo(16.530 + 2, 9);   // the greater of 0.8 and 0.9
+    expect(wallHeadLine('crouch', { state: 'crouch', forward: 0.8, right: 0, cls: 1 })).toBeCloseTo(15.122, 9);
+    expect(wallHeadLine('crouch', { state: 'crouch', forward: 0, right: -0.8, cls: 2 })).toBeCloseTo(15.274, 9);
+    expect(wallHeadLine('stand', { state: 'stand', forward: 1, right: 0, cls: 1 }, true)).toBeCloseTo(19.394, 9);   // in the air, an action: idle
   });
 
   it('prone meets a wall at 8.0 along the travel and no nearer; the 13-wide doorway and the 7.5-wide corridor of walk.test.ts still pass (the fan is cast along the travel, PRONE_FAN_READING)', () => {
@@ -171,15 +181,18 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
     expect(30 - kerb).toBeLessThan(PRONE_CENTRE + 0.3);
   });
 
-  it('the prone head line is lifted on a slope too (FUN_0054ecd0 at D:L415531-415535): down a slope it passes under a bar 6 over the ground', () => {
+  it('the prone head line is lifted on a slope too (FUN_0054ecd0 at D:L415531-415535): down a slope it passes under a bar 7.5 over the ground', () => {
     // SEGMENT-BODY (re-judged; was "the prone head line stays level", read off D:L415441-415459 alone): after the head line's
     // end is built, `FUN_0054aa30` lifts it through the root as it lifts the centre (D:L415531-415535 under `bVar5`), so
     // down a 20-degree slope (the crawl toward -x) its end, along the facing by 15.94, drops 15.94 x sin 20 = 5.45 under
     // its start at the feet + 5.637 and passes under a bar from 6 to 30 over the ground under it, as the low lines do. The
-    // bar wound toward the crawl (+x), as a hull face is (research 281 s4.3).
+    // bar wound toward the crawl (+x), as a hull face is (research 281 s4.3). The crouch-run head line (2026-11-06,
+    // re-judged; was a bar from 6): the crawl's line stands at its posed head + 2, 6.996 (`POSED_HEAD_READING`), and
+    // over the slope it rises 0.022 a unit ahead against the ground (7.35 at its end), so the bar starts at 7.5; level,
+    // the line would rise 0.364 a unit against the ground and meet it from 1.4 off.
     const k = Math.tan(20 * Math.PI / 180);
     const at = -50, under = at * k;
-    const hill = world([slope(-200, 200, 20), wallX(at, 150, -150, under + 6, under + 30)]);
+    const hill = world([slope(-200, 200, 20), wallX(at, 150, -150, under + 7.5, under + 30)]);
     const w = new Walker(hill);
     w.place(0, 40, 0);
     w.stance = 'prone';

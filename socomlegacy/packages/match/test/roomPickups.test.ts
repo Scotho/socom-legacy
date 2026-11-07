@@ -385,36 +385,39 @@ describe('PF-34: death drops and in-round pickup in the room (PF.R54; research 2
     setRing(g.room, 1, 0, [17, 30]);
     setRing(g.room, 1, 1, [5]);
     g.kill(1);                                                   // the bundle: M4A1 SD [17, 30], Mark 23 [5]
-    // Seat 4 (a Terrorist: the M4A1 SD and the Mark 23): one free rifle slot, the pistol ring full.
-    setRing(g.room, 4, 0, [30, 30, 30, 30, 30, 30, 30, 30, 30, 0]);
-    setRing(g.room, 4, 1, [12, 12, 12, 12, 12, 12, 12, 12, 12, 12]);
+    // Seat 4 (a Terrorist: the M4A1 SD and the Mark 23, NumMags 3 each, no 2X): one free rifle slot under the cap
+    // (PICKUP_MAGAZINE_CAP_READING: slots 0-2 only, `FUN_005ba3d0` D:L472750), the pistol's three full.
+    setRing(g.room, 4, 0, [30, 30, 0]);
+    setRing(g.room, 4, 1, [12, 12, 12]);
     const before = total(g.room, [4]) + sumDrops(g.room.joinWire().drops ?? []);
     const marks = g.d.events.length, seen = g.b.events.length;
     g.place(4, [15, 0, 0]);                                      // 15 units off the body: in reach
     g.drive(4, 2);
     // The 17 into the rifle's free slot; the 30 and the 5 stay: told again under the same did, the list shorter.
-    expect(g.room.player(4)!.mags[0].state().slots[9]).toBe(17);
+    expect(g.room.player(4)!.mags[0].state().slots[2]).toBe(17);
     const kits = g.d.events.slice(marks).filter((e) => e.type === 'kit');
     expect(kits[0]).toEqual({
       type: 'kit', loadout: [...TERRORIST], rounds: [g.room.player(4)!.mags[0].state().slots, g.room.player(4)!.mags[1].state().slots],
-      filled: [[9], []],                                         // only the slot the transfer wrote: the page leaves the rest as it fired them
+      filled: [[2], []],                                         // only the slot the transfer wrote: the page leaves the rest as it fired them
     });
     const told = g.b.events.slice(seen).filter((e) => e.type === 'drop');
     expect(told).toEqual([{ type: 'drop', did: 0, kind: 'ammo', entries: [{ item: HELD_RIFLE.id, rounds: [30] }, { item: HELD_SIDEARM.id, rounds: [5] }], at: expect.any(Array), yaw: expect.any(Number), from: 1 }]);
     expect(total(g.room, [4]) + sumDrops(g.room.joinWire().drops ?? [])).toBe(before);
-    // Standing on it with no free slot moves nothing and tells nothing more.
+    // Standing on it with no free slot under the cap (slots 3-9 empty, never written): nothing moves, nothing more told.
+    expect(g.room.player(4)!.mags[0].state().slots.slice(3).every((n) => n === 0)).toBe(true);
     g.drive(4, 3);
     expect(g.b.events.slice(seen).filter((e) => e.type === 'drop')).toHaveLength(1);
     // A magazine spent frees its slot: the 30 goes in next; then a pistol slot: the 5. The bundle empties: taken.
-    setRing(g.room, 4, 0, [30, 30, 30, 30, 30, 30, 30, 30, 0, 17], 0);
+    setRing(g.room, 4, 0, [30, 0, 17], 0);
     g.drive(4, 1);
-    setRing(g.room, 4, 1, [12, 12, 12, 12, 12, 12, 12, 12, 12, 0]);
+    setRing(g.room, 4, 1, [12, 12, 0]);
     const was = total(g.room, [4]) + sumDrops(g.room.joinWire().drops ?? []);
     g.drive(4, 1);
     expect(g.b.of('taken')).toEqual([{ type: 'taken', did: 0, by: 4 }]);
     expect(g.room.joinWire().drops?.some((d) => d.did === 0)).toBe(false);
     expect(total(g.room, [4])).toBe(was);
-    expect(g.room.player(4)!.mags[1].state().slots[9]).toBe(5);
+    expect(g.room.player(4)!.mags[0].state().slots[1]).toBe(30);
+    expect(g.room.player(4)!.mags[1].state().slots[2]).toBe(5);
     // Out of reach (21 units) a bundle is not touched.
     const h = fourInRound();
     h.place(2, [200, 0, 0]); h.place(4, [21, 0, 0]);

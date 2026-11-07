@@ -268,6 +268,20 @@ const keyOf=(r:Rgba):Promise<string>=>{
 };
 /** HD.R3's key of an image (the sha256 of its RGBA), kept per object; HD-3's menus key their kept images by it. */
 export const hdKeyOf=keyOf;
+/**
+ * GM-13d (plan 2026-11-01-gpu-menus): `r`'s key computed elsewhere -- the menus' decode worker, the same `sha256` over the
+ * same bytes -- kept as `hdKeyOf`'s memo, so the payload's check reads it without hashing on the page's main thread. The
+ * check itself is unchanged: a key that is not its entry's sha256 is refused alike. An image already keyed keeps its key.
+ * PRODUCT TRACK, a browser adaptation.
+ */
+export function seedHdKey(r:Rgba,key:string):void{if(!KEYS.has(r))KEYS.set(r,Promise.resolve(key));}
+/**
+ * GM-13d: the whole replacement's alpha rescale (`fullAlpha`'s bytes), `HdPackRuntime`'s step. The image is handed over:
+ * a step may take its pixels (transfer them to a worker), so the runtime passes only a payload nothing else holds.
+ */
+export type HdAlphaStep=(whole:Rgba)=>Rgba|Promise<Rgba>;
+/** The default step: `fullAlpha` here, as before GM-13d. */
+export const hdFullAlpha:HdAlphaStep=(r)=>({width:r.width,height:r.height,data:fullAlpha(r.data as Uint8ClampedArray)});
 export interface HdSkip {key:string;source:string;reason:string}
 export interface HdReport {applied:number;skipped:HdSkip[]}
 interface Original {image:DataTexture['image'];mipmaps:DataTexture['mipmaps'];generate:boolean;min:DataTexture['minFilter'];bytes:number}
@@ -297,10 +311,16 @@ export class HdPackRuntime {
   private skips:HdSkip[]=[];
   private generation=0;
   private pending=new Set<Promise<void>>();
-  private payloads=new Map<string,Promise<Rgba>>();
+  private payloads=new Map<string,{p:Promise<Rgba>;asks:{n:number}}>();
+  /** GM-13d: how many asked for each decoded payload (its load's `asks`): one asker alone may hand it to `alpha`. */
+  private askers=new WeakMap<Rgba,{n:number}>();
   private off:(()=>void)|null=null;
-  /** `changed` hears each texture applied, refused or let go (the status line). */
-  constructor(private registry:HdTextureRegistry=hdTextures,private load:HdLoad,private changed:()=>void=()=>undefined){ }
+  /**
+   * `changed` hears each texture applied, refused or let go (the status line). `alpha` (GM-13d): the whole replacement's
+   * alpha rescale -- `fullAlpha` here by default; the menus' pack passes their decode worker's.
+   */
+  constructor(private registry:HdTextureRegistry=hdTextures,private load:HdLoad,private changed:()=>void=()=>undefined,
+    private alpha:HdAlphaStep=hdFullAlpha){ }
   get applied():number{return this.originals.size;}
   get appliedBytes():number{let n=0;for(const o of this.originals.values())n+=o.bytes;return n;}
   skipped():HdSkip[]{return this.skips.slice();}
@@ -347,12 +367,31 @@ export class HdPackRuntime {
   private free():void{const next=this.queue.shift();if(next)next();else this.active--;}
   /** A file's load is shared by the textures that ask for it while it loads; none is kept after (the pack is GBs decoded). */
   private payload(e:HdEntry):Promise<Rgba>{
-    let p=this.payloads.get(e.file);
-    if(!p){
-      const q=(async()=>{await this.slot();try{return await this.load(e);}finally{this.free();}})();p=q;this.payloads.set(e.file,q);
-      void q.finally(()=>{if(this.payloads.get(e.file)===q)this.payloads.delete(e.file);}).catch(()=>undefined);
+    let s=this.payloads.get(e.file);
+    if(!s){
+      const asks={n:0};
+      const q=(async()=>{
+        await this.slot();
+        try{
+          const r=await this.load(e);
+          // GM-13d: a load that answers an image another load answered (a test's fixed payload) shares it.
+          const prior=this.askers.get(r);if(prior){prior.n=Infinity;asks.n=Infinity;}else this.askers.set(r,asks);
+          return r;
+        }finally{this.free();}
+      })();
+      const made={p:q,asks};s=made;this.payloads.set(e.file,made);
+      void q.finally(()=>{if(this.payloads.get(e.file)===made)this.payloads.delete(e.file);}).catch(()=>undefined);
     }
-    return p;
+    s.asks.n++;
+    return s.p;
+  }
+  /**
+   * GM-13d: `r` (a payload of `file`) is held by one asker alone and no later ask can share it: its pixels may be handed
+   * to the alpha step.
+   */
+  private alone(r:Rgba,file:string):boolean{
+    const asks=this.askers.get(r);
+    return asks!==undefined&&asks.n===1&&this.payloads.get(file)?.asks!==asks;
   }
   /** Every entry of a key declares one source size (`validateHdManifest`); a decode of another size is refused. */
   private sizeMatches(g:HdGroup,key:string,src:Rgba):boolean{
@@ -385,8 +424,18 @@ export class HdPackRuntime {
     if(g.whole){
       let whole=await this.checked(g.whole,key,generation);
       if(generation!==this.generation)return null;
-      if(whole)base={width:whole.width,height:whole.height,data:fullAlpha(whole.data)};
-      whole=null;                                     // the decoded whole let go: its alpha copy is the composite
+      if(whole){
+        // GM-13d: the step (the menus' worker) takes a payload only this build holds; one shared with another build (a
+        // file serving several keys, or asked for twice while it loaded) is rescaled here, as before. Review F1: only an
+        // injected step's refusal is caught -- the whole dropped, with why, the build going on as for a whole refused by
+        // its hash; the default step's throw rejects the build, as before GM-13d (the match's path exactly today's).
+        const step=this.alone(whole,g.whole.file)?this.alpha:hdFullAlpha;
+        if(step===hdFullAlpha)base=hdFullAlpha(whole) as Rgba;
+        else try{const out=step(whole);base=out instanceof Promise?await out:out;}
+        catch(x){if(generation===this.generation)this.skip(key,`alpha rescale unavailable (${x instanceof Error?x.message:x})`,g.whole.source);}
+        if(generation!==this.generation)return null;
+      }
+      whole=null;                                     // the decoded whole let go (handed over): its alpha copy is the composite
     }
     let plan:readonly HdEntry[]=g.placed;
     for(;;){

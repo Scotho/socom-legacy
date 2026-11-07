@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { PerspectiveCamera, Vector3 } from 'three';
 import {
-  MP_TEAM_TAG_CULL_READING, MP_TEAM_TAG_TALKER_ADAPTATION, teamTagInput, teamTags, type TeamTagBody, type TeamTagInput, type TeamTagPoint, type TeamTagsView,
+  MP_TEAM_TAG_CULL_READING, MP_TEAM_TAG_TALKER_ADAPTATION, TEAMMATE_NAME_DISTANCE_ADAPTATION, TEAMMATE_NAMES_ORIGINAL_VALUE, teamTagInput,
+  teamTags, type TeamTagBody, type TeamTagInput, type TeamTagPoint, type TeamTagsView,
 } from '../src/hudTags';
 import {
   MP_TEAM_TAG_LINE_HEIGHT_READING, MP_TEAM_TAG_TOP_MARGIN_READING, MP_TEAM_TAG_WIDE_FRAME_ADAPTATION, TEAM_TAG_LAYOUT, teamTagLayout,
@@ -221,5 +222,55 @@ describe('NU-9 T1: teamTagInput -- the page\'s rows, names, sides, heads and the
     // A spectator page: team null, no tags (the team rule).
     expect(teamTagInput({ ...page, client: { id: 9, role: 'spectator', team: null } }, remotes, camera, { holder: null }).self).toEqual({ id: 9, team: null });
     expect(teamTags(teamTagInput(page, remotes, camera, { holder: null })).points.map((p) => p.id)).toEqual([2]);
+  });
+});
+
+/**
+ * LATER 671 (OT.R101; product track, **a browser adaptation**, `TEAMMATE_NAME_DISTANCE_ADAPTATION`): by default the tags
+ * are drawn smaller than the original's 0.9 and fade with the teammate's distance from the camera; TEAMMATE NAMES'
+ * "original" setting (`DISPLAY_MP_TEAM_NAMES` 2, `TEAMMATE_NAMES_ORIGINAL_VALUE`) keeps the original's tags exactly --
+ * 0.9 (D:L77539), alpha 100 alive, 100 - 20 t dead (D:L77427-77433), no distance term.
+ */
+describe('LATER 671: the name tags smaller and fading with distance by default; the original behind TEAMMATE NAMES "original"', () => {
+  const A = TEAMMATE_NAME_DISTANCE_ADAPTATION;
+  const near = (over: Partial<TeamTagBody> = {}): TeamTagBody => mate(2, { head: [0, 0, -100], ...over });
+  const far = (over: Partial<TeamTagBody> = {}): TeamTagBody => mate(3, { head: [0, 0, -3000], name: 'ALPHA', ...over });
+
+  it('the adaptation\'s values (the controller\'s starting values, the owner\'s to tune): 0.7, full to 250 units, 35% from 1000', () => {
+    expect(A).toEqual({ scale: 0.7, near: 250, far: 1000, minAlpha: 0.35 });
+    expect(A.scale).toBeLessThan(TEAM_TAG_LAYOUT.scale);
+    expect(TEAMMATE_NAMES_ORIGINAL_VALUE).toBe(2);
+  });
+
+  it('(a) the original setting: today\'s points for a near and a far teammate -- alpha 100 alive, 100 - 20 t dead, scale 0.9', () => {
+    const out = teamTags(input([near(), far()], { original: true }));
+    expect(out.points.map((p) => [p.id, p.alpha])).toEqual([[2, 100], [3, 100]]);
+    expect(out.scale).toBe(0.9);
+    const dead = teamTags(input([near({ dead: 2.5 }), far({ dead: 2.5 })], { original: true }));
+    expect(dead.points.map((p) => p.alpha)).toEqual([50, 50]);
+    // The layout at 0.9: each width the text's at 0.9, the alpha carried.
+    const laid = teamTagLayout(out).tags;
+    expect(laid.map((t) => [t.id, t.width, t.alpha])).toEqual([[2, textWidth('BRAVO', 0.9), 100], [3, textWidth('ALPHA', 0.9), 100]]);
+  });
+
+  it('(b) the adaptation, the default: a far teammate\'s alpha below a near one\'s, the death fade on top, the scale below 0.9', () => {
+    const out = teamTags(input([near(), far()]));
+    const [n, f] = out.points;
+    expect(n!.distance).toBeCloseTo(100, 9);
+    expect(f!.distance).toBeCloseTo(3000, 9);
+    expect(n!.alpha).toBe(100);                                   // within `near`: full
+    expect(f!.alpha).toBeCloseTo(100 * A.minAlpha, 9);            // past `far`: the floor
+    expect(f!.alpha).toBeLessThan(n!.alpha);
+    expect(out.scale).toBe(A.scale);
+    expect(out.scale).toBeLessThan(0.9);
+    // Linear between: halfway, halfway between 1 and the floor.
+    const mid = (A.near + A.far) / 2;
+    expect(teamTags(input([mate(2, { head: [0, 0, -mid] })])).points[0]!.alpha).toBeCloseTo(100 * (1 + A.minAlpha) / 2, 9);
+    // The death fade still on top: 100 - 20 t, times the distance's factor.
+    expect(teamTags(input([far({ dead: 2.5 })])).points[0]!.alpha).toBeCloseTo(50 * A.minAlpha, 9);
+    // The layout and the width at the adaptation's scale (one value for the bounds, the overlap push and the draw).
+    const laid = teamTagLayout(out).tags;
+    expect(laid.map((t) => t.width)).toEqual([textWidth('BRAVO', A.scale), textWidth('ALPHA', A.scale)]);
+    expect(laid[0]!.width).toBeLessThan(textWidth('BRAVO', 0.9));
   });
 });

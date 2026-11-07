@@ -4,6 +4,17 @@ import { Reader } from './bytes';
  *  the uncompiled `.rdr` text had them -- callers that want a number call `Number()`. */
 export type RdrNode = string | RdrNode[];
 
+/**
+ * A decoded compiled script with each leaf's node type kept (LOBBY-MAPNAME): what `parseRdr` flattens to text -- an
+ * int (type 1), a float (type 2, its f32) and a string (type 3) -- for a reader whose consumer copies the node itself
+ * (`CUIVariableSpec`'s VALUE, `FUN_00386ff0` D:L280324 through `FUN_0032f390`).
+ */
+export type RdrTypedNode =
+  | { readonly type: 'int'; readonly value: number }
+  | { readonly type: 'real'; readonly value: number }
+  | { readonly type: 'string'; readonly value: string }
+  | readonly RdrTypedNode[];
+
 // 36 §6. The codes are the ones the scratch rdr.py decoded five maps' scripts with.
 const TYPE_INT = 1, TYPE_FLOAT = 2, TYPE_STRING = 3, TYPE_LIST = 4;
 const STRINGS_AT = 12;   // 36 §6: a string's `value` is a byte offset from the end of the 12-byte head
@@ -38,6 +49,21 @@ function f32Text(v: number): string {
  * `{u32 (type:8, isclone:1, packed:1, unused:6, length:16); u32 value}`. Returns the root node, a list.
  */
 export function parseRdr(bytes: Uint8Array): RdrNode {
+  return walkRdr<RdrNode>(bytes, {
+    int: (v) => String(v), real: (v) => f32Text(v), string: (v) => v, list: (items) => items,
+  });
+}
+
+/** `parseRdr` with each leaf's node type kept (`RdrTypedNode`): the same walk, the same bounds. */
+export function parseRdrTyped(bytes: Uint8Array): RdrTypedNode {
+  return walkRdr<RdrTypedNode>(bytes, {
+    int: (value) => ({ type: 'int', value }), real: (value) => ({ type: 'real', value }), string: (value) => ({ type: 'string', value }), list: (items) => items,
+  });
+}
+
+interface RdrLeaves<T> { int(v: number): T; real(v: number): T; string(v: string): T; list(items: T[]): T }
+
+function walkRdr<T>(bytes: Uint8Array, make: RdrLeaves<T>): T {
   const r = new Reader(bytes);
   const version = r.u32(0);
   if (version !== 1) throw new Error(`rdr version ${version}, expected 1`);
@@ -45,22 +71,22 @@ export function parseRdr(bytes: Uint8Array): RdrNode {
   const budget = RDR_VISIT_FACTOR * Math.max(0, Math.floor((bytes.length - nodesAt) / NODE_SIZE));
   let visited = 0;
 
-  const node = (byteOfs: number, depth: number): RdrNode => {
+  const node = (byteOfs: number, depth: number): T => {
     if (depth > MAX_DEPTH) throw new Error(`rdr nesting deeper than ${MAX_DEPTH} at node byte ${byteOfs}`);
     if (++visited > budget) throw new Error(`rdr walks more than ${budget} nodes (${RDR_VISIT_FACTOR}x its node array) at node byte ${byteOfs}`);
     const word = r.u32(nodesAt + byteOfs), value = r.u32(nodesAt + byteOfs + 4);
     const type = word & 0xff, length = word >>> 16;   // the isclone/packed flags in bits 8-9 are load-time hints
     switch (type) {
-      case TYPE_INT: return String(r.i32(nodesAt + byteOfs + 4));
-      case TYPE_FLOAT: return f32Text(r.f32(nodesAt + byteOfs + 4));
+      case TYPE_INT: return make.int(r.i32(nodesAt + byteOfs + 4));
+      case TYPE_FLOAT: return make.real(r.f32(nodesAt + byteOfs + 4));
       case TYPE_STRING: {
         if (value >= stringTableSize) throw new Error(`rdr string at ${value} outside the ${stringTableSize}-byte table`);
-        return r.cstr(STRINGS_AT + value, stringTableSize - value);
+        return make.string(r.cstr(STRINGS_AT + value, stringTableSize - value));
       }
       case TYPE_LIST: {
-        const out: RdrNode[] = [];
+        const out: T[] = [];
         for (let i = 0; i < length; i++) out.push(node(value + NODE_SIZE * i, depth + 1));
-        return out;
+        return make.list(out);
       }
       default: throw new Error(`rdr node type ${type} at node byte ${byteOfs}`);
     }

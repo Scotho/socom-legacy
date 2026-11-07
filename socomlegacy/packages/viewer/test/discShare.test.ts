@@ -235,15 +235,15 @@ describe('DSH-4: the adapter end to end (receiver and sender, fake central, fake
     t.rx.dispose();
   });
 
-  it('a relayed pair is refused on both sides with the reason, nothing stored', async () => {
-    const t = pair({ refuse: 'The devices could only reach each other through a relay server, so nothing was sent.' });
+  it('a pair the connection refuses (DSH.R15: an unread pair; a relay is no longer refused) fails both sides with the reason, nothing stored', async () => {
+    const t = pair({ refuse: 'The connection between the devices could not be read, so nothing was sent. Try again.' });
     t.rx.request();
     await until(() => t.rx.receiver().phase === 'waiting', 'waiting');
     const tx = t.txFor(t.rx.receiver().code!);
     tx.approve();
     await until(() => t.rx.receiver().phase === 'failed' && tx.sender()!.phase === 'failed', 'both failed');
-    expect(t.rx.receiver().reason).toMatch(/relay/);
-    expect(tx.sender()!.reason).toMatch(/relay/);
+    expect(t.rx.receiver().reason).toMatch(/could not be read/);
+    expect(tx.sender()!.reason).toMatch(/could not be read/);
     expect(t.st.stored.size).toBe(0);
     t.rx.dispose(); tx.dispose();
   });
@@ -474,5 +474,61 @@ describe('DSH-4 review: the adapter after the pipe is up', () => {
     await vi.advanceTimersByTimeAsync(10_000);                    // the receiver's linger
     expect(vi.getTimerCount()).toBe(0);
     t.rx.dispose(); tx.dispose();
+  });
+});
+
+describe('DSH.R15: across networks -- the ICE servers from the pairing, the path said', () => {
+  it('each side\'s connection asks the pairing for its ICE servers with its own id and secret; both screens say the path', async () => {
+    const central = fakeCentral();
+    const asked: { id: string; secret: string }[] = [];
+    const withIce = (base: DiscShareSignal): DiscShareSignal => ({
+      ...base, async ice(id, secret) { asked.push({ id, secret }); return [{ urls: 'stun:stun.cloudflare.com:3478' }]; },
+    });
+    const inner = fakePeers();
+    const given: unknown[][] = [];
+    const peer: PeerFactory = (role, send, iceServers) => {
+      const s = inner(role, send);
+      void iceServers?.().then((l) => { given.push([...l]); });
+      return { ready: s.ready, close: () => { s.close(); }, handle: (m) => { s.handle(m); }, via: () => 'relay' };
+    };
+    const fs = files(150_000, 90_000);
+    const rx = liveDiscShare({ search: '', origin: ORIGIN, signal: withIce(central.client()), complete: () => false, peer, store: store(), readSet: 3, isReadSet: syntheticSet });
+    rx.request();
+    await until(() => rx.receiver().phase === 'waiting', 'waiting');
+    const tx = liveDiscShare({
+      search: `?discshare=${rx.receiver().code!}`, origin: ORIGIN, signal: withIce(central.client()), complete: () => true, peer, sendSource: async () => source(fs, 3), readSet: 3,
+    });
+    tx.approve();
+    await until(() => tx.sender()!.phase === 'sending' && tx.sender()!.via !== undefined, 'the sender linked');
+    await until(() => rx.receiver().phase === 'done' && tx.sender()!.phase === 'done', 'both done');
+    expect(rx.receiver().via).toBe('relay');
+    expect(tx.sender()!.via).toBe('relay');
+    expect(asked).toHaveLength(2);
+    expect(new Set(asked.map((a) => a.id)).size).toBe(1);
+    expect(new Set(asked.map((a) => a.secret)).size).toBe(2);
+    expect(given).toEqual([[{ urls: 'stun:stun.cloudflare.com:3478' }], [{ urls: 'stun:stun.cloudflare.com:3478' }]]);
+    rx.dispose(); tx.dispose();
+  });
+
+  it('a pairing client with no ice route: the copy is still made (rtcPeer then takes Cloudflare\'s STUN)', async () => {
+    const t = pair();
+    t.rx.request();
+    await until(() => t.rx.receiver().phase === 'waiting', 'waiting');
+    const tx = t.txFor(t.rx.receiver().code!);
+    tx.approve();
+    await until(() => t.rx.receiver().phase === 'done' && tx.sender()!.phase === 'done', 'both done');
+    expect(t.rx.receiver().via).toBeUndefined();               // the fake peers say no path
+    t.rx.dispose(); tx.dispose();
+  });
+
+  it('only the discShare modules name the ICE route (DA.R3: the extraction and copy modules name no network)', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const src = resolve(import.meta.dirname, '../src');
+    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(resolve(d, e.name)) : /\.ts$/.test(e.name) ? [resolve(d, e.name)] : []));
+    const naming = walk(src).filter((f) => /DISCSHARE_ICE_ROUTE|\/api\/discshare\/ice/.test(readFileSync(f, 'utf8')));
+    const names = naming.map((f) => f.replace(/\\/g, '/').split('/').pop()!);
+    expect(names).toEqual(expect.arrayContaining(['discShareSignal.ts', 'discShareWire.ts']));
+    for (const n of names) expect(n).toMatch(/^discShare[A-Za-z]*\.ts$/);
   });
 });

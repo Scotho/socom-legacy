@@ -1,0 +1,4 @@
+# What the guide's steps make here: the icon draw-icon.mjs draws, and the zip. Never committed (MW.R7: the icon is
+# drawn by the script; the wiki's tests draw their own).
+pack/icon.png
+*.zip

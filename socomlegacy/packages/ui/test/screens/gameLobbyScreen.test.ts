@@ -11,7 +11,7 @@ import { UI_TICK_SECONDS } from '../../src/clock/uiClock';
 import { CREATE_GAME, clanField } from '../../src/screens/createGameCommands';
 import { VALVE_TYPE } from '../../src/valves';
 import { HAVE } from './worldOfSocomRig';
-import { gameLobbyRig, seat, type GameLobbyRigOptions } from './gameLobbyRig';
+import { discMissionVars, gameLobbyRig, seat, type GameLobbyRigOptions } from './gameLobbyRig';
 
 /**
  * ONL-16a over the machine (web research 165): from the BRIEFING ROOM through a listed game's join into the GAME LOBBY
@@ -282,6 +282,69 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(clock).toBeGreaterThan(15);                                               // the gate's 30 s from the seat's hello, the join's own seconds gone
     await r.settle(3 * SECOND);
     expect(r.valve('mp_45_sec_clock')).toBe(clock - 3);
+  });
+
+  /**
+   * LOBBY-MAPNAME (the player report "the lobby does not display the map name"): `check_loop`'s `AdvanceMPMission`
+   * (`FUN_00279490`) ends by loading the current mission (`FUN_002acc10(0x4364e0, 0x414e00)`, D:L123881), whose UiVars half
+   * (D:L152356-152381) adds every `mission.rdr` `UiVars` entry to the UI variables (`FUN_003857c0(0x437e80, ..)`) at the
+   * spec's longevity -- TEMPORARY, the default of `FUN_00386ff0` (D:L280328) with no LONGEVITY in any MP map's entries.
+   * The title bar's `MPgamename` (UIVAR `mission_title`) then draws MP2's own title.
+   */
+  it('LOBBY-MAPNAME: AdvanceMPMission loads the mission\'s UiVars -- MPgamename draws MP2\'s mission_title FROSTFIRE (TEMPORARY), as the ARMORY\'s does', async () => {
+    const r = await lobby({ missionVars: discMissionVars });
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
+    const title = r.uiVars.find('mission_title')!;
+    expect([title.value, title.longevity]).toEqual([{ type: 'string', value: 'FROSTFIRE' }, 1]);
+    expect(r.uiVars.find('EQUIPMENT_LIBRARY')!.value).toEqual({ type: 'string', value: 'ui/assetlib/eq/em02' });
+  });
+
+  it('LOBBY-MAPNAME (MISSION_VARS_ASYNC_ADAPTATION): the page\'s read resolving later adds the same entries; a read for a mission the lobby has left adds none', async () => {
+    const asked: string[] = [];
+    let r = await lobby({ missionVars: (m) => { asked.push(m); return Promise.resolve(discMissionVars(m)); } });
+    expect(asked[0]).toBe('mp2');
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
+    let release!: () => void;
+    const held = new Promise<void>((done) => { release = done; });
+    r = await lobby({ missionVars: (m) => held.then(() => discMissionVars(m)) });
+    const frostfire = { type: 'string', value: 'FROSTFIRE' };
+    expect(r.text('MPgamename')).toEqual(['']);                                               // not yet read: the dialog's own empty var
+    expect(r.uiVars.find('mission_title')?.value).not.toEqual(frostfire);
+    r.commands.welcomed(2, 'MP72');                                                           // the lobby moved on before the read came
+    release();
+    await r.settle(2);
+    expect(r.uiVars.find('mission_title')?.value).not.toEqual(frostfire);
+    expect(r.text('MPgamename')).toEqual(['']);
+  });
+
+  /**
+   * LOBBY-MAPNAME, the review's F1: the creator is let into the lobby as the session master before any welcome
+   * (`JoinGameServer`, `CREATOR_MASTER_READING`), and `check_loop` runs `AdvanceMPMission` once -- the master byte stands
+   * there for D:L123856's network test as `IsSessionMaster` reads it, so the creator's title bar is drawn too.
+   */
+  it('LOBBY-MAPNAME: the creator\'s lobby, its welcome only after check_loop -- MPgamename draws FROSTFIRE', async () => {
+    const r = await briefing({ welcome: null, missionVars: discMissionVars });
+    go(r, 'CRgame');
+    r.press('CROSS', 4);
+    await until(r, () => r.current() === CREATE_GAME, 10 * SECOND);
+    await r.settle(SETTLED);
+    r.uiVars.set(r.uiVars.add('GAMENAMEVAR', null, 2), { type: 'string', value: 'mine' });
+    r.uiVars.set(r.uiVars.add('PLAYLISTVAR', null, 2), { type: 'array', value: [{ type: 'array', value: [{ type: 'int', value: 2 }] }] });
+    r.press('SQUARE', 4);
+    await until(r, () => r.current() === GAME_LOBBY, 20 * SECOND);
+    expect([r.current(), r.socketLog]).toEqual([GAME_LOBBY, ['open 9']]);
+    await r.settle(SETTLED);
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
+    r.commands.welcomed(1, 'MP2');                                                            // the welcome, late
+    r.commands.gameLobby(view([seat(1, 'socomc', 'seal', { host: true })]));
+    await r.settle(2);
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
+  });
+
+  it('LOBBY-MAPNAME, the review\'s F2: LOAD_PROGRESS, a FLOAT node on the maps that carry it, is added as a real, not as its text', async () => {
+    const r = await lobby({ missionVars: (m) => discMissionVars(m === 'mp2' ? 'mp72' : m) });
+    expect(r.uiVars.find('LOAD_PROGRESS')!.value).toEqual({ type: 'real', value: 28 });
+    expect(r.uiVars.find('mission_title')!.value).toEqual({ type: 'string', value: 'CROSSROADS' });
   });
 
   it('ONL-34 (W18.R7): the lists\' second column is each seat\'s medal from SEAT-TOLD -- the star for all on a ladder under 12, the next round\'s medals after it', async () => {

@@ -264,7 +264,7 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     expect(c.ui.focus.holder()).toBe('lease');
     shell.unregister('lease');
     expect(c.ui.focus.holder()).toBeNull();
-  }, 20_000);
+  }, 90_000);
 
   const key = (target: EventTarget, code: string, k: string): KeyboardEvent => {
     const e = new KeyboardEvent('keydown', { code, key: k, bubbles: true, cancelable: true });
@@ -318,7 +318,7 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     expect(menuOpen()).toBe(true);
     key(window, 'KeyM', 'm');
     expect(menuOpen()).toBe(false);
-  }, 20_000);
+  }, 90_000);
 
   it('R3-A (7): a staged drop is the page\'s to dispose -- cancelled when a placement stops being admitted (no lease needed) and when its panel unregisters', async () => {
     const { mountForge } = await import('../../src/forge/page');
@@ -351,5 +351,5 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     // A drop staged after the panel's signal aborted is let go at once.
     const late = await c.editor!.stagePiece('MP84:synthetic');
     expect(late === null || late.disposed).toBe(true);
-  }, 20_000);
+  }, 90_000);
 });

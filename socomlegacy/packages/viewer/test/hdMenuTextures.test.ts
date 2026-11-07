@@ -1,7 +1,8 @@
 import {describe,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import type {Rgba} from '@s2u/gs';
-import {HdTextureRegistry,HD_UI_SAMPLING,upscaleRgba,type HdManifest,type HdEntry} from '../src/hdTexturePack';
+import {HdTextureRegistry,HD_UI_SAMPLING,fullAlpha,upscaleRgba,type HdManifest,type HdEntry} from '../src/hdTexturePack';
+import {decodeDds} from '../src/dds';
 import {HdServedPack,HD_ROOT} from '../src/hdTexturePackServed';
 import {HdMenuDecoder,HdMenuTextures,HdMenus,hdMenuScale,pageHdMenus,parseHdMenuScale,menuStatusKey} from '../src/hdMenuTextures';
 import {UiGpuLoadBudget} from '../src/uiGpuLoadBudget';
@@ -244,9 +245,11 @@ describe('GM-13b: the menus\' HD decode through their decoder',()=>{
   function recordingDecoder(opts:{gate?:Promise<void>;refuse?:boolean;during?:()=>void}={}){
     const calls:string[]=[];
     const d=new HdMenuDecoder(()=>null,async()=>undefined);
-    const png=d.png,turn=d.turn.bind(d);
+    const png=d.png,turn=d.turn.bind(d),dds=d.dds,alpha=d.alpha;
     Object.assign(d,{
       png:(b:Uint8Array,e:number)=>{calls.push('png');return png(b,e);},
+      dds:(b:Uint8Array,s:{width:number;height:number})=>{calls.push('dds');return dds(b,s);},
+      alpha:(r:Rgba)=>{calls.push('alpha');return alpha(r);},
       turn:async(r:Rgba)=>{calls.push('turn');opts.during?.();if(opts.gate)await opts.gate;if(opts.refuse)throw new Error('the worker died');return turn(r);},
     });
     return {d,calls};
@@ -314,6 +317,38 @@ describe('GM-13b: the menus\' HD decode through their decoder',()=>{
     expect(calls).toEqual(['png','turn']);
     expect(imageOf(via.options().hd!(bitmap)!)).toEqual(imageOf(today.options().hd!(bitmap)!));
     await via.set(false);expect(closed).toBe(1);
+  });
+  // GM-13d (plan 2026-11-01-gpu-menus, row GM-13d): the DDS decode and the whole's alpha rescale through the same decoder.
+  it('GM-13d: the menus\' pack decodes a DDS payload and rescales its alpha through the decoder; the image is today\'s',async()=>{
+    const decode=pattern(4,4,3),hd=pattern(16,16,9,100),{fetcher}=await served(decode,hd);
+    const today=new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false)));
+    const {d,calls}=recordingDecoder();
+    const via=new HdMenus((dec)=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false),null,dec??undefined),4,d);
+    await today.set(true);await via.set(true);
+    const bitmap=flipRows(decode);
+    today.options().hd!(bitmap);via.options().hd!(bitmap);await today.settled();await via.settled();
+    expect(calls).toEqual(['dds','alpha','turn']);
+    expect(imageOf(via.options().hd!(bitmap)!)).toEqual(imageOf(today.options().hd!(bitmap)!));
+    await via.set(false);
+  });
+  it('GM-13d: no worker -- the decoder\'s dds and alpha run on the main thread, the same bytes as decodeDds and fullAlpha',async()=>{
+    const hd=pattern(16,16,9,100),file=dds(hd);
+    const d=new HdMenuDecoder(()=>null,async()=>undefined);
+    const got=await d.dds(file,{width:16,height:16});
+    expect(d.mode).toBe('main');
+    expect(imageOf(got)).toEqual(imageOf(decodeDds(file,{width:16,height:16})));
+    const a=await d.alpha({width:16,height:16,data:new Uint8ClampedArray(hd.data)});
+    expect(imageOf(a)).toEqual(imageOf({width:16,height:16,data:fullAlpha(hd.data as Uint8ClampedArray)}));
+  });
+  it('GM-13d: the page\'s menus hand their pack the decoder (its dds, and its alpha to the runtime); the match\'s pack none',()=>{
+    const d=new HdMenuDecoder(()=>null,async()=>undefined);
+    const hd=pageHdMenus(4,d),pack=(hd as unknown as {make:(dec:HdMenuDecoder|null)=>HdServedPack}).make(d);
+    expect((pack as unknown as {decodeDds:unknown}).decodeDds).toBe(d.dds);
+    expect((pack as unknown as {decodePng:unknown}).decodePng).toBe(d.png);
+    expect((pack.runtime as unknown as {alpha:unknown}).alpha).toBe(d.alpha);
+    const plain=new HdServedPack();
+    expect((plain as unknown as {decodeDds:unknown}).decodeDds).toBe(decodeDds);
+    expect((plain.runtime as unknown as {alpha:unknown}).alpha).not.toBe(d.alpha);
   });
 });
 

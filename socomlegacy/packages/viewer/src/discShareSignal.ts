@@ -1,7 +1,7 @@
 import {
-  DISCSHARE_CLAIM_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_POLL_HOLD_MS, DISCSHARE_REQUEST_ROUTE, DISCSHARE_SECRET_HEADER, DISCSHARE_SIGNAL_ROUTE,
-  normaliseDiscShareCode, type DiscShareClaimAnswer, type DiscShareMsg, type DiscShareNearbyRequest, type DiscShareQueued,
-  type DiscShareRequestAnswer, type DiscSharePageType,
+  DISCSHARE_CLAIM_ROUTE, DISCSHARE_ICE_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_POLL_HOLD_MS, DISCSHARE_REQUEST_ROUTE, DISCSHARE_SECRET_HEADER,
+  DISCSHARE_SIGNAL_ROUTE, normaliseDiscShareCode, readIceServers, type DiscShareClaimAnswer, type DiscShareIceServer, type DiscShareMsg,
+  type DiscShareNearbyRequest, type DiscShareQueued, type DiscShareRequestAnswer, type DiscSharePageType,
 } from './discShareWire';
 
 /**
@@ -54,9 +54,16 @@ export interface DiscShareSignal {
   send(id: string, secret: string, msg: DiscShareMsg & { type: DiscSharePageType }, signal?: AbortSignal): Promise<void>;
   /** The long-poll: this side's messages after `after` (empty when the hold ends with none). */
   poll(id: string, secret: string, after: number, signal?: AbortSignal): Promise<DiscShareQueued[]>;
+  /**
+   * DSH.R15: this side's ICE servers for a claimed pair (`./discShareWire` `readIceServers`: a port-53 URL dropped).
+   * Optional: a client without it (a test's fake) leaves the connection to its default, Cloudflare's STUN.
+   */
+  ice?(id: string, secret: string, signal?: AbortSignal): Promise<DiscShareIceServer[]>;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** A query value as URLSearchParams writes it (a space as `+`); built by hand, not a read of the page's address (PTT-9). */
+const form = (v: string): string => encodeURIComponent(v).replace(/%20/g, '+');
 
 /** The client over `fetchFn` at `base`. */
 export function discShareSignal(base: string, fetchFn: typeof fetch = (...a) => fetch(...a), opts: DiscShareSignalOptions = {}): DiscShareSignal {
@@ -122,12 +129,17 @@ export function discShareSignal(base: string, fetchFn: typeof fetch = (...a) => 
     },
     async poll(id, secret, after, signal) {
       // the request's own query, built by hand: not a read of the page's address (PTT-9's scan reads URLSearchParams as one)
-      const form = (v: string): string => encodeURIComponent(v).replace(/%20/g, '+');   // a space as URLSearchParams writes it; id is base64url and after a number
       const q = `id=${form(id)}&after=${form(String(after))}`;
       const b = await call(`${DISCSHARE_SIGNAL_ROUTE}?${q}`, { method: 'GET', headers: { [DISCSHARE_SECRET_HEADER]: secret } }, pollMs, signal);
       if (!isObj(b) || !Array.isArray(b['messages'])) throw malformed();
       return b['messages'].flatMap((m: unknown) => (isObj(m) && typeof m['seq'] === 'number' && isObj(m['msg']) && typeof m['msg']['type'] === 'string'
         ? [{ seq: m['seq'], msg: m['msg'] as DiscShareMsg }] : []));
+    },
+    async ice(id, secret, signal) {
+      const b = await call(`${DISCSHARE_ICE_ROUTE}?id=${form(id)}`, { method: 'GET', headers: { [DISCSHARE_SECRET_HEADER]: secret } }, callMs, signal);
+      const servers = isObj(b) ? readIceServers(b['iceServers']) : null;
+      if (servers === null) throw malformed();
+      return servers;
     },
   };
 }

@@ -28,7 +28,7 @@ import {
   decodeEffectOp, decodeEffectProgram, isDestructibleAnim, NODE_CALLER, NODE_ROOT, parseAnimSets, ZANIM_COMMAND_NAMES, ZCMD,
   type EffectCondition, type EffectOp, type EffectProgram, type ZAnimAnimation,
 } from '@s2u/scene';
-import { EffectRun, type EffectHost } from '../packages/viewer/src/effectRunner';
+import { EffectRun, indoorsOperand, type EffectHost } from '../packages/viewer/src/effectRunner';
 import { valveTest } from '../packages/viewer/src/doors';
 import { readActionRecords, type ActionRecord } from '../packages/viewer/src/mapActions';
 
@@ -135,13 +135,18 @@ export function holdsBefore(cs: readonly EffectCondition[], valueOf: (c: EffectC
   return cs.every((c) => (c.kind === 'operator' ? false : valueOf(c)));
 }
 
-/** One answer per operand: a valve's value by name, a random draw's or a range test's truth by its token index. */
+/**
+ * One answer per operand: a valve's value by name, a random draw's, a range test's or (INV-RAIN F3) an indoors test's
+ * truth by its token index.
+ */
 interface State { valves: Map<string, number>; flags: Map<number, boolean> }
 
 /**
  * Which branch the viewer's `EffectRun` takes on this condition in `state`: a one-IF program run once, the host
  * answering a valve test through `valveTest` (`doors.ts`, `FUN_00353fd0`'s tests), a random draw by its token's flag
- * (drawn true: -Infinity <= p; false: +Infinity), a range test by its flag, any other operand false (every host's).
+ * (drawn true: -Infinity <= p; false: +Infinity), a range test by its flag, set 0's `CAMERA_INDOORS` / `PLAYER_INDOORS`
+ * by its flag (INV-RAIN F3: the viewer's host answers them from the floor, `indoorsOperand`), any other operand false
+ * (every host's; the runner never asks an unread one).
  */
 export function branchNow(cs: readonly EffectCondition[], state: State): 'then' | 'else' {
   const draws = cs.map((c, i) => (c.kind === 'random' ? (state.flags.get(i) ? -Infinity : Infinity) : null)).filter((x): x is number => x !== null);
@@ -150,10 +155,11 @@ export function branchNow(cs: readonly EffectCondition[], state: State): 'then' 
     begin: (op) => { if (op.op === 'call') log.push(op.anim); },
     test: (c) => {
       if (c.kind === 'valve') return valveTest(state.valves.get(valveName(c)) ?? 0, c.operation, c.operand);
-      if (c.kind === 'range') return state.flags.get(cs.indexOf(c)) ?? false;
+      if (c.kind === 'range' || indoorsOperand(c)) return state.flags.get(cs.indexOf(c)) ?? false;
       return false;
     },
     random: () => draws.shift() ?? Infinity,
+    answersIndoors: true,   // the effect runner's host (`effects.ts`): it answers 66 and 72 (FIX-SOUND: other hosts do not)
   };
   const program: EffectProgram = {
     name: 'sweep', root: 0, flags: 0, nodes: ['NA'],
@@ -165,7 +171,7 @@ export function branchNow(cs: readonly EffectCondition[], state: State): 'then' 
   return log[0] === 'then' ? 'then' : 'else';
 }
 
-/** The same state through `holdsBefore`. */
+/** The same state through `holdsBefore`: the base's hosts answered no indoors test (every `other` false). */
 export function branchBefore(cs: readonly EffectCondition[], state: State): 'then' | 'else' {
   return holdsBefore(cs, (c) => {
     if (c.kind === 'valve') return valveTest(state.valves.get(valveName(c)) ?? 0, c.operation, c.operand);
@@ -178,7 +184,8 @@ const STATE_CAP = 256;
 
 /**
  * Every state of a condition's operands: each valve over 0, each test's operand and its neighbours (not below 0) and the
- * values `sets` holds for it; each random draw and range test true and false. Null when there are more than 256.
+ * values `sets` holds for it; each random draw, range test and (INV-RAIN F3) set 0 indoors test true and false. Null
+ * when there are more than 256.
  */
 export function statesOf(cs: readonly EffectCondition[], sets: ReadonlyMap<string, ReadonlySet<number>>): State[] | null {
   const values = new Map<string, Set<number>>();
@@ -189,7 +196,7 @@ export function statesOf(cs: readonly EffectCondition[], sets: ReadonlyMap<strin
       for (const x of [c.operand - 1, c.operand, c.operand + 1]) if (x >= 0) v.add(x);
       for (const x of sets.get(name) ?? []) v.add(x);
       values.set(name, v);
-    } else if (c.kind === 'random' || c.kind === 'range') flags.push(i);
+    } else if (c.kind === 'random' || c.kind === 'range' || indoorsOperand(c)) flags.push(i);
   });
   const names = [...values.keys()];
   let count = 2 ** flags.length;
@@ -207,7 +214,8 @@ export function statesOf(cs: readonly EffectCondition[], sets: ReadonlyMap<strin
 
 export function stateText(cs: readonly EffectCondition[], s: State): string {
   const parts = [...s.valves].map(([n, v]) => `${n}=${v}`);
-  for (const [i, b] of s.flags) parts.push(`${cs[i]!.kind === 'random' ? 'draw' : 'range'}@${i}=${b ? 'T' : 'F'}`);
+  const label = (c: EffectCondition): string => (c.kind === 'random' ? 'draw' : c.kind === 'range' ? 'range' : `${indoorsOperand(c)}Indoors`);
+  for (const [i, b] of s.flags) parts.push(`${label(cs[i]!)}@${i}=${b ? 'T' : 'F'}`);
   return parts.join(' ') || '(no operand state)';
 }
 

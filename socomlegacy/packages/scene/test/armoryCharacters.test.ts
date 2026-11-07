@@ -5,7 +5,7 @@ import { parseRdr, parseZdb, zdbMember, Zar, type RdrNode } from '@s2u/archive';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
   ARMORY_COLUMNS, ARMORY_TYPES_PER_SIDE, armoryRoster, armoryTypeAllowed, arsenalOf, assetLibStem, CAMPAIGN_UNLOCK_VALVES,
-  CAMPAIGN_UNLOCKS_EARNED_RULING, campaignUnlockValves, DEFAULT_ARMORY_TYPE, fourthArmoryTypeOpen, FOURTH_UNLOCK_READING, missionUiVars, parseCharacterTable, readArsenal, uiVehicleNames, type ArmoryRoster, type Arsenal,
+  CAMPAIGN_UNLOCKS_EARNED_RULING, campaignUnlockValves, DEFAULT_ARMORY_TYPE, fourthArmoryTypeOpen, FOURTH_UNLOCK_READING, missionUiVarEntries, missionUiVars, parseCharacterTable, readArsenal, uiVehicleNames, type ArmoryRoster, type Arsenal,
 } from '../src/index';
 
 /**
@@ -57,6 +57,24 @@ describe('the ARMORY roster on hand-built scripts', () => {
     // A name the side does not list, or no UiVehicles at all: the chartype position.
     const unknown = armoryRoster(arsenal, vehicles('Nobody', 'Seal2', 'x', 'x', 'Seal1'), chartype, character, table);
     expect(unknown.characters.map((c) => [c.column, c.index])).toEqual([['Seal1', 0], ['Seal2', 1], ['Terr1', 0]]);
+  });
+
+  it('LOBBY-MAPNAME: missionUiVarEntries reads each UiVars entry as CUIVariableSpec does -- the LONGEVITY word kept, a two-element VALUE an array, a one-element VALUE its typed node, an entry with no NAME skipped', () => {
+    const s = (value: string) => ({ type: 'string', value } as const);
+    const typed = [[s('UiVars'), [
+      [s('NAME'), [s('kept')], s('VALUE'), [s('A')], s('LONGEVITY'), [s('PERMANENT')]],
+      [s('NAME'), [s('pair')], s('VALUE'), [{ type: 'int', value: 3 } as const, { type: 'real', value: 0.5 } as const]],
+      [s('VALUE'), [s('nameless')]],
+      [s('NAME'), [s('progress')], s('VALUE'), [{ type: 'real', value: 25 } as const]],
+      [s('NAME'), [s('empty')]],
+    ]]];
+    expect(missionUiVarEntries(typed)).toEqual([
+      { name: 'kept', value: { type: 'string', value: 'A' }, longevity: 'PERMANENT' },
+      { name: 'pair', value: { type: 'array', value: [{ type: 'int', value: 3 }, { type: 'real', value: 0.5 }] } },
+      { name: 'progress', value: { type: 'real', value: 25 } },
+      { name: 'empty', value: null },
+    ]);
+    expect(missionUiVarEntries([[s('Other'), [s('x')]]])).toEqual([]);
   });
 
   it('names an asset library\'s file as FUN_003199c0 does: the last element, four characters, upper case', () => {

@@ -3,13 +3,30 @@ import { recoverLobbyControls } from '../../src/screens/lobbyRecovery';
 import { DIALOG_EVENTS } from '../../src/dialog';
 import { decodeTextInput } from '../../src/keyboard/textInput';
 import {
-  GameLobbyCommands, type GameLobbyMatchStart, type GameLobbySeat, type GameLobbyVoicePort, type GameLobbyView, type GameSocketPort, type JoinGameQuery, type JoinGameReply, type WorldReportQuery,
+  GameLobbyCommands, type GameLobbyCommandsOptions, type GameLobbyMatchStart, type GameLobbySeat, type GameLobbyVoicePort, type GameLobbyView, type GameSocketPort, type JoinGameQuery, type JoinGameReply, type WorldReportQuery,
 } from '../../src/screens/gameLobbyCommands';
 import { ArmoryProfileCommands, type ArmoryLoadoutService } from '../../src/screens/armoryProfileCommands';
 import { mountCreateGame, type CreateGameReply, type CreateGameRequest } from '../../src/screens/createGameCommands';
 import type { BriefingRoomCommands } from '../../src/screens/briefingRoomCommands';
 import type { WorldOfSocomCommands } from '../../src/screens/worldOfSocomCommands';
 import { briefingRig, type BriefingRigOptions } from './briefingRoomRig';
+import { parseRdrTyped, parseZdb, zdbMember, Zar } from '@s2u/archive';
+import { missionUiVarEntries } from '@s2u/scene';
+import type { UiVarEntry } from '../../src/uiVars';
+import { file } from './worldOfSocomRig';
+
+/**
+ * LOBBY-MAPNAME: a mission's `mission.rdr` `UiVars` entries, each node's type kept (`missionUiVarEntries` over
+ * `parseRdrTyped`), read from its map archive's `READERM.ZAR` (`RUN/<MISSION>.ZDB`, the disc's or the committed
+ * fixture's), synchronously as `FUN_002acc10` reads it; null when the archive is not held.
+ */
+export function discMissionVars(mission: string): readonly UiVarEntry[] | null {
+  const bytes = file(`RUN/${mission.toUpperCase()}.ZDB`);
+  if (!bytes) return null;
+  const readerm = Zar.parse(zdbMember(bytes, parseZdb(bytes), 'READERM.ZAR'));
+  const key = readerm.root.children.find((k) => k.name.toLowerCase() === 'mission.rdr');
+  return key ? missionUiVarEntries(parseRdrTyped(readerm.data(key))) : null;
+}
 
 /**
  * The GAME LOBBY rig (ONL-16a; web research 165): `briefingRig` -- SOCOM II ONLINE and the BRIEFING ROOM built from the
@@ -45,6 +62,8 @@ export interface GameLobbyRigOptions extends BriefingRigOptions {
   joinRefused?: (status: number, worldId: number) => boolean;
   /** FBA-2: expose the optional bot request transport; defaults to an older server with no bot capability. */
   bots?: boolean;
+  /** LOBBY-MAPNAME: `GameLobbyCommandsOptions.missionVars` (`discMissionVars` reads the disc's); absent, none. */
+  missionVars?: GameLobbyCommandsOptions['missionVars'];
 }
 
 export const seat = (id: number, name: string, team: GameLobbySeat['team'], o: Partial<GameLobbySeat> = {}): GameLobbySeat => ({ id, name, team, ready: false, host: false, readyIn: 30, ...o });
@@ -108,6 +127,7 @@ export async function gameLobbyRig(o: GameLobbyRigOptions = {}) {
         ...(o.randomGame ? { randomGame: o.randomGame } : {}),
         ...(o.clanId !== undefined ? { clanId: () => o.clanId! } : {}),
         ...(o.joinRefused ? { joinRefused: o.joinRefused } : {}),
+        ...(o.missionVars ? { missionVars: o.missionVars } : {}),
         now: () => frames * UI_TICK_SECONDS * 1000, log: (n, a, ans) => { if (process.env.GL_DEBUG) console.log('ROW', n, a, ans, m.lobby.state(), JSON.stringify(m.briefing.gamesHeld().map((g) => g.gameName)), m.ctx.machine().shell()?.inputString('aux_join_game')); },
       });
       commands.register(m.host);

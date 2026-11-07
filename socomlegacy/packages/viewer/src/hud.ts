@@ -528,18 +528,35 @@ export interface CompassMark {
   bitmap: 'ret_bomb.tif' | 'ret_base.tif' | 'ret_hostage.tif' | 'ret_extraction.tif' | 'hud_talk.tif';
   x: number; z: number;
   pulse?: true;
+  /**
+   * BOMB-MARKS (research 214 s3 "The base mark for both sides"): the base mark's type, which picks its colour
+   * (`BASE_MARK_TYPE_RGB_READING`) -- 2 for a viewer on the carrier's side, 3 for any other (`FUN_005bbf10`
+   * D:L473696-473699). Absent, the bitmap's own row (`OBJECTIVE_MARK_RGB_READING`).
+   */
+  type?: 2 | 3;
 }
+
+/**
+ * BASE_MARK_TYPE_RGB_READING (BOMB-MARKS; research 214 s3, s6): the `ret_base` mark's two types' colours, GS 0-128, from
+ * `FUN_002126f0`'s table (floats at `+0xa0` in threes, type 0 first): type 2 (40, 62, 36) green at `+0xb8..+0xc0`
+ * (D:L68684-68687), type 3 (62, 37, 36) red at `+0xc4..+0xcc` (D:L68680-68683). `FUN_005bbf10` writes the type into the
+ * mark's bits 4-19 (D:L473696-473700). [reading]
+ */
+export const BASE_MARK_TYPE_RGB_READING: Readonly<Record<2 | 3, readonly [number, number, number]>> = {
+  2: [40, 62, 36], 3: [62, 37, 36],
+};
 
 /**
  * OBJECTIVE_MARK_RGB_READING: the objective marks' colours, by bitmap. `FUN_002126f0`'s table gives each mark type its own
  * RGB (research 87 s1.7). HX-5 (research 239 s5): the table read at D:L68680-68700 (floats at `+0xa0` in threes, type 0
  * first): type 4 `ret_hostage` (62, 49, 36), type 6 `ret_extraction` (36, 40, 62) -- 190 D's values, re-read 2026-10-06.
- * The bomb's and the base's rows stay the nav marks' (32, 62, 32) (`NAV_MARK.rgb`) as XR-06 left them, their draw
- * unchanged: settles them a read of their types' rows (type 1's (62, 62, 32) by the same table is not adopted without
- * the bomb's type confirmed), or capture B (a frame with the bomb on the compass).
+ * The bomb's row stays the nav marks' (32, 62, 32) (`NAV_MARK.rgb`) as XR-06 left it, its draw unchanged: settles it a
+ * read of its type's row (type 1's (62, 62, 32) by the same table is not adopted without the bomb's type confirmed), or
+ * capture B (a frame with the bomb on the compass). BOMB-MARKS: the base's row is type 2's (`BASE_MARK_TYPE_RGB_READING`),
+ * a typed mark's `type` choosing between 2 and 3.
  */
 export const OBJECTIVE_MARK_RGB_READING: Readonly<Record<CompassMark['bitmap'], readonly [number, number, number]>> = {
-  'ret_bomb.tif': NAV_MARK.rgb, 'ret_base.tif': NAV_MARK.rgb, 'ret_hostage.tif': [62, 49, 36], 'ret_extraction.tif': [36, 40, 62],
+  'ret_bomb.tif': NAV_MARK.rgb, 'ret_base.tif': BASE_MARK_TYPE_RGB_READING[2], 'ret_hostage.tif': [62, 49, 36], 'ret_extraction.tif': [36, 40, 62],
   'hud_talk.tif': [32, 62, 62],   // MATCH-05: type 9's row, `+0x10c` (D:L68703-68705; `./hudVoice` VOICE_TALK_MARK_READING)
 };
 
@@ -547,8 +564,8 @@ export const OBJECTIVE_MARK_RGB_READING: Readonly<Record<CompassMark['bitmap'], 
  * OBJECTIVE_MARK_PULSE_READING (HX-5; research 190 D, 87 s1.7): the compass marks of types 1-13 draw at the alpha
  * `DAT_0040c070` (`FUN_00211510` D:L68126-68130; types 0 and 14+ at `DAT_003dc500`, 128), which the compass's update
  * moves by `rate` 250 a second between `min` 64 and `max` 128, turning at each end (D:L68043-68050) -- in GS units of
- * 128. The port pulses only the marks that say `pulse` (the hostage's and the zone's); the bomb's, drawn by XR-06 at 1,
- * keep it until their type is read. [reading]
+ * 128. The port pulses only the marks that say `pulse` (the hostage's and the zone's, and BOMB-MARKS' base, types 2-3);
+ * the bomb's, drawn by XR-06 at 1, keeps it until its type is read. [reading]
  */
 export const OBJECTIVE_MARK_PULSE_READING = { min: 64, max: 128, rate: 250 } as const;
 
@@ -579,7 +596,7 @@ export const DEFUSE_TIMER_LAYOUT_READING = 'round-timer-slot' as const;
  * (sin, cos: clockwise from straight ahead) and its distance -- those within 200 units and the nearest -- then every
  * objective mark (`extraMarks`, XR-06), whatever its distance, by the same bearing and distance.
  */
-export function compassMarks(model: Pick<HudModel, 'navPoints' | 'position' | 'yaw' | 'extraMarks' | 'hostageMarks' | 'talkMarks'>): { bitmap: string; sin: number; cos: number; distance: number; objective?: true; pulse?: true }[] {
+export function compassMarks(model: Pick<HudModel, 'navPoints' | 'position' | 'yaw' | 'extraMarks' | 'hostageMarks' | 'talkMarks'>): { bitmap: string; sin: number; cos: number; distance: number; objective?: true; pulse?: true; type?: 2 | 3 }[] {
   if (!model.position) return [];
   const yaw = (model.yaw * Math.PI) / 180;
   const f = [-Math.sin(yaw), -Math.cos(yaw)], r = [Math.cos(yaw), -Math.sin(yaw)];
@@ -599,7 +616,8 @@ export function compassMarks(model: Pick<HudModel, 'navPoints' | 'position' | 'y
   // jump table: types 1-8, 12, 13 always).
   // MATCH-05: the talk mark after them, already cut past 900 units (`./hudVoice` `talkMark`: types 9-11's test).
   const extra = [...model.extraMarks ?? [], ...model.hostageMarks ?? [], ...model.talkMarks ?? []]
-    .map((m) => ({ bitmap: m.bitmap, ...bearing(m.x, m.z), objective: true as const, ...(m.pulse ? { pulse: true as const } : {}) }));
+    .map((m) => ({ bitmap: m.bitmap, ...bearing(m.x, m.z), objective: true as const, ...(m.pulse ? { pulse: true as const } : {}),
+      ...(m.type ? { type: m.type } : {}) }));
   return [...all.filter((m, i) => m.distance < 200 || i === nearest), ...extra];
 }
 
@@ -775,6 +793,8 @@ export interface HudModel {
   game: { name: string; type: string };
   /** Every player's row, the spectators and the rounds won (`setScoreRows`); null rows are the single-SEAL layout. */
   scoreRows: { rows: ScoreRowInfo[] | null; spectators: string[]; wins?: { seal: number; terrorist: number } };
+  /** BOMB-MARKS (`setBombCarrier`): the bomb carrier's id, his scoreboard row's satchel (`./scoreboard`); absent or null, none. */
+  bombCarrier?: number | null;
   /**
    * ONL-19 (research 269 §5.1): GAME DETAILS' source as taken when the board opened (`setScoreboard`), kept until it
    * closes -- `FUN_0022be20` builds the lines on the press only; absent or null, the LAN fill.
@@ -833,6 +853,11 @@ export interface HudModel {
    * (the part's show `FUN_00226960` D:L77292-77301 sets or clears only the part's draw bit). Absent: on, the default 1.
    */
   teammateNames?: boolean;
+  /**
+   * LATER 671 (OT.R101; a browser adaptation): TEAMMATE NAMES' "original" setting (`DISPLAY_MP_TEAM_NAMES` 2): the
+   * page's `teamTags` then makes the original's tags (`./hudTags` `TeamTagInput.original`). Absent: the adaptation.
+   */
+  teammateNamesOriginal?: boolean;
   /**
    * NU-9 (c) T3 (`Hud.setCommandMenu`): the Chat menu is open -- the original's command menu, control state 2
    * (`FUN_00235440`, research 276; *inference*: the port's Chat menu is it) -- which hides the part, the name texts
@@ -1105,7 +1130,7 @@ export const MP_TEAM_TAG_WIDE_FRAME_ADAPTATION = { rightInset: 40 } as const;
  */
 export const MP_TEAM_TAG_COLOUR_READING: readonly [number, number, number] = [1, 1, 1];
 
-/** One tag drawn: its text, its pen (left edge) and baseline on the frame (448-high units), its width at 0.9, its alpha. */
+/** One tag drawn: its text, its pen (left edge) and baseline on the frame (448-high units), its width at the view's scale, its alpha. */
 export interface TeamTag { id: number; text: string; x: number; y: number; width: number; alpha: number }
 
 /**
@@ -1118,19 +1143,22 @@ export interface TeamTag { id: number; text: string; x: number; y: number; width
  * y - 10)..(pen + width + 10, y + line + 10) against that tag's (x, y)..(x + width, y + line) -- on a hit y += 5 and the
  * test starts again (no bound re-tested after); placed at ((int)pen, (int)y) (`FUN_003631a0`, D:L77445). The holder's
  * drawn tag carries the arrow and the talk icon at its projected centre (`./hudVoice` `tagTalkSprites`, D:L77434-77443),
- * each corner (int) as `FUN_00364660` takes it.
+ * each corner (int) as `FUN_00364660` takes it. LATER 671 (`./hudTags` `TEAMMATE_NAME_DISTANCE_ADAPTATION`, a browser
+ * adaptation, OT.R101): the width is taken at the view's `scale` (absent, 0.9) -- the one value the bounds, the overlap
+ * push and the draw use.
  */
 export function teamTagLayout(
   view: TeamTagsView, width = PS2_W, top = MP_TEAM_TAG_TOP_MARGIN_READING,
 ): { tags: TeamTag[]; sprites: TagSprite[] } {
   const T = TEAM_TAG_LAYOUT, line = MP_TEAM_TAG_LINE_HEIGHT_READING, right = width - MP_TEAM_TAG_WIDE_FRAME_ADAPTATION.rightInset;
+  const scale = view.scale ?? T.scale;
   const tags: TeamTag[] = [];
   let sprites: TagSprite[] = [];
   const hit = (x0: number, y0: number, x1: number, y1: number, t: TeamTag): boolean =>
     x0 < Math.trunc(t.x + t.width) && t.x < x1 && y0 < t.y + line && t.y < y1;
   for (const p of view.points) {
     if (tags.length >= T.max) break;
-    const w = textWidth(p.text, T.scale), h = w * 0.5;
+    const w = textWidth(p.text, scale), h = w * 0.5;
     const x = p.u * width, left = x - h;
     let y = p.y;
     if (!(left < right && y < PS2_H - top && 0 < left && top < y)) continue;
@@ -1376,8 +1404,10 @@ export function hudLayout(
   // at radius 50 at 0.6x pointing to it. Shown: those within 200, and the nearest.
   // XR-06: the objective marks (`extraMarks`) by the same rule, in their colour (OBJECTIVE_MARK_RGB_READING).
   // HX-5: each objective mark in its type's colour (OBJECTIVE_MARK_RGB_READING), a pulsing one at the marks' pulse.
+  // BOMB-MARKS: a typed base mark in its type's colour (BASE_MARK_TYPE_RGB_READING).
   for (const m of compassMarks(model)) {
-    const c = m.objective ? OBJECTIVE_MARK_RGB_READING[m.bitmap as CompassMark['bitmap']] ?? NAV_MARK.rgb : NAV_MARK.rgb;
+    const c = m.type ? BASE_MARK_TYPE_RGB_READING[m.type]
+      : m.objective ? OBJECTIVE_MARK_RGB_READING[m.bitmap as CompassMark['bitmap']] ?? NAV_MARK.rgb : NAV_MARK.rgb;
     const rgbNav: Rgba4 = [c[0] / 128, c[1] / 128, c[2] / 128, m.pulse ? timing.marks ?? 1 : 1];
     const size = sizes[m.bitmap];
     if (!size) continue;
@@ -1438,7 +1468,7 @@ export function hudLayout(
 
   // NU-9 (c) T3 (research 329 §1.3-§1.7): the teammates' over-head tags, laid on the frame's own width in its 448-high
   // units (`teamTagLayout`; MP_TEAM_TAG_WIDE_FRAME_ADAPTATION) and placed from its left edge. The name texts in
-  // `font_text_01` at 0.9, left at the pen, white (MP_TEAM_TAG_COLOUR_READING) at the tag's alpha over 128 with the drop
+  // `font_text_01` at 0.9 (LATER 671: the view's scale, the adaptation's by default), left at the pen, white (MP_TEAM_TAG_COLOUR_READING) at the tag's alpha over 128 with the drop
   // shadow at min(alpha, 96) (`FUN_003625e0`) -- none with TEAMMATE NAMES off (D:L77292-77301) or the Chat menu open
   // (D:L56617-56623). The talk arrow and icon over the holder's tag always (the HUD's own sprites, D:L77550, D:L77557),
   // each over its rectangle as `FUN_00364660` takes it -- the arrow's y0 under its y1, so drawn flipped.
@@ -1446,7 +1476,7 @@ export function hudLayout(
     const laid = teamTagLayout(model.teamTags, s > 0 ? frame.width / s : PS2_W);
     if (model.teammateNames !== false && !model.commandMenu) {
       for (const t of laid.tags) {
-        text('teamTags', t.text, { x: t.x, y: t.y, scale: TEAM_TAG_LAYOUT.scale }, L, 1, MP_TEAM_TAG_COLOUR_READING, t.alpha / 128,
+        text('teamTags', t.text, { x: t.x, y: t.y, scale: model.teamTags.scale ?? TEAM_TAG_LAYOUT.scale }, L, 1, MP_TEAM_TAG_COLOUR_READING, t.alpha / 128,
           { shadow: Math.min(t.alpha, 96) / 128 });
       }
     }
@@ -1710,7 +1740,8 @@ function boardLayout(
   const fit = presentation === 'native' ? modernScoreboardFit(frame, sizes) : { lift: 0, scale: 1 };
   return scoreboardLayout(frame, { player: model.name || DEFAULT_PLAYER, game: model.game.name, type: model.game.type,
     ...(model.scoreboardDetails ? { details: model.scoreboardDetails } : {}),
-    ...(model.scoreRows.rows ? { rows: model.scoreRows.rows, spectators: model.scoreRows.spectators, wins: model.scoreRows.wins } : {}) }, sizes,
+    ...(model.scoreRows.rows ? { rows: model.scoreRows.rows, spectators: model.scoreRows.spectators, wins: model.scoreRows.wins } : {}),
+    ...(model.bombCarrier != null ? { bombCarrier: model.bombCarrier } : {}) }, sizes,
     fit.lift, fit.scale);
 }
 
@@ -2211,6 +2242,11 @@ export class Hud {
     this.model.scoreRows = { rows, spectators, wins };
   }
   /**
+   * BOMB-MARKS (`./bombPage` `hudFrame`, once a frame): the bomb carrier's id, or null -- his scoreboard row takes the
+   * satchel (`./scoreboard` `SCOREBOARD_SATCHEL_RECT`), for every viewer as the original (OT.R109 as amended).
+   */
+  setBombCarrier(id: number | null): void { this.model.bombCarrier = id; }
+  /**
    * A round's end screen (research 91 §18: ROUND COMPLETE, FINAL ROUND, GAME COMPLETE), or null to take it down. While
    * set it is drawn over everything in this pass and the in-round HUD, the scoreboard and the tactical map give way
    * (`ROUND_SCREEN_HIDES`); the reticle is the page's to hide.
@@ -2234,13 +2270,19 @@ export class Hud {
    * null: none. Laid out and drawn by `hudLayout` (`teamTagLayout`).
    */
   setTeamTags(view: TeamTagsView | null): void {
-    this.model.teamTags = view ? { points: view.points.map((p) => ({ ...p })), holder: view.holder, self: view.self } : null;
+    this.model.teamTags = view ? {
+      points: view.points.map((p) => ({ ...p })), holder: view.holder, self: view.self, ...(view.scale === undefined ? {} : { scale: view.scale }),
+    } : null;
   }
   /**
    * NU-9 (c) T4: the TEAMMATE NAMES option (`DISPLAY_MP_TEAM_NAMES`), read once at the match's mount as the HUD's set-up
    * reads it (D:L77558-77559; research 329 §1.8): off hides the name texts only, the talk sprites drawn still.
+   * LATER 671 (OT.R101; a browser adaptation): `original`, the setting's "original" (`./hudTags`
+   * `TEAMMATE_NAMES_ORIGINAL_VALUE`) -- the original's tags, `teammateNamesOriginal()`; else the adaptation's.
    */
-  setTeammateNames(on: boolean): void { this.model.teammateNames = on; }
+  setTeammateNames(on: boolean, original = false): void { this.model.teammateNames = on; this.model.teammateNamesOriginal = on && original; }
+  /** LATER 671: TEAMMATE NAMES' "original" setting as set (`setTeammateNames`); false by default (the adaptation, OT.R101). */
+  teammateNamesOriginal(): boolean { return this.model.teammateNamesOriginal === true; }
   /**
    * NU-9 (c) T4: the TEAMMATE NAMES option as set (`setTeammateNames`), on unless set off -- one value for the tags and the
    * reticle's teammate name (`./reticle` `ReticleTargetInputs.teammateNames`): the reticle's flag `+0x17b64` is the tags'

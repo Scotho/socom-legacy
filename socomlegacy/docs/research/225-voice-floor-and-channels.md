@@ -142,6 +142,9 @@ the socket's 120 a second and 4096 bytes. A frame without the floor is counted b
   (`Room.voiceLobbyArmory`): `{on: false}` from a seat not off -- its entry: `FUN_0027d8c0` clears the flag (D:L126098)
   and sets RADIO OFF (`FUN_0030e490`, D:L126099), the seat on 11 and a held talk ended -- and `{on: true}` from that 11
   only -- its return: the lobby's `FUN_0027c9f0` asks 9 (D:L125568). Every other `voiceRadio` there is still dropped.
+  *2026-11-06, MISSION OT.R111 (`LOBBY_ARMORY_VOICE_ADAPTATION`, product track):* the page no longer sends these two
+  `voiceRadio`s around the ARMORY (only behind `LobbyVoiceDeps.armoryRadioOff`, the original's path); the room's rule
+  above is unchanged.
 
 ### 4.3 The asks this wave makes
 

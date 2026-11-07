@@ -159,3 +159,43 @@ the `FUN_0056a2e0` callback and event consumption; this iterator alone does not 
 
 The action-offset addition rounds the cell center first, matching D:L403382-403401's separate vector addition.
 A regression uses a non-exact center and diagonal offset to distinguish the two EE results.
+
+
+## 9. The rescue region reads the layered raw cell (HP-ZONE)
+
+2026-11-04, **reading, independently source-reviewed** at 63b770c84 (PASS, medium; 87 targeted tests passed, zero skipped). The source chain was re-read in the r0001 decompilation:
+`FUN_0056f970` D:L432965-432966 passes actor `+0xe4` to the kind-1 zone test, and
+`FUN_005ced60` D:L484881-484900 uses the same raw cell for `ai::INREGION` mode 1. Neither caller projects
+that cell onto submap 0. `FUN_005b7ba0` D:L471278-471283 obtains it through `FUN_0052dc70`, whose
+layered selection is section 2. A successful lookup writes the raw cell even when its soil is blocked;
+only the later branch at D:L471288-471318 can update last navigable `+0xe8`. A failed lookup leaves
+`+0xe4` unchanged, separately marking the controller's failed-location bit at D:L471280.
+
+`ExtractionAuthority` now uses that layered raw location for both EXTRACTION and ESCORT rescue and
+script regions. Previously EXTRACTION always projected onto submap 0; a body above a base-map zone
+could count as rescued, and a zone on another submap could not count. ESCORT already used the layered
+locator but discarded the previous raw cell on a failed lookup. The authority now retains raw cells
+per hostage, updates them on each living body frame regardless of whether it has a leader, and clears
+and locates them afresh at round reset. Raw-cell state is distinct from the existing occupancy's
+last navigable cell. No path, formation spacing, zone boundary, clock or scoring value changes.
+
+`packages/central/test/extractionLayers.test.ts` uses synthetic layers to distinguish the right floor,
+nonzero-submap rescue, blocked stored raw cells, failed-location retention, leaderless updates and
+round reset. It also exercises rescue credit and the extraction script together: neither fires from
+the wrong floor. RED: 7 failed / 4 passed; GREEN: 11 passed, zero skipped. These are transcription
+unit tests, not evidence that a retail map's rescue zone has a reachable overlapping floor.
+
+The broader targeted check initially failed seven existing `roomExtraction.test.ts` rescue cases:
+its synthetic Safety grid had no stored rows or cells. Filling that flat grid exposed one remaining
+fixture mismatch: `carry` changed only the authority position while the real follower stayed at its
+previous position. The test helper now places both bodies together, with all scoring/order assertions
+unchanged. The intermediate data run was 86 passed / 1 failed / zero skipped. Final targeted data run:
+87 passed / zero failed / zero skipped across `extractionLayers`, `extraction`, `escort`,
+`extractionFollow` and `roomExtraction` (5 files); real-map checks in that total are dev-disc evidence,
+separate from the synthetic unit regressions. No full gate or rendered run was performed by this task.
+
+Revision limit: the local source available to this task is r0001. Research 377 records r0004's rescue
+credit/stack/damage changes around the inherited zone test; its r0004 executable was not locally
+available for an independent re-read here. Those gates are unchanged, and this task does not claim
+r0004 source review or original-running capture parity. Command admission still uses its separate
+submap-0 conversion (`ORDER_CELL_FIELD_READING`); this task changes region containment only.

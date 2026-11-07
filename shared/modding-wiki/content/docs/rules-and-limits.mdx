@@ -1,0 +1,122 @@
+---
+title: "Rules and limits"
+description: "What a rules pack may do, who decides what happens in a match, and the budgets and bounds every pack is held to."
+status: "Forge, local only"
+source: ["socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/rules.ts", "socomlegacy/packages/creator-contracts/src/packs.ts"]
+---
+
+**Status: Forge, local only.** Rules packs run in one place today: the Forge's Play, on a match room inside your own
+browser page. They are refused online. The Forge's work is paused for now, so this may stay the case for a while. Every
+other kind of v2 pack is checked and stored but not applied (see [Pack kinds](/kinds/)).
+
+This page puts the creator rules contract into plain words: what a rules pack is allowed to be, what the match room
+keeps for itself, how a rules round stays predictable, and the limits that stop a pack from overwhelming a match. The
+contract's own text, section by section, is the repository's `docs/specs/2026-10-27-creator-rules-contract.md`.
+
+One promise underlies all of it: **with every pack turned off, the game is unchanged.** A round with no rules pack is
+the game's own round, run by the game's own code.
+
+## Data, never code
+
+A pack never carries code that runs. That covers scripts, JavaScript and WebAssembly, or anything else.
+
+A rules pack is data that the engine reads and runs itself. The contract describes three levels of authoring, all over
+the same events, conditions and actions:
+
+1. **Configuration.** A mode's published settings, such as equipment, scoring, round count and time, respawns, team
+   sizes, damage scales, one-hit elimination and friendly fire, each with a default and bounds. The Forge shows them as
+   fields; a pack carries them as a `rules` member. A bad value is refused, naming its field.
+2. **Rules.** Rules written as data: *when* an event happens, *if* some conditions hold, *then* do some actions. For
+   example: when a player enters the zone `vault` and has the item `key`, open the door `vault-door`; otherwise show a
+   message.
+3. **Scripting.** Planned, and not enabled. If it ever comes, it would see only what a rule sees and do only what an
+   action does. Running uploaded code waits for its own design and the project owner's decision.
+
+Events come from the engine only; a pack can never raise one itself. Actions come from a fixed list. Anything the
+vocabulary does not name is refused by name when the pack is checked, not discovered halfway through a match.
+
+## What the match room owns
+
+The match room (your own page's room in the Forge's Play; a match server, once hosted rooms exist) decides every
+outcome:
+
+- every event, every condition and every action apart from presentation;
+- all variables and timers, damage, inventories, currency, spawns, scores and who wins.
+
+Your client owns only presentation: messages, cues, values shown on the HUD, the camera, audio and the interface. It
+shows what the room says and decides nothing.
+
+A client never reports an outcome. A request, such as buying an item, is checked by the room against its own state
+(funds, price, stock and phase) and answered once: accepted or refused with a reason. A repeated or out-of-date request
+is dropped.
+
+A pack's text is shown as the pack's own. A message or HUD value cannot pose as the game's real score, round result or
+winner: the engine draws those itself, and a HUD value can show only a variable the pack declared, at the room's value.
+
+Some actions are held but not yet carried out on the room: restricting a loadout is kept as rule state but does not
+change anyone's kit, and giving a weapon gives a rules inventory item, not a weapon in your kit.
+
+## Predictable rounds
+
+- **Seeded.** A rules round's randomness (rule chances, spawner order, loot) comes from a seed, so the same seed and the
+  same inputs give the same round.
+- **Ordered.** Each event gets a unique, rising number, and the events of one moment are handled in that order. An
+  event is handled at most once. The events an action causes are handled next, up to a fixed chain depth; deeper ones
+  wait for the next moment.
+- **Clean on and off.** A pack you turn on waits for the next match or round start. Turned off, nothing of it remains,
+  and the round is exactly the game's own.
+
+## The budgets
+
+Each budget is a named constant in the rules contract (`*_ADAPTATION`: chosen for this project, not taken from the
+game). A spec over a static budget is refused when it is checked. Going over a run-time budget during a round turns
+the pack's rules off for the rest of that round, resets the rule state to its start, and reports which rules did it;
+the pack turns on again at the next round start. A pack is never left half-running.
+
+| constant | value | what it limits |
+|---|---|---|
+| `RULES_PER_PACK_ADAPTATION` | 128 | Rules in one rules member. |
+| `RULE_ACTIONS_PER_EVENT_ADAPTATION` | 32 | Actions run for one event, across every rule on it. |
+| `RULE_EVENTS_PER_TICK_ADAPTATION` | 256 | Events the room handles in one moment of play. Checked only while a round runs. |
+| `RULE_CHAIN_DEPTH_ADAPTATION` | 8 | How long a chain may be: an action's event firing a rule whose action fires another, and so on. |
+| `RULE_VARIABLES_PER_SCOPE_ADAPTATION` | 32 | Variables in one scope (the match, a team, a player). |
+| `RULE_TIMERS_PER_SCOPE_ADAPTATION` | 8 | Timers in one scope. |
+| `RULE_CONDITIONS_ADAPTATION` | 16 | Conditions in one rule's `if`, and in one `any`. |
+| `RULE_CONDITION_DEPTH_ADAPTATION` | 4 | How deeply `any` and `not` may nest. |
+| `RULES_PARAMS_ADAPTATION` | 32 | Configuration settings in one spec. |
+| `RULES_PHASES_ADAPTATION` | 16 | Phases in one spec. |
+| `RULES_ITEMS_ADAPTATION` | 64 | Items in one spec. |
+| `RULES_ENTITY_REFS_ADAPTATION` | 64 | Ids of each kind of thing (zones, markers, spawners and so on) one spec names. |
+| `RULES_INT_ADAPTATION` | 1000000 | The largest whole number anywhere in a spec: a value, a bound, a price or a count. |
+| `RULES_TEXT_CHARS_ADAPTATION` | 120 | Characters in one message or label (one HUD line). |
+
+A rules pack also states the engine contract it needs. Its `contract` range must not admit any engine before the first
+one with the rules vocabulary:
+
+| constant | value | what it is |
+|---|---|---|
+| `RULES_PACK_CONTRACT_FLOOR` | 0.1.1 | The lowest engine contract a rules pack may admit. Write `^0.1.1`. |
+| `RULES_VOCABULARY_VERSION` | 0 | The version of the events, conditions and actions a spec is written for. A spec for a later version is refused. |
+
+## The pack's bounds
+
+Every v2 pack, of any kind, is held to the pack contract's bounds before it is stored: for example 512 MiB for all its
+files together, at most 8192 files, a manifest of at most 1 MiB, and paths of at most 240 characters and 16 folders.
+A `rules` member is read whole, so its bound is the manifest's, 1 MiB. The full list with every value, generated from
+the code, is on [Bounds](/reference/bounds/).
+
+## What a hostile pack cannot do
+
+The contract was written with a hostile pack, or a hostile player, in mind:
+
+- **Run code.** There is none to run; rules are data the engine interprets.
+- **Flood a match.** Rule storms, endless chains and huge sets of variables hit the budgets above and the pack's bounds,
+  and the pack is turned off for the round.
+- **Fake an outcome.** Hits, kills, purchases and pickups are the room's decisions. A request is checked against the
+  room's state at the moment it was made, and repeats are dropped.
+- **Reach outside the pack.** Unknown fields, web addresses and paths that leave the pack are refused by the pack
+  check (see [Troubleshooting](/troubleshooting/)).
+- **Keep state.** No rule state outlives the match.
+- **Grief other players.** Rules packs run only in your own local room today. Hosted rooms, where other people could
+  join a match with your rules, wait for the project owner's approval and for a way to tell players what a pack does
+  before they join.

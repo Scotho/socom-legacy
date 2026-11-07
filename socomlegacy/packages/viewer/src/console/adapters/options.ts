@@ -250,7 +250,7 @@ const ABOUT: Readonly<Record<string, string>> = {
   STEREO_CONTROLLER: 'Mono, stereo or Dolby.',
   BRIGHTNESS: 'The picture’s brightness.',
   BOBBING_1ST_PERSON: 'Head bob on or off.',
-  DISPLAY_MP_TEAM_NAMES: 'Teammate names on or off.',
+  DISPLAY_MP_TEAM_NAMES: 'Teammate names off, on (smaller, fading with distance) or as the original drew them.',
   HelpWindowsEnabled: 'Help windows on or off.',
   VIBRATION_CONTROLLER: 'Vibration on or off, where your controller has it.',
   AutoAim: 'Aim assist on or off.',

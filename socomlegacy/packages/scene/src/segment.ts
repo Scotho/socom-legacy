@@ -289,8 +289,9 @@ function polyBox(poly: WorldPoly): Float32Array {
 
 /**
  * Every polygon the segment a->b crosses, nearest `a` first (`segmentHit`'s candidates). `frontOnly` (LATER 250): only a
- * face entered from its front (`crossing`) -- the hull's one-sided test, asked by the throw clearance alone
- * (`throwCommit.ts` `throwClear`); every other caller, and `segmentHit`, stays two-sided.
+ * face entered from its front (`crossing`) -- the hull's one-sided test, asked by the throw clearance (`throwCommit.ts`
+ * `throwClear`), the walk's segment body and the overhead camera-class casts (viewer `mover.ts`: `cameraClassClear`,
+ * INV-WATER-CROUCH); every other caller, and `segmentHit`, stays two-sided.
  */
 export function segmentHits(
   grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean = () => true, layers: number = ALL_LAYERS, frontOnly = false,

@@ -29,7 +29,7 @@ export interface MatchNetParts {
   hud: NetPageDeps['hud'];
   /** SPECTATOR-VIEW W6: `setMagnification` and `lookOptions` (INVERT PITCH) optional for the stand-ins with no projection. */
   fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect'>>;
-  loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit'>>;
+  loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit' | 'held'>>;
   firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt'>> & {
     /** NET-REFILL: `setNetRefill` optional for the stand-ins that build no `Fire`. */
     fire: Pick<MatchFirearm['fire'], 'undoReload' | 'restoreReload' | 'refundRound'> & Partial<Pick<MatchFirearm['fire'], 'setNetRefill' | 'setPressWindow'>>;
@@ -168,15 +168,18 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
       const l = wireLoadout(kit);
       if (l) h.answered(l);
     },
+    // KIT-HELD: the room's held type, picks and kit for the side (`PlayerLoadout.held`), so WEAPON EXCHANGE opens on them.
+    kitHeld: (team, char, picks, kit) => { loadouts.held?.(team, char, picks, kit); },
     menuOpen: () => p.menuOpen(),
     spectate: (pose) => { resetFollow(); if (pose) p.fly.setPose(pose); },
     spectateFollowReset: resetFollow,
-    spectateFollow: (body, dt) => {
+    spectateFollow: (body, dt, ease) => {
       const grid = p.walk.gridOfGround?.() ?? null, map = p.map();
       if (!following || following.id !== body.id || following.grid !== grid || following.map !== map) {
         following = { id: body.id, grid, map, camera: new PlayerCamera(grid) };
       }
       const camera = following.camera;
+      camera.ease = ease === true;   // INV-SPECTATE C: the dead player's teammate view only (`SpectatorView.followWatched`)
       camera.nearAspect = p.fly.aspect?.() ?? GAME_ASPECT;
       camera.peek = body.peek ?? 0;
       // The remote body was posed immediately before SpectatorView.frame. The no-mesh fallback is the player's

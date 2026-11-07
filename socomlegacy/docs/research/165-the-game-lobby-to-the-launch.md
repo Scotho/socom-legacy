@@ -75,7 +75,8 @@ and `CountDown` until the major state is 2), `FromBriefing`, `hide_game_details`
 `IsSessionMaster` (0x27e6e0: the network and master bytes) is the seat's star in `gameLobby`; `IsSwitchTeamsOK`
 (`FUN_002f8ce0` D:L197459-197476) 1 with no clan game; `CheckTeamStatus` (0x2772c0) the seat held; `AdvanceMPMission`
 (`FUN_00279490` D:L123842-123884) and `ForceMediusStatusReport` (D:L122948-122955) the server's (the deadline, the
-report); `RefreshGamePlayerList` (`FUN_0027d820` -> `FUN_002f6ec0`) redraws the lists (`GAME_PLAYER_LIST_PUSH_ADAPTATION`):
+report) -- *2026-11-06, LOBBY-MAPNAME (§9): but for `AdvanceMPMission`'s last step, the current mission's load, whose
+UiVars half gives the title bar its map name*; `RefreshGamePlayerList` (`FUN_0027d820` -> `FUN_002f6ec0`) redraws the lists (`GAME_PLAYER_LIST_PUSH_ADAPTATION`):
 SEALS and TERRORISTS [name, tier medal, ready dot, clan] (`FUN_002f7020` D:L196331-196496; `READY_DOT_READING`),
 SPECTATORS [name]. `SwitchSides` (`FUN_0027d100` D:L125816-125831) sends `switchTeams` once per 5 s; the side comes back
 in `gameLobby` (`player_team` 0 / 8 / 16). `mp_team_unbalance` is 1 with a side empty, 0 while a countdown runs
@@ -151,6 +152,7 @@ follow-up, 2026-10-05). CRgame's CROSS is ungated
 | `LOBBY_TEXT_CHAT_GATE_READING` (`gameLobbyCommands.ts`) | R1 / ENTER `do_chat` and `send_chat` not started; the panels drawn | text chat is ONL-23's, voice SVC-22's (OT.R8) | **retired 2026-10-10** by ONL-23 (research 266 §1): `do_chat` and `send_chat` run, `SendChatText` on the game socket |
 | `SWITCH_CLOSED_AT_COUNTDOWN_READING` (`packages/match/src/gameLobby.ts`) | SWITCH TEAMS and READY refused from the countdown's start to the launch, for every seat | `launch_10sec_anim` (the countdown's start) runs `ForceMPLaunch` then `DisableButton(Glswitchteams)`, `(weaponselect)`, `(PlayerReady)`, and `CountDown` disables the same three on every console once `mp_x_sec_clock` is under 11; neither `SwitchSides` (`FUN_0027d100` D:L125818-125831), the host's move (`FUN_002c4290` D:L165518-165569) nor `IsSwitchTeamsOK` (`FUN_002f8ce0` D:L197461-197476) tests the countdown (§8) | a capture of a lobby's countdown with a switch pressed |
 | `READY_GATE_SEATS_READING` (`packages/match/src/gameLobby.ts`) | the session master's READY alone waits 30 s; a joiner's only its 5 s repeat | `SetupSessionMaster` holds PlayerReady `WHILE mp_45_sec_clock != 0`, `SetupNormalJoiner` holds nothing from the briefing room; `ReadyToLoad` (`FUN_0027caf0` D:L125595-125611) tests only its repeat (§8) | a capture of a joiner's READY taken at once (ONL-32's two-instance lobby) |
+| `MISSION_VARS_ASYNC_ADAPTATION` (`gameLobbyCommands.ts`) | the mission's `UiVars` added when the page's read of the map's `READERM.ZAR` resolves, and only while the lobby still stands on that mission and the seat is held (or the creator is the master) | an adaptation (2026-11-06, LOBBY-MAPNAME, §9): `FUN_002acc10` reads `mission.rdr` synchronously inside `AdvanceMPMission` (D:L123881); the page reads the archive asynchronously (the shared ARMORY's kept read, `frontEnd.ts`' `armoryRead`), so `MPgamename` is empty for the frames the read takes | not a stand-in: the same entries and the same Add; a capture of the lobby's first frames (ONL-32) would show how long the original's title takes, if anyone asks |
 | `INPUT_STRING_CALLED_READING` (`packages/ui/src/screens/screenScripts.ts`) | an animation with none of its own read the latest binding's argument | the former reading mistook `DAT_00414be8` for the screen; it is the current animation instance | **retired 2026-10-23 (MLS-PASS)**: CALL flag 1 copies the caller's inputs; per-instance lookup replaces the fallback, reviewed reading at `864603c5f` ([research 363](363-native-ui-call-inputs.md) §§1-3) |
 
 Adaptations, named and not ledger suffixes: `GAME_LOBBY_SERVER_MASTER_ADAPTATION`, `GAME_JOIN_NO_DME_ADAPTATION`,
@@ -225,3 +227,46 @@ the code as it stood; no page change was needed). The room now refuses READY und
 same reading); the SVC-07a fix round's B1 tests that readied under the countdown ready before it now, and the unit test
 of a last READY cutting the countdown short became its refusal.
 
+## 9. The map's name in the title bar (LOBBY-MAPNAME, 2026-11-06)
+
+A player's report: the GAME LOBBY does not show the current map's name, though the ARMORY does. The lobby's title-bar
+text `MPgamename` (`dlgGameLobby.rdr`, the same control and `UIVAR mission_title` as the ARMORY's, research 95 §2.2) draws
+the UI variable `mission_title`, and nothing in the port wrote it: the shared ARMORY answers it from its own roster
+(`packages/viewer/src/armory.ts`' `uivar`), the lobby has no such path.
+
+**The original.** `check_loop`'s `AdvanceMPMission` (`FUN_00279490`) ends, with the game object and the network up
+(D:L123856), on the current mission's load `FUN_002acc10(0x4364e0, 0x414e00)` (D:L123881; 0x414e00 the mission name the
+join set, "mp<n>"). Its UiVars half (D:L152356-152381) walks the `mission.rdr` key at 0x3f19f8 (`UiVars`) entry by entry:
+each through `CUIVariableSpec` (`FUN_00386ff0`, D:L280284-280350) -- its NAME, its VALUE node copied (a one-element list
+taken as its element, D:L280305-280312), its longevity TEMPORARY unless a LONGEVITY word names another (D:L280328-280346)
+-- and `CUIVarManager_Add` (`FUN_003857c0(0x437e80, name, value, longevity)`, D:L152380; research 104 §4, "Mission
+vars"). `mission_title` is one of those entries, so the lobby's title bar draws the map's title from the first
+`check_loop`.
+
+**The disc.** Every MP map's `mission.rdr` `UiVars` entry is a NAME and a one-node VALUE, none naming a LONGEVITY
+(checked over the 22 maps of the dev disc on the raw node types, `packages/ui/test/loading.test.ts`): each is added
+TEMPORARY, the spec's default. The VALUE node is a string on every entry but `LOAD_PROGRESS`, a FLOAT node (type 2) on
+the 12 maps that carry it (MP51-53, MP61, MP62, MP64, MP71-73, MP81-83), which `CUIVariableSpec` copies with its type
+(`FUN_0032f390`, D:L280324): a real. MP2's `mission_title` is FROSTFIRE. *Corrected 2026-11-06 (the review's F2): this
+paragraph first read every VALUE as one string and the port added each as a string -- `parseRdr` flattens ints and
+floats to text, so `LOAD_PROGRESS` went in as text; the port now reads the nodes typed (`parseRdrTyped`).*
+
+**The port.** `AdvanceMPMission` (`packages/ui/src/screens/gameLobbyCommands.ts`) now does that UiVars half for the
+lobby's mission through the option `missionVars`, with the entries as `CUIVariableSpec` reads them -- NAME, the VALUE
+node with its type, the LONGEVITY word (`missionUiVarEntries` over `parseRdrTyped`, `packages/scene/src/armoryCharacters.ts`
+and `packages/archive/src/rdr.ts`) -- added through `UiVarManager.loadUiVars` (each at its word's longevity); it still
+answers 1. D:L123856's test (the game object and the network byte) is held as `inSession`: the seat held (`connected`,
+the welcome) or the creator let in as the session master before any welcome (`creatorMaster`, `CREATOR_MASTER_READING`,
+the test `JoinGameServer` lets it in by) -- *corrected 2026-11-06 (the review's F1): the first version tested `connected`
+alone, so the creator, whose `check_loop` runs before its welcome, never drew the map's name*. The page
+(`packages/viewer/src/frontEnd.ts` through `gameLobbyHost.ts`' mount) hands it the entries from the shared ARMORY's kept
+read of the same mission (`armoryRead`; `ArmoryData.missionUiVars`, `packages/viewer/src/armoryData.ts`) -- the read the
+lobby's ARMORY already makes on the lobby's entry, so no second decode. The read is asynchronous
+(`MISSION_VARS_ASYNC_ADAPTATION`, §6). **Not done**: the load's Valves half (D:L152384-152420) and the rest of
+`FUN_002acc10` -- the lobby draws nothing else from them that the port lacks today.
+
+Tests: `packages/ui/test/screens/gameLobbyScreen.test.ts` (LOBBY-MAPNAME: `MPgamename` draws FROSTFIRE on MP2 at
+TEMPORARY; the creator's lobby, its welcome after `check_loop`; MP72's `LOAD_PROGRESS` a real; the asynchronous read
+resolving later, and a read for a mission the lobby has left adding nothing),
+`packages/viewer/test/gameLobbyHost.test.ts` (the mount hands `missionVars` to the row), `packages/ui/test/loading.test.ts`
+(the disc's entries and their node types, every map). Confidence: **reading, pending review**; no capture of the lobby compared.

@@ -1,0 +1,132 @@
+---
+title: "Contributing to the wiki"
+description: "Where the wiki lives, how to edit or add a page, the status rule, the drift tests and the static check."
+status: "Works"
+source: ["shared/modding-wiki/README.md", "socomlegacy/tools/test/moddingWikiStatus.test.ts", "socomlegacy/tools/test/moddingWikiReference.test.ts", "socomlegacy/tools/test/moddingWikiPages.test.ts", "socomlegacy/tools/test/moddingWikiExample.test.ts"]
+---
+
+**Status: Works.** This page is about the wiki itself, not about the game: everything it describes, the pages, the
+tests and the check, is in the repository and runs today.
+
+## Where the wiki lives
+
+The wiki is the folder `shared/modding-wiki` in the SOCOM Legacy repository. It ships in the project's public
+repository with the rest of the code (the owner's decision, 2026-11-06), so anyone with the repository can edit it.
+
+It is a static site built with Fumadocs on Next.js, and it is its own npm package, kept outside the repository's
+workspace: installing or building the game never installs the wiki's packages, and the wiki never needs the game's.
+The folder's `README.md` covers running, building and the layout in full.
+
+| path | what |
+|---|---|
+| `content/docs/` | the pages, one `.mdx` file each |
+| `content/docs/**/meta.json` | each folder's sidebar: its title and its pages in order |
+| `content/docs/reference/` | the generated reference: never edit its pages by hand (below) |
+| `content/docs/reference/descriptions.json` | the hand-written line for each field, kind, code and bound the reference lists |
+
+## Editing a page
+
+Open the page's `.mdx` file under `content/docs/` and edit it. Pages are Markdown with a little more: put any `{`, `}`,
+`<` or `>` inside a code span, or MDX reads it as code.
+
+Every page starts with frontmatter like this:
+
+```yaml
+---
+title: "Troubleshooting / FAQ"
+description: "One line for the page's header and for search."
+status: "Format only"
+source: ["socomlegacy/packages/creator-contracts/src/packs.ts"]
+---
+```
+
+and its first line of text repeats the status in bold: `**Status: Format only.**` followed by a sentence saying what
+that means for the page.
+
+## Adding a page
+
+1. Create the `.mdx` file in the folder it belongs in, with the frontmatter above.
+2. Add its name, without `.mdx`, to that folder's `meta.json`, where you want it in the sidebar.
+3. Link to it from a page that leads there. Links between pages are site paths with a trailing slash, such as
+   `/reference/codes/`.
+
+The static check expects every page under `content/docs/` to be built, so a page that fails to build fails the check.
+
+## The status rule
+
+Every page says honestly what works today. Its `status` is exactly one of five:
+
+| status | meaning |
+|---|---|
+| Works | Works in every build. |
+| Test room only | Works in the test room only. |
+| Forge, local only | Works in the Forge's local Play only; the Forge is paused. |
+| Format only | The format is checked and stored; nothing in the game applies it. |
+| Planned | Not built yet. |
+
+Its `source` names what owns that status: a path in the repository, or a list of them, with a line or a range after
+`:` if it helps. A source has to exist, and has to be a file the public repository carries. The project's internal
+plans and its owner's task list do not ship, so a page never links them; refer to an owner's decision in words.
+
+Never describe something planned as if it were built. A page whose status is Planned or Format only may not use
+phrases that claim something ships; the status test holds a list of them.
+
+## The generated reference
+
+The pages under `content/docs/reference/` (the manifest reference, the bounds and the refusal codes) and the data file
+`reference.json` are written by a generator from the pack contract's own code, so they always list exactly the fields,
+kinds, codes and bounds the checker uses. Do not edit them by hand. To change what one says:
+
+1. edit its line in `content/docs/reference/descriptions.json`. Write a value the code holds as a token, `%NAME%` for an
+   exported constant of the pack contract, so it is never copied by hand;
+2. from the repository's `socomlegacy/` folder, run `npx tsx tools/moddingWikiReference.ts` to write the pages again.
+
+When the pack contract gains or loses a field, kind, code or bound, the drift test fails until `descriptions.json`
+describes exactly the new set and the pages are written again.
+
+## The drift tests
+
+Four tests in the repository's tools suite hold the wiki to the code. They read the wiki's files as plain text, so
+they need the repository's own install (`npm ci` at the repository's root), not the wiki's. From `socomlegacy/`:
+
+```bash
+npx vitest run tools/test/moddingWikiReference.test.ts
+npx vitest run tools/test/moddingWikiStatus.test.ts
+npx vitest run tools/test/moddingWikiPages.test.ts
+npx vitest run tools/test/moddingWikiExample.test.ts
+```
+
+- `moddingWikiReference.test.ts`: every key in the code has a description and none is extra, and the generated pages
+  are exactly what the generator writes now.
+- `moddingWikiStatus.test.ts`: every page has one of the five statuses, a source that exists, and no
+  shipped-sounding phrase on a Planned or Format only page.
+- `moddingWikiPages.test.ts`: the hand-written pages that restate the contract keep up with it. Troubleshooting has a
+  repair for every refusal code, the Thunderstore page states the store's rules at the code's values, a table row that
+  names a contract constant gives its value as the code holds it, the prose pages give every bound and version they
+  restate at the code's value, HD texture packs have one status everywhere, and links between pages find their page.
+- `moddingWikiExample.test.ts`: the files of [Making your first pack](/guides/first-pack/) pass the same checker the
+  game uses, and the page quotes them exactly.
+
+The project's working repository also checks that every page's `source` is a file the public repository carries.
+
+## The static check
+
+From `shared/modding-wiki`:
+
+```bash
+npm ci
+npm run check
+```
+
+`npm run check` builds the whole site into `out/`, then checks that every page was built, that every link and image
+inside the site resolves to a file, and that search finds what it should. It reads files only, with no network. A
+build is heavy: on a shared machine, run one at a time.
+
+## What never goes in
+
+No game data of any kind: no file from the disc, no decoded texture, model or sound, and no screenshot or frame of
+the game or of this port. Examples use made-up assets that a script draws, or the repository's own example packs.
+Disc paths may appear as names where a format needs one, nothing more.
+
+Write in your own words. Do not copy text, images or layout code from other modding wikis or stores; link to them
+instead.

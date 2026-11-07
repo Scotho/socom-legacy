@@ -421,6 +421,23 @@ export type TraversalEvent =
 /** A ripple the water asks for (`FUN_005b52b0`): its size, its pace, where. */
 export interface Ripple { size: 'big' | 'small'; pace: 'anim' | 'walk' | 'run'; at: [number, number, number] }
 
+/**
+ * `FUN_005b52b0` (469810-469920): the ripple a body's water line asks for, against the body's box -- over the feet and
+ * under its top (`BODY_TOP` of the posture) the big one, within 10 over its top the small one, else none -- by the speed
+ * class (`FUN_0058a820`: speed^2 under 0.25 still, under 400 walk, else run); at the water's point over the feet. The
+ * local walker's (`Traversal.water`) and every other body's on the page (`./remotePlayers`: the function has no locality
+ * test, research 86 s5.4).
+ */
+export function rippleOf(
+  line: number | null, feetY: number, posture: Stance, v: readonly [number, number, number], at: [number, number, number],
+): Ripple | null {
+  if (line === null || line <= feetY) return null;
+  const top = feetY + BODY_TOP[posture];
+  const speed2 = v[0] * v[0] + v[2] * v[2] + v[1] * v[1];
+  const pace = speed2 < 0.25 ? 'anim' : speed2 < 400 ? 'walk' : 'run';
+  return line < top ? { size: 'big', pace, at } : line < top + 10 ? { size: 'small', pace, at } : null;
+}
+
 /** The ripple's zAnim animation (`FUN_0026a250`'s names, decomp 460997-461003): `big_ripple_anim_walk` ... */
 export function rippleAnimation(r: Pick<Ripple, 'size' | 'pace'>): string {
   return `${r.size}_ripple_anim${r.pace === 'anim' ? '' : `_${r.pace}`}`;
@@ -1291,14 +1308,8 @@ export class Traversal implements TraversalHooks {
     if (depth > 0 && was <= 0) this.emit(w.airborne || this.wasAirborne ? { type: 'waterLand', depth, at } : { type: 'waterEnter', depth });
     if (depth <= 0 && was > 0) this.emit({ type: 'waterLeave' });
     this.wasAirborne = w.airborne;
-    // `FUN_005b52b0` (469810-469920): the ripple by the water line against the body's box -- over the feet and under its
-    // top the big one, within 10 over its top the small one -- by the speed class (`FUN_0058a820`: speed^2 under 0.25
-    // still, under 400 walk, else run); at the water's point over the feet.
-    const top = s.y + BODY_TOP[w.posture];
-    const speed2 = s.vx * s.vx + s.vz * s.vz + s.vy * s.vy;
-    const pace = speed2 < 0.25 ? 'anim' : speed2 < 400 ? 'walk' : 'run';
-    this.ripple_ = line === null || line <= s.y ? null
-      : line < top ? { size: 'big', pace, at } : line < top + 10 ? { size: 'small', pace, at } : null;
+    // `FUN_005b52b0` (469810-469920): the ripple by the water line against the body's box (`rippleOf`).
+    this.ripple_ = rippleOf(line, s.y, w.posture, [s.vx, s.vy, s.vz], at);
     if (w.airborne || this.kind_ !== 'none') return;
     // LATER 434: each demotion raises the stance word's bit -- prone over 2 deep is the prone state's own
     // (`FUN_005845c0` D:L443869: `+0x374` = 1 and `+0x105f` bit 0, then `FUN_00581990`, whose else over 8.5 deep writes

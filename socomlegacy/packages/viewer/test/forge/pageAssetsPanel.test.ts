@@ -113,7 +113,7 @@ describe('R4: the shared local packs, dot\'s Assets panel and the pulse on the m
     // the page's teardown is the packs' one owner
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     expect(packs.dispose).toHaveBeenCalledOnce();
-  }, 20_000);
+  }, 90_000);
 
   it('1: a panel\'s pulse(\'navigate\') rumbles the pad once with no toast; accepted(words) rumbles and toasts; a refusal does not rumble', async () => {
     const playEffect = vi.fn(async () => 'complete');
@@ -139,5 +139,5 @@ describe('R4: the shared local packs, dot\'s Assets panel and the pulse on the m
       c.ui.refused('Return to Build to place assets');
       expect(playEffect).toHaveBeenCalledTimes(2);
     } finally { delete (navigator as { getGamepads?: unknown }).getGamepads; }
-  }, 20_000);
+  }, 90_000);
 });

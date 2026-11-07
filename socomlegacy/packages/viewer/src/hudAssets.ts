@@ -44,6 +44,9 @@ export const HUD_LIBRARIES = {
     'ret_bomb.tif', 'ret_base.tif',
     // MATCH-05 (research 170 C9): the `WhoIsTalking` compass mark, type 9 (`FUN_002126f0` D:L68613).
     'hud_talk.tif',
+    // BOMB-MARKS (research 87 s12, 214 s3): the scoreboard's satchel on the bomb carrier's row (the string 0x3e5880,
+    // loaded at D:L80001-80002; `./scoreboard` `SCOREBOARD_SATCHEL_RECT`), HUD2's on MP2, MP6 and MP72.
+    'hud_satchel.tif',
   ],
   HUDW: ['m4carbine_icon.tif', 'mark23_icon.tif', 'firemode.tif', 'grenade_frag_icon.tif', 'grenade_he_icon.tif', 'grenade_smoke_icon.tif', 'grenade_flashbang_icon.tif', 'claymore_icon.tif', 'detonator_icon.tif'],
   // The face's second atlas, its pad glyphs (research 95 §5.4; `./hudFont` `FONT_SPECIAL_01`): WEAPON EXCHANGE's prompt.

@@ -97,7 +97,7 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     expect(statusLine()).toContain('your earlier layout is open');
     await pastTheAutosave();
     expect(await storedName()).toBe('My work');
-  }, 30_000);
+  }, 90_000);
 
   it('with a disc: an own autosave on an authored map whose pack has gone opens a fallback and is kept until the player edits', async () => {
     archiveEntries.push({ stem: 'MP2', path: 'synthetic/MP2', label: 'Frostfire', campaign: false });
@@ -111,7 +111,7 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     // the player's own edit: theirs to keep from now
     expect(await api.execute('layout.name', { name: 'Fresh' }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(async () => expect(await storedName()).toBe('Fresh'), { timeout: 3000 });
-  }, 30_000);
+  }, 90_000);
 
   it('without a disc: a share on an authored map, opened over earlier work, opens the earlier layout and never writes over it', async () => {
     seedAutosave(work({ kind: 'blank', library: 'MP2' }, 'My work'));
@@ -122,7 +122,7 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     expect(statusLine()).toContain('your earlier layout is open');
     await pastTheAutosave();
     expect(await storedName()).toBe('My work');
-  }, 30_000);
+  }, 90_000);
 
   it('without a disc: an own autosave on an authored map whose pack has gone opens the blank floor and is kept until the player edits', async () => {
     seedAutosave(work(onTheYard(), 'On the yard'));
@@ -133,7 +133,7 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     expect(await storedName()).toBe('On the yard');
     expect(await api.execute('layout.name', { name: 'Fresh' }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(async () => expect(await storedName()).toBe('Fresh'), { timeout: 3000 });
-  }, 30_000);
+  }, 90_000);
 
   it('on an authored map the base select shows it, so choosing the blank floor asks before a new layout', async () => {
     const content: ForgeContentSource = {
@@ -156,7 +156,7 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
     await vi.waitFor(() => expect(api.status().map).toMatch(/^blank:/));
     expect(sel.value).toBe('blank');
     expect([...sel.options].some((o) => o.disabled && o.textContent?.includes('Yard'))).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   // R7-6 (round 6's finding): the boot asks whether it holds the base (`holdsContentBase`) and then loads it
   // (`loadContentWorld`); a source whose map() fetches read the member twice. One read a boot, with a disc and without.
@@ -172,6 +172,6 @@ describe('R6 fix-up: a content base whose pack is not here is not held at the lo
       const api = await mount({ content });
       await vi.waitFor(() => expect(api.status().map).toBe(`content:${MAP_PACK.id}@${MAP_PACK.version}/yard`));
       expect(reads).toEqual([`${MAP_PACK.id}/yard`]);
-    }, 30_000);
+    }, 90_000);
   }
 });

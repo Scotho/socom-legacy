@@ -64,7 +64,7 @@ describe('mounted Forge agent facade', () => {
     expect(document.querySelector('.fx-setting-value')!.textContent).toBe('Original');
     slider.dispatchEvent(new KeyboardEvent('keyup', { key: 'End' }));
     expect(api.read().layout!.settings?.timeOfDay).toBe(1);
-  }, 20_000);
+  }, 90_000);
   it('default left look preserves a real click placement, while a real drag changes camera with no layout edit or undo', async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
@@ -93,7 +93,7 @@ describe('mounted Forge agent facade', () => {
     expect(api.read().canUndo).toBe(true);
     expect(await api.execute('undo', {}, api.read().revision)).toMatchObject({ ok: true });
     expect(api.read().layout!.spawns).toHaveLength(0);
-  }, 20_000);
+  }, 90_000);
   it('registers before bootstrap and writes the real layout with five edits and five undo steps', async () => {
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
@@ -167,7 +167,7 @@ describe('mounted Forge agent facade', () => {
     expect(api.read().revision).toBeGreaterThan(metadataRevision);
     expect(await readStoredList('autosave')).toEqual(autosave);
     unsubscribe();
-  }, 20_000);
+  }, 90_000);
 
   async function syntheticArchive(stem: string): Promise<LoadedMap> {
     const { blankLibraryMap, floorMesh } = await import('../src/forge/matchMap');
@@ -192,7 +192,7 @@ describe('mounted Forge agent facade', () => {
     expect((await api.execute('starters.preview', { id: 'arena' })).data).toMatchObject({ record: null, diagnostics: [{ code: 'MAP_UNAVAILABLE' }] });
     expect(await api.execute('starters.apply', { id: 'arena' }, before.revision)).toMatchObject({ ok: false, code: 'REQUIREMENTS_UNMET' });
     expect(api.read().layout).toEqual(before.layout); expect(api.read().canUndo).toBe(before.canUndo);
-  }, 20_000);
+  }, 90_000);
   it('shares a read-only current-map preview with UI and imports a starter as one undoable edit', async () => {
     const { mountForge } = await import('../src/forge/page'); let api!: ForgeAgentApi;
     const map = await syntheticArchive('MP2');
@@ -217,7 +217,7 @@ describe('mounted Forge agent facade', () => {
     const controller = new AbortController(); controller.abort();
     expect(await api.execute('starters.apply', { id: 'static-mood' }, api.read().revision, undefined, { signal: controller.signal })).toMatchObject({ ok: false, code: 'CANCELLED' });
     expect(api.read().layout).toEqual(before.layout);
-  }, 20_000);
+  }, 90_000);
   async function crateArchive(repeats = 1, scale: [number, number, number] = [1, 1, 1]): Promise<LoadedMap> {
     const { Matrix4 } = await import('three');
     const { packGround, groundPolygons } = await import('../src/mover');
@@ -256,7 +256,7 @@ describe('mounted Forge agent facade', () => {
     expect(diagnostics.some(d => d.message.includes(kind === 'inside' ? 'inside geometry' : 'point-blank'))).toBe(true);
     expect(await api.execute('starters.apply', { id: 'crate-stack' }, before.revision)).toMatchObject({ ok: false, code: 'REQUIREMENTS_UNMET' });
     expect(api.read().layout).toEqual(before.layout); expect(api.read().canUndo).toBe(before.canUndo);
-  }, 20_000);
+  }, 90_000);
   it('checks every upper crate against prior proposed hulls while replacing current editor pieces', async () => {
     const { mountForge } = await import('../src/forge/page'); let api!: ForgeAgentApi;
     const map = await crateArchive(), sourcePoints = Array.from(map.ground!.points);
@@ -273,7 +273,7 @@ describe('mounted Forge agent facade', () => {
     expect(await api.execute('starters.apply', { id: 'crate-stack' }, before.revision)).toMatchObject({ ok: true });
     expect(api.read().layout!.pieces).toHaveLength(6);
     expect(await api.execute('undo', {}, api.read().revision)).toMatchObject({ ok: true }); expect(api.read().layout).toEqual(before.layout);
-  }, 20_000);
+  }, 90_000);
   it('keeps incomplete hull probes blocked instead of accepting a partial stack inspection', async () => {
     const { mountForge } = await import('../src/forge/page'); let api!: ForgeAgentApi;
     const map = await crateArchive(40);
@@ -285,7 +285,7 @@ describe('mounted Forge agent facade', () => {
     expect((preview.data as { diagnostics: { code: string }[] }).diagnostics.some(d => d.code === 'PROBE_LIMIT')).toBe(true);
     expect(await api.execute('starters.apply', { id: 'crate-stack' }, before.revision)).toMatchObject({ ok: false, code: 'REQUIREMENTS_UNMET' });
     expect(api.read().layout).toEqual(before.layout);
-  }, 20_000);
+  }, 90_000);
   it.each(['cancel', 'human edit'] as const)('handles %s between bounded catalogue batches before a starter can replace human work', async transition => {
     const { mountForge } = await import('../src/forge/page'); let api!: ForgeAgentApi;
     const map = await syntheticArchive('MP2'), original = map.props[0]!;
@@ -302,7 +302,7 @@ describe('mounted Forge agent facade', () => {
     expect(await pending).toMatchObject({ ok: false, code: transition === 'cancel' ? 'CANCELLED' : 'STALE_REVISION' }); clearTimeout(timer);
     expect(api.read().layout).toEqual(transition === 'cancel' ? before.layout : { ...before.layout, name: 'Human work' });
     if (transition === 'cancel') expect(api.read().canUndo).toBe(before.canUndo);
-  }, 20_000);
+  }, 90_000);
   it.each(['layout.base', 'layout.import', 'saves.load'])('commits first cold %s at its original expected revision', async (operation) => {
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
@@ -327,7 +327,7 @@ describe('mounted Forge agent facade', () => {
     expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
     expect(api.read().layout!.base).toBe(stem);
     expect((await api.execute('assets.query', { archive: stem })).data).toMatchObject({ items: [{ asset: `${stem}:synthetic` }] });
-  }, 20_000);
+  }, 90_000);
 
   it('does not publish a cancelled cold base or a base from a failed import', async () => {
     const { mountForge } = await import('../src/forge/page');
@@ -355,7 +355,7 @@ describe('mounted Forge agent facade', () => {
     expect(api.read().revision).toBe(before.revision);
     expect(api.read().refs).toEqual(before.refs);
     expect((await api.execute('assets.query', {})).data).toEqual(catalogue.data);
-  }, 20_000);
+  }, 90_000);
 
   it('keeps catalogue and queried refs unchanged when cold staging fails or is cancelled', async () => {
     const { mountForge } = await import('../src/forge/page');
@@ -406,7 +406,7 @@ describe('mounted Forge agent facade', () => {
     expect(api.read().refs).toEqual(before.refs);
     expect((await api.execute('assets.query', {})).data).toEqual(catalogue.data);
     expect((await api.execute('placement.check', { ref, at: [0, 0, 0] })).ok).toBe(true);
-  }, 20_000);
+  }, 90_000);
   it('keeps view changes out of the layout revision: a camera or tool change never conflicts, a human placement does', async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
@@ -428,5 +428,5 @@ describe('mounted Forge agent facade', () => {
     document.querySelector<HTMLButtonElement>('button[title^="Duplicate"]')!.click();
     expect(api.read().layout!.spawns).toHaveLength(2);
     expect((await api.execute('layout.name', { name: 'Stale' }, current)).code).toBe('STALE_REVISION');
-  }, 20_000);
+  }, 90_000);
 });

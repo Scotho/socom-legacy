@@ -1,5 +1,5 @@
 {
- "_source": "disc RUN/MP2.ZDB members HUD_TXR/HUD2_TXR/HUDW_TXR/FONT_TXR.ZED with their _PAL.ZED through readHud (packages/viewer/src/hudAssets.ts, rows flipped top first); sha256 of the decoded RGBA; read 2026-10-02; TCM.tif and TCMarrow.tif re-read 2026-10-06 (research 301); the voice icons and hud_talk.tif added 2026-10-08 (MATCH-05, research 170 §5.2); ret_bomb.tif and ret_base.tif added 2026-10-10 (the compass marks' HUD2 bitmaps, research 239 s5.1, 87 s1.7), decoded from the MP2 test fixture",
+ "_source": "disc RUN/MP2.ZDB members HUD_TXR/HUD2_TXR/HUDW_TXR/FONT_TXR.ZED with their _PAL.ZED through readHud (packages/viewer/src/hudAssets.ts, rows flipped top first); sha256 of the decoded RGBA; read 2026-10-02; TCM.tif and TCMarrow.tif re-read 2026-10-06 (research 301); the voice icons and hud_talk.tif added 2026-10-08 (MATCH-05, research 170 §5.2); ret_bomb.tif and ret_base.tif added 2026-10-10 (the compass marks' HUD2 bitmaps, research 239 s5.1, 87 s1.7), decoded from the MP2 test fixture; hud_satchel.tif added 2026-11-06 (BOMB-MARKS, the scoreboard's satchel, research 87 s12), decoded from the MP2 test fixture",
  "bitmaps": {
   "ret_bomb.tif": {
    "width": 16,
@@ -380,6 +380,11 @@
    "width": 16,
    "height": 16,
    "sha256": "5d61e624f081d04158c23674701685e5814424aeca081d71455be5d5863d6394"
+  },
+  "hud_satchel.tif": {
+   "width": 16,
+   "height": 16,
+   "sha256": "45f56f8c9bd406ea436a8faf9c2c1ba22d6e11af2e488912380385b8a03f02df"
   }
  }
 }

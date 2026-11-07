@@ -145,8 +145,8 @@ export const DEAD_IN_FADE_READING = 'a corpse at its frozen opacity';
  * HX-5 (research 239 s4; 190 C4; 191 s2.4): the escortee post-tick (`FUN_0056f970`, CSealCtrlAi vt +0x3c, D:L432926)
  * rescues a hostage when its last leader is set (`ctrl+0x5d8` != -1, initialised -1 at D:L434764 / D:L435187), its body
  * carries the escortee bit (`+200 & 0x20000`, always) and `FUN_0052a200(map, 1, body+0xe4)` finds a kind-1 zone holding
- * its AI-map cell (D:L432964-432966) -- the room's `aiCellOf` on sub-map 0 (`ZONE_CONTAINS_READING`, the `+0xe4`
- * stand-in) against every kind-1 zone (`zonesOfKind`): then the leader's id is looked up (`FUN_0029e4e0`, a type-2
+ * its AI-map cell (D:L432964-432966) -- the room's layered raw cell (`ZONE_CONTAINS_READING`, research 335 section 9)
+ * against every kind-1 zone (`zonesOfKind`): then the leader's id is looked up (`FUN_0029e4e0`, a type-2
  * entity) and `FUN_005f5ba0(ctrl, 0x11)` -- refused while 0x11 is on top, so no credit each frame -- records the zone and
  * the rescuer (+0x58, +0x5c) and credits the leader (`FUN_00545480`, D:L432975-432983). Run for every living hostage
  * after its AI's step. [reading]
@@ -515,6 +515,8 @@ export class ExtractionAuthority {
   /** HX-4a: sub-map 0's grid, the order's cells (`ORDER_CELL_FIELD_READING`); null without the AI maps (no order). */
   private readonly cells: AiGrid | null;
   private readonly planner: HostagePathPlanner | null;
+  /** Actor +0xe4, distinct from the navigable occupancy cell +0xe8 (research 335 section 9). */
+  private readonly rawCells = new Map<number, AiLoc>();
   private readonly obstacles = new HostageObstacles();
   private readonly yieldRandom = new HostageYieldRandom(HOSTAGE_YIELD_SEED_PLACEHOLDER);
   private readonly occupiedActors = new Set<number>();
@@ -584,7 +586,7 @@ export class ExtractionAuthority {
         deathClip: null, deathCause: null, history: [],
       };
     });
-    for (const h of this.hostages) h.ai = this.newAi(h);
+    for (const h of this.hostages) { h.ai = this.newAi(h); this.locOf(h); }
     for (const h of this.hostages) this.told.set(h.id, JSON.stringify(this.stateOf(h)));
   }
 
@@ -664,7 +666,7 @@ export class ExtractionAuthority {
     for (const k of Object.keys(this.valves) as (keyof ExtractionValves)[]) this.valves[k] = 0;
     this.leaders.clear();
     this.trails.clear(); this.frameBodies = [];
-    this.obstacles.clear(); this.occupiedActors.clear();
+    this.obstacles.clear(); this.occupiedActors.clear(); this.rawCells.clear();
     this.fired = { hostKill: 0, sealKill: 0, rescue: new Set() };
     this.pending = [];
     this.penaltySeen = 0;
@@ -680,6 +682,7 @@ export class ExtractionAuthority {
     this.planner?.cancelAll();
     for (const h of this.hostages) {
       h.at = [...h.start.at];
+      this.locOf(h);
       h.yaw = h.start.yaw;
       h.alive = true;
       h.health = hostageHealth();
@@ -749,6 +752,7 @@ export class ExtractionAuthority {
             h.yaw = h.motion.yaw;
           }
           const at = this.planner?.locate(h.at);
+          if (at) this.rawCells.set(h.id, at);
           if (at && this.planner!.traversable(at)) this.obstacles.moveActor(h.id, at);
           this.rescueTest(h);
           this.onFrame?.(h);
@@ -763,23 +767,23 @@ export class ExtractionAuthority {
 
   /** Whether a hostage's cell lies in a kind-1 zone: the map's own, or (escort, after the wait) one SEALcheck promoted. */
   inZone(h: Hostage): boolean {
-    return this.cellIn(h.at, this.zones) || (this.promoted && this.cellIn(h.at, this.promoteZones));
+    return this.cellIn(h, this.zones) || (this.promoted && this.cellIn(h, this.promoteZones));
   }
 
   /**
-   * The cell the zone test reads. EXTRACTION keeps sub-map 0 (`aiCellOf`, the `+0xe4` stand-in, research 237 §1.5).
-   * ESCORT uses the follower's locator so a zone on another sub-map (The Mixer's Safety on sub-map 7, research 175
-   * §5.5) is not credited to a body on the floor below it.
+   * Both modes test actor +0xe4, the layered raw cell, not navigable +0xe8. FUN_0056f970 D:L432965-432966;
+   * FUN_005b7ba0 D:L471278-471283 retains the previous raw cell if location fails (research 335 section 9).
+   * A stored blocked cell still replaces it. No base-map projection or occupancy fallback belongs here.
    */
-  private locOf(at: V3): AiLoc | null {
-    if (this.mode === 'escort') return this.planner?.locate(at) ?? null;
-    if (!this.cells) return null;
-    return aiCellOf(this.cells, at[0], at[2]);
+  private locOf(h: Hostage): AiLoc | null {
+    const loc = this.planner?.locate(h.at);
+    if (loc) this.rawCells.set(h.id, loc);
+    return this.rawCells.get(h.id) ?? null;
   }
 
-  private cellIn(at: V3, zones: readonly AiZone[]): boolean {
+  private cellIn(h: Hostage, zones: readonly AiZone[]): boolean {
     if (!zones.length) return false;
-    const loc = this.locOf(at);
+    const loc = this.locOf(h);
     return loc !== null && zones.some((z) => zoneContains(z, loc));
   }
 
@@ -858,7 +862,7 @@ export class ExtractionAuthority {
       else this.valves.rescuecheck++;
     }
     for (const h of this.hostages) {
-      if (!h.alive || this.latched.has(h.id) || !this.cellIn(h.at, this.stageZones)) continue;
+      if (!h.alive || this.latched.has(h.id) || !this.cellIn(h, this.stageZones)) continue;
       this.latched.add(h.id);
       this.valves.rescuecount++;
       this.host.send({ type: 'escort', kind: 'staged', vip: h.name });         // "A VIP IS IN THE EXTRACTION ZONE"
@@ -884,7 +888,7 @@ export class ExtractionAuthority {
     }
     if (this.promoted) {
       for (const h of this.hostages) {
-        if (!h.alive || this.extractedIds.has(h.id) || !this.cellIn(h.at, this.extractZones)) continue;
+        if (!h.alive || this.extractedIds.has(h.id) || !this.cellIn(h, this.extractZones)) continue;
         this.extractedIds.add(h.id);
         this.truecount++;
         this.host.send({ type: 'escort', kind: 'extracted', vip: h.name });  // "A VIP HAS BEEN EXTRACTED"

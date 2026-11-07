@@ -1,0 +1,84 @@
+---
+title: "What a pack is"
+description: "A zip, opt-in, kept on your device: the rules every pack lives by, and the earlier formats and v2 side by side."
+status: "Format only"
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/creator-contracts/src/layout.ts:1508-1512", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
+---
+
+**Status: Format only.** A v2 pack is checked and stored on your device; nothing in the game applies one yet. The
+earlier formats, compared below, each have their own status.
+
+## A pack in one paragraph
+
+A pack is a zip (or a folder) of files plus one manifest: a JSON file that names the pack, its version, the game it is
+for, and every other file inside it with that file's size and SHA-256 hash. Before anything uses a pack, the game
+checks it against its manifest. A pack that fails the check is refused whole, with a list of the reasons.
+
+## The rules every pack lives by
+
+These hold for every format, old and new (the pack-framework spec's opening section, and the contract's
+`PACK_FRAMEWORK_ADAPTATION`):
+
+- **Opt-in.** Nothing is loaded unless you choose it. With no pack switched on, the game is unchanged.
+- **On your device.** You pick the files in your browser. The browser keeps them (in its own storage) and the game
+  never uploads them, to its servers or anywhere else.
+- **Checked before use.** Sizes, paths and hashes are checked first. Only a pack that passes is used.
+- **Data, never code.** A pack holds data: images, models, sounds, JSON. Nothing in a pack is run as a program. A pack
+  that wants a behaviour the engine has (a picture effect, a non-player character's patrol) names that engine
+  feature in its manifest; the engine runs its own code ([Pack anatomy](/anatomy/), "Handler claims").
+- **Not in online lobbies.** A Forge layout that needs a pack, uses a rules mode or is built on a pack's map is refused
+  in an online lobby (the contract's `onlineCreatorLayoutRefusal`). Whether packs ever reach online matches is the
+  project owner's decision, not made yet.
+
+These are rules of this project, not of the original game: the original has no packs, so every pack format here is a
+browser adaptation, labelled so in its code.
+
+## Two generations of formats
+
+The project has had packs since before the v2 format. Each earlier format has its own manifest and its own loader,
+and those loaders are still the ones that change what you see. The v2 format is the one format meant to replace
+them; today it is defined and checked but not applied.
+
+| | the earlier formats | the v2 pack |
+|---|---|---|
+| formats | `s2u-mod` v1 (data overrides), texture packs, the model pack, HD texture packs | `s2u-pack`, format version `2` |
+| manifest | each its own: `mod.json`, `manifest.json`, `models.json`, ... | `s2u-pack.json` at the pack's root |
+| what it can hold | one kind of thing each: data files, one map's textures, glTF models, HD textures | any mix of the three kinds `content`, `rules` and `system`, with a role for every member |
+| identity | its own id, if any | an id, a version and a hash of the manifest (`PackRef`) |
+| dependencies | none | other packs by id and version range, or your own disc archives by hash |
+| status | Test room only; HD texture packs held off until the owner lifts the hold ([The earlier formats](/kinds/earlier-formats/)) | Format only ([Pack kinds](/kinds/) per kind) |
+
+### How the contract reads an earlier pack
+
+The v2 contract can read three of the earlier formats as if they were v2 `content` packs, through an adapter that
+builds the manifest they do not have (the pack-framework spec, "The three earlier loaders"):
+
+- an `s2u-mod` v1 mod becomes the pack `mod.` plus its id, its files role `data`, intent `gameplay-value`;
+- the model pack becomes `model.current`, version `1.0.0`, its files role `mesh`, intent `cosmetic`;
+- a texture pack becomes `texture.` plus the map's name, version `1.0.0`, its files role `texture`, intent `cosmetic`.
+
+Each is read with `sides` `client` and `contract` `*`. This is why a v2 pack's own `id` may not begin with `mod.`,
+`model.` or `texture.`: those names belong to the adapters. HD texture packs have no adapter.
+
+## What happens when you import a v2 pack today
+
+The game's local pack import accepts a v2 pack in two places: the solo test room while Build is allowed, and the
+Forge editor (the viewer's `testroomInstall.ts` and `forgePacks.ts`). [Testing a pack locally](/guides/test-locally/)
+walks through both. When you give it a pack:
+
+1. It finds `s2u-pack.json` at the root, or inside the one folder a zipped directory adds. A lone zip is unpacked
+   first.
+2. It reads the members. The import accepts only some file types; [Pack anatomy](/anatomy/) lists them.
+3. It runs the check against this build: its target disc, its engine contract version, the packs you already have.
+4. A pack that passes is stored on your device, with its identity and the check's report.
+5. It stops there. Asked to apply a v2 pack, the import refuses: "A v2 pack is stored, not applied: no live driver
+   applies one." (the viewer's `registry.ts`, lines 527-535).
+
+So a v2 pack you make today can be fully checked and kept, ready for when the game applies one, but it changes
+nothing you see or play. The one exception is a rules pack in the Forge, on [Pack kinds](/kinds/).
+
+## Next
+
+- [Pack anatomy](/anatomy/): the manifest and the members, part by part.
+- [Pack kinds](/kinds/): `content`, `rules` and `system`.
+- [The earlier formats](/kinds/earlier-formats/): the formats that change the game's look today.

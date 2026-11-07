@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cutLine, DEAD_DIM, DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, PING_NONE, pingCell, pingNameWidth, SCORE_LAYOUT, SCORE_TOP, scoreboardLayout } from '../src/scoreboard';
+import {
+  cutLine, DEAD_DIM, DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, PING_NONE, pingCell, pingNameWidth, SCORE_LAYOUT, SCORE_TOP, scoreboardLayout,
+  SCOREBOARD_SATCHEL_RECT, SCOREBOARD_SATCHEL_RGBA_READING,
+} from '../src/scoreboard';
 import { layoutText, textWidth } from '../src/hudFont';
 import type { ScoreRowInfo } from '../src/scoreboard';
 import {
@@ -383,5 +386,69 @@ describe('the PING column (NCW-7, a browser adaptation)', () => {
         expect(q.y).toBeCloseTo(ty + (p.quads[i]!.y - SCORE_TOP * s) * k, 6);
       });
     }
+  });
+});
+
+/**
+ * BOMB-MARKS (the owner, seat b6, 2026-11-06: "qol feature in the scoreboard add a bomb next to the player who has it";
+ * research 87 s12's satchel row, research 214 s3 "The scoreboard's satchel"; reading, pending review): `FUN_0022a290`
+ * (D:L78976) tests each row's player for item 0x9a (`FUN_005c8640`, D:L79026) and places `hud_satchel.tif` (sprite
+ * 0x40dbf0, D:L80001-80003) at x 200..216, baseline - 12 .. + 4 (D:L79028-79029: `DAT_003dc960` 200, `DAT_003dc968` 16,
+ * `DAT_003dc970` 12 off the ELF), drawn last (D:L79156), at the sprite's own colour (`FUN_00364c50` D:L262041-262047).
+ * The original shows it to every viewer (`FUN_00229d00` draws both blocks, D:L80018-80019; `FUN_0022a290` tests nothing of
+ * the viewer, D:L79026); OT.R109 as amended 2026-11-06 (the owner's players: "Both teams") keeps it so.
+ */
+describe("the satchel on the bomb carrier's row (BOMB-MARKS; OT.R109 as amended)", () => {
+  const SAT = { ...SIZES, 'hud_satchel.tif': { width: 32, height: 32 } };
+  const row = (id: number, team: 'seal' | 'terrorist', score: number, over: Partial<ScoreRowInfo> = {}): ScoreRowInfo =>
+    ({ id, name: `P${id}`, team, kills: id, deaths: 1, score, alive: true, self: false, ...over });
+  const base = (team: 0 | 1, i: number): number => SCORE_LAYOUT.teams[team]!.y + 38 + 16.8 * i;
+  const edges = (q: { x: number; y: number; w: number; h: number }) => [q.x - q.w / 2, q.y - q.h / 2, q.x + q.w / 2, q.y + q.h / 2];
+  const satchels = (quads: ReturnType<typeof scoreboardLayout>['quads']) => quads.filter((q) => q.texture === 'hud_satchel.tif');
+  // The viewer (2) a SEAL; SEAL 4 second by score; Terrorist 3.
+  const rows = [row(2, 'seal', 9, { self: true }), row(4, 'seal', 5), row(3, 'terrorist', 1)];
+
+  it('draws hud_satchel.tif on the carrier\'s row at x 200..216, baseline - 12 .. + 4, last, at its own colour, scaled with the board', () => {
+    expect(SCOREBOARD_SATCHEL_RECT).toEqual({ x0: 200, x1: 216, up: 12, down: 4 });
+    expect(SCOREBOARD_SATCHEL_RGBA_READING).toEqual([1, 1, 1, 1]);
+    const { quads } = scoreboardLayout(PS2, { ...info, rows, spectators: ['S1'], bombCarrier: 4 }, SAT);
+    const [s] = satchels(quads);
+    expect(satchels(quads)).toHaveLength(1);
+    expect(edges(s!)).toEqual([200, base(0, 1) - 12, 216, base(0, 1) + 4]);
+    expect(s).toMatchObject({ u0: 0, v0: 0, u1: 32, v1: 32, rgba: [1, 1, 1, 1], layer: 1, element: 'scoreboard' });
+    expect(quads.at(-1)).toBe(s);                                             // the satchel last (D:L79156)
+    // The frame's scale: 1920x1080 draws it at 1080 / 448 the size, about the frame's centre.
+    const big = satchels(scoreboardLayout({ width: 1920, height: 1080 }, { ...info, rows, bombCarrier: 4 }, SAT).quads)[0]!;
+    expect(big.w).toBeCloseTo(16 * 1080 / 448, 6);
+  });
+
+  it("OT.R109 as amended: drawn for both teams' viewers and a spectator alike, always on the carrier's row only", () => {
+    const at = (rs: ScoreRowInfo[], carrier: number) => satchels(scoreboardLayout(PS2, { ...info, rows: rs, bombCarrier: carrier }, SAT).quads).map((q) => q.y);
+    const asViewer = (id: number | null) => rows.map((r) => ({ ...r, self: r.id === id }));
+    // A SEAL (4) carries: his row, second of the SEALs, for a SEAL viewer (2), a Terrorist viewer (3) and a spectator.
+    for (const v of [2, 3, null]) expect(at(asViewer(v), 4), `viewer ${v}`).toEqual([base(0, 1) - 4]);
+    // A Terrorist (3) carries: his row, first of the Terrorists, for the same three.
+    for (const v of [2, 3, null]) expect(at(asViewer(v), 3), `viewer ${v}`).toEqual([base(1, 0) - 4]);
+    // The viewer himself carries: on his own row, the one satchel.
+    expect(at(asViewer(2), 2)).toEqual([base(0, 0) - 4]);
+  });
+
+  it('none with no carrier, a carrier off the board (past the 8 a team shows) or the single-SEAL board; none without the bitmap', () => {
+    expect(satchels(scoreboardLayout(PS2, { ...info, rows }, SAT).quads)).toHaveLength(0);
+    expect(satchels(scoreboardLayout(PS2, { ...info, rows, bombCarrier: null }, SAT).quads)).toHaveLength(0);
+    const ten = [row(1, 'seal', 100, { self: true }), ...Array.from({ length: 9 }, (_, i) => row(10 + i, 'seal', 50 - i))];
+    expect(satchels(scoreboardLayout(PS2, { ...info, rows: ten, bombCarrier: 18 }, SAT).quads)).toHaveLength(0);
+    expect(satchels(scoreboardLayout(PS2, { ...info, bombCarrier: 4 }, SAT).quads)).toHaveLength(0);
+    expect(satchels(scoreboardLayout(PS2, { ...info, rows, bombCarrier: 4 }, SIZES).quads)).toHaveLength(0);
+  });
+
+  it('Hud.setBombCarrier feeds the board drawn under SELECT', () => {
+    const hud = new Hud();
+    hud.setBombCarrier(4);
+    expect(hud.state().model.bombCarrier).toBe(4);
+    const model = { ...DEFAULT_MODEL, scoreboard: true, scoreRows: { rows, spectators: [] }, bombCarrier: 4 };
+    expect(hudPass(PS2, model, SAT, AT_REST, false, null, 'ps2').quads.filter((q) => q.texture === 'hud_satchel.tif')).toHaveLength(1);
+    hud.setBombCarrier(null);
+    expect(hud.state().model.bombCarrier).toBeNull();
   });
 });

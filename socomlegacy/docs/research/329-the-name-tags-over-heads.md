@@ -261,6 +261,13 @@ is **1** (`global-valves.json` `valves[152]`, PERSIST). The part reads it **once
 (`FUN_00351ff0(0x3e5540, 1)`, D:L77558-77559 -- no other line writes `+0x5e4`; the round's start, `FUN_00227240`,
 does not); every show applies it (§1.7). So a change in the options takes effect from the next HUD set-up
 (*inference*: the next map's load). This answers research 266 §3.6's open "when the flag is applied".
+The port adds a third setting, **Original**, the valve at 2 (LATER 671, OT.R101, a browser adaptation): 1 draws the
+tags smaller and fading with distance (`TEAMMATE_NAME_DISTANCE_ADAPTATION`, §6), 2 the original's tags exactly; the
+original's own read is `!= 0`, so 2 is on there.
+*Note (the v0.4.11 batch review's F4, 2026-11-07):* the original's VIDEO and ONLINE OPTIONS ON/OFF strip writes only 1
+or 0 (`Enable_TeamNames` / `Disable_TeamNames`; `packages/viewer/test/optionToggles.ts:79-80`, `:100-101`), so pressing
+it drops Original (2) to 1; how the strip displays a stored 2 is decided by `dlgOptions_Video.rdr`'s own script, not
+by the port. A note only; no code changes with it.
 
 ## 2. Offline against online
 
@@ -401,8 +408,10 @@ files (`main.ts`, `matchMount.ts`) need the controller's word, as NU-7's W1 and 
   `matchMount.ts:889-895`), the page builds T1's input from its net page and `RemotePlayers` and feeds T3; on every path
   of §1.7 (the walker, dead on his own body, watching a teammate; a spectator gets none by T1's team rule). TEAMMATE
   NAMES: `matchMount` reads `gameVars.valve('DISPLAY_MP_TEAM_NAMES')` **once, at the match's mount** (the HUD's set-up,
-  §1.8), absent 1; `/testroom` 1 (the golden's default). 0: no texts -- **the valve gates only the texts; the talk
-  sprites are drawn either way** (§1.6; the review's F1; was: "0: no tags").
+  §1.8), absent 1; `/testroom` 1 (the golden's default) -- *since 2026-11-07 (the v0.4.11 review's F3)* the page's
+  native OPTIONS' valve, read each frame, absent 1, its Original (2) passed as `matchMount`'s is. 0: no texts --
+  **the valve gates only the texts; the talk sprites are drawn either way** (§1.6; the review's F1; was: "0: no
+  tags").
   - *RED (`matchMount.test.ts` through the real page):* a teammate's body in view draws a tag with his welcome name;
     the valve 0 draws no text; **valve 0, a teammate talking in view: the two sprites, no text**; the valve changed
     mid-match keeps the mount's value; a spectator draws none (was: "the valve 0 draws none").
@@ -429,6 +438,7 @@ files (`main.ts`, `matchMount.ts`) need the controller's word, as NU-7's W1 and 
 | `MP_TEAM_TAG_TOP_MARGIN_READING` (was: *note only*; candidate, T1; built 2026-10-15 by NU-9 (c)'s T1; reading, pending review) | `hud.ts` (`teamTagLayout`; was: `hudVoice.ts`) | the margin is the letterbox's bar height (D:L56755; §1.3), closed every frame in the living player's own view online (D:L56568); when `FUN_00228ee0` (D:L78450) or `FUN_002ae970` (D:L153314) open the bars online is not read. The default: 0 (the port draws no letterbox). Settles: a read of those two callers' online paths |
 | `MP_TEAM_TAG_WIDE_FRAME_ADAPTATION` (was: *note only*; candidate, T3; an adaptation; built 2026-10-15 by NU-9 (c)'s T1; reading, pending review: `{ rightInset: 40 }`, the right bound the frame's own width less 40 in 448-high units, 600 on the PS2's 640) | `hud.ts` (`teamTagLayout`) | the original's bounds (0..600 across, the clamp at 600) are the 640 frame's; the native presentation is wider and has no original. Proposed: the PS2 presentation exact; the native one with the bounds over the canvas's width in frame units, the right bound 40 short of its edge -- the controller's choice on the product track, labelled as an adaptation |
 | `MP_TEAM_TAG_TALKER_ADAPTATION` (an adaptation; built 2026-10-15 by NU-9 (c), the controller's word at T4's clearing) | `hudTags.ts` (`teamTagInput`) | the original puts the talk arrow and icon over the floor's holder alone (`iStack_f0`, D:L77345-77350, D:L77434-77443); the port names the talker by VOICE-LATE (B)'s `heardTalker` (research 226 §3.2) -- the voice playing now, else the floor's holder, never the page -- kept for consistency with the HUD's other voice marks; the two agree except while a talk's tail plays behind the jitter window. `'heardTalker'` |
+| `TEAMMATE_NAME_DISTANCE_ADAPTATION` (LATER 671, 2026-11-06; **a browser adaptation** on the owner's ruling OT.R101, H394; product track, the values the controller's starting call for the owner to tune) | `hudTags.ts` (`teamTags`, `teamTagDistanceFactor`; the view's `scale` read by `hud.ts` `teamTagLayout` and the tags' draw) | by default the tags are drawn at 0.7 (the original's 0.9, D:L77539) and each tag's alpha is multiplied by its camera-to-head distance's factor -- 1 within 250 world units (25 m at `UNITS_PER_METRE` 10), linear to 0.35 at 1000 (100 m), held there -- the death fade (100 - 20 t, §1.5) on top. The original has no distance term (D:L77427-77433). OPTIONS > TEAMMATE NAMES' **Original** (`DISPLAY_MP_TEAM_NAMES` 2, `TEAMMATE_NAMES_ORIGINAL_VALUE`; §1.8) keeps the original's tags exactly. `{ scale: 0.7, near: 250, far: 1000, minAlpha: 0.35 }` |
 | `MP_TEAM_TAGS_OFFLINE_READING` (*note only*; candidate, none: the port has no campaign) | -- | offline a tag also needs the actor's team word bit 0x2 or 0x40000 (D:L77367-77375) and carries no clan tag (D:L77394); whether the fire team's words carry those bits is not read. Settles: a read of the fire team's team words at a mission's set-up, or a capture of a single-player mission with TEAMMATE NAMES on |
 
 No value the build needs beyond these is open: the anchor, the 3.0, the bounds, the scale, the alpha, the fade and the

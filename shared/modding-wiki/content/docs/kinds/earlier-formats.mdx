@@ -1,0 +1,125 @@
+---
+title: "The earlier formats"
+description: "s2u-mod v1 data mods, texture packs, the model pack and HD texture packs: what each is and where it applies."
+status: "Test room only"
+source: ["socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-10-texture-pack-conventions.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts:27-32", "socomlegacy/packages/viewer/src/experimentalGraphics.ts:437", "socomlegacy/docs/MISSION.md"]
+---
+
+**Status: Test room only.** Three of these formats apply in the test room and nowhere else; HD texture packs are held
+off everywhere until the owner lifts the hold. Each format below has its own status.
+
+Before the v2 pack, the project grew four pack formats, each with its own manifest and its own loader. The first
+three are the packs that change what you see in a build today; the fourth, HD texture packs, is held. The v2 format is meant to take their place; until it is applied,
+these loaders are the ones that run ([What a pack is](/what-is-a-pack/)).
+
+| format | manifest | what it changes | status |
+|---|---|---|---|
+| `s2u-mod` v1 | `mod.json` | any game file, by its disc path or as one member of an archive | **Test room only** |
+| texture packs | `manifest.json` | one map's opaque textures | **Test room only** |
+| the model pack | `models.json` | a weapon, prop or level piece's mesh, drawn from a glTF binary (`.glb`) | **Test room only** |
+| HD texture packs | `manifest.json` (under `current.json`) | the game's textures, from an HD pack | **Planned** -- held off until the owner lifts the hold |
+
+All four follow the rules on [What a pack is](/what-is-a-pack/): opt-in, kept in your browser, checked before use,
+data only. None runs code: each changes only the files, textures or meshes it names. How to load each one is on
+[Testing a pack locally](/guides/test-locally/).
+
+## `s2u-mod` v1 -- data overrides
+
+Status: **Test room only**, in every build (the test-room mod loader spec, "Scope").
+
+A mod is a zip or a folder with `mod.json` at its root (or inside the one folder a zipped directory adds). Each entry
+of its `files` list puts one file of the mod in place of a game file -- named by its disc path, or as one member of
+an archive the game already reads -- or adds a new one. The bytes are substituted; they are never run.
+
+```json
+{
+  "format": "s2u-mod",
+  "formatVersion": 1,
+  "id": "example-notes",
+  "name": "Example notes",
+  "version": "0.1.0",
+  "author": "You",
+  "description": "A made-up example: replaces one text file.",
+  "target": "socom2-us-r0001",
+  "files": [{ "path": "EXAMPLE/NOTES.TXT", "file": "NOTES.TXT" }]
+}
+```
+
+- `target` is `socom2-us-r0001`, the only target this format accepts.
+- At most 32 files, and `mod.json` at most 64 KiB.
+- The test room's mod panel lists your mods in order; **the lower mod wins** a file two mods both change, and the panel
+  names the winner. Switching a mod on or off asks you to reload the map.
+- Where it applies: the test room, offline and when it joins a server room directly. Refused: a lobby match reached
+  through the game's own menus, and the replay viewer (a replay was recorded without mods).
+
+## Texture packs -- one map's textures
+
+Status: **Test room only**, with the Experimental view on (the texture pack conventions spec, §1; the owner's
+exception H135).
+
+A texture pack is a set of replacement images, 2 or 4 times the original's size, for some of one map's textures. It
+replaces only the colour of solid texels: the game's own drawing -- blend, transparency, depth, the pass -- is
+unchanged. Only opaque textures of the map's world (and, with `roles` `wide`, its props) are eligible; characters,
+weapons, skies and effects never are.
+
+Its manifest, `manifest.json`, has the format `s2u-local-texture-pack` version 1, names the map's archive and its
+hash, and lists each replaced texture with its own payload file (`0.rgba`, `1.rgba`, ...), size and SHA-256. A pack is
+named by the SHA-256 of its manifest, so a changed byte makes a new pack.
+
+It applies only in the test room, while the Experimental view is on and its "Texture pack" chooser names the pack.
+Packs are made with the project's generator, or by replacing the images of a base pack's zip and importing it in the
+Experimental panel.
+
+## The model pack -- glTF models in place of meshes
+
+Status: **Test room only**, with `modmodels` in the page's address (the test-room model pack spec; the viewer's
+`modelPack.ts`, `MODEL_PACK_PARAM`).
+
+A folder, or a zip of one, with `models.json` at its root: format `s2u-model-pack`, version `1`, and a `models` list.
+Each entry names a model the game already draws -- a weapon's name, a prop's model name on the map, or a level piece
+as `world:` plus its name -- and the `.glb` file to draw in its place, with an optional `scale`, `rotation` and
+`position`.
+
+```json
+{
+  "format": "s2u-model-pack",
+  "version": 1,
+  "models": [{ "id": "example_crate", "file": "crate.glb", "scale": 1 }]
+}
+```
+
+- At most 128 ids a pack, one `.glb` at most 500 MiB, the pack at most 500 MiB. A second pack can be loaded beside the
+  first.
+- It changes the drawing only: collision stays the game's.
+- It is off unless the page is the test room and the address contains `modmodels`; then Settings shows a
+  **Model pack** section. The launcher, the Forge and the replay viewer never load it.
+
+## HD texture packs
+
+Status: **Planned** -- held off until the owner lifts the hold (the ui package's `screens/videoPicture.ts`,
+`VIDEO_PICTURE_HD_OFFERED`, lines 27-32; the viewer's `experimentalGraphics.ts`, line 437).
+
+**The hold.** The owner has held the HD pack back: it stays in the build, but nobody can switch it on.
+`VIDEO_PICTURE_HD_OFFERED` is `false` in the code, so the "HD (GoE Soul)" picture is offered nowhere -- not in VIDEO
+MODE, not in Options -- and the test room's HD switch is shown but cannot be turned on, in every build, a local
+development server included. What follows describes the format and the design (the project's ruling OT.R92 in
+`MISSION.md`); none of it reaches a player while the hold stands.
+
+An HD texture pack replaces the game's textures with high-resolution images: world, props, characters, weapons,
+effects, HUD and menus, with transparency. Its manifest has the format `s2u-hd-texture-pack` version 1; a
+`current.json` names the pack by the SHA-256 of its manifest, and the manifest lists every payload with its size and
+hash. The project's generator makes one from a texture pack made for the PCSX2 emulator.
+
+The design: you import one as a zip in the test room, and your browser keeps one HD pack at a time, importing another
+replacing it (the viewer's `hdTexturePackStore.ts`). Once the hold is lifted, the pack would be used in the test
+room's Experimental view and in matches drawn with the **HD (GoE Soul)** picture; with no pack imported, that picture
+would use the HD pack the project's server provides, where it provides one. Every texture is checked against its hash
+as it is applied, and switching the pack off puts every original back.
+An HD pack is someone's art: the project never puts one in its repository, and sharing one is its maker's choice.
+
+## How the v2 contract reads these
+
+The v2 contract can read the first three formats as v2 `content` packs through an adapter: a mod as `mod.` plus its
+id, the model pack as `model.current`, a texture pack as `texture.` plus its map's name (the pack-framework spec, "The
+three earlier loaders"). HD texture packs have no adapter. This lets a v2 pack depend on an earlier one by that id;
+it does not change how the earlier loaders work, and the earlier loaders do not read `s2u-pack.json`.

@@ -2,8 +2,10 @@ import { writeFileSync } from 'node:fs';
 import { chromium, expect, test, type BrowserContext, type CDPSession, type Page } from '@playwright/test';
 // `src/hook.ts` is types only; its `declare global` is what makes `window.__viewer` exist inside `page.evaluate`.
 import type {} from '../src/hook';
+import { isSoftwareRenderer } from '../src/softwareRenderer';
 import { holdReleased } from './loadHold';
 import { OpenedContexts } from './openedContexts';
+import { e2eRenderer } from './renderer';
 import { TEST_ROOM } from './urls';
 
 /**
@@ -29,6 +31,17 @@ import { TEST_ROOM } from './urls';
  * The trace (devtools.timeline, disabled-by-default-devtools.timeline.frame, v8.execute, gpu, and the V8 sampler's
  * disabled-by-default-v8.cpu_profiler so the self time under Renderer.render, RenderObjects.get, createRenderObject and
  * Bindings can be read by function) is saved to the test's results folder as `flash-trace-<backend>-<picture>.json`.
+ *
+ * The instrument's fixes (FLASH-WARM, seat b6, 2026-11-07; a browser-test instrument, product track):
+ * - The renderer: `S2U_E2E_RENDERER` as `./renderer.ts` reads it, but where it is unset this measurement asks for the
+ *   real GPU on Windows (`d3d11`) rather than the suite's SwiftShader default -- a frame time measured in software says
+ *   nothing about a player's flash. Both legs launch a browser of their own with those flags (the WebGPU one adds its
+ *   WebGPU flags; on an explicit `swiftshader` it keeps only those, as before).
+ * - One `renderer` line a page: the request, the backend drawn, the WebGL2 renderer string (ANGLE's, naming D3D11 and
+ *   the GPU or SwiftShader), the WebGPU adapter's info, the LinkLog's totals and the warm-up stages' times
+ *   (`__viewer.links()`), and a LOUD `SOFTWARE RENDERER` note when either string names a software rasteriser.
+ * - The trace's start froze the page for ~330 ms on the owner's d3d11 run, which the first flash's window then counted
+ *   as its longest frame: the throw waits `TRACE_SETTLE_MS` after the trace starts.
  */
 
 const RUN = process.env.S2U_FLASH_PROFILE === '1';
@@ -40,7 +53,36 @@ const KIT = '54,15,123,153,121';
 const CATEGORIES = [
   'devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'v8.execute', 'gpu', 'disabled-by-default-v8.cpu_profiler',
 ];
+/** How long the throw waits after the trace starts, so the trace's own start-up freeze is not the flash's frame. */
+const TRACE_SETTLE_MS = 1000;
+/** The renderer asked for: `S2U_E2E_RENDERER`, else the real GPU on Windows, else the suite's default. */
+const RENDER = e2eRenderer(process.env.S2U_E2E_RENDERER ?? (process.platform === 'win32' ? 'd3d11' : undefined));
 type Backend = 'webgpu' | 'webgl2';
+
+/** The renderer strings this page's browser reports: WebGL2's (unmasked where offered) and the WebGPU adapter's info. */
+async function rendererStrings(page: Page): Promise<{ gl: string | null; adapter: string | null }> {
+  return page.evaluate(async () => {
+    let gl: string | null = null;
+    const c = document.createElement('canvas').getContext('webgl2');
+    if (c) {
+      const ext = c.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_RENDERER_WEBGL: number } | null;
+      gl = String(c.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : c.RENDERER));
+      (c.getExtension('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
+    }
+    let adapter: string | null = null;
+    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ info?: Record<string, string> } | null> } }).gpu;
+    if (gpu) {
+      try {
+        const a = await gpu.requestAdapter();
+        if (a) {
+          const i = a.info ?? {};
+          adapter = [i['vendor'], i['architecture'], i['device'], i['description']].filter((s) => s).join(' / ') || 'unnamed';
+        }
+      } catch { adapter = 'error'; }
+    }
+    return { gl, adapter };
+  });
+}
 type Picture = 'native' | 'ps2';
 
 const opened = new OpenedContexts();
@@ -174,6 +216,19 @@ async function profile(context: BrowserContext, backend: Backend, picture: Pictu
   }
   // The warm-up done: no link in flight.
   await expect.poll(() => page.evaluate(() => window.__viewer.links().pending), { timeout: 60_000 }).toBe(0);
+  const strings = await rendererStrings(page);
+  const links = await page.evaluate(() => {
+    const l = window.__viewer.links(), s = window.__viewer.stats();
+    return { now: l.now, total: l.total, sync: l.sync, warmed: l.warmed, loadMs: s.loadMs };
+  });
+  const warmed = Object.entries(links.warmed).map(([k, t]) => `${k}:${t.toFixed(0)}`).join(',');
+  console.log(`FLASH_PROFILE ${backend} ${picture} renderer request=${RENDER.request} drewWith=${drawn} `
+    + `gl=${JSON.stringify(strings.gl)} adapter=${JSON.stringify(strings.adapter)} links=${links.total} syncLinks=${links.sync} `
+    + `loadMs=${links.loadMs.toFixed(0)} warmedAtMs=${warmed || 'none'} linksSettledAtMs=${links.now.toFixed(0)}`);
+  if (isSoftwareRenderer(strings.gl) || isSoftwareRenderer(strings.adapter)) {
+    console.log(`FLASH_PROFILE ${backend} ${picture} !!! SOFTWARE RENDERER (${strings.gl ?? strings.adapter}): these frame times `
+      + 'are a software rasteriser\'s, not a GPU\'s -- set S2U_E2E_RENDERER=d3d11 (Windows) or vulkan (Linux) !!!');
+  }
   await page.keyboard.press('Backquote');   // a gesture: the audio unlocked, so the flash's sound is part of what is timed
   await page.evaluate((pose) => {
     window.__viewer.setMode('walk');
@@ -187,6 +242,7 @@ async function profile(context: BrowserContext, backend: Backend, picture: Pictu
   const cdp = await context.newCDPSession(page);
   const stop = await startTrace(cdp);
   try {
+    await page.waitForTimeout(TRACE_SETTLE_MS);                      // the trace's start-up freeze, not the flash's
     const t0 = Date.now();
     await throwAndMeasure(page, backend, picture, 1, 'Mark141');
     await page.waitForTimeout(Math.max(0, 15_000 - (Date.now() - t0)));
@@ -206,16 +262,23 @@ test.describe('L3lsGcIs flash profile (a measurement, on ask: S2U_FLASH_PROFILE=
   test.describe.configure({ timeout: 300_000 });
 
   for (const picture of ['native', 'ps2'] as const) {
-    test(`WebGL2 (the graphics setting), ${picture} picture`, async ({ browser, baseURL, storageState }) => {
-      const context = opened.add(await browser.newContext({ baseURL, storageState, viewport: { width: 1280, height: 720 } }));
-      await profile(context, 'webgl2', picture);
+    test(`WebGL2 (the graphics setting), ${picture} picture`, async ({ baseURL, storageState }) => {
+      // A browser of its own with `RENDER`'s flags: the config's takes the suite's default (SwiftShader) when unset.
+      const own = await chromium.launch({ args: RENDER.args, executablePath: process.env.PW_CHROMIUM || undefined });
+      try {
+        const context = opened.add(await own.newContext({ baseURL, storageState, viewport: { width: 1280, height: 720 } }));
+        await profile(context, 'webgl2', picture);
+      } finally {
+        await opened.closeAll();
+        await own.close();
+      }
     });
 
     test(`WebGPU (a chromium with an adapter), ${picture} picture`, async ({ baseURL, storageState }) => {
       // A browser of its own, as `presentation.spec.ts`'s: the config's is the headless shell without the WebGPU flags.
-      const gpu = await chromium.launch({
-        channel: 'chromium', args: ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist'], executablePath: process.env.PW_CHROMIUM || undefined,
-      });
+      const webgpuArgs = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist'];
+      const args = RENDER.request === 'swiftshader' ? webgpuArgs : [...new Set([...RENDER.args, ...webgpuArgs])];
+      const gpu = await chromium.launch({ channel: 'chromium', args, executablePath: process.env.PW_CHROMIUM || undefined });
       try {
         const context = opened.add(await gpu.newContext({ baseURL, storageState, viewport: { width: 1280, height: 720 } }));
         await profile(context, 'webgpu', picture);

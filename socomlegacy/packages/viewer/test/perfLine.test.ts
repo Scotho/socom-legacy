@@ -23,6 +23,7 @@ const FULL: PerfParts = {
   stats: { frames: 3480, span_ms: 60_000, fps_mean: 58, p50_ms: 17.1, p95_ms: 24.3, p99_ms: 41, max_ms: 88, min_ms: 6.06, over33: 12, over100: 0 },
   longTasks: 2,
   graphics: 'ok',
+  sound: 'cold 0, warmed 51, evicted 0',
 };
 
 describe('perfLine: one line, its parts in order', () => {
@@ -30,7 +31,8 @@ describe('perfLine: one line, its parts in order', () => {
     expect(perfLine(FULL)).toBe(
       's2u perf v0.4.2 | Chrome 142 Windows | ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11) | webgpu'
       + ' | dpr 1.5 | buffer 1707x1067 of 2560x1600 css | 165 Hz | balanced, shadows on | 16 seats Crossroads'
-      + ' | last 60 s: 58 fps p50 17.1 p95 24.3 p99 41 max 88 ms, >33 ms 12, >100 ms 0, long tasks 2 | graphics ok');
+      + ' | last 60 s: 58 fps p50 17.1 p95 24.3 p99 41 max 88 ms, >33 ms 12, >100 ms 0, long tasks 2 | graphics ok'
+      + ' | sound cold 0, warmed 51, evicted 0');
   });
 
   it('a software renderer says so after its string; shadows off; a fractional rate and times rounded', () => {
@@ -46,7 +48,7 @@ describe('perfLine: one line, its parts in order', () => {
   });
 
   it('nothing known: every part "?", never a throw', () => {
-    expect(perfLine({})).toBe('s2u perf v? | ? | ? | ? | dpr ? | buffer ? of ? css | ? Hz | ? | ? | no frames, long tasks ? | graphics ?');
+    expect(perfLine({})).toBe('s2u perf v? | ? | ? | ? | dpr ? | buffer ? of ? css | ? Hz | ? | ? | no frames, long tasks ? | graphics ? | sound ?');
   });
 
   it('a renderer string is kept on one line and never splits the line\'s fields', () => {
@@ -126,7 +128,7 @@ describe('pagePerfLine: the page\'s parts gathered', () => {
   it('no frames ever: no match, no frames', () => {
     const line = pagePerfLine({ userAgent: '', probe: () => ({ renderer: 'R', software: false }), devicePixelRatio: 1, version: '0.4.2' });
     expect(line).toContain('| R | ? | dpr 1 | buffer ? of ? css | ? Hz | balanced, shadows on | no match | no frames, long tasks ');
-    expect(line).toMatch(/\| graphics ok$/);
+    expect(line).toMatch(/\| graphics ok \| sound cold 0, warmed 0, evicted 0$/);   // LATER 730: the page's record
   });
 
   it('the graphics record on the line: the uncaptured errors the page kept (the tag-trails instrument, 2026-11-05)', () => {
@@ -135,6 +137,6 @@ describe('pagePerfLine: the page\'s parts gathered', () => {
     renderer.onError({ api: 'WebGPU', type: 'ValidationError', message: 'Destroyed texture used in a submit.' } as never);
     renderer.onError({ api: 'WebGPU', type: 'ValidationError', message: 'again' } as never);
     const line = pagePerfLine({ userAgent: '', probe: () => ({ renderer: 'R', software: false }), devicePixelRatio: 1, version: '0.4.2' });
-    expect(line).toMatch(/\| graphics WebGPU ValidationError x2 "Destroyed texture used in a submit\." first 02:10:05Z$/);
+    expect(line).toMatch(/\| graphics WebGPU ValidationError x2 "Destroyed texture used in a submit\." first 02:10:05Z \| sound /);
   });
 });

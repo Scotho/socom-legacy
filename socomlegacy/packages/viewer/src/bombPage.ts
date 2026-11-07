@@ -108,16 +108,33 @@ export const PLANT_AIM_RESEND_ADAPTATION = { move: 4, ticks: 6 } as const;
 export const BOMB_MODEL_READING = { item: 154, model: 'Satchel', node: 'MPFootBomb' } as const;
 
 /**
- * COMPASS_BASE_MARK_READING: who sees the objective's compass marks. `ret_base` marks the tent the carrier's side must
- * reach (`plantSite`) for the players of that side while their side carries the bomb; `ret_bomb` marks the bomb for
- * everyone where it lies (states 1 and 3). The carried bomb is marked on nobody's compass (OT.R99, as amended
- * 2026-11-02 to match the original; reading, pending review, research 214 s3 "The compass while carried"): the pickup
- * frees the viewer's `BOMB_GROUND` mark (`FUN_005bbf10` D:L473680-473685) and makes only `ALL_YOUR_BASE`
- * (D:L473693-473701); the one type-1 (`ret_bomb`) maker is the ground's (`FUN_0059dab0` D:L457516-457526). Still open
- * (research 214 s3's findings): the other side's type-3 base mark (D:L473696-473699, not drawn here) and the planted
- * bomb's mark (none in the original, D:L457516). Settles: capture B (an enemy's compass while carried; one planted).
+ * COMPASS_BASE_MARK_READING: who sees the objective's compass marks. While the bomb is carried, `ret_base` marks the tent
+ * the CARRIER's side must reach (`plantSite` of his side) on every side's compass -- BOMB-MARKS (the owner, seat b6,
+ * 2026-11-06; reading, pending review, research 214 s3 "The base mark for both sides"): the pickup runs `FUN_005bbf10`
+ * on every console, which makes the viewer's `ALL_YOUR_BASE` mark at the base `FUN_002c30b0` picks for the carrier
+ * (`DAT_00437dcc` / `DAT_00437dd0`, D:L473686-473690; the plant check `FUN_00594480` picks it the same way,
+ * D:L452753-452760), made at its `+0x30` (D:L473695), of type 2 when the viewer's `+200` mask meets the carrier's, else
+ * type 3 (D:L473696-473700), and held as the viewer's base mark (D:L473701): the
+ * mark's `type`, its colour `./hud` `BASE_MARK_TYPE_RGB_READING`, pulsing as types 1-13 do (`FUN_00211510`
+ * D:L68125-68130). *Was* `'carrier-side'`: the carrier's side alone, in the nav marks' green. A drop takes it away
+ * (`FUN_0059dab0` D:L457531-457532); after a plant the original's base mark is not traced, so the port keeps its own
+ * (none: the mark is drawn in the carried state only). A side-less viewer: `BASE_MARK_SPECTATOR_PLACEHOLDER`.
+ * `ret_bomb` marks the bomb for everyone where it lies (states 1 and 3). The carried bomb is marked on nobody's compass
+ * (OT.R99, as amended 2026-11-02 to match the original; research 214 s3 "The compass while carried"): the pickup frees
+ * the viewer's `BOMB_GROUND` mark (`FUN_005bbf10` D:L473680-473685); the one type-1 (`ret_bomb`) maker is the ground's
+ * (`FUN_0059dab0` D:L457516-457526). Still open: the planted bomb's mark (none in the original, D:L457516) and the base
+ * mark after a plant. Settles: capture B (an enemy's compass while carried; one planted).
  */
-export const COMPASS_BASE_MARK_READING = 'carrier-side' as const;
+export const COMPASS_BASE_MARK_READING = 'both-sides-by-type' as const;
+
+/**
+ * BASE_MARK_SPECTATOR_PLACEHOLDER (BOMB-MARKS; research 214 s6): the base mark on the compass of a viewer with no side
+ * (a watcher's page). The original's test is the local player's `+200` mask against the carrier's
+ * (`FUN_005bbf10` D:L473697), and what a spectating console's local player holds there is not read; the port
+ * keeps its default from before BOMB-MARKS: none. Settles: a spectator's compass while the bomb is carried (capture), or
+ * a read of the spectator's `+200`.
+ */
+export const BASE_MARK_SPECTATOR_PLACEHOLDER = 'none' as const;
 
 /**
  * PB-1 (research 214 s3): the plant's clip. The plant's commit runs `FUN_005be9a0`'s MPBOMB branch (the item's type byte
@@ -267,6 +284,8 @@ export interface BombHud {
   setDefuseTimer(seconds: number | null): void;
   /** PB-8: the hold bar's fill, 0..1 of its width, or null with no hold (`./hud` `Hud.setHoldBar`). */
   setHoldBar(fill: number | null): void;
+  /** BOMB-MARKS: the carrier's id for the scoreboard's satchel, or null (`./hud` `Hud.setBombCarrier`). */
+  setBombCarrier?(id: number | null): void;
   postMessage(text: string, scale: number): void;
 }
 
@@ -459,8 +478,8 @@ export class BombPage {
 
   /**
    * XR-06: the HUD's frame (`main.ts`, `matchMount.ts`, once a frame): the compass's marks
-   * (`COMPASS_BASE_MARK_READING`), the fuse in the round timer's place and (PB-8) the hold bar; nothing while the round
-   * is not in play. `hud`: the one lent at construction unless given.
+   * (`COMPASS_BASE_MARK_READING`), the fuse in the round timer's place, (PB-8) the hold bar and (BOMB-MARKS) the
+   * scoreboard's carrier; nothing while the round is not in play. `hud`: the one lent at construction unless given.
    */
   hudFrame(hud: BombHud | null = this.view.hud ?? null): void {
     if (this.deps.open?.() === false) this.ownSatchelOff();     // review F2: no room, no satchel on the own body
@@ -468,6 +487,10 @@ export class BombPage {
     hud.setExtraMarks(this.playing ? this.marks() : []);
     hud.setDefuseTimer(this.playing ? this.defuseTimer() : null);
     hud.setHoldBar(this.playing ? this.holdBar() : null);
+    // BOMB-MARKS: the scoreboard's satchel is the row of the player holding item 0x9a (FUN_0022a290 D:L79026): the
+    // carrier, carried state only; the board shows it to every viewer, as the original (OT.R109 as amended).
+    const b = this.bomb;
+    hud.setBombCarrier?.(this.playing && b && b.state === BOMB_STATE.carried ? b.carrier : null);
   }
 
   /** The compass's objective marks now. */
@@ -477,9 +500,12 @@ export class BombPage {
     const out: CompassMark[] = [];
     // OT.R99: no ret_bomb while carried, for any viewer (FUN_005bbf10 D:L473680-473685 frees BOMB_GROUND at the pickup).
     if (b.state === BOMB_STATE.ground || b.state === BOMB_STATE.planted) out.push({ bitmap: 'ret_bomb.tif', x: b.pos[0]!, z: b.pos[2]! });
-    if (b.state === BOMB_STATE.carried && b.carrier !== null && team && this.teamOf(b.carrier) === team) {
-      const site = plantSite(team, this.deps.actions());
-      if (site) out.push({ bitmap: 'ret_base.tif', x: site.at[0], z: site.at[2] });
+    // BOMB-MARKS (COMPASS_BASE_MARK_READING): the carrier's side's site for every side, type 2 for his side, 3 for the
+    // other (FUN_005bbf10 D:L473686-473700); none for a side-less viewer (BASE_MARK_SPECTATOR_PLACEHOLDER).
+    const carrierTeam = b.state === BOMB_STATE.carried && b.carrier !== null ? this.teamOf(b.carrier) : null;
+    if (carrierTeam && team) {
+      const site = plantSite(carrierTeam, this.deps.actions());
+      if (site) out.push({ bitmap: 'ret_base.tif', x: site.at[0], z: site.at[2], type: carrierTeam === team ? 2 : 3, pulse: true });
     }
     return out;
   }

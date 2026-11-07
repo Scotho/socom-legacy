@@ -110,13 +110,16 @@ export function drawerHtml(r: Room & { i: number }, s: ConsoleState, a: Adapters
 const CUSTOM_TAG = 'Custom';
 const CUSTOM_ADAPTATION_WORDS = 'not part of the original game';
 function customRowHtml(r: BrowseCustomRow, idx: number, focused: boolean): string {
-  const name = esc(r.name) + (r.locked ? ' · Password' : '') + (r.inMatch ? ' · In match' : '');
-  const label = [`Custom match ${r.name}`, r.map, `${r.players} of ${r.max} players`, r.locked ? 'password' : '', r.inMatch ? 'in match' : '', r.joinLocked ? OVERLAY_LOCK_WORDS.join : '', CUSTOM_ADAPTATION_WORDS]
+  const community = r.community === true;
+  const name = esc(r.name) + (community ? ' · unranked · HyperNode' : '') + (r.locked ? ' · Password' : '') + (r.inMatch ? ' · In match' : '');
+  const mode = community ? 'unranked' : CUSTOM_TAG;
+  const tag = community ? 'HyperNode' : CUSTOM_TAG;
+  const label = [`Custom match ${r.name}`, community ? 'unranked, HyperNode' : '', r.map, `${r.players} of ${r.max} players`, r.locked ? 'password' : '', r.inMatch ? 'in match' : '', r.joinLocked ? OVERLAY_LOCK_WORDS.join : '', CUSTOM_ADAPTATION_WORDS]
     .filter((x) => x !== '').join(', ');
   return `<button type="button" class="cx-room is-custom ${focused ? 'is-focused' : ''}" data-act="room" data-i="${idx}" data-fk="custom-${esc(r.id)}" data-kind="custom" aria-label="${esc(label)}">
-    ${nameCell(name)}<span>${esc(r.map)}</span><span>${CUSTOM_TAG}</span>
+    ${nameCell(name)}<span>${esc(r.map)}</span><span>${mode}</span>
     <span class="cx-room__count ${r.players >= r.max ? 'is-full' : ''}">${r.players}/${r.max}</span>
-    <span class="cx-room__tag">${CUSTOM_TAG}</span>
+    <span class="cx-room__tag">${tag}</span>
   </button>`;
 }
 
@@ -126,7 +129,7 @@ function customDrawerHtml(r: BrowseCustomRow, s: ConsoleState): string {
     .map(([k, v]) => `<dt>${esc(k ?? '')}</dt><dd>${esc(v ?? '')}</dd>`).join('');
   const cta = r.joinLocked ? esc(OVERLAY_LOCK_WORDS.join) : `${btn('cross')}Join · opens the forge`;
   return `<aside class="cx-drawer is-custom" aria-label="Custom match ${esc(r.name)}">
-    <div class="cx-drawer__map is-guide"><span>Custom match</span><span class="cx-drawer__name">${esc(r.name)}</span></div>
+    <div class="cx-drawer__map is-guide"><span>Custom match</span><span class="cx-drawer__name">${esc(r.name)}${r.community === true ? ' · unranked · HyperNode' : ''}</span></div>
     <div class="cx-drawer__body">
       <dl class="cx-facts">${facts}</dl>
       <p class="cx-drawer__note">Not part of the original game: a browser adaptation.</p>

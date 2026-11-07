@@ -532,7 +532,10 @@ export class FrontEndSession<P = BlackPicture> {
       chat: this.briefing.chat, clanId: () => this.world.commands.clan.clanId,   // ONL-18: the hand-off, never an open client unheard; ONL-15: AUTOPLAY; ONL-23: SendChatText's whisper (research 266 §1); CLAN-ID-WIRE: ClanGameClosed's FUN_002e9940 (research 272 §3)
       system: (text, severity) => { this.briefing.chat.systemMessage(text, severity); },   // SA-43c Part 2: the game socket's system message, routed as the lobby's (FUN_0030dce0)
       serverUpdate: pageServerUpdate,   // OBF-4 (OBF.R4; an adaptation): the host's update -- the post-match warning and window.location.reload()
-      ...(o.allBotGames ? { allBotGames: o.allBotGames } : {}) });   // P537-L2: GAME LOBBY's BOTS on the server's word alone
+      ...(o.allBotGames ? { allBotGames: o.allBotGames } : {}),   // P537-L2: GAME LOBBY's BOTS on the server's word alone
+      // LOBBY-MAPNAME (research 165 §9): the mission's UiVars from the shared ARMORY's read of the same mission (one decode,
+      // kept: `armoryRead`), so AdvanceMPMission's load gives the title bar's MPgamename the map's mission_title
+      ...(o.armory ? { missionVars: (mission: string) => o.armory!.load(mission).then((d) => d?.missionUiVars ?? null) } : {}) });
     this.host.setBindingGate('lobby-bots', lobbyBotsGate({
       commands: this.gameLobby.commands, node: (cmd) => this.parts.current?.nodeCommand(cmd),
       focus: (name) => {
