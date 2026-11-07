@@ -174,6 +174,12 @@ export interface LoadedMap {
    */
   instanceRoots?: { path: string; matrix: Float32Array }[];
   /**
+   * The forge's placed plant sites' outlines that no program of the map's set lights (`./forge/siteOutlines`; a browser
+   * adaptation, FG.R2): each its node's path and the carrier's side whose pickup lights it (`./bombPage` `worldPulse`).
+   * Absent on every disc map.
+   */
+  forgeSiteOutlines?: readonly { path: string; side: 'seal' | 'terrorist' }[];
+  /**
    * Test-room model pack: level pieces left out of `world`. One GLB is drawn at `anchor`. Absent when this load
    * was not asked to swap any, so a map with no pack still has the field missing.
    */
@@ -324,6 +330,8 @@ export interface LoadedMap {
    */
   ai?: AiMaps;
   escortees?: EscorteeStart[];
+  /** A Forge layout's escort zones' compass marks (`./forge/playObjectives` `FORGE_ESCORT_ZONE_MARK_ADAPTATION`); never the disc's. */
+  forgeZoneMarks?: [number, number, number][];
   /**
    * PF-31 (`./mapMeta` `scenicViewsOf`, SCENIC_VIEWS_READING): the spectator camera's fixed views, `mission.rdr`'s
    * `Scenic_Views` in file order (`./spectatorView` `scenicViews`). Absent when the map has none or they do not read.

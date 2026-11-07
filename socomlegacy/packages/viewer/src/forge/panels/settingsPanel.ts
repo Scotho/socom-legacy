@@ -1,6 +1,5 @@
 import { FORGE_GAME_TYPE_NAME, FORGE_GAME_TYPES, NPC_BEHAVIOURS, SETTINGS_BOUNDS, type LayoutSettings } from '../layout';
 import type { MenuItem } from '../padMenu';
-import { DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, GRID_STEP_MAX, GRID_STEP_MIN, TURN_STEP_MAX, TURN_STEP_MIN } from '../placement';
 import { FOG_SLIDER_STEPS, lightingLabel, NPC_BEHAVIOUR_LABEL, type NumericSetting } from '../settings';
 import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
 
@@ -9,7 +8,7 @@ import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
  * are one list of rows (`MAP_SETTING_ROWS`), drawn twice from it -- as the dock's controls and as the START menu's
  * section -- with one value formatter (`formatSetting`), so a new setting is added once. The markup is the page's as it
  * was (`.fx-settings`, `.fx-setting`, `.fx-setting-nums`, `.fx-toggle`); the page's closure keeps wiring the controls and
- * writes every change as an edit of the layout, as before. The editor's own steps (grid, turn, snap) head the panel.
+ * writes every change as an edit of the layout, as before. The editor's snap settings live in the viewport dropdown.
  */
 export type MapSettingId = 'gameType' | NumericSetting | 'friendlyFire' | 'npcBehaviour';
 export type SettingControl = 'select' | 'range' | 'fog' | 'number' | 'toggle' | 'choice';
@@ -63,11 +62,11 @@ export function formatSetting(id: Exclude<MapSettingId, 'gameType'>, s: LayoutSe
 
 export interface SettingsDom {
   body: HTMLDivElement;
-  gridIn: HTMLInputElement;
-  turnIn: HTMLInputElement;
-  snapIn: HTMLInputElement;
-  /** FUI-22 (D1: "a setting to turn it off"): the asset list's tooltip preview, an editor setting of this browser. */
-  tipsIn: HTMLInputElement;
+  /**
+   * The layout's lighting rows -- Day / night and Fog distance (`LIGHTING_SETTINGS`) -- built from the same row list
+   * and wired by the page as before, but mounted by the Environment panel (`./environmentPanel`), not in `body`.
+   */
+  lightingRows: HTMLElement[];
   gameTypeSel: HTMLSelectElement;
   lightIn: HTMLInputElement;
   /** Original: the saved Night -> Day cleared, the map's authored lighting back. */
@@ -83,7 +82,10 @@ export interface SettingsDom {
   npcSel: HTMLSelectElement;
 }
 
-type Parts = Omit<SettingsDom, 'body' | 'gridIn' | 'turnIn' | 'snapIn' | 'tipsIn'>;
+type Parts = Omit<SettingsDom, 'body' | 'lightingRows'>;
+
+/** The settings whose dock rows live in the Environment panel (still the START menu's Map settings rows). */
+export const LIGHTING_SETTINGS: readonly MapSettingId[] = ['timeOfDay', 'fogFar'];
 
 function settingRow(doc: Document, label: string, control: HTMLElement, value: HTMLElement | null = null): HTMLLabelElement {
   const w = forgeEl(doc, 'label', 'fx-setting');
@@ -112,18 +114,12 @@ function numberIn(doc: Document, min: number, max: number, step: number): HTMLIn
   return i;
 }
 
-function stepInput(doc: Document, min: number, max: number, value: number, title: string): HTMLInputElement {
-  const i = numberIn(doc, min, max, 1);
-  i.value = String(value);
-  i.title = title;
-  return i;
-}
-
 function controls(doc: Document): Parts {
   const gameTypeSel = forgeEl(doc, 'select', 'fx-select fx-game-type');
   gameTypeSel.setAttribute('aria-label', 'Game type');
   const gameOpt = (value: string, label: string): HTMLOptionElement => { const o = forgeEl(doc, 'option', '', label); o.value = value; return o; };
-  gameTypeSel.append(gameOpt('', 'Map’s own'), ...FORGE_GAME_TYPES.map((t) => gameOpt(String(t), FORGE_GAME_TYPE_NAME[t])));
+  // No "Map's own" (the owner, 2026-11-06): a layout naming no type shows its base map's own, read off the disc.
+  gameTypeSel.append(...FORGE_GAME_TYPES.map((t) => gameOpt(String(t), FORGE_GAME_TYPE_NAME[t])));
   const fogReset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Map’s own');
   fogReset.type = 'button';
   fogReset.title = 'The map’s own fog distance, from the disc';
@@ -196,8 +192,11 @@ function dockRow(doc: Document, spec: SettingRowSpec, p: Parts): HTMLElement {
   }
 }
 
-/** The map settings in the dock: the spec's order, the numbers side by side in one group with their notes after it. */
-function mapRows(doc: Document, p: Parts): HTMLElement[] {
+/**
+ * The map settings in the dock: the spec's order, the numbers side by side in one group with their notes after it.
+ * `rows` the specs drawn (the Settings panel's: all but the lighting ones; the Environment panel's: those).
+ */
+function mapRows(doc: Document, p: Parts, rows: readonly SettingRowSpec[]): HTMLElement[] {
   const out: HTMLElement[] = [];
   let group: HTMLDivElement | null = null;
   let notes: string[] = [];
@@ -206,7 +205,7 @@ function mapRows(doc: Document, p: Parts): HTMLElement[] {
     out.push(group, ...notes.map((n) => forgeEl(doc, 'p', 'fx-dim fx-setting-note', n)));
     group = null; notes = [];
   };
-  for (const spec of MAP_SETTING_ROWS) {
+  for (const spec of rows) {
     if (spec.control !== 'number') { close(); out.push(dockRow(doc, spec, p)); if (spec.dockNote) out.push(forgeEl(doc, 'p', 'fx-dim fx-setting-note', spec.dockNote)); continue; }
     group ??= forgeEl(doc, 'div', 'fx-setting-nums');
     group.append(dockRow(doc, spec, p));
@@ -218,24 +217,10 @@ function mapRows(doc: Document, p: Parts): HTMLElement[] {
 
 export function buildSettings(doc: Document): SettingsDom {
   const body = forgeEl(doc, 'div', 'fx-settings fx-section');       // FUI-22 (D2): the dock's one section style
-  // FG-49: the snap's grid and turn, settings of the editor (kept with the view switches, not in the layout).
-  const gridIn = stepInput(doc, GRID_STEP_MIN, GRID_STEP_MAX, DEFAULT_GRID_STEP, 'Grid step, in game units');
-  const turnIn = stepInput(doc, TURN_STEP_MIN, TURN_STEP_MAX, DEFAULT_TURN_STEP, 'Turn step, in degrees');
-  const snapIn = forgeEl(doc, 'input');
-  snapIn.type = 'checkbox';
-  const snapRow = forgeEl(doc, 'label', 'fx-toggle');
-  snapRow.append(snapIn, forgeEl(doc, 'span', '', 'Snap'));
-  // FUI-22 (D1): the asset list's tooltip preview, on unless turned off here (an editor setting, not the layout's).
-  const tipsIn = forgeEl(doc, 'input');
-  tipsIn.type = 'checkbox';
-  tipsIn.checked = true;
-  tipsIn.dataset['forgeSetting'] = 'assetTips';
-  const tipsRow = forgeEl(doc, 'label', 'fx-toggle');
-  tipsRow.title = 'A preview beside the asset under the pointer or the focus';
-  tipsRow.append(tipsIn, forgeEl(doc, 'span', '', 'Asset preview on hover'));
   const p = controls(doc);
-  body.append(forgeEl(doc, 'h3', '', 'Placement'), settingRow(doc, 'Grid step', gridIn), settingRow(doc, 'Turn step (°)', turnIn), snapRow, tipsRow, ...mapRows(doc, p));
-  return { body, gridIn, turnIn, snapIn, tipsIn, ...p };
+  const lighting = (spec: SettingRowSpec): boolean => LIGHTING_SETTINGS.includes(spec.id);
+  body.append(forgeEl(doc, 'h3', '', 'Map'), ...mapRows(doc, p, MAP_SETTING_ROWS.filter((s) => !lighting(s))));
+  return { body, lightingRows: mapRows(doc, p, MAP_SETTING_ROWS.filter(lighting)), ...p };
 }
 
 /** What the menu's rows read and do: the page's own settings, steps and refusals. */
@@ -270,11 +255,13 @@ export function settingsMenuSection(hooks: SettingsMenuHooks, rows: readonly Set
 }
 
 /**
- * FUI.R5's tabs: Settings sits under Edit with the Inspector and the Outliner (the layout's own values and the editor's
+ * Settings now sits under World with the Environment panel (the map-wide settings); the tab once called Edit is Object.
+ * Before: FUI.R5's tabs: Settings sat under Edit with the Inspector and the Outliner (the layout's own values and the editor's
  * steps), so a dock past five panels still opens it with them -- forgeDemolition.spec drives its Game type while the
  * Outliner is checked; View alone is World. A deliberate grouping (the review named the tabs, not their panels).
  */
 export function settingsPanel(dom: SettingsDom, hooks: SettingsMenuHooks): ForgePanel {
-  return builtPanel({ id: 'settings', title: 'Settings', dock: 'right', order: 40, defaultOpen: true, tab: 'Edit',
+  // Under World, beside the Environment panel: the layout's map-wide settings, not an object's.
+  return builtPanel({ id: 'settings', title: 'Settings', dock: 'right', order: 40, defaultOpen: true, tab: 'World',
     padLegend: [{ button: 'dpad', label: 'Change' }, { button: 'cross', label: 'Reset' }], menuSection: () => settingsMenuSection(hooks) }, dom.body);
 }

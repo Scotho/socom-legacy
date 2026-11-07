@@ -49,11 +49,8 @@ export interface LegendPrompt {
 
 /** What the pad is doing, as the legend reads it. */
 export type LegendContext =
-  /**
-   * The editor: the tool (`./../page` `Mode`) and how many placements are picked. `dragLook`: View's "Left drag to look"
-   * (the saved-lighting feature's camera preference, `./../lightingLook`) is on -- a plain drag looks, Shift+drag boxes.
-   */
-  | { kind: 'build'; tool: string; selection: number; dragLook?: boolean }
+  /** The editor: the tool (`./../page` `Mode`) and how many placements are picked. */
+  | { kind: 'build'; tool: string; selection: number }
   | { kind: 'walk' }
   /** The START menu: the row under the cursor, how deep in its sub-screens, how many sections the screen has. */
   | { kind: 'menu'; item: MenuItem | undefined; depth: number; sections: number }
@@ -72,8 +69,9 @@ const p = (glyph: PadGlyphName, label: string, ...actions: PadAction[]): LegendP
 const hold = (glyph: PadGlyphName, label: string): LegendPrompt => ({ glyph, label: `Hold: ${label}`, hold: true });
 const k = (key: string, label: string): LegendPrompt => ({ key, label });
 
-/** The tools the pad steps with L1 / R1 that place a marker (`./../page` `TOOLS`). */
-const MARKERS = new Set(['spawnA', 'spawnB', 'bomb', 'siteSeal', 'siteTerrorist']);
+/** The tools the pad steps with L1 / R1 that place a marker or a copy at the centre (`./../page` `TOOLS`). */
+const MARKERS = new Set(['spawnA', 'spawnB', 'respawnA', 'respawnB', 'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view',
+  'door', 'gate', 'barrier', 'ladder', 'turret', 'flare']);
 
 function padPrompts(ctx: LegendContext): LegendPrompt[] {
   switch (ctx.kind) {
@@ -82,9 +80,9 @@ function padPrompts(ctx: LegendContext): LegendPrompt[] {
       const fly = p('lstick', 'Fly');
       if (ctx.tool === 'select' && ctx.selection > 0) {
         return [p('cross', 'Select', 'act'), p('circle', 'Deselect', 'deselect'), hold('circle', 'move'), p('square', 'Duplicate', 'duplicate'),
-          p('triangle', 'Delete', 'delete'), p('dpad-h', 'Turn', 'turnLeft', 'turnRight'), tool, menu];
+          p('triangle', 'Delete', 'delete'), p('dpad-h', 'Rotate', 'turnLeft', 'turnRight'), p('r3', 'Frame', 'frame'), tool, menu];
       }
-      if (ctx.tool === 'place') return [p('cross', 'Place', 'act'), p('dpad-v', 'Prop', 'prevAsset', 'nextAsset'), tool, p('r3', 'Snap', 'snap'), fly, undo, menu];
+      if (ctx.tool === 'place') return [p('cross', 'Place', 'act'), p('dpad-v', 'Prop', 'prevAsset', 'nextAsset'), tool, p('l3', 'Snap', 'snap'), fly, undo, menu];
       if (ctx.tool === 'npc') return [p('cross', 'Place', 'act'), p('dpad-v', 'Character', 'prevAsset', 'nextAsset'), tool, fly, undo, menu];
       if (MARKERS.has(ctx.tool)) return [p('cross', 'Place', 'act'), tool, fly, undo, menu];
       return [p('cross', 'Select', 'act'), hold('cross', 'add'), p('dpad-v', 'Prop', 'prevAsset', 'nextAsset'), tool, fly, p('rstick', 'Look'), undo, menu];
@@ -114,12 +112,12 @@ function padPrompts(ctx: LegendContext): LegendPrompt[] {
 function keyPrompts(ctx: LegendContext): LegendPrompt[] {
   switch (ctx.kind) {
     case 'build': {
-      const look = k(ctx.dragLook ? 'Drag / right-drag' : 'Right-drag', 'Look');
+      const look = k('Right-drag', 'Look');
       if (ctx.tool === 'select') {
-        return [k('Click', 'Select'), k('Shift+click', 'Add'), ...(ctx.dragLook ? [k('Shift+drag', 'Box')] : []), look, k('WASD', 'Fly'), k('F', 'Frame'), k('M', 'Menu')];
+        return [k('Click', 'Select'), k('Shift+click', 'Add'), k('Shift+drag', 'Box'), look, k('WASD', 'Fly'), k('F', 'Frame'), k('M', 'Menu')];
       }
-      if (ctx.tool === 'place') return [k('Click', 'Place'), k('[ ]', 'Prop'), k('1', 'Select tool'), look, k('M', 'Menu')];
-      return [k('Click', ctx.tool === 'npc' ? 'Place the NPC' : 'Place'), k('1', 'Select tool'), look, k('M', 'Menu')];
+      if (ctx.tool === 'place') return [k('Click', 'Place'), k('[ ]', 'Prop'), k('Q', 'Select tool'), look, k('M', 'Menu')];
+      return [k('Click', ctx.tool === 'npc' ? 'Place the NPC' : 'Place'), k('Q', 'Select tool'), look, k('M', 'Menu')];
     }
     case 'walk': return [k('WASD', 'Move'), k('Mouse', 'Look'), k('Space', 'Jump'), k('C', 'Stance'), k('X', 'Doors'), k('P / Esc', 'Build')];
     case 'menu': return [k('↑ ↓', 'Choose'), k('← →', 'Change'), k('Enter', 'Select'), k('PgUp PgDn', 'Section'), k('Esc', ctx.depth > 0 ? 'Back' : 'Close'), k('M', 'Close')];

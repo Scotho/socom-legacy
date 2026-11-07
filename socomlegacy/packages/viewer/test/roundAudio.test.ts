@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RenderedSound } from '@s2u/sound';
 import { GameAudio, type AudioOut, type StreamPlay } from '../src/audio';
 import { RoundAudioHost } from '../src/roundAudioHost';
-import { RoundAudio, UNLOCK_RETRY_PLACEHOLDER, type RoundAudioOut } from '../src/roundAudio';
+import { FORGE_ESCORT_LINES_ADAPTATION, RoundAudio, UNLOCK_RETRY_PLACEHOLDER, type RoundAudioOut } from '../src/roundAudio';
 import type { RoundCues } from '../src/roundCues';
 
 /**
@@ -304,5 +304,25 @@ describe('RoundAudioHost: the page\'s GameAudio and clock (research 124 §6)', (
     t = 5;
     host.frame();
     expect(calls.filter((c) => c.startsWith('music'))).toEqual(['music MUS_MP_SEAL_INTRO_4']);
+  });
+});
+
+describe("FORGE_ESCORT_LINES_ADAPTATION: a Forge escort with no line of its own posts the script's words", () => {
+  it("a staged or extracted VIP the map's cues do not name posts RescueN's / EndRescueN's text; an abort, nothing", () => {
+    const a = new RoundAudio(players());
+    const posted: [string, number][] = [];
+    const post = (text: string, scale: number): void => { posted.push([text, scale]); };
+    // A disc map (the switch off, the default): an unnamed VIP posts nothing, as the original.
+    a.escort('staged', 'Hostage4', 'seal', 0, post);
+    expect(posted).toEqual([]);
+    a.forgeEscortLines = true;                                     // a Forge layout's match (`matchMount`)
+    a.escort('staged', 'Hostage4', 'seal', 0, post);
+    a.escort('extracted', 'Hostage4', 'seal', 0, post);
+    a.escort('aborted', null, 'seal', 0, post);
+    expect(posted).toEqual([
+      [FORGE_ESCORT_LINES_ADAPTATION.staged.text, FORGE_ESCORT_LINES_ADAPTATION.staged.scale],
+      [FORGE_ESCORT_LINES_ADAPTATION.extracted.text, FORGE_ESCORT_LINES_ADAPTATION.extracted.scale],
+    ]);
+    expect(FORGE_ESCORT_LINES_ADAPTATION.staged).toEqual({ text: 'A VIP IS IN THE EXTRACTION ZONE', scale: 0.7 });
   });
 });

@@ -219,15 +219,63 @@ export interface BombPulseView {
  * (`./roundCues` `bombPulses`, once a world), run for the drawing alone (`WorldState.runDisplay`) and stopped
  * (`WorldState.stopProgram`). A world with no `objectives` (a map with no bomb, or none yet) does nothing.
  */
-export function worldPulse(world: () => WorldState | null): BombPulseView {
+export function worldPulse(world: () => WorldState | null, outlines: () => readonly { path: string; side: Team }[] = () => []): BombPulseView {
   const read = new WeakMap<WorldState, BombPulses | null>();
   const pulses = (w: WorldState): BombPulses | null => {
     if (!read.has(w)) { const o = w.program('objectives'); read.set(w, (o && bombPulses(o.program)) ?? null); }
     return read.get(w) ?? null;
   };
+  const forge = forgeOutlinePulse(world, outlines);
   return {
-    pickup: (side) => { const w = world(); if (w) for (const name of pulses(w)?.pickup[side] ?? []) w.runDisplay(name); },
-    drop: () => { const w = world(); if (w) for (const name of pulses(w)?.drop ?? []) w.stopProgram(name); },
+    pickup: (side) => { const w = world(); if (w) for (const name of pulses(w)?.pickup[side] ?? []) w.runDisplay(name); forge.pickup(side); },
+    drop: () => { const w = world(); if (w) for (const name of pulses(w)?.drop ?? []) w.stopProgram(name); forge.drop(); },
+  };
+}
+
+/**
+ * The bases' pulse as `pulse_terrorist` / `pulse_seal` run it (research 284 s3: the node on, then forever its opacity
+ * 0.2 -> 0.05 over 1.0 s and 0.05 -> 0.2 over 0.2 s; off at the stop's cleanup), for the forge's placed sites' outlines
+ * no program of the map's set names (`LoadedMap.forgeSiteOutlines`, `./forge/siteOutlines`; a browser adaptation,
+ * FG.R2: a blank floor's library has no `objectives`). Lit for the carrier's side at a pickup, put out at a drop.
+ */
+export const SITE_PULSE_CYCLE = { high: 0.2, low: 0.05, fadeS: 1.0, riseS: 0.2 } as const;
+
+/** The pulse's opacity `t` seconds into its cycle (`SITE_PULSE_CYCLE`): down over `fadeS`, back up over `riseS`. */
+export function sitePulseOpacity(t: number): number {
+  const { high, low, fadeS, riseS } = SITE_PULSE_CYCLE;
+  const at = ((t % (fadeS + riseS)) + fadeS + riseS) % (fadeS + riseS);
+  return at < fadeS ? high + (low - high) * (at / fadeS) : low + (high - low) * ((at - fadeS) / riseS);
+}
+
+function forgeOutlinePulse(world: () => WorldState | null, outlines: () => readonly { path: string; side: Team }[]): BombPulseView {
+  let lit: string[] = [];
+  let frame: number | null = null;
+  const raf = globalThis.requestAnimationFrame?.bind(globalThis), caf = globalThis.cancelAnimationFrame?.bind(globalThis);
+  const stop = (): void => {
+    if (frame !== null) caf?.(frame);
+    frame = null;
+    const w = world();
+    if (w) for (const path of lit) { w.displayOpacity(path, 1); w.displayNode(path, false); }
+    lit = [];
+  };
+  return {
+    pickup: (side) => {
+      const w = world();
+      const paths = outlines().filter((o) => o.side === side).map((o) => o.path);
+      if (!w || !paths.length || lit.length) return;           // a call of a running pulse starts none (`runDisplay`)
+      lit = paths;
+      const from = globalThis.performance?.now() ?? Date.now();
+      const tick = (): void => {
+        const ww = world();
+        if (!ww || !lit.length) return;
+        const f = sitePulseOpacity(((globalThis.performance?.now() ?? Date.now()) - from) / 1000);
+        for (const path of lit) ww.displayOpacity(path, f);
+        frame = raf ? raf(tick) : null;
+      };
+      for (const path of lit) { w.displayNode(path, true); w.displayOpacity(path, SITE_PULSE_CYCLE.high); }
+      frame = raf ? raf(tick) : null;
+    },
+    drop: stop,
   };
 }
 
@@ -646,7 +694,9 @@ export class BombPage {
     const v = this.view.pulse;
     if (!v) return;
     if (was === null) v.drop();
-    if (now?.state === BOMB_STATE.ground) { v.drop(); return; }
+    // The round's reset (state 0): the world's reset stops the bases' programs (`WorldState.reset`); the forge's own
+    // outlines (`forgeOutlinePulse`) are put out with them -- a stop of programs already stopped changes nothing.
+    if (now?.state === BOMB_STATE.ground || now?.state === BOMB_STATE.reset) { v.drop(); return; }
     if (now?.state !== BOMB_STATE.carried || now.carrier === null || was?.state === BOMB_STATE.carried) return;
     const side = this.teamOf(now.carrier);
     if (side) v.pickup(side);

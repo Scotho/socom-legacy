@@ -48,8 +48,21 @@ export const PIECE_POLY_BUDGET = 20_000;
 const SAME_PLACE = 0.01;
 
 export type MapIssueKind =
-  | 'spawn-floor' | 'spawn-inside' | 'spawn-facing' | 'spawn-reach' | 'spawn-count'
-  | 'piece-float' | 'piece-buried' | 'piece-overlap' | 'missing' | 'budget';
+  | 'spawn-floor' | 'spawn-inside' | 'spawn-facing' | 'spawn-reach' | 'spawn-count' | 'spawn-none'
+  | 'piece-float' | 'piece-buried' | 'piece-overlap' | 'missing' | 'budget' | 'bomb-missing' | 'extraction-missing' | 'escort-missing'
+  | 'objective-unused';
+
+/**
+ * The game types each kind of placed objective plays in (the owner, 2026-11-06; a browser adaptation, FG.R2): the bomb's
+ * start and the SEALs' site in Demolition (2) and Breach (1, `./objectives` `breachReady`), the Terrorists' site in
+ * Demolition alone, hostages and extraction zones in Escort (3) and Extraction (4) -- the rooms' rules that read them
+ * (`./objectives` `forgeTypeUnplayable`). Placed under any other type, they are kept and nothing plays them.
+ */
+export const OBJECTIVE_TYPES = {
+  bombStart: [1, 2], sealSite: [1, 2], terroristSite: [2], hostage: [3, 4], zone: [3, 4],
+} as const satisfies Record<string, readonly number[]>;
+
+const TYPE_WORD: Readonly<Record<number, string>> = { 1: 'Breach', 2: 'Demolition', 3: 'Escort', 4: 'Extraction', 5: 'Suppression' };
 
 export interface MapIssue {
   kind: MapIssueKind;
@@ -231,6 +244,7 @@ const atOf = (m: readonly number[]): [number, number, number] => [m[12] ?? 0, m[
  */
 export function checkMap(
   layout: Layout, ground: GroundData, pieces: readonly CheckedPiece[], polyCount?: number, discSpawns?: readonly DiscSpawn[],
+  baseExtraction: { hostages: number; zones: number; safety?: boolean } = { hostages: 0, zones: 0 },
 ): MapCheck {
   const grid = groundGrid(ground);
   const issues: MapIssue[] = [];
@@ -279,13 +293,18 @@ export function checkMap(
     counted.B = discSpawns.filter((d) => d.side === 1).length;
   }
 
+  // A side with no spawn at all (a browser adaptation's warning, FG.R2): its own line, and no seat count over it.
+  for (const [team, word, tool] of [['A', 'SEAL', 'Spawn SEAL'], ['B', 'Terrorist', 'Spawn Terrorist']] as const) {
+    if (counted[team] === 0) issues.push({ kind: 'spawn-none', text: `There is no ${word} spawn: place one with the ${tool} tool.`, at: null });
+  }
+
   // Only a player cap the layout itself stored. The disc's 16 (`settingsOf`) is not assumed: a layout that never set
   // one would otherwise want 8 spawns a side and stop Play.
   const players = layout.settings?.players;
   if (players !== undefined) {
     const seats = sideSeats(players);
     for (const team of ['A', 'B'] as const) {
-      if (counted[team] >= seats) continue;
+      if (counted[team] >= seats || counted[team] === 0) continue;   // none: `spawn-none` says it
       const side = team === 'A' ? 'A' : 'B';
       const word = counted[team] === 1 ? 'spawn' : 'spawns';
       const text = players > MAX_PLAYERS
@@ -293,6 +312,50 @@ export function checkMap(
         : `Team ${side} has ${counted[team]} ${word}; the map is set for ${players} players (${seats} a side).`;
       issues.push({ kind: 'spawn-count', text, at: null });
     }
+  }
+
+  // Demolition (game type 2) plays the layout's bomb only whole: a start and one site for each planting team
+  // (`./objectives` `bombReady`, the room's rule). A browser adaptation's warning, each part missing named.
+  if (layout.objectives?.gameType === 2) {
+    const bomb = layout.objectives.bomb;
+    if (!bomb?.start) issues.push({ kind: 'bomb-missing', text: 'Demolition has no bomb start: place one with the Bomb tool.', at: null });
+    if (!bomb?.sites.some((s) => s.team === 0)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no SEAL site: place one with the Site SEAL tool.', at: null });
+    if (!bomb?.sites.some((s) => s.team === 1)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no Terrorist site: place one with the Site Terrorist tool.', at: null });
+  }
+
+  // Extraction (game type 4) needs a hostage to lead out and a zone to lead it to: the base map's own (its escortees,
+  // its kind-1 zones, `baseExtraction`) or placed (`Layout.hostages`, `Layout.extractionZones`). A browser adaptation's warning.
+  if (layout.objectives?.gameType === 4) {
+    if (baseExtraction.hostages + (layout.hostages?.length ?? 0) === 0) issues.push({ kind: 'extraction-missing', text: 'Extraction has no hostage: place one with the Hostage tool.', at: null });
+    if (baseExtraction.zones + (layout.extractionZones?.length ?? 0) === 0) issues.push({ kind: 'extraction-missing', text: 'Extraction has no extraction zone: place one with the Zone tool.', at: null });
+  }
+
+  // Escort (game type 3) needs its three VIPs (SEALcheck counts three) and a Safety to stage in: the base's own or placed.
+  if (layout.objectives?.gameType === 3) {
+    const vips = baseExtraction.hostages + (layout.hostages?.length ?? 0);
+    if (vips !== 3) issues.push({ kind: 'escort-missing', text: `Escort needs three hostages (the VIPs): it has ${vips}. Place them with the Hostage tool.`, at: null });
+    const safety = baseExtraction.safety === true || (layout.extractionZones ?? []).some((z) => z.name.toLowerCase() === 'safety');
+    if (!safety) issues.push({ kind: 'escort-missing', text: 'Escort has no Safety zone: place one with the Zone tool.', at: null });
+  }
+
+  // Objectives the layout's game type does not play (the owner, 2026-11-06): each placed one named, with its place for
+  // Jump. A rules mode is left alone (its rule host may read any placement); no type named, the base's own plays.
+  const type = layout.objectives?.gameType;
+  if (type !== undefined && !layout.mode) {
+    const word = TYPE_WORD[type] ?? `type ${type}`;
+    const unused = (what: string, plays: readonly number[], at: [number, number, number]): void => {
+      if (plays.includes(type)) return;
+      const where = plays.map((t) => TYPE_WORD[t]).join(' and ');
+      issues.push({ kind: 'objective-unused', text: `${what} plays no part in ${word} (only in ${where}): it is kept, but nothing uses it.`, at });
+    };
+    const bomb = layout.objectives?.bomb;
+    if (bomb?.start) unused('The bomb start', OBJECTIVE_TYPES.bombStart, [bomb.start[0], bomb.start[1], bomb.start[2]]);
+    for (const site of bomb?.sites ?? []) {
+      unused(site.team === 0 ? 'A SEAL plant site' : 'A Terrorist plant site', site.team === 0 ? OBJECTIVE_TYPES.sealSite : OBJECTIVE_TYPES.terroristSite,
+        [site.at[0], site.at[1], site.at[2]]);
+    }
+    for (const h of layout.hostages ?? []) unused(`Hostage ${h.name ?? ''}`.trim(), OBJECTIVE_TYPES.hostage, [h.p[0], h.p[1], h.p[2]]);
+    for (const z of layout.extractionZones ?? []) unused(`Zone ${z.name}`, OBJECTIVE_TYPES.zone, [z.at[0], z.at[1], z.at[2]]);
   }
 
   for (const p of pieces) {

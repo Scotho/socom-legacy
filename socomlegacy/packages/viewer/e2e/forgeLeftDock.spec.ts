@@ -6,8 +6,8 @@ import { expect, test } from '@playwright/test';
 /**
  * R6 (round 4's review; a browser adaptation, FG.R2 -- the game has no editor): the left dock's first row is on screen,
  * inside the dock, at the desktop widths the toolbar spec holds. FUI-22 (D5, FUI.R21; D3): the pin moved from dot's
- * Assets panel (its grid gone) to the one asset list -- its filter row whole (the today shot's row was clipped at its
- * top), its first row inside the dock, the list scrolling in its own box; nothing runs past the window. Needs a served
+ * Assets panel (its grid gone) to the movable Assets tab's one list -- its filter row whole (the today shot's row was
+ * clipped at its top), its first row inside the dock, the list scrolling in its own box; nothing runs past the window. Needs a served
  * archive for a palette (`socomlegacy/public/maps`); without one it is skipped, not passed.
  */
 const MAPS = fileURLToPath(new URL('../../../public/maps', import.meta.url));
@@ -21,15 +21,16 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
     await page.setViewportSize(size);
     await page.goto('/forge?devmode');
     await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
-    const first = page.locator('.fx-left > ul.fx-assets > li[data-asset]').first();
+    const first = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first();
     await expect(first).toBeVisible({ timeout: 120_000 });
-    await expect(page.locator('.fx-left details.fx-panel')).toHaveCount(0);
+    await expect(page.locator('.fx-left > details.fx-panel[data-forge-panel="asset-browser"]')).toHaveCount(1);
+    await expect(page.locator('.fx-left > [data-forge-tabs] [data-forge-tab="assets"]')).toHaveAttribute('draggable', 'true');
     const dock = await page.locator('.fx-left').boundingBox();
-    const filters = await page.locator('.fx-left > .fx-asset-filters').boundingBox();
+    const filters = await page.locator('.fx-left [data-forge-panel="asset-browser"] .fx-asset-filters').boundingBox();
     const row = await first.boundingBox();
     if (!dock || !filters || !row) throw new Error('the dock, the filter row or the row has no box');
     // The filter row whole: its chips' full height drawn, not shrunk by the column (the today shot's clip).
-    for (const chip of await page.locator('.fx-left > .fx-asset-filters .fx-chip').all()) {
+    for (const chip of await page.locator('.fx-left [data-forge-panel="asset-browser"] .fx-asset-filters .fx-chip').all()) {
       const b = await chip.boundingBox();
       if (!b) throw new Error('a filter chip has no box');
       expect(b.y).toBeGreaterThanOrEqual(filters.y - 0.5);
@@ -41,6 +42,6 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
     expect(row.y + row.height).toBeLessThanOrEqual(size.height);
     // The dock itself does not run past the window: the list scrolls inside it.
     expect(dock.y + dock.height).toBeLessThanOrEqual(size.height + 0.5);
-    expect(await page.locator('.fx-left > ul.fx-assets').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+    expect(await page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
   });
 }

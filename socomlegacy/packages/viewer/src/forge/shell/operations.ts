@@ -231,18 +231,29 @@ export const FORGE_EDIT_OPERATIONS: readonly ForgeEditOperation[] = [
   { id: 'layout.batch', domain: 'layout', label: (args) => { const n = countOf(args, 'edits'); return `Batch of ${n} edit${n === 1 ? '' : 's'}`; } },
   { id: 'piece.place', domain: 'layout', label: fixed('Place piece') },
   { id: 'piece.move', domain: 'layout', label: counted('Move') },
-  { id: 'piece.rotate', domain: 'layout', label: counted('Turn') },
+  { id: 'piece.rotate', domain: 'layout', label: counted('Rotate') },
   { id: 'piece.delete', domain: 'layout', label: counted('Delete') },
   { id: 'piece.lock', domain: 'layout', label: counted('Lock') },
   { id: 'piece.unlock', domain: 'layout', label: counted('Unlock') },
   { id: 'piece.hide', domain: 'layout', label: (args) => { const n = countOf(args, 'keys'); return n > 1 ? `Hide ${n} map props` : 'Hide map prop'; } },
   { id: 'piece.restore', domain: 'layout', label: (args) => { const n = countOf(args, 'keys'); return n > 1 ? `Show ${n} map props` : 'Show map prop'; } },
   { id: 'selection.move', domain: 'layout', label: fixed('Move') },
-  { id: 'selection.rotate', domain: 'layout', label: fixed('Turn') },
+  { id: 'selection.rotate', domain: 'layout', label: fixed('Rotate') },
   { id: 'selection.duplicate', domain: 'layout', label: fixed('Duplicate') },
   { id: 'selection.paste', domain: 'layout', label: fixed('Paste') },
   { id: 'spawn.place', domain: 'layout', label: (args) => (args['team'] === 'A' || args['team'] === 'B' ? `Place spawn ${args['team']}` : 'Place spawn') },
   { id: 'npc.place', domain: 'layout', label: fixed('Place NPC') },
+  { id: 'hostage.place', domain: 'layout', label: fixed('Place hostage') },
+  { id: 'extraction.place', domain: 'layout', label: fixed('Place extraction zone') },
+  { id: 'door.place', domain: 'layout', label: fixed('Place door') },   // a browser adaptation: `Layout.doors`
+  { id: 'gate.place', domain: 'layout', label: fixed('Place gate') },   // a browser adaptation: `Layout.gates`
+  { id: 'barrier.place', domain: 'layout', label: fixed('Place C4 barrier') },   // a browser adaptation: `Layout.barriers`
+  { id: 'turret.place', domain: 'layout', label: fixed('Place turret') },   // a browser adaptation: `Layout.turrets`
+  { id: 'flare.place', domain: 'layout', label: fixed('Place flare') },   // a browser adaptation: `Layout.flares`
+  { id: 'respawn.place', domain: 'layout', label: (args) => (args['team'] === 'A' || args['team'] === 'B' ? `Place respawn point ${args['team']}` : 'Place respawn point') },   // a browser adaptation: `Layout.respawns`
+  { id: 'point.place', domain: 'layout', label: fixed('Place tactical point') },   // a browser adaptation: `Layout.tacPoints`
+  { id: 'view.place', domain: 'layout', label: fixed('Place spectator view') },   // a browser adaptation: `Layout.scenicViews`
+  { id: 'placement.set', domain: 'layout', label: (args) => `Set ${String(args['field'] ?? 'a field')}` },   // the Inspector's Data   // a browser adaptation: `Layout.extractionZones`   // a browser adaptation: `Layout.hostages`
   { id: 'bomb.place', domain: 'layout', label: (args) => BOMB_WORDS[String(args['kind'])] ?? 'Place a bomb marker' },
   { id: 'objectives.set', domain: 'layout', label: fixed('Set objectives') },
   { id: 'settings.set', domain: 'layout', label: fixed('Change settings') },

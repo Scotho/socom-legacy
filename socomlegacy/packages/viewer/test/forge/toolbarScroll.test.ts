@@ -26,7 +26,8 @@ describe("the forge's toolbar scrolls sideways where it overflows", () => {
     // two lines: no vertical scroll in the 46 px row, and a thin bar (a classic one would leave less than the 30 px groups).
     expect(rule![1]).toMatch(/\boverflow-y: hidden;/);
     expect(rule![1]).toMatch(/\bscrollbar-width: thin;/);
-    expect(rule![1]).toMatch(/\bheight: var\(--fx-top\);/);
+    // Its own row's height (`--fx-top-bar`); `--fx-top` is both rows', the placing tools' under it (`.fx-tools-row`).
+    expect(rule![1]).toMatch(/\bheight: var\(--fx-top-bar\);/);
   });
 
   it('no media block takes the scroll back', () => {

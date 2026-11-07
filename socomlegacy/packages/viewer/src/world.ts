@@ -77,6 +77,10 @@ export interface WorldView {
   detailDraws: number;
   /** Every material at once, for seeing the topology through the skin. */
   setWireframe(on: boolean): void;
+  /** Shows or hides texture samples without changing the wireframe overlay. */
+  setTextured(on: boolean): void;
+  /** Shows vertex and texture colour without applying the map's dynamic light rig. */
+  setUnlit(on: boolean): void;
   /**
    * Paints the meshes that are drawing without a texture magenta -- the ones whose name was not in the
    * map's `TXR` archive, and the ones whose packets cited no name at all. Both are invisible faults
@@ -232,6 +236,16 @@ export interface WorldView {
   setBillboards(on: boolean): void;
   /** Where the flares are, in world space -- for aiming a camera at one. */
   flarePositions(): [number, number, number][];
+  /**
+   * The Forge's (a browser adaptation, FG.R2): each flare -- a facade placement: a light's glow, the sun, the moon, a
+   * star -- by its mesh's name, at its world place (the group's offset included), for marking and listing it.
+   */
+  flares?(): { name: string; at: [number, number, number] }[];
+  /**
+   * The Forge's (a browser adaptation): the flares drawn or not -- moved off the camera's layer, so a hidden glow is
+   * neither drawn nor picked, whatever else shows or hides the mesh. Shown, the game's own picture.
+   */
+  setFlaresShown?(on: boolean): void;
   /** Each line-strip group's texture and world-space extent -- for aiming a camera at a rope. */
   lineGroups(): { texture: string | null; min: [number, number, number]; max: [number, number, number] }[];
   /**
@@ -431,7 +445,9 @@ export function buildWorld(map: LoadedMap): WorldView {
    * or `rigEverywhere`; `setBillboards` invalidates it). A cost guard, with no visible change.
    */
   let lightingStamp = 0;
-  const relit = (b: (typeof billboards)[number]): void => { b.relight?.update(b.mesh.quaternion, lighting, lightingStamp); };
+  const relit = (b: (typeof billboards)[number]): void => {
+    if (!unlitOn) b.relight?.update(b.mesh.quaternion, lighting, lightingStamp);
+  };
   // On, as `WorldView.setBlendGraded` says, for every page that builds a world: the menu match calls no toggle (PAR-35).
   let blendGraded = true;
   /** The engine order (`setEngineOrder`): on, `renderOrder` is each draw's place in the grid walk. */
@@ -439,9 +455,54 @@ export function buildWorld(map: LoadedMap): WorldView {
   let highlight = false;
   let lineStripsOn = true;
   let wireframeOn = false;
+  let texturedOn = true;
+  let unlitOn = false;
   let shadowsOn = true;
   let alternateOn = false;
   const built: Built[] = [];
+  const wireframeMaterial = new MeshBasicNodeMaterial();
+  wireframeMaterial.colorNode = vec4(1, 1, 1, 0.9);
+  wireframeMaterial.transparent = true;
+  wireframeMaterial.depthWrite = false;
+  wireframeMaterial.polygonOffset = true;
+  wireframeMaterial.polygonOffsetFactor = -1;
+  wireframeMaterial.polygonOffsetUnits = -1;
+  wireframeMaterial.wireframe = true;
+  wireframeMaterial.needsUpdate = true;
+  const wireframeOverlays: { source: Mesh; overlay: Mesh; instanced: boolean }[] = [];
+  /**
+   * The meshes a wireframe overlay would cover (a browser adaptation, the Forge's Draw menu): each overlay is made the
+   * first time the wireframe is shown (`makeWireframeOverlays`), never before -- a match's world, or any world never
+   * switched to it, builds exactly as the game's does. An overlay shares its source's geometry (and an instanced one its
+   * instance matrices): it is taken off the group at `dispose`, never disposed itself.
+   */
+  const wireframeSources: Mesh[] = [];
+  let wireframeMade = false;
+  const makeWireframeOverlays = (): void => {
+    if (wireframeMade) return;
+    wireframeMade = true;
+    for (const object of wireframeSources) {
+      let overlay: Mesh;
+      let instanced = false;
+      if (object instanceof InstancedMesh) {
+        const instancedOverlay = new InstancedMesh(object.geometry, wireframeMaterial, object.count);
+        instancedOverlay.instanceMatrix = object.instanceMatrix;
+        instancedOverlay.count = object.count;
+        overlay = instancedOverlay;
+        instanced = true;
+      } else {
+        overlay = new Mesh(object.geometry, wireframeMaterial);
+      }
+      overlay.name = `${object.name} wireframe`;
+      overlay.frustumCulled = object.frustumCulled;
+      overlay.matrixAutoUpdate = false;
+      overlay.matrix.copy(object.matrix);
+      overlay.raycast = () => undefined;
+      wireframeOverlays.push({ source: object, overlay, instanced });
+      group.add(overlay);
+      overlay.matrixWorldNeedsUpdate = true;
+    }
+  };
   const graphUpdates: (() => void)[] = [];
   const qualityNames = worldSamplingNames(map);
   const quality = new WorldTextureSampling(() => { for (const update of graphUpdates) update(); });
@@ -454,11 +515,23 @@ export function buildWorld(map: LoadedMap): WorldView {
   let orderCell = -1;
   /** Where `frame` last saw the camera, in the group's frame, so switching the order on can order at once. */
   const lastCamera = { x: 0, y: 0, z: 0, seen: false };
+  const syncWireframeOverlays = (): void => {
+    for (const { source, overlay, instanced } of wireframeOverlays) {
+      overlay.visible = wireframeOn && source.visible && source.parent !== null;   // a source not yet revealed: none
+      if (instanced || source.matrixAutoUpdate) {
+        if (source.matrixAutoUpdate) source.updateMatrix();
+        overlay.matrix.copy(source.matrix);
+        overlay.matrixWorldNeedsUpdate = true;
+      }
+      overlay.renderOrder = source.renderOrder + 0.001;
+    }
+  };
   const refreshVisibility = (): void => {
     for (const d of drawn) {
       d.object.visible = (!d.off || alternateOn) && !d.cut && (!d.shadow || shadowsOn) && (!d.line || (lineStripsOn && !wireframeOn))
         && (d.lod === null || d.lod.visible);
     }
+    syncWireframeOverlays();
     for (const put of instancePuts) put();
   };
   /**
@@ -473,6 +546,11 @@ export function buildWorld(map: LoadedMap): WorldView {
   // Every drawn part beside the buffer its lit colours go into, so a rig change can rewrite them in place (a packed
   // attribute, or CPS H12's interleaved colour slots: `colourSlotsOf`).
   const lit: { part: Lightable; attribute: BufferAttribute | InterleavedBufferAttribute }[] = [];
+  const relight = (part: Lightable, attribute: BufferAttribute | InterleavedBufferAttribute): void => {
+    const slots = colourSlotsOf(attribute);
+    applyLighting(unlitOn ? { ...part, lit: false } : part, unlitOn ? { ...lighting, rigEverywhere: false } : lighting, slots.array, slots.stride, slots.offset);
+    attribute.needsUpdate = true;
+  };
   /** How many drawn objects have no texture: the number the status line reports. */
   let untexturedDraws = 0;
   let triangles = 0;
@@ -604,9 +682,12 @@ export function buildWorld(map: LoadedMap): WorldView {
     material.polygonOffset = b.shadow;                  // off the ground it lies on, so it cannot z-fight it
     material.polygonOffsetFactor = b.shadow ? -1 : 0;
     material.polygonOffsetUnits = b.shadow ? -1 : 0;
-    material.colorNode = highlight && !b.textured ? MAGENTA
-      : carrier ? (b.textured ? CARRIER : CARRIER_PLAIN)
-      : b.scrollNode ?? (b.receive ? (b.textured ? SHADED : SHADED_PLAIN) : (b.textured ? SHADED_SELF : SHADED_PLAIN_SELF));
+    // Textures shown: the game's own expression, node for node. Hidden (the Forge's Draw menu): every sample dropped,
+    // a scrolling one's too.
+    const hasTexture = texturedOn && b.textured;
+    material.colorNode = highlight && !hasTexture ? MAGENTA
+      : carrier ? (hasTexture ? CARRIER : CARRIER_PLAIN)
+      : (texturedOn ? b.scrollNode : undefined) ?? (b.receive ? (hasTexture ? SHADED : SHADED_PLAIN) : (hasTexture ? SHADED_SELF : SHADED_PLAIN_SELF));
     material.transparent = state.transparent;
     material.depthWrite = state.depthWrite;
     Object.assign(material, blendFactorsFor(state.factors));
@@ -996,6 +1077,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     object.visible = (!alternate || alternateOn) && (!shadow || shadowsOn) && (!line || (lineStripsOn && !wireframeOn))
       && (lod === null || lod.visible);
     // CPS H13 (`./sceneMatrix`): flagged as it joins the frozen group -- `prepare` may have computed it parked off it.
+    if (object instanceof Mesh && !(object instanceof LineSegments)) wireframeSources.push(object);   // its overlay made on demand
     queue.push(() => { group.add(object); object.matrixWorldNeedsUpdate = true; });
     (queue === revealProps ? propObjects : worldObjects).push(object);
   };
@@ -1182,6 +1264,7 @@ export function buildWorld(map: LoadedMap): WorldView {
         for (let i = 0; i < count; i++) {
           const mesh = new Mesh(geometry, material);
           mesh.name = `${prop.modelName} (lod)`;
+          mesh.userData['forgeBaseProp'] = { prop: propIndex, index: i };
           const m = new Matrix4().fromArray(prop.matrices, i * 16);
           mesh.applyMatrix4(m);
           movableMesh(prop.paths?.[i], mesh, m);
@@ -1199,6 +1282,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       if (count === 1) {
         const mesh = new Mesh(geometry, material);
         mesh.name = prop.modelName;
+        mesh.userData['forgeBaseProp'] = { prop: propIndex, index: 0 };
         mesh.applyMatrix4(new Matrix4().fromArray(prop.matrices, 0));
         movableMesh(prop.paths?.[0], mesh, new Matrix4().fromArray(prop.matrices, 0));
         if (craneRide(prop.paths?.[0])) mesh.frustumCulled = false;
@@ -1209,6 +1293,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       } else {
         const mesh = new InstancedMesh(geometry, material, count);
         mesh.name = prop.modelName;
+        mesh.userData['forgeBaseProp'] = { prop: propIndex };
         // MAP-02: each member's matrix now and whether the world's state hides it (a hidden one is drawn at the zero
         // matrix, nothing on screen, unless `setAlternate` shows everything); the group starts as `prop.alternate`.
         const now = Array.from({ length: count }, (_, i) => new Matrix4().fromArray(prop.matrices, i * 16));
@@ -1245,6 +1330,9 @@ export function buildWorld(map: LoadedMap): WorldView {
     const matrix = spot.root?.matrix ?? spot.matrix;
     const path = spot.root?.path ?? spot.path;
     mesh.name = spot.modelName;
+    mesh.traverse((part) => {
+      if (part instanceof Mesh) part.userData['forgeBaseProp'] = { prop: spot.propIndex, index: spot.place };
+    });
     mesh.applyMatrix4(matrix);
     movableMesh(path, mesh, matrix);
     later(revealProps, mesh, spot.order, spot.cells, spot.alternate, null, false, null, false);
@@ -1483,23 +1571,26 @@ export function buildWorld(map: LoadedMap): WorldView {
     alternateDraws: drawn.filter((d) => d.alternate).length,
     detailDraws: details.length,
     setWireframe: (on) => {
-      // `needsUpdate` as well as the flag: three's WebGPU renderer builds a geometry's wireframe index
-      // the first time a render object is refreshed in full, and a bare flag change is not a refresh.
-      // Without it the index is never uploaded, every wireframe draw goes out with no index type, and
-      // the frame is the clear colour and nothing else until the page is reloaded.
-      for (const { material } of built) {
-        if (material instanceof MeshBasicNodeMaterial) { material.wireframe = on; material.needsUpdate = true; }
-      }
-      for (const twin of fades.values()) { twin.wireframe = on; twin.needsUpdate = true; }
-      // A line has no faces to show through, so it simply steps aside while the topology is on view.
+      if (on) makeWireframeOverlays();
       wireframeOn = on;
       refreshVisibility();
-      refreshDetail();                                  // a pass over a wireframe hides the topology it is for
+      refreshDetail();
+    },
+    setTextured: (on) => {
+      if (on === texturedOn) return;
+      texturedOn = on;
+      for (const b of built) apply(b);
     },
     setUntexturedHighlight: (on) => {
       if (on === highlight) return;
       highlight = on;
       for (const b of built) if (!b.textured) apply(b);
+    },
+    setUnlit: (on) => {
+      if (on === unlitOn) return;
+      unlitOn = on;
+      for (const { part, attribute } of lit) relight(part, attribute);
+      lightingStamp++;
     },
     setLighting: (next) => {
       brighten.value = brightenOf(next);
@@ -1509,11 +1600,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       lastEverywhere = next.rigEverywhere;
       if (!rigChanged) return;
       lightingStamp++;   // LATER 114: what the facades' re-light reads changed (`FacadeRelight`)
-      for (const { part, attribute } of lit) {
-        const slots = colourSlotsOf(attribute);   // CPS H12: through the interleaved stride where the draw has one
-        applyLighting(part, lighting, slots.array, slots.stride, slots.offset);
-        attribute.needsUpdate = true;
-      }
+      for (const { part, attribute } of lit) relight(part, attribute);
     },
     frame: (camera, dt, view = DEFAULT_RENDER_VIEW) => {
       const magnification = view.magnification > 0 ? view.magnification : 1;
@@ -1561,10 +1648,20 @@ export function buildWorld(map: LoadedMap): WorldView {
         v.x = (v.x + s.du * dt * SCROLL_TICKS_PER_SECOND) % 1;
         v.y = (v.y + s.dv * dt * SCROLL_TICKS_PER_SECOND) % 1;
       }
+      syncWireframeOverlays();
     },
     held,
     grenades,
     flarePositions: () => billboards.map(({ mesh: m }) => [m.position.x, m.position.y, m.position.z]),
+    flares: () => billboards.map(({ mesh: m }) => {
+      const at = m.position.clone().add(group.position);       // the facade mesh sits in the group's frame
+      return { name: m.name, at: [at.x, at.y, at.z] as [number, number, number] };
+    }),
+    setFlaresShown: (on) => {
+      // Off the drawn layer (0), which a raycaster tests too; the mask's other layers (the shadows') kept, and `visible`
+      // stays the world's own to set.
+      for (const { mesh: m } of billboards) { if (on) m.layers.enable(0); else m.layers.disable(0); }
+    },
     lineGroups: () => lineObjects.map((line) => {
       // LATER 120: a turned placement's strips are in its model space, placed by the object's own matrix (identity else).
       const b = new Box3().setFromBufferAttribute(line.geometry.getAttribute('position') as BufferAttribute).applyMatrix4(line.matrix);
@@ -1727,6 +1824,7 @@ export function buildWorld(map: LoadedMap): WorldView {
       group.clear();
       movable.length = 0;
       for (const { material } of built) material.dispose();
+      wireframeMaterial.dispose();
       for (const twin of fades.values()) twin.dispose();
       for (const { material } of detailMaterials.values()) material.dispose();
       for (const { mesh } of details) if (mesh instanceof InstancedMesh) mesh.dispose();

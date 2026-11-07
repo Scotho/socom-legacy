@@ -90,6 +90,15 @@ export function soloSideOf(npcs: readonly NpcMarker[], player: Team = playerSide
   return (id) => (id === PLAYER_SEAT ? player : npcs[id - NPC_SEAT_BASE]?.side);
 }
 
+/**
+ * The room's `soloSide` option for a forge match: given whenever there are NPCs to seat or the player's side is named
+ * (the Play settings' Spawn as, a browser adaptation), so a chosen side holds with no NPC placed; neither, none (the
+ * room's own seat).
+ */
+export function soloSideOption(npcs: readonly NpcMarker[], player?: Team): { soloSide?: (id: number) => Team | undefined } {
+  return npcs.length || player ? { soloSide: soloSideOf(npcs, player) } : {};
+}
+
 /** A body's torso: the middle of its BODY capsules (the placeholder capsules' where the room has no skeleton). */
 export function torsoOf(feet: readonly number[], yaw: number, posture: CameraBody['posture']): V3 {
   return torsoPoint({ feet, yaw, posture }, null);

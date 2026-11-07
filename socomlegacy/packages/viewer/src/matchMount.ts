@@ -688,7 +688,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   /** The fog on the scene and behind it (`./matchCore` `liftFog`): with the goggles on, the camera's colour times the lens's. */
   let fogLens: readonly number[] | null = null;
   const refreshFog = (): void => {
-    if (o.forgeLighting) liftForgeFog(scene, fog, lighting, fogLens, (rgb) => renderer?.setClearColor(rgb), o.forgeLighting.timeOfDay);
+    if (o.forgeLighting) liftForgeFog(scene, fog, lighting, fogLens, (rgb) => renderer?.setClearColor(rgb), o.forgeLighting.timeOfDay, o.forgeLighting.keepFogColour === true);
     else liftFog(scene, fog, lighting, fogLens, (rgb) => renderer?.setClearColor(rgb));
   };
   // MATCH-THROW (research 222 §8): the throwables, the launcher and the R2 inventory -- `/testroom`'s (`./matchThrow`),
@@ -733,7 +733,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       roundAudio: sound.roundAudio, hud, remotePlayers: remote, effects: firearm.effects, worldBomb: throws.grenade.worldBomb(),
       ownBody: ownBombBody(play, throws.throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1: `./main`'s, the own body
       sound: bombSound(sound.audio),                                                             // PB-1: the pickup's .FOOTBOMB
-      pulse: worldPulse(() => world?.world ?? null),                                             // PB-9b: `./main`'s, the bases' pulse
+      pulse: worldPulse(() => world?.world ?? null, () => map?.forgeSiteOutlines ?? []),       // PB-9b: `./main`'s, the bases' pulse; the forge's sites' outlines
     },
     win: win as unknown as EventTarget,
     drops: { ahead: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0), candidates: () => drops.holdCandidatesAt(walk.feet(), walk.snapshot()?.yaw ?? 0), second: () => drops.promptAt(walk.feet(), walk.snapshot()?.yaw ?? 0, 2), item: (did) => drops.itemOf(did) },   // LkPaioX5 (c): the second TAKE and the names;   // PAR-34 group 7: `./main`'s   // PAR-4: `./main`'s PF-34 -- the weapon prompt's drop
@@ -1048,6 +1048,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let joinNow: (() => void) | null = null;
   o.assets.then((a) => {
     if (gone) return;
+    // A map the Forge composed (`./forge/playObjectives` names its escort zones on it): its escort's fallback lines on.
+    if (a) sound.roundAudio.round.forgeEscortLines = Array.isArray((a.map as { forgeEscortZones?: unknown }).forgeEscortZones);
     if (a) place(a);
     worldIn = true;
     joinNow?.();
@@ -1286,7 +1288,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         const tagGrid = walk.grid();
         hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.drawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
-      hud.setHostageMarks(net?.hostageMarks(map?.ai) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
+      hud.setHostageMarks(net?.hostageMarks(map?.ai, map?.forgeZoneMarks) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
       hud.render(renderer.renderer);
     }
     // PAR-2: `./main`'s -- the ARMORY's scripts stepped, pulled out 5 s before the next round (popup 47), drawn over everything.

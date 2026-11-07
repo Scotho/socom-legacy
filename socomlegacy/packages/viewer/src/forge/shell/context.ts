@@ -161,6 +161,8 @@ export interface ForgePlaceResult { ok: boolean; code?: string; revision: number
 
 /** FUI-1b: the editor seam a feature panel builds a drop on (the creator's asset drop, FCW-03). */
 export interface ForgeEditor {
+  /** Read-only preview staging does not require the placement admission required by `stagePiece`. */
+  previewPiece?(asset: string): Promise<Pick<StagedPiece, 'object' | 'dispose'> | null>;
   /** The real piece of `asset`, staged off the scene; null when it does not build here or a placement is not admitted now. */
   stagePiece(asset: string): Promise<StagedPiece | null>;
   /**

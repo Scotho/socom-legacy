@@ -10,24 +10,23 @@ import { createLocalPackApi, type LocalPackApi } from '../agent/localPacks';
 import { forgeMapPackDrivers } from '../agent/forgePacks';
 import { checkStarterLayout } from '../creator/examples/validation';
 import {
-  Box3, Box3Helper, BoxGeometry, BufferAttribute, BufferGeometry, Color, GridHelper, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Mesh,
-  MeshBasicMaterial, Object3D, PlaneGeometry, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
+  Box3, Box3Helper, BoxGeometry, BufferAttribute, BufferGeometry, Color, GridHelper, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix3, Matrix4, Mesh,
+  MeshBasicMaterial, Euler, Object3D, PlaneGeometry, Quaternion, type Material, Raycaster, Scene, Vector2, Vector3, type Intersection,
 } from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { spawnsFor, type Grid, type WorldPoly } from '@s2u/scene';
+import { findLadders, HOSTAGE_START_LIFT_READING, spawnsFor, zonesOfKind, type GlobalLighting, type Grid, type Ladder, type SpawnSlot, type WorldPoly } from '@s2u/scene';
 import { PLAY_CLIPS } from '../animator';
 import { buildBody, type BodyView } from '../bodyView';
-import { FlyCamera } from '../camera';
+import { FlyCamera, FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION, type ForgeViewportView } from '../camera';
 import { createPageShot, type PageShot } from './camera/pageShot';
 import type { ShotBounds } from './camera/driver';
 import { ELF_DEFAULT_FOGCOL, fogForExtent, type FogSettings } from '../fog';
 import { DEFAULT_LIGHTING, type Lighting } from '../lighting';
 import { createForgeLighting, forgeLightingOptions, liftForgeFog } from './lighting';
-import { lightingLook } from './lightingLook';
 import type { LoadedMap } from '../loadMap';
 import { mapFog, standOf } from '../matchCore';
-import type { GroundData } from '../mover';
-import { Overlays } from '../overlays';
+import { groundPolygons, type GroundData } from '../mover';
+import { Overlays, slotBoxSegments } from '../overlays';
 import { DoorPage } from '../doorPage';
 import { Play, type PlayClips } from '../play';
 import { createRenderer, type ViewerRenderer } from '../renderer';
@@ -41,7 +40,8 @@ import { keyboardSite } from '../keyboardTesting';
 import { mouseSite } from '../mouseTesting';
 import { buildWorld, type WorldView } from '../world';
 import { Archives, labelOf, type ArchiveEntry } from './archives';
-import type { DiscRequest, SourceRequest } from '../discSource';
+import { assetSourceFor, type DiscRequest, type SourceRequest } from '../discSource';
+import { kitGameType, loadKitSource } from '../loadout';
 import { noteDiscSource } from '../pwa/fileDisc';
 import { storedCopyRequest } from '../discCopy';
 import { extractionState, storedExtraction } from '../discExtractRecord';
@@ -72,7 +72,7 @@ import {
 } from './lobbyClient';
 import { defaultLobbyName, forgetStaleHost, joinLockedLobby, leaveLobbyInOrder, lobbyHostProof, lobbyMenuItems, lobbyPasswordField, lobbySocketOf, lobbyVisibilityToggle, typingTarget, type LobbyHostProof } from './lobbyPage';
 import { BLANK_LIBRARY, blankLibraryMap, composeMatchMap, floorMesh, withSettings } from './matchMap';
-import { openingStand, standFromHere } from './playFromHere';
+import { openingStand, randomStand, standFromHere } from './playFromHere';
 import { checkMap, type CheckedPiece, type MapCheck } from './validate';
 import { npcsThatFit, playerSideOf } from './npcs';
 import { TRAVERSAL_CLIPS } from '../traversal';
@@ -89,11 +89,27 @@ import {
 import { matchBackWords, menuCard, placeMenuCard } from './menuView';
 import { hullSegments } from './hull';
 import {
-  DEFAULT_SETTINGS, emptyLayout, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
-  serializeLayout, settingsOf, withIds, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
-  type NpcBehaviour,
-} from './layout';
-import { applyForgeObjectives, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
+  assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
+  serializeLayout, settingsOf, withIds, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
+  type NpcBehaviour, BOMB_SITE_REACH, } from './layout';
+import { blankFloorOf, breachReady, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
+import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
+import { turnFacade } from '../facade';
+import { flareModelMap, flareTemplates, withPlacedFlares, type FlareTemplate } from './placedFlares';
+import { SITE_OUTLINE_DONOR, withSiteOutlines } from './siteOutlines';
+import { skyDomeFor } from './skyDome';
+import { environmentOf } from './environmentCopy';
+import { BLANK_PRESETS, blankPresetOf, presetLayout, type PresetHostage } from './blankPresets';
+import { hostageCharactersOf, hostagesPlayIn, withLentHostageBodies, hostageDefault, nextHostageName } from './hostages';
+import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
+import { floorAiMaps } from './floorAi';
+import { nextNavName, nextViewName, withPlacedPoints, withPlacedViews } from './placedPoints';
+import { turretModelMap, turretMove, turretTemplates, withPlacedTurrets, type TurretTemplate } from './turrets';
+import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from './agent/commands';
+import { accessGizmo, accessModelMap, accessMove, accessTemplates, withPlacedAccess, type AccessTemplate } from './placedAccess';
+import { doorModelMap, doorMove, doorTemplates, withPlacedDoors, type DoorTemplate } from './placedDoors';
+import { BARRIER_GUIDE_COLOUR, BOMB_SITE_GUIDE_COLOUR, bombSiteShapes, DOOR_SWING_COLOUR, GATE_GUIDE_COLOUR, guideGroup, HOSTAGE_GUIDE_COLOUR, keepWorldTurn, VIEW_GUIDE_COLOUR, viewShapes, yawWay, LADDER_CLIMB_COLOUR, TURRET_GUIDE_COLOUR, turretShapes, ladderSegments, ladderTriangles, swingOf, swingSegments, swingTriangles } from './interactOverlay';
+import { playObjectives } from './playObjectives';
 import {
   contentAssetKey, contentBaseRef, missingPackRefs, onlineRecordRefusal, readContentMapDefinition, type ContentLayoutBase, type ContentMapDefinition,
   type ContentRef, type InstalledRulesPack, type PackRef, type RecordMode,
@@ -111,9 +127,19 @@ import { padActuator } from '../rumble';
 import { CARD_SAFE_ATTR, createCardStack, type CardHandle } from './shell/cards';
 import { PAD_FOCUS_INPUT } from './shell/padFocus';
 import { agentModeOf, FORGE_REFUSALS, forgeEditRefusal, forgeSurfaceState, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
-import { buildInspector, inspectorPanel } from './panels/inspectorPanel';
-import { buildOutliner, outlinerPanel } from './panels/outlinerPanel';
-import { buildDetailDistance, buildView, VIEW_MENU_ROWS, viewPanel, type DetailDistanceHooks } from './panels/viewPanel';
+import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
+import { scrubAllNumbers, type ScrubDetail } from './scrub';
+import { buildOutliner, outlinerPanel, spawnSlotRows } from './panels/outlinerPanel';
+import { mapDataGroups, type MapDataSource } from './mapData';
+import { environmentSections } from './environment';
+import { buildEnvironment, drawEnvironment, environmentPanel } from './panels/environmentPanel';
+import { buildLightRigEditor, directionOf, type Atmosphere } from './panels/lightRigEditor';
+import { LightArrows } from './lightArrows';
+import {
+  billboardRows, billboardSpecs, MAP_DATA_KIND_TOGGLES, MAP_DATA_MARKS, MapDataBillboards, placementOfMark, propMarkKey, userMarkKind,
+  type BillboardSpec, type PropMark, type UserMark,
+} from './mapDataBillboards';
+import { buildDetailDistance, detailDistanceMenuItem, VIEW_MENU_ROWS, viewMenuSection, type DetailDistanceHooks } from './panels/viewPanel';
 import { detailDistanceFor, detailDistanceKeeper } from '../detailDistance';
 import { buildSettings, drawCustomModes, formatSetting, MODE_OPTION_PREFIX, modeOptionValue, settingsPanel } from './panels/settingsPanel';
 import { freshEntityId, rulesPanel, RULES_ENTITY_WORD, RULES_PLACE_DEFAULTS_ADAPTATION, type RulesEntityKind } from './panels/rulesPanel';
@@ -139,14 +165,14 @@ import {
 } from './settings';
 import { palette, type PaletteEntry } from './library';
 import { standingPose } from './figure';
-import { forgeKeyAction, forgeLeaseExit, type ForgeKeyState } from './keys';
+import { FORGE_TOOL_ORDER, forgeKeyAction, forgeLeaseExit, forgeToolKeyLabel, type ForgeKeyState } from './keys';
 import { servedTreeFallsBackToDisc } from './servedFallback';
 import {
-  blockPiece, bombMarker, disposeGhost, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, spawnMarker, type BombMarkerKind,
+  blockPiece, bombMarker, disposeGhost, extractionZoneMarker, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
 } from './pieces';
 import {
   boundStep, clipOf, DEFAULT_GRID_STEP, DEFAULT_TURN_STEP, GRID_STEP_MAX, GRID_STEP_MIN, pastedPlaces, placementGridOf,
-  placeClickKind, restingPoint, snapYawRadians, surfaceYs, TURN_STEP_MAX, TURN_STEP_MIN, type PlacePoint,
+  placeClickKind, restingPoint, seatOn, snapYawRadians, surfaceYs, TURN_STEP_MAX, TURN_STEP_MIN, type PlacePoint,
 } from './placement';
 
 /**
@@ -169,6 +195,12 @@ const VIEW_KEY = FORGE_VIEW_KEY;
 /** The blank floor's extent and step, in game units (the forge's own). */
 const FLOOR_SIZE = 8000;
 const FLOOR_STEP = 100;
+/** A spectator view's arrow, world units: long enough to read from across a room (an editor guide's size, no reading). */
+const VIEW_ARROW_LENGTH = 60;
+/** The blank floor's guide in a neutral gray (the owner, 2026-11-06; an editor guide, never drawn in a match): its centre lines, its lines, its ground. */
+const FLOOR_GRID_CENTRE = 0x8c8c8c;
+const FLOOR_GRID_LINES = 0xb4b4b4;
+const FLOOR_GRID_GROUND = 0xe4e4e4;
 /** The forge's opening view over a campaign floor (its own, no original): this far up and back from the standing spot. */
 const CAMPAIGN_EYE_UP = 90;
 const CAMPAIGN_EYE_BACK = 160;
@@ -206,19 +238,51 @@ function paintGhost(root: Object3D, admitted: boolean): void {
   root.userData['forgeGhost'] = admitted ? 'admitted' : 'refused';
 }
 
-type Mode = 'select' | 'place' | 'spawnA' | 'spawnB' | 'npc' | 'bomb' | 'siteSeal' | 'siteTerrorist';
+type Mode = 'select' | 'place' | 'spawnA' | 'spawnB' | 'respawnA' | 'respawnB' | 'npc' | 'hostage' | 'zone' | 'point' | 'view' | 'turret' | 'door' | 'ladder' | 'gate' | 'barrier' | 'flare' | 'bomb' | 'siteSeal' | 'siteTerrorist';
+
+/**
+ * The placing tools a game type alone plays (a browser adaptation, FG.R2; the owner, 2026-11-06): the bomb's start and
+ * its plant sites Demolition's (2, `FUN_002c9540`), the hostages and extraction zones Escort's and Extraction's (3, 4:
+ * what `./playObjectives` reads under them). A tool not listed places under every type.
+ */
+/**
+ * A new empty map's rig where the map it is built from has none (a browser adaptation, FG.R2; an editor's values, no
+ * original): one white key light from high in the south-east, one dim cool fill opposite, the third off (the disc's zero
+ * direction), and a soft ambient.
+ */
+const FALLBACK_RIG: LightRigSetting = {
+  directions: [directionOf(135, 50), directionOf(315, 30), [0, 0, 0]],
+  colours: [[0.85, 0.85, 0.8], [0.25, 0.28, 0.35], [0, 0, 0]],
+  ambient: [0.35, 0.35, 0.38],
+};
+/**
+ * A new empty map's drop-shadow vector where the map it is built from has none (an editor's value, as `FALLBACK_RIG`):
+ * falling north-west, 45 degrees down, as from `FALLBACK_RIG`'s key light.
+ */
+const FALLBACK_SHADOW: [number, number, number] = [-0.5, -0.7071, 0.5];
+/**
+ * The span a new empty map's Light directions arrows are sized to (world units; an editor's value): a multiplayer map's
+ * own size, so they stand in the sky as a disc map's do (`./lightArrows`: 0.3 of it, about 1000 long).
+ */
+const BLANK_RIG_ARROWS_SPAN = 3500;
+
+/** A placed flare's unseen pick box, world units a side (an editor's value, FG.R2): a glow's quad is too thin to click. */
+const FLARE_PICK_SIZE = 6;
+
+const MODE_TOOL_TYPES: Partial<Record<Mode, readonly ForgeGameType[]>> = {
+  bomb: [2, 1], siteSeal: [2, 1], siteTerrorist: [2], hostage: [3, 4], zone: [3, 4],   // BREACH: the start and the SEALs' site (`breachReady`)
+};
 
 /**
  * The view settings: the test room's own switches over the world (`main.ts` `applyToggle`, `setup/index.html`'s
  * defaults), the forge's hull and floor, and the picture (native or the PS2 frame).
  */
 const VIEW_TOGGLES = [
-  { id: 'leftDragLook', label: 'Left drag to look (Shift to select)', group: 'Camera', on: true },
   { id: 'wireframe', label: 'Wireframe', group: 'Draw', on: false },
   { id: 'untextured', label: 'Untextured highlight', group: 'Draw', on: false },
   { id: 'collision', label: 'Collision hull', group: 'Overlays', on: false },
   { id: 'grid', label: 'Map grid', group: 'Overlays', on: false },
-  { id: 'spawns', label: 'Disc spawn slots', group: 'Overlays', on: false },
+  { id: 'spawns', label: 'Gizmos', group: 'Overlays', on: true },
   { id: 'fog', label: 'Fog', group: 'World', on: true },
   { id: 'shadows', label: 'Drop shadows', group: 'World', on: true },
   { id: 'detail', label: 'Detail textures', group: 'World', on: true },
@@ -254,8 +318,19 @@ const ICON: Record<string, string> = {
   spawn: '<path d="M6 21V4h10l-2 4 2 4H6"/>',
   npc: '<circle cx="12" cy="5" r="2.5"/><path d="M12 8v7M8 11h8M12 15l-3 6M12 15l3 6"/>',
   move: '<path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/>',
+  camera: '<path d="M4 7h4l2-2h4l2 2h4v12H4z"/><circle cx="12" cy="13" r="4"/>',
+  povPerspective: '<path d="M12 3 21 8v8l-9 5-9-5V8zM12 3v10m9-5-9 5-9-5m9 5v8"/>',
+  povTop: '<path d="M4 5h16v14H4zM8 9h8v6H8z"/><path d="m12 7 2 2-2 2-2-2z"/>',
+  povBottom: '<path d="M4 5h16v14H4zM8 9h8v6H8z"/><path d="m12 17-2-2 2-2 2 2z"/>',
+  povLeft: '<path d="M5 4h14v16H5zM9 8h6v8H9z"/><path d="m7 12 2-2v4z"/>',
+  povRight: '<path d="M5 4h14v16H5zM9 8h6v8H9z"/><path d="m17 12-2 2v-4z"/>',
+  povFront: '<path d="M5 4h14v16H5zM8 7h8v10H8z"/><circle cx="12" cy="12" r="2"/>',
+  povBack: '<path d="M5 4h14v16H5zM8 7h8v10H8z"/><path d="M10 10h4v4h-4z"/>',
   turn: '<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/>',
+  scale: '<path d="M4 10V4h6M20 14v6h-6M4 4l7 7M20 20l-7-7"/><rect x="10" y="10" width="4" height="4"/>',
   snap: '<path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4zM8 6h8M8 18h8M6 8v8M18 8v8"/>',
+  billboard: '<circle cx="12" cy="9" r="6"/><path d="M12 15v6M9 21h6"/><path d="M10 9h4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   copy: '<rect x="8" y="8" width="12" height="12"/><path d="M4 16V4h12"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   open: '<path d="M3 6h7l2 2h9v11H3z"/>',
@@ -265,6 +340,7 @@ const ICON: Record<string, string> = {
   play: '<path d="M7 4l13 8-13 8z"/>',
   stop: '<rect x="6" y="6" width="12" height="12"/>',
   dock: '<rect x="3" y="4" width="18" height="16"/><path d="M8 4v16M16 4v16"/>',
+  reset: '<path d="M3 11a9 9 0 1 1 2.64 6.36"/><path d="M3 4v7h7"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
@@ -273,6 +349,9 @@ const ICON: Record<string, string> = {
   bomb: '<circle cx="12" cy="14" r="6"/><path d="M16 10l3-3M17 5h3v3"/>',
   check: '<path d="M4 12l5 5L20 6"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  view: '<rect x="3" y="4" width="8" height="7" rx="1"/><rect x="13" y="4" width="8" height="7" rx="1"/><rect x="3" y="13" width="8" height="7" rx="1"/><path d="m15 15 3 3 3-3"/>',
+  listView: '<path d="M4 6h.01M4 12h.01M4 18h.01M9 6h11M9 12h11M9 18h11"/>',
+  gridView: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
 };
 /**
  * The mouse's look, asked inline rather than through `../pointer`'s `requestLock` (an import of that module from this
@@ -289,6 +368,15 @@ const lockMouse = (el: HTMLCanvasElement): void => {
 /** A key's name in a tooltip (OT.R68: the forge's editor reads the keyboard in every build). */
 const key = (k: string): string => ` · ${k}`;
 const icon = (name: string): string => `<svg class="fx-ico" viewBox="0 0 24 24" aria-hidden="true">${ICON[name] ?? ''}</svg>`;
+/**
+ * A kind's billboard as an icon (`./mapDataBillboards` `MAP_DATA_MARKS`): its letter on its colour, round for the map's
+ * own data and square for the user's placements -- the mark the viewport draws, in the toolbar and the Outliner too.
+ */
+const markBadge = (kind: string): string => {
+  const m = MAP_DATA_MARKS[kind];
+  if (!m) return icon('place');
+  return `<span class="fx-billboard-icon${m.shape === 'square' ? ' is-square' : ''}" aria-hidden="true" style="background:${m.colour}">${m.glyph}</span>`;
+};
 
 function el<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, cls = '', text = ''): HTMLElementTagNameMap[K] {
   const e = doc.createElement(tag);
@@ -524,6 +612,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   doc.title = 'Forge -- SOCOM II Legacy (experiment)';
   for (const e of Array.from(doc.body.children)) e.remove();
   doc.body.className = 'forge-page';
+  scrubAllNumbers(doc.body);                                 // every number field drags to change (`./scrub`), as the transform's
 
   /* ================= the markup ================= */
   const tool = (name: string, label: string, title: string, cls = ''): HTMLButtonElement => {
@@ -556,7 +645,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   brand.append(el(doc, 'span', 'fx-logo', 'FORGE'), el(doc, 'span', 'fx-badge', 'EXPERIMENT'));
   const baseSel = el(doc, 'select', 'fx-select');
   baseSel.title = 'The base: a map’s world, or a blank floor';
-  const newBtn = tool('file', 'New', 'Start a new layout on this base');
+  const newBtn = tool('file', 'New', 'Start a new layout: a preset or a map as its base');
   const openBtn = tool('open', 'Open', 'Open a layout file');
   const saveBtn = tool('save', 'Saves', 'Named layouts in this browser, a file, or a share link');
   saveBtn.dataset['forge'] = 'saves';
@@ -570,24 +659,80 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   file.accept = '.json,application/json';
   file.hidden = true;
   const modeBtns: Record<Mode, HTMLButtonElement> = {
-    select: tool('select', 'Select', `Select${key('1')}`),
-    place: tool('place', 'Place', `Place the chosen prop${key('2')}`),
-    spawnA: tool('spawn', 'Spawn A', `Place a team A spawn${key('3')}`, 'fx-team-a'),
-    spawnB: tool('spawn', 'Spawn B', `Place a team B spawn${key('4')}`, 'fx-team-b'),
-    npc: tool('npc', 'NPC', `Place an NPC: the character chosen under Characters${key('5')}`),
-    bomb: tool('bomb', 'Bomb', `Place the bomb's start${key('6')}`, 'fx-bomb'),
-    siteSeal: tool('bomb', 'Site SEAL', `Place the site the SEALs plant at${key('7')}`, 'fx-side-seal'),
-    siteTerrorist: tool('bomb', 'Site Terrorist', `Place the site the Terrorists plant at${key('8')}`, 'fx-side-terrorist'),
+    select: tool('select', 'Select', 'Select'),
+    place: tool('place', 'Place', 'Place the chosen prop'),
+    spawnA: tool('spawn', 'Spawn SEAL', 'Place a team A spawn (SEALs)', 'fx-team-a'),
+    spawnB: tool('spawn', 'Spawn Terrorist', 'Place a team B spawn (Terrorists)', 'fx-team-b'),
+    respawnA: tool('spawn', 'Respawn SEAL', "Place a team A respawn point (SEALs): where the SEALs respawn, beside the map's own", 'fx-team-a'),
+    respawnB: tool('spawn', 'Respawn Terrorist', "Place a team B respawn point (Terrorists): where the Terrorists respawn, beside the map's own", 'fx-team-b'),
+    npc: tool('npc', 'NPC', 'Place an NPC: the character chosen under Characters'),
+    door: tool('npc', 'Door', "Place a door: a copy of a disc map's own (the palette's, or Frostfire's), its hinge at the click"),
+    gate: tool('npc', 'Gate', "Place a gate: a copy of a disc map's own (Death Trap's or Enowapi's), its lever prompt at the gate; it slides on its lever and C4 wrecks it"),
+    barrier: tool('npc', 'C4 barrier', "Place a C4 barrier: a context action, a copy of a disc map's own access barrier (the palette's, or Vigilance's), that C4 or an RPG wrecks"),
+    ladder: tool('npc', 'Ladder', "Place a ladder: a disc map's own ladder prop (the palette's, or Sandstorm's ladder35), its foot at the click, facing the way you look"),
+    flare: tool('npc', 'Flare', "Place a flare: a copy of one of a disc map's glows (a facade node alone, not the lamp it hangs on), turned to the camera as the game turns it"),
+    turret: tool('npc', 'Turret', "Place a turret: a copy of a disc map's own (the palette's, or Crossroads'), facing the way you look"),
+    point: tool('npc', 'Point', 'Place a tactical point (Charlie, Delta...): a nav point on the compass, beside the map\'s own'),
+    view: tool('npc', 'View', 'Place a spectator view: a click takes the camera\'s place and look, beside the map\'s own'),
+    zone: tool('npc', 'Zone', 'Place an extraction zone (Safety, Safety2...): Extraction plays them, beside the map\'s own'),
+    hostage: tool('npc', 'Hostage', 'Place a hostage: Escort and Extraction play them, beside the map\'s own'),
+    bomb: tool('bomb', 'Bomb', "Place the bomb's start", 'fx-bomb'),
+    siteSeal: tool('bomb', 'Site SEAL', 'Place the site the SEALs plant at', 'fx-side-seal'),
+    siteTerrorist: tool('bomb', 'Site Terrorist', 'Place the site the Terrorists plant at', 'fx-side-terrorist'),
   };
-  const moveBtn = tool('move', 'Move', `Move with the gizmo${key('T')}`);
-  const turnBtn = tool('turn', 'Turn', `Turn with the gizmo${key('R')}`);
-  const snapBtn = tool('snap', 'Snap', `Snap to ${DEFAULT_GRID_STEP} units and ${DEFAULT_TURN_STEP}° · pad R3${key('G')}`);
+  // Each tool's key in its tooltip (`./keys` `forgeToolKeyLabel`: Q, then the number keys in the tools row's order).
+  for (const [m, b] of Object.entries(modeBtns)) { const k = forgeToolKeyLabel(m); if (k) b.title += key(k); }
+  // The tools that place a spawn or a bomb marker wear that placement's billboard (`markBadge`), as its mark and its row do.
+  for (const [mode, kind] of [['spawnA', 'userSpawnA'], ['spawnB', 'userSpawnB'], ['respawnA', 'userRespawnA'], ['respawnB', 'userRespawnB'], ['npc', 'userNpcs'], ['hostage', 'userEscortees'], ['zone', 'userTacZones'], ['turret', 'userTurrets'], ['door', 'userDoors'], ['ladder', 'userLadders'], ['flare', 'userFlares'], ['gate', 'userGates'], ['barrier', 'userBarriers'], ['point', 'userTacPoints'], ['view', 'userScenicViews'], ['bomb', 'userBombStart'], ['siteSeal', 'userSiteSeal'],
+    ['siteTerrorist', 'userSiteTerrorist']] as const) {
+    modeBtns[mode].querySelector('svg.fx-ico')?.insertAdjacentHTML('beforebegin', markBadge(kind));
+    modeBtns[mode].querySelector('svg.fx-ico')?.remove();
+  }
+  /**
+   * The Select tool's settings (a browser adaptation, FG.R2): a gear inside the Select button opens them (as does the
+   * button's context menu -- a right-click, or the keyboard's menu key), in a popup under the button. A body-level popup:
+   * the toolbar scrolls sideways and would clip it.
+   */
+  const selectGear = el(doc, 'span', 'fx-tool-gear');
+  selectGear.innerHTML = icon('gear');
+  selectGear.title = 'Select settings';
+  selectGear.setAttribute('aria-hidden', 'true');
+  modeBtns.select.append(selectGear);
+  modeBtns.select.title = `Select${key('Q')} · the gear (or a right-click): its settings`;
+  const selectSettings = el(doc, 'div', 'fx-tool-popup');
+  selectSettings.id = 'fx-select-settings';
+  selectSettings.setAttribute('role', 'dialog');
+  selectSettings.setAttribute('aria-label', 'Select settings');
+  selectSettings.hidden = true;
+  /** A switch row as the View panel draws its toggles (`.fx-toggle`): the input and its word. */
+  const selectToggle = (setting: string, label: string, title: string): HTMLInputElement => {
+    const row = el(doc, 'label', 'fx-toggle');
+    const i = el(doc, 'input');
+    i.type = 'checkbox';
+    i.dataset['forgeSetting'] = setting;
+    row.title = title;
+    row.append(i, el(doc, 'span', '', label));
+    selectSettings.append(row);
+    return i;
+  };
+  selectSettings.append(el(doc, 'div', 'fx-tool-popup-title', 'Select'));
+  const selectMapPropsIn = selectToggle('selectMapProps', 'Select map props',
+    'A click or a selection box picks the base map’s own props; off, they are passed over (the Outliner still selects them)');
+  const selectUserPropsIn = selectToggle('selectUserProps', 'Select user props',
+    'A click or a selection box picks your placements; off, they are passed over (the Outliner still selects them)');
+  selectSettings.append(el(doc, 'div', 'fx-tool-popup-note', 'Off, a click looks through them to what is behind; the Outliner selects either.'));
+  const moveBtn = tool('move', 'Move', `Move with the gizmo${key('W')}`);
+  const turnBtn = tool('turn', 'Rotate', `Rotate with the gizmo${key('E')}`);
+  const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo (not wired yet)${key('R')}`);
+  // Snap left the toolbar: the viewport's snap settings hold it (`drawPlacement`); G and the pad's L3 still turn it on and off.
   const dupBtn = tool('copy', '', `Duplicate · pad □${key('C')}`);
   const delBtn = tool('trash', '', `Delete · pad △${key('Del')}`);
   const docksBtn = iconOnly(tool('dock', 'Docks', `Show or hide the docks${key('H')}`), 'Docks');
-  // The pad's buttons as `./pad` maps them: SELECT undo, L3 redo (L2 / R2 are the fly's down / up).
+  const resetLayoutBtn = iconOnly(tool('reset', 'Reset layout', 'Restore the default dock layout and panel sizes'), 'Reset layout');
+  resetLayoutBtn.dataset['forge'] = 'reset-layout';
+  // The pad's buttons as `./pad` maps them: SELECT tapped undoes, held redoes (L2 / R2 are the fly's down / up).
   const undoBtn = tool('undo', '', `Undo · pad SELECT${key('Ctrl+Z')}`);
-  const redoBtn = tool('redo', '', `Redo · pad L3${key('Ctrl+Y')}`);
+  const redoBtn = tool('redo', '', `Redo · pad hold SELECT${key('Ctrl+Y')}`);
   undoBtn.dataset['forge'] = 'undo';                         // FUI-6: a stable hook; the titles name the step (`refreshUndo`)
   redoBtn.dataset['forge'] = 'redo';
   const helpBtn = iconOnly(tool('help', 'Controls', 'Controls'), 'Controls');
@@ -605,14 +750,47 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const playBtn = el(doc, 'button', 'fx-play');
   playBtn.type = 'button';
   // FUI-3 (PAD-5): START opens the menu, whose first row is Play; the title no longer sends a pad to START.
-  playBtn.title = `Play the layout: an offline match${key('P')}`;
-  const baseLabel = el(doc, 'label', 'fx-label', 'Base');
+  playBtn.title = `Play the layout: an offline match${key('P')} · the gear (or a right-click): its settings`;
+  /**
+   * The Play settings (a browser adaptation, FG.R2; no original -- the game's own rounds stand a player on a slot): a gear
+   * inside the Play button, a popup under it, as the Select tool's. Where round 1 stands the player -- the floor under
+   * the camera (FG-50's), or one of its side's spawns at random -- and which side it plays.
+   */
+  const playGear = el(doc, 'span', 'fx-tool-gear');
+  playGear.innerHTML = icon('gear');
+  playGear.title = 'Play settings';
+  playGear.setAttribute('aria-hidden', 'true');
+  const playSettings = el(doc, 'div', 'fx-tool-popup');
+  playSettings.id = 'fx-play-settings';
+  playSettings.setAttribute('role', 'dialog');
+  playSettings.setAttribute('aria-label', 'Play settings');
+  playSettings.hidden = true;
+  /** A choice row: its word, then a select of `options` ([value, word]). */
+  const playChoice = (setting: string, label: string, title: string, options: readonly (readonly [string, string])[]): HTMLSelectElement => {
+    const row = el(doc, 'label', 'fx-tool-popup-row');
+    row.title = title;
+    const sel = el(doc, 'select', 'fx-select');
+    sel.dataset['forgeSetting'] = setting;
+    for (const [value, word] of options) { const o = el(doc, 'option', '', word); o.value = value; sel.append(o); }
+    row.append(el(doc, 'span', '', label), sel);
+    playSettings.append(row);
+    return sel;
+  };
+  playSettings.append(el(doc, 'div', 'fx-tool-popup-title', 'Play'));
+  const playSpawnIn = playChoice('playSpawn', 'Spawn at', 'Where round 1 stands you: the floor under the camera, or one of your side’s spawns at random',
+    [['camera', 'Camera location'], ['random', 'Random spawn']]);
+  const playSideIn = playChoice('playSide', 'Spawn as', 'The side you play; Auto takes the side the NPCs leave you',
+    [['auto', 'Auto (from the NPCs)'], ['seal', 'SEAL'], ['terrorist', 'Terrorist']]);
+  playSettings.append(el(doc, 'div', 'fx-tool-popup-note', 'Random draws from your placed spawns, or the map’s spawn slots where you placed none.'));
   const layoutNameIn = el(doc, 'input', 'fx-search fx-name');
   layoutNameIn.type = 'text';
   layoutNameIn.maxLength = LAYOUT_NAME_MAX;
-  layoutNameIn.placeholder = 'Layout name';
+  layoutNameIn.placeholder = 'Untitled layout';
   layoutNameIn.setAttribute('aria-label', 'Layout name');
-  layoutNameIn.title = 'The name the downloaded file takes';
+  // The layout's name, shown not typed (the owner, 2026-11-06): Saves' Save as names it, and a file opened brings its own.
+  layoutNameIn.readOnly = true;
+  layoutNameIn.tabIndex = -1;
+  layoutNameIn.title = 'The layout’s name: Saves › Save as names it';
   const baseAsk = el(doc, 'span', 'fx-base-ask');
   baseAsk.hidden = true;
   const baseApply = el(doc, 'button', 'fx-tool fx-primary', 'Apply');
@@ -622,18 +800,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   baseAsk.append(el(doc, 'span', '', 'New layout on this base?'), baseApply, baseCancel);
   // R7-1: the base group's select and layout name shrink to their floors as the row's own items (`.fx-group--base`,
   // `display: contents`), and Walk sits with Check and Create lobby -- the row's natural width at most 1260 px.
-  const baseGroup = group(baseLabel, baseSel, baseAsk, newBtn, openBtn, layoutNameIn, saveBtn, file);
+  // No base list on the toolbar (the owner, 2026-11-06): New asks for the base (`chooseNewBase`). `baseSel` stays, off
+  // the page, the list of bases New offers and the row the current base answers to (`baseValue`).
+  const baseGroup = group(newBtn, openBtn, saveBtn, layoutNameIn, file);   // Saves beside Open (the owner, 2026-11-06)
   baseGroup.classList.add('fx-group--base');
   top.append(
     home, brand,
     group(menuBtn),
     baseGroup,
-    group(...Object.values(modeBtns)),
-    group(moveBtn, turnBtn, snapBtn),
+    (() => { const g = group(modeBtns.select, modeBtns.place); g.classList.add('fx-group--modes'); return g; })(),
     group(dupBtn, delBtn),
     group(undoBtn, redoBtn),
     el(doc, 'div', 'fx-spacer'),
-    group(helpBtn, docksBtn),
+    group(helpBtn, docksBtn, resetLayoutBtn),
     group(walkBtn, checkBtn, lobbyBtn, saveMapBtn),
     playBtn,
   );
@@ -642,9 +821,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const left = el(doc, 'aside', 'fx-dock fx-left');
   const paletteSel = el(doc, 'select', 'fx-select');
   paletteSel.title = 'The archive whose props fill the list';
-  // FUI-22 (D5, FUI.R21; D3; a browser adaptation): the one asset list -- the archive, then the search and the three
-  // filters on one row (All in words, Favourites and Characters by their marks, their names spoken and in their titles),
-  // then the list, which takes the dock's height; its preview is the tiles' tooltip (`assetTiles`, below).
+  const assetBrowserSettingsKey = 's2u-forge-assets-browser';
+  let assetViewMode: 'list' | 'grid' = 'grid';
+  let assetTileSize = 112;
+  try {
+    const saved = JSON.parse(readKey(assetBrowserSettingsKey) ?? '{}') as { mode?: unknown; size?: unknown };
+    if (saved.mode === 'list' || saved.mode === 'grid') assetViewMode = saved.mode;
+    if (typeof saved.size === 'number' && Number.isFinite(saved.size)) assetTileSize = Math.round(Math.max(72, Math.min(200, saved.size)));
+  } catch { /* Invalid saved presentation preferences use the browser defaults. */ }
+  // FUI-22 (D5, FUI.R21; D3; a browser adaptation): the one asset browser -- archive, search, filters, and a view
+  // settings popup; both formats use static staged-prop thumbnails and the optional hover tooltip (`assetTiles`, below).
   const chipAll = el(doc, 'button', 'fx-chip', 'All');
   chipAll.setAttribute('aria-label', 'All');
   chipAll.title = 'Every prop of the archive';
@@ -659,37 +845,98 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const list = el(doc, 'ul', 'fx-assets');
   list.setAttribute('aria-label', 'Assets');
   const assetsHead = el(doc, 'div', 'fx-panel-head');
-  assetsHead.append(el(doc, 'h2', '', 'Assets'), el(doc, 'span', 'fx-dim', 'your disc’s props'));
+  assetsHead.append(el(doc, 'span', 'fx-dim', 'your disc’s props'));
   const filters = el(doc, 'div', 'fx-asset-filters');
   const chips = el(doc, 'div', 'fx-asset-chips');
+  chips.classList.add('fx-asset-chip-row');
   const chipChars = el(doc, 'button', 'fx-chip');
   chipChars.innerHTML = `${icon('npc')}<span class="s2u-visually-hidden">Characters</span>`;
   chipChars.setAttribute('aria-label', 'Characters');
   chipChars.title = 'Characters: the base map’s own player models, placed as NPCs';
-  chips.append(chipAll, chipFav, chipChars);
+  const assetViewPopupButton = el(doc, 'button', 'fx-chip fx-asset-view-popup-button');
+  assetViewPopupButton.type = 'button';
+  assetViewPopupButton.innerHTML = `${icon('gear')}<span class="s2u-visually-hidden">Asset view options</span>`;
+  assetViewPopupButton.setAttribute('aria-label', 'Asset view options');
+  assetViewPopupButton.setAttribute('aria-haspopup', 'true');
+  assetViewPopupButton.setAttribute('aria-expanded', 'false');
+  assetViewPopupButton.title = 'Asset view options';
+  const assetViewPopup = el(doc, 'div', 'fx-asset-view-popup');
+  assetViewPopup.id = 'fx-asset-view-popup';
+  assetViewPopup.setAttribute('role', 'group');
+  assetViewPopup.setAttribute('aria-label', 'Asset view settings');
+  assetViewPopup.hidden = true;
+  assetViewPopupButton.setAttribute('aria-controls', assetViewPopup.id);
+  // The browser's foot, under the list: the format (list / grid) at its left, the size slider at its right.
+  const displayModes = el(doc, 'div', 'fx-asset-display-modes');
+  displayModes.setAttribute('role', 'group');
+  displayModes.setAttribute('aria-label', 'Asset format');
+  const listModeBtn = el(doc, 'button', 'fx-chip fx-asset-view-button');
+  listModeBtn.innerHTML = `${icon('listView')}<span class="s2u-visually-hidden">List</span>`;
+  listModeBtn.type = 'button';
+  listModeBtn.setAttribute('aria-label', 'List view');
+  listModeBtn.title = 'Show assets in a list';
+  const gridModeBtn = el(doc, 'button', 'fx-chip fx-asset-view-button');
+  gridModeBtn.innerHTML = `${icon('gridView')}<span class="s2u-visually-hidden">Grid</span>`;
+  gridModeBtn.type = 'button';
+  gridModeBtn.setAttribute('aria-label', 'Grid view');
+  gridModeBtn.title = 'Show assets as preview tiles';
+  displayModes.append(listModeBtn, gridModeBtn);
+  const sizeLabel = el(doc, 'label', 'fx-asset-size-label');
+  const sizeSlider = el(doc, 'input', 'fx-asset-size');
+  const sizeValue = el(doc, 'output', 'fx-asset-size-value');
+  const assetViewEvents = new AbortController();
+  sizeSlider.type = 'range';
+  sizeSlider.min = '72';
+  sizeSlider.max = '200';
+  sizeSlider.step = '8';
+  sizeSlider.value = String(assetTileSize);
+  sizeSlider.setAttribute('aria-label', 'Grid size');
+  sizeSlider.title = 'Change grid tile width and list row height';
+  sizeLabel.append(sizeSlider, sizeValue);
+  const assetPreviewLabel = el(doc, 'label', 'fx-asset-preview-toggle');
+  const assetPreviewToggle = el(doc, 'input');
+  assetPreviewToggle.type = 'checkbox';
+  assetPreviewToggle.setAttribute('aria-label', 'Asset preview on hover');
+  assetPreviewLabel.append(assetPreviewToggle, el(doc, 'span', '', 'Asset preview on hover'));
+  assetViewPopup.append(assetPreviewLabel);
+  chips.append(chipAll, chipFav, chipChars, assetViewPopupButton, assetViewPopup);
   filters.append(search, chips);
-  left.append(assetsHead, paletteSel, filters, list);
+  const assetsFoot = el(doc, 'div', 'fx-assets-foot');
+  assetsFoot.append(displayModes, sizeLabel);
+  const assetsSurface = el(doc, 'div', 'fx-assets-pane');
+  assetsSurface.append(assetsHead, paletteSel, filters, list, assetsFoot);
+  const applyAssetDisplay = (): void => {
+    list.dataset['view'] = assetViewMode;
+    list.style.setProperty('--fx-asset-tile-size', `${assetTileSize}px`);
+    list.style.setProperty('--fx-asset-row-height', `${Math.round(48 + (assetTileSize - 72) * 36 / 128)}px`);
+    sizeSlider.value = String(assetTileSize);
+    sizeValue.textContent = `${assetTileSize}px`;
+    listModeBtn.classList.toggle('is-on', assetViewMode === 'list');
+    gridModeBtn.classList.toggle('is-on', assetViewMode === 'grid');
+    listModeBtn.setAttribute('aria-pressed', String(assetViewMode === 'list'));
+    gridModeBtn.setAttribute('aria-pressed', String(assetViewMode === 'grid'));
+  };
+  applyAssetDisplay();
 
-  // The inspector, the outliner, the view and the settings: FUI-1's first registrants (`./shell/panel`; a browser
+  // The outliner, the inspector, the view and the settings: FUI-1's first registrants (`./shell/panel`; a browser
   // adaptation, FG.R2), their markup as it was (`./panels/*`); the closure below keeps wiring their controls.
   const right = el(doc, 'aside', 'fx-dock fx-right');
-  const inspectorDom = buildInspector(doc);
-  const { name: inspectName, kind: inspectKind, fields, x: fx, y: fy, z: fz, yaw: fyaw, lock: lockBtn } = inspectorDom;
+  const topDock = el(doc, 'aside', 'fx-dock fx-dock-zone fx-dock-top');
+  const bottomDock = el(doc, 'aside', 'fx-dock fx-dock-zone fx-dock-bottom');
+  const centerDock = el(doc, 'aside', 'fx-dock fx-dock-zone fx-dock-center');
+  const inspectorDom = buildInspector(doc, icon('reset'));
+  const { name: inspectName, kind: inspectKind, fields, x: fx, y: fy, z: fz, yaw: fyaw, lock: lockBtn,
+    pitch: fpitch, roll: froll, sx: fsx, sy: fsy, sz: fsz, resetPosition, resetRotation, resetScale } = inspectorDom;
   const outlinerDom = buildOutliner(doc);
   const { list: outliner, search: outlinerSearch, filter: outlinerFilter } = outlinerDom;
-  const viewDom = buildView(doc, VIEW_TOGGLES);
-  const toggleInputs = viewDom.inputs;
   // PF.R60 (`../detailDistance`, a browser adaptation over PF-30's gate): the detail distance -- the page's one stored factor,
   // the front end's launcher Options' too -- beside the PS2 picture switch; the PS2 picture draws the original's (1).
   const detailDistance = detailDistanceKeeper();
   const detailHooks: DetailDistanceHooks = { value: () => detailDistance.get(), step: (d) => detailDistance.step(d), ps2: () => view.ps2 };
-  const detailDom = buildDetailDistance(doc, detailHooks, (v) => detailDistance.set(v));
-  viewDom.body.append(detailDom.row);
   // FG-24 (FG.R18; an adaptation, no original): the layout's map settings -- the light and the fog applied live, the
-  // room's options at Play; each change an edit of the layout (saved, undone and redone with it). FG-49: the snap's grid
-  // and turn head the panel, settings of the editor (kept with the view switches, not in the layout).
+  // room's options at Play; each change an edit of the layout (saved, undone and redone with it).
   const settingsDom = buildSettings(doc);
-  const { gridIn, turnIn, snapIn, tipsIn, gameTypeSel, lightIn, lightReset, lightOut, fogIn, fogOut, fogReset, numIn, ffIn, npcSel } = settingsDom;
+  const { gameTypeSel, lightIn, lightReset, lightOut, fogIn, fogOut, fogReset, numIn, ffIn, npcSel } = settingsDom;
   /**
    * FUI-1 (the review's IA-9, UX-1, UX-7, UX-12): the docks' registry -- order, open state per viewer (one key), frame,
    * visibility and teardown. The facade, the state and the words it hands a panel are the page's, read lazily (they
@@ -726,7 +973,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let assetTiles: AssetTiles | null = null;
   let disposeTiles = (): void => undefined;
-  /** FUI-22: whether the tiles were last told their dock is drawn (told again only when it turns). */
+  const assetThumbnailCache = new Map<string, string>();
+  const assetThumbnailFailures = new Map<string, number>();
+  let invalidateAssetThumbnails = (): void => undefined;
+  /** FUI-22: whether the tiles were last told their panel is shown (told again only when it turns). */
   let tilesShown = true;
   /** R4: the page's local packs (`ForgePageServices`), made once the facade is up; disposed at the teardown, by it only. */
   let pagePacks: LocalPackApi | null = null;
@@ -737,6 +987,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     get forge(): ForgeAgentApi { if (!agentApi) throw new Error('The Forge editor is not ready'); return agentApi; },   // the agent dock's
     get host(): ExtensionHost | undefined { return extensions ?? undefined; },                                         // R7-2: FCW-08's
     editor: {
+      previewPiece: (asset) => shellEditor?.previewPiece?.(asset) ?? Promise.resolve(null),
       stagePiece: (asset) => (shellEditor ? shellEditor.stagePiece(asset) : Promise.resolve(null)),
       place: (staged, at, yaw) => (shellEditor ? shellEditor.place(staged, at, yaw) : Promise.resolve({ ok: false, code: 'NOT_READY', revision: 0 })),
       viewport: () => viewport,
@@ -767,12 +1018,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     ui: shellUi, state: () => shellState(), store: pageSettings, doc,
   };
   const shell: ForgeShellPage = createForgeShell({
-    doc, docks: { left, right, workspace: workspaceDock }, store: pageSettings, storeKey: FORGE_PANELS_KEY,
+    doc, docks: { left, right, top: topDock, bottom: bottomDock, center: centerDock, workspace: workspaceDock },
+    store: pageSettings, storeKey: FORGE_PANELS_KEY,
     showDock: (d) => { if (d !== 'workspace') setDocks(true); },
     // FUI-1 fix-up (A1): a dock is drawn unless folded away (Docks), walked (`is-playing`) or under a match.
     dockShown: (d) => !doc.body.classList.contains(FORGE_MATCHING_CLASS) && !doc.body.classList.contains('is-playing')
       && (d === 'workspace' || !doc.body.classList.contains('fx-docks-off')),
     context: pageContext,
+  });
+  shell.register({
+    id: 'asset-browser', title: 'Assets', dock: 'left', order: 0, defaultOpen: true, tab: 'Assets', padLegend: [],
+    mount(host) {
+      host.append(assetsSurface);
+      return { dispose: () => { assetsSurface.remove(); } };
+    },
   });
   /** FUI-3: the START menu's sections a feature adds (`registerMenuSection`), drawn beside the shell's Panels section. */
   const menuSections = createMenuSections<ForgePageContext>();
@@ -780,31 +1039,620 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   onShell(shell);
   shell.register(inspectorPanel(inspectorDom, shellUi.reveal));
   shell.register(outlinerPanel(outlinerDom, shellUi.reveal));
-  // FUI-3 (PAD-6): every one of the view switches in the menu's View section (the thirteen and #517's Left drag to look),
-  // the five it carries by their menu words (`VIEW_MENU_ROWS`), the rest by the dock's.
+  // FUI-3 (PAD-6): View switches remain in START's View section and the viewport dropdown.
   const viewMenuRows = VIEW_TOGGLES.map((t) => [t.id, VIEW_MENU_ROWS.find(([id]) => id === t.id)?.[1] ?? t.label] as const);
-  shell.register(viewPanel(viewDom, { on: (id) => view[id], toggle: (id) => { view[id] = !view[id]; applyView(); } }, viewMenuRows, detailHooks));
   shell.register(settingsPanel(settingsDom, {
     settings: () => settings, discFar: () => discFog.far, gameTypeLabel: () => optionLabel(gameTypeSel),
     cycleGameType: (by) => cycleSelect(gameTypeSel, by), step: (key, dir) => stepSettingBy(key, dir),
     resetFog: () => { personEdit('settings.set', { settings: { fogFar: null } }, () => { settings = { ...settings, fogFar: null }; applySettings(); edit(); }); },
     resetLighting: () => resetLighting(), locked: () => editsLocked(),
   }));
+  // The Environment panel (World): the layout's lighting rows (Settings' controls, mounted here, wired as before) and
+  // the disc's own lighting and atmosphere, read only (`drawEnvironmentPanel`).
+  const environmentDom = buildEnvironment(doc, settingsDom.lightingRows);
+  /**
+   * A new empty map's own light rig (the owner, 2026-11-06; a browser adaptation, FG.R2): `settings.lightRig`, edited in
+   * the Environment panel (`./panels/lightRigEditor`) on a blank base only -- a disc map keeps its own. Absent, the rig of
+   * the map it is built from (its library's `GlobalLighting`); a library with none, `FALLBACK_RIG`.
+   */
+  const rigEditor = buildLightRigEditor(doc, {
+    get: () => atmosphereNow(),
+    own: () => !!(settings.lightRig || settings.fogColor || settings.shadowVector || settings.skyFrom || settings.fog || settings.night),
+    from: () => (base?.kind === 'blank' ? base.library : ''),
+    // Its sky: a disc map's own dome copied over the floor (`./skyDome`), or none.
+    skyChoices: () => entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const),
+    flares: () => roots.filter((r) => r.userData['forgeFlare']).length,
+    preview: (a) => { if (editsLocked()) return; settings = { ...settings, ...atmosphereSettings(a) }; applySettings(); },
+    commit: (a) => { if (refuseEdit()) { applySettings(); return; } settings = { ...settings, ...atmosphereSettings(a) }; applySettings(); settingsEdit(() => edit()); },
+    reset: () => {
+      if (refuseEdit()) return;
+      settings = { ...settings, lightRig: null, fogColor: null, shadowVector: null, skyFrom: null, fog: null, night: null };
+      applySettings();
+      rigEditor.draw(true);                                    // every field, the focused one too
+      settingsEdit(() => edit());
+    },
+    // Preset (the owner, 2026-11-06): a disc map's whole environment copied in (`./environmentCopy`), as a new empty map
+    // built from it starts; what that map lacks goes back to the built-from map's. One edit.
+    preset: () => { void (async () => {
+      if (refuseUnderCard() || refuseEdit()) return;
+      const maps = entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const);
+      if (!maps.length) { notifier.refused('No disc map to copy a light rig from'); return; }
+      const current = settings.skyFrom ?? (base?.kind === 'blank' ? base.library : '');
+      const stem = await askChoice('Light rig preset', 'Copy this map’s light rig, fog, night, shadows and sky into your map. Your own values are replaced.',
+        [['Multiplayer', maps]], maps.some(([v]) => v === current) ? current : maps[0]![0], 'Copy');
+      if (!stem) return;
+      const from = await hostageLibOf(stem);
+      if (!from) { notifier.refused(`${stem} would not load`); return; }
+      if (refuseEdit()) return;
+      // Every field the preset's: what the map lacks (a shadow vector) is the value now shown, kept as this map's own.
+      const now = atmosphereNow();
+      settings = { ...settings, ...atmosphereSettings(now), ...environmentOf(from) };
+      applySettings();
+      rigEditor.draw(true);                                    // every field, the focused one too
+      settingsEdit(() => edit());
+      say(`Light rig copied from ${stem}`);
+    })(); },
+  });
+  environmentDom.info.before(rigEditor.body);
+  environmentDom.body.prepend(rigEditor.top);                // Preset and Reset at the panel's top (the owner, 2026-11-06)
+  /**
+   * The layout lighting's two rows where they belong (the owner, 2026-11-06): on a new empty map, Day / night under the
+   * light rig and Fog distance under the fog (`rigEditor.slots`), the Layout lighting heading hidden; on a disc map, back
+   * under that heading (its own rig and fog are read only below).
+   */
+  const placeLightingRows = (): void => {
+    const [dayNightRow, fogRow] = settingsDom.lightingRows;
+    const blank = base?.kind === 'blank';
+    if (dayNightRow) (blank ? rigEditor.slots.dayNight : environmentDom.layout).append(dayNightRow);
+    if (fogRow) (blank ? rigEditor.slots.fogDistance : environmentDom.layout).append(fogRow);
+    environmentDom.layout.hidden = blank;
+    rigEditor.top.hidden = !blank;
+  };
+  shell.register(environmentPanel(environmentDom));
 
   // The viewport and the status bar.
   const viewport = el(doc, 'main', 'fx-viewport');
   const canvas = el(doc, 'canvas', 'fx-canvas');
   const input = el(doc, 'div', 'fx-input');
+  let gizmo!: TransformControls;
   const crosshair = el(doc, 'div', 'fx-crosshair');
   crosshair.hidden = true;
-  const vpLabel = el(doc, 'div', 'fx-vp-label', 'Perspective');
+  const cameraHud = el(doc, 'div', 'fx-camera-hud');
+  const viewportLeftControls = el(doc, 'div', 'fx-viewport-left-controls');
+  let texturedOn = true;
+  let litOn = true;
+  const viewportModes = doc.createElement('details');
+  viewportModes.className = 'fx-viewport-modes';
+  const viewportModesSummary = doc.createElement('summary');
+  viewportModesSummary.className = 'fx-viewport-modes-summary';
+  viewportModesSummary.innerHTML = `${icon('view')}<span>Draw</span>`;   // the owner, 2026-11-06: View renamed Draw
+  const viewportModesList = el(doc, 'div', 'fx-viewport-modes-list');
+  const viewportToggleInputs = new Map<ViewToggle, HTMLInputElement>();
+  const modeGroup = (heading: string): void => {
+    viewportModesList.append(el(doc, 'h3', 'fx-viewport-modes-heading', heading));
+  };
+  const modeToggle = (label: string): HTMLInputElement => {
+    const row = el(doc, 'label', 'fx-viewport-mode fx-toggle');
+    const checkbox = doc.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.setAttribute('aria-label', label);
+    row.append(checkbox, el(doc, 'span', '', label));
+    viewportModesList.append(row);
+    return checkbox;
+  };
+  const addViewportToggle = (id: ViewToggle, label: string): HTMLInputElement => {
+    const checkbox = modeToggle(label);
+    viewportToggleInputs.set(id, checkbox);
+    return checkbox;
+  };
+  modeGroup('Draw');
+  const texturedInput = modeToggle('Textured');
+  const wireframeInput = addViewportToggle('wireframe', 'Wireframe');
+  const litInput = modeToggle('Lit');
+  addViewportToggle('untextured', 'Untextured highlight');
+  modeGroup('Overlays');
+  addViewportToggle('collision', 'Collision hull');
+  addViewportToggle('grid', 'Map grid');
+  modeGroup('World');
+  addViewportToggle('fog', 'Fog');
+  addViewportToggle('shadows', 'Drop shadows');
+  addViewportToggle('detail', 'Detail textures');
+  addViewportToggle('alternate', 'Alternate states');
+  addViewportToggle('blendgraded', 'Graded alpha blend');
+  addViewportToggle('engineorder', 'Engine draw order');
+  modeGroup('Picture');
+  addViewportToggle('ps2', 'PS2 picture (640×448)');
+  const viewportDetailDom = buildDetailDistance(doc, detailHooks, (value) => detailDistance.set(value));
+  viewportDetailDom.row.classList.add('fx-viewport-mode');
+  viewportModesList.append(viewportDetailDom.row);
+  const snapSettings = doc.createElement('details');
+  snapSettings.className = 'fx-viewport-snap';
+  const snapSettingsSummary = doc.createElement('summary');
+  snapSettingsSummary.className = 'fx-camera-view fx-viewport-snap-summary';
+  snapSettingsSummary.innerHTML = `${icon('snap')}<span>Snap</span><output class="fx-camera-speed-button-value">${DEFAULT_GRID_STEP} / ${DEFAULT_TURN_STEP}°</output>`;
+  const snapSettingsPanel = el(doc, 'div', 'fx-viewport-snap-panel');
+  const snapNumberInput = (label: string, min: number, max: number, title: string): HTMLInputElement => {
+    const row = el(doc, 'label', 'fx-viewport-snap-field');
+    row.append(el(doc, 'span', '', label));
+    const field = el(doc, 'input', 'fx-num fx-setting-num fx-stepper');
+    field.type = 'number';
+    field.min = String(min);
+    field.max = String(max);
+    field.step = '1';
+    field.title = title;
+    field.setAttribute('aria-label', label);
+    row.append(field);
+    snapSettingsPanel.append(row);
+    return field;
+  };
+  const viewportGridIn = snapNumberInput('Grid step', GRID_STEP_MIN, GRID_STEP_MAX, 'Grid step, in game units');
+  const viewportTurnIn = snapNumberInput('Turn step (°)', TURN_STEP_MIN, TURN_STEP_MAX, 'Turn step, in degrees');
+  const viewportSnapRow = el(doc, 'label', 'fx-toggle fx-viewport-snap-toggle');
+  const viewportSnapIn = doc.createElement('input');
+  viewportSnapIn.type = 'checkbox';
+  viewportSnapIn.setAttribute('aria-label', 'Snap');
+  viewportSnapRow.append(viewportSnapIn, el(doc, 'span', '', 'Snap'));
+  snapSettingsPanel.append(viewportSnapRow);
+  snapSettingsPanel.insertBefore(viewportSnapRow, snapSettingsPanel.firstChild);
+  snapSettings.append(snapSettingsSummary, snapSettingsPanel);
+  texturedInput.addEventListener('change', () => {
+    texturedOn = texturedInput.checked;
+    applyView();
+  });
+  litInput.addEventListener('change', () => {
+    litOn = litInput.checked;
+    applyView();
+  });
+  for (const [id, checkbox] of viewportToggleInputs) {
+    checkbox.addEventListener('change', () => { view[id] = checkbox.checked; applyView(); });
+  }
+  viewportModes.append(viewportModesSummary, viewportModesList);
+  /*
+   * The viewport's Billboards dropdown (a browser adaptation, FG.R2), beside View: the map data billboards shown at all,
+   * drawn over all the geometry (found from anywhere on the map), the disc spawn slots' cell outlines, and a switch a
+   * kind of map data (`MAP_DATA_KIND_TOGGLES`). The same look as View's dropdown.
+   */
+  const billboardsMenu = doc.createElement('details');
+  billboardsMenu.className = 'fx-viewport-modes fx-viewport-billboards';
+  const billboardsSummary = doc.createElement('summary');
+  billboardsSummary.className = 'fx-viewport-modes-summary';
+  billboardsSummary.innerHTML = `${icon('billboard')}<span>View</span>`;   // the owner, 2026-11-06: Billboards renamed View
+  const billboardsList = el(doc, 'div', 'fx-viewport-modes-list fx-billboards-list');
+  // Three columns, so every switch shows at once with no scroll: the settings and the overlays, then the user's own
+  // data, then the map's data (the long list).
+  const billboardsCols = [el(doc, 'div', 'fx-billboards-col'), el(doc, 'div', 'fx-billboards-col'), el(doc, 'div', 'fx-billboards-col')] as const;
+  billboardsList.append(...billboardsCols);
+  let billboardsCol: HTMLElement = billboardsCols[0];
+  const billboardToggle = (label: string): HTMLInputElement => {
+    const row = el(doc, 'label', 'fx-viewport-mode fx-toggle');
+    const checkbox = doc.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.setAttribute('aria-label', label);
+    row.append(checkbox, el(doc, 'span', '', label));
+    billboardsCol.append(row);
+    return checkbox;
+  };
+  billboardsCol.append(el(doc, 'h3', 'fx-viewport-modes-heading', 'Billboards'));
+  const billboardsOnIn = billboardToggle('Show billboards');
+  const billboardsTopIn = billboardToggle('Always on top');
+  billboardsTopIn.closest('label')!.title = 'Draw the billboards over all the geometry, so they can be found from anywhere on the map';
+  billboardsCol.append(el(doc, 'h3', 'fx-viewport-modes-heading', 'Overlays'));
+  // Every gizmo at once (the owner, 2026-11-06: one switch): the disc's spawn slots' cells and arrows (`../overlays`) and
+  // the placed spawns' and hostages' cells, the doors' swings, the ladders', turrets', views', gates' and barriers'
+  // guides (`./interactOverlay`) -- the view setting the disc's slots had. Its own listener: View's switches took theirs
+  // before this one joined them.
+  const discSlotsIn = billboardToggle('Gizmos');
+  discSlotsIn.closest('label')!.title = 'Every gizmo on or off: spawn and hostage cells, door swings, ladder, turret, view, gate and C4 barrier guides';
+  viewportToggleInputs.set('spawns', discSlotsIn);
+  discSlotsIn.addEventListener('change', () => { view.spawns = discSlotsIn.checked; applyView(); });
+  // The map's own flare glows (its lights', the sun's, the sky's): drawn as the game draws them, or out of the way.
+  const flareGlowsIn = billboardToggle('Flare glows');
+  flareGlowsIn.closest('label')!.title = "The map's own light glows, sun, moon and stars; off, they are not drawn (nor picked)";
+  flareGlowsIn.addEventListener('change', () => { flareGlows = flareGlowsIn.checked; applyView(); });
+  // The map's light rig as arrows (`./lightArrows`): which way each of its directional lights comes in.
+  const lightDirectionsIn = billboardToggle('Light directions');
+  lightDirectionsIn.closest('label')!.title = "The map's light rig (GlobalLighting): an arrow each light, in its colour, the way it shines";
+  lightDirectionsIn.addEventListener('change', () => { lightDirections = lightDirectionsIn.checked; applyView(); });
+  // Two sections: the map's own data (round marks) and the user's own placements (square marks), each with its All first
+  // -- every kind of the section on or off at once; part of them on, it shows mixed (`indeterminate`).
+  const BILLBOARD_SECTIONS = [['map', 'Map data', 'Every kind of map data on or off at once'],
+    ['user', 'User data', 'Every kind of your own placements on or off at once']] as const;
+  const billboardsAllIns = new Map<'map' | 'user', HTMLInputElement>();
+  const billboardKindIns = new Map<string, HTMLInputElement>();
+  for (const [group, heading, title] of BILLBOARD_SECTIONS) {
+    billboardsCol = billboardsCols[group === 'map' ? 2 : 1];
+    billboardsCol.append(el(doc, 'h3', 'fx-viewport-modes-heading', heading));
+    const kinds = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === group);
+    const all = billboardToggle('All');
+    all.closest('label')!.title = title;
+    all.addEventListener('change', () => {
+      for (const t of kinds) { if (all.checked) billboardsOff.delete(t.id); else billboardsOff.add(t.id); }
+      applyView();
+    });
+    billboardsAllIns.set(group, all);
+  }
+  /**
+   * The kinds' switches a row each (the owner, 2026-11-06: `billboardRows`): a user kind beside its map kind, a side with
+   * no counterpart an empty cell -- a switch's row kept, unseen and out of reach -- so both columns line up.
+   */
+  const kindSwitch = (t: (typeof MAP_DATA_KIND_TOGGLES)[number]): void => {
+    const input = billboardToggle(t.label);
+    // The kind's own mark before its word, as the viewport draws it: its letter on its colour (two sides or teams
+    // split down the middle), round or square as it is drawn, so a switch reads as the marks it shows.
+    const marks = t.kinds.map((k) => MAP_DATA_MARKS[k]!);
+    const badge = el(doc, 'span', `fx-billboard-icon${marks[0]!.shape === 'square' ? ' is-square' : ''}`, marks[0]!.glyph);
+    badge.setAttribute('aria-hidden', 'true');
+    // Split only for a two-sided kind (spawns, respawns: SEALs | Terrorists); the bomb's start and its sites are the
+    // start's own red.
+    badge.style.background = marks.length === 2
+      ? `linear-gradient(90deg, ${marks[0]!.colour} 50%, ${marks[1]!.colour} 50%)`
+      : marks[0]!.colour;
+    input.after(badge);
+    billboardKindIns.set(t.id, input);
+  };
+  const emptyCell = (): void => {
+    const input = billboardToggle('');
+    const row = input.closest('label')!;
+    row.classList.add('fx-billboard-empty');
+    row.setAttribute('aria-hidden', 'true');
+    row.style.visibility = 'hidden';
+    input.tabIndex = -1;
+    input.disabled = true;
+    // As tall as a switch's row with its Solo, so the two columns stay level.
+    row.append(el(doc, 'span', 'fx-chip fx-billboard-solo', 'Solo'));
+  };
+  for (const row of billboardRows()) {
+    // A section's heading (the toolbar's own, `BILLBOARD_SECTIONS`) in both columns, so the two stay level.
+    if ('heading' in row) {
+      for (const col of [billboardsCols[1], billboardsCols[2]]) col.append(el(doc, 'h4', 'fx-billboards-section', row.heading));
+      continue;
+    }
+    billboardsCol = billboardsCols[1];
+    if (row.user) kindSwitch(row.user); else emptyCell();
+    billboardsCol = billboardsCols[2];
+    if (row.map) kindSwitch(row.map); else emptyCell();
+  }
+  /**
+   * Each kind's Solo, at its switch's right: only that kind shown, every other switched off; pressed again while it is
+   * the only one on, every kind back on.
+   */
+  const soloOf = (id: string): boolean => MAP_DATA_KIND_TOGGLES.every((t) => billboardsOff.has(t.id) === (t.id !== id));
+  const billboardSolos = new Map([...billboardKindIns].map(([id, input]) => {
+    const solo = el(doc, 'button', 'fx-chip fx-billboard-solo', 'Solo');
+    solo.type = 'button';
+    const label = MAP_DATA_KIND_TOGGLES.find((t) => t.id === id)!.label;
+    solo.title = `Show only ${label.toLowerCase()}; press again to show every kind`;
+    solo.setAttribute('aria-label', `Solo ${label}`);
+    solo.addEventListener('click', (e) => {
+      e.preventDefault();                                      // a press in the switch's row: never the switch's own
+      e.stopPropagation();
+      const was = soloOf(id);
+      billboardsOff.clear();
+      if (!was) for (const t of MAP_DATA_KIND_TOGGLES) if (t.id !== id) billboardsOff.add(t.id);
+      applyView();
+    });
+    input.closest('label')!.append(solo);
+    return [id, solo] as const;
+  }));
+  billboardsMenu.append(billboardsSummary, billboardsList);
+  /** The dropdown's switches drawn from the settings (each change, and once at the start). */
+  const drawBillboardSwitches = (): void => {
+    billboardsOnIn.checked = billboardsOn;
+    billboardsTopIn.checked = billboardsOnTop;
+    flareGlowsIn.checked = flareGlows;
+    lightDirectionsIn.checked = lightDirections;
+    for (const [id, input] of billboardKindIns) { input.checked = !billboardsOff.has(id); input.disabled = !billboardsOn; }
+    for (const [group, all] of billboardsAllIns) {
+      const kinds = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === group);
+      const offCount = kinds.filter((t) => billboardsOff.has(t.id)).length;
+      all.checked = offCount === 0;
+      all.indeterminate = offCount > 0 && offCount < kinds.length;
+      all.disabled = !billboardsOn;
+    }
+    for (const [id, solo] of billboardSolos) {
+      const on = soloOf(id);
+      solo.classList.toggle('is-on', on);
+      solo.setAttribute('aria-pressed', String(on));
+      solo.disabled = !billboardsOn;
+    }
+    billboardsTopIn.disabled = !billboardsOn;
+  };
+  billboardsOnIn.addEventListener('change', () => { billboardsOn = billboardsOnIn.checked; applyView(); });
+  billboardsTopIn.addEventListener('change', () => { billboardsOnTop = billboardsTopIn.checked; applyView(); });
+  for (const [id, input] of billboardKindIns) {
+    input.addEventListener('change', () => { if (input.checked) billboardsOff.delete(id); else billboardsOff.add(id); applyView(); });
+  }
+  const cameraSpeedFeedback = el(doc, 'div', 'fx-camera-speed-feedback');
+  cameraSpeedFeedback.setAttribute('aria-hidden', 'true');
+  const cameraSpeedFeedbackLabel = el(doc, 'span', 'fx-camera-speed-feedback-label', 'Camera speed');
+  const cameraSpeedFeedbackValue = doc.createElement('output');
+  cameraSpeedFeedbackValue.className = 'fx-camera-speed-feedback-value';
+  const cameraSpeedFeedbackTrack = el(doc, 'span', 'fx-camera-speed-feedback-track');
+  const cameraSpeedFeedbackFill = el(doc, 'span', 'fx-camera-speed-feedback-fill');
+  cameraSpeedFeedbackTrack.append(cameraSpeedFeedbackFill);
+  cameraSpeedFeedback.append(cameraSpeedFeedbackLabel, cameraSpeedFeedbackTrack, cameraSpeedFeedbackValue);
+  let cameraSpeedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  const viewMenu = doc.createElement('details');
+  viewMenu.className = 'fx-camera-views';
+  const viewMenuSummary = doc.createElement('summary');
+  viewMenuSummary.className = 'fx-camera-view';
+  const viewMenuList = doc.createElement('div');
+  viewMenuList.className = 'fx-camera-view-list';
+  const axisWidget = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  axisWidget.classList.add('fx-axis-widget');
+  axisWidget.setAttribute('viewBox', '0 0 80 80');
+  axisWidget.setAttribute('role', 'group');
+  axisWidget.setAttribute('aria-label', 'View orientation. Drag to orbit; select an axis to align the view.');
+  const axisLines = doc.createElementNS(axisWidget.namespaceURI, 'g') as SVGGElement;
+  axisLines.classList.add('fx-axis-lines');
+  axisWidget.append(axisLines);
+  const axisEnds = new Map<string, SVGGElement>();
+  const axisLineElements = new Map<string, SVGLineElement>();
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const line = doc.createElementNS(axisWidget.namespaceURI, 'line') as SVGLineElement;
+    line.classList.add(`fx-axis-${axis}`);
+    axisLineElements.set(axis, line);
+    axisLines.append(line);
+    for (const sign of [-1, 1] as const) {
+      const end = doc.createElementNS(axisWidget.namespaceURI, 'g') as SVGGElement;
+      end.classList.add('fx-axis-end', `fx-axis-${axis}`);
+      end.dataset['axis'] = axis;
+      end.dataset['sign'] = String(sign);
+      end.setAttribute('role', 'button');
+      end.setAttribute('tabindex', '0');
+      end.setAttribute('aria-label', `${sign > 0 ? 'Positive' : 'Negative'} ${axis.toUpperCase()} axis view`);
+      const circle = doc.createElementNS(axisWidget.namespaceURI, 'circle');
+      circle.setAttribute('r', sign > 0 ? '8' : '6');
+      const label = doc.createElementNS(axisWidget.namespaceURI, 'text');
+      label.textContent = sign > 0 ? axis.toUpperCase() : '';
+      end.append(circle, label);
+      axisEnds.set(`${axis}:${sign}`, end);
+      axisWidget.append(end);
+    }
+  }
+  const viewOptions: [ForgeViewportView, string][] = [
+    ['perspective', 'Perspective'], ['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'],
+    ['right', 'Right'], ['front', 'Front'], ['back', 'Back'],
+  ];
+  const viewIcons: Record<ForgeViewportView, string> = {
+    perspective: 'povPerspective', top: 'povTop', bottom: 'povBottom', left: 'povLeft',
+    right: 'povRight', front: 'povFront', back: 'povBack',
+  };
+  const viewButtons = new Map<ForgeViewportView, HTMLButtonElement>();
+  for (const [value, label] of viewOptions) {
+    const button = doc.createElement('button');
+    button.type = 'button';
+    button.className = 'fx-camera-view-option';
+    button.setAttribute('aria-label', `${label} view`);
+    button.innerHTML = `${icon(viewIcons[value])}<span>${label}</span>`;
+    button.addEventListener('click', () => {
+      selectViewportView(value);
+    });
+    viewButtons.set(value, button);
+    viewMenuList.append(button);
+  }
+  viewMenuSummary.dataset['view'] = 'perspective';
+  viewMenuSummary.innerHTML = `${icon(viewIcons.perspective)}<span>Perspective</span>`;
+  viewMenuSummary.setAttribute('aria-label', 'Perspective view');
+  viewButtons.get('perspective')?.setAttribute('aria-pressed', 'true');
+  viewMenu.append(viewMenuSummary, viewMenuList);
+  const viewportFocus = (): Vector3 => baseView && !baseView.box.isEmpty()
+    ? baseView.box.getCenter(new Vector3())
+    : new Vector3();
+  const syncViewportViewMenu = (value: ForgeViewportView): void => {
+    const label = viewOptions.find(([view]) => view === value)?.[1] ?? 'Perspective';
+    viewMenuSummary.dataset['view'] = value;
+    viewMenuSummary.innerHTML = `${icon(viewIcons[value])}<span>${label}</span>`;
+    viewMenuSummary.setAttribute('aria-label', `${label} view`);
+    for (const [view, item] of viewButtons) item.setAttribute('aria-pressed', String(view === value));
+  };
+  const selectViewportView = (value: ForgeViewportView): void => {
+    const current = viewMenuSummary.dataset['view'] as ForgeViewportView | undefined;
+    fly.setForgeViewportView(value, value !== 'perspective' && current === 'perspective' ? viewportFocus() : null);
+    syncViewportViewMenu(value);
+    gizmo.camera = fly.viewportCamera();
+    viewMenu.open = false;
+  };
+  const syncAxisWidget = (): void => {
+    const camera = fly.viewportCamera();
+    if (gizmo && gizmo.camera !== camera) gizmo.camera = camera;
+    camera.updateMatrixWorld();
+    const inverse = camera.quaternion.clone().invert();
+    const projected = new Map<string, { x: number; y: number; depth: number }>();
+    for (const [axis, vector] of [
+      ['x', new Vector3(1, 0, 0)], ['y', new Vector3(0, 1, 0)], ['z', new Vector3(0, 0, 1)],
+    ] as const) {
+      const point = vector.applyQuaternion(inverse);
+      const positive = { x: 40 + point.x * 25, y: 40 - point.y * 25, depth: point.z };
+      const negative = { x: 40 - point.x * 25, y: 40 + point.y * 25, depth: -point.z };
+      projected.set(`${axis}:1`, positive);
+      projected.set(`${axis}:-1`, negative);
+      const line = axisLineElements.get(axis)!;
+      line.setAttribute('x1', '40');
+      line.setAttribute('y1', '40');
+      line.setAttribute('x2', String(positive.x));
+      line.setAttribute('y2', String(positive.y));
+    }
+    const ordered = [...axisEnds.entries()].sort((a, b) => projected.get(a[0])!.depth - projected.get(b[0])!.depth);
+    for (const [key, end] of ordered) {
+      const point = projected.get(key)!;
+      end.setAttribute('transform', `translate(${point.x} ${point.y})`);
+      axisWidget.append(end);
+    }
+    const actualView = fly.forgeViewportView();
+    if (viewMenuSummary.dataset['view'] !== actualView) syncViewportViewMenu(actualView);
+  };
+  const alignAxis = (axis: 'x' | 'y' | 'z', sign: 1 | -1): void => {
+    const view: ForgeViewportView = axis === 'y'
+      ? sign === 1 ? 'top' : 'bottom'
+      : axis === 'x'
+        ? sign === 1 ? 'right' : 'left'
+        : sign === 1 ? 'back' : 'front';
+    selectViewportView(view);
+  };
+  let axisDrag: { pointerId: number; x: number; y: number; moved: boolean; axis: string | null } | null = null;
+  let suppressAxisClick = false;
+  axisWidget.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = (event.target as Element | null)?.closest('.fx-axis-end') ?? null;
+    axisDrag = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+      axis: target ? `${target.getAttribute('data-axis')}:${target.getAttribute('data-sign')}` : null,
+    };
+    axisWidget.setPointerCapture(event.pointerId);
+  });
+  axisWidget.addEventListener('pointermove', (event) => {
+    if (!axisDrag || axisDrag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - axisDrag.x;
+    const dy = event.clientY - axisDrag.y;
+    if (!axisDrag.moved && Math.hypot(event.clientX - axisDrag.x, event.clientY - axisDrag.y) > 2) axisDrag.moved = true;
+    if (axisDrag.moved) fly.orbitForgeViewport(dx, dy, viewportFocus());
+    axisDrag.x = event.clientX;
+    axisDrag.y = event.clientY;
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  const endAxisDrag = (event: PointerEvent): void => {
+    if (!axisDrag || axisDrag.pointerId !== event.pointerId) return;
+    if (axisDrag.moved || axisDrag.axis) {
+      suppressAxisClick = true;
+      setTimeout(() => { suppressAxisClick = false; }, 0);
+    }
+    if (!axisDrag.moved && axisDrag.axis) {
+      const [axis, sign] = axisDrag.axis.split(':');
+      if ((axis === 'x' || axis === 'y' || axis === 'z') && (sign === '1' || sign === '-1')) {
+        alignAxis(axis, sign === '1' ? 1 : -1);
+      }
+    }
+    axisDrag = null;
+  };
+  axisWidget.addEventListener('pointerup', endAxisDrag);
+  axisWidget.addEventListener('pointercancel', endAxisDrag);
+  for (const [key, end] of axisEnds) {
+    end.addEventListener('click', () => {
+      if (suppressAxisClick) return;
+      const [axis, sign] = key.split(':') as ['x' | 'y' | 'z', '1' | '-1'];
+      alignAxis(axis, sign === '1' ? 1 : -1);
+    });
+    end.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      end.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+  }
+  let showPadCrosshair = false;
+  const updateCrosshair = (): void => {
+    crosshair.hidden = fly.isLookHeld() || fly.isLocked() || !showPadCrosshair;
+  };
+  const cameraSettings = doc.createElement('details');
+  cameraSettings.className = 'fx-camera-settings';
+  const cameraSettingsSummary = doc.createElement('summary');
+  cameraSettingsSummary.innerHTML = `${icon('camera')}<span>Camera</span><output class="fx-camera-speed-button-value">1.0</output>`;
+  const cameraSettingsPanel = doc.createElement('div');
+  cameraSettingsPanel.className = 'fx-camera-settings-panel';
+  const cameraSpeedLabel = doc.createElement('label');
+  cameraSpeedLabel.className = 'fx-camera-speed-label';
+  cameraSpeedLabel.textContent = 'Camera Speed';
+  const cameraSpeedInput = doc.createElement('input');
+  cameraSpeedInput.className = 'fx-range fx-camera-speed';
+  cameraSpeedInput.type = 'range';
+  cameraSpeedInput.min = '0.1';
+  cameraSpeedInput.max = '16';
+  cameraSpeedInput.step = 'any';
+  cameraSpeedInput.value = '1';
+  cameraSpeedInput.setAttribute('aria-label', 'Camera speed');
+  const cameraSpeedValue = doc.createElement('output');
+  cameraSpeedValue.className = 'fx-camera-speed-value';
+  cameraSpeedValue.textContent = '1.0';
+  const cameraFovLabel = el(doc, 'label', 'fx-camera-speed-label', 'Field of View');
+  const cameraFovInput = doc.createElement('input');
+  cameraFovInput.className = 'fx-range fx-camera-setting-range';
+  cameraFovInput.type = 'range';
+  cameraFovInput.min = '30';
+  cameraFovInput.max = '120';
+  cameraFovInput.step = '1';
+  cameraFovInput.value = '49';
+  cameraFovInput.setAttribute('aria-label', 'Field of view');
+  const cameraFovValue = doc.createElement('output');
+  cameraFovValue.className = 'fx-camera-setting-value';
+  cameraFovValue.textContent = '49°';
+  const cameraLookSpeedLabel = el(doc, 'label', 'fx-camera-speed-label', 'Camera Look Speed');
+  const cameraLookSpeedInput = doc.createElement('input');
+  cameraLookSpeedInput.className = 'fx-range fx-camera-setting-range';
+  cameraLookSpeedInput.type = 'range';
+  cameraLookSpeedInput.min = '0.1';
+  cameraLookSpeedInput.max = '5';
+  cameraLookSpeedInput.step = '0.1';
+  cameraLookSpeedInput.value = '1';
+  cameraLookSpeedInput.setAttribute('aria-label', 'Camera look speed');
+  const cameraLookSpeedValue = doc.createElement('output');
+  cameraLookSpeedValue.className = 'fx-camera-setting-value';
+  cameraLookSpeedValue.textContent = '1.0×';
+  const cameraCollisionLabel = doc.createElement('label');
+  cameraCollisionLabel.className = 'fx-camera-collision-label';
+  const cameraCollisionInput = doc.createElement('input');
+  cameraCollisionInput.type = 'checkbox';
+  cameraCollisionInput.setAttribute('aria-label', 'Camera collisions');
+  cameraCollisionLabel.append(cameraCollisionInput, doc.createTextNode('Camera collisions'));
+  cameraSettingsPanel.append(
+    cameraSpeedLabel, cameraSpeedInput, cameraSpeedValue,
+    cameraFovLabel, cameraFovInput, cameraFovValue,
+    cameraLookSpeedLabel, cameraLookSpeedInput, cameraLookSpeedValue,
+    cameraCollisionLabel,
+  );
+  cameraSettings.append(cameraSettingsSummary, cameraSettingsPanel);
+  const hideCameraSpeedFeedback = (): void => {
+    cameraSpeedFeedback.classList.remove('is-on');
+    if (cameraSpeedFeedbackTimer !== null) clearTimeout(cameraSpeedFeedbackTimer);
+    cameraSpeedFeedbackTimer = null;
+  };
+  // The viewport's dropdowns: one open at a time (Billboards among them, so it never lies over View), and a press
+  // anywhere outside the open one closes it.
+  const viewportPopups: [HTMLDetailsElement, HTMLElement][] = [
+    [viewportModes, viewportModesSummary],
+    [billboardsMenu, billboardsSummary],
+    [viewMenu, viewMenuSummary],
+    [snapSettings, snapSettingsSummary],
+    [cameraSettings, cameraSettingsSummary],
+  ];
+  for (const [popup, summary] of viewportPopups) {
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      const shouldOpen = !popup.open;
+      for (const [other] of viewportPopups) other.open = other === popup && shouldOpen;
+      if (shouldOpen) hideCameraSpeedFeedback();
+    });
+    popup.addEventListener('toggle', () => { if (popup.open) hideCameraSpeedFeedback(); });
+  }
+  doc.addEventListener('pointerdown', (event) => {
+    const target = event.target as Node | null;
+    for (const [popup] of viewportPopups) if (popup.open && !(target && popup.contains(target))) popup.open = false;
+  }, true);
+  viewportLeftControls.append(viewportModes, billboardsMenu, viewMenu);
+  // The gizmo's modes in the viewport (a browser adaptation, FG.R2), left of Snap: one joined group of buttons, each its
+  // icon and its word, their titles the keys (W / E / R).
+  const gizmoTools = el(doc, 'div', 'fx-gizmo-tools');
+  gizmoTools.setAttribute('role', 'group');
+  gizmoTools.setAttribute('aria-label', 'Transform');
+  gizmoTools.append(moveBtn, turnBtn, scaleBtn);
+  cameraHud.append(gizmoTools, snapSettings, cameraSettings);
   // FUI-3 (FUI.R6): the legend strip at the status bar, in place of the hint line (`./shell/legend`).
   const legend = el(doc, 'ul', 's2u-prompts fx-legend');
   const toast = el(doc, 'div', 'fx-toast', '');
   /** FG-47: the box a left-drag on no placement draws (the Select tool). */
   const marquee = el(doc, 'div', 'fx-marquee');
   marquee.hidden = true;
-  viewport.append(canvas, input, crosshair, marquee, vpLabel, legend, toast);
+  viewport.append(canvas, input, crosshair, marquee, viewportLeftControls, cameraHud, axisWidget, cameraSpeedFeedback, legend, toast);
+  // The toast sits over the legend strip (`.fx-toast`'s `--fx-legend-h`): the strip's height, 0 while it is hidden. It
+  // wraps at narrow widths, so it is measured, not assumed.
+  const measureLegend = (): void => { viewport.style.setProperty('--fx-legend-h', `${legend.hidden ? 0 : legend.offsetHeight}px`); };
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(measureLegend).observe(legend);
+  measureLegend();
   const statusBar = el(doc, 'footer', 'fx-status');
   const status = el(doc, 'span', 'fx-status-msg', 'starting…');
   // FUI-4 (VP-13): the cells named, not styled by position; the chip strip and the message log between the line and them.
@@ -832,6 +1680,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   loading.append(loadingTitle, loadingBar, loadingLine);
   loading.hidden = true;
   viewport.append(loading);
+  shell.register({
+    id: 'viewport', title: 'Viewport', dock: 'center', order: 0, defaultOpen: true, tab: 'Viewport', movable: false, padLegend: [],
+    mount(host) {
+      host.append(viewport);
+      return { dispose: () => { viewport.remove(); } };
+    },
+  });
   const modal = el(doc, 'div', 'fx-modal');
   modal.hidden = true;
   /**
@@ -851,29 +1706,191 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   helpCard.innerHTML = `<header><h2>Controls</h2><span class="fx-dim">Build, then Play to walk it</span></header><div class="fx-help-cols">${
     keyRows('Controller', [
       ['Left stick', 'Fly (walk in Play)'], ['Right stick', 'Look'], ['L2 / R2', 'Down / up'],
-      ['&#x2715; Cross', 'Select or place at the centre'], ['Hold &#x2715;', 'Add to or take out of the selection'], ['L1 / R1', 'Previous / next tool'], ['D-pad &#x2191; &#x2193;', 'Previous / next prop (a character with the NPC tool)'],
+      ['&#x2715; Cross', 'Select or place at the centre'], ['Hold &#x2715;', 'Add to or take out of the selection'], ['L1 / R1', 'Previous / next tool (every tool, as the tools row)'], ['D-pad &#x2191; &#x2193;', 'Previous / next prop (a character with the NPC tool)'],
       ['D-pad &#x2190; &#x2192;', 'Turn the selection by the turn step'], ['Hold &#x25cb; + sticks', 'Move the selection (right stick: height)'],
-      ['&#x25cb; Circle', 'Deselect'], ['&#x25a1; Square', 'Duplicate'], ['&#x25b3; Triangle', 'Delete'], ['SELECT', 'Undo'], ['L3', 'Redo'],
-      ['R3', 'Snap'], ['START', 'The forge menu: Play, Walk, base, palette, view, save'], ['Stick at its rim', 'Fly faster'], ['Walking', '&#x2715; jump &#xb7; &#x25cb; stance &#xb7; &#x25a1; action (doors) &#xb7; START back'], ['In the match', 'The game&#x2019;s own controls &#xb7; hold SELECT + START: back to the forge'],
+      ['&#x25cb; Circle', 'Deselect'], ['&#x25a1; Square', 'Duplicate'], ['&#x25b3; Triangle', 'Delete'], ['SELECT', 'Undo'], ['Hold SELECT', 'Redo'],
+      ['L3', 'Snap on / off'], ['R3', 'Frame the selection'], ['START', 'The forge menu: Play, Walk, base, palette, view, save'], ['Stick at its rim', 'Fly faster'], ['Walking', '&#x2715; jump &#xb7; &#x25cb; stance &#xb7; &#x25a1; action (doors) &#xb7; START back'], ['In the match', 'The game&#x2019;s own controls &#xb7; hold SELECT + START: back to the forge'],
     ])}${keyRows('Pointer', [
       ['Click', 'Select, or place in Place / Spawn'], ['Shift or Ctrl + click', 'Add to or take out of the selection (the outliner too)'],
-      ['Drag on the world', 'Look when View → Left drag to look is on; box-select empty world when off'], ['Shift + drag on empty world', 'Add what lies in the box to the selection'], ['Drag the gizmo', 'Move or turn the selection'], ['Wheel', 'Fly speed'],
+      ['Drag on empty world', 'Box-select; Shift + drag adds to the selection'], ['Right-drag', 'Look while held; release to stop'],
+      ['Middle-drag', 'Pan in the camera plane'], ['Alt + left-drag', 'Orbit around the point under the cursor'],
+      ['Alt + right-drag', 'Dolly toward / away from the point under the cursor'], ['Alt + middle-drag', 'Pan the camera'],
+      ['Drag the gizmo', 'Move or turn the selection'], ['Wheel', 'Move forward / back in Perspective; zoom in / out in orthographic views; hold RMB to change fly speed'],
       ['Double-click a row', 'Frame it (outliner)'],
     ])}${keyRows('Keyboard and mouse', [
-      ['Right-click', 'Capture the mouse to look &#xb7; a click then acts at the centre &#xb7; Esc lets go'], ['W A S D &#xb7; Space &#xb7; Shift', 'Fly (Q / E: down / up)'], ['1-8', 'Tools: select, place, spawn A, spawn B, NPC, bomb start, the two plant sites'],
-      ['T / R / G', 'Move / turn / snap'], ['C / Del', 'Duplicate / delete'], ['[ / ]', 'Previous / next prop (a character with the NPC tool)'], [', / .', 'Turn the selection by the turn step'],
+      ['Right-click', 'Hold to look / fly; release to stop &#xb7; wheel changes speed while held'],
+      ['W A S D &#xb7; Q / E', 'Fly / move down or up while holding RMB'], ['Shift / Ctrl', 'Move 2x faster / stop while flying'],
+      ['R / F', 'Move up / down in camera space while holding RMB'],
+      ['Z / C', 'Widen / narrow the view while holding RMB'], ['Esc', 'Release the mouse lock'],
+      ['1-8', 'Tools: select, place, spawn A, spawn B, NPC, bomb start, the two plant sites'],
+      ['W / E / R / G', 'Move / rotate / scale / snap'], ['C / Del', 'Duplicate / delete'], ['[ / ]', 'Previous / next prop (a character with the NPC tool)'], [', / .', 'Turn the selection by the turn step'],
       ['M', 'The forge menu (arrows, Enter, Esc)'], ['Ctrl+C / Ctrl+V', 'Copy / paste the selection at the cursor'], ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['F / H / P / V', 'Frame / docks / play / walk'],
       ['Walking', 'W A S D &#xb7; mouse &#xb7; Space jump &#xb7; C stance &#xb7; X doors &#xb7; V, P or Esc back'], ['In the match', 'The controller (the keyboard is not the match&#x2019;s)'],
     ])}</div><footer><button type="button" class="fx-tool fx-primary">Close</button></footer>`;
   help.append(helpCard);
-  doc.body.append(top, left, viewport, right, statusBar, checkSheet, modal, help, workspaceDock);
+  const dockGuides = el(doc, 'div', 'fx-dock-guides');
+  dockGuides.setAttribute('aria-label', 'Panel docking targets');
+  const dockPreview = el(doc, 'div', 'fx-dock-preview');
+  const dropZones = ['left', 'right', 'top', 'bottom', 'center'] as const;
+  type DockDropZone = (typeof dropZones)[number];
+  type TabDragPayload = { dock: DockDropZone; tab: string };
+  const dockElements: Record<DockDropZone, HTMLElement> = { left, right, top: topDock, bottom: bottomDock, center: centerDock };
+  let draggedTab: TabDragPayload | null = null;
+  const clearDockDrop = (): void => {
+    draggedTab = null;
+    dockGuides.classList.remove('is-active');
+    dockPreview.removeAttribute('data-zone');
+    dockGuides.querySelectorAll('.is-drop-active').forEach((item) => item.classList.remove('is-drop-active'));
+  };
+  for (const zone of dropZones) {
+    const target = el(doc, 'button', `fx-dock-target fx-dock-target--${zone}`, zone === 'center' ? 'Center' : zone);
+    target.type = 'button';
+    target.dataset['forgeDockTarget'] = zone;
+    target.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      dockPreview.dataset['zone'] = zone;
+      dockGuides.querySelectorAll('.is-drop-active').forEach((item) => item.classList.remove('is-drop-active'));
+      target.classList.add('is-drop-active');
+    });
+    target.addEventListener('drop', (event) => {
+      event.preventDefault();
+      const raw = event.dataTransfer?.getData('application/x-forge-tab');
+      let payload = draggedTab;
+      if (!payload && raw) {
+        try {
+          const parsed = JSON.parse(raw) as { dock?: unknown; tab?: unknown };
+          if (typeof parsed.dock === 'string' && dropZones.includes(parsed.dock as DockDropZone) && typeof parsed.tab === 'string') {
+            payload = { dock: parsed.dock as DockDropZone, tab: parsed.tab };
+          }
+        } catch { /* an invalid or unavailable transfer payload is ignored */ }
+      }
+      if (!payload) return;
+      try { shell.moveTab(payload.dock, payload.tab, zone); }
+      finally { clearDockDrop(); }
+    });
+    dockGuides.append(target);
+  }
+  const dockSizeKey = 'forge.dock.sizes.v1';
+  // The right dock wide enough for the Inspector's transform rows (caption, three fields, reset) without a value cut off.
+  const defaultDockSizes = { left: 270, right: 360, top: 180, bottom: 180 };
+  const dockSizes = { ...defaultDockSizes };
+  try {
+    const saved = JSON.parse(pageSettings.get(dockSizeKey) ?? '{}') as Partial<typeof dockSizes>;
+    if (Number.isFinite(saved.left)) dockSizes.left = Math.min(600, Math.max(180, saved.left!));
+    if (Number.isFinite(saved.right)) dockSizes.right = Math.min(600, Math.max(180, saved.right!));
+    if (Number.isFinite(saved.top)) dockSizes.top = Math.min(500, Math.max(100, saved.top!));
+    if (Number.isFinite(saved.bottom)) dockSizes.bottom = Math.min(500, Math.max(100, saved.bottom!));
+  } catch { /* use the default dock sizes */ }
+  doc.body.style.setProperty('--fx-left', `${dockSizes.left}px`);
+  doc.body.style.setProperty('--fx-right', `${dockSizes.right}px`);
+  doc.body.style.setProperty('--fx-dock-top', `${dockSizes.top}px`);
+  doc.body.style.setProperty('--fx-dock-bottom', `${dockSizes.bottom}px`);
+  for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
+    const handle = el(doc, 'div', `fx-dock-resizer fx-dock-resizer--${edge}`);
+    handle.dataset['edge'] = edge;
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-orientation', edge === 'left' || edge === 'right' ? 'vertical' : 'horizontal');
+    handle.setAttribute('aria-label', `Resize ${edge} dock`);
+    handle.tabIndex = 0;
+    doc.body.append(handle);
+    let drag: { pointerId: number; x: number; y: number; initial: number } | null = null;
+    const sizeOf = (): number => dockSizes[edge];
+    const applySize = (value: number): void => {
+      dockSizes[edge] = edge === 'left' || edge === 'right'
+        ? Math.min(600, Math.max(180, value))
+        : Math.min(500, Math.max(100, value));
+      const property = edge === 'left' ? '--fx-left' : edge === 'right' ? '--fx-right' : edge === 'top' ? '--fx-dock-top' : '--fx-dock-bottom';
+      doc.body.style.setProperty(property, `${dockSizes[edge]}px`);
+      pageSettings.set(dockSizeKey, JSON.stringify(dockSizes));
+    };
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, initial: sizeOf() };
+      handle.setPointerCapture(event.pointerId);
+      handle.classList.add('is-resizing');
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const delta = edge === 'left' ? event.clientX - drag.x
+        : edge === 'right' ? drag.x - event.clientX
+          : edge === 'top' ? event.clientY - drag.y : drag.y - event.clientY;
+      applySize(drag.initial + delta);
+    });
+    const endResize = (event: PointerEvent): void => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      drag = null;
+      handle.classList.remove('is-resizing');
+    };
+    handle.addEventListener('pointerup', endResize);
+    handle.addEventListener('pointercancel', endResize);
+    handle.addEventListener('keydown', (event) => {
+      const direction = edge === 'left' || edge === 'top' ? 1 : -1;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      const positive = event.key === 'ArrowRight' || event.key === 'ArrowDown';
+      applySize(sizeOf() + (positive ? direction : -direction) * (event.shiftKey ? 40 : 10));
+    });
+  }
+  resetLayoutBtn.addEventListener('click', () => {
+    shell.resetLayout();
+    Object.assign(dockSizes, defaultDockSizes);
+    doc.body.style.setProperty('--fx-left', `${dockSizes.left}px`);
+    doc.body.style.setProperty('--fx-right', `${dockSizes.right}px`);
+    doc.body.style.setProperty('--fx-dock-top', `${dockSizes.top}px`);
+    doc.body.style.setProperty('--fx-dock-bottom', `${dockSizes.bottom}px`);
+    pageSettings.set(dockSizeKey, JSON.stringify(dockSizes));
+    setDocks((globalThis.innerWidth ?? 1280) > 760);
+  });
+  doc.addEventListener('dragstart', (event) => {
+    const tab = (event.target as Element | null)?.closest<HTMLElement>('[data-forge-tab]');
+    if (!tab) return;
+    const dock = dropZones.find((zone) => dockElements[zone].contains(tab));
+    const key = tab.dataset['forgeTab'];
+    if (!dock || !key) return;
+    draggedTab = { dock, tab: key };
+    dockGuides.classList.add('is-active');
+    dockGuides.append(dockPreview);
+  });
+  doc.addEventListener('dragend', clearDockDrop);
+  /**
+   * The placing tools on a row of their own under the toolbar (the owner, 2026-11-06), in labelled sections (the owner,
+   * 2026-11-06; a browser adaptation, FG.R2): Spawn (spawns, respawn points), Objects (door to turret, flares), then
+   * Demolition's bomb and sites, Escort's and Extraction's hostages and zones (`MODE_TOOL_TYPES`, which greys a section
+   * the layout's game type does not play), Info (tactical points, spectator views) and Other (NPCs). Select and Place
+   * stay on the toolbar.
+   */
+  const toolsRow = el(doc, 'nav', 'fx-tools-row');
+  toolsRow.setAttribute('aria-label', 'Placing tools');
+  toolsRow.setAttribute('data-mu-top-bar', '');           // the touch Menu keeps clear of it too (`TOUCH_MENU_BAR_SELECTOR`)
+  const modeSection = (label: string, key: string, ...groups: HTMLElement[]): HTMLDivElement => {
+    const sec = el(doc, 'div', 'fx-mode-section');
+    sec.dataset['forgeModeSection'] = key;
+    sec.setAttribute('role', 'group');
+    sec.setAttribute('aria-label', label);
+    sec.append(el(doc, 'span', 'fx-mode-section__label', label), ...groups);
+    return sec;
+  };
+  toolsRow.append(
+    modeSection('Spawn', 'spawn', group(modeBtns.spawnA, modeBtns.spawnB), group(modeBtns.respawnA, modeBtns.respawnB)),
+    modeSection('Objects', 'objects', group(modeBtns.door, modeBtns.gate, modeBtns.barrier, modeBtns.ladder, modeBtns.turret, modeBtns.flare)),
+    modeSection(FORGE_GAME_TYPE_NAME[2], 'demolition', group(modeBtns.bomb, modeBtns.siteSeal, modeBtns.siteTerrorist)),
+    modeSection(`${FORGE_GAME_TYPE_NAME[3]} · ${FORGE_GAME_TYPE_NAME[4]}`, 'escort', group(modeBtns.hostage, modeBtns.zone)),
+    modeSection('Info', 'info', group(modeBtns.point, modeBtns.view)),
+    modeSection('Other', 'other', group(modeBtns.npc)),
+  );
+  doc.body.append(top, toolsRow, left, right, topDock, bottomDock, centerDock, dockGuides, statusBar, checkSheet, modal, help, workspaceDock, selectSettings, playSettings);
   // The wrapped toolbar's height, so the docks and the viewport (top: var(--fx-top)) follow it.
   const fitToolbar = (): void => {
     const h = top.offsetHeight;
-    if (h > 0) doc.body.style.setProperty('--fx-top', `${h}px`);
+    if (h <= 0) return;
+    // The tools' row under it (`--fx-top-bar` the toolbar's own), and the docks under both.
+    doc.body.style.setProperty('--fx-top-bar', `${h}px`);
+    doc.body.style.setProperty('--fx-top', `${h + (toolsRow.hidden ? 0 : toolsRow.offsetHeight)}px`);
   };
   fitToolbar();
   new ResizeObserver(fitToolbar).observe(top);
+  new ResizeObserver(fitToolbar).observe(toolsRow);
   /** FUI-2: a card's buttons the pad walks (`./shell/padFocus`). */
   const padItems = (...items: HTMLElement[]): void => { for (const i of items) i.dataset['padItem'] = ''; };
   /**
@@ -925,6 +1942,58 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     handle = cards.open(card, { onBack: () => done(false), initialFocus: field, label: heading });
     field.select();
   });
+  /**
+   * The page's own question with a list to choose from (no browser dialog; the owner, 2026-11-06): the value chosen, or
+   * null when cancelled. `options` grouped (`[group, [[value, label], ...]]`), `value` chosen at first.
+   */
+  const askChoice = (heading: string, body: string, options: readonly (readonly [string, readonly (readonly [string, string])[]])[], value: string, yes: string): Promise<string | null> => new Promise((resolve) => {
+    const card = el(doc, 'form', 'fx-card');
+    const field = el(doc, 'select', 'fx-select');
+    field.setAttribute('aria-label', heading);
+    for (const [label, rows] of options) {
+      if (!rows.length) continue;
+      const g = el(doc, 'optgroup');
+      g.label = label;
+      for (const [v, w] of rows) { const o = el(doc, 'option', '', w); o.value = v; g.append(o); }
+      field.append(g);
+    }
+    if (value) field.value = value;
+    const no = el(doc, 'button', 'fx-tool', 'Cancel');
+    no.type = 'button';
+    const ok = el(doc, 'button', 'fx-tool fx-primary', yes);
+    ok.type = 'submit';
+    const foot = el(doc, 'footer');
+    foot.append(no, ok);
+    card.append(el(doc, 'h2', '', heading), el(doc, 'p', '', body), field, foot);
+    // FUI-2: on the card stack; the pad walks the list, Cancel and the act. Esc and Circle are Cancel.
+    padItems(field, no, ok);
+    let handle: CardHandle | null = null;
+    const done = (v: boolean): void => { handle?.close(); resolve(v && field.value ? field.value : null); };
+    no.addEventListener('click', () => done(false));
+    card.addEventListener('submit', (e) => { e.preventDefault(); done(true); });
+    handle = cards.open(card, { onBack: () => done(false), initialFocus: field, label: heading });
+  });
+  /**
+   * Before work is dropped (the owner, 2026-11-06: New over an edited layout): save it first, drop it, or stay. The
+   * page's own card (no browser dialog): 'save', 'discard', or null when cancelled (Esc, Circle, Cancel).
+   */
+  const askSaveFirst = (heading: string, body: string): Promise<'save' | 'discard' | null> => new Promise((resolve) => {
+    const card = el(doc, 'div', 'fx-card');
+    const no = el(doc, 'button', 'fx-tool', 'Cancel');
+    const drop = el(doc, 'button', 'fx-tool fx-danger', 'Don’t save');
+    const keep = el(doc, 'button', 'fx-tool fx-primary', 'Save first');
+    no.setAttribute(CARD_SAFE_ATTR, '');
+    padItems(no, drop, keep);
+    const foot = el(doc, 'footer');
+    foot.append(no, drop, keep);
+    card.append(el(doc, 'h2', '', heading), el(doc, 'p', '', body), foot);
+    let handle: CardHandle | null = null;
+    const done = (v: 'save' | 'discard' | null): void => { handle?.close(); resolve(v); };
+    no.addEventListener('click', () => done(null));
+    drop.addEventListener('click', () => done('discard'));
+    keep.addEventListener('click', () => done('save'));
+    handle = cards.open(card, { onBack: () => done(null), initialFocus: keep, label: heading });
+  });
   /** FG-26: the page's own notice card (one button). */
   const tellCard = (heading: string, body: string): Promise<void> => new Promise((resolve) => {
     const card = el(doc, 'div', 'fx-card');
@@ -964,17 +2033,123 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   extensions = createExtensionHost({ seams: rendererSeams(created), handlers: [visualTintHandler] });
   const scene = new Scene();
-  const fly = new FlyCamera(canvas, {
+  let fly!: FlyCamera;
+  const cameraCollisionRay = new Raycaster();
+  fly = new FlyCamera(canvas, {
     forgeKbm: true,                                                // OT.R68: its keys and captured look in every build
-    onLockChange: (locked) => { crosshair.hidden = !locked; },
+    pointerInput: input,
+    constrainMovement: (from, to, radius) => {
+      const camera = fly.viewportCamera();
+      camera.updateMatrixWorld();
+      const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+      const up = new Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+      const offsets = [
+        new Vector3(),
+        right.clone().multiplyScalar(radius * 0.75),
+        right.clone().multiplyScalar(-radius * 0.75),
+        up.clone().multiplyScalar(radius * 0.75),
+        up.clone().multiplyScalar(-radius * 0.75),
+      ];
+      const targets: Object3D[] = [...roots];
+      if (baseView) targets.push(baseView.group);
+      const position = from.clone();
+      let remaining = to.clone().sub(from);
+      const normals: Vector3[] = [];
+      for (let slide = 0; slide < 3 && remaining.lengthSq() > 1e-8; slide++) {
+        const distance = remaining.length();
+        const direction = remaining.clone().multiplyScalar(1 / distance);
+        let nearest: Intersection | null = null;
+        for (const offset of offsets) {
+          cameraCollisionRay.set(position.clone().add(offset), direction);
+          cameraCollisionRay.near = 0;
+          cameraCollisionRay.far = distance + radius;
+          const hit = cameraCollisionRay.intersectObjects(targets, true).find((candidate) => {
+            for (let at: Object3D | null = candidate.object; at; at = at.parent) if (!at.visible) return false;
+            return true;
+          });
+          if (hit && (!nearest || hit.distance < nearest.distance)) nearest = hit;
+        }
+        if (!nearest || nearest.distance > distance) {
+          position.add(remaining);
+          break;
+        }
+        const safeDistance = Math.max(0, nearest.distance - radius * 0.25);
+        position.addScaledVector(direction, safeDistance);
+        remaining.addScaledVector(direction, -safeDistance);
+        const normal = nearest.face
+          ? nearest.face.normal.clone().applyMatrix3(new Matrix3().getNormalMatrix(nearest.object.matrixWorld)).normalize()
+          : direction.clone().negate();
+        if (normal.dot(direction) > 0) normal.negate();
+        normals.push(normal);
+        remaining.projectOnPlane(normal);
+      }
+      return { position, normals };
+    },
+    panDepthAt: (clientX, clientY) => {
+      const rect = input.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const hit = pick(new Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      ));
+      if (!hit) return null;
+      fly.viewportCamera().updateMatrixWorld();
+      return hit.point.clone().sub(fly.viewportCamera().position).dot(fly.viewportCamera().getWorldDirection(new Vector3()));
+    },
+    pivotAt: (clientX, clientY) => {
+      const rect = input.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const ndc = new Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      const hit = pick(ndc);
+      if (hit) return hit.point.clone();
+      fly.viewportCamera().updateMatrixWorld();
+      ray.setFromCamera(ndc, fly.viewportCamera());
+      return ray.ray.at(FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION, new Vector3());
+    },
+    onLockChange: updateCrosshair,
+    onLookHoldChange: updateCrosshair,
+    onFovChange: (degrees) => {
+      cameraFovInput.value = String(degrees);
+      cameraFovValue.textContent = `${Math.round(degrees)}°`;
+    },
     onFire: (down) => { if (down && !playing) act(new Vector2(0, 0)); },
-    onSpeedChange: (m) => { sSpeed.textContent = `speed ×${m.toFixed(2)}`; },
+    onSpeedChange: (m, source) => {
+      sSpeed.textContent = `speed ×${m.toFixed(2)}`;
+      cameraSpeedInput.value = String(m);
+      cameraSpeedValue.textContent = m.toFixed(1);
+      const speedReadout = cameraSettingsSummary.querySelector('.fx-camera-speed-button-value');
+      if (speedReadout) speedReadout.textContent = m.toFixed(1);
+      if (source !== 'wheel') return;
+      if (cameraSettings.open || viewMenu.open) {
+        hideCameraSpeedFeedback();
+        return;
+      }
+      cameraSpeedFeedbackFill.style.width = `${((m - 0.1) / (16 - 0.1)) * 100}%`;
+      cameraSpeedFeedbackValue.textContent = `×${m.toFixed(1)}`;
+      cameraSpeedFeedback.classList.add('is-on');
+      if (cameraSpeedFeedbackTimer !== null) clearTimeout(cameraSpeedFeedbackTimer);
+      cameraSpeedFeedbackTimer = setTimeout(() => {
+        cameraSpeedFeedback.classList.remove('is-on');
+        cameraSpeedFeedbackTimer = null;
+      }, 1000);
+    },
   });
   sSpeed.textContent = 'speed ×1.00';
+  cameraSpeedInput.addEventListener('input', () => fly.setSpeedMultiplier(Number(cameraSpeedInput.value)));
+  cameraFovInput.addEventListener('input', () => fly.setFov(Number(cameraFovInput.value)));
+  cameraLookSpeedInput.addEventListener('input', () => {
+    const multiplier = Number(cameraLookSpeedInput.value);
+    fly.setLookSpeedMultiplier(multiplier);
+    cameraLookSpeedValue.textContent = `${multiplier.toFixed(1)}×`;
+  });
+  cameraCollisionInput.addEventListener('change', () => fly.setCameraCollisionEnabled(cameraCollisionInput.checked));
   const fit = (): void => {
     // Not before the stylesheet is in (a development build injects it late): unstyled, the viewport takes its height
-    // from the canvas, and each resize would grow the other.
-    if (getComputedStyle(viewport).position !== 'fixed') { requestAnimationFrame(fit); return; }
+    // from the canvas, and each resize would grow the other. In the center tab it is relative to fill its panel.
+    if (getComputedStyle(viewport).position === 'static') { requestAnimationFrame(fit); return; }
     const w = Math.max(1, viewport.clientWidth), h = Math.max(1, viewport.clientHeight);
     created.resize(w, h);
     fly.setAspect(created.presentation() === 'ps2' ? 640 / 448 : w / h);
@@ -987,8 +2162,29 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let discFog: FogSettings = { ...fog, color: [...fog.color] };
   /** FG-24: the layout's settings, whole (`./layout` `settingsOf`); the layout keeps what differs from the disc's. */
   let settings: LayoutSettings = { ...DEFAULT_SETTINGS };
-  /** FG-51: the game type the settings name. Null is "Map's own" -- no objectives block unless a bomb marker is placed. */
+  /**
+   * FG-51: the game type the settings name. A layout that names none takes its base map's own (the owner, 2026-11-06: no
+   * "Map's own" choice): `ownTypeOf`. Null only while the disc's mission list is still being read (`typePending`).
+   */
   let authoredType: ForgeGameType | null = null;
+  /**
+   * The disc's mission list read (`labelBaseTypes`: READERC's `missionlist.rdr`, `../loadout` `kitGameType`), or not yet;
+   * `missionKits` null once read means the source has none.
+   */
+  let missionKits: Awaited<ReturnType<typeof loadKitSource>> = null;
+  let missionKitsRead = false;
+  /** The layout names no type and the mission list is not read yet: its type waits (and is written as none meanwhile). */
+  let typePending = false;
+  /**
+   * A base's own game type: a disc map's TYPE in `missionlist.rdr` (`FUN_002c9540` D:L168844-168906), the type a match on
+   * it plays with none named; SUPPRESSION (5) for a map off the list, a blank floor or an authored map -- what the room
+   * plays there (`../loadout` `kitGameType`: undefined, SUPPRESSION's rules). Null while the list is not read yet.
+   */
+  const ownTypeOf = (b: LayoutBase | null): ForgeGameType | null => {
+    if (!missionKitsRead) return null;
+    const own = b?.kind === 'map' ? kitGameType(missionKits, b.archive) : undefined;
+    return own === 1 || own === 2 || own === 3 || own === 4 || own === 5 ? own : 5;
+  };
   /** Keys of an opened objectives block this slice does not edit (`escortees`, ...), kept across a save. */
   let objectiveRest: Record<string, unknown> = {};
   /**
@@ -1015,6 +2211,131 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** Keys of an opened bomb block this slice does not edit (`bases`, ...), kept while a bomb marker is placed. */
   let bombRest: Record<string, unknown> = {};
   const overlays = new Overlays(scene);
+  /** The base map's own data as billboards (`./mapDataBillboards`), redrawn with each base (`drawMapBillboards`). */
+  const mapBillboards = new MapDataBillboards(scene);
+  /** The base map's light rig as arrows (`./lightArrows`), set with each base; under Billboards › Light directions. */
+  const lightArrows = new LightArrows(scene);
+  /** The base map's tactical zones as ground rectangles (`zoneOutlines`), shown with their billboards' switch. */
+  let mapZoneLines: LineSegments | null = null;
+  /** The map's own doors' swings and ladders' climb sides (`./interactOverlay`), each with its billboards' switch. */
+  let mapDoorGuides: Object3D | null = null;
+  let mapLadderGuides: Object3D | null = null;
+  let mapTurretGuides: Object3D | null = null;
+  let mapHostageGuides: Object3D | null = null;
+  let mapViewGuides: Object3D | null = null;
+  let mapAccessGuides: Object3D[] = [];
+  /**
+   * An editor guide (`guideGroup`: its outline and its translucent fill), both moved by `m` into its owner's frame,
+   * tagged with its kind; always drawn in the editor, the billboards on or off.
+   */
+  function guideIn(segments: number[], triangles: number[], m: Matrix4 | null, colour: number, toggle: string): Object3D {
+    const v = new Vector3();
+    const moved = (list: number[]): number[] => {
+      if (!m) return list;
+      const out = list.slice();
+      for (let i = 0; i + 2 < out.length; i += 3) { v.set(out[i]!, out[i + 1]!, out[i + 2]!).applyMatrix4(m); out[i] = v.x; out[i + 1] = v.y; out[i + 2] = v.z; }
+      return out;
+    };
+    const g = guideGroup(moved(segments), moved(triangles), colour, `forge guide ${toggle}`);
+    // Shown with the gizmos (the Billboards menu's Gizmos switch), whatever the billboards' own switches.
+    g.userData['forgeGuideKind'] = toggle;
+    g.visible = view.spawns;
+    return g;
+  }
+  /**
+   * A turret's guide (`turretShapes`): at its gun's pivot on its root's floor, its facing and its yaw limits (the
+   * placement keeps them in radians, the parser's conversion), the arc a reach the turret's size.
+   */
+  function turretGuide(t: { origin: readonly number[]; gunOrigin: readonly number[]; facing: number; limits: { yaw: [number, number] | null } }) {
+    const deg = (r: number): number => (r * 180) / Math.PI;
+    const yaw = t.limits.yaw ? [deg(t.limits.yaw[0]), deg(t.limits.yaw[1])] as const : null;
+    return turretShapes([t.gunOrigin[0]!, t.origin[1]!, t.gunOrigin[2]!], t.facing, yaw, 40);
+  }
+  /** A guide's geometries and materials let go. */
+  function disposeGuide(g: Object3D): void {
+    g.traverse((o) => {
+      const mesh = o as Partial<Mesh>;
+      mesh.geometry?.dispose();
+      const mat = mesh.material as Material | Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose();
+    });
+  }
+  /** The map's doors' and ladders' guides drawn afresh (a new base, its ladders re-read with a prop hidden). */
+  /**
+   * The map's guides drawn, never at the cost of the map: a guide that will not build (a record without its matrices)
+   * is left out, and the base loads as it would with none.
+   */
+  function drawMapGuides(): void {
+    try { drawMapGuidesNow(); } catch { /* the guides are an editor aid: none drawn sooner than a map refused */ }
+  }
+  function drawMapGuidesNow(): void {
+    for (const g of [mapDoorGuides, mapLadderGuides, mapTurretGuides, mapHostageGuides, mapViewGuides]) if (g) { scene.remove(g); disposeGuide(g); }
+    mapDoorGuides = mapLadderGuides = mapTurretGuides = mapHostageGuides = mapViewGuides = null;
+    for (const g of mapAccessGuides) { scene.remove(g); disposeGuide(g); }
+    mapAccessGuides = [];
+    if (!baseMap) return;
+    const polys = baseMap.ground ? groundPolygons(baseMap.ground) : [];
+    const swings = (baseMap.doors ?? []).flatMap((d) => {
+      const leaf = d.owners.flatMap((o) => { const w = baseMap!.ground?.owners[o]; return w ? polys.slice(w.first, w.first + w.count).map((q) => q.points) : []; });
+      const sw = swingOf(d, leaf);
+      return sw ? [sw] : [];
+    });
+    if (swings.length) {
+      mapDoorGuides = guideIn(swings.flatMap(swingSegments), swings.flatMap(swingTriangles), null, DOOR_SWING_COLOUR, 'doors');
+      scene.add(mapDoorGuides);
+    }
+    if (mapLadders.length) {
+      mapLadderGuides = guideIn(mapLadders.flatMap(ladderSegments), mapLadders.flatMap(ladderTriangles), null, LADDER_CLIMB_COLOUR, 'ladders');
+      scene.add(mapLadderGuides);
+    }
+    // Its turrets' facings and arcs, its hostages' facings (the reading's yaw, `HOSTAGE_FACING_READING`).
+    const turrets = (baseMap.turrets ?? []).map((t) => turretGuide(t));
+    if (turrets.length) {
+      mapTurretGuides = guideIn(turrets.flatMap((s) => s.segments), turrets.flatMap((s) => s.triangles), null, TURRET_GUIDE_COLOUR, 'turrets');
+      scene.add(mapTurretGuides);
+    }
+    // The map's hostages as the placed ones: a spawn's box alone at each start (`../overlays` `slotBoxSegments`).
+    const hostageSlots = (baseMap.escortees ?? []).map((e): SpawnSlot => ({ side: 0, index: 0, position: [e.at[0], e.at[1] - HOSTAGE_START_LIFT_READING + 0.5, e.at[2]], onFloor: true, step: 0, facing: yawWay(e.yaw), loc: e.loc }));
+    // Its gates' and C4 barriers' gizmos (`./placedAccess` `accessGizmo`): each lever at its own place.
+    for (const t of accessTemplates(baseMap, baseMap.archive)) {
+      const g = accessGizmo(t, 'disc');
+      if (!g.segments.length) continue;
+      const guide = guideIn(g.segments, g.triangles, null, t.kind === 'gate' ? GATE_GUIDE_COLOUR : BARRIER_GUIDE_COLOUR, t.kind === 'gate' ? 'gates' : 'actions');
+      mapAccessGuides.push(guide);
+      scene.add(guide);
+    }
+    // Its plant sites' reach (MPBOMB context actions): each action's own `actions.rdr` range and elevation (`../mapActions`).
+    for (const a of baseMap.actions ?? []) {
+      if (a.type.toUpperCase() !== 'MPBOMB') continue;
+      const g = bombSiteShapes(a.at, a.range, a.elevation);
+      if (!g.segments.length) continue;
+      const guide = guideIn(g.segments, g.triangles, null, BOMB_SITE_GUIDE_COLOUR, 'actions');
+      mapAccessGuides.push(guide);
+      scene.add(guide);
+    }
+    // Its spectator views' looks: an arrow from each along its yaw and pitch (`SCENIC_VIEWS_READING`).
+    const looks = (baseMap.scenicViews ?? []).map((v) => viewShapes(v.at, v.yaw, v.pitch, VIEW_ARROW_LENGTH));
+    if (looks.length) {
+      mapViewGuides = guideIn(looks.flatMap((s) => s.segments), looks.flatMap((s) => s.triangles), null, VIEW_GUIDE_COLOUR, 'scenicViews');
+      scene.add(mapViewGuides);
+    }
+    if (hostageSlots.length) {
+      mapHostageGuides = guideIn(Array.from(slotBoxSegments(hostageSlots)), [], null, HOSTAGE_GUIDE_COLOUR, 'escortees');
+      scene.add(mapHostageGuides);
+    }
+  }
+  /** The Billboards dropdown's settings on the marks: shown on a disc map, on top or not, each kind's switch. */
+  const applyBillboards = (): void => {
+    mapBillboards.setHiddenKinds(MAP_DATA_KIND_TOGGLES.filter((t) => billboardsOff.has(t.id)).flatMap((t) => t.kinds));
+    mapBillboards.setOnTop(billboardsOnTop);
+    // The user's marks show on a blank floor too; with no map the map's own are simply none.
+    mapBillboards.setVisible(billboardsOn);
+    // A disc map's rig, or a new empty map's own (or the one it is built from): the same arrows, the same switch.
+    lightArrows.setVisible(lightDirections && (!!baseMap || base?.kind === 'blank'));
+    if (mapZoneLines) mapZoneLines.visible = billboardsOn && !billboardsOff.has('tacZones');   // with the Z marks' switch
+    baseView?.setFlaresShown?.(flareGlows);                     // the map's own glows, drawn or out of the way
+    drawBillboardSwitches();
+  };
   /**
    * FCW-32 step 4 (FUI.R23 D4; RULES_GIZMOS_ADAPTATION): the rules entities as wireframes in the editor's scene. Hidden
    * under Walk, Play and a camera shot (`rulesHidden`, completed once the match's state exists below); no layers toggle of
@@ -1038,7 +2359,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     syncRulesGizmos();
   };
 
-  const gizmo = new TransformControls(fly.camera, input);
+  gizmo = new TransformControls(fly.viewportCamera(), input);
   gizmo.setTranslationSnap(null);
   scene.add(gizmo.getHelper());
   /**
@@ -1047,14 +2368,148 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const pivot = new Object3D();
   scene.add(pivot);
+  const mapPropProxy = new Object3D();
+  scene.add(mapPropProxy);
   let dragFrom: { centre: Vec3; poses: Pose[] } | null = null;
+  let duplicateModifierOnPointerDown = false;
+  let pendingMapPropDrag: { source: BaseProp; before: string[] } | null = null;
+  let pendingUserPropDrag: { source: Object3D; matrix: Matrix4; before: string[] } | null = null;
+  let pendingGroupPropDrag: { sources: Object3D[]; poses: Pose[]; scales: Vector3[]; centre: Vec3; before: string[]; started: boolean; ended: boolean } | null = null;
+  let groupPropDragStep: { step: OperationStep; before: string[] } | null = null;
+  let mapPropDragStep: { step: OperationStep; before: string[] } | null = null;
   gizmo.addEventListener('objectChange', () => {
-    if (gizmo.object === pivot && dragFrom) applyPivot(dragFrom);
+    if (gizmo.object === mapPropProxy && pendingMapPropDrag) {
+      const pending = pendingMapPropDrag;
+      pendingMapPropDrag = null;
+      duplicateMapPropForDrag(pending.source, pending.before);
+    }
+    if (pendingUserPropDrag) {
+      const pending = pendingUserPropDrag;
+      pendingUserPropDrag = null;
+      duplicateUserPropForDrag(pending.source, pending.matrix, pending.before);
+    }
+    if (gizmo.object === pivot && pendingGroupPropDrag && !pendingGroupPropDrag.started) {
+      const pending = pendingGroupPropDrag;
+      pending.started = true;
+      void Promise.all(pending.sources.map(copyOf)).then((copies) => {
+        const made: Object3D[] = [];
+        copies.forEach((copy, i) => {
+          if (!copy) return;
+          applyPose(copy, pending.poses[i]!);
+          copy.scale.copy(pending.scales[i]!);
+          freshName(copy);
+          addPlacement(copy);
+          made.push(copy);
+        });
+        if (made.length === 0) {
+          pendingGroupPropDrag = null;
+          dragFrom = null;
+          pivot.position.set(...pending.centre);
+          pivot.quaternion.identity();
+          placePivot();
+          showSelection();
+          say('Could not duplicate the selected user props', true);
+          return;
+        }
+        personEdit('selection.duplicate', { refs: pending.before }, (step) => {
+          pendingGroupPropDrag = null;
+          picks.clear();
+          picks.addAll(made);
+          basePicks.clear();
+          showSelection();
+          dragFrom = { centre: pending.centre, poses: made.map(poseOf) };
+          applyPivot(dragFrom);
+          groupPropDragStep = { step, before: pending.before };
+          edit(pending.before, step);
+          if (pending.ended) {
+            dragFrom = null;
+            groupPropDragStep = null;
+            edit(pending.before, step);
+            placePivot();
+          }
+        }, true);
+      }).catch((error: unknown) => {
+        pendingGroupPropDrag = null;
+        dragFrom = null;
+        pivot.position.set(...pending.centre);
+        pivot.quaternion.identity();
+        placePivot();
+        showSelection();
+        say(`Could not duplicate the selected user props: ${String(error)}`, true);
+      });
+    } else if (gizmo.object === pivot && dragFrom && !pendingGroupPropDrag) applyPivot(dragFrom);
     refreshBox(); refreshInspector(); changed();
   });
+  /**
+   * STUB (a browser adaptation, FG.R2): the rotate gizmo's tilt rings -- X (pitch), Z (roll), the view ring (E) and the
+   * free turn (XYZE) -- are drawn but not wired. Record v3 keeps a piece's yaw alone (`creator-contracts`
+   * `recordOfLayout`), so a grab on one is stopped before the gizmo's own pointerdown and the page says so; Y turns.
+   */
+  const tiltRingStub = (e: PointerEvent): void => {
+    if (e.button !== 0 || !gizmo.enabled || !gizmo.object) return;
+    const axis = gizmo.axis;
+    if (axis === null) return;
+    // STUB: the scale tool -- its gizmo drawn, every handle stopped (the record keeps no scale either).
+    if (gizmo.mode === 'scale') {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      say('Scale is not wired yet: a saved layout keeps no scale');
+      return;
+    }
+    if (gizmo.mode !== 'rotate' || axis === 'Y') return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    say(`${axis === 'X' ? 'Pitch' : axis === 'Z' ? 'Roll' : 'Free turn'} is not wired yet: a saved layout keeps a piece's yaw only`);
+  };
+  input.addEventListener('pointerdown', tiltRingStub, true);
   gizmo.addEventListener('dragging-changed', (e) => {
     if ((e as unknown as { value: boolean }).value) {
-      if (gizmo.object === pivot) { dragFrom = { centre: [pivot.position.x, pivot.position.y, pivot.position.z], poses: picks.items.map(poseOf) }; passOver('moved'); }
+      if (gizmo.object === pivot) {
+        const centre: Vec3 = [pivot.position.x, pivot.position.y, pivot.position.z];
+        const poses = picks.items.map(poseOf);
+        dragFrom = { centre, poses };
+        if (duplicateModifierOnPointerDown && isGroup()) {
+          const sources = picks.items.filter((r) => !lockedOf(r));
+          pendingGroupPropDrag = {
+            sources, poses: sources.map(poseOf), scales: sources.map((r) => r.scale.clone()), centre, before: selectionIds(), started: false, ended: false,
+          };
+          passOver('copied');
+        } else passOver('moved');
+      }
+      else if (gizmo.object === mapPropProxy && baseSelected && duplicateModifierOnPointerDown) pendingMapPropDrag = { source: baseSelected, before: selectionIds() };
+      else if (selected && gizmo.object === selected && (selected.userData['forgePiece'] || cloneable(selected)) && duplicateModifierOnPointerDown) {
+        pendingUserPropDrag = { source: selected, matrix: selected.matrix.clone(), before: selectionIds() };
+      }
+      return;
+    }
+    const mapPropGesture = gizmo.object === mapPropProxy;
+    pendingMapPropDrag = null;
+    pendingUserPropDrag = null;
+    if (mapPropDragStep) {
+      const duplicate = mapPropDragStep;
+      mapPropDragStep = null;
+      edit(duplicate.before, duplicate.step);
+      duplicateModifierOnPointerDown = false;
+      return;
+    }
+    if (pendingGroupPropDrag) {
+      pendingGroupPropDrag.ended = true;
+      dragFrom = null;
+      duplicateModifierOnPointerDown = false;
+      return;
+    }
+    if (groupPropDragStep) {
+      const duplicate = groupPropDragStep;
+      groupPropDragStep = null;
+      dragFrom = null;
+      edit(duplicate.before, duplicate.step);
+      duplicateModifierOnPointerDown = false;
+      placePivot();
+      return;
+    }
+    if (mapPropGesture) {
+      showSelection();
+      duplicateModifierOnPointerDown = false;
       return;
     }
     const group = dragFrom !== null;
@@ -1072,8 +2527,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const floor = new Group();
   // Named FDL.R4 exception: the blank editor floor/grid are guides, not match scenery.
   floor.userData['forgeLightingInstrument'] = true;
-  floor.add(new GridHelper(FLOOR_SIZE, FLOOR_SIZE / FLOOR_STEP, 0x7fb3c4, 0x3b5862));
-  const floorPlane = new Mesh(new PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: 0x142228, fog: false }));
+  // A neutral gray (the owner, 2026-11-06): the guide's own colour, no map's.
+  floor.add(new GridHelper(FLOOR_SIZE, FLOOR_SIZE / FLOOR_STEP, FLOOR_GRID_CENTRE, FLOOR_GRID_LINES));
+  // The floor fogs as the match's floor does (`./matchMap` `floorMesh`, `fog: true`): a new empty map's fog shows on it.
+  const floorPlane = new Mesh(new PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE).rotateX(-Math.PI / 2), new MeshBasicMaterial({ color: FLOOR_GRID_GROUND, fog: true }));
   floorPlane.position.y = -0.5;
   floor.add(floorPlane);
   /** The layout's hull drawn over the world (`./hull`); a new object each time, as the renderer keys its draws by one. */
@@ -1120,10 +2577,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let baseMap: LoadedMap | null = null;
   const roots: Object3D[] = [];
   const forgeLighting = createForgeLighting();
-  // Installed before editor pointer handlers; View defaults on (user preference), Shift keeps selection.
-  const releaseLightingLook = lightingLook(input,
-    () => view.leftDragLook && !playing && !match && !busy && !fly.inputSuspended() && !gizmo.dragging && gizmo.axis === null,
-    (dx, dy) => fly.lookBy(dx, dy));
   /**
    * FG-47 (FG.R24): the selection, of several -- the placements picked and the map's own props picked (`./group`
    * `Selection`). `selected` and `baseSelected` are the single selection's, as before FG-47: the one placement or the
@@ -1131,6 +2584,30 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const picks = new Selection<Object3D>();
   let selected: Object3D | null = null;
+  /**
+   * The placements the Inspector's Lock just locked (a browser adaptation, FG.R2): still shown in the Inspector, not
+   * selected -- a locked placement takes no edit -- so the same button reads Unlock and gives them back. Dropped by any
+   * other selection or a deselect.
+   */
+  let lockHeld: Object3D[] = [];
+  /**
+   * Re-placing (a browser adaptation, FG.R2): a placed user prop picked up by the Place tool (`startReplace`) -- it follows
+   * the cursor on the surface below it as the placement ghost does (snap included), its own hull and its own hits left
+   * out; a click puts it down (one Move), Escape or another tool puts it back where it was (`position`, `quaternion`).
+   */
+  let replacing: { r: Object3D; position: Vector3; quaternion: Quaternion; before: string[] } | null = null;
+  /**
+   * The base map's own data selected (a browser adaptation, FG.R2): a spawn slot, a door, a view... picked from its
+   * Outliner row or its billboard -- shown, framed, never edited. Another selection lets it go. `mapDataIndex`: every
+   * item by its key (`./mapDataBillboards` `BillboardSpec.key`), as the billboards were last drawn.
+   */
+  let mapDataSelected: BillboardSpec | null = null;
+  let mapDataIndex = new Map<string, BillboardSpec>();
+  /**
+   * The base's ladders (`@s2u/scene` `findLadders`): no objects, the hull's `m_appflags` 2 polygons (research 86 §2) --
+   * read off the base's hull less its hidden props when the marks are drawn (`drawMapBillboards`), kept for the Outliner.
+   */
+  let mapLadders: Ladder[] = [];
   let mode: Mode = 'select';
   let chosen: string | null = null;
   let entriesOfPalette: PaletteEntry[] = [];
@@ -1155,10 +2632,38 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * placement's facing; back to none when the queue is cancelled.
    */
   let queuedTurn = 0;
+  /**
+   * The wheel's turn on a placing tool's object (the owner, 2026-11-06: as the Place tool's `queuedTurn`), degrees, on top
+   * of the tool's own turn (`ghostYaw`); back to none when another tool is taken.
+   */
+  let toolTurn = 0;
+  /** The tools whose object the wheel turns: all but Select, Place (its own), a zone (square on the AI grid), a point, a view. */
+  const wheelTurns = (m: string): boolean => m !== 'select' && m !== 'place' && m !== 'zone' && m !== 'point' && m !== 'view';
   /** FUI-22 (D4): the wheel's travel toward its next notch (a trackpad's small deltas add up to one). */
   let wheelTravel = 0;
-  /** FUI-22 (D1): the asset list's tooltip preview, on unless the Settings switch turns it off (kept with the view). */
+  /** FUI-22 (D1): the asset list's tooltip preview, on unless the asset browser's view setting turns it off. */
   let assetTips = true;
+  /**
+   * The Select tool's settings (its gear), kept with the view: a click or a selection box picks the base map's own props
+   * (`selectMapProps`), the user's placements (`selectUserProps`) -- either, both or neither.
+   */
+  let selectMapProps = true;
+  /** The Play settings (the Play button's gear): where round 1 stands the player, and its side. Browser adaptations. */
+  let playSpawn: 'camera' | 'random' = 'camera';
+  let playSide: 'auto' | 'seal' | 'terrorist' = 'auto';
+  let selectUserProps = true;
+  /**
+   * The map data billboards' settings (the viewport's Billboards dropdown; `./mapDataBillboards`), kept with the view:
+   * shown at all, drawn over all the geometry, and the kinds of map data switched off (`MAP_DATA_KIND_TOGGLES` ids).
+   */
+  let billboardsOn = true;
+  let billboardsOnTop = false;
+  /** The map's flare glows drawn (the game's own lights' glows, the sun, the sky's): off, they are out of the way. */
+  let flareGlows = true;
+  /** The light rig's arrows drawn (`./lightArrows`): where each of the map's directional lights shines from. */
+  let lightDirections = true;
+  // The map's props draw themselves: their marks start switched off until the view keeps a choice.
+  const billboardsOff = new Set<string>(['mapProps']);
   let busy = false;
   /**
    * Browser adaptation: the agent's revisions (`./agent/editorFacade` `createForgeAgentRevisions`, LATER 422): the LAYOUT
@@ -1198,29 +2703,57 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const raw = JSON.parse(readKey(VIEW_KEY) ?? '{}') as Record<string, unknown>;
     if (raw && typeof raw === 'object') {
       for (const t of VIEW_TOGGLES) { const value = raw[t.id]; if (typeof value === 'boolean') view[t.id] = value; }
+      // The map's facing props (`billboards`: trees and flares turned to the camera) have no switch in the viewport any
+      // more, so a view kept with them off would keep them off for good: they are drawn, as the game draws them.
+      view.billboards = true;
+      if (typeof raw['textured'] === 'boolean') texturedOn = raw['textured'];
+      if (typeof raw['lit'] === 'boolean') litOn = raw['lit'];
       if (raw['camera'] !== undefined) { try { viewCamera = parseCamera(raw['camera']); } catch { viewCamera = null; } }
       if (typeof raw['gridStep'] === 'number') gridStep = boundStep(raw['gridStep'], GRID_STEP_MIN, GRID_STEP_MAX, DEFAULT_GRID_STEP);
       if (typeof raw['turnStep'] === 'number') turnStep = boundStep(raw['turnStep'], TURN_STEP_MIN, TURN_STEP_MAX, DEFAULT_TURN_STEP);
       if (typeof raw['snap'] === 'boolean') snap = raw['snap'];
       if (raw['assetTips'] === false) assetTips = false;
+      if (raw['selectMapProps'] === false) selectMapProps = false;
+      if (raw['selectUserProps'] === false) selectUserProps = false;
+      if (raw['playSpawn'] === 'random') playSpawn = 'random';
+      if (raw['playSide'] === 'seal' || raw['playSide'] === 'terrorist') playSide = raw['playSide'];
+      const bb = raw['billboards'];
+      if (bb && typeof bb === 'object') {
+        const b = bb as { on?: unknown; top?: unknown; off?: unknown };
+        if (typeof b.on === 'boolean') billboardsOn = b.on;
+        if (typeof b.top === 'boolean') billboardsOnTop = b.top;
+        const glows = (b as { glows?: unknown }).glows;
+        if (typeof glows === 'boolean') flareGlows = glows;
+        const arrows = (b as { arrows?: unknown }).arrows;
+        if (typeof arrows === 'boolean') lightDirections = arrows;
+        if (Array.isArray(b.off)) {
+          billboardsOff.clear();
+          for (const id of b.off) if (MAP_DATA_KIND_TOGGLES.some((t) => t.id === id)) billboardsOff.add(id as string);
+          // A view kept before the map props had marks names no choice for them: theirs start off as a new view's.
+          if (!Array.isArray((b as { kinds?: unknown }).kinds) || !((b as { kinds: unknown[] }).kinds).includes('mapProps')) billboardsOff.add('mapProps');
+        }
+      }
     }
   } catch { /* the defaults */ }
   /** The view switches, the placement steps and the camera, one record (the view key already kept the switches). */
   const writeView = (): void => {
-    writeKey(VIEW_KEY, JSON.stringify({ ...view, gridStep, turnStep, snap, ...(assetTips ? {} : { assetTips: false }), ...(viewCamera ? { camera: viewCamera } : {}) }));
+    writeKey(VIEW_KEY, JSON.stringify({ ...view, textured: texturedOn, lit: litOn, gridStep, turnStep, snap, ...(assetTips ? {} : { assetTips: false }), ...(selectMapProps ? {} : { selectMapProps: false }), ...(selectUserProps ? {} : { selectUserProps: false }), ...(playSpawn === 'camera' ? {} : { playSpawn }), ...(playSide === 'auto' ? {} : { playSide }), billboards: { on: billboardsOn, top: billboardsOnTop, glows: flareGlows, arrows: lightDirections, off: [...billboardsOff], kinds: MAP_DATA_KIND_TOGGLES.map((t) => t.id) }, ...(viewCamera ? { camera: viewCamera } : {}) }));
   };
   const drawPlacement = (): void => {
-    gridIn.value = String(gridStep);
-    turnIn.value = String(turnStep);
-    snapIn.checked = snap;
-    tipsIn.checked = assetTips;
-    snapBtn.title = `Snap to ${gridStep} units and ${turnStep}° · pad R3${key('G')}`;
-    snapBtn.classList.toggle('is-on', snap);
+    viewportGridIn.value = String(gridStep);
+    viewportTurnIn.value = String(turnStep);
+    viewportSnapIn.checked = snap;
+    const snapReadout = snapSettingsSummary.querySelector('output');
+    if (snapReadout) snapReadout.textContent = `${gridStep} / ${turnStep}°`;
+    snapSettingsSummary.classList.toggle('is-on', snap);
+    assetPreviewToggle.checked = assetTips;
   };
   /** The world switches on one view (the base's, or a piece template's), as the test room puts them (`applyToggle`). */
   const applyWorld = (v: WorldView): void => {
     v.setDetailDistance(detailDistanceFor(view.ps2 ? 'ps2' : 'modern', detailDistance.get()));   // PF.R60: PS2 keeps the original
     v.setWireframe(view.wireframe);
+    v.setTextured(texturedOn);
+    v.setUnlit(!litOn);
     v.setUntexturedHighlight(view.untextured);
     v.setShadows(view.shadows);
     v.setDetail(view.detail);
@@ -1234,22 +2767,34 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const v of [baseView, ...pieces.views()]) if (v) applyWorld(v);
     overlays.setGrid(view.grid && !!baseMap);
     overlays.setSpawns(view.spawns && !!baseMap);
-    fog.enabled = view.fog && (base?.kind === 'map');
-    liftForgeFog(scene, fog, lighting, null, created.setClearColor, settings.timeOfDay);
+    setSlotCellsShown(view.spawns);                           // the placed spawns' and hostages' cells too, as the disc's
+    // The guides with them (one switch): the map's own and each placed object's.
+    for (const g of [mapDoorGuides, mapLadderGuides, mapTurretGuides, mapHostageGuides, mapViewGuides, ...mapAccessGuides]) if (g) g.visible = view.spawns;
+    for (const r of roots) r.traverse((o) => { if (o.userData['forgeGuideKind']) o.visible = view.spawns; });
+    applyBillboards();
+    // A new empty map fogs too (the owner, 2026-11-06): its fog the built-from map's, its own colour and distance over it.
+    fog.enabled = view.fog && (base?.kind === 'map' || (base?.kind === 'blank' && (settings.fog?.on ?? discFog.enabled)));
+    // A new empty map's own fog colour is kept over Day / night's tint (`lightingFog` `keepColour`).
+    liftForgeFog(scene, fog, lighting, null, created.setClearColor, settings.timeOfDay, base?.kind === 'blank' && !!settings.fogColor);
     if (base?.kind === 'blank' && settings.timeOfDay === null) created.setClearColor([12, 20, 24]);
     created.setPresentation(view.ps2 ? 'ps2' : 'native');
     fit();
     if (hullLines) hullLines.visible = view.collision;
     if (view.collision) scheduleHull();
-    for (const [id, i] of toggleInputs) i.checked = view[id];
-    detailDom.sync();
+    for (const [id, i] of viewportToggleInputs) i.checked = view[id];
+    texturedInput.checked = texturedOn;
+    litInput.checked = litOn;
+    viewportDetailDom.sync();
     writeView();
     refreshHint();
   };
-  for (const [id, i] of toggleInputs) i.addEventListener('change', () => { view[id] = i.checked; applyView(); });
+  texturedInput.checked = texturedOn;
+  litInput.checked = litOn;
+  for (const [id, i] of viewportToggleInputs) i.checked = view[id];
+  drawBillboardSwitches();                                     // the Billboards dropdown as the view was kept
   // PF.R60: a change from the panel's slider, the menu's row or the launcher's Options redraws every world and the slider.
   detailDistance.observe(() => { applyView(); });
-  detailDom.sync();
+  viewportDetailDom.sync();
 
   /* ---------- the map settings (FG-24, FG.R18; `./settings`) ---------- */
   /** The panel's controls from the settings (a field being typed in is left alone). */
@@ -1257,7 +2802,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const active = doc.activeElement;
     lightIn.value = String(settings.timeOfDay ?? 1);
     lightOut.textContent = formatSetting('timeOfDay', settings, discFog.far);
-    lightReset.disabled = editsLocked() || (settings.timeOfDay === null && settings.light === 1);
+    lightReset.disabled = editsLocked() || (settings.timeOfDay === originalTimeOf(base) && settings.light === 1);
     const far = settings.fogFar ?? Math.round(discFog.far);
     fogIn.value = String(sliderOfFog(far));
     fogOut.textContent = formatSetting('fogFar', settings, discFog.far);
@@ -1271,17 +2816,98 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * light as the brighten uniform's factor on the base's world and every piece template (`WorldView.setLighting` with
    * the same rig: a uniform, no rebake); the fog colour and the cleared background follow the brighten (`liftFog`).
    */
+  /** A new empty map's own rig, where it has one (a blank base only); null on a disc map, which keeps its own. */
+  const customRig = (): GlobalLighting | null => (base?.kind === 'blank' ? (settings.lightRig as GlobalLighting | null | undefined) ?? null : null);
+  /** The rig of the map a new empty map is built from (its library): what it plays with none of its own. */
+  const libraryRig = (): GlobalLighting | null => (base?.kind === 'blank' ? charMap?.lightRig ?? null : null);
+  /** A new empty map's drop-shadow way: its own, else the built-from map's, else `FALLBACK_SHADOW` (as the editor shows). */
+  const blankShadow = (): readonly number[] => settings.shadowVector ?? charMap?.shadowVector ?? FALLBACK_SHADOW;
+  /**
+   * A new empty map's sky in the editor (`settings.skyFrom`, `./skyDome`): the chosen disc map's dome, built as a world
+   * of its own over the floor, lit by its own rig, its clouds scrolling with each frame (`skyView.frame`). Drawn again only
+   * when the choice changes; none on a disc map (its own sky is its world's).
+   */
+  let skyView: WorldView | null = null;
+  let skyKey = '';
+  let skyToken = 0;
+  async function drawSky(): Promise<void> {
+    const want = base?.kind === 'blank' && settings.skyFrom ? settings.skyFrom : '';
+    if (want === skyKey) return;
+    skyKey = want;
+    const token = ++skyToken;
+    if (skyView) { scene.remove(skyView.group); skyView.dispose(); skyView = null; }
+    if (!want) return;
+    const lib = await hostageLibOf(want);
+    if (token !== skyToken || !lib) return;
+    const dome = skyDomeFor(lib, null);
+    if (!dome.world.length) { say(`${want} has no sky to copy (none of its world is textured as a sky)`, true); return; }
+    const view = buildWorld({ ...lib, world: dome.world, props: [], lines: null });
+    view.setLighting({ ...DEFAULT_LIGHTING, rig: lib.lightRig, brighten: lighting.brighten });
+    for (const task of view.revealWorld) task();
+    if (token !== skyToken) { view.dispose(); return; }
+    skyView = view;
+    scene.add(view.group);
+  }
+  /**
+   * A new empty map's environment as it plays (`./panels/lightRigEditor` `Atmosphere`): each value the layout's own
+   * (`settings`), else the map it is built from's -- its rig (`libraryRig`), its camera's fog (`discFog`), its night and
+   * its shadow -- else the editor's fallbacks.
+   */
+  const atmosphereNow = (): Atmosphere => {
+    const own = settings.fog, alt = discFog.altitude;
+    // The layout's own night wins whole: its lens none is none, not the built-from map's showing through.
+    const lens = settings.night ? settings.night.lens : charMap?.night?.lens ?? null;
+    return {
+      rig: (settings.lightRig ?? libraryRig() ?? FALLBACK_RIG) as LightRigSetting,
+      sky: settings.skyFrom ?? '',
+      fog: {
+        on: own?.on ?? discFog.enabled,
+        colour: (settings.fogColor ?? [discFog.color[0], discFog.color[1], discFog.color[2]]) as [number, number, number],
+        near: own?.near ?? fog.near,
+        far: settings.fogFar ?? discFog.far,
+        height: own
+          ? { on: own.height !== null, top: own.height?.top ?? alt?.top ?? 50, bottom: own.height?.bottom ?? alt?.bottom ?? 0 }
+          : { on: alt !== null, top: alt?.top ?? 50, bottom: alt?.bottom ?? 0 },
+      },
+      night: { mission: settings.night ? settings.night.mission : charMap?.night?.mission ?? false, lens: (lens ? [lens[0], lens[1], lens[2], lens[3]] : [0, 0, 0, 0]) as [number, number, number, number] },
+      shadow: (settings.shadowVector ?? (charMap?.shadowVector ? [...charMap.shadowVector] : FALLBACK_SHADOW)) as [number, number, number],
+    };
+  };
+  /** An environment as the layout keeps it: every part its own (a change makes the whole environment the map's). */
+  const atmosphereSettings = (a: Atmosphere): Partial<typeof settings> => ({
+    lightRig: a.rig, skyFrom: a.sky || null, fogColor: a.fog.colour, shadowVector: a.shadow,
+    fogFar: boundSetting('fogFar', a.fog.far),
+    fog: { on: a.fog.on, near: Math.max(0, Math.min(a.fog.near, a.fog.far - 1)), height: a.fog.height.on ? { top: a.fog.height.top, bottom: a.fog.height.bottom } : null },
+    night: { mission: a.night.mission, lens: a.night.lens },
+  });
   const applySettings = (): void => {
     agentMark();                                              // browser adaptation: the agent's layout revision
     Object.assign(fog, fogWithFar(discFog, settings.fogFar));
+    // A new empty map's own fog colour over the one it is built from (a blank base only).
+    if (base?.kind === 'blank' && settings.fogColor) fog.color = [settings.fogColor[0], settings.fogColor[1], settings.fogColor[2]];
+    // Its own near distance and height band likewise (its on is the view's, `applyView`).
+    if (base?.kind === 'blank' && settings.fog) {
+      fog.near = Math.max(0, Math.min(settings.fog.near, fog.far - 1));
+      fog.altitude = settings.fog.height ? { top: settings.fog.height.top, bottom: settings.fog.height.bottom } : null;
+    }
     lighting.brighten = brightenFor(DEFAULT_LIGHTING.brighten, settings.timeOfDay === null ? settings.light : 1);
     baseView?.setLighting(lighting);
+    pieces.setRig(customRig());                                // a new empty map's own rig over the pieces' own (a blank base only)
     pieces.setBrighten(lighting.brighten);
+    if (base?.kind === 'blank') {
+      // The rig it plays drawn as the Light directions arrows, across the floor's middle; the editor with it.
+      lightArrows.set((customRig() ?? libraryRig()) as GlobalLighting | null, [0, 0, 0], BLANK_RIG_ARROWS_SPAN, blankShadow());
+      rigEditor.draw();
+    }
+    rigEditor.body.hidden = base?.kind !== 'blank';
+    placeLightingRows();
+    void drawSky();
     // The bodies (the NPCs' figures, the walk's SEAL) on the same uniform, each with its own map's rig.
     for (const r of roots) (r.userData['forgeBrighten'] as ((b: number) => void) | undefined)?.(lighting.brighten);
     if (body) body.view.setLighting({ ...DEFAULT_LIGHTING, rig: body.from.lightRig, brighten: lighting.brighten });
     applyView();
     drawSettings();
+    drawEnvironmentPanel();                                    // a legacy brightness shown while a layout carries one
   };
   lightIn.addEventListener('input', () => { if (refuseEdit()) { drawSettings(); return; } settings = timeSetting(settings, boundSetting('timeOfDay', Number(lightIn.value))); applySettings(); });
   lightIn.addEventListener('change', () => { if (!editsLocked()) settingsEdit(() => edit()); });   // one undo per drag
@@ -1322,7 +2948,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const objectiveBase = (): ObjectiveMap => {
     const m = baseMap ?? (base?.kind === 'blank' ? charMap : null);
-    return !m ? {} : base?.kind === 'blank' ? { ...m, escortees: [] } : m;
+    return !m ? {} : base?.kind === 'blank' ? blankFloorOf(m) : m;   // the library's archive, none of its map (`./objectives`)
   };
   /**
    * FCW-32 step 4 fold F2 (review; a browser adaptation): why Play would refuse the layout's own rules mode on this base --
@@ -1344,8 +2970,29 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** Why type `t` would not play here with the markers placed now (`./objectives`, the room's own rule), or null. */
   const typeUnplayable = (t: ForgeGameType): string | null => {
     const bomb = bombOfMarkers();
-    return forgeTypeUnplayable(t, { gameType: t, ...(bomb ? { bomb } : {}) }, objectiveBase());
+    return blankWhy(t) ?? forgeTypeUnplayable(t, { gameType: t, ...(bomb ? { bomb } : {}) }, withPlacedEscortees(objectiveBase()));
   };
+  /**
+   * The base's objective map with the placed hostages counted among its escortees, when there is a character for them
+   * (the base's own hostages', or on a blank floor its library's) -- so Escort and Extraction read what Play will hold.
+   */
+  const withPlacedEscortees = (m: ObjectiveMap): ObjectiveMap => {
+    const placed = roots.filter((r) => r.userData['forgeHostage']).length;
+    const lendable = (m.escortees?.length ?? 0) > 0 || (base?.kind === 'blank' && !!charMap?.escortees?.length) || anyLentHostage();
+    const zones = roots.filter((r) => r.userData['forgeZone']).map(zoneNameOf);
+    const counted = placed && lendable ? { ...m, escortees: [...(m.escortees ?? []), ...Array.from({ length: placed }, () => null)] } : m;
+    return zones.length ? { ...counted, forgeEscortZones: zones } : counted;
+  };
+  /**
+   * What the blank floor cannot play whatever is placed: Escort, whose script names an escort map's own zones (a browser
+   * adaptation's word); null elsewhere. On the floor Extraction plays its placed hostages (a character lent by the library
+   * map, which must have hostages of its own) and placed zones.
+   */
+  function blankWhy(t: number): string | null {
+    if (base?.kind !== 'blank') return null;
+    if ((t === 3 || t === 4) && !charMap?.escortees?.length && !anyLentHostage()) return `${t === 3 ? 'Escort' : 'Extraction'} on the blank floor needs a library map with hostages (its character is lent)`;
+    return null;
+  }
   /**
    * The picker shows what the room would play: a type the base cannot play (Breach, Escort, Extraction -- nothing in the
    * editor changes that) is greyed and says why; Demolition says what it still needs and stays pickable, the markers
@@ -1357,9 +3004,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const v = Number(opt.value);
       if (v !== 1 && v !== 2 && v !== 3 && v !== 4 && v !== 5) continue;
       const why = typeUnplayable(v);
-      opt.disabled = why !== null && v !== 2;
-      // Demolition waits on its markers ("cannot play yet"); another type the base cannot play never will (02's taste).
-      opt.textContent = why === null ? FORGE_GAME_TYPE_NAME[v] : `${FORGE_GAME_TYPE_NAME[v]} · ${v === 2 ? 'cannot play yet' : 'this map can\'t play it'}`;
+      // Demolition, Escort and Extraction wait on what is placed under them (the bomb; the hostages and extraction zones,
+      // the owner 2026-11-05): pickable, "cannot play yet" and the reason. Breach, which the editor cannot ready, never.
+      const placeable = v === 1 || v === 2 || v === 3 || v === 4;   // BREACH: its start and site placed (`breachReady`)
+      opt.disabled = why !== null && !placeable;
+      opt.textContent = why === null ? FORGE_GAME_TYPE_NAME[v] : `${FORGE_GAME_TYPE_NAME[v]} · ${placeable ? 'cannot play yet' : 'this map can\'t play it'}`;
       opt.title = why ?? '';
     }
     // FCW-32 step 4 (FUI.R23 D2): the Custom group -- the rules modes of the Forge's mode list (`forgeModeList`, spec §7:
@@ -1376,7 +3025,42 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }));
     const want = gameTypeValue();
     if (gameTypeSel.value !== want) gameTypeSel.value = want;
+    // A blank floor's row in the base list is its type's preset (`blankValue`): it follows the type.
+    if (base?.kind === 'blank') { const v = blankValue(); if (baseSel.value !== v) baseSel.value = v; }
+    refreshModeTools();
   };
+  /**
+   * The tools a game type plays (a browser adaptation, FG.R2: the editor's own grouping), the rest greyed: a tool listed
+   * in `MODE_TOOL_TYPES` is on only under its types. A type still being read (`typePending`) and a rules mode (whose rule
+   * host may read any placement) leave every tool on. Placements already made stay; only placing more is held.
+   */
+  /**
+   * The base list's row for a blank floor (the owner, 2026-11-06: no blank floor without a type): its game type's preset
+   * (`./blankPresets`), Suppression's while the type is not known; the plain row where the list has no presets (a tree
+   * with no disc maps).
+   */
+  function blankValue(): string {
+    const v = `blank:${authoredType ?? 5}`;
+    return baseSel.querySelector(`option[value="${v}"]`) ? v : 'blank';
+  }
+  function refreshModeTools(): void {
+    const type = layoutMode ? null : authoredType;
+    for (const [m, types] of Object.entries(MODE_TOOL_TYPES) as [Mode, readonly ForgeGameType[]][]) {
+      const off = type !== null && !types.includes(type);
+      const b = modeBtns[m];
+      b.disabled = off;
+      b.dataset['forgeModeOff'] = off ? 'true' : '';
+      if (off && !b.dataset['forgeTitle']) b.dataset['forgeTitle'] = b.title;
+      b.title = off ? `${b.dataset['forgeTitle']} · ${modeToolWhy(types)}` : b.dataset['forgeTitle'] ?? b.title;
+      if (off && mode === m) setMode('select');
+    }
+    for (const sec of toolsRow.querySelectorAll<HTMLElement>('.fx-mode-section')) {
+      const tools = [...sec.querySelectorAll<HTMLButtonElement>('.fx-tool')];
+      sec.classList.toggle('is-off', tools.length > 0 && tools.every((t) => t.disabled));
+    }
+  }
+  /** Why a tool is greyed: the game types it places for. */
+  const modeToolWhy = (types: readonly ForgeGameType[]): string => `${types.map((t) => FORGE_GAME_TYPE_NAME[t]).join(' and ')} only: choose it as the game type`;
   /** FCW-32 step 4 (D2): the select's value for the layout: its rules mode's option, else its retail type ('' the map's own). */
   const gameTypeValue = (): string => (layoutMode ? modeOptionValue(layoutMode) : authoredType === null ? '' : String(authoredType));
   /** FCW-32 step 4 (D2): an installed pack's mode is chosen through its pack once the registry offers it (FCW-35). */
@@ -1404,9 +3088,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // FUI-6: the game type's entry; a refusal (the lobby's hold) puts the picker back, as before.
     if (!personEdit('type.set', { type: v }, () => {
       const picked = v === 1 || v === 2 || v === 3 || v === 4 || v === 5 ? v : null;
-      const why = picked !== null && picked !== 2 ? typeUnplayable(picked) : null;
+      const why = picked !== null && picked !== 1 && picked !== 2 && picked !== 3 && picked !== 4 ? typeUnplayable(picked) : null;   // those four wait on their placements
       if (why) { back(); say(why, true); return; }
       authoredType = picked;
+      typePending = false;
       edit();
     })) back();
   });
@@ -1445,14 +3130,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** Original: the saved Night -> Day cleared and the legacy dimmer with it (`./settings` `timeSetting`), an edit. */
   const resetLighting = (): void => {
-    personEdit('settings.set', { settings: { timeOfDay: null } }, () => { settings = timeSetting(settings, null); applySettings(); edit(); });
+    const original = originalTimeOf(base);
+    personEdit('settings.set', { settings: { timeOfDay: original } }, () => { settings = timeSetting(settings, original); applySettings(); edit(); });
   };
 
   /* ---------- the layout ---------- */
   /** FG-17: the base map's own props hidden in this layout (`./hide`; `Layout.hidden`), by key. */
   let hiddenKeys = new Set<string>();
   /** FG-17: one of the base map's own props (hide-only: a placement of the disc's, not a piece); FG-47: its box, read at the pick. */
-  type BaseProp = Placement & { model: string; object: Object3D; instance: number | null; box: Box3 };
+  type BaseProp = Placement & { model: string; object: Object3D; instance: number | null; matrix: Matrix4; box: Box3 };
   /** FG-47: the map's own props picked, by their placement key. */
   const basePicks = new Selection<BaseProp>((b) => b.key);
   /** FG-17: the one map prop selected, when it is alone. */
@@ -1467,6 +3153,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const k of hiddenDrawn) if (!want.has(k)) baseView.setPlacementActive(k, true);
     for (const k of want) if (!hiddenDrawn.has(k)) baseView.setPlacementActive(k, false);
     hiddenDrawn = want;
+    drawMapBillboards();                                       // a hidden map prop's mark goes, a shown one's comes back
   };
   const bombKindOf = (r: Object3D): BombMarkerKind | null => {
     const k = r.userData['forgeBomb'];
@@ -1638,19 +3325,46 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (r.userData['forgePiece']) {
         const content = r.userData['forgeContent'] as Piece['content'] | undefined;
         l.pieces.push({ asset: r.userData['forgePiece'] as string, m: Array.from(r.matrix.elements), ...(locked ? { locked: true } : {}), ...idOf(r), ...(content ? { content } : {}) });
-      } else if (r.userData['forgeSpawn']) l.spawns.push({ team: r.userData['forgeSpawn'] as 'A' | 'B', p: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}), ...idOf(r) });
+      } else if (r.userData['forgeRespawn']) (l.respawns ??= []).push({ team: r.userData['forgeRespawn'] as 'A' | 'B', p: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}) });
+      else if (r.userData['forgeSpawn']) l.spawns.push({ team: r.userData['forgeSpawn'] as 'A' | 'B', p: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}), ...idOf(r) });
       else if (r.userData['forgeNpc']) {
         const n = r.userData['forgeNpc'] as { side: 'seal' | 'terrorist'; type: number };
         (l.npcs ??= []).push({ side: n.side, type: n.type, p: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}), ...idOf(r) });
+      } else if (r.userData['forgeGate'] || r.userData['forgeBarrier']) {
+        const a = accessOwnOf(r)!;
+        (l[a.kind === 'gate' ? 'gates' : 'barriers'] ??= []).push({ source: a.source, name: a.name, at: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeDoor']) {
+        const t = r.userData['forgeDoor'] as { source: string; name: string };
+        (l.doors ??= []).push({ source: t.source, name: t.name, at: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeTurret']) {
+        const t = r.userData['forgeTurret'] as { source: string; name: string };
+        (l.turrets ??= []).push({ source: t.source, name: t.name, at: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeFlare']) {
+        const f = r.userData['forgeFlare'] as { source: string; name: string };
+        (l.flares ??= []).push({ source: f.source, name: f.name, at: [r.position.x, r.position.y, r.position.z], ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgePoint']) {
+        const t = r.userData['forgePoint'] as { name: string; kind: number };
+        (l.tacPoints ??= []).push({ name: t.name, kind: t.kind, at: [r.position.x, r.position.y, r.position.z], ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeView']) {
+        const v = r.userData['forgeView'] as { name: string; yaw: number; pitch: number };
+        (l.scenicViews ??= []).push({ name: v.name, at: [r.position.x, r.position.y, r.position.z], yaw: v.yaw, pitch: v.pitch, ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeZone']) {
+        const z = r.userData['forgeZone'] as { w: number; d: number; name: string };
+        (l.extractionZones ??= []).push({ name: z.name, at: [r.position.x, r.position.y, r.position.z], size: [z.w, z.d], ...(locked ? { locked: true } : {}) });
+      } else if (r.userData['forgeHostage']) {
+        const own = hostageOf(r);
+        (l.hostages ??= []).push({ p: [r.position.x, r.position.y, r.position.z], yaw: r.rotation.y, ...(locked ? { locked: true } : {}),
+          ...(own.name ? { name: own.name } : {}), ...(own.character ? { character: own.character } : {}), ...(own.source ? { source: own.source } : {}) });
       } else {                                                  // a bomb marker: `bombOfMarkers` below
         const kind = bombKindOf(r);
         if (kind === 'start') marks.start ??= r;
         else if (kind) marks.sites.push(r);
       }
     }
-    // L1: "Map's own" writes no type -- the base keeps its own (and the room its own bomb); the markers are kept, and an
-    // opened block's own keys whenever there are any (`./bombMarkers` `layoutObjectivesOf`).
-    const objectives = layoutObjectivesOf(authoredType, bombOfMarkers(), objectiveRest);
+    // The type shown is written (its base's own when none was picked, `ownTypeOf`); while it is still being read
+    // (`typePending`) none is, so the base keeps its own -- the same type. The markers are kept, and an opened block's
+    // own keys whenever there are any (`./bombMarkers` `layoutObjectivesOf`).
+    const objectives = layoutObjectivesOf(typePending ? null : authoredType, bombOfMarkers(), objectiveRest);
     if (objectives) l.objectives = objectives;
     const startId = marks.start?.userData['forgeId'], siteIds = marks.sites.map((r) => r.userData['forgeId']);
     if (objectives?.bomb && (typeof startId === 'string' || siteIds.some((id) => typeof id === 'string'))) {
@@ -1686,7 +3400,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const refreshUndo = (): void => {
     undoBtn.disabled = !history.canUndo(); redoBtn.disabled = !history.canRedo();
     undoBtn.title = `${undoWords()} · pad SELECT${key('Ctrl+Z')}`;
-    redoBtn.title = `${redoWords()} · pad L3${key('Ctrl+Y')}`;
+    redoBtn.title = `${redoWords()} · pad hold SELECT${key('Ctrl+Y')}`;
   };
   /**
    * FUI-6 (the review's principle 5; a browser adaptation, FG.R2): the one command layer (`./shell/operations`). Every
@@ -1723,13 +3437,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const placementIds = (): Map<string, Object3D> => {
     const map = new Map<string, Object3D>();
-    let piece = 0, spawn = 0, npc = 0;
+    let piece = 0, spawn = 0, respawn = 0, flare = 0, npc = 0, hostage = 0, zone = 0, point = 0, views = 0, turret = 0, door = 0, gate = 0, barrier = 0;
     const bombs = { start: 0, seal: 0, terrorist: 0 };
     for (const r of roots) {
       const bomb = bombKindOf(r);
       if (r.userData['forgePiece']) map.set(`piece:${piece++}`, r);
       else if (r.userData['forgeSpawn']) map.set(`spawn:${spawn++}`, r);
+      else if (r.userData['forgeRespawn']) map.set(`respawn:${respawn++}`, r);
+      else if (r.userData['forgeFlare']) map.set(`flare:${flare++}`, r);
       else if (r.userData['forgeNpc']) map.set(`npc:${npc++}`, r);
+      else if (r.userData['forgeHostage']) map.set(`hostage:${hostage++}`, r);
+      else if (r.userData['forgeZone']) map.set(`zone:${zone++}`, r);
+      else if (r.userData['forgeTurret']) map.set(`turret:${turret++}`, r);
+      else if (r.userData['forgeDoor']) map.set(`door:${door++}`, r);
+      else if (r.userData['forgeGate']) map.set(`gate:${gate++}`, r);
+      else if (r.userData['forgeBarrier']) map.set(`barrier:${barrier++}`, r);
+      else if (r.userData['forgePoint']) map.set(`point:${point++}`, r);
+      else if (r.userData['forgeView']) map.set(`view:${views++}`, r);
       else if (bomb) map.set(`bomb:${bomb}:${bombs[bomb]++}`, r);   // FG-51: a file may name two sites of a team
     }
     return map;
@@ -1833,7 +3557,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return o.geometry.boundingBox!.clone().applyMatrix4(m);
   };
   /** FG-47: a member's place and turn (`./group` `Pose`); a marker's turn is its yaw. */
-  const isMarker = (r: Object3D): boolean => !!r.userData['forgeSpawn'] || !!r.userData['forgeNpc'] || !!r.userData['forgeBomb'];
+  const isMarker = (r: Object3D): boolean => !!r.userData['forgeSpawn'] || !!r.userData['forgeRespawn'] || !!r.userData['forgeFlare'] || !!r.userData['forgeNpc'] || !!r.userData['forgeBomb'] || !!r.userData['forgeHostage'] || !!r.userData['forgeZone'] || !!r.userData['forgePoint'] || !!r.userData['forgeView'] || !!r.userData['forgeTurret'] || !!r.userData['forgeDoor'] || !!r.userData['forgeGate'] || !!r.userData['forgeBarrier'];
   const poseOf = (r: Object3D): Pose => ({
     p: [r.position.x, r.position.y, r.position.z],
     q: isMarker(r) ? yawQuat(r.rotation.y) : [r.quaternion.x, r.quaternion.y, r.quaternion.z, r.quaternion.w],
@@ -1873,18 +3597,298 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return `${side === 'seal' ? 'SEAL' : 'Terrorist'} ${type + 1}${b?.character ? ` · ${b.character}` : ''}`;
   };
   const npcOf = (r: Object3D): { side: 'seal' | 'terrorist'; type: number } | undefined => r.userData['forgeNpc'] as { side: 'seal' | 'terrorist'; type: number } | undefined;
+  /** A placed hostage's own name, character and the map lending it (`HostageMarker`), kept on its marker; each may be absent. */
+  const hostageOf = (r: Object3D): { name?: string; character?: string; source?: string } => {
+    const v = r.userData['forgeHostage'];
+    return v && typeof v === 'object' ? v as { name?: string; character?: string; source?: string } : {};
+  };
+  /** A placed hostage wears another disc map's character (`source`): its body is lent to the match (`withLentHostageBodies`). */
+  function anyLentHostage(): boolean { return roots.some((r) => !!(r.userData['forgeHostage'] as { source?: string } | undefined)?.source); }
+  /** Each disc map's archive as a hostage's character is lent from it, loaded once a stem; one not on this disc, null. */
+  const hostageLibs = new Map<string, Promise<LoadedMap | null>>();
+  const hostageLibOf = (stem: string): Promise<LoadedMap | null> => {
+    let ask = hostageLibs.get(stem);
+    if (!ask) { ask = absent.has(stem) ? Promise.resolve(null) : archives.load(stem).catch(() => null); hostageLibs.set(stem, ask); }
+    return ask;
+  };
+  /** The hostage names in use: the base's own (or a blank floor's library's) and the placed ones, so a new one takes the next. */
+  const hostageNamesTaken = (): string[] => [...((baseMap ?? charMap)?.escortees ?? []).map((e) => e.name),
+    ...roots.flatMap((r) => (r.userData['forgeHostage'] ? [hostageOf(r).name ?? ''] : []))];
+  /** The turrets each archive holds (`./turrets` `turretTemplates`), read once a stem; an archive with none, none. */
+  const turretCatalogue = new Map<string, Promise<TurretTemplate[]>>();
+  const turretsOf = (stem: string): Promise<TurretTemplate[]> => {
+    let ask = turretCatalogue.get(stem);
+    if (!ask) {
+      ask = (absent.has(stem) ? Promise.resolve(null) : archives.load(stem).catch(() => null)).then((lib) => (lib ? turretTemplates(lib, stem) : []));
+      turretCatalogue.set(stem, ask);
+    }
+    return ask;
+  };
+  /** The template a placed turret names, or null where its archive is not on this disc or holds no such turret. */
+  const turretTemplate = async (source: string, name: string): Promise<TurretTemplate | null> =>
+    (await turretsOf(source)).find((t) => t.name === name) ?? null;
+  /** The turret a new placement copies: the palette archive's first, else Crossroads' RMG; null when neither is here. */
+  const defaultTurret = async (): Promise<{ source: string; name: string } | null> => {
+    const own = (await turretsOf(paletteSel.value))[0];
+    if (own) return { source: own.source, name: own.name };
+    return (await turretTemplate(DEFAULT_TURRET.source, DEFAULT_TURRET.name)) ? { ...DEFAULT_TURRET } : null;
+  };
+  /**
+   * A placed turret's marker: its template's model as the disc draws it (`turretModelMap`, built once a model), else --
+   * its archive not here -- a stand-in pick box, so the placement is kept. Tagged with its source and name, and its
+   * definition for the Inspector's Data (read only: the disc's).
+   */
+  async function newTurret(source: string, name: string): Promise<Object3D> {
+    const t = await turretTemplate(source, name);
+    const r = (t ? pieces.modelOf(`turret:${source}:${name}`, turretModelMap(t)) : null) ?? pointMarker('point');
+    const d = t?.placement;
+    r.userData['forgeTurret'] = { source, name, ...(d ? { weapon: d.weapon, ammo: d.ammoInit, mountRange: d.mountRange,
+      yawLimitsDeg: d.def.limitsDeg.yaw, pitchLimitsDeg: d.def.limitsDeg.pitch } : { missing: true }) };
+    r.name = `turret ${name}`;
+    // Its facing and the arc its gun turns through (`./interactOverlay`), in the marker's frame: they turn with it.
+    if (t) { const g = turretGuide(t.placement); r.add(guideIn(g.segments, g.triangles, turretMove(t, [0, 0, 0], 0), TURRET_GUIDE_COLOUR, 'userTurrets')); }
+    return r;
+  }
+  /** The doors each archive holds (`./placedDoors` `doorTemplates`), read once a stem; an archive with none, none. */
+  const doorCatalogue = new Map<string, Promise<DoorTemplate[]>>();
+  const doorsOf = (stem: string): Promise<DoorTemplate[]> => {
+    let ask = doorCatalogue.get(stem);
+    if (!ask) {
+      ask = (absent.has(stem) ? Promise.resolve(null) : archives.load(stem).catch(() => null)).then((lib) => (lib ? doorTemplates(lib, stem) : []));
+      doorCatalogue.set(stem, ask);
+    }
+    return ask;
+  };
+  const doorTemplate = async (source: string, name: string): Promise<DoorTemplate | null> => (await doorsOf(source)).find((t) => t.name === name) ?? null;
+  /** The door a new placement copies: the palette archive's first, else Frostfire's bdoor_4; null when neither is here. */
+  const defaultDoor = async (): Promise<{ source: string; name: string } | null> => {
+    const own = (await doorsOf(paletteSel.value))[0];
+    if (own) return { source: own.source, name: own.name };
+    return (await doorTemplate(DEFAULT_DOOR.source, DEFAULT_DOOR.name)) ? { ...DEFAULT_DOOR } : null;
+  };
+  /**
+   * The placed flares turned to the camera each frame (`../facade` `turnFacade`, `FUN_00317fc0` as the world's `frame`
+   * does it): each glow mesh about its own origin, the eye in its parent's frame -- so a placed flare's turn and yaw do not
+   * matter, as the game's do not. A clone's own meshes: the template's are never framed.
+   */
+  const flareEye = new Vector3();
+  const flareEyeAt: [number, number, number] = [0, 0, 0];
+  const flareAt: [number, number, number] = [0, 0, 0];
+  function turnPlacedFlares(eye: Vector3): void {
+    for (const r of roots) {
+      const facade = (r.userData['forgeFlare'] as { facade?: number } | undefined)?.facade;
+      if (!facade) continue;
+      r.updateMatrixWorld();
+      r.traverse((o) => {
+        if (!o.name.endsWith('(flare)') || !o.parent) return;
+        o.parent.worldToLocal(flareEye.copy(eye)).toArray(flareEyeAt);
+        turnFacade(o, facade, o.position.toArray(flareAt) as [number, number, number], flareEyeAt);
+      });
+    }
+  }
+  /** The flares each archive holds (`./placedFlares` `flareTemplates`: its facade nodes), read once a stem. */
+  const flareCatalogue = new Map<string, Promise<FlareTemplate[]>>();
+  const flaresOf = (stem: string): Promise<FlareTemplate[]> => {
+    let ask = flareCatalogue.get(stem);
+    if (!ask) { ask = hostageLibOf(stem).then((lib) => (lib ? flareTemplates(lib, stem) : [])); flareCatalogue.set(stem, ask); }
+    return ask;
+  };
+  const flareTemplate = async (source: string, name: string): Promise<FlareTemplate | null> =>
+    (await flaresOf(source)).find((t) => t.name === name) ?? null;
+  /**
+   * The flare a new placement copies (a browser adaptation, FG.R2): the palette archive's first, else the base map's
+   * own; null when neither has one (no disc default: which glow is not the game's to say).
+   */
+  const defaultFlare = async (): Promise<{ source: string; name: string } | null> => {
+    for (const stem of [paletteSel.value, baseMap?.archive ?? '']) {
+      if (!stem || absent.has(stem)) continue;
+      const own = (await flaresOf(stem))[0];
+      if (own) return { source: own.source, name: own.name };
+    }
+    return null;
+  };
+  /**
+   * A placed flare's marker: its facade node alone as the disc draws it (`flareModelMap`), else a stand-in; tagged with
+   * its source, name and facade value (`turnPlacedFlares` turns it), and an unseen box a click finds (a glow is a quad).
+   */
+  async function newFlare(source: string, name: string): Promise<Object3D> {
+    const t = await flareTemplate(source, name);
+    const r = (t ? pieces.modelOf(`flare:${source}:${name}`, flareModelMap(t)) : null) ?? pointMarker('point');
+    r.userData['forgeFlare'] = { source, name, facade: t?.prop.facade ?? 0, ...(t ? { model: t.prop.modelName } : { missing: true }) };
+    r.name = `flare ${name}`;
+    const pick = new Mesh(new BoxGeometry(FLARE_PICK_SIZE, FLARE_PICK_SIZE, FLARE_PICK_SIZE), new MeshBasicMaterial({ visible: false }));
+    pick.name = 'flare pick';
+    r.add(pick);
+    return r;
+  }
+  /** The ladder a new placement is: the palette archive's first ladder prop, else Sandstorm's ladder35; null when neither is here. */
+  const defaultLadder = async (): Promise<string | null> => {
+    for (const stem of [paletteSel.value, DEFAULT_LADDER.source]) {
+      if (!stem || absent.has(stem)) continue;
+      const lib = await hostageLibOf(stem);
+      const own = lib ? ladderPropsOf(lib) : [];
+      const pick = stem === DEFAULT_LADDER.source ? own.find((l) => l.model === DEFAULT_LADDER.name) ?? own[0] : own[0];
+      if (pick) return assetId(stem, pick.model);
+    }
+    return null;
+  };
+  /** A placed door's marker: its template's leaf and frame as the disc draws them, its hinge at the origin; else a stand-in. */
+  async function newDoor(source: string, name: string): Promise<Object3D> {
+    const t = await doorTemplate(source, name);
+    const r = (t ? pieces.modelOf(`door:${source}:${name}`, doorModelMap(t)) : null) ?? pointMarker('point');
+    r.userData['forgeDoor'] = { source, name, ...(t ? { swing: t.spec.programs.map((p) => p.name), range: t.spec.range, elevation: t.spec.elevation } : { missing: true }) };
+    r.name = `door ${name}`;
+    // Which way it swings (`./interactOverlay`): its template's own swing, in the marker's frame (the hinge at its origin).
+    const swing = t ? swingOf(t.spec, t.owners.flatMap((o) => o.polys.map((q) => q.points))) : null;
+    if (t && swing) r.add(guideIn(swingSegments(swing), swingTriangles(swing), doorMove(t, [0, 0, 0], 0), DOOR_SWING_COLOUR, 'userDoors'));
+    return r;
+  }
+  const doorLabel = (r: Object3D): string => `Door · ${(r.userData['forgeDoor'] as { name?: string } | undefined)?.name ?? ''}`;
+  /** The gates and C4 barriers each archive holds (`./placedAccess` `accessTemplates`), read once a stem. */
+  const accessCatalogue = new Map<string, Promise<AccessTemplate[]>>();
+  const accessOf = (stem: string): Promise<AccessTemplate[]> => {
+    let ask = accessCatalogue.get(stem);
+    if (!ask) {
+      ask = (absent.has(stem) ? Promise.resolve(null) : archives.load(stem).catch(() => null)).then((lib) => (lib ? accessTemplates(lib, stem) : []));
+      accessCatalogue.set(stem, ask);
+    }
+    return ask;
+  };
+  const accessTemplate = async (kind: 'gate' | 'barrier', source: string, name: string): Promise<AccessTemplate | null> =>
+    (await accessOf(source)).find((t) => t.kind === kind && t.name === name) ?? null;
+  /** The gate or barrier a new placement copies: the palette archive's first, else Death Trap's or Vigilance's access1. */
+  const defaultAccess = async (kind: 'gate' | 'barrier'): Promise<{ source: string; name: string } | null> => {
+    const own = (await accessOf(paletteSel.value)).find((t) => t.kind === kind);
+    if (own) return { source: own.source, name: own.name };
+    const d = kind === 'gate' ? DEFAULT_GATE : DEFAULT_BARRIER;
+    return (await accessTemplate(kind, d.source, d.name)) ? { ...d } : null;
+  };
+  /**
+   * A placed gate's or barrier's marker: its template whole as the disc draws it (its wreck off), its anchor at the
+   * origin; else a stand-in. Tagged with its source and name, and the template's data for the Inspector (read only).
+   */
+  async function newAccess(kind: 'gate' | 'barrier', source: string, name: string): Promise<Object3D> {
+    const t = await accessTemplate(kind, source, name);
+    const r = (t ? pieces.modelOf(`access:${source}:${name}`, accessModelMap(t)) : null) ?? pointMarker('point');
+    r.userData[kind === 'gate' ? 'forgeGate' : 'forgeBarrier'] = { source, name, ...(t ? {
+      parts: t.pieces.length, health: t.destructibles.map((d) => d.health), shield: t.destructibles.map((d) => d.shield),
+      ...(t.gate ? { slide: t.gate.spec.open, seconds: t.gate.spec.seconds, levers: t.gate.spec.levers.length } : {}),
+    } : { missing: true }) };
+    r.name = `${kind} ${name}`;
+    // Where and which way it is used (`./placedAccess` `accessGizmo`): its C4 prompt's reach, a gate's slide and lever.
+    if (t) {
+      const g = accessGizmo(t, 'atGate');
+      r.add(guideIn(g.segments, g.triangles, accessMove(t, [0, 0, 0], 0), kind === 'gate' ? GATE_GUIDE_COLOUR : BARRIER_GUIDE_COLOUR, kind === 'gate' ? 'userGates' : 'userBarriers'));
+    }
+    return r;
+  }
+  /**
+   * A placed plant site's gizmo (`./interactOverlay` `bombSiteShapes`): the reach its file keeps (`forgeBombFile`, else
+   * `BOMB_SITE_REACH`), in the marker's own frame; a bomb start has none. An edit re-stages the marker, so it is drawn anew.
+   */
+  function addSiteGuide(r: Object3D, preview?: { range?: number; elevation?: number }): void {
+    const kind = r.userData['forgeBomb'] as BombMarkerKind | undefined;
+    if (!kind || kind === 'start') return;
+    // The one drawn before (a preview's redraw, `preview` the scrubbed value over the file's): let go first.
+    for (const old of r.children.filter((c) => c.userData['forgeSiteGuide'])) { r.remove(old); disposeGuide(old); }
+    const file = r.userData['forgeBombFile'] as { range?: number; elevation?: number } | undefined;
+    const g = bombSiteShapes([0, 0, 0], preview?.range ?? file?.range ?? BOMB_SITE_REACH, preview?.elevation ?? file?.elevation ?? BOMB_SITE_REACH);
+    if (!g.segments.length) return;
+    const guide = guideIn(g.segments, g.triangles, null, BOMB_SITE_GUIDE_COLOUR, 'userActions');
+    guide.userData['forgeSiteGuide'] = true;
+    r.add(guide);
+  }
+  const accessOwnOf = (r: Object3D): { kind: 'gate' | 'barrier'; source: string; name: string } | null => {
+    const g = r.userData['forgeGate'] as { source: string; name: string } | undefined;
+    if (g) return { kind: 'gate', source: g.source, name: g.name };
+    const b = r.userData['forgeBarrier'] as { source: string; name: string } | undefined;
+    return b ? { kind: 'barrier', source: b.source, name: b.name } : null;
+  };
+  const accessLabel = (r: Object3D): string => { const a = accessOwnOf(r)!; return `${a.kind === 'gate' ? 'Gate' : 'C4 barrier'} · ${a.source} ${a.name}`; };
+  /** A placed turret's words: its node name and its weapon. */
+  const turretLabel = (r: Object3D): string => {
+    const t = r.userData['forgeTurret'] as { name: string; weapon?: string | null } | undefined;
+    return t ? `${t.name}${t.weapon ? ` · ${t.weapon}` : ''}` : 'Turret';
+  };
+  /** A placed tactical point's or spectator view's name, kept on its marker. */
+  const pointNameOf = (r: Object3D): string => ((r.userData['forgePoint'] ?? r.userData['forgeView']) as { name?: string } | undefined)?.name ?? 'Point';
+  /** A placed tactical point's marker, named, of its kind. */
+  const newPoint = (name: string, kind: number): Object3D => { const r = pointMarker('point'); r.userData['forgePoint'] = { name, kind }; return r; };
+  /** A placed spectator view's marker, named, its look (degrees, the camera's own). */
+  const newView = (name: string, yaw: number, pitch: number): Object3D => {
+    const r = pointMarker('view');
+    r.userData['forgeView'] = { name, yaw, pitch };
+    // The way it looks (`./interactOverlay` `viewShapes`): its own yaw and pitch, the world's turn kept (the marker is not
+    // turned by them); an Inspector change rebuilds the marker, the arrow with it.
+    const look = viewShapes([0, 0, 0], yaw, pitch, VIEW_ARROW_LENGTH);
+    const guide = guideIn(look.segments, look.triangles, null, VIEW_GUIDE_COLOUR, 'userScenicViews');
+    keepWorldTurn(guide);
+    r.add(guide);
+    return r;
+  };
+  /** The names in use of a kind: the base's own (its tactical points; its views) and the placed ones, so a new one takes the next. */
+  const pointNamesTaken = (kind: 'point' | 'view'): string[] => kind === 'point'
+    ? [...(baseMap?.tac?.points ?? []).filter((p) => p.kind === 1).map((p) => p.name), ...roots.filter((r) => r.userData['forgePoint']).map(pointNameOf)]
+    : [...(baseMap?.scenicViews ?? []).map((v) => v.name), ...roots.filter((r) => r.userData['forgeView']).map(pointNameOf)];
+  /** A placed extraction zone's name (Safety, Safety2...), kept on its marker. */
+  const zoneNameOf = (r: Object3D): string => (r.userData['forgeZone'] as { name?: string } | undefined)?.name ?? 'Safety';
+  /** A placed extraction zone's marker, named. */
+  const newZone = (name: string, w: number, d: number): Object3D => {
+    const r = extractionZoneMarker(w, d);
+    r.userData['forgeZone'] = { w, d, name };
+    return r;
+  };
+  /** The zone names in use: the base map's own (its tactical zones) and the ones placed, so a new one takes the next. */
+  const zoneNamesTaken = (): string[] => [...(baseMap?.tac?.zones ?? []).map((z) => z.name), ...roots.filter((r) => r.userData['forgeZone']).map(zoneNameOf)];
   const bombLabel = (kind: BombMarkerKind): string => kind === 'start' ? 'Bomb start' : kind === 'seal' ? 'Site · SEAL' : 'Site · Terrorist';
   const nameOf = (r: Object3D): string => {
     const n = npcOf(r);
     if (n) return `NPC · ${charLabel(n.side, n.type)}`;
     const bomb = bombKindOf(r);
     if (bomb) return bombLabel(bomb);
+    if (r.userData['forgeHostage']) return hostageOf(r).name ?? 'Hostage';
+    if (r.userData['forgeZone']) return zoneNameOf(r);
+    if (r.userData['forgePoint'] || r.userData['forgeView']) return pointNameOf(r);
+    if (r.userData['forgeTurret']) return turretLabel(r);
+    if (r.userData['forgeDoor']) return doorLabel(r);
+    if (accessOwnOf(r)) return accessLabel(r);
+    if (r.userData['forgeRespawn']) return `Respawn ${r.userData['forgeRespawn'] as string}`;
+    if (r.userData['forgeFlare']) return `Flare · ${(r.userData['forgeFlare'] as { name: string }).name}`;
     return (r.userData['forgePiece'] as string | undefined) ?? `Spawn ${r.userData['forgeSpawn'] as string}`;
   };
   /** FUI-22 (D2): the Inspector head's kind word for a placement. */
-  const kindOf = (r: Object3D): string => (bombKindOf(r) ? 'Objective' : npcOf(r) ? 'NPC' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
-  const refreshInspector = (): void => {
+  const kindOf = (r: Object3D): string => (bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] ? 'C4 barrier' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
+  /**
+   * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2): drawn, not yet wired. A single piece shows its
+   * own values (pitch and roll read in the `YXZ` order, so yaw stays the turn about Y); anything else -- a group, a map
+   * prop, a marker, a rules entity -- has them off, as its record keeps a yaw alone. An edit goes to `transformStub`.
+   */
+  const stubFields = [fpitch, froll, fsx, fsy, fsz];
+  const fillStubFields = (force = false): void => {
     const s = selected;
+    const piece = s !== null && !isGroup() && !baseSelected && kindOf(s) === 'Piece' ? s : null;
+    for (const f of stubFields) f.disabled = !piece || editsLocked();
+    const turn = piece ? new Euler().setFromQuaternion(piece.quaternion, 'YXZ') : null;
+    const scaled = (v: number): string => String(Math.round(v * 1000) / 1000);
+    const show = (f: HTMLInputElement, v: string): void => { if (force || doc.activeElement !== f) f.value = v; };
+    show(fpitch, turn ? String(deg(turn.x)) : '');
+    show(froll, turn ? String(deg(turn.z)) : '');
+    show(fsx, piece ? scaled(piece.scale.x) : '');
+    show(fsy, piece ? scaled(piece.scale.y) : '');
+    show(fsz, piece ? scaled(piece.scale.z) : '');
+  };
+  /**
+   * STUB: pitch, roll and scale edits are not applied. Record v3 keeps a piece's yaw alone (`creator-contracts`
+   * `recordOfLayout`), so a tilt or a scale would be lost at the next save; the field is put back and the page says so.
+   */
+  const transformStub = (f: HTMLInputElement): void => {
+    fillStubFields(true);
+    say(`${f.dataset['label'] ?? 'This field'} is not wired yet: a saved layout keeps a piece's yaw only`);
+  };
+  for (const f of stubFields) f.addEventListener('change', () => transformStub(f));
+  const refreshInspectorFields = (): void => {
+    const s = selected;
+    fillStubFields();
     fyaw.disabled = isGroup() || editsLocked();             // FG-47 (the review's F1): the lobby's lock holds the yaw too
     inspectKind.textContent = isGroup() ? 'Group' : baseSelected ? 'Map prop' : s ? kindOf(s) : '';
     const entity = !s && !isGroup() && !baseSelected && entityPicked !== null ? rulesEntityRefs().find((e) => e.ref === entityPicked) : undefined;
@@ -1920,6 +3924,26 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       for (const f of [fx, fy, fz, fyaw]) f.value = '';
       return;
     }
+    if (!s && mapDataSelected) {
+      // The map's own data selected (a spawn slot, a door, a view...): named and placed, read only -- its fields off.
+      const item = mapDataSelected;
+      fields.classList.add('is-off');
+      inspectKind.textContent = MAP_DATA_MARKS[item.kind]?.word ?? 'Map data';
+      inspectName.textContent = item.label;
+      fx.value = String(Math.round(item.at[0]));
+      fy.value = String(Math.round(item.at[1]));
+      fz.value = String(Math.round(item.at[2]));
+      fyaw.value = item.view ? String(Math.round(item.view.yaw)) : '';
+      return;
+    }
+    if (!s && lockHeld.length > 0) {
+      // Just locked from the Inspector: shown, read-only, until its Unlock or another selection.
+      fields.classList.add('is-off');
+      inspectKind.textContent = 'Locked';
+      inspectName.textContent = lockHeld.length === 1 ? nameOf(lockHeld[0]!) : `${lockHeld.length} locked`;
+      for (const f of [fx, fy, fz, fyaw]) f.value = '';
+      return;
+    }
     fields.classList.toggle('is-off', !s);
     if (!s) { inspectName.textContent = 'Nothing selected'; for (const f of [fx, fy, fz, fyaw]) f.value = ''; return; }
     inspectName.textContent = nameOf(s);
@@ -1929,6 +3953,286 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (active !== fz) fz.value = String(Math.round(s.position.z));
     if (active !== fyaw) fyaw.value = String(deg(s.rotation.y));
   };
+  /** The rules entity the Inspector shows (picked from its Outliner row, nothing else selected), or undefined. */
+  const inspectedEntity = (): { ref: string; at: [number, number, number]; yaw: number | null } | undefined =>
+    !selected && !isGroup() && !baseSelected && entityPicked !== null ? rulesEntityRefs().find((e) => e.ref === entityPicked) : undefined;
+  /**
+   * Each transform row's reset (a browser adaptation, FG.R2), shown only when the row is off its default -- position 0,
+   * rotation 0, scale 1 -- read off the selection itself, not the rounded fields. One placement or one rules entity
+   * only (a group's centre is not a value of its own); none under the lobby's lock.
+   */
+  const RESET_EPSILON = 1e-6;
+  const showResets = (): void => {
+    const s = isGroup() || baseSelected ? null : selected;
+    const entity = inspectedEntity();
+    const open = !editsLocked();
+    const away = (v: number, d: number): boolean => Math.abs(v - d) > RESET_EPSILON;
+    const turned = (a: number): boolean => away(Math.cos(a), 1);   // a whole turn is home
+    resetPosition.hidden = !open || !(s ? s.position.toArray().some((v) => away(v, 0)) : entity ? entity.at.some((v) => away(v, 0)) : false);
+    resetRotation.hidden = !open || !(s ? away(Math.abs(s.quaternion.w), 1) : entity && entity.yaw !== null ? turned(entity.yaw) : false);
+    resetScale.hidden = !open || !(s && !isMarker(s) ? s.scale.toArray().some((v) => away(v, 1)) : false);
+  };
+  /**
+   * The Inspector's Data (a browser adaptation, FG.R2): the selected object's own record, read only, under its
+   * transform -- a map data item's as the map gives it, a map prop's placement, a placement's editor data (each
+   * `forge*` field it carries, a hostage's, a zone's and a bomb site's too); a group or nothing, none.
+   */
+  const inspectorData = (): unknown => {
+    if (isGroup()) return null;
+    if (baseSelected) return { model: baseSelected.model, key: baseSelected.key };
+    const s = selected;
+    if (!s && mapDataSelected) return mapDataSelected.data ?? null;
+    if (!s) return null;
+    const own: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(s.userData)) {
+      if (!k.startsWith('forge') || typeof v === 'function') continue;
+      own[k.slice(5, 6).toLowerCase() + k.slice(6)] = v;
+    }
+    return own;
+  };
+  /**
+   * The selected placement's fields the layout keeps, as the Data list's editors (a browser adaptation, FG.R2): each
+   * change one of the planner's `placement.set` (one undo step, checked as the agent's), its lock the Lock's own edit.
+   * A group, a map's own data or a map prop: none (the disc's data is read only).
+   */
+  /** The turret models the Inspector offers (`<archive>:<turret>`): the palette's and Crossroads', as their archives read. */
+  /**
+   * The disc's doors and turrets the Inspector offers, a map at a time (a browser adaptation, FG.R2): the Map choice
+   * lists every multiplayer map on this disc; its doors or turrets are read when it is first chosen (`doorsOf`,
+   * `turretsOf`: its archive loaded once) and listed by name with their model and swing, or weapon. Until read, none.
+   */
+  const copyLists = { door: new Map<string, (readonly [string, string])[]>(), turret: new Map<string, (readonly [string, string])[]>(), hostage: new Map<string, (readonly [string, string])[]>(), ladder: new Map<string, (readonly [string, string])[]>(), flare: new Map<string, (readonly [string, string])[]>(), gate: new Map<string, (readonly [string, string])[]>(), barrier: new Map<string, (readonly [string, string])[]>() };
+  const copyList = (kind: CopyKind, stem: string): (readonly [string, string])[] | null => {
+    const counted = censusKnown.get(stem)?.[kind];
+    if (counted) return counted;
+    const got = copyLists[kind].get(stem);
+    if (got) return got;
+    if (!copyLists[kind].has(stem)) {
+      copyLists[kind].set(stem, undefined as never);
+      const ask = kind === 'flare'
+        ? flaresOf(stem).then((ts) => ts.map((t) => [t.name, `${t.name} \u00b7 ${t.prop.modelName}`] as const))
+        : kind === 'ladder' || kind === 'gate' || kind === 'barrier'
+        ? hostageLibOf(stem).then((lib) => (lib ? copiesOf(lib)[kind] : []))
+        : kind === 'hostage'
+        ? hostageLibOf(stem).then((lib) => hostageCharactersOf(lib).map((c) => [c, c] as const))
+        : kind === 'door'
+        ? doorsOf(stem).then((ts) => ts.map((t) => [t.name, `${t.name.trim()} \u00b7 ${t.pieces[0]?.prop.modelName ?? '?'} \u00b7 ${t.spec.programs.map((p) => p.name).join(' + ')}`] as const))
+        : turretsOf(stem).then((ts) => ts.map((t) => [t.name, `${t.name.trim()} \u00b7 ${t.placement.weapon ?? 'no weapon'}`] as const));
+      void ask.then((list) => { copyLists[kind].set(stem, list); refreshInspector(); });
+    }
+    return null;
+  };
+  /**
+   * Each multiplayer map's doors, turrets and hostages (`./mapCensus`), counted in the background once a Map choice is
+   * first shown -- the worker reads each map once, one at a time, keeping only its counts -- so the choice lists only
+   * the maps with one of the kind to copy.
+   */
+  const censusKnown = new Map<string, MapCopies>();
+  let censusAsked = false;
+  const askCensus = (): void => {
+    if (censusAsked) return;
+    censusAsked = true;
+    const none: MapCopies = { door: [], turret: [], hostage: [], ladder: [], gate: [], barrier: [], flare: [] };
+    for (const [stem] of copyMaps()) {
+      if (absent.has(stem)) { censusKnown.set(stem, none); continue; }
+      void archives.census(stem).then((c) => { censusKnown.set(stem, c ?? none); refreshInspector(); });
+    }
+  };
+  /**
+   * A Map choice made, its placement waiting on the change (`ref` to the map chosen): the Map shows the new map at once
+   * and the choice under it "reading", until the edit lands or is refused.
+   */
+  const copyPending = new Map<string, string>();
+  /**
+   * The Map choice's change: that map's first door, turret or character -- the census's list at once, else read off the
+   * map (`first`) -- set by `apply`; a map with none refused. The Inspector redrawn meanwhile, and again when it lands.
+   */
+  const switchCopyMap = (ref: string, kind: CopyKind, stem: string, first: () => Promise<string | null>, apply: (name: string) => Promise<void>): void => {
+    copyPending.set(ref, stem);
+    refreshInspector();
+    const counted = censusKnown.get(stem)?.[kind];
+    void (counted ? Promise.resolve(counted[0]?.[0] ?? null) : first()).then(async (name) => {
+      if (name === null) { notifier.refused(`${stem} has no ${kind} to copy`); return; }
+      await apply(name);
+    }).finally(() => { copyPending.delete(ref); refreshInspector(); });
+  };
+  /** The Map choice's options for `kind`: only the maps with one to copy, each listed once counted (`censusOptions`). */
+  const mapChoices = (kind: CopyKind, current: string): (readonly [string, string])[] => {
+    askCensus();
+    const maps = copyMaps();
+    const known = (stem: string): MapCensus | null => { const c = censusKnown.get(stem); return c ? censusOfCopies(c) : null; };
+    return censusOptions(maps.some(([m]) => m === current) ? maps : [[current, current] as const, ...maps], known, kind, current);
+  };
+  /** The multiplayer maps on this disc, by stem and name: where a door or turret may be copied from. */
+  const copyMaps = (): (readonly [string, string])[] => entries.filter((e) => !e.campaign && /^MP\d+$/i.test(e.stem)).map((e) => [e.stem, `${e.stem} \u00b7 ${e.label}`] as const);
+  /**
+   * A copied door's or turret's two choices: its map, and its door or turret on that map. A map changed takes that map's
+   * first (read first, refused where it has none); either change is the planner's `placement.set` of its `model`.
+   */
+  const copyEditors = (kind: 'door' | 'turret' | 'ladder' | 'flare' | 'gate' | 'barrier', ref: string, own: { source: string; name: string }, off: boolean, set: (v: string) => Promise<void>): InspectorEditor[] => {
+    const pending = copyPending.get(ref);
+    const list = pending ? null : copyList(kind, own.source);
+    const words = kind;
+    return [
+      { label: 'Map', kind: 'select', value: pending ?? own.source, covers: [`${kind}.source`], disabled: off,
+        options: mapChoices(kind, pending ?? own.source),
+        title: `The disc map whose ${words} it copies`,
+        set: (v) => {
+          const stem = String(v);
+          const first = kind === 'gate' || kind === 'barrier'
+            ? () => accessOf(stem).then((ts) => ts.find((t) => t.kind === kind)?.name ?? null)
+            : kind === 'ladder'
+            ? () => hostageLibOf(stem).then((lib) => (lib ? ladderPropsOf(lib)[0]?.model ?? null : null))
+            : kind === 'flare'
+            ? () => flaresOf(stem).then((ts) => ts[0]?.name ?? null)
+            : () => (kind === 'door' ? doorsOf(stem) : turretsOf(stem)).then((ts) => ts[0]?.name ?? null);
+          switchCopyMap(ref, kind, stem, first, (name) => set(`${stem}:${name}`));
+        } },
+      { label: kind === 'door' ? 'Door' : kind === 'ladder' ? 'Ladder' : kind === 'flare' ? 'Flare' : kind === 'gate' ? 'Gate' : kind === 'barrier' ? 'Barrier' : 'Turret', kind: 'select', value: pending ? '' : own.name, covers: [`${kind}.name`], disabled: off || !list,
+        options: pending ? [['', `(reading ${pending}...)`]] : list ? (list.some(([n]) => n === own.name) ? list : [...list, [own.name, own.name] as const]) : [[own.name, `${own.name.trim()} (reading the map...)`]],
+        title: kind === 'flare' ? "The disc glow it copies: one facade node, the lamp it hangs on left behind" : kind === 'gate' ? "The disc gate it copies: its slide, its lever and its wreck are that gate's" : kind === 'barrier' ? "The disc access barrier it copies: its health, its parts and its wreck are that barrier's" : kind === 'door' ? "The disc door it copies: its swing and reach are that door's" : kind === 'ladder' ? "The disc ladder prop it is: its height and rungs are that ladder's" : "The disc turret it copies: its definition, weapon and limits are that turret's",
+        set: (v) => set(`${own.source}:${String(v)}`) },
+    ];
+  };
+  const inspectorEditors = (): InspectorEditor[] => {
+    const s = isGroup() || baseSelected ? null : selected;
+    if (!s) return [];
+    const ref = selectionIds()[0];
+    if (!ref) return [];
+    const off = editsLocked() || lockedOf(s);
+    const set = (field: string) => (value: string | number | boolean): void => { void entityEdit('placement.set', { ref, field, value }); };
+    const out: InspectorEditor[] = [];
+    const zone = s.userData['forgeZone'] as { w: number; d: number; name: string } | undefined;
+    const team = s.userData['forgeSpawn'] as 'A' | 'B' | undefined;
+    const npc = npcOf(s), bomb = bombKindOf(s);
+    if (zone) {
+      out.push({ label: 'Name', kind: 'text', value: zone.name, covers: ['zone.name'], disabled: off, title: 'Safety, Safety2...: the escort script finds its zones by name', set: set('name') });
+      // A scrub's live size: the marker's outline and pick box stretched (no edit; put back at 1 before the release's).
+      const sized = (axis: 'x' | 'z', own: number) => (v: number | null): void => {
+        for (const c of s.children) c.scale[axis] = v === null || !(own > 0) ? 1 : Math.max(v, 0.01) / own;
+      };
+      out.push({ label: 'Width', kind: 'number', value: zone.w, covers: ['zone.w'], disabled: off, title: 'Along x, world units', set: set('width'), preview: sized('x', zone.w) });
+      out.push({ label: 'Depth', kind: 'number', value: zone.d, covers: ['zone.d'], disabled: off, title: 'Along z, world units', set: set('depth'), preview: sized('z', zone.d) });
+    }
+    if (s.userData['forgeHostage']) {
+      const own = hostageOf(s);
+      // The characters a hostage can wear here: the base's own hostages' (a blank floor's: its library's), each once.
+      const chars = [...new Set(((baseMap ?? charMap)?.escortees ?? []).map((e) => e.character))];
+      out.push({ label: 'Name', kind: 'text', value: own.name ?? '', covers: ['hostage.name'], disabled: off, title: 'Its scene name (the disc\'s Hostage1, Hostage2...)', set: set('name') });
+      // Its map, as a door's or a turret's (a browser adaptation, FG.R2): the base (or a blank floor's library), or any
+      // multiplayer map on this disc, whose hostage character is lent to the match with its body. A map changed takes
+      // that map's first character; one with none is refused.
+      const home = (baseMap ?? charMap)?.archive ?? '';
+      const pending = copyPending.get(ref);
+      const from = pending ?? own.source ?? home;
+      out.push({ label: 'Map', kind: 'select', value: from, covers: ['hostage.source'], disabled: off,
+        options: mapChoices('hostage', from),
+        title: 'The disc map whose hostage character it wears', set: (v) => {
+          const stem = String(v);
+          const character = (value: string): Promise<void> => entityEdit('placement.set', { ref, field: 'character', value });
+          if (stem === home) switchCopyMap(ref, 'hostage', stem, () => Promise.resolve(chars[0] ?? null), character);
+          else switchCopyMap(ref, 'hostage', stem, () => hostageLibOf(stem).then((lib) => hostageCharactersOf(lib)[0] ?? null), (c) => character(`${stem}:${c}`));
+        } });
+      // Every character type that map has, by name; one never set shows the one it plays as (the map's first). A character
+      // the layout names that the map lacks stays listed, so the choice is never lost unseen.
+      const lent = !!own.source && own.source !== home;
+      const theirs = pending ? null : lent ? copyList('hostage', own.source!)?.map(([c]) => c) ?? null : chars;
+      const shown = pending ? '' : own.character ?? theirs?.[0] ?? '';
+      const listed = theirs ? (own.character && !theirs.includes(own.character) ? [...theirs, own.character] : theirs) : (shown ? [shown] : []);
+      out.push({ label: 'Character', kind: 'select', value: shown, covers: ['hostage.character'], disabled: off || listed.length === 0 || !theirs,
+        options: pending ? [['', `(reading ${pending}...)`]] : !theirs ? [[shown, `${shown} (reading the map...)`]] : listed.length ? listed.map((c) => [c, c] as const) : [['', 'No hostage characters on this map']],
+        title: 'Its body: one of the hostage characters that map has', set: (v) => set('character')(lent ? `${own.source}:${String(v)}` : String(v)) });
+    }
+    const doorOwn = s.userData['forgeDoor'] as { source: string; name: string } | undefined;
+    if (doorOwn) out.push(...copyEditors('door', ref, doorOwn, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
+    // A placed ladder: its Map and its Ladder, as a door's; either a change of the piece's asset (`placement.set` model).
+    const ladderAsset = s.userData['forgeLadder'] ? parseAssetId(String(s.userData['forgePiece'] ?? '')) : null;
+    const accessOwn = accessOwnOf(s);
+    if (accessOwn) out.push(...copyEditors(accessOwn.kind, ref, accessOwn, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
+    if (ladderAsset) out.push(...copyEditors('ladder', ref, { source: ladderAsset.archive, name: ladderAsset.model }, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
+    const flare = s.userData['forgeFlare'] as { source: string; name: string } | undefined;
+    if (flare) out.push(...copyEditors('flare', ref, flare, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
+    const turret = s.userData['forgeTurret'] as { source: string; name: string } | undefined;
+    if (turret) out.push(...copyEditors('turret', ref, turret, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
+    const point = s.userData['forgePoint'] as { name: string; kind: number } | undefined;
+    if (point) {
+      out.push({ label: 'Name', kind: 'text', value: point.name, covers: ['point.name'], disabled: off, title: 'Its first letter (C..Z) is its compass badge', set: set('name') });
+      out.push({ label: 'Kind', kind: 'number', value: point.kind, covers: ['point.kind'], disabled: off, title: '0-31; 1 a nav point the compass marks', set: set('kind') });
+    }
+    const view = s.userData['forgeView'] as { name: string; yaw: number; pitch: number } | undefined;
+    if (view) {
+      out.push({ label: 'Name', kind: 'text', value: view.name, covers: ['view.name'], disabled: off, set: set('name') });
+      out.push({ label: 'Yaw °', kind: 'number', value: Math.round(view.yaw * 10) / 10, covers: ['view.yaw'], disabled: off, title: 'The camera\'s turn (degrees, the port\'s yaw)', set: set('yaw') });
+      out.push({ label: 'Pitch °', kind: 'number', value: Math.round(view.pitch * 10) / 10, covers: ['view.pitch'], disabled: off, title: 'Down negative (degrees)', set: set('pitch') });
+    }
+    if (team) out.push({ label: 'Team', kind: 'select', value: team, options: [['A', 'SEAL (A)'], ['B', 'Terrorist (B)']], covers: ['spawn'], disabled: off, set: set('team') });
+    if (npc) {
+      out.push({ label: 'Side', kind: 'select', value: npc.side, options: [['seal', 'SEAL'], ['terrorist', 'Terrorist']], covers: ['npc.side'], disabled: off, set: set('side') });
+      const types = charMap?.types?.[npc.side] ?? [];
+      out.push({ label: 'Character', kind: 'select', value: String(npc.type), covers: ['npc.type'], disabled: off,
+        options: types.map((b, i) => [String(i), b ? charLabel(npc.side, i) : `Type ${i + 1} (not on this base)`] as const), set: (v) => set('type')(Number(v)) });
+    }
+    if (bomb && bomb !== 'start') {
+      const file = s.userData['forgeBombFile'] as { range?: number; elevation?: number } | undefined;
+      // A scrub's live reach: the gizmo redrawn at the scrubbed value (no edit; the file's again before the release's).
+      const reach = (key: 'range' | 'elevation') => (v: number | null): void => { addSiteGuide(s, v === null ? undefined : { [key]: v }); };
+      out.push({ label: 'Range', kind: 'number', value: file?.range ?? BOMB_SITE_REACH, covers: ['bombFile.range'], disabled: off, title: 'How near a planter must stand', set: set('range'), preview: reach('range') });
+      out.push({ label: 'Elevation', kind: 'number', value: file?.elevation ?? BOMB_SITE_REACH, covers: ['bombFile.elevation'], disabled: off, title: 'How far above or below', set: set('elevation'), preview: reach('elevation') });
+    }
+    out.push({ label: 'Locked', kind: 'check', value: lockedOf(s), covers: ['lock'], disabled: editsLocked(), set: () => lockToggle(s) });
+    return out;
+  };
+  const refreshInspector = (): void => { refreshInspectorFields(); showResets(); showInspectorData(inspectorDom, dataRows(inspectorData()), inspectorEditors()); };
+  resetPosition.addEventListener('click', () => {
+    const entity = inspectedEntity();
+    if (entity) { entityEdit('piece.move', { refs: [entity.ref], delta: entity.at.map((v) => -v) }); return; }
+    const s = isGroup() ? null : selected;
+    if (!s) return;
+    personEdit('piece.move', { refs: selectionIds() }, () => {
+      s.position.set(0, 0, 0);
+      refreshBox();
+      refreshInspector();
+      edit();
+    }, true);
+  });
+  resetRotation.addEventListener('click', () => {
+    const entity = inspectedEntity();
+    if (entity) { if (entity.yaw !== null) entityEdit('piece.rotate', { refs: [entity.ref], yaw: -entity.yaw }); return; }
+    const s = isGroup() ? null : selected;
+    if (!s) return;
+    personEdit('piece.rotate', { refs: selectionIds() }, () => {
+      s.quaternion.identity();
+      refreshBox();
+      refreshInspector();
+      edit();
+    }, true);
+  });
+  // STUB, as the scale fields are: record v3 keeps no scale (`transformStub`).
+  resetScale.addEventListener('click', () => say('Scale is not wired yet: a saved layout keeps no scale'));
+  /**
+   * The scrub's live preview (`./scrub`; a browser adaptation): one placement follows its position or yaw field while it
+   * is dragged, unrecorded; the release's `change` makes it one edit (the field handlers below), as a gizmo drag is.
+   * Escape puts the placement back exactly where it was (the field shows a rounded value). A group, a rules entity and
+   * the stub fields take the value at the release only.
+   */
+  let scrubOrigin: { r: Object3D; position: Vector3; quaternion: Quaternion } | null = null;
+  for (const f of [fx, fy, fz, fyaw]) {
+    f.addEventListener('fx-scrub', (e) => {
+      const s = isGroup() || baseSelected ? null : selected;
+      if (!s) return;
+      const { value, cancelled } = (e as CustomEvent<ScrubDetail>).detail;
+      if (scrubOrigin?.r !== s) scrubOrigin = { r: s, position: s.position.clone(), quaternion: s.quaternion.clone() };
+      if (cancelled) {
+        s.position.copy(scrubOrigin.position);
+        s.quaternion.copy(scrubOrigin.quaternion);
+        scrubOrigin = null;
+      } else if (f === fx) s.position.x = value; else if (f === fy) s.position.y = value; else if (f === fz) s.position.z = value;
+      else s.rotation.set(0, (value * Math.PI) / 180, 0);
+      refreshBox();
+      showResets();
+    });
+    f.addEventListener('change', () => { scrubOrigin = null; });
+  }
   for (const f of [fx, fy, fz, fyaw]) {
     f.addEventListener('change', () => {
       const entity = !selected && !isGroup() && !baseSelected && entityPicked !== null ? rulesEntityRefs().find((e) => e.ref === entityPicked) : undefined;
@@ -1975,13 +4279,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** A placement's outliner words (FUI-3: the dock's row and the START menu's Outliner screen read the same). */
   const placedLabel = (r: Object3D): string => {
     const team = r.userData['forgeSpawn'] as string | undefined, npc = npcOf(r), bomb = bombKindOf(r);
+    if (r.userData['forgeHostage']) return hostageOf(r).name ?? 'Hostage';
+    if (r.userData['forgeZone']) return zoneNameOf(r);
+    if (r.userData['forgePoint'] || r.userData['forgeView']) return pointNameOf(r);
+    if (r.userData['forgeTurret']) return turretLabel(r);
+    if (r.userData['forgeDoor']) return doorLabel(r);
+    if (accessOwnOf(r)) return accessLabel(r);
+    if (r.userData['forgeRespawn']) return `Respawn ${r.userData['forgeRespawn'] as string}`;
+    if (r.userData['forgeFlare']) return `Flare · ${(r.userData['forgeFlare'] as { name: string }).name}`;
     return bomb ? bombLabel(bomb) : npc ? `NPC · ${npc.side === 'seal' ? 'SEAL' : 'Terrorist'} ${npc.type + 1}` : team ? `Spawn ${team}` : (parseAssetId(nameOf(r))?.model ?? nameOf(r));
   };
   /** Lock a placement, or unlock it (the outliner's Lock button; FUI-3: the menu's Square on its row). */
   const lockToggle = (r: Object3D): void => {
     const locked = lockedOf(r);
     personEdit(locked ? 'piece.unlock' : 'piece.lock', {}, () => {
-      if (locked) delete r.userData['forgeLock'];
+      if (locked) { delete r.userData['forgeLock']; lockHeld = lockHeld.filter((h) => h !== r); }
       else { r.userData['forgeLock'] = true; picks.remove(r); }
       showSelection();
       edit();
@@ -2000,9 +4312,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   ];
   const entityAt = (ref: string): [number, number, number] | null => rulesEntityRefs().find((e) => e.ref === ref)?.at ?? null;
   /** FCW-32 step 4 (D4): one of the planner's edits on a rules entity by its reference, through the person's facade; a refusal said. */
-  const entityEdit = (operation: string, args: Record<string, unknown>): void => {
-    void personForge.execute(operation, args, personForge.status().revision).then((r) => { if (!r.ok) notifier.refused(r.message ?? r.code ?? 'Refused'); });
-  };
+  const entityEdit = (operation: string, args: Record<string, unknown>): Promise<void> =>
+    personForge.execute(operation, args, personForge.status().revision).then((r) => { if (!r.ok) notifier.refused(r.message ?? r.code ?? 'Refused'); });
   /** FCW-32 step 4 (D4): a rules entity picked from its row (the placements let go), or none; the Inspector names it. */
   const pickEntity = (ref: string | null): void => {
     entityPicked = ref;
@@ -2010,21 +4321,105 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     showSelection();
     drawRulesScene();
   };
+  /**
+   * The Outliner's tree: two roots -- Map Data (the base map's props and spawn slots) and User Data (the layout's props,
+   * spawns, NPCs, objectives and rules entities) -- and their branches, each folded or open. The disc's spawn slots start
+   * folded: 48 rows on most maps.
+   */
+  // A branch's key; the rest of the map data's branches (`./mapData`) are `map:<kind>`, folded until opened.
+  type OutlinerBranch = string;
+  const outlinerExpanded: Record<OutlinerBranch, boolean> = {
+    mapData: true, userData: true, mapProps: true, spawnSlots: false,
+    userProps: true, userSpawns: true, userRespawns: true, userNpcs: true, userEscortees: true, userTacZones: true, userTacPoints: true, userScenicViews: true, userTurrets: true, userDoors: true, userLadders: true, userFlares: true, userGates: true, userObjectives: true, userActions: true, rules: true,
+  };
+  let mapRangeAnchor: string | null = null;
+  let userRangeAnchor: Object3D | null = null;
+  const mapPropPlacements = (): { placement: Placement; model: string }[] => {
+    if (!baseMap) return [];
+    const seen = new Set<string>();
+    const result: { placement: Placement; model: string }[] = [];
+    for (const prop of baseMap.props) {
+      if (prop.facade !== 0) continue;
+      for (let index = 0; index < prop.matrices.length / 16; index++) {
+        const placement = placementOf(baseMap, prop.modelName, prop.matrices.subarray(index * 16, index * 16 + 16));
+        if (!placement || seen.has(placement.key)) continue;
+        seen.add(placement.key);
+        result.push({ placement, model: prop.modelName });
+      }
+    }
+    return result;
+  };
+  const outlinerItemCount = (): number => {
+    const placements = mapPropPlacements();
+    const keys = new Set(placements.map(({ placement }) => placement.key));
+    const orphanedHidden = [...hiddenKeys].filter((key) => !keys.has(key)).length;
+    return roots.length + placements.length + orphanedHidden + rulesEntityRefs().length + (baseContentProps?.children.length ?? 0);
+  };
+  const resolveMapProp = (placement: Placement, model: string): BaseProp | null => {
+    if (!baseView) return null;
+    baseView.group.updateMatrixWorld(true);
+    const matches: { object: Mesh; matrix: Matrix4 }[] = [];
+    baseView.group.traverse((candidate) => {
+      if (matches.length || !(candidate instanceof Mesh)) return;
+      const source = candidate.userData['forgeBaseProp'] as { prop?: number; index?: number } | undefined;
+      if (source?.prop !== placement.prop) return;
+      const world = new Matrix4();
+      if (candidate instanceof InstancedMesh) {
+        if (placement.index >= candidate.count) return;
+        candidate.getMatrixAt(placement.index, world);
+        world.premultiply(candidate.matrixWorld);
+      } else {
+        if (source.index !== placement.index) return;
+        world.copy(candidate.matrixWorld);
+      }
+      matches.push({ object: candidate, matrix: world });
+    });
+    const match = matches[0];
+    if (!match) {
+      return null;
+    }
+    const { object, matrix } = match;
+    return { ...placement, model, object, instance: object instanceof InstancedMesh ? placement.index : null, matrix, box: basePropBox(object, matrix) };
+  };
+  const selectMapProp = (placement: Placement, model: string, mode: 'only' | 'toggle' | 'add' = 'only'): BaseProp | null => {
+    const prop = resolveMapProp(placement, model);
+    if (!prop) {
+      say(`Cannot select map prop ${model}: its rendered placement is unavailable`, true);
+      return null;
+    }
+    if (mode === 'only') { picks.clear(); basePicks.only(prop); }
+    else if (mode === 'toggle') { picks.clear(); basePicks.toggle(prop); }
+    else basePicks.add(prop);
+    entityPicked = null;
+    showSelection();
+    return prop;
+  };
   const drawOutliner = (): void => {
     const q = outlinerSearch.value.trim().toLowerCase();
     const want = outlinerFilter.value;
-    const rows = roots.flatMap((r, i) => {
+    const userRows = roots.flatMap((r, i) => {
       const team = r.userData['forgeSpawn'] as string | undefined;
       const npc = npcOf(r);
       const bomb = bombKindOf(r);
       const missing = r.userData['forgeMissing'] === true;
-      const kind = missing ? 'missing' : bomb ? 'objectives' : team ? 'spawns' : npc ? 'npcs' : 'pieces';
-      if (want === 'hidden') return [];
-      if (want === 'pieces' ? kind !== 'pieces' && kind !== 'missing' : want !== 'all' && kind !== want) return [];
+      // A plant site is a context action (MPBOMB), as the map's tents: the Context Actions branch; the start Bomb Start's.
+      const kind = missing ? 'missing' : bomb === 'start' ? 'objectives' : bomb ? 'actions' : r.userData['forgeHostage'] ? 'hostages' : r.userData['forgeZone'] ? 'zones' : r.userData['forgePoint'] ? 'points' : r.userData['forgeView'] ? 'views' : r.userData['forgeTurret'] ? 'turrets' : r.userData['forgeDoor'] ? 'doors' : r.userData['forgeGate'] ? 'gates' : r.userData['forgeBarrier'] ? 'actions' : r.userData['forgeLadder'] ? 'ladders' : r.userData['forgeFlare'] !== undefined ? 'flares' : r.userData['forgeRespawn'] ? 'respawns' : team ? 'spawns' : npc ? 'npcs' : 'pieces';
+      if (want === 'hidden' || want === 'map') return [];
+      if (want === 'pieces' ? kind !== 'pieces' && kind !== 'missing'
+        : want === 'objectives' ? kind !== 'objectives' && kind !== 'actions' : want !== 'all' && kind !== want) return [];
       const label = placedLabel(r);
       if (q && !label.toLowerCase().includes(q) && !nameOf(r).toLowerCase().includes(q)) return [];
       const li = el(doc, 'li');
-      li.innerHTML = `${icon(bomb ? 'bomb' : npc ? 'npc' : team ? 'spawn' : 'place')}`;
+      li.dataset['userProp'] = String(i);
+      li.dataset['userKind'] = kind;                          // its branch under User Data
+      // A row wears its placement's billboard (`markBadge`: an NPC's N too); a missing piece keeps its warning.
+      // The row's badge is its placement's billboard (`syncUserBillboards`' own call): a hostage's H, a zone's Z, too.
+      const hostage = !!r.userData['forgeHostage'], zone = !!r.userData['forgeZone'];
+      const markKind = missing ? null : userMarkKind({
+        piece: !!r.userData['forgePiece'], npc: !!npc, bomb, hostage, zone, point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'], ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'], ...(team === 'A' || team === 'B' ? { team } : {}),
+        ...(r.userData['forgeRespawn'] === 'A' || r.userData['forgeRespawn'] === 'B' ? { respawn: r.userData['forgeRespawn'] as 'A' | 'B' } : {}),
+      });
+      li.innerHTML = markKind ? markBadge(markKind) : icon('place');
       li.classList.toggle('fx-team-a', team === 'A');
       li.classList.toggle('fx-team-b', team === 'B');
       li.classList.toggle('fx-bomb', bomb === 'start');
@@ -2043,11 +4438,34 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         lockToggle(r);
       });
       li.append(lock);
-      // FG-47: Shift or Ctrl adds the row to the selection, or takes it out; a plain click selects it alone.
+      // Shift selects a contiguous range; Ctrl / Meta toggles one placement.
       // FG-49: a locked placement is not selected from its row; the lock button is the way back.
       li.addEventListener('click', (e) => {
         if (lockedOf(r)) return;
-        if (e.shiftKey || e.ctrlKey || e.metaKey) { picks.toggle(r); showSelection(); } else select(r);
+        const toggle = e.ctrlKey || e.metaKey;
+        if (e.shiftKey) {
+          const visible = userRows.flatMap((row) => {
+            const root = roots[Number(row.dataset['userProp'])];
+            return root && !lockedOf(root) ? [root] : [];
+          });
+          const from = userRangeAnchor ? visible.indexOf(userRangeAnchor) : -1;
+          const to = visible.indexOf(r);
+          if (to < 0) return;
+          const start = from < 0 ? to : Math.min(from, to);
+          const end = from < 0 ? to : Math.max(from, to);
+          picks.clear();
+          basePicks.clear();
+          picks.addAll(visible.slice(start, end + 1));
+          entityPicked = null;
+          showSelection();
+        } else if (toggle) {
+          userRangeAnchor = r;
+          picks.toggle(r);
+          showSelection();
+        } else {
+          userRangeAnchor = r;
+          select(r);
+        }
       });
       li.addEventListener('dblclick', () => focusOn(r));
       return [li];
@@ -2076,23 +4494,199 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       li.addEventListener('dblclick', () => { const at = entityAt(ref); if (at) lookAtPoint(at); });
       return [li];
     }) : [];
-    outliner.replaceChildren(...rows, ...entityRows);
-    const showHidden = want === 'all' || want === 'hidden';
-    const hiddenShown = showHidden ? [...hiddenKeys].sort().filter((k) => !q || k.toLowerCase().includes(q)) : [];
-    if (rows.length === 0 && entityRows.length === 0 && hiddenShown.length === 0) {
-      outliner.append(el(doc, 'li', 'fx-empty', roots.length === 0 && hiddenKeys.size === 0 && rulesEntityRefs().length === 0
-        ? 'Nothing placed yet: choose a prop or a spawn tool, then click the world' : 'Nothing matches'));
+    const mapRows: HTMLLIElement[] = [];
+    const mapPlacements = mapPropPlacements();
+    const seenMapProps = new Set(mapPlacements.map(({ placement }) => placement.key));
+    if (baseMap && baseView && want !== 'pieces' && want !== 'spawns' && want !== 'npcs' && want !== 'objectives' && want !== 'missing' && want !== 'rules') {
+      const modelOrdinals = new Map<string, number>();
+      for (const { placement, model } of mapPlacements) {
+        const ordinal = (modelOrdinals.get(model) ?? 0) + 1;
+        modelOrdinals.set(model, ordinal);
+        const hidden = hiddenKeys.has(placement.key);
+        if (want === 'hidden' && !hidden) continue;
+        if (q && !`${model} ${placement.key}`.toLowerCase().includes(q)) continue;
+        const li = el(doc, 'li', hidden ? 'fx-hidden-prop' : '');
+        li.dataset['mapProp'] = placement.key;
+        li.innerHTML = hidden ? icon('trash') : markBadge('mapProps');   // a map prop's billboard (M); hidden, the bin
+        li.append(el(doc, 'span', '', model), el(doc, 'span', 'fx-dim', hidden ? 'hidden \u00b7 show' : `#${ordinal}`));
+        li.title = hidden ? `${placement.key}: hidden in this layout; click to show it again` : `${model} · ${placement.key}`;
+        li.classList.toggle('is-on', basePicks.items.some((picked) => picked.key === placement.key));
+        li.addEventListener('click', (e) => {
+          if (hidden) { showHiddenProp(placement.key); return; }
+          const toggle = e.ctrlKey || e.metaKey;
+          if (e.shiftKey) {
+            const visible = mapRows.flatMap((row) => {
+              const key = row.dataset['mapProp'];
+              if (!key || hiddenKeys.has(key)) return [];
+              const item = mapPlacements.find(({ placement: candidate }) => candidate.key === key);
+              return item ? [item] : [];
+            });
+            const from = mapRangeAnchor ? visible.findIndex(({ placement: candidate }) => candidate.key === mapRangeAnchor) : -1;
+            const to = visible.findIndex(({ placement: candidate }) => candidate.key === placement.key);
+            if (to < 0) return;
+            const start = from < 0 ? to : Math.min(from, to);
+            const end = from < 0 ? to : Math.max(from, to);
+            const selectedProps = visible.slice(start, end + 1).flatMap(({ placement: candidate, model: candidateModel }) => {
+              const item = resolveMapProp(candidate, candidateModel);
+              if (!item) say(`Cannot select map prop ${candidateModel}: its rendered placement is unavailable`, true);
+              return item ? [item] : [];
+            });
+            picks.clear();
+            basePicks.clear();
+            basePicks.addAll(selectedProps);
+            entityPicked = null;
+            showSelection();
+          } else {
+            mapRangeAnchor = placement.key;
+            const prop = selectMapProp(placement, model, toggle ? 'toggle' : 'only');
+            if (prop && e.detail > 1) focusOnBounds(prop.box);
+          }
+        });
+        li.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          const prop = selectMapProp(placement, model);
+          if (prop) focusOnBounds(prop.box);
+        });
+        mapRows.push(li);
+      }
     }
-    if (hiddenShown.length) {
-      outliner.append(el(doc, 'li', 'fx-sep'));
-      for (const k of hiddenShown) {
+    const authoredMapRows = (baseContentProps?.children ?? []).flatMap((object) => {
+      const owner = object.userData['forgeBaseProp'];
+      const label = typeof owner === 'string' ? owner.split('/').pop() ?? owner : 'Map prop';
+      if ((want !== 'all' && want !== 'map') || (q && !label.toLowerCase().includes(q))) return [];
+      const li = el(doc, 'li', 'fx-content-map-prop');
+      li.innerHTML = icon('place');
+      li.append(el(doc, 'span', '', label), el(doc, 'span', 'fx-dim', 'map'));
+      li.title = 'Authored map prop; its placement belongs to the map';
+      li.addEventListener('click', () => focusOn(object));
+      li.addEventListener('dblclick', () => focusOn(object));
+      return [li];
+    });
+    mapRows.push(...authoredMapRows);
+    if (want === 'all' || want === 'hidden') {
+      for (const key of [...hiddenKeys].sort()) {
+        if (seenMapProps.has(key) || (q && !key.toLowerCase().includes(q))) continue;
         const li = el(doc, 'li', 'fx-hidden-prop');
         li.innerHTML = icon('trash');
-        li.append(el(doc, 'span', '', k.split('@')[0]!), el(doc, 'span', 'fx-dim', 'hidden \u00b7 show'));
-        li.title = `${k}: a map prop hidden in this layout; click to show it again`;
-        li.addEventListener('click', () => showHiddenProp(k));
-        outliner.append(li);
+        li.append(el(doc, 'span', '', key.split('@')[0]!), el(doc, 'span', 'fx-dim', 'hidden \u00b7 show'));
+        li.title = `${key}: a map prop hidden in this layout; click to show it again`;
+        li.addEventListener('click', () => showHiddenProp(key));
+        mapRows.push(li);
       }
+    }
+    /**
+     * A map data row's presses (read only): a click selects it (`selectMapData`); a second click in a row -- a
+     * double-click -- frames it (the row is redrawn by the first, so the count is read, as the map props' rows read it).
+     */
+    const mapDataRow = (li: HTMLLIElement, key: string): void => {
+      li.classList.toggle('is-on', mapDataSelected?.key === key);
+      li.addEventListener('click', (e) => {
+        selectMapData(key);
+        const item = mapDataIndex.get(key);
+        if (item && e.detail > 1) frameMapData(item);
+      });
+      li.addEventListener('dblclick', () => { const item = mapDataIndex.get(key); if (item) frameMapData(item); });
+    };
+    // The map's own data (a browser adaptation, FG.R2): the disc's spawn slots, read only -- a row each, selected and
+    // framed as any map data (`mapDataRow`), its key its billboard's (`slot:A1`).
+    const slotRows = baseMap && (want === 'all' || want === 'spawns') ? spawnSlotRows(baseMap.slots).flatMap((s) => {
+      if (q && !`${s.label} ${s.key}`.toLowerCase().includes(q)) return [];
+      const li = el(doc, 'li', 'fx-spawn-slot');
+      li.dataset['spawnSlot'] = s.key;
+      li.innerHTML = markBadge(s.key.startsWith('A') ? 'slotA' : 'slotB');   // the slot's billboard, its side's colour
+      li.append(el(doc, 'span', '', s.label));                 // its place and facing in its tooltip only
+      li.title = s.title.replace('click to look at it', 'click to select, double-click to frame');
+      mapDataRow(li, `slot:${s.key}`);
+      return [li];
+    }) : [];
+    /**
+     * A branch of the tree: its rows (or its own branches, `count` then the rows under them) behind a toggle, folded or
+     * not by `outlinerExpanded`; `empty` the line when it holds nothing.
+     */
+    const branch = (key: OutlinerBranch, label: string, rows: HTMLLIElement[], empty: string, count = rows.length): HTMLLIElement => {
+      const item = el(doc, 'li', 'fx-tree-branch');
+      item.dataset['treeBranch'] = key;
+      const toggle = el(doc, 'button', 'fx-tree-toggle');
+      toggle.type = 'button';
+      const open = outlinerExpanded[key] ?? false;
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.append(el(doc, 'span', 'fx-tree-caret', open ? '\u25be' : '\u25b8'),
+        el(doc, 'span', '', `${label} (${count})`));
+      const children = el(doc, 'ul', 'fx-outliner-children');
+      children.hidden = !open;
+      children.append(...(rows.length ? rows : [el(doc, 'li', 'fx-empty', empty)]));
+      toggle.addEventListener('click', () => { outlinerExpanded[key] = !open; drawOutliner(); });
+      item.append(toggle, children);
+      return item;
+    };
+    /** A root of the tree (Map Data, User Data): its branches, its count the rows under them. */
+    const rootBranch = (key: OutlinerBranch, label: string, kids: { item: HTMLLIElement; count: number }[], empty: string): HTMLLIElement =>
+      branch(key, label, kids.map((k) => k.item), empty, kids.reduce((n, k) => n + k.count, 0));
+    const sub = (key: OutlinerBranch, label: string, rows: HTMLLIElement[], empty: string): { item: HTMLLIElement; count: number } =>
+      ({ item: branch(key, label, rows, empty), count: rows.length });
+    const byKind = (...kinds: string[]): HTMLLIElement[] => userRows.filter((r) => kinds.includes(r.dataset['userKind'] ?? ''));
+    const nothing = q ? 'No matches' : undefined;
+
+    // Map Data: the base map's own -- its props and its spawn slots.
+    const mapKids: { item: HTMLLIElement; count: number }[] = [];
+    if (want === 'all' || want === 'map' || want === 'hidden') {
+      mapKids.push(sub('mapProps', 'Props', mapRows, want === 'hidden' ? 'No hidden map props'
+        : nothing ?? (baseMap || baseContentProps ? 'No map props' : 'Load a map to see its props')));
+    }
+    // The spawn slots only on a map that has them (a blank floor has none).
+    if ((want === 'all' || want === 'spawns') && baseMap?.slots.length) {
+      mapKids.push(sub('spawnSlots', 'Spawns', slotRows, nothing ?? 'No spawn slots'));
+    }
+    // The rest of the map's own data (`./mapData`), a branch a kind the map has, read only: a click selects a row, a
+    // double-click frames it (a zone from far enough back to see it whole; a spectator view through its own camera).
+    if (want === 'all' && baseMap) {
+      for (const g of mapDataGroups(mapDataSource(baseMap), floorUnder)) {
+        const rows = g.rows.flatMap((row) => {
+          if (q && !row.label.toLowerCase().includes(q)) return [];
+          const li = el(doc, 'li', 'fx-map-data');
+          li.dataset['mapData'] = row.key;
+          li.innerHTML = markBadge(row.kind ?? g.key);              // the kind's billboard (D a door, V a view, Rs / Rt...)
+          li.append(el(doc, 'span', '', row.label));
+          li.title = row.title.replace(/click to (look at|look through) it/, 'click to select, double-click to frame');
+          mapDataRow(li, row.key);
+          return [li];
+        });
+        if (rows.length || !q) mapKids.push(sub(`map:${g.key}`, g.label, rows, 'None'));
+      }
+    }
+    // User Data: what the layout places -- its props, its spawns, its NPCs and objectives where it has some, its rules.
+    const userKids: { item: HTMLLIElement; count: number }[] = [];
+    const userView = want === 'all' || want === 'pieces' || want === 'spawns' || want === 'npcs' || want === 'objectives' || want === 'missing';
+    if (userView && want !== 'spawns' && want !== 'npcs' && want !== 'objectives') {
+      userKids.push(sub('userProps', 'Props', byKind('pieces', 'missing'), nothing ?? 'Nothing placed yet: choose a prop, then click the world'));
+    }
+    if (want === 'all' || want === 'spawns') userKids.push(sub('userSpawns', 'Spawns', byKind('spawns'), nothing ?? 'No spawns: the Spawn SEAL and Spawn Terrorist tools place them'));
+    const respawnRows = byKind('respawns');
+    if (want === 'all' && respawnRows.length) userKids.push(sub('userRespawns', 'Respawn Points', respawnRows, nothing ?? 'No respawn points'));
+    const npcRows = byKind('npcs'), objectiveRows = byKind('objectives'), actionRows = byKind('actions'), hostageRows = byKind('hostages'), zoneRows = byKind('zones'), pointRows = byKind('points'), viewRows = byKind('views'), turretRows = byKind('turrets'), doorRows = byKind('doors'), ladderRows = byKind('ladders'), gateRows = byKind('gates');
+    if (want === 'npcs' || (want === 'all' && npcRows.length)) userKids.push(sub('userNpcs', 'NPCs', npcRows, nothing ?? 'No NPCs'));
+    if (want === 'all' && hostageRows.length) userKids.push(sub('userEscortees', 'Hostages', hostageRows, nothing ?? 'No hostages'));
+    if (want === 'all' && zoneRows.length) userKids.push(sub('userTacZones', 'Tactical Zones', zoneRows, nothing ?? 'No extraction zones'));
+    if (want === 'all' && doorRows.length) userKids.push(sub('userDoors', 'Doors', doorRows, nothing ?? 'No doors'));
+    if (want === 'all' && ladderRows.length) userKids.push(sub('userLadders', 'Ladders', ladderRows, nothing ?? 'No ladders'));
+    const flareRows = byKind('flares');
+    if (want === 'all' && flareRows.length) userKids.push(sub('userFlares', 'Flares', flareRows, nothing ?? 'No flares'));
+    if (want === 'all' && gateRows.length) userKids.push(sub('userGates', 'Gates', gateRows, nothing ?? 'No gates'));
+    if (want === 'all' && turretRows.length) userKids.push(sub('userTurrets', 'Turrets', turretRows, nothing ?? 'No turrets'));
+    if (want === 'all' && pointRows.length) userKids.push(sub('userTacPoints', 'Tactical Points', pointRows, nothing ?? 'No tactical points'));
+    if (want === 'all' && viewRows.length) userKids.push(sub('userScenicViews', 'Spectator Views', viewRows, nothing ?? 'No spectator views'));
+    if (want === 'objectives' || (want === 'all' && objectiveRows.length)) userKids.push(sub('userObjectives', 'Bomb Start', objectiveRows, nothing ?? 'No bomb start: the Bomb tool places it'));
+    if (want === 'objectives' || (want === 'all' && actionRows.length)) userKids.push(sub('userActions', 'Context Actions', actionRows, nothing ?? 'No bomb sites: the Site SEAL and Site Terrorist tools place them'));
+    if (want === 'all' || want === 'rules') userKids.push(sub('rules', 'Rules', entityRows, nothing ?? 'No rules entities'));
+
+    const treeRoots: HTMLLIElement[] = [];
+    if (mapKids.length) treeRoots.push(rootBranch('mapData', 'Map Data', mapKids, 'No map data'));
+    if (userKids.length) treeRoots.push(rootBranch('userData', 'User Data', userKids, 'Nothing placed yet'));
+    outliner.replaceChildren(...treeRoots);
+    // A branch holding a selected row, folded or not, is drawn as holding the selection: its word in the selection's
+    // colour, so a folded tree still shows where the selection is.
+    for (const b of outliner.querySelectorAll<HTMLLIElement>('li.fx-tree-branch')) {
+      b.classList.toggle('has-selected', b.querySelector('li.is-on:not(.fx-tree-branch)') !== null);
     }
   };
   const refreshCounts = (): void => {
@@ -2111,9 +4705,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const TOOL_NOTES: Partial<Record<Mode, string>> = {
     spawnA: 'A team A spawn: it faces the way you look',
     spawnB: 'A team B spawn: it faces the way you look',
+    hostage: 'A hostage, beside the map\'s own: Escort and Extraction play them',
+    zone: 'An extraction zone (Safety, Safety2...), beside the map\'s own: Extraction plays them',
+    door: "A door: a copy of a disc map's own (its swing, its reach), its hinge at the click; the rotate gizmo turns it",
+    turret: "A turret: a copy of a disc map's own (its definition, weapon and limits), facing the way you look",
+    ladder: "A ladder: a disc map's own ladder prop, its foot at the click, facing the way you look; climbable in Play",
+    flare: "A flare: one of a disc map's glows (its facade node alone), turned to the camera; the Inspector's Map and Flare change it",
+    gate: "A gate: a copy of a disc map's own, its lever prompt at the gate; the lever slides it, C4 or an RPG wrecks it",
+    barrier: "A C4 barrier (a context action): a copy of a disc map's own access barrier, wrecked by C4 or an RPG",
+    point: 'A tactical point (Charlie, Delta...): kind 1 a nav point the compass marks by its first letter',
+    view: 'A spectator view: a click takes the camera\'s own place and look (the spectator steps through them)',
     bomb: 'The bomb\'s start: one start, and placing again replaces it',
     siteSeal: 'The site the SEALs plant at: one a team',
     siteTerrorist: 'The site the Terrorists plant at: one a team',
+    respawnA: "A SEAL respawn point: where the SEALs respawn, beside the map's own; facing the way you look",
+    respawnB: "A Terrorist respawn point: where the Terrorists respawn, beside the map's own; facing the way you look",
   };
   /** The legend's context; FUI-3: set in full once the menu and the match exist (below), the editor's tool until then. */
   let legendNow = (): LegendContext => ({ kind: 'build', tool: mode, selection: 0 });
@@ -2138,7 +4744,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawLegendNow();
     statusChips.update();                                     // FUI-4: Build / Walk / Play
     sMode.textContent = playing ? 'PLAY' : entityTool ? `PLACE ${entityTool.toUpperCase()}`
-      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', npc: 'NPC', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST' } as const)[mode];
+      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'C4 BARRIER', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST' } as const)[mode];
   };
   /**
    * The selection drawn (FG-47): the single selection's `selected` / `baseSelected` derived, the gizmo on the one
@@ -2147,52 +4753,180 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const showSelection = (): void => {
     // FCW-32 step 4 (D4): a placement picked lets a picked rules entity go.
     if (entityPicked !== null && picks.size + basePicks.size > 0) { entityPicked = null; drawRulesScene(); }
+    // Any other selection lets a selected map data item go.
+    if (mapDataSelected && (picks.size + basePicks.size > 0 || entityPicked !== null)) mapDataSelected = null;
+    if (picks.size + basePicks.size > 0 || entityPicked !== null) lockHeld = [];   // another selection lets the just-locked go
     selected = picks.size === 1 && basePicks.size === 0 ? picks.items[0]! : null;
     baseSelected = basePicks.size === 1 && picks.size === 0 ? basePicks.items[0]! : null;
-    const on = selected ?? (isGroup() && picks.size > 0 ? pivot : null);
+    // A prop being re-placed follows the cursor: no gizmo on it meanwhile.
+    const on = replacing ? null : selected ?? (baseSelected ? mapPropProxy : isGroup() && picks.size > 0 ? pivot : null);
+    if (baseSelected) {
+      mapPropProxy.matrix.copy(baseSelected.matrix);
+      mapPropProxy.matrix.decompose(mapPropProxy.position, mapPropProxy.quaternion, mapPropProxy.scale);
+      mapPropProxy.updateMatrixWorld(true);
+    }
     if (on) {
       if (on === pivot) placePivot();
       if (gizmo.object !== on) gizmo.attach(on);
-      // FG.R10: a piece turns about the vertical only. The tilt rings stay off, so a reload cannot drop a tilt the record does not keep.
-      gizmo.showX = gizmo.mode !== 'rotate';
-      gizmo.showZ = gizmo.mode !== 'rotate';
+      // FG.R10: a piece turns about the vertical only. Every ring is drawn (pitch, roll and the free turn to come), but a
+      // grab of any but yaw is a stub (`tiltRingStub`), so a reload cannot drop a tilt the record does not keep.
+      gizmo.showX = true;
+      gizmo.showZ = true;
     } else gizmo.detach();
     dupBtn.disabled = picks.size === 0;
     delBtn.disabled = picks.size + basePicks.size === 0 && entityPicked === null;   // FCW-32 step 4: an entity's row too
-    lockBtn.disabled = picks.size === 0 || editsLocked();
+    const unlocking = picks.size === 0 && lockHeld.length > 0;
+    lockBtn.disabled = (picks.size === 0 && !unlocking) || editsLocked();
+    lockBtn.textContent = unlocking ? 'Unlock' : 'Lock';
+    lockBtn.classList.toggle('is-on', unlocking);
+    lockBtn.title = unlocking
+      ? 'Unlock: it can be selected and moved again'
+      : 'Lock the selection: it cannot be selected or moved until it is unlocked here or in the outliner';
     refreshBox();
     refreshInspector();
     drawOutliner();
+    highlightSelectionMark();                                  // a selected map data item's mark, or a map prop's
   };
   /** That one alone (a plain click), or nothing selected (Circle's tap, Esc): the group cleared. */
   const lockedOf = (r: Object3D): boolean => r.userData['forgeLock'] === true;
   const select = (o: Object3D | null): void => {
     if (o && lockedOf(o)) return;
+    if (o === null) lockHeld = [];                            // a deselect lets the just-locked go
+    if (o === null && mapDataSelected) { mapDataSelected = null; mapBillboards.highlight(null); }   // and a map data item
+    if (replacing && o !== replacing.r) { endReplace(true); setMode('select'); }   // another selection: the re-placed prop back
     // FCW-32 step 4 fold F3: nothing selected drops a picked rules entity too (Circle, Escape, a click on empty ground).
     if (o === null && entityPicked !== null) { entityPicked = null; drawRulesScene(); }
     picks.only(o);
     basePicks.clear();
     showSelection();
   };
+  /**
+   * One of the base map's own data items selected by its key (its Outliner row, its billboard): every other selection
+   * let go, its billboard drawn larger, the Inspector naming it -- read only, nothing to move.
+   */
+  const selectMapData = (key: string): void => {
+    const item = mapDataIndex.get(key);
+    if (!item) return;
+    if (replacing) { endReplace(true); setMode('select'); }
+    lockHeld = [];
+    picks.clear();
+    basePicks.clear();
+    if (entityPicked !== null) { entityPicked = null; drawRulesScene(); }
+    mapDataSelected = item;
+    mapBillboards.highlight(item.key);
+    showSelection();
+  };
+  /** The camera on a map data item: a spectator view's own pose, else a look at its place from far enough to see it. */
+  const frameMapData = (item: BillboardSpec): void => {
+    if (item.view) { fly.setPose(item.view); return; }
+    const [x, y, z] = item.at;
+    const back = item.reach ?? 0;
+    fly.lookFrom([x + 60 + back * 0.6, y + 45 + back * 0.5, z + 60 + back * 0.6], [x, y + 5, z]);
+  };
   const focusOn = (r: Object3D): void => {
-    const b = new Box3().setFromObject(r);
+    focusOnBounds(new Box3().setFromObject(r));
+  };
+  const focusOnBounds = (b: Box3): void => {
+    if (b.isEmpty()) return;
     const c = b.getCenter(new Vector3());
     const reach = Math.max(80, b.getSize(new Vector3()).length() * 1.4);
-    const dir = fly.camera.getWorldDirection(new Vector3());
+    const dir = fly.viewportCamera().getWorldDirection(new Vector3());
     fly.lookFrom([c.x - dir.x * reach, c.y - dir.y * reach + reach * 0.3, c.z - dir.z * reach], [c.x, c.y, c.z]);
   };
+  /**
+   * The selection shown in the Outliner: every branch above a selected row unfolded, the tree redrawn, and the first
+   * selected row scrolled into sight. A row the search or the type filter leaves out is not drawn, so not revealed.
+   */
+  const revealSelectionInOutliner = (): void => {
+    let opened = false;
+    for (const row of outliner.querySelectorAll<HTMLLIElement>('li.is-on:not(.fx-tree-branch)')) {
+      for (let b = row.parentElement?.closest<HTMLLIElement>('li.fx-tree-branch'); b; b = b.parentElement?.closest<HTMLLIElement>('li.fx-tree-branch')) {
+        const key = b.dataset['treeBranch'];
+        if (key && outlinerExpanded[key] !== true) { outlinerExpanded[key] = true; opened = true; }
+      }
+    }
+    if (opened) drawOutliner();
+    outliner.querySelector<HTMLElement>('li.is-on:not(.fx-tree-branch)')?.scrollIntoView?.({ block: 'nearest' });
+  };
+  const frameSelection = (): void => {
+    revealSelectionInOutliner();                               // F shows the selection in the tree too
+    // F (and the menu's row) frames a selected map data item as its double-click does.
+    if (mapDataSelected && picks.size + basePicks.size === 0) { frameMapData(mapDataSelected); return; }
+    const bounds = new Box3();
+    for (const prop of basePicks.items) bounds.union(prop.box);
+    for (const root of picks.items) bounds.union(new Box3().setFromObject(root));
+    focusOnBounds(bounds);
+  };
   const setMode = (m: Mode): void => {
+    // A tool the layout's game type does not play (`refreshModeTools`): its key or the pad's row refused, and said.
+    if (modeBtns[m].disabled && modeBtns[m].dataset['forgeModeOff'] === 'true') {
+      const types = MODE_TOOL_TYPES[m];
+      notifier.refused(types ? modeToolWhy(types) : 'This tool is off for this game type');
+      return;
+    }
+    if (m !== mode) toolTurn = 0;                              // a tool's wheel turn is that tool's
     if (entityTool !== null) { entityTool = null; rulesChanged(); }   // FCW-32 step 4: another tool ends the entity's place mode
+    if (replacing && m !== 'place') endReplace(true);         // another tool puts a re-placed prop back
     mode = m;
     for (const [k, b] of Object.entries(modeBtns)) b.classList.toggle('is-on', k === m);
     input.classList.toggle('is-placing', m !== 'select');
     refreshHint();
     syncGhost();
   };
-  const setGizmo = (m: 'translate' | 'rotate'): void => {
+  /** The re-place ended: the prop put back where it was (`restore`), or left where it is; the surfaces with it again. */
+  const endReplace = (restore: boolean): void => {
+    const was = replacing;
+    if (!was) return;
+    replacing = null;
+    if (restore && roots.includes(was.r)) { was.r.position.copy(was.position); was.r.quaternion.copy(was.quaternion); }
+    refreshPlacementGround();
+    refreshBox();
+  };
+  /** The one placed user prop the Place tool can pick up: the single selection, a piece, unlocked, edits open. */
+  const replaceable = (): Object3D | null => {
+    const s = selected;
+    return s && !isGroup() && !baseSelected && s.userData['forgePiece'] && !lockedOf(s) && !editsLocked() && !playing ? s : null;
+  };
+  /**
+   * The Place tool, from its button or its key: with one placed user prop selected it picks that prop up (`replacing`) --
+   * it follows the cursor on the surface below, a click puts it down, Escape puts it back; with none, the Place tool as
+   * it always was (the chosen prop's ghost).
+   */
+  const enterPlace = (): void => {
+    const r = replacing ? null : replaceable();
+    if (!r) { setMode('place'); return; }
+    replacing = { r, position: r.position.clone(), quaternion: r.quaternion.clone(), before: selectionIds() };
+    refreshPlacementGround();                                  // its own hull out of the surfaces it rests on
+    setMode('place');
+    showSelection();                                           // no gizmo while it follows the cursor
+    say(`placing ${nameOf(r)}: click to put it down · the wheel turns it · Esc puts it back`);
+  };
+  /**
+   * The re-placed prop put down at `at`: one Move, it selected, then the Place tool on its asset -- more copies placed as
+   * a click in the asset browser would place them. A pack's piece (its reference is not the asset key `chosen` holds) or a
+   * missing one's stand-in has no such Place tool: the Select tool then.
+   */
+  const commitReplace = (at: Vector3): void => {
+    const was = replacing;
+    if (!was) return;
+    seatOn(was.r, at);
+    endReplace(false);
+    const asset = was.r.userData['forgePiece'] as string;
+    const again = !asset.startsWith(PACK_ASSET_PREFIX) && !was.r.userData['forgeMissing'];
+    personEdit('piece.move', { refs: selectionIds() }, () => {
+      setMode('select');
+      select(was.r);
+      refreshBox();
+      edit(was.before);
+      if (again) choosePaletteRow(asset);                      // place more of it, as from the asset browser
+      say(again ? `placed ${nameOf(was.r)} · click to place another · Esc stops` : `placed ${nameOf(was.r)}`);
+    }, true);
+  };
+  const setGizmo = (m: 'translate' | 'rotate' | 'scale'): void => {
     gizmo.setMode(m);
     moveBtn.classList.toggle('is-on', m === 'translate');
     turnBtn.classList.toggle('is-on', m === 'rotate');
+    scaleBtn.classList.toggle('is-on', m === 'scale');
     showSelection();
   };
   const setSnap = (on: boolean): void => {
@@ -2204,17 +4938,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawPlacement();
     writeView();
   };
-  gridIn.addEventListener('change', () => {
-    gridStep = boundStep(Number(gridIn.value), GRID_STEP_MIN, GRID_STEP_MAX, DEFAULT_GRID_STEP);
+  // A view setting, no edit: applied live as it is scrubbed (`input` from `./scrub`, the field not focused), and at the
+  // release or a typed value's Enter (`change`) -- a half-typed value is never clamped under the typing.
+  const applyGridStep = (): void => {
+    gridStep = boundStep(Number(viewportGridIn.value), GRID_STEP_MIN, GRID_STEP_MAX, DEFAULT_GRID_STEP);
     setSnap(snap);
-  });
-  turnIn.addEventListener('change', () => {
-    turnStep = boundStep(Number(turnIn.value), TURN_STEP_MIN, TURN_STEP_MAX, DEFAULT_TURN_STEP);
+  };
+  const applyTurnStep = (): void => {
+    turnStep = boundStep(Number(viewportTurnIn.value), TURN_STEP_MIN, TURN_STEP_MAX, DEFAULT_TURN_STEP);
     setSnap(snap);
-  });
-  snapIn.addEventListener('change', () => setSnap(snapIn.checked));
-  tipsIn.addEventListener('change', () => { assetTips = tipsIn.checked; if (!assetTips) assetTiles?.tooltip.hide(); writeView(); });   // FUI-22 (D1)
-
+  };
+  for (const [input, apply] of [[viewportGridIn, applyGridStep], [viewportTurnIn, applyTurnStep]] as const) {
+    input.addEventListener('change', apply);
+    input.addEventListener('input', () => { if (doc.activeElement !== input) apply(); });
+  }
+  viewportSnapIn.addEventListener('change', () => setSnap(viewportSnapIn.checked));
   /* ---------- the assets ---------- */
   /** FG-21: the base map's characters, each side's types in `chartype.rdr` order, as the dock's list. */
   const characters = (): { side: 'seal' | 'terrorist'; type: number }[] => {
@@ -2233,9 +4971,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (q && !label.toLowerCase().includes(q)) continue;
       if (last !== c.side) { items.push(el(doc, 'li', 'fx-group-head', c.side === 'seal' ? 'SEALs' : 'Terrorists')); last = c.side; }
       const li = el(doc, 'li', `fx-char fx-side-${c.side}`);
-      li.innerHTML = icon('npc');
+      const preview = el(doc, 'span', 'fx-asset-thumbnail fx-char-thumbnail');
+      preview.innerHTML = icon('npc');
       const b = charMap?.types?.[c.side]?.[c.type];
-      li.append(el(doc, 'span', 'fx-asset-name', `${c.side === 'seal' ? 'SEAL' : 'Terrorist'} ${c.type + 1}`), el(doc, 'span', 'fx-dim', b?.character ?? b?.model ?? ''));
+      li.append(preview, el(doc, 'span', 'fx-asset-name', `${c.side === 'seal' ? 'SEAL' : 'Terrorist'} ${c.type + 1}`), el(doc, 'span', 'fx-dim', b?.character ?? b?.model ?? ''));
       li.title = `${label}: placed as an NPC on the ${c.side === 'seal' ? 'SEAL' : 'terrorist'} side`;
       li.classList.toggle('is-on', npcChoice?.side === c.side && npcChoice.type === c.type);
       li.addEventListener('click', () => chooseCharacterRow(c));
@@ -2243,6 +4982,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (items.length === 0) items.push(el(doc, 'li', 'fx-empty', characters().length ? 'No characters match' : 'This base carries no player models'));
     list.replaceChildren(...items);
+    assetTiles?.tooltip.hide();
+    updateAssetThumbnailObservations();
   };
   /** R6 (the palette seam): the page's NPC tool on character `c` -- the Characters list's click and the seam's `chooseCharacter`. */
   const chooseCharacterRow = (c: { side: 'seal' | 'terrorist'; type: number }): void => {
@@ -2265,6 +5006,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** FUI-22 (D4): Escape with a prop queued -- the queue cancelled (the Select tool, nothing chosen), the selection kept. */
   const cancelQueued = (): void => {
+    if (replacing) {
+      // Escape while re-placing: the prop back where it was, the Select tool, it still selected.
+      const r = replacing.r;
+      endReplace(true);
+      setMode('select');
+      showSelection();
+      say(`${nameOf(r)}: put back`);
+      return;
+    }
     if (entityTool !== null) { const kind = entityTool; endEntityPlace(); say(`${kind}: placement cancelled`); return; }   // FCW-32 step 4
     const was = chosen;
     chosen = null; queuedTurn = 0; wheelTravel = 0;
@@ -2275,6 +5025,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** FUI-22 (D4): the queued prop turned by `deg` (a wheel notch is one turn step), the ghost with it, the turn said. */
   const turnQueued = (deg: number): void => {
+    if (replacing) {
+      // The re-placed prop turned about the vertical by `deg`, as the queued prop's ghost turns.
+      replacing.r.rotation.y += (deg * Math.PI) / 180;
+      refreshBox();
+      say(`placing ${nameOf(replacing.r)} · the wheel turns it ${turnStep}°`);
+      return;
+    }
     queuedTurn = (((queuedTurn + deg) % 360) + 360) % 360;
     moveGhost(lastNdc);
     const shown = queuedTurn > 180 ? queuedTurn - 360 : queuedTurn;
@@ -2301,6 +5058,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const paletteListeners = new Set<() => void>();
   /** R6: the archive the palette is being read from, or null. */
   let paletteLoading: string | null = null;
+  let updateAssetThumbnailObservations = (): void => undefined;
   const drawAssets = (): void => {
     drawAssetList();
     for (const listener of [...paletteListeners]) {
@@ -2308,6 +5066,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   };
   const drawAssetList = (): void => {
+    applyAssetDisplay();
     chipAll.classList.toggle('is-on', !showChars && filter === 'all');
     chipFav.classList.toggle('is-on', !showChars && filter === 'favs');
     chipChars.classList.toggle('is-on', showChars);
@@ -2318,8 +5077,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const items: HTMLElement[] = [];
     for (const a of shown) {
       if (filter === 'all' && !a.fav && !favsEnded && shown.some((s) => s.fav)) { items.push(el(doc, 'li', 'fx-sep')); favsEnded = true; }
-      // FUI-22 (D5, D3): a tile -- its star, then its own control (its name, its count or archive), dragged onto the
-      // world as one piece (`assetTiles`); the full name in its tooltip and its title.
+      // FUI-22 (D5, D3): a tile -- its star, static preview, then its own pick control, dragged as one piece; its hover
+      // tooltip gives the full name and animated preview (`assetTiles`).
       const li = el(doc, 'li');
       li.dataset['asset'] = a.asset;
       li.draggable = true;
@@ -2333,10 +5092,31 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const pick = el(doc, 'button', 'fx-asset-pick');
       pick.type = 'button';
       const name = el(doc, 'span', 'fx-asset-name', a.model);
-      const meta = el(doc, 'span', 'fx-dim', a.placed === null ? a.archive : filter === 'favs' ? a.archive : `×${a.placed}`);
-      pick.append(name, meta);
+      const metaText = assetViewMode === 'grid'
+        ? (a.placed === null || filter === 'favs' ? a.archive : '')
+        : (a.placed === null ? a.archive : filter === 'favs' ? a.archive : `×${a.placed}`);
+      const preview = el(doc, 'span', 'fx-asset-thumbnail');
+      const image = doc.createElement('img');
+      image.dataset['assetThumbnail'] = '';
+      image.dataset['assetId'] = a.asset;
+      image.alt = '';
+      image.setAttribute('aria-hidden', 'true');
+      image.loading = 'lazy';
+      const status = el(doc, 'span', 'fx-asset-thumbnail-status', 'Loading preview…');
+      preview.append(image, status);
+      const meta = el(doc, 'span', 'fx-dim', metaText);
+      if (assetViewMode === 'grid') {
+        const copy = el(doc, 'span', 'fx-asset-card-copy');
+        copy.append(name);
+        if (metaText) copy.append(meta);
+        pick.append(preview, copy);
+      } else {
+        const copy = el(doc, 'span', 'fx-asset-card-copy');
+        copy.append(name, meta);
+        pick.append(preview, copy);
+      }
       li.append(star, pick);
-      li.title = a.asset;
+      li.title = a.model;
       li.classList.toggle('is-on', chosen === a.asset);
       li.addEventListener('click', () => choosePaletteRow(a.asset));
       items.push(li);
@@ -2344,7 +5124,49 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (items.length === 0) items.push(el(doc, 'li', 'fx-empty', paletteEmptyReason()));
     list.replaceChildren(...items);
     assetTiles?.redrawn();
+    updateAssetThumbnailObservations();
   };
+  const saveAssetBrowserSettings = (): void => writeKey(assetBrowserSettingsKey, JSON.stringify({ mode: assetViewMode, size: assetTileSize }));
+  const setAssetViewMode = (mode: 'list' | 'grid'): void => {
+    if (assetViewMode === mode) return;
+    assetViewMode = mode;
+    applyAssetDisplay();
+    saveAssetBrowserSettings();
+    drawAssets();
+  };
+  const closeAssetViewPopup = (): void => {
+    assetViewPopup.hidden = true;
+    assetViewPopupButton.setAttribute('aria-expanded', 'false');
+  };
+  assetViewPopupButton.addEventListener('click', () => {
+    assetViewPopup.hidden = !assetViewPopup.hidden;
+    assetViewPopupButton.setAttribute('aria-expanded', String(!assetViewPopup.hidden));
+    if (!assetViewPopup.hidden) listModeBtn.focus();
+  });
+  assetViewPopup.addEventListener('click', event => event.stopPropagation());
+  doc.addEventListener('pointerdown', event => {
+    if (!chips.contains(event.target as Node)) closeAssetViewPopup();
+  }, { signal: assetViewEvents.signal });
+  doc.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || assetViewPopup.hidden) return;
+    event.stopPropagation();
+    closeAssetViewPopup();
+    assetViewPopupButton.focus();
+  }, { signal: assetViewEvents.signal });
+  listModeBtn.addEventListener('click', () => setAssetViewMode('list'));
+  gridModeBtn.addEventListener('click', () => setAssetViewMode('grid'));
+  sizeSlider.addEventListener('input', () => {
+    const value = Number(sizeSlider.value);
+    if (!Number.isFinite(value)) return;
+    assetTileSize = Math.round(Math.max(72, Math.min(200, value)));
+    applyAssetDisplay();
+    saveAssetBrowserSettings();
+  });
+  assetPreviewToggle.addEventListener('change', () => {
+    assetTips = assetPreviewToggle.checked;
+    if (!assetTips) assetTiles?.tooltip.hide();
+    writeView();
+  });
   chipAll.addEventListener('click', () => { filter = 'all'; showChars = false; drawAssets(); });
   chipFav.addEventListener('click', () => { filter = 'favs'; showChars = false; drawAssets(); });
   chipChars.addEventListener('click', () => { showChars = true; drawAssets(); });
@@ -2354,6 +5176,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let refreshMenuForPalette = (): void => undefined;
   const showPalette = async (stem: string): Promise<void> => {
+    invalidateAssetThumbnails();
     paletteSel.value = stem;
     entriesOfPalette = [];
     paletteLoading = stem;
@@ -2441,6 +5264,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!r) return null;
     const polys = await hullOf(asset);
     if (polys && polys.length > 0) r.userData['forgeHull'] = polys;
+    // A ladder prop (its own hull's `m_appflags` 2 polygons, `./mapCensus` `ladderPropsOf`): the Ladders branch, its L.
+    if (polys?.some((q) => q.appflags === 2)) {
+      r.userData['forgeLadder'] = true;
+      // Its climb side (`./interactOverlay`): the prop's own ladder polygons' (their side the game's where the disc places it).
+      for (const l of findLadders(polys)) r.add(guideIn(ladderSegments(l), ladderTriangles(l), null, LADDER_CLIMB_COLOUR, 'userLadders'));
+    }
     creatorPieceMaps.set(r, map);
     return r;
   };
@@ -2470,6 +5299,109 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /* ---------- the hull: the base's and every piece's (`./ground`) ---------- */
   /** The hull placements rest on: the base, plus each placed piece's collision (`userData.forgeHull`, model space). */
   let placementGrid: Grid | null = null;
+  /**
+   * The floor under a ground-plane point (the tactical map's points and zones, `./mapData`): the highest surface there,
+   * 0 with no hull yet. A declaration, so the Outliner reads it wherever it is drawn.
+   */
+  /** The map data the Outliner and the billboards read: the loaded map's, and the flares its drawn world holds. */
+  function mapDataSource(map: LoadedMap): MapDataSource {
+    return { ...map, flares: baseView?.flares?.() ?? [], ladders: mapLadders };
+  }
+  function floorUnder(x: number, z: number): number {
+    try {
+      const ys = placementGrid ? surfaceYs(placementGrid, x, z) : [];
+      return ys.length ? Math.max(...ys) : 0;
+    } catch { return 0; }
+  }
+  /** The base map's data billboards: every spawn slot and Map Data row with a place (none on a blank floor). */
+  const drawMapBillboards = (): void => {
+    // The ladders off the base's hull, a hidden prop's own polygons out (its ladder with it), sided on the floors.
+    try {
+      mapLadders = baseMap?.ground
+        ? findLadders(groundPolygons(groundWithout(baseMap, baseMap.ground, placementsOf(baseMap, hiddenKeys))), placementGrid ?? undefined)
+        : [];
+    } catch { mapLadders = []; }
+    // The map's props, each at its placement's place (its matrix's translation, column-major), but a hidden one.
+    const props = baseMap ? mapPropPlacements().flatMap(({ placement, model }): PropMark[] => {
+      if (hiddenKeys.has(placement.key)) return [];
+      const m = baseMap!.props[placement.prop]?.matrices;
+      const at = placement.index * 16;
+      return m && m.length >= at + 16 ? [{ key: placement.key, model, at: [m[at + 12]!, m[at + 13]!, m[at + 14]!] }] : [];
+    }) : [];
+    const specs = baseMap ? billboardSpecs(mapDataGroups(mapDataSource(baseMap), floorUnder), baseMap.slots, props) : [];
+    mapDataIndex = new Map(specs.map((s) => [s.key, s]));
+    // A selected item the marks no longer have (hidden since) goes; a new base clears it before (`door:0` is another door).
+    if (mapDataSelected && !mapDataIndex.has(mapDataSelected.key)) mapDataSelected = null;
+    mapBillboards.set(specs);
+    highlightSelectionMark();
+    // The light rig's arrows across the map's middle, sized to it; the Environment panel's disc values with them.
+    const box = baseView?.box;
+    const centre: [number, number, number] = box && !box.isEmpty() ? box.getCenter(new Vector3()).toArray() : [0, 0, 0];
+    if (base?.kind === 'blank') lightArrows.set(customRig() ?? libraryRig(), [0, 0, 0], BLANK_RIG_ARROWS_SPAN, blankShadow());   // a new empty map's rig
+    else lightArrows.set(baseMap?.lightRig ?? null, centre, box && !box.isEmpty() ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) : 0, baseMap?.shadowVector ?? null);
+    // The map's tactical zones' rectangles, each at the floor under its middle (the file places them on the ground plane only).
+    if (mapZoneLines) { scene.remove(mapZoneLines); mapZoneLines.geometry.dispose(); (mapZoneLines.material as Material).dispose(); mapZoneLines = null; }
+    const tacZones = baseMap?.tac?.zones ?? [];
+    if (tacZones.length) {
+      mapZoneLines = zoneOutlines(tacZones.map((z) => ({ ...z, y: floorUnder((z.minX + z.maxX) / 2, (z.minZ + z.maxZ) / 2) })));
+      scene.add(mapZoneLines);
+    }
+    drawMapGuides();                                           // its doors' swings, its ladders' climb sides
+    drawEnvironmentPanel();
+    applyBillboards();
+  };
+  /** The selection's mark drawn as selected: a selected map data item's, else the one selected map prop's. */
+  /**
+   * The Environment panel's read-only part from the base map (`./environment`): its light rig, fog, night, shadows,
+   * reflections and flares; the layout's retired brightness while it carries one. A declaration: `applySettings` may run
+   * before this line.
+   */
+  function drawEnvironmentPanel(): void {
+    const map = baseMap;
+    drawEnvironment(environmentDom, map ? environmentSections({
+      rig: map.lightRig,
+      camera: map.camera,
+      ...(map.night ? { night: map.night } : {}),
+      ...(map.shadowVector ? { shadowVector: map.shadowVector } : {}),
+      ...(map.envMaterials ? { envMaterials: map.envMaterials } : {}),
+      flares: baseView?.flares?.().length ?? 0,
+      legacyLight: settings.timeOfDay === null && settings.light < 1 ? settings.light : null,
+    }) : []);
+  }
+  function highlightSelectionMark(): void {                    // a declaration: `showSelection` may run before this line
+    mapBillboards.highlight(mapDataSelected?.key ?? (baseSelected ? propMarkKey(baseSelected.key) : selected ? userMarkKeyOf(selected) : null));
+  }
+  /**
+   * The user's placements' billboards (`./mapDataBillboards` `setUser`): a mark each -- a piece, a spawn by its team, an
+   * NPC, a bomb marker -- keyed `user:<n>` for as long as the placement lives (`userMarkKeys`), rebuilt only when the set
+   * of placements changes, and moved over each where it is every frame (`sync`).
+   */
+  const userMarkKeys = new WeakMap<Object3D, string>();
+  let userMarkCount = 0;
+  let userMarksOf: readonly Object3D[] = [];
+  function userMarkKeyOf(r: Object3D): string {
+    let key = userMarkKeys.get(r);
+    if (!key) { key = `user:${++userMarkCount}`; userMarkKeys.set(r, key); }
+    return key;
+  }
+  /** The placement a user mark's key names, or null (a key not of a user mark, or one gone since). */
+  const rootOfUserMark = (key: string): Object3D | null =>
+    (key.startsWith('user:') ? roots.find((r) => userMarkKeys.get(r) === key) ?? null : null);
+  function syncUserBillboards(): void {
+    if (roots.length !== userMarksOf.length || roots.some((r, i) => r !== userMarksOf[i])) {
+      userMarksOf = [...roots];
+      mapBillboards.setUser(roots.flatMap((r): UserMark[] => {
+        const kind = userMarkKind({
+          piece: !!r.userData['forgePiece'], npc: !!npcOf(r), bomb: bombKindOf(r), hostage: !!r.userData['forgeHostage'], zone: !!r.userData['forgeZone'], point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'], ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'],
+          ...(r.userData['forgeSpawn'] === 'A' || r.userData['forgeSpawn'] === 'B' ? { team: r.userData['forgeSpawn'] as 'A' | 'B' } : {}),
+          ...(r.userData['forgeRespawn'] === 'A' || r.userData['forgeRespawn'] === 'B' ? { respawn: r.userData['forgeRespawn'] as 'A' | 'B' } : {}),
+        });
+        return kind ? [{ key: userMarkKeyOf(r), kind, label: placedLabel(r), object: r }] : [];
+      }));
+      highlightSelectionMark();
+    }
+    mapBillboards.sync();
+  }
   const refreshPlacementGround = (): void => {
     const baseGround = base?.kind === 'blank'
       ? floorGround(FLOOR_SIZE)
@@ -2479,6 +5411,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (!baseGround) { placementGrid = null; return; }
     const placed: (PieceHull | ContentPiece)[] = [];
     for (const [i, r] of roots.entries()) {
+      if (r === replacing?.r) continue;                         // a prop being re-placed never rests on itself
       // R6 (3): a pack piece's hull is the content provider's, through the page's resolver (`layoutGround`).
       const content = r.userData['forgePiece'] ? r.userData['forgeContent'] as ContentRef | undefined : undefined;
       if (content) { r.updateMatrix(); placed.push({ owner: `forge/piece_${i}`, content, m: Array.from(r.matrix.elements) }); continue; }
@@ -2551,6 +5484,83 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         scene.add(hullLines);
       });
     }, 250);
+  };
+  const duplicateMapPropForDrag = (source: BaseProp, before: string[]): void => {
+    const map = baseMap;
+    if (!map || baseSelected?.key !== source.key) return;
+    const asset = assetId(map.archive, source.model);
+    const copy = pieces.piece(asset, map);
+    if (!copy) {
+      say(`Cannot duplicate map prop ${source.model}: its prototype is unavailable`, true);
+      showSelection();
+      return;
+    }
+    const id = parseAssetId(asset);
+    if (!id) {
+      say(`Cannot duplicate map prop ${source.model}: its asset identity is invalid`, true);
+      showSelection();
+      return;
+    }
+    mapPropProxy.updateMatrixWorld(true);
+    mapPropProxy.matrixWorld.decompose(copy.position, copy.quaternion, copy.scale);
+    creatorPieceMaps.set(copy, map);
+    pieceSources.set(id.archive, map);
+    const accepted = personEdit('selection.duplicate', { refs: [source.key] }, (step) => {
+      mapPropDragStep = { step, before };
+      addPlacement(copy);
+      picks.only(copy);
+      basePicks.clear();
+      showSelection();
+      edit(before, step);
+    }, true);
+    if (!accepted) {
+      mapPropProxy.matrix.copy(source.matrix);
+      mapPropProxy.matrix.decompose(mapPropProxy.position, mapPropProxy.quaternion, mapPropProxy.scale);
+      mapPropProxy.updateMatrixWorld(true);
+      showSelection();
+      return;
+    }
+    void hullOf(asset).then((polys) => {
+      if (!polys?.length || !roots.includes(copy)) return;
+      copy.userData['forgeHull'] = polys;
+      refreshPlacementGround();
+      if (view.collision) scheduleHull();
+    }).catch((error: unknown) => {
+      console.warn(`forge: ${source.model}'s collision hull would not read`, error);
+      say(`Could not load ${source.model}'s collision hull`, true);
+    });
+  };
+  const duplicateUserPropForDrag = (source: Object3D, originalMatrix: Matrix4, before: string[]): void => {
+    const asset = source.userData['forgePiece'] as string | undefined;
+    // A placed door, turret, gate, barrier, hostage, zone, point or view: cloned whole and renamed (`markerClone`).
+    const copy = asset ? source.clone(true) : markerClone(source);
+    if (!copy) return;
+    delete copy.userData['forgeId'];
+    if (!asset) freshName(copy);
+    const map = creatorPieceMaps.get(source);
+    if (map) creatorPieceMaps.set(copy, map);
+    const id = asset ? parseAssetId(asset) : null;
+    if (id && map) pieceSources.set(id.archive, map);
+
+    const accepted = personEdit('selection.duplicate', { refs: before }, (step) => {
+      mapPropDragStep = { step, before };
+      addPlacement(copy);
+      source.matrix.copy(originalMatrix);
+      source.matrix.decompose(source.position, source.quaternion, source.scale);
+      source.updateMatrix();
+      source.updateMatrixWorld(true);
+      picks.only(copy);
+      basePicks.clear();
+      showSelection();
+      edit(before, step);
+    }, true);
+    if (!accepted) {
+      source.matrix.copy(originalMatrix);
+      source.matrix.decompose(source.position, source.quaternion, source.scale);
+      source.updateMatrix();
+      source.updateMatrixWorld(true);
+      showSelection();
+    }
   };
 
   /* ---------- the base ---------- */
@@ -2691,22 +5701,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (b.kind === 'map') {
         showContentOption(null);
         baseSel.value = b.archive;
-        vpLabel.textContent = `Perspective · ${entries.find((a) => a.stem === b.archive)?.label ?? map.name} · ${b.archive}`;
       } else if (b.kind === 'content') {
         showContentOption(b, `Authored map · ${opened.name}`);
-        vpLabel.textContent = `Perspective · ${opened.name} · ${b.ref.id}@${b.ref.version}`;
       }
     } else {
       const lib = map;
       charMap = lib;
       lighting.rig = null;
+      // Its fog the built-from map's camera record's, as the match's (`./objectives` `blankFloorOf` keeps that camera);
+      // a library with none, the stand-in. The layout's own colour and distance go over it (`applySettings`).
+      if (!lib || !mapFog(fog, lib)) Object.assign(fog, { enabled: true, ...fogForExtent(4000), color: [...ELF_DEFAULT_FOGCOL], altitude: null });
+      discFog = { ...fog, color: [...fog.color], altitude: fog.altitude ? { ...fog.altitude } : null };
       scene.add(floor);
       fly.setScale(lib?.metersPerUnit && lib.metersPerUnit > 0 ? lib.metersPerUnit : 0.1);
       fly.setClipPlanes(4, FLOOR_SIZE * 2);
       fly.lookFrom([0, 250, 600], [0, 0, 0]);
       showContentOption(null);
-      baseSel.value = 'blank';
-      vpLabel.textContent = 'Perspective · Blank floor';
+      baseSel.value = blankValue();
     }
     paletteSel.value = stem;
     entriesOfPalette = loadedPalette;
@@ -2714,6 +5725,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawAssets();
     refreshMenuForPalette();
     refreshPlacementGround();
+    mapDataSelected = null;                                    // a new base: the last map's item (`door:0` is another door)
+    drawMapBillboards();                                       // the base's own data, on its floor
     applyView();
     refreshGameTypes();
     if (known || b.kind === 'map') creatorRemember(map);
@@ -2761,6 +5774,68 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       r.userData['forgeId'] = ids.npcs?.[npcAt++];
       staged.push(r);
     }
+    for (const [kind, list] of [['gate', l.gates], ['barrier', l.barriers]] as const) {
+      for (const t of list ?? []) {
+        const r = await newAccess(kind, t.source, t.name);
+        r.position.set(...t.at);
+        r.rotation.y = t.yaw;
+        if (t.locked) r.userData['forgeLock'] = true;
+        staged.push(r);
+      }
+    }
+    for (const t of l.doors ?? []) {
+      const r = await newDoor(t.source, t.name);
+      r.position.set(...t.at);
+      r.rotation.y = t.yaw;
+      if (t.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const t of l.turrets ?? []) {
+      const r = await newTurret(t.source, t.name);
+      r.position.set(...t.at);
+      r.rotation.y = t.yaw;
+      if (t.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const f of l.flares ?? []) {
+      const r = await newFlare(f.source, f.name);
+      r.position.set(...f.at);
+      if (f.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const s of l.respawns ?? []) {
+      const r = respawnMarker(s.team);
+      r.position.set(...s.p);
+      r.rotation.y = s.yaw;
+      if (s.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const t of l.tacPoints ?? []) {
+      const r = newPoint(t.name, t.kind);
+      r.position.set(...t.at);
+      if (t.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const v of l.scenicViews ?? []) {
+      const r = newView(v.name, v.yaw, v.pitch);
+      r.position.set(...v.at);
+      if (v.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const z of l.extractionZones ?? []) {
+      const r = newZone(z.name, z.size[0], z.size[1]);
+      r.position.set(...z.at);
+      if (z.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
+    for (const h of l.hostages ?? []) {
+      const r = hostageMarker();
+      r.userData['forgeHostage'] = { ...(h.name ? { name: h.name } : {}), ...(h.character ? { character: h.character } : {}), ...(h.source ? { source: h.source } : {}) };
+      r.position.set(...h.p);
+      r.rotation.y = h.yaw;
+      if (h.locked) r.userData['forgeLock'] = true;
+      staged.push(r);
+    }
     for (const m of markersOfBomb(l.objectives?.bomb)) {
       const r = bombMarker(m.kind);
       const markId = m.kind === 'start' ? ids.bomb : ids.sites?.[siteAt++];
@@ -2770,6 +5845,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (m.locked) r.userData['forgeLock'] = true;           // FG-49's lock, as a piece's
       // A site's file values (its reach, its own keys) ride the marker, so a save keeps them (the forge seat's low 2).
       if (m.kind !== 'start') r.userData['forgeBombFile'] = { range: m.range, elevation: m.elevation, ...(m.rest ? { rest: m.rest } : {}) };
+      addSiteGuide(r);
       staged.push(r);
     }
     return { missing, dispose, commit: (): void => {
@@ -2781,7 +5857,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     settings = settingsOf(l);                                // FG-24: the layout's settings, the panel with them
     applySettings();
     // FG-51: the layout's game type, kept even where it cannot play (shown so; ruling 4b), or the base's own.
-    authoredType = l.objectives?.gameType ?? null;
+    // No type named: the base map's own (`ownTypeOf`), or waiting on the mission list's read (`typePending`).
+    authoredType = l.objectives?.gameType ?? ownTypeOf(l.base);
+    typePending = authoredType === null;
     gameTypeSel.value = authoredType === null ? '' : String(authoredType);
     objectiveRest = l.objectives ? restOf(l.objectives, ['gameType', 'bomb']) : {};
     layoutRequires = (l.requires ?? []).map((p) => ({ ...p }));       // R3-B: the packs the layout declares, kept as they were
@@ -2886,8 +5964,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const isUnder = (o: Object3D, g: Object3D): boolean => { for (let at: Object3D | null = o; at; at = at.parent) if (at === g) return true; return false; };
   const ray = new Raycaster();
   const shown = (o: Object3D): boolean => { for (let at: Object3D | null = o; at; at = at.parent) if (!at.visible) return false; return true; };
-  const pick = (ndc: Vector2): Intersection | null => {
-    ray.setFromCamera(ndc, fly.camera);
+  /**
+   * `only` (the Select tool's settings): `placed`, the user's placements alone -- the base map and the floor looked
+   * through; `map`, the base map's own props alone -- the placements looked through.
+   */
+  const pick = (ndc: Vector2, only?: 'placed' | 'map'): Intersection | null => {
+    ray.setFromCamera(ndc, fly.viewportCamera());
+    if (only === 'placed') {
+      return ray.intersectObjects(roots, true).find((h) => {
+        const root = forgeRootOf(h.object);
+        return shown(h.object) && !!root && root !== replacing?.r && !lockedOf(root);
+      }) ?? null;
+    }
+    if (only === 'map') return baseView ? ray.intersectObjects([baseView.group], true).find((h) => shown(h.object)) ?? null : null;
     const targets: Object3D[] = [...roots];
     if (baseView) targets.push(baseView.group);
     if (floor.parent) targets.push(floorPlane);
@@ -2895,10 +5984,24 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return ray.intersectObjects(targets, true).find((h) => {
       if (!shown(h.object)) return false;
       const root = forgeRootOf(h.object);
+      if (root && root === replacing?.r) return false;          // a prop being re-placed: the cursor looks past it
       return !root || !lockedOf(root);
     }) ?? null;
   };
   /** The hull under the cursor (`./placement` `restingPoint`): snap on x/z, then the probe's surface. */
+  /**
+   * A bomb marker's point (the owner, 2026-11-06; a browser adaptation, FG.R2): the higher of the resting point
+   * (`placeAt`: the collision under the click) and the drawn surface the click struck. A placed building's drawn floor can
+   * stand over its hull (Crossroads' gazebo, a house's slab on the blank floor), and a site seated on the hull under it
+   * hides its outline beneath that floor; on the drawn floor it shows, its reach measured from a point a slab's thickness
+   * over the feet on the hull -- well inside its Elevation. An unseen pick box (a marker's) is no drawn surface.
+   */
+  const onDrawnTop = (at: Vector3, hit: Intersection | null): Vector3 => {
+    const mat = (hit?.object as Partial<Mesh> | undefined)?.material as Material | Material[] | undefined;
+    const drawn = hit && mat && !(Array.isArray(mat) ? mat.every((m) => m.visible === false) : mat.visible === false);
+    if (drawn && hit.point.y > at.y) at.y = hit.point.y;
+    return at;
+  };
   const placeAt = (hit: Intersection | null): Vector3 => {
     const raw = hit ? hit.point : ray.ray.at(300, new Vector3());
     const probe = (x: number, z: number): number[] => (placementGrid ? surfaceYs(placementGrid, x, z) : []);
@@ -2916,16 +6019,76 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     delete input.dataset['ghost'];
   };
   const moveGhost = (ndc: Vector2): void => {
+    if (replacing) {
+      // The prop being re-placed is its own ghost: on the surface under the cursor, its turn kept.
+      if (!roots.includes(replacing.r)) { replacing = null; return; }   // gone meanwhile (an undo, a delete)
+      seatOn(replacing.r, placeAt(pick(ndc)));
+      refreshBox();
+      return;
+    }
     if (!ghost) return;
-    const at = placeAt(pick(ndc));
-    ghost.position.copy(at);
-    ghost.rotation.y = placementYaw();
+    const struck = pick(ndc);
+    const at = mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist' ? onDrawnTop(placeAt(struck), struck) : placeAt(struck);
+    ghost.rotation.y = ghostYaw();
+    seatOn(ghost, at);
     ghost.visible = true;
     paintGhost(ghost, shellState().canPlace);                     // R3-B: a staged drop's ghost takes the same tint
   };
-  /** FG-5: the chosen prop, translucent, on the hull under the cursor. Place mode only. */
+  /**
+   * Every placing tool but Select (the owner, 2026-11-06): a click places, a drag moves the selection's gizmo, as the
+   * Place tool's; and it previews what it places under the cursor (`syncGhost`).
+   */
+  function placingTool(): boolean { return mode !== 'select'; }
+  /** The ghost's turn: the Place tool's wheel; the tools that face the camera's way, that; a door, a zone, a point none. */
+  function ghostYaw(): number {
+    if (mode === 'place') return placementYaw();
+    // A plant site starts square (the owner, 2026-11-06): its outline then lies square to the world (`./siteOutlines`).
+    const own = mode === 'door' || mode === 'gate' || mode === 'barrier' || mode === 'zone' || mode === 'point' || mode === 'flare'
+      || mode === 'siteSeal' || mode === 'siteTerrorist' ? 0 : facing();
+    return own + (wheelTurns(mode) ? (toolTurn * Math.PI) / 180 : 0);
+  }
+  /**
+   * What a placing tool other than Place would place, built as it builds it (its marker, or its disc model), and the key
+   * it is known by -- the ghost rebuilt only when that changes; null for a tool with nothing to preview (a view: placed
+   * at the camera).
+   */
+  async function toolGhostSource(): Promise<{ key: string; source: Object3D } | null> {
+    switch (mode) {
+      case 'spawnA': case 'spawnB': return { key: mode, source: spawnMarker(mode === 'spawnA' ? 'A' : 'B') };
+      case 'respawnA': case 'respawnB': return { key: mode, source: respawnMarker(mode === 'respawnA' ? 'A' : 'B') };
+      case 'npc': return npcChoice ? { key: `npc:${npcChoice.side}:${npcChoice.type}`, source: newNpc(npcChoice.side, npcChoice.type) } : null;
+      case 'hostage': return { key: 'hostage', source: hostageMarker() };
+      case 'zone': return { key: 'zone', source: newZone('Safety', EXTRACTION_ZONE_SIZE, EXTRACTION_ZONE_SIZE) };
+      case 'point': return { key: 'point', source: newPoint('Point', 1) };
+      case 'bomb': case 'siteSeal': case 'siteTerrorist':
+        return { key: mode, source: bombMarker(mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist') };
+      case 'door': { const d = await defaultDoor(); return d ? { key: `door:${d.source}:${d.name}`, source: await newDoor(d.source, d.name) } : null; }
+      case 'turret': { const t = await defaultTurret(); return t ? { key: `turret:${t.source}:${t.name}`, source: await newTurret(t.source, t.name) } : null; }
+      case 'gate': case 'barrier': { const k = mode; const a = await defaultAccess(k); return a ? { key: `${k}:${a.source}:${a.name}`, source: await newAccess(k, a.source, a.name) } : null; }
+      case 'ladder': { const a = await defaultLadder(); const r = a ? await newPiece(a) : null; return a && r ? { key: `ladder:${a}`, source: r } : null; }
+      case 'flare': { const f = await defaultFlare(); return f ? { key: `flare:${f.source}:${f.name}`, source: await newFlare(f.source, f.name) } : null; }
+      default: return null;
+    }
+  }
+  /** FG-5: the chosen prop, translucent, on the hull under the cursor; every other placing tool's placement alike. */
   const syncGhost = (): void => {
     const token = ++ghostToken;
+    if (replacing && mode === 'place' && !playing) { clearGhost(); moveGhost(lastNdc); return; }   // the prop itself follows
+    if (mode !== 'place' && mode !== 'select' && !playing) {
+      const was = mode;
+      void toolGhostSource().then((made) => {
+        if (token !== ghostToken || mode !== was) return;
+        if (!made) { clearGhost(); return; }
+        if (ghost && ghostAsset === made.key) { moveGhost(lastNdc); input.dataset['ghost'] = mode; return; }
+        if (ghost) { scene.remove(ghost); disposeGhost(ghost); }
+        ghost = ghostOf(made.source);
+        ghostAsset = made.key;
+        scene.add(ghost);
+        moveGhost(lastNdc);
+        input.dataset['ghost'] = mode;
+      }, () => { if (token === ghostToken) clearGhost(); });
+      return;
+    }
     if (mode !== 'place' || !chosen || playing) { clearGhost(); return; }
     const asset = chosen;
     if (ghost && ghostAsset === asset) { moveGhost(lastNdc); input.dataset['ghost'] = '1'; return; }
@@ -2941,7 +6104,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     });
   };
   /** Turned to face away from the camera, so a piece or a marker is placed as the builder looks. */
-  const facing = (): number => { const d = fly.camera.getWorldDirection(new Vector3()); return Math.atan2(-d.x, -d.z); };
+  const facing = (): number => { const d = fly.viewportCamera().getWorldDirection(new Vector3()); return Math.atan2(-d.x, -d.z); };
   /** The placement's turn as the pad's ghost takes it: the facing, on the turn step when snap is on (R3-B: a drop's too). */
   const placementYaw = (): number => (snap ? snapYawRadians(facing(), turnStep) : facing())
     + (mode === 'place' ? (queuedTurn * Math.PI) / 180 : 0);   // FUI-22 (D4): the queued prop's wheel turn on top
@@ -2985,19 +6148,41 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const act = (ndc: Vector2, toggle = false): void => {
     if (busy) return;
     const hit = pick(ndc);
+    // A re-placed prop: a click puts it down where it follows the cursor (a modified click changes nothing meanwhile).
+    if (replacing) { if (!toggle && !refuseEdit()) commitReplace(placeAt(hit)); return; }
     if (entityTool !== null && !toggle) { placeEntity(entityTool, placeAt(hit)); return; }   // FCW-32 step 4 (D4)
     if (mode === 'select' || toggle) {
-      const root = forgeRootOf(hit?.object ?? null);
-      if (!root && hit && baseMap && baseView && isUnder(hit.object, baseView.group)) {
+      // The Select tool's settings: a kind switched off is looked through -- map props off, a click finds the placements
+      // behind the map; user props off, the map behind the placements; both off, nothing.
+      const chose = selectMapProps && selectUserProps ? hit : selectUserProps ? pick(ndc, 'placed') : selectMapProps ? pick(ndc, 'map') : null;
+      // A map data billboard, when it is the nearest thing under the cursor (one behind a wall is not drawn, so not
+      // picked), is the map's own data selected (read only); under the same setting as the map's props.
+      if (!toggle) {
+        const mark = mapBillboards.pick(ray);
+        const userRoot = mark ? rootOfUserMark(mark.key) : null;
+        // A user placement's mark (square) under "Select user props"; the map's own (round) under "Select map props".
+        const allowed = mark && (userRoot ? selectUserProps : selectMapProps);
+        if (mark && allowed && mark.distance <= (chose?.distance ?? Infinity)) {
+          if (userRoot) { select(userRoot); return; }               // a user mark: its placement selected, as a click on it
+          // A map prop's mark (M) selects the prop itself, as a click on it does; any other, the map data item.
+          const propKey = placementOfMark(mark.key);
+          const found = propKey ? mapPropPlacements().find(({ placement }) => placement.key === propKey) : undefined;
+          if (found) selectMapProp(found.placement, found.model);
+          else if (!propKey && !mark.key.startsWith('user:')) selectMapData(mark.key);
+          return;
+        }
+      }
+      const root = forgeRootOf(chose?.object ?? null);
+      if (selectMapProps && !root && chose && baseMap && baseView && isUnder(chose.object, baseView.group)) {
         // FG-17: one of the map's own props -- its placement by model and place (`./hide` `placementOf`).
-        const o = hit.object as Mesh;
+        const o = chose.object as Mesh;
         const model = o.name.replace(/ \((lod|flare)\)$/, '');
         const m = new Matrix4();
-        if (o instanceof InstancedMesh && hit.instanceId !== undefined) { o.getMatrixAt(hit.instanceId, m); m.premultiply(o.matrixWorld); }
+        if (o instanceof InstancedMesh && chose.instanceId !== undefined) { o.getMatrixAt(chose.instanceId, m); m.premultiply(o.matrixWorld); }
         else m.copy(o.matrixWorld);
         const found = placementOf(baseMap, model, m.elements);
         if (found) {
-          const b: BaseProp = { ...found, model, object: o, instance: o instanceof InstancedMesh && hit.instanceId !== undefined ? hit.instanceId : null, box: basePropBox(o, m) };
+          const b: BaseProp = { ...found, model, object: o, instance: o instanceof InstancedMesh && chose.instanceId !== undefined ? chose.instanceId : null, matrix: m, box: basePropBox(o, m) };
           if (toggle) basePicks.toggle(b);
           else { picks.clear(); basePicks.only(b); }
           showSelection();
@@ -3015,11 +6200,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       personEdit('spawn.place', { team }, () => {
         const before = selectionIds();
         const r = spawnMarker(team);
-        r.position.copy(at);
-        r.rotation.y = facing();
+        r.rotation.y = ghostYaw();
+        seatOn(r, at);
         addRoot(r);
         select(r);
         say(`spawn ${r.userData['forgeSpawn'] as string} placed`);
+        edit(before);
+      }, true);
+      return;
+    }
+    if (mode === 'respawnA' || mode === 'respawnB') {
+      const team = mode === 'respawnA' ? 'A' : 'B';
+      personEdit('respawn.place', { team }, () => {
+        const before = selectionIds();
+        const r = respawnMarker(team);
+        r.rotation.y = ghostYaw();
+        seatOn(r, at);
+        addRoot(r);
+        select(r);
+        say(`respawn point ${team} placed`);
         edit(before);
       }, true);
       return;
@@ -3030,8 +6229,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       personEdit('npc.place', { side: who.side, type: who.type }, () => {
         const before = selectionIds();
         const r = newNpc(who.side, who.type);
-        r.position.copy(at);
-        r.rotation.y = facing();
+        r.rotation.y = ghostYaw();
+        seatOn(r, at);
         addRoot(r);
         select(r);
         say(`NPC placed: ${charLabel(who.side, who.type)}`);
@@ -3039,7 +6238,146 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }, true);
       return;
     }
+    if (mode === 'door') {
+      // A copy of a disc door, its hinge at the click, in its own turn (any game type): the palette's archive's first
+      // door, else Frostfire's bdoor_4 (`DEFAULT_DOOR`); the Inspector's Model changes it, the rotate gizmo turns it.
+      const yaw = ghostYaw();
+      void defaultDoor().then((which) => {
+        if (!which) { notifier.refused("No door to copy: the palette's archive has none, nor Frostfire (MP2) on this disc"); return; }
+        personEdit('door.place', {}, (step) => void newDoor(which.source, which.name).then((r) => {
+          const before = selectionIds();
+          r.rotation.y = yaw;
+          seatOn(r, at);
+          addRoot(r);
+          select(r);
+          say(`${doorLabel(r)} placed: a copy of the disc's door`);
+          edit(before, step);
+        }), true);
+      });
+      return;
+    }
+    if (mode === 'gate' || mode === 'barrier') {
+      // A copy of a disc map's access object at the click (any game type): the palette archive's first of its kind, else
+      // Death Trap's or Vigilance's access1 (`DEFAULT_GATE`, `DEFAULT_BARRIER`); the Inspector's Map changes it.
+      const kind = mode;
+      const yaw = ghostYaw();
+      void defaultAccess(kind).then((which) => {
+        if (!which) { notifier.refused(kind === 'gate' ? 'No gate to copy: neither Death Trap (MP11) nor Enowapi (MP62) is on this disc' : "No C4 barrier to copy: the palette's archive has none, nor Vigilance (MP51) on this disc"); return; }
+        personEdit(kind === 'gate' ? 'gate.place' : 'barrier.place', {}, (step) => void newAccess(kind, which.source, which.name).then((r) => {
+          const before = selectionIds();
+          r.rotation.y = yaw;
+          seatOn(r, at);
+          addRoot(r);
+          select(r);
+          say(`${accessLabel(r)} placed${kind === 'gate' ? ': its lever at the gate, C4 wrecks it' : ': C4 or an RPG wrecks it'}`);
+          edit(before, step);
+        }), true);
+      });
+      return;
+    }
+    if (mode === 'flare') {
+      // A copy of a disc glow at the click (any game type): the palette's archive's first, else the base map's own
+      // (`defaultFlare`); the Inspector's Map and Flare change it.
+      void defaultFlare().then((which) => {
+        if (!which) { notifier.refused("No flare to copy: neither the palette's archive nor this base has a facade node"); return; }
+        personEdit('flare.place', { source: which.source, name: which.name }, (step) => void newFlare(which.source, which.name).then((r) => {
+          const before = selectionIds();
+          seatOn(r, at);
+          addRoot(r);
+          select(r);
+          say(`Flare ${which.name} placed: a copy of the disc's glow, turned to the camera`);
+          edit(before, step);
+        }), true);
+      });
+      return;
+    }
+    if (mode === 'ladder') {
+      // A disc ladder prop at the click, facing the way the camera looks (any game type): the palette's archive's first
+      // ladder prop, else Sandstorm's ladder35 (`DEFAULT_LADDER`); the Inspector's Map and Ladder change it.
+      const yaw = ghostYaw();
+      void defaultLadder().then((asset) => {
+        if (!asset) { notifier.refused("No ladder to place: the palette's archive has no ladder prop, nor Sandstorm (MP73) on this disc"); return; }
+        const before = selectionIds();
+        personEdit('piece.place', { asset }, (step) => void newPiece(asset).then((r) => {
+          if (!r) { say(`${asset} has no geometry to place`, true); return; }
+          r.rotation.y = yaw;
+          seatOn(r, at);
+          addRoot(r);
+          select(r);
+          say(`Ladder ${parseAssetId(asset)?.model ?? asset} placed: a disc ladder prop, climbable in Play`);
+          edit(before, step);
+        }), true);
+      });
+      return;
+    }
+    if (mode === 'turret') {
+      // A copy of a disc turret at the click, facing the way the camera looks (any game type): the palette's own
+      // archive's first turret, else Crossroads' RMG (`DEFAULT_TURRET`); the Inspector's Model changes it.
+      const yaw = ghostYaw();
+      void defaultTurret().then((which) => {
+        if (!which) { notifier.refused("No turret to copy: the palette's archive has none, nor Crossroads (MP72) on this disc"); return; }
+        personEdit('turret.place', {}, (step) => void newTurret(which.source, which.name).then((r) => {
+          const before = selectionIds();
+          r.rotation.y = yaw;
+          seatOn(r, at);
+          addRoot(r);
+          select(r);
+          say(`${turretLabel(r)} placed: a copy of the disc's turret`);
+          edit(before, step);
+        }), true);
+      });
+      return;
+    }
+    if (mode === 'point' || mode === 'view') {
+      // A tactical point at the click; a spectator view at the camera itself, looking as it looks (any game type).
+      const isView = mode === 'view';
+      personEdit(isView ? 'view.place' : 'point.place', {}, () => {
+        const before = selectionIds();
+        const pose = fly.pose();
+        const r = isView ? newView(nextViewName(pointNamesTaken('view')), pose.yaw, pose.pitch) : newPoint(nextNavName(pointNamesTaken('point')), 1);
+        if (isView) r.position.set(pose.x, pose.y, pose.z); else seatOn(r, at);
+        addRoot(r);
+        select(r);
+        say(`${pointNameOf(r)} placed: a ${isView ? 'spectator view' : 'tactical point'}, beside the map's own`);
+        edit(before);
+      }, true);
+      return;
+    }
+    if (mode === 'zone') {
+      // Placed extraction zones play in Extraction only (the owner, 2026-11-05): another type, the player is told.
+      if (authoredType !== 3 && authoredType !== 4) { notifier.refused('Safety zones play in Escort or Extraction: set the game type first (World tab, Settings)'); return; }
+      personEdit('extraction.place', {}, () => {
+        const before = selectionIds();
+        const r = newZone(nextSafetyName(zoneNamesTaken()), EXTRACTION_ZONE_SIZE, EXTRACTION_ZONE_SIZE);
+        seatOn(r, at);
+        addRoot(r);
+        select(r);
+        say(`${zoneNameOf(r)} placed: ${authoredType === 3 ? 'an escort' : 'an extraction'} zone, beside the map's own`);
+        edit(before);
+      }, true);
+      return;
+    }
+    if (mode === 'hostage') {
+      // Placed hostages play in Escort and Extraction only (the owner, 2026-11-05): another type, the player is told.
+      if (!hostagesPlayIn(authoredType ?? undefined)) { notifier.refused('Hostages play in Escort or Extraction: set the game type first (World tab, Settings)'); return; }
+      personEdit('hostage.place', {}, () => {
+        const before = selectionIds();
+        const r = hostageMarker();
+        // The disc's pattern, Hostage1...; on a base with no hostage of its own, the default character lent (`hostageDefault`).
+        const homeChars = ((baseMap ?? charMap)?.escortees ?? []).map((e) => e.character);
+        r.userData['forgeHostage'] = { name: nextHostageName(hostageNamesTaken()), ...hostageDefault(homeChars, (stem) => absent.has(stem)) };
+        r.rotation.y = ghostYaw();
+        seatOn(r, at);
+        addRoot(r);
+        select(r);
+        say(`${hostageOf(r).name ?? 'Hostage'} placed, beside the map's own`);
+        edit(before);
+      }, true);
+      return;
+    }
     if (mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist') {
+      // The bomb and its sites are Demolition's (the owner, 2026-11-05): another type, the player is told to change it.
+      if (authoredType !== 2 && !(authoredType === 1 && kind !== 'terrorist')) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return; }
       const kind: BombMarkerKind = mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist';
       // One start, and one site a planting team: a new one replaces every marker of its kind (a file may name two).
       const prevs = roots.filter((r) => bombKindOf(r) === kind);
@@ -3049,8 +6387,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const before = selectionIds();
         for (const p of prevs) removeRoot(p);
         const r = bombMarker(kind);
-        r.position.copy(at);
-        r.rotation.y = facing();
+        addSiteGuide(r);
+        r.rotation.y = ghostYaw();
+        seatOn(r, onDrawnTop(at.clone(), hit));
         addRoot(r);
         select(r);
         say(`${bombLabel(kind)} placed${prevs.length > 1 ? ` · the ${prevs.length} earlier ones replaced` : ''}`);
@@ -3065,8 +6404,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     personEdit('piece.place', { asset }, (step) => {
       void newPiece(asset).then((r) => {
         if (!r) { say(`${asset} has no geometry to place`, true); return; }
-        r.position.copy(at);
         r.rotation.y = placementYaw();                          // FUI-22 (D4): the ghost's turn, the wheel's with it
+        seatOn(r, at);                                          // its box's bottom on the surface, as the ghost's
         addRoot(r);
         select(r);
         say(`placed ${asset}`);
@@ -3102,7 +6441,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return { x: n.x, y: n.y, button };
   };
   input.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || mode !== 'place' || playing || gizmo.dragging || gizmo.axis === null) return;
+    duplicateModifierOnPointerDown = e.button === 0 && e.ctrlKey;
+  }, true);
+  input.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || !placingTool() || playing || gizmo.dragging || gizmo.axis === null) return;
     const focused = doc.activeElement;
     if (focused instanceof HTMLElement) focused.blur();
     const n = ndcOf(e);
@@ -3118,14 +6460,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // The captured mouse's look: the editor's in every build (OT.R68; OT.R38 a development build's elsewhere).
     if (e.button === 2) { if (import.meta.env.DEV) mouseSite('s2u-mouse-pointer-lock'); lockMouse(canvas); return; }   // OT.R68
     if (e.button !== 0 || gizmo.dragging) return;
-    if (mode !== 'place' && gizmo.axis !== null) return;   // Select: the gizmo's own drag. Place: a click places.
+    if (!placingTool() && gizmo.axis !== null) return;   // Select: the gizmo's own drag. A placing tool: a click places.
     lastNdc = ndcOf(e);
     const add = e.shiftKey || e.ctrlKey || e.metaKey;           // FG-47: a pointer's modifiers, read off the click (no key listener)
     if (mode === 'select' && !busy) {
       // FG-47: on a placement, at once as before (Shift / Ctrl adds or takes out); on none, a box if the pointer drags,
       // else a click at its release (a map prop, or nothing: deselect).
       const ndc = ndcOf(e);
-      if (forgeRootOf(pick(ndc)?.object ?? null)) { act(ndc, add); return; }
+      if (selectUserProps && forgeRootOf(pick(ndc)?.object ?? null)) { act(ndc, add); return; }   // user props off: a box, as on nothing
       boxDrag = { x: e.clientX, y: e.clientY, ndc, add, drawn: false };
       // FG-47 (the review's F3): the pointer captured, so the release ends the box wherever it lands (a dock, the lobby's
       // window), not only over the viewport -- the gizmo's own capture is off while a lobby locks the edits.
@@ -3151,7 +6493,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     pointerClient = { x: e.clientX, y: e.clientY };
     if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
       lastNdc = ndcOf(e);
-      if (mode === 'place' && !playing && !placeHold?.drag) moveGhost(lastNdc);
+      if (placingTool() && !playing && !placeHold?.drag) moveGhost(lastNdc);
     }
     const h = placeHold;
     if (h && h.pointerId === e.pointerId) {
@@ -3180,16 +6522,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     marquee.hidden = true;
     if (!d || e.button !== 0) return;
     if (!d.drawn) { act(d.ndc, d.add); return; }
-    // The placements whose places project inside the box (`./group` `inRect`); a map prop is picked by its click alone.
+    // The user placements and visible map-prop bounds whose screen positions lie inside the box (`./group` `inRect`).
     const end = ndcOf(e);
-    fly.camera.updateMatrixWorld();
-    const shownRoots = roots.filter((r) => shown(r) && !lockedOf(r));
-    const ndcs = shownRoots.map((r) => { const v = r.getWorldPosition(new Vector3()).project(fly.camera); return [v.x, v.y, v.z] as Vec3; });
+    const camera = fly.viewportCamera();
+    camera.updateMatrixWorld();
+    // The Select tool's settings: a kind switched off is left out of the box.
+    const shownRoots = selectUserProps ? roots.filter((r) => shown(r) && !lockedOf(r)) : [];
+    const ndcs = shownRoots.map((r) => { const v = r.getWorldPosition(new Vector3()).project(camera); return [v.x, v.y, v.z] as Vec3; });
     const inBox = inRect(ndcs, [d.ndc.x, d.ndc.y], [end.x, end.y]).map((i) => shownRoots[i]!);
+    const mapCandidates = !selectMapProps ? [] : mapPropPlacements().flatMap(({ placement, model }) => {
+      if (hiddenKeys.has(placement.key)) return [];
+      const prop = resolveMapProp(placement, model);
+      if (!prop || !shown(prop.object)) return [];
+      if (prop.instance !== null) {
+        const matrix = new Matrix4();
+        (prop.object as InstancedMesh).getMatrixAt(prop.instance, matrix);
+        if (Math.abs(matrix.determinant()) < 1e-12) return [];
+      }
+      const centre = prop.box.getCenter(new Vector3()).project(camera);
+      return [[prop, [centre.x, centre.y, centre.z] as Vec3] as const];
+    });
+    const mapInBox = inRect(mapCandidates.map(([, point]) => point), [d.ndc.x, d.ndc.y], [end.x, end.y])
+      .map((i) => mapCandidates[i]![0]);
     if (!d.add) { picks.clear(); basePicks.clear(); }
     picks.addAll(inBox);
+    basePicks.addAll(mapInBox);
     showSelection();
-    say(`${inBox.length} in the box · ${picks.size + basePicks.size} selected`);
+    say(`${inBox.length + mapInBox.length} in the box · ${picks.size + basePicks.size} selected`);
   });
   input.addEventListener('pointercancel', (e) => {
     if (placeHold && placeHold.pointerId === e.pointerId) {
@@ -3203,7 +6562,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     e.preventDefault();
     // FUI-22 (D4, a browser adaptation): a prop queued to place, the wheel turns it -- one turn step a notch, up to the
     // left as the pad's turn -- and the camera keeps its speed; with nothing queued the wheel is the camera's as before.
-    if (mode === 'place' && chosen && !playing) {
+    if (mode === 'place' && (chosen || replacing) && !playing) {
       wheelTravel += e.deltaMode === 0 ? e.deltaY : e.deltaY * WHEEL_LINE_PX;
       if (Math.abs(wheelTravel) < WHEEL_NOTCH_PX) return;
       const up = wheelTravel < 0;
@@ -3211,7 +6570,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       turnQueued(up ? turnStep : -turnStep);
       return;
     }
-    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: e.deltaY, cancelable: true }));
+    // Every other placing tool's object alike: its ghost turned a turn step a notch, the next placed so.
+    if (wheelTurns(mode) && !playing) {
+      wheelTravel += e.deltaMode === 0 ? e.deltaY : e.deltaY * WHEEL_LINE_PX;
+      if (Math.abs(wheelTravel) < WHEEL_NOTCH_PX) return;
+      const up = wheelTravel < 0;
+      wheelTravel = 0;
+      toolTurn = (((toolTurn + (up ? turnStep : -turnStep)) % 360) + 360) % 360;
+      moveGhost(lastNdc);
+      const shown = toolTurn > 180 ? toolTurn - 360 : toolTurn;
+      say(`${TOOL_NAMES[mode]} · turned ${shown}° · the wheel turns it ${turnStep}°`);
+      return;
+    }
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: e.deltaY, deltaMode: e.deltaMode, cancelable: true }));
   }, { passive: false });
   // The keys (OT.R68, the owner 2026-10-21: keyboard and mouse for everything in the forge's creation UI, not once its
   // matches have started): the editor's map (`./keys`) in every build, never a match's. A browser adaptation. The build
@@ -3222,7 +6593,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     typing: false /* the listeners return on a field first */, match: match !== null, menu: padMenu.isOpen(), card: !modal.hidden || !help.hidden, playing,
     pointerLocked: !!doc.pointerLockElement,                      // the review's F2: no pointer lock API is no lock
     leased: leases.holder() !== null,                             // FUI-2: a panel holding the focus reads its own keys
-    queued: (mode === 'place' && chosen !== null) || entityTool !== null,   // FUI-22 (D4): Escape cancels the queue first (FCW-32: an entity's too)
+    // FUI-22 (D4): Escape cancels the queue first (FCW-32: an entity's too; a re-placed prop's too)
+    queued: (mode === 'place' && chosen !== null) || entityTool !== null || replacing !== null,
+    navigating: fly.navigating(),                                 // RMB fly, a pan, an orbit, a dolly: W / E / R are the camera's
   });
   /** R3-A: set at teardown -- a torn-down page's keys answer nothing (a second mount in one document, a test's). */
   let keysGone = false;
@@ -3246,6 +6619,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (a === null) return;
     e.preventDefault();
     // The arrows and Space: the menu's, not the camera's. FUI-3: M closes it at any depth (Esc goes back a sub-screen).
+    // A tool's key (`./keys` `FORGE_TOOL_ORDER`): Q the Select tool, the number keys the placing tools (a tool the game
+    // type greys is refused by `setMode`, and said).
+    if (typeof a === 'object' && 'tool' in a) { setMode(a.tool); return; }
     if (typeof a === 'object') { padMenu.input(a.menu === 'back' && e.code === 'KeyM' ? 'close' : a.menu); e.stopImmediatePropagation(); return; }
     switch (a) {
       case 'closeCard': if (!help.hidden) setHelp(false); else cards.back(); break;   // FUI-2: the top card's way back
@@ -3258,16 +6634,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       case 'stopWalk': stopPlay(); break;
       case 'door': walk.action(); break;                        // the test room's action key (a door)
       case 'docks': setDocks(doc.body.classList.contains('fx-docks-off')); break;
-      case 'frame': if (selected) focusOn(selected); break;
-      case 'select': case 'place': case 'spawnA': case 'spawnB': case 'npc': case 'bomb': case 'siteSeal': case 'siteTerrorist': setMode(a); break;
-      case 'translate': case 'rotate': setGizmo(a); break;
+      case 'frame': frameSelection(); break;
+      case 'place': enterPlace(); break;                         // with a user prop selected, it picks that prop up
+      // Not mid-drag: a gizmo drag keeps the mode it began in (the camera keeps W / E / R itself while it navigates).
+      case 'translate': case 'rotate': case 'scale': if (!gizmo.dragging) setGizmo(a); break;
       case 'snap': setSnap(!snap); break;
       case 'duplicate': duplicate(); break;
       case 'delete': remove(); break;
       // FUI-2: the check's sheet first. FUI-22 (D1, D4): Escape lets the tooltip go; with a prop queued it cancels the
       // queue and keeps the selection, and the next Escape deselects.
-      case 'deselect': assetTiles?.escape(); if (!closeCheckSheet()) select(null); break;
-      case 'cancelPlace': assetTiles?.escape(); if (!closeCheckSheet()) cancelQueued(); break;
+      // Escape (the owner, 2026-11-06): any tool back to Select and the selection let go; a queued placement cancelled
+      // first, an open Check sheet closed instead.
+      case 'deselect': assetTiles?.escape(); if (!closeCheckSheet()) { setMode('select'); select(null); } break;
+      case 'cancelPlace': assetTiles?.escape(); if (!closeCheckSheet()) { cancelQueued(); setMode('select'); select(null); } break;
       // The pad's actions that had no key (the merge controller's call (c)): the pad's own path, the menu's cursor included.
       case 'prevAsset': case 'nextAsset': case 'turnLeft': case 'turnRight': padAction(a); break;
       // M (the review's F3): as the pad's START, the lobby's window is hidden first -- the menu never under it.
@@ -3302,6 +6681,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     /** The review of R3-B: a pack's piece's reference, and whether its pack is here (the stand-in pasted when not). */
     content: Piece['content'] | null;
     missing: boolean;
+    /** A placed door, turret, gate, barrier, hostage, zone, point or view: its clone at the copy (`markerClone`). */
+    clone: Object3D | null;
   };
   let clipboard: ClipItem[] = [];
   /**
@@ -3326,6 +6707,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       marker: isMarker(r),
       content: (r.userData['forgeContent'] as Piece['content'] | undefined) ?? null,
       missing: r.userData['forgeMissing'] === true,
+      clone: markerClone(r),
     }));
     say(`copied ${clipboard.length}`);
   };
@@ -3337,6 +6719,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const at = placeAt(pick(lastNdc));
     const places = pastedPlaces(clip.map((c) => c.offset), [at.x, at.y, at.z]);
     personEdit('selection.paste', {}, (step) => void Promise.all(clip.map((c) => {
+      if (c.clone) return Promise.resolve(markerClone(c.clone));
       if (c.team) return Promise.resolve(spawnMarker(c.team));
       if (c.npc) return Promise.resolve(newNpc(c.npc.side, c.npc.type));
       if (c.asset && c.missing) return Promise.resolve(contentOf(missingPiece(c.asset), c.content));
@@ -3350,6 +6733,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const q = clip[i]!.q;
         if (clip[i]!.marker) r.rotation.set(0, yawOf(q), 0);
         else r.quaternion.set(q[0], q[1], q[2], q[3]);
+        freshName(r);
         addRoot(r);
         added.push(r);
       });
@@ -3364,12 +6748,45 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }), true);
   };
 
+  /**
+   * A copy of a placed door, turret, gate, C4 barrier, hostage, zone, tactical point or spectator view (the owner,
+   * 2026-11-06: Ctrl-drag, duplicate and copy/paste copy them as a prop): the marker cloned whole -- its model, its data,
+   * its guides -- its saved id and lock dropped, its world-turned guides turned with the world again; null for another
+   * kind (a piece, a spawn, an NPC: built afresh below; a bomb marker: one of each).
+   */
+  function cloneable(s: Object3D): boolean {
+    const u = s.userData;
+    return !!(u['forgeFlare'] || u['forgeDoor'] || u['forgeTurret'] || u['forgeGate'] || u['forgeBarrier'] || u['forgeHostage'] || u['forgeZone'] || u['forgePoint'] || u['forgeView']);
+  }
+  function markerClone(s: Object3D): Object3D | null {
+    const u = s.userData;
+    if (!cloneable(s)) return null;
+    const c = s.clone(true);
+    delete c.userData['forgeId'];
+    delete c.userData['forgeLock'];
+    c.traverse((o) => {
+      const kind = o.userData['forgeGuideKind'] as string | undefined;
+      if (kind === 'userScenicViews' || (u['forgeHostage'] && o.parent === c && (o as LineSegments).isLineSegments)) keepWorldTurn(o);
+    });
+    return c;
+  }
+  /** A copy just made takes the next name of its kind (Hostage2, Safety2, Delta...), as a new one would; others keep theirs. */
+  function freshName(r: Object3D): void {
+    const u = r.userData;
+    if (u['forgeHostage']) u['forgeHostage'] = { ...(u['forgeHostage'] as object), name: nextHostageName(hostageNamesTaken()) };
+    else if (u['forgeZone']) u['forgeZone'] = { ...(u['forgeZone'] as object), name: nextSafetyName(zoneNamesTaken()) };
+    else if (u['forgePoint']) u['forgePoint'] = { ...(u['forgePoint'] as object), name: nextNavName(pointNamesTaken('point')) };
+    else if (u['forgeView']) u['forgeView'] = { ...(u['forgeView'] as object), name: nextViewName(pointNamesTaken('view')) };
+  }
   /** A copy of a placement, unplaced: its piece, its marker or its NPC (null where its piece will not read). */
   const copyOf = async (s: Object3D): Promise<Object3D | null> => {
     const asset = s.userData['forgePiece'] as string | undefined;
     const team = s.userData['forgeSpawn'] as 'A' | 'B' | undefined;
     const npc = npcOf(s);
     if (bombKindOf(s)) return null;                           // one of each bomb marker: move the one placed
+    const cloned = markerClone(s);
+    if (cloned) return cloned;
+    if (s.userData['forgeRespawn']) return respawnMarker(s.userData['forgeRespawn'] as 'A' | 'B');
     if (team) return spawnMarker(team);
     if (npc) return newNpc(npc.side, npc.type);
     if (asset && s.userData['forgeMissing']) return contentOf(missingPiece(asset), s.userData['forgeContent']);
@@ -3390,6 +6807,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         r.position.copy(s.position).add(new Vector3(gridStep * 2, 0, 0));
         r.quaternion.copy(s.quaternion);
         r.scale.copy(s.scale);
+        freshName(r);
         addPlacement(r);
         made.push(r);
       });
@@ -3415,11 +6833,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         r.position.copy(s.position).add(new Vector3(gridStep * 2, 0, 0));
         r.quaternion.copy(s.quaternion);
         r.scale.copy(s.scale);
+        freshName(r);
         addPlacement(r);
         select(r);
         edit(before, step);
       };
-      if (team) place(spawnMarker(team));
+      const cloned = markerClone(s);
+      if (cloned) place(cloned);
+      else if (s.userData['forgeRespawn']) place(respawnMarker(s.userData['forgeRespawn'] as 'A' | 'B'));
+      else if (team) place(spawnMarker(team));
       else if (npc) place(newNpc(npc.side, npc.type));
       else if (asset && s.userData['forgeMissing']) place(contentOf(missingPiece(asset), s.userData['forgeContent']));
       else if (asset) void newPiece(asset, s.userData['forgeContent']).then((r) => { if (r) place(contentOf(r, s.userData['forgeContent'])); });
@@ -3500,9 +6922,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const drawPlayBtn = (): void => {
     playBtn.innerHTML = `${icon('play')}<span>Play</span>`;
+    playBtn.append(playGear);                                  // the Play settings' gear, after the word
     walkBtn.classList.toggle('is-on', playing);
   };
   const setPlaying = (on: boolean): void => {
+    if (on) centerDock.querySelector<HTMLButtonElement>('[data-forge-tab="viewport"]')?.click();
     playing = on;
     doc.body.classList.toggle('is-playing', on);
     drawPlayBtn();
@@ -3511,7 +6935,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (on) padMenu.close();
     gizmo.getHelper().visible = !on;
     refreshBox();
-    for (const r of roots) if (r.userData['forgeSpawn'] || r.userData['forgeNpc'] || r.userData['forgeBomb']) r.visible = !on;
+    for (const r of roots) if (isMarker(r)) r.visible = !on;
     body?.view.setVisible(on);
     refreshHint();
     syncGhost();
@@ -3692,26 +7116,95 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     // The blank floor plays on its library's archive with none of that map's world: the pieces, on the floor's hull.
     const baseMap: LoadedMap = base.kind === 'blank'
-      ? { ...c.groundMap, world: [floorMesh(FLOOR_SIZE)], lines: null, props: [], doors: [], slots: [], respawns: [], turrets: [], escortees: [] } as LoadedMap
+      // None of the library's map data or game type (`./objectives` `blankFloorOf`): its places are that map's, off the floor.
+      // The floor's own open AI map (`./floorAi`), so placed hostages and extraction zones have cells there.
+      ? { ...blankFloorOf({ ...c.groundMap, world: [floorMesh(FLOOR_SIZE)], lines: null, props: [] } as LoadedMap), ai: floorAiMaps(FLOOR_SIZE) } as LoadedMap
       : (() => {
         const hiddenNow = placementsOf(c.groundMap, hiddenKeys);
         // FG-36: the hidden placements' line strips out of the match's map too (`./hide` `linesWithout`).
         return { ...c.groundMap, props: propsWithout(c.groundMap, hiddenNow), lines: linesWithout(c.groundMap, hiddenNow) } as LoadedMap;
       })();
     const markers = npcs ? layout.npcs ?? [] : [];
-    const playerSide = playerSideOf(markers);
+    // The Play settings' side (Play's own: `npcs`), else the side the NPCs leave the player (`./npcs` `playerSideOf`).
+    const playerSide = npcs && playSide !== 'auto' ? playSide : playerSideOf(markers);
     const own = settingsOf(layout);
     const fit = npcsThatFit(markers, playerSide, own.players);
     // R6 (3): the same resolver as the ground's, so a pack piece is solid in the match exactly when it is drawn here.
     const composed = composeMatchMap(baseMap, { ...layout, npcs: fit.kept }, libs, c.ground, playerSide, resolveContent);
-    // FG-51: the layout's game type and bomb, when the map can play them (`./objectives`). Otherwise the base's own.
-    const aimed = applyForgeObjectives(composed.map, layout.objectives);
-    // One rule with the room (`./objectives` `forgeTypeUnplayable`): a type that cannot play never starts; the base's does.
     const type = layout.objectives?.gameType;
-    const why = type === undefined ? null : forgeTypeUnplayable(type, layout.objectives, composed.map);
+    // The placed hostages and zones on the map, then the game type, its test reading them (`./playObjectives`); a blank
+    // floor's hostages copy its library's character (`blankFloorOf` dropped its escortees).
+    // The bodies placed hostages borrow from other disc maps (`./hostages` `withLentHostageBodies`); one whose map or
+    // character is not here wears the default instead, as it would with none named.
+    const lentLibs = new Map<string, LoadedMap>();
+    for (const h of layout.hostages ?? []) if (h.source && !lentLibs.has(h.source)) { const lib = await hostageLibOf(h.source); if (lib) lentLibs.set(h.source, lib); }
+    const bodied = withLentHostageBodies(composed.map, layout.hostages, (s) => lentLibs.get(s) ?? null);
+    const worn = new Set(hostageCharactersOf(bodied.map));
+    const hostages = layout.hostages?.map((h) => (h.source && !worn.has(h.character ?? '') ? (({ source: _s, character: _c, ...rest }) => rest)(h) : h));
+    // The team and default character: the base's first hostage's (a blank floor's library's), else a lending map's.
+    const lent = (base.kind === 'blank' ? c.groundMap.escortees?.[0] : composed.map.escortees?.[0])
+      ?? [...lentLibs.values()].map((l) => l.escortees?.[0]).find((e) => !!e);
+    const played = playObjectives(bodied.map, { ...layout, ...(hostages ? { hostages } : {}) }, lent, type === undefined ? null : blankWhy(type));
+    // The layout's placed tactical points and spectator views beside the map's own (`./placedPoints`), in any type.
+    const pointed = withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), why = played.why;
+    // The layout's placed turrets beside the map's own (`./turrets`): each its disc template's copy, in any type.
+    const templates = new Map<string, TurretTemplate>();
+    for (const t of layout.turrets ?? []) { const found = await turretTemplate(t.source, t.name); if (found) templates.set(`${t.source}:${t.name}`, found); }
+    const turreted = withPlacedTurrets(pointed, layout.turrets, (s, n) => templates.get(`${s}:${n}`) ?? null);
+    // The layout's placed doors beside the map's own (`./placedDoors`): each its disc template's copy, its leaf in the hull.
+    const doorTemplatesNow = new Map<string, DoorTemplate>();
+    for (const t of layout.doors ?? []) { const found = await doorTemplate(t.source, t.name); if (found) doorTemplatesNow.set(`${t.source}:${t.name}`, found); }
+    const doored = withPlacedDoors(turreted.map, layout.doors, (s, n) => doorTemplatesNow.get(`${s}:${n}`) ?? null);
+    // The layout's placed gates and C4 barriers (`./placedAccess`): each its disc access object's copy, whole.
+    const accessNow = new Map<string, AccessTemplate>();
+    for (const [kind, list] of [['gate', layout.gates], ['barrier', layout.barriers]] as const) {
+      for (const t of list ?? []) { const found = await accessTemplate(kind, t.source, t.name); if (found) accessNow.set(`${kind}:${t.source}:${t.name}`, found); }
+    }
+    const accessed = withPlacedAccess(doored.map, [
+      ...(layout.gates ?? []).map((t) => ({ kind: 'gate' as const, ...t })), ...(layout.barriers ?? []).map((t) => ({ kind: 'barrier' as const, ...t })),
+    ], (m) => accessNow.get(`${m.kind}:${m.source}:${m.name}`) ?? null);
+    // The layout's placed flares (`./placedFlares`): each its disc facade node, drawn and turned as the map's own.
+    const flaresNow = new Map<string, FlareTemplate>();
+    for (const f of layout.flares ?? []) { const found = await flareTemplate(f.source, f.name); if (found) flaresNow.set(`${f.source}:${f.name}`, found); }
+    const flared = withPlacedFlares(accessed.map, layout.flares, (src, n) => flaresNow.get(`${src}:${n}`) ?? null).map;
+    // The layout's own Demolition sites wear the map's bases' outlines (`./siteOutlines`): the disc's pulse at the sites
+    // that plant, none left at the tents that no longer do.
+    const ownSites = (type === 2 || (type === 1 && breachReady(layout.objectives?.bomb))) && why === null ? layout.objectives?.bomb?.sites ?? [] : [];
+    // A base with no outline of its own (a blank floor) borrows the donor's (`SITE_OUTLINE_DONOR`), when it is on this disc.
+    const outlineDonor = ownSites.length && !absent.has(SITE_OUTLINE_DONOR) ? await hostageLibOf(SITE_OUTLINE_DONOR) : null;
+    const aimed = withSiteOutlines(flared, ownSites, outlineDonor);
     const unplayable = why === null ? undefined : `${why}; playing the base's mode`;
     // FG-24: the layout's fog and light on the map's camera and rig (`./matchMap` `withSettings`, its limit said there).
-    return { c, layout, own, fit, playerSide, composed, map: withSettings(aimed, own), gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
+    // A new empty map's own light rig (`settings.lightRig`) over the one its library lends: the match lit as the editor is.
+    // Its sky: the chosen disc map's dome over the floor (`./skyDome`), its textures carried as a turret's are.
+    const skyLib = base.kind === 'blank' && own.skyFrom ? await hostageLibOf(own.skyFrom) : null;
+    const skyDome = skyLib ? skyDomeFor(skyLib, aimed.archive) : null;
+    /**
+     * Its fog's on, near distance and height band (the camera record's) and its night (`NightMission`, `LensFX_NVG`), over
+     * the fog distance's own near (`withSettings`) -- set last, so the near it names is the near played.
+     */
+    const ownAtmosphere = (m: LoadedMap): LoadedMap => {
+      if (base.kind !== 'blank') return m;
+      const f = own.fog, cam = m.camera;
+      return {
+        ...m,
+        ...(f && cam ? { camera: { ...cam, fogEnabled: f.on, fogNear: Math.max(0, Math.min(f.near, cam.fogFar - 1)), fogAltitude: f.height !== null,
+          ...(f.height ? { fogTop: f.height.top, fogBottom: f.height.bottom } : {}) } } : {}),
+        ...(own.night ? { night: { mission: own.night.mission, lens: own.night.lens ? [...own.night.lens] as [number, number, number, number] : null } } : {}),
+      };
+    };
+    // Its fog colour (the camera record's) and drop-shadow direction likewise.
+    const lit = base.kind !== 'blank' ? aimed : {
+      ...aimed,
+      ...(own.lightRig ? { lightRig: own.lightRig as GlobalLighting } : {}),
+      ...(skyDome ? { world: [...aimed.world, ...skyDome.world], textures: { ...aimed.textures, ...skyDome.textures },
+        textureFlags: { ...aimed.textureFlags, ...skyDome.textureFlags },
+        ...(aimed.textureMips || skyDome.textureMips ? { textureMips: { ...(aimed.textureMips ?? {}), ...(skyDome.textureMips ?? {}) } } : {}) } : {}),
+      ...(own.shadowVector ? { shadowVector: [...own.shadowVector] as [number, number, number] } : {}),
+      // A colour chosen is a fog to see: on, whatever the built-from map's camera had.
+      ...(own.fogColor && aimed.camera ? { camera: { ...aimed.camera, fogEnabled: true, fogColor: [...own.fogColor] as [number, number, number] } } : {}),
+    };
+    return { c, layout, own, fit, playerSide, composed, hostagesLeft: played.hostagesLeft, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, map: ownAtmosphere(withSettings(lit, own)), gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
   };
   /** The map check (`./validate`) is running: Play and Create lobby wait, and a second click does not start another. */
   let checking = false;
@@ -3756,7 +7249,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       index++;
     }
     const disc = l.base.kind === 'map' && baseMap ? baseMap.slots.map((s) => ({ side: s.side, at: s.position })) : undefined;
-    return checkMap(l, ground, pieces, polyCount, disc);
+    // Extraction's hostages and zones the base holds itself: a map's escortees and kind-1 zones; a blank floor none.
+    const own = l.base.kind === 'map' && baseMap
+      ? { hostages: baseMap.escortees?.length ?? 0, zones: baseMap.ai ? zonesOfKind(baseMap.ai, 1).length : 0,
+        safety: !!baseMap.ai?.maps.some((s) => s.zones.some((z) => z.name.toLowerCase() === 'safety')) } : { hostages: 0, zones: 0 };
+    return checkMap(l, ground, pieces, polyCount, disc, own);
   };
   const collectCheck = async (): Promise<MapCheck | null> => {
     const found = await collectCheckOnce();
@@ -3893,8 +7390,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // FG-50: round 1 stands the local player on the floor under the camera (or the cursor), facing the camera.
       // Classic starts every round from `map.slots`, so the layout's index 0 is put back into that array once round 1
       // has spawned (`openingStand` `restore`). No floor there keeps the layout's slots. The respawns stay that list.
-      const here = standFromHere(groundGrid(c.ground), c.ground, stand);
       const side: 0 | 1 = playerSide === 'seal' ? 0 : 1;
+      // The Play settings: one of the side's spawns at random (`./playFromHere` `randomStand`), else the camera's floor.
+      const here = playSpawn === 'random' ? randomStand(mapForMatch.slots, side) : standFromHere(groundGrid(c.ground), c.ground, stand);
       const opening = here ? openingStand(mapForMatch.slots, side, here.at, here.yaw) : null;
       if (opening) mapForMatch = { ...mapForMatch, slots: opening.slots };
       else if (!mapForMatch.slots.some((sl) => sl.side === side)) {
@@ -3938,6 +7436,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         ...(m.unplayable ? [m.unplayable] : []),
         ...(composed.missing ? [`${composed.missing} piece${composed.missing === 1 ? '' : 's'} not on this disc`] : []),
         ...(props?.failed ? [`${props.failed} content prop${props.failed === 1 ? '' : 's'} not drawn`] : []),
+        ...(m.doorsLeft ? [`${m.doorsLeft} door${m.doorsLeft === 1 ? '' : 's'} not on this disc, left out`] : []),
+        ...(m.turretsLeft ? [`${m.turretsLeft} turret${m.turretsLeft === 1 ? '' : 's'} not on this disc, left out`] : []),
+        ...(m.zonesLeft ? [`${m.zonesLeft} extraction zone${m.zonesLeft === 1 ? '' : 's'} off the AI grid, left out`] : []),
+        ...(m.hostagesLeft ? [`${m.hostagesLeft} hostage${m.hostagesLeft === 1 ? '' : 's'} off the AI grid, left out`] : []),
         ...(fit.dropped ? [`${fit.dropped} NPC${fit.dropped === 1 ? '' : 's'} sit out (8 a side, ${Math.min(own.players, 16)} in all)`] : []),
       ];
       const against = fit.kept.length ? ` against ${fit.kept.length} NPC${fit.kept.length === 1 ? '' : 's'}` : '';
@@ -3962,6 +7464,42 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     void proceedIfClear('Play anyway').then((ok) => { if (ok) void startMatch(); });
   };
   playBtn.addEventListener('click', togglePlay);
+  /* The Play settings: the gear (never a Play) or the button's context menu opens them under the button; a press
+     elsewhere or Escape closes them; a change is kept with the view's settings. */
+  const setPlaySettingsOpen = (open: boolean): void => {
+    playSettings.hidden = !open;
+    playBtn.classList.toggle('has-popup', open);
+    if (!open) return;
+    playSpawnIn.value = playSpawn;
+    playSideIn.value = playSide;
+    const r = playBtn.getBoundingClientRect();
+    playSettings.style.left = `${Math.max(8, Math.min(r.left, doc.documentElement.clientWidth - playSettings.offsetWidth - 8))}px`;
+    playSettings.style.top = `${r.bottom + 6}px`;
+    playSpawnIn.focus();
+  };
+  playGear.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); setPlaySettingsOpen(playSettings.hidden); });
+  playBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); setPlaySettingsOpen(true); });
+  playSpawnIn.addEventListener('change', () => {
+    playSpawn = playSpawnIn.value === 'random' ? 'random' : 'camera';
+    writeView();
+    say(playSpawn === 'random' ? 'Play: you spawn at one of your side’s spawns, at random' : 'Play: you spawn under the camera');
+  });
+  playSideIn.addEventListener('change', () => {
+    const v = playSideIn.value;
+    playSide = v === 'seal' || v === 'terrorist' ? v : 'auto';
+    writeView();
+    say(playSide === 'auto' ? 'Play: your side from the NPCs' : `Play: you spawn as ${playSide === 'seal' ? 'a SEAL' : 'a Terrorist'}`);
+  });
+  doc.addEventListener('pointerdown', (e) => {
+    const t = e.target as Node;
+    if (!playSettings.hidden && !playSettings.contains(t) && !playGear.contains(t)) setPlaySettingsOpen(false);
+  });
+  doc.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || playSettings.hidden) return;
+    e.stopPropagation();
+    setPlaySettingsOpen(false);
+    playBtn.focus();
+  }, true);
   checkBtn.addEventListener('click', () => {
     if (checking || busy || !base) return;
     checking = true;
@@ -4039,6 +7577,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     saveMapBtn.hidden = !(lobby && lobby.role === 'joiner' && !lobby.ended && lobby.layout);
     playBtn.disabled = editsLocked();
     for (const i of [gameTypeSel, lightIn, lightReset, fogIn, fogReset, numIn.players, numIn.rounds, numIn.roundSeconds, ffIn, npcSel, fx, fy, fz, fyaw]) i.disabled = editsLocked() || (i === fogReset && settings.fogFar === null);
+    fillStubFields();                                         // pitch, roll, scale: off under the lobby's lock too
+    showResets();                                             // and the rows' resets
     gizmo.enabled = !editsLocked();
     statusChips.update();                                     // FUI-4: the lobby's lock
   };
@@ -4358,16 +7898,72 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
 
   /* ================= the wiring ================= */
-  const setDocks = (shown: boolean): void => { doc.body.classList.toggle('fx-docks-off', !shown); docksBtn.classList.toggle('is-on', shown); shell.refresh(); };
+  const setDocks = (shown: boolean): void => {
+    if (!shown) centerDock.querySelector<HTMLButtonElement>('[data-forge-tab="viewport"]')?.click();
+    doc.body.classList.toggle('fx-docks-off', !shown);
+    docksBtn.classList.toggle('is-on', shown);
+    shell.refresh();
+  };
   docksBtn.addEventListener('click', () => setDocks(doc.body.classList.contains('fx-docks-off')));
-  for (const [k, b] of Object.entries(modeBtns)) b.addEventListener('click', () => setMode(k as Mode));
+  for (const [k, b] of Object.entries(modeBtns)) b.addEventListener('click', () => (k === 'place' ? enterPlace() : setMode(k as Mode)));
+  /* The Select tool's settings: the gear (a click on it also takes the Select tool, as the button would) or the
+     button's context menu opens them under the button; a press elsewhere or Escape closes them. */
+  const placeSelectSettings = (): void => {
+    const r = modeBtns.select.getBoundingClientRect();
+    selectSettings.style.left = `${Math.max(8, r.left)}px`;
+    selectSettings.style.top = `${r.bottom + 6}px`;
+  };
+  const setSelectSettingsOpen = (open: boolean): void => {
+    selectSettings.hidden = !open;
+    modeBtns.select.classList.toggle('has-popup', open);
+    if (!open) return;
+    selectMapPropsIn.checked = selectMapProps;
+    selectUserPropsIn.checked = selectUserProps;
+    placeSelectSettings();
+    selectMapPropsIn.focus();
+  };
+  selectGear.addEventListener('click', () => setSelectSettingsOpen(selectSettings.hidden));
+  modeBtns.select.addEventListener('contextmenu', (e) => { e.preventDefault(); setMode('select'); setSelectSettingsOpen(true); });
+  doc.addEventListener('pointerdown', (e) => {
+    const t = e.target as Node;
+    if (!selectSettings.hidden && !selectSettings.contains(t) && !selectGear.contains(t)) setSelectSettingsOpen(false);
+  });
+  doc.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || selectSettings.hidden) return;
+    e.stopPropagation();
+    setSelectSettingsOpen(false);
+    modeBtns.select.focus();
+  }, true);
+  selectMapPropsIn.addEventListener('change', () => {
+    selectMapProps = selectMapPropsIn.checked;
+    writeView();
+    say(selectMapProps ? 'Select: map props can be selected' : 'Select: map props are passed over');
+  });
+  selectUserPropsIn.addEventListener('change', () => {
+    selectUserProps = selectUserPropsIn.checked;
+    writeView();
+    say(selectUserProps ? 'Select: user props can be selected' : 'Select: user props are passed over');
+  });
   moveBtn.addEventListener('click', () => setGizmo('translate'));
   turnBtn.addEventListener('click', () => setGizmo('rotate'));
-  snapBtn.addEventListener('click', () => setSnap(!snap));
+  scaleBtn.addEventListener('click', () => setGizmo('scale'));
   lockBtn.addEventListener('click', () => {
+    if (picks.size === 0 && lockHeld.length > 0) {
+      // The same button, now Unlock: the just-locked unlocked and selected again (the outliner's unlock, `lockToggle`).
+      const held = lockHeld.filter((r) => roots.includes(r));
+      personEdit('piece.unlock', {}, () => {
+        lockHeld = [];
+        for (const r of held) { delete r.userData['forgeLock']; picks.add(r); }
+        showSelection();
+        edit();
+        say('unlocked');
+      });
+      return;
+    }
     personEdit('piece.lock', { refs: selectionIds() }, () => {
       if (picks.size === 0) return;
       for (const r of picks.items) r.userData['forgeLock'] = true;
+      lockHeld = [...picks.items];                            // kept in the Inspector, so its button can unlock them
       picks.clear();
       showSelection();
       edit();
@@ -4378,14 +7974,54 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   delBtn.addEventListener('click', remove);
   search.addEventListener('input', drawAssets);
   paletteSel.addEventListener('change', () => { void showPalette(paletteSel.value).catch((e: unknown) => say(String(e), true)); });
+  /**
+   * New's first question (the owner, 2026-11-06): what the layout starts from -- the bases `baseSel` lists, in its groups
+   * (Custom / Preset: the new empty maps; Multiplayer and Campaign: the disc's maps, each with its own game type), the
+   * current base's row chosen at first. Null when cancelled.
+   */
+  const chooseNewBase = (): Promise<string | null> => {
+    const groups: (readonly [string, (readonly [string, string])[]])[] = [];
+    for (const child of Array.from(baseSel.children)) {
+      if (child instanceof HTMLOptGroupElement) {
+        const rows = Array.from(child.querySelectorAll('option')).filter((o) => !o.disabled).map((o) => [o.value, o.textContent ?? o.value] as const);
+        groups.push([child.label, rows]);
+      } else if (child instanceof HTMLOptionElement && !child.disabled) {
+        groups.push(['Custom / Preset', [[child.value, child.textContent ?? child.value]]]);
+      }
+    }
+    const current = baseValue();
+    const first = groups.some(([, rows]) => rows.some(([v]) => v === current)) ? current : groups[0]?.[1][0]?.[0] ?? '';
+    return askChoice('New layout', 'Start from a preset (a new empty map set up for its mode) or one of the disc’s maps.', groups, first, 'Next');
+  };
   newBtn.addEventListener('click', () => { void (async () => {
     if (refuseUnderCard()) return;                                // FUI-2 (IA-1)
     baseAsk.hidden = true;
     if (refuseEdit()) return;
+    // The base first (a preset, a map); a preset then asks which map it is built from (`layoutForSelect`); the work this
+    // drops last, once everything is chosen. Any of them cancelled: the layout stays as it is.
+    const chosen = await chooseNewBase();
+    if (chosen === null) return;
+    const next = await layoutForSelect(chosen, paletteSel.value || entries[0]?.stem || BLANK_LIBRARY).catch((e: unknown) => { say(String(e), true); return null; });
+    if (!next) return;
     const entities = (layoutEntities.zones?.length ?? 0) + (layoutEntities.markers?.length ?? 0) + (layoutEntities.spawners?.length ?? 0);
     const asked = newLayoutDropWords(roots.length, layoutRules !== null, entities);
-    if (asked && !(await askConfirm('Start a new layout?', asked, 'Start new', true))) return;
-    await openLayout(emptyLayout(baseOfSelect(baseSel.value, paletteSel.value || entries[0]?.stem || BLANK_LIBRARY))).catch((e: unknown) => say(String(e), true));
+    if (asked) {
+      // Save it first (a named save in this browser, as the Saves card's), drop it, or stay where it is.
+      const answer = await askSaveFirst('Save this layout first?', asked);
+      if (answer === null) return;
+      if (answer === 'save') {
+        // As the Saves card's Save as: a named save in this browser, a save of the name replaced.
+        const current = layoutForSave();
+        if (!current) return;
+        const name = await askText('Save this layout', 'A save with this name is replaced. It stays in this browser.', layoutName, RECORD_LIMITS.name, 'Save');
+        if (!name) return;
+        const kept = saveNamedRules(named, name, recordOfLayout(current, name), (current as ForgeLayout).rules);
+        if (kept.error) { say(kept.error, true); return; }
+        if ((await persistNamed(kept.saves)) !== 'written') return;    // refused or saved elsewhere: said there, nothing dropped
+        pop(`Saved ${name}`);
+      }
+    }
+    await openLayout(next).catch((e: unknown) => say(String(e), true));
   })(); });
   layoutNameIn.addEventListener('change', () => {
     const next = layoutNameIn.value.trim().slice(0, LAYOUT_NAME_MAX);
@@ -4591,7 +8227,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   refreshUndo();
   drawOutliner();
   refreshInspector();
-  for (const [id, i] of toggleInputs) i.checked = view[id];
   drawSettings();
 
   /* ================= the forge's menu on START (FG-18, `./padMenu`) ================= */
@@ -4711,11 +8346,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const menuItems = (): MenuItem[] => {
     const fav = chosen !== null && favs.has(chosen);
-    // FUI-3: the shell's rows (`./shell/panel`) in their sections -- the View panel's switches (no heading: the View
-    // section, with Docks), each panel's own heading, the Panels section last of them, a feature's registered sections before it.
+    // FUI-3: the shell's rows (`./shell/panel`) in their sections, the View switches, each panel's own heading,
+    // the Panels section last of them, a feature's registered sections before it.
     const shellSections = splitAtHeadings(shell.menuItems(), { id: 'view', label: 'View' });
     const panelsSection = shellSections.find((x) => x.id === 'panels');
-    const viewRows = shellSections.find((x) => x.id === 'view')?.rows ?? [];
+    const viewRows = [
+      ...(shellSections.find((x) => x.id === 'view')?.rows ?? []),
+      ...viewMenuSection(viewMenuRows, { on: (id) => view[id], toggle: (id) => { view[id] = !view[id]; applyView(); } }),
+      detailDistanceMenuItem(detailHooks),
+    ];
     return [
       ...sectioned('play', 'Play', [
         { id: 'play', label: 'Play the layout', note: editsLocked() ? 'Waits while a lobby is open: its host launches its match' : 'An offline match on it: the whole game, its sounds and its round', disabled: editsLocked(), act: () => togglePlay() },
@@ -4731,7 +8370,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           .map((r) => { const why = r.id === 'lobby-create' ? onlineWhy() : null; return why ? { ...r, note: why } : r; }),
       ]),
       ...sectioned('build', 'Build', [
-        { id: 'base', label: 'Base', value: optionLabel(baseSel), note: '← → another base · ✕ starts a new layout on it', left: () => { cycleSelect(baseSel, -1); }, right: () => { cycleSelect(baseSel, 1); }, act: () => newBtn.click() },
+        { id: 'base', label: 'New layout', value: optionLabel(baseSel), note: '✕ chooses a preset or a map to start from', act: () => newBtn.click() },
         { id: 'props', label: 'Props', value: chosen ? parseAssetId(chosen)?.model ?? chosen : 'Choose',
           note: 'Every prop as a grid: L1 / R1 a page, the filter as tabs, the recent ones', grid: PROPS_COLUMNS, page: propsScreen },
         { id: 'npc', label: 'NPC character', value: npcChoice ? charLabel(npcChoice.side, npcChoice.type) : characters().length ? 'Choose' : 'None on this base',
@@ -4742,15 +8381,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           act: () => { filter = filter === 'all' ? 'favs' : 'all'; drawAssets(); }, left: () => { filter = 'all'; drawAssets(); }, right: () => { filter = 'favs'; drawAssets(); } },
         { id: 'fav', label: chosen ? `Favourite: ${parseAssetId(chosen)?.model ?? chosen}` : 'Favourite', value: chosen ? (fav ? '★' : '☆') : '', disabled: chosen === null, keepOpen: true,
           act: () => { if (chosen) { favs = toggleFavourite(favs, chosen); writeFavourites(favs); drawAssets(); } } },
-        { id: 'outliner-screen', label: 'Outliner', value: `${roots.length + hiddenKeys.size}`,
+        { id: 'outliner-screen', label: 'Outliner', value: `${outlinerItemCount()}`,
           note: 'Every placement: Cross selects and looks · Square locks · Triangle deletes or shows', page: outlinerScreen },
-        { id: 'lock-selection', label: 'Lock selection', note: 'It cannot be selected or moved until unlocked (Outliner, Square)', disabled: picks.size === 0, act: () => lockBtn.click() },
-        { id: 'frame-selection', label: 'Frame selection', note: 'The camera looks at it', disabled: !selected, act: () => { if (selected) focusOn(selected); } },
+        picks.size === 0 && lockHeld.length > 0
+          ? { id: 'lock-selection', label: 'Unlock', note: 'The placement just locked can be selected and moved again', act: () => lockBtn.click() }
+          : { id: 'lock-selection', label: 'Lock selection', note: 'It cannot be selected or moved until unlocked (Outliner, Square)', disabled: picks.size === 0, act: () => lockBtn.click() },
+        { id: 'frame-selection', label: 'Frame selection', note: 'The camera looks at the selected objects', disabled: picks.size + basePicks.size === 0 && !mapDataSelected, act: frameSelection },
         { id: 'snap', label: 'Snap', value: snap ? 'On' : 'Off', keepOpen: true, act: () => setSnap(!snap), left: () => setSnap(!snap), right: () => setSnap(!snap) },
         { id: 'grid-step', label: 'Grid step', value: `${gridStep}`, keepOpen: true,
-          left: () => stepField(gridIn, GRID_STEP_LADDER, gridStep, -1), right: () => stepField(gridIn, GRID_STEP_LADDER, gridStep, 1) },
+          left: () => stepField(viewportGridIn, GRID_STEP_LADDER, gridStep, -1), right: () => stepField(viewportGridIn, GRID_STEP_LADDER, gridStep, 1) },
         { id: 'turn-step', label: 'Turn step', value: `${turnStep}°`, keepOpen: true,
-          left: () => stepField(turnIn, TURN_STEP_LADDER, turnStep, -1), right: () => stepField(turnIn, TURN_STEP_LADDER, turnStep, 1) },
+          left: () => stepField(viewportTurnIn, TURN_STEP_LADDER, turnStep, -1), right: () => stepField(viewportTurnIn, TURN_STEP_LADDER, turnStep, 1) },
       ]),
       ...sectioned('view', 'View', [
         { id: 'docks', label: 'Docks', value: doc.body.classList.contains('fx-docks-off') ? 'Hidden' : 'Shown', keepOpen: true, act: () => setDocks(doc.body.classList.contains('fx-docks-off')) },
@@ -4762,7 +8403,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ...menuSections.items(pageContext),
       ...(panelsSection ? sectioned(panelsSection.id, panelsSection.label, panelsSection.rows) : []),
       ...sectioned('forge', 'Forge', [
-        // FUI-6 (AI-1): the step each takes back or makes again, as the toolbar's titles name it (SELECT and L3 as before).
+        // FUI-6 (AI-1): the step each takes back or makes again, as the toolbar's titles name it (SELECT, held SELECT).
         { id: 'undo', label: undoWords(), disabled: !history.canUndo(), keepOpen: true, act: () => undo() },
         { id: 'redo', label: redoWords(), disabled: !history.canRedo(), keepOpen: true, act: () => redo() },
         { id: 'save', label: 'Saves', note: 'Named layouts in this browser, a file, or a share link', act: () => saveBtn.click() },
@@ -4783,7 +8424,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (playing) return { kind: 'walk' };
     if (lobby?.popup && lobby.shown) return { kind: 'lobby' };
     if (leases.holder() !== null) return { kind: 'panel' };
-    return { kind: 'build', tool: mode, selection: picks.size + basePicks.size, dragLook: view.leftDragLook };
+    return { kind: 'build', tool: mode, selection: picks.size + basePicks.size };
   };
   legendPress = (a) => padAction(a);
   /** LATER 230: the menu opened by the toolbar's button (its hint names a pointer's ways), not by START. */
@@ -4812,10 +8453,60 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     menuByPointer = by;
     padMenu.toggle();
   };
-  const baseValue = (): string => (base?.kind === 'map' ? base.archive : base?.kind === 'content' ? contentBaseValue(base) : 'blank');
+  const baseValue = (): string => (base?.kind === 'map' ? base.archive : base?.kind === 'content' ? contentBaseValue(base) : blankValue());
   /** The base the select names: an authored map's own (its option, R6 fix-up), the blank floor on `library`, or a map. */
   const baseOfSelect = (v: string, library: string): LayoutBase =>
-    base?.kind === 'content' && v === contentBaseValue(base) ? { ...base } : v === 'blank' ? { kind: 'blank', library } : { kind: 'map', archive: v };
+    base?.kind === 'content' && v === contentBaseValue(base) ? { ...base } : v === 'blank' || blankPresetOf(v) ? { kind: 'blank', library } : { kind: 'map', archive: v };
+  /**
+   * A preset's hostages' body (`./blankPresets`): a blank floor has none of its own, so it is lent by a disc map that has
+   * hostages -- one whose own mode is the preset's first (an Escort map's VIPs for Escort), then any Escort or Extraction
+   * map (`missionlist.rdr`, `kitGameType`); null where none is on this disc.
+   */
+  const presetHostage = async (type: ForgeGameType, library: string): Promise<PresetHostage | null> => {
+    if (!missionKitsRead) { try { missionKits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { missionKits = null; } missionKitsRead = true; }
+    const stems = copyMaps().map(([stem]) => stem).filter((stem) => !absent.has(stem));
+    const typed = (t: number): string[] => stems.filter((stem) => kitGameType(missionKits, stem) === t);
+    // The map chosen to lend the empty map first: its own hostages where it has some.
+    for (const stem of [...new Set([...(absent.has(library) ? [] : [library]), ...typed(type), ...typed(3), ...typed(4)])]) {
+      const character = hostageCharactersOf(await hostageLibOf(stem))[0];
+      if (character) return { source: stem, character };
+    }
+    return null;
+  };
+  /**
+   * The layout a base choice opens: a preset's set up for its mode (`./blankPresets`), else a new layout on the base;
+   * null when its question is cancelled. A new empty map asks first which disc map it is built from (the owner,
+   * 2026-11-06): the one whose props fill its palette and whose characters and kits its match takes (`LayoutBase`
+   * `library`) -- only the maps of the preset's own mode, `library` chosen at first where it is one.
+   */
+  const layoutForSelect = async (v: string, library: string): Promise<Layout | null> => {
+    const preset = blankPresetOf(v);
+    if (!preset) return newLayout(baseOfSelect(v, library));
+    const row = (e: ArchiveEntry): readonly [string, string] => [e.stem, `${e.label} · ${e.stem}`] as const;
+    // The preset's own mode's maps: their TYPE in `missionlist.rdr` (`kitGameType`), read first if it is not yet. Where
+    // the disc names none of that mode (or has no list), every multiplayer map, and said so.
+    if (!missionKitsRead) { try { missionKits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { missionKits = null; } missionKitsRead = true; }
+    const mp = entries.filter((e) => !e.campaign && !absent.has(e.stem));
+    const same = mp.filter((e) => kitGameType(missionKits, e.stem) === preset.type);
+    const offered = same.length ? same : mp;
+    const modeName = FORGE_GAME_TYPE_NAME[preset.type];
+    const chosen = offered.length ? await askChoice(
+      `${preset.label}: built from which map?`,
+      `${same.length ? `The ${modeName} maps on this disc.` : `No ${modeName} map on this disc: every multiplayer map.`} `
+        + 'The one chosen fills the palette with its props, and the match takes its characters and weapons. Its world is not drawn: the empty map is a flat floor.',
+      [[modeName, offered.map(row)]],
+      offered.some((e) => e.stem === library) ? library : offered[0]!.stem, 'Create',
+    ) : library;
+    if (chosen === null) return null;
+    const lender = preset.type === 3 || preset.type === 4 ? await presetHostage(preset.type, chosen) : null;
+    if ((preset.type === 3 || preset.type === 4) && !lender) say('No disc map with hostages to lend their character: the hostages are placed bare', true);
+    const made = presetLayout(baseOfSelect(v, chosen), preset.type, lender);
+    // Its environment copied from the map it is built from (`./environmentCopy`): the rig, the fog, the night, the
+    // shadows and the sky -- the empty map's own from the start, to change in the Environment panel.
+    const from = await hostageLibOf(chosen);
+    if (from) made.settings = { ...(made.settings ?? {}), ...environmentOf(from) };
+    return made;
+  };
   let baseQuiet = false;
   baseSel.addEventListener('change', () => {
     if (baseQuiet || padMenu.isOpen()) return;
@@ -4828,14 +8519,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   baseApply.addEventListener('click', () => {
     if (refuseEdit()) { baseAsk.hidden = true; baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false; return; }
     baseAsk.hidden = true;
-    void openLayout(emptyLayout(baseOfSelect(baseSel.value, blankLibrary()))).catch((e: unknown) => say(String(e), true));
+    // A cancelled question (the empty map's library) leaves the layout as it was, the base list put back.
+    void layoutForSelect(baseSel.value, blankLibrary()).then((l) => {
+      if (l) return openLayout(l);
+      baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false;
+      return undefined;
+    }).catch((e: unknown) => say(String(e), true));
   });
   baseCancel.addEventListener('click', () => { baseAsk.hidden = true; baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false; });
 
   /* ================= the controller (FG-12, `./pad`) ================= */
   const forgePad = new ForgePad();
-  const TOOLS: Mode[] = ['select', 'place', 'spawnA', 'spawnB', 'npc', 'bomb', 'siteSeal', 'siteTerrorist'];
-  const TOOL_NAMES: Record<Mode, string> = { select: 'Select', place: 'Place', spawnA: 'Spawn A', spawnB: 'Spawn B', npc: 'NPC', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
+  /** The tools L1 / R1 step through: every tool, in the tools row's order (`./keys` `FORGE_TOOL_ORDER`), Select and Place first. */
+  const TOOLS: Mode[] = ['select', 'place', ...FORGE_TOOL_ORDER];
+  const TOOL_NAMES: Record<Mode, string> = { select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', gate: 'Gate', barrier: 'C4 barrier', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
   /** A pad seen once: said once, with where its menu is. */
   let padGreeted = false;
   /** When a pad last moved or pressed anything: while recent, the centre's reticle shows (the pad acts there). */
@@ -4940,18 +8637,27 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       case 'duplicate': duplicate(); break;
       case 'delete': remove(); break;
       case 'prevTool': case 'nextTool': {
-        const next = TOOLS[(TOOLS.indexOf(mode) + (a === 'nextTool' ? 1 : TOOLS.length - 1)) % TOOLS.length]!;
+        // The next tool the game type plays: a greyed one (`refreshModeTools`) is stepped over, never stopped on.
+        const step = a === 'nextTool' ? 1 : TOOLS.length - 1;
+        let at = TOOLS.indexOf(mode);
+        for (let n = 0; n < TOOLS.length; n++) {
+          at = (at + step) % TOOLS.length;
+          if (!modeBtns[TOOLS[at]!].disabled) break;
+        }
+        const next = TOOLS[at]!;
         setMode(next);
         pop(TOOL_NAMES[next]);                                  // the pad has no button under the eye: say the tool
         break;
       }
       case 'prevAsset': stepAsset(-1); break;
       case 'nextAsset': stepAsset(1); break;
-      case 'turnLeft': turnSelected(turnStep); break;
-      case 'turnRight': turnSelected(-turnStep); break;
+      // A re-placed prop turns as it follows the cursor (no edit until it is put down), as the wheel turns it.
+      case 'turnLeft': if (replacing) turnQueued(turnStep); else turnSelected(turnStep); break;
+      case 'turnRight': if (replacing) turnQueued(-turnStep); else turnSelected(-turnStep); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
       case 'snap': setSnap(!snap); pop(snap ? 'Snap on' : 'Snap off'); break;
+      case 'frame': frameSelection(); break;                   // R3: the keyboard's F
       case 'menu': toggleMenu(false); break;
     }
   };
@@ -4984,7 +8690,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (grab) {
       // Camera-relative on the ground: the left stick across and along the view, the right stick's y the height.
       // FG-47: every placement picked moved by the same step (a map prop passed over, said once a grab).
-      const d = fly.camera.getWorldDirection(new Vector3());
+      const d = fly.viewportCamera().getWorldDirection(new Vector3());
       const fwd = new Vector3(d.x, 0, d.z).normalize();
       const right = new Vector3(-fwd.z, 0, fwd.x);
       const speed = 320 * dt;
@@ -5008,8 +8714,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       fly.setLift(blocked || playing ? 0 : f.lift);
       fly.setStickBoost(!blocked && f.boost);
     }
-    const reticle = !playing && now - padSeen < 5000;
-    if (!doc.pointerLockElement) crosshair.hidden = !reticle;
+    showPadCrosshair = !playing && now - padSeen < 5000;
+    updateCrosshair();
   };
 
   /**
@@ -5042,6 +8748,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   function onVisibility(): void { if (doc.visibilityState === 'hidden') { pageShot?.driver.stop('disconnected'); agentPlay.cancel('page hidden'); flushEdits(); flushCamera(); } }
   function teardown(): void {
     doc.removeEventListener('visibilitychange', onVisibility);
+    assetViewEvents.abort();
+    if (cameraSpeedFeedbackTimer !== null) clearTimeout(cameraSpeedFeedbackTimer);
     keysGone = true;                                          // R3-A: a torn-down page's keys answer nothing
     globalThis.removeEventListener('keydown', onLeaseKey);
     viewWin?.removeEventListener('pagehide', onPageHide);
@@ -5057,7 +8765,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     notifier.dispose();                                       // FUI-4: the toast's timer, the pulse's listeners
     statusChips.dispose();
     void closeStore();                                        // R3-B: once the last write (the close's own flush) is done
-    releaseLightingLook();
     forgeLighting.dispose();
   }
   /**
@@ -5152,7 +8859,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     prepareLayout, applyPicked, changed, refreshUndo, edit, noteMissingPacks,
     adoptLayoutCamera: (camera) => { if (camera) { fly.setPose(camera); fly.halt(); viewCamera = cameraNow(); noteCamera(); writeView(); } cameraReady = true; },
     copySelection, collectCheck, loadArchive: (stem) => archives.load(stem),
-    setPalette: (stem, map) => { paletteSel.value = stem; entriesOfPalette = creatorPalette(map); paletteLoading = null; drawAssets(); refreshMenuForPalette(); },
+    setPalette: (stem, map) => { invalidateAssetThumbnails(); paletteSel.value = stem; entriesOfPalette = creatorPalette(map); paletteLoading = null; drawAssets(); refreshMenuForPalette(); },
     lookAtPoint, saveCamera: agentSaveCamera, persistNamed: (list, at) => persistNamed(list, at),
     startMatch: (guard) => startMatch(guard), startPlay: (guard) => startPlay(guard),
     setView: (toggle, on) => { view[toggle as ViewToggle] = on; applyView(); },
@@ -5192,6 +8899,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     /** The pieces this editor staged, each with the page's own release (R4: a place consumes it through that). */
     const ours = new WeakMap<StagedPiece, () => void>();
     return {
+      async previewPiece(asset) {
+        const r = await newPiece(asset).catch(() => null);
+        if (!r) return null;
+        let gone = false;
+        return {
+          object: r,
+          dispose() {
+            if (gone) return;
+            gone = true;
+            r.removeFromParent();
+            const release = r.userData['dispose'];
+            if (typeof release === 'function') release();
+          },
+        };
+      },
       async stagePiece(asset) {
         if (!shellState().canPlace) return null;
         const r = await newPiece(asset).catch(() => null);
@@ -5374,7 +9096,115 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     get forge() { return personForge; }, get editor() { return tilesCtx.editor; }, get palette() { return tilesCtx.palette; },
     ui: tilesCtx.ui, state: () => tilesCtx.state(), store: tilesCtx.store, doc: tilesCtx.doc, signal: tilesCtx.signal,
   } satisfies ForgePanelContext, { tips: () => assetTips });
-  disposeTiles = () => { tilesAbort.abort(); assetTiles?.dispose(); assetTiles = null; };
+  const assetThumbnailQueue: string[] = [];
+  const assetThumbnailQueued = new Set<string>();
+  let assetThumbnailBusy = false;
+  let assetThumbnailGeneration = 0;
+  const updateAssetThumbnailImage = (asset: string, url: string | null): void => {
+    for (const image of Array.from(list.querySelectorAll<HTMLImageElement>('img[data-asset-thumbnail]'))) {
+      if (image.dataset['assetId'] !== asset) continue;
+      const status = image.parentElement?.querySelector<HTMLElement>('.fx-asset-thumbnail-status');
+      if (url) {
+        image.src = url;
+        image.classList.add('is-ready');
+        status?.remove();
+      } else if (status) {
+        status.textContent = (assetThumbnailFailures.get(asset) ?? 0) > 2 ? 'Preview unavailable' : 'Preparing preview…';
+      }
+    }
+  };
+  const pumpAssetThumbnails = async (): Promise<void> => {
+    if (assetThumbnailBusy || !shell.isShown('asset-browser')) return;
+    const asset = assetThumbnailQueue.shift();
+    if (!asset) return;
+    assetThumbnailBusy = true;
+    assetThumbnailQueued.delete(asset);
+    const generation = assetThumbnailGeneration;
+    try {
+      let url = assetThumbnailCache.get(asset) ?? null;
+      if (!url && (assetThumbnailFailures.get(asset) ?? 0) <= 2) {
+        url = await assetTiles!.thumbnail(asset, 160, 120);
+        if (generation !== assetThumbnailGeneration) return;
+        if (url) {
+          assetThumbnailCache.set(asset, url);
+          if (assetThumbnailCache.size > 256) assetThumbnailCache.delete(assetThumbnailCache.keys().next().value!);
+        } else {
+          const attempts = assetThumbnailFailures.get(asset) ?? 0;
+          if (attempts < 2) {
+            assetThumbnailFailures.set(asset, attempts + 1);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (generation === assetThumbnailGeneration) {
+              assetThumbnailQueued.add(asset);
+              assetThumbnailQueue.unshift(asset);
+            }
+          } else {
+            assetThumbnailFailures.set(asset, attempts + 1);
+          }
+        }
+      }
+      updateAssetThumbnailImage(asset, url);
+    } catch (error) {
+      const attempts = (assetThumbnailFailures.get(asset) ?? 0) + 1;
+      assetThumbnailFailures.set(asset, attempts);
+      updateAssetThumbnailImage(asset, null);
+      if (attempts <= 2) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        if (generation === assetThumbnailGeneration) {
+          assetThumbnailQueued.add(asset);
+          assetThumbnailQueue.unshift(asset);
+        }
+      }
+      console.error(`forge asset thumbnail: ${asset}`, error);
+    } finally {
+      assetThumbnailBusy = false;
+      void pumpAssetThumbnails();
+    }
+  };
+  const queueAssetThumbnail = (asset: string): void => {
+    const cached = assetThumbnailCache.get(asset);
+    if (cached) { updateAssetThumbnailImage(asset, cached); return; }
+    if ((assetThumbnailFailures.get(asset) ?? 0) > 2) return;
+    if (assetThumbnailQueued.has(asset)) { void pumpAssetThumbnails(); return; }
+    assetThumbnailQueued.add(asset);
+    assetThumbnailQueue.push(asset);
+    void pumpAssetThumbnails();
+  };
+  const thumbnailObserver = doc.defaultView && 'IntersectionObserver' in doc.defaultView
+    ? new doc.defaultView.IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const image = entry.target as HTMLImageElement;
+        if (image.dataset['assetId']) queueAssetThumbnail(image.dataset['assetId']);
+        thumbnailObserver?.unobserve(image);
+      }
+    }, { root: list, rootMargin: '120px' })
+    : null;
+  updateAssetThumbnailObservations = (): void => {
+    thumbnailObserver?.disconnect();
+    const images = Array.from(list.querySelectorAll<HTMLImageElement>('img[data-asset-thumbnail]'));
+    for (const image of images) {
+      const asset = image.dataset['assetId'];
+      if (!asset) continue;
+      const cached = assetThumbnailCache.get(asset);
+      if (cached) updateAssetThumbnailImage(asset, cached);
+      else if ((assetThumbnailFailures.get(asset) ?? 0) > 2) updateAssetThumbnailImage(asset, null);
+      else if (thumbnailObserver) thumbnailObserver.observe(image);
+      else if (images.indexOf(image) < 24) {
+        const bounds = image.getBoundingClientRect(), viewport = list.getBoundingClientRect();
+        if (bounds.width > 0 && bounds.height > 0 && viewport.width > 0 && viewport.height > 0
+          && bounds.bottom >= viewport.top && bounds.top <= viewport.bottom) queueAssetThumbnail(asset);
+      }
+    }
+  };
+  invalidateAssetThumbnails = (): void => {
+    assetThumbnailGeneration++;
+    assetThumbnailCache.clear();
+    assetThumbnailFailures.clear();
+    assetThumbnailQueue.length = 0;
+    assetThumbnailQueued.clear();
+  };
+  updateAssetThumbnailObservations();
+  disposeTiles = () => { invalidateAssetThumbnails(); tilesAbort.abort(); assetTiles?.dispose(); assetTiles = null; };
   for (const handed of options?.panels ?? []) {
     void Promise.resolve().then(() => (typeof handed === 'function' ? handed(services) : handed)).then((p) => shell.register(p)).catch((e: unknown) => {
       if (!(e instanceof ForgePanelError && e.code === 'DISPOSED')) console.error('forge panel: not mounted', e);
@@ -5391,10 +9221,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     // FUI-22: the list's tiles told when their dock is drawn or not (Docks, Walk, a match); their tooltip's frame.
-    const leftDrawn = !match && !doc.body.classList.contains(FORGE_MATCHING_CLASS) && !doc.body.classList.contains('is-playing')
-      && !doc.body.classList.contains('fx-docks-off');
-    if (leftDrawn !== tilesShown) { tilesShown = leftDrawn; assetTiles?.visibility(leftDrawn); }
-    if (leftDrawn) assetTiles?.frame(dt);
+    const assetsShown = shell.isShown('asset-browser');
+    if (assetsShown !== tilesShown) {
+      tilesShown = assetsShown;
+      assetTiles?.visibility(assetsShown);
+      if (assetsShown) updateAssetThumbnailObservations();
+    }
+    if (assetsShown) assetTiles?.frame(dt);
     if (shot.driver.active() && !shotCanDrive()) shot.driver.stop('mode');   // R5-B: Walk, Play, a match, a lobby's hold
     syncRulesGizmos();                                       // FCW-32 step 4 (D4): never under Walk, Play or a shot
     if (now - agentFrameAt >= 250) {
@@ -5419,6 +9252,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     padFrame(now, dt);
     drawLegendNow();                                         // FUI-3: the legend follows what the pad is doing
     shell.frame(dt, now);                                    // FUI-1: the registered panels' own clocks
+    syncUserBillboards();                                    // the user's placements' marks: the set when it changed, then where each is
     leaseCheck();                                            // FUI-2: a lease let go once its panel is hidden
     if (lobby) { lobby.session.poll(); lobby?.popup?.frame(dt); }   // FG-26: the window's clocks and voice; a close seen
     // R5-B: while the agent's shot runs it places the camera, the fly update only its takeover test (`PageShot.frame`).
@@ -5432,19 +9266,22 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (playing) {
       walk.frame(dt);
       doors.frame(dt);
-      play.frame(dt, walk, fly.camera);
+      play.frame(dt, walk, fly.viewportCamera());
     }
-    baseView?.frame(fly.camera, dt);
+    baseView?.frame(fly.viewportCamera(), dt);
+    skyView?.frame(fly.viewportCamera(), dt);               // a new empty map's copied sky: its clouds' scroll
+    turnPlacedFlares(fly.viewportCamera().position);
     if (selected || isGroup()) refreshBox();
     forgeLighting.update([scene], forgeLightingOptions(settings, baseMap));
     // LATER 471 (a browser adaptation, `EXTENSION_HOST_ADAPTATION`; dot's placement 2026-10-25T21:45Z): the extension
     // host's schedule -- each enabled system's `frame(dt)`, dt in seconds -- once a drawn frame, never under a match.
     extensions?.frame(dt);
-    created.render(scene, fly.camera);
+    syncAxisWidget();
+    created.render(scene, fly.viewportCamera());
     frames++;
     if (now - fpsAt > 500) {
       sFps.textContent = `${Math.round((frames * 1000) / (now - fpsAt))} fps · ${created.backend}`;
-      const p = fly.camera.position;
+      const p = fly.viewportCamera().position;
       sCam.textContent = `cam ${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}`;
       frames = 0;
       fpsAt = now;
@@ -5535,7 +9372,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     fly.setScale(1);
     fly.setClipPlanes(4, FLOOR_SIZE * 2);
     fly.lookFrom([0, 250, 600], [0, 0, 0]);
-    const blankOpt = el(doc, 'option', '', 'Blank floor');
+    const blankOpt = el(doc, 'option', '', 'New Empty Map');
     blankOpt.value = 'blank';
     baseSel.append(blankOpt);
     baseSel.value = 'blank';
@@ -5548,7 +9385,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     history.reset(layoutText());
     refreshUndo();
     refreshCounts();
-    vpLabel.textContent = 'Perspective · Blank floor';
     say('blank floor');
     return;
   }
@@ -5668,13 +9504,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // A saved map layout is left alone: opening a blank floor would autosave over it.
     if (saved && saved.base.kind === 'map') { say(['no archives in the served tree (socomlegacy/public/maps)', asideWords(found)].filter(Boolean).join('. '), true); return; }
     keepEarlier = found.held;                                      // the review's F1: an unreadable autosave held in place
-    baseSel.append(opt('blank', 'Blank floor'));
+    baseSel.append(opt('blank', 'New Empty Map'));
     try {
-      await openLayout(saved ?? emptyLayout({ kind: 'blank', library: BLANK_LIBRARY }));
+      await openLayout(saved ?? newLayout({ kind: 'blank', library: BLANK_LIBRARY }));
       // After the open, whose own line would replace it (the fold's review, low 3).
       if (sharedUnopened) say(`${sharedWords}, so your earlier layout is open`, true);
       else sayAside(found);
-    } catch (e) { await fallBack(e, emptyLayout({ kind: 'blank', library: BLANK_LIBRARY })); }
+    } catch (e) { await fallBack(e, newLayout({ kind: 'blank', library: BLANK_LIBRARY })); }
     return;
   }
   /**
@@ -5683,6 +9519,30 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * R6 fix-up (the review's blocking finding): the fallback is not the player's work, so an autosave kept in this browser
    * is kept until the player's own edit (`keepEarlier`) -- the fallback's own write never replaces it.
    */
+  /**
+   * Each multiplayer base's own game type beside its name (the owner, 2026-11-06): `READERC.ZAR/missionlist.rdr`'s TYPE
+   * (`FUN_002c9540` D:L168844-168906, `../loadout` `kitGameType`), the type a match on it plays when the layout names none.
+   * Read once off the page's source; a map off the list, a campaign map, or a source without READERC, no word.
+   */
+  async function labelBaseTypes(): Promise<void> {
+    let kits: Awaited<ReturnType<typeof loadKitSource>> = null;
+    try { kits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { kits = null; }
+    // The list read (or found absent): a layout waiting on its base's own type takes it now.
+    missionKits = kits;
+    missionKitsRead = true;
+    // Shown, not an edit: no undo step, no save of its own -- the layout's next edit writes it (a file naming no type and
+    // one naming its base's own play the same).
+    if (typePending) {
+      authoredType = ownTypeOf(base);
+      typePending = false;
+      refreshGameTypes();
+    }
+    if (!kits) return;
+    for (const o of Array.from(baseSel.querySelectorAll('option'))) {
+      const type = kitGameType(kits, o.value);
+      if (type) o.textContent = `${o.textContent ?? ''} · ${FORGE_GAME_TYPE_NAME[type]}`;
+    }
+  }
   async function fallBack(e: unknown, fallback: Layout): Promise<void> {
     const words = e instanceof Error ? e.message : String(e);
     if (!base) { keepEarlier ||= forgeSaves.text('autosave') !== null; try { await openLayout(fallback); } catch (again) { say(again instanceof Error ? again.message : String(again), true); return; } }
@@ -5696,9 +9556,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     g.append(...rows.map((a) => opt(a.stem, `${a.label} \u00b7 ${a.stem}`)));
     return g;
   };
+  // The blank floor and its presets first (the owner, 2026-11-06: `./blankPresets`), then the disc's maps.
+  const custom = el(doc, 'optgroup');
+  custom.label = 'Custom / Preset';
+  custom.append(...BLANK_PRESETS.map((p) => opt(p.value, p.label)));   // no blank floor without a type (the owner, 2026-11-06)
+  baseSel.append(custom);
   if (mp.length) { baseSel.append(optgroup('Multiplayer', mp)); paletteSel.append(optgroup('Multiplayer', mp)); }
   if (camp.length) { baseSel.append(optgroup('Campaign', camp)); paletteSel.append(optgroup('Campaign', camp)); }
-  baseSel.append(opt('blank', 'Blank floor'));
+  void labelBaseTypes();
   // FG-26: `/forge/lobby/<id>` (or an old `/forge?lobby=<id>`) opens as a joiner (the lobby's layout, read-only); a join
   // that stops opens the forge as ever.
   const joinId = lobbyIdOf(globalThis.location?.search ?? '', globalThis.location?.pathname ?? '');
@@ -5706,7 +9571,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const found = await savedLayout();
   let first = found.layout;
   // A share or an autosave wins. Otherwise `/forge?floor` pins the blank floor, with or without a disc.
-  if (!first && wantsFloor) first = emptyLayout({ kind: 'blank', library: BLANK_LIBRARY });
+  if (!first && wantsFloor) first = newLayout({ kind: 'blank', library: BLANK_LIBRARY });
   // A map base this disc does not hold opens on one it does. A blank floor needs no archive. Pieces the disc lacks
   // stay in the layout (`placeAll`) and `openLayout` says how many. #348's re-review: a share that cannot open here
   // opens the earlier layout instead, and a fallback keeps the earlier autosave until the player edits (`./boot`).

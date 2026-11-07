@@ -14,25 +14,29 @@ import type { Scene } from 'three';
  * Baseline belongs to the base world alone: editor, walking and matches share it even
  * when the composed map adds pieces, bodies or a blank match floor.
  */
-export interface ForgeLightingOptions { timeOfDay: number; baseline: number }
+export interface ForgeLightingOptions { timeOfDay: number; baseline: number; /** A new empty map's own fog colour kept over the time's tint (`lightingFog`). */ keepFogColour?: boolean }
 const baselines = new WeakMap<LoadedMap, number>();
-export function forgeLightingOptions(settings: Pick<LayoutSettings, 'timeOfDay'>, base: LoadedMap | null): ForgeLightingOptions | null {
+export function forgeLightingOptions(settings: Pick<LayoutSettings, 'timeOfDay' | 'fogColor'>, base: LoadedMap | null): ForgeLightingOptions | null {
   if (settings.timeOfDay === null) return null;
   if (base && !baselines.has(base)) baselines.set(base, calibrate(base).median);
   // Blank layouts have no authored world. This fixed adaptation baseline also grades their match floor.
-  return { timeOfDay: settings.timeOfDay, baseline: base ? baselines.get(base)! : 0.18 };
+  // A new empty map's own fog colour (`LayoutSettings.fogColor`, a blank base: no `base` here) is kept over the time's tint.
+  return { timeOfDay: settings.timeOfDay, baseline: base ? baselines.get(base)! : 0.18, ...(base === null && settings.fogColor ? { keepFogColour: true } : {}) };
 }
 
-/** Compose before liftFog's lens/flash gain and scope extension, never once per frame. */
-export function lightingFog(fog: FogSettings, time: number | null): FogSettings {
-  return time === null ? fog : { ...fog, color: atmosphereTarget(time).map(v => v * 255) as [number, number, number] };
+/**
+ * Compose before liftFog's lens/flash gain and scope extension, never once per frame. `keepColour` (a new empty map's
+ * own fog colour, the owner 2026-11-06): the time's atmosphere does not tint it -- a colour chosen is the colour shown.
+ */
+export function lightingFog(fog: FogSettings, time: number | null, keepColour = false): FogSettings {
+  return time === null || keepColour ? fog : { ...fog, color: atmosphereTarget(time).map(v => v * 255) as [number, number, number] };
 }
 
 /** Existing fog lifecycle, including fog-disabled clear colour, composed ahead of the lens. */
 export function liftForgeFog(scene: Scene, fog: FogSettings, lighting: Lighting, lens: readonly number[] | null,
-  clear: ((rgb: [number, number, number]) => void) | null | undefined, time: number | null): void {
-  liftFog(scene, lightingFog(fog, time), lighting, lens, rgb => {
-    if (time !== null && !fog.enabled) {
+  clear: ((rgb: [number, number, number]) => void) | null | undefined, time: number | null, keepColour = false): void {
+  liftFog(scene, lightingFog(fog, time, keepColour), lighting, lens, rgb => {
+    if (time !== null && !fog.enabled && !keepColour) {
       const gain = brightenOf(lighting);
       rgb = atmosphereTarget(time).map((v, i) => Math.min(255, v * 255 * gain * (lens?.[i] ?? 1))) as [number, number, number];
     }

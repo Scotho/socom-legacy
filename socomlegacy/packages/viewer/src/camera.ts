@@ -1,5 +1,5 @@
 import { capturePointer, releasePointer, requestLock } from './pointer';
-import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
+import { MathUtils, OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
 import { GAME_FRAME_DT, GAME_FRAME_MAX_STEPS } from '@s2u/scene';
 import { padRaw, strongest } from './gamepad';
 import { moveStick } from './moveStick';
@@ -108,6 +108,20 @@ const DOUBLE_TAP_MS = 300;
 const WHEEL_STEP = 1.15;
 const SPEED_MIN = 0.1;
 const SPEED_MAX = 16;
+const FORGE_SPEED_MIN_ADAPTATION = 0.1;
+const FORGE_SPEED_MAX_ADAPTATION = 16;
+const FORGE_LOOK_SPEED_MIN_ADAPTATION = 0.1;
+const FORGE_LOOK_SPEED_MAX_ADAPTATION = 5;
+const FORGE_FOV_MIN_ADAPTATION = 30;
+const FORGE_FOV_MAX_ADAPTATION = 120;
+/** Forge wheel travel: one hundred wheel pixels moves one tenth of the base fly speed. */
+const FORGE_WHEEL_TRAVEL_ADAPTATION = 0.001;
+export const FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION = 100;
+const FORGE_DOLLY_RATE_ADAPTATION = 0.01;
+const FORGE_FOV_STEP_ADAPTATION = 5;
+const ORTHOGRAPHIC_REFERENCE_DEPTH_ADAPTATION = 100;
+
+export type ForgeViewportView = 'perspective' | 'top' | 'bottom' | 'left' | 'right' | 'front' | 'back';
 
 /** Frame-rate independent exponential approach: the value `a` moves toward `b` at rate `k` per second. */
 const approach = (a: number, b: number, k: number, dt: number): number =>
@@ -124,9 +138,16 @@ const OWNED = new Set([
   'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
 ]);
 
+/** The letters the Forge's camera flies on while RMB is held (`update`'s `keyboardMove`): taken from the editor then. */
+const FORGE_FLY_KEYS = new Set(['keyw', 'keya', 'keys', 'keyd', 'keyq', 'keye', 'keyr', 'keyf']);
+
 export interface FlyCameraOptions {
   /** Called when the wheel changes the speed multiplier, so the page can show it. */
-  onSpeedChange?: (multiplier: number) => void;
+  onSpeedChange?: (multiplier: number, source: 'wheel' | 'setting') => void;
+  /** Called when the perspective field of view changes. */
+  onFovChange?: (degrees: number) => void;
+  /** Called while Forge's RMB look gesture is held, even when pointer lock is unavailable. */
+  onLookHoldChange?: (held: boolean) => void;
   /** Called when pointer lock is taken or released, so the page can show a hint. */
   onLockChange?: (locked: boolean) => void;
   /**
@@ -140,15 +161,23 @@ export interface FlyCameraOptions {
    * adaptation; only `./forge/page` passes it -- every other camera keeps OT.R29 / OT.R38, a development build's alone.
    */
   forgeKbm?: true;
+  /** The Forge's pointer-events overlay; pointer lock still belongs to the canvas. */
+  pointerInput?: HTMLElement;
+  /** View-space depth at an MMB press, used to pan the clicked point with the pointer. */
+  panDepthAt?: (clientX: number, clientY: number) => number | null;
+  /** World-space point under the pointer for orbit and dolly gestures. */
+  pivotAt?: (clientX: number, clientY: number) => Vector3 | null;
+  /** Clips and slides a proposed Forge camera translation against the scene when collision navigation is enabled. */
+  constrainMovement?: (from: Vector3, to: Vector3, radius: number) => { position: Vector3; normals: Vector3[] };
 }
 
 /**
  * A fly camera in the game's world frame (y up, right-handed, SEMANTICS section 8), with the controls
  * and the feel of a creative-mode build camera:
  *
- * - **Click the canvas to capture the mouse**; look is then free, and Esc gives the pointer back. When
- *   pointer lock is unavailable — headless Playwright, a touch screen — dragging still looks, so the
- *   screenshot tests and a tablet both keep working.
+ * - **Click the canvas to capture the mouse** in the standalone fly view; the Forge instead holds RMB
+ *   to look, MMB-drags to pan, and moves along the view direction with the wheel. When pointer lock
+ *   is unavailable, dragging still looks where supported.
  * - **W/S** fly along the look direction, pitch included, so looking down and holding W descends.
  *   **A/D** strafe level with the horizon whatever the pitch: a strafe that dipped with the nose makes
  *   it impossible to sidle along a wall while looking at it.
@@ -157,8 +186,8 @@ export interface FlyCameraOptions {
  *   closes the tab and no page can prevent it, so nothing is bound to Ctrl.
  *   The boost is the fly camera's alone: in walk mode nothing boosts (owner, 2026-09-28).
  *   **Q/E** stay bound to down/up as they were, for anyone with the old keys in their fingers.
- * - **Wheel** trims the speed between a tenth and sixteen times, because a map is 100 m across but a
- *   prop is 30 cm.
+ * - **Wheel** trims the speed between a tenth and sixteen times; in Forge it moves forward and back
+ *   along the look direction unless RMB is held.
  *
  * Movement is velocity-based rather than position-based: keys steer a target velocity that the real
  * velocity chases, so starts ramp and stops glide instead of snapping. `setPose` kills the velocity
@@ -169,6 +198,12 @@ export interface FlyCameraOptions {
  */
 export class FlyCamera {
   readonly camera: PerspectiveCamera;
+  private activeCamera: PerspectiveCamera | OrthographicCamera;
+  private readonly perspectiveCamera: PerspectiveCamera;
+  private readonly orthographicCamera: OrthographicCamera;
+  private orthographicHeight: number;
+  private orthographicFocusDistance = ORTHOGRAPHIC_REFERENCE_DEPTH_ADAPTATION;
+  private viewportView: ForgeViewportView = 'perspective';
   /**
    * Radians, canonical in [0, 2 pi) (`wrapYawRad`, web research 86 section 3.8): every turn is folded in where it is
    * stored, so the mover, the body, the climb's steer and the command never see a yaw wound round (SOCOM II's facing is a
@@ -194,15 +229,28 @@ export class FlyCamera {
   private lastY = 0;
   /** Game units a second at the map's scale; `setScale` adjusts it when a map states its own. */
   private speed = METRES_PER_SECOND / 0.1;
+  private metersPerUnit = 0.1;
   /** The wheel's trim on top of `speed`. */
   private speedMultiplier = 1;
+  private lookSpeedMultiplier = 1;
+  private cameraCollisionEnabled = false;
   /** Current velocity in game units a second. Public movement state, zeroed by `setPose`. */
   private readonly velocity = new Vector3();
+  private readonly pointerInput: HTMLElement;
   /** The vertical field of view at rest: the map's own once `setFov` has it. */
   private restFov = FOV;
   /** The FOV actually applied, eased toward its target so the sprint kick is not a step. */
   private fov = FOV;
   private locked = false;
+  /** The forge holds its pointer lock only for the duration of a right-button press. */
+  private rightMouseHeld = false;
+  private panning: number | null = null;
+  private panButton: number | null = null;
+  private lastPanX = 0;
+  private lastPanY = 0;
+  private panUnitsPerPixel = 0;
+  private orbiting: { id: number; pivot: Vector3; position: Vector3; yaw: number; pitch: number; x: number; y: number } | null = null;
+  private dollying: { id: number; pivot: Vector3; offset: Vector3; y: number } | null = null;
   /** When forward was last tapped, and whether the tap that is still held was the second one. */
   private lastForwardTap = 0;
   private sprinting_ = false;
@@ -245,13 +293,29 @@ export class FlyCamera {
     private readonly canvas: HTMLCanvasElement,
     private readonly options: FlyCameraOptions = {},
   ) {
-    this.camera = new PerspectiveCamera(FOV, 1, DEFAULT_NEAR, DEFAULT_FAR);
-    this.camera.rotation.order = 'YXZ';       // yaw about y, then pitch about the new x
+    this.pointerInput = options.pointerInput ?? canvas;
+    this.perspectiveCamera = new PerspectiveCamera(FOV, 1, DEFAULT_NEAR, DEFAULT_FAR);
+    this.orthographicHeight = 2 * ORTHOGRAPHIC_REFERENCE_DEPTH_ADAPTATION * Math.tan(MathUtils.degToRad(FOV) / 2);
+    this.orthographicCamera = new OrthographicCamera(
+      -this.orthographicHeight / 2, this.orthographicHeight / 2,
+      this.orthographicHeight / 2, -this.orthographicHeight / 2,
+      DEFAULT_NEAR, DEFAULT_FAR,
+    );
+    this.camera = this.perspectiveCamera;
+    this.activeCamera = this.perspectiveCamera;
+    this.perspectiveCamera.rotation.order = 'YXZ';
+    this.orthographicCamera.rotation.order = 'YXZ';
     this.forgeKbm = options.forgeKbm === true;
-    canvas.addEventListener('pointerdown', this.onPointerDown);
-    canvas.addEventListener('pointermove', this.onPointerMove);
-    canvas.addEventListener('pointerup', this.onPointerUp);
-    canvas.addEventListener('pointercancel', this.onPointerUp);
+    this.pointerInput.addEventListener('pointerdown', this.onPointerDown);
+    this.pointerInput.addEventListener('pointermove', this.onPointerMove);
+    this.pointerInput.addEventListener('pointerup', this.onPointerUp);
+    this.pointerInput.addEventListener('pointercancel', this.onPointerUp);
+    if (this.pointerInput !== canvas) {
+      canvas.addEventListener('pointerdown', this.onPointerDown);
+      canvas.addEventListener('pointermove', this.onPointerMove);
+      canvas.addEventListener('pointerup', this.onPointerUp);
+      canvas.addEventListener('pointercancel', this.onPointerUp);
+    }
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     // A right-click is a look-around on a fly camera, not a request for the browser's menu.
     canvas.addEventListener('contextmenu', this.onContextMenu);
@@ -273,10 +337,16 @@ export class FlyCamera {
    */
   dispose(): void {
     const c = this.canvas;
-    c.removeEventListener('pointerdown', this.onPointerDown);
-    c.removeEventListener('pointermove', this.onPointerMove);
-    c.removeEventListener('pointerup', this.onPointerUp);
-    c.removeEventListener('pointercancel', this.onPointerUp);
+    this.pointerInput.removeEventListener('pointerdown', this.onPointerDown);
+    this.pointerInput.removeEventListener('pointermove', this.onPointerMove);
+    this.pointerInput.removeEventListener('pointerup', this.onPointerUp);
+    this.pointerInput.removeEventListener('pointercancel', this.onPointerUp);
+    if (this.pointerInput !== c) {
+      c.removeEventListener('pointerdown', this.onPointerDown);
+      c.removeEventListener('pointermove', this.onPointerMove);
+      c.removeEventListener('pointerup', this.onPointerUp);
+      c.removeEventListener('pointercancel', this.onPointerUp);
+    }
     c.removeEventListener('wheel', this.onWheel);
     c.removeEventListener('contextmenu', this.onContextMenu);
     globalThis.removeEventListener('keydown', this.onKeyDown);
@@ -288,7 +358,12 @@ export class FlyCamera {
 
   /** `MetersPerUnit` from the map: the fly speed is a cruise in metres, whatever the unit is. */
   setScale(metersPerUnit: number): void {
-    this.speed = METRES_PER_SECOND / (metersPerUnit > 0 ? metersPerUnit : 0.1);
+    this.metersPerUnit = metersPerUnit > 0 ? metersPerUnit : 0.1;
+    this.speed = METRES_PER_SECOND / this.metersPerUnit;
+  }
+
+  setCameraCollisionEnabled(enabled: boolean): void {
+    this.cameraCollisionEnabled = enabled;
   }
 
   /**
@@ -303,9 +378,12 @@ export class FlyCamera {
   setClipPlanes(near: number, far: number): void {
     if (!(far > near) || near <= 0) return;
     this.mapNear = near;
-    this.camera.near = this.viewNear === null ? near : Math.min(near, this.viewNear);
-    this.camera.far = far;
-    this.camera.updateProjectionMatrix();
+    const effectiveNear = this.viewNear === null ? near : Math.min(near, this.viewNear);
+    for (const camera of [this.perspectiveCamera, this.orthographicCamera]) {
+      camera.near = effectiveNear;
+      camera.far = far;
+      camera.updateProjectionMatrix();
+    }
   }
 
   /**
@@ -316,9 +394,12 @@ export class FlyCamera {
   setViewNear(near: number | null): void {
     this.viewNear = near !== null && near > 0 ? near : null;
     const next = this.viewNear === null ? this.mapNear : Math.min(this.mapNear, this.viewNear);
-    if (this.camera.near === next) return;
-    this.camera.near = next;
-    this.camera.updateProjectionMatrix();
+    for (const camera of [this.perspectiveCamera, this.orthographicCamera]) {
+      if (camera.near !== next) {
+        camera.near = next;
+        camera.updateProjectionMatrix();
+      }
+    }
   }
 
   /** The map's own vertical field of view, in degrees; the boost widens from it and eases back to it. */
@@ -326,8 +407,9 @@ export class FlyCamera {
     if (!(degrees > 1 && degrees < 179)) return;
     this.restFov = degrees;
     this.fov = degrees;
-    this.camera.fov = degrees;
-    this.camera.updateProjectionMatrix();
+    this.perspectiveCamera.fov = degrees;
+    this.perspectiveCamera.updateProjectionMatrix();
+    this.options.onFovChange?.(degrees);
   }
 
   /**
@@ -336,19 +418,108 @@ export class FlyCamera {
    * boost set (`setFov`), which it never touches; `setPose` keeps it. 1 is the camera as it was.
    */
   setMagnification(magnification: number): void {
-    if (this.camera.zoom === magnification) return;
-    this.camera.zoom = magnification;
-    this.camera.updateProjectionMatrix();
+    if (this.activeCamera.zoom === magnification) return;
+    this.activeCamera.zoom = magnification;
+    this.activeCamera.updateProjectionMatrix();
   }
 
   setAspect(aspect: number): void {
-    this.camera.aspect = aspect;
-    this.camera.updateProjectionMatrix();
+    this.perspectiveCamera.aspect = aspect;
+    this.orthographicCamera.left = -this.orthographicHeight * aspect / 2;
+    this.orthographicCamera.right = this.orthographicHeight * aspect / 2;
+    this.orthographicCamera.top = this.orthographicHeight / 2;
+    this.orthographicCamera.bottom = -this.orthographicHeight / 2;
+    this.perspectiveCamera.updateProjectionMatrix();
+    this.orthographicCamera.updateProjectionMatrix();
+  }
+
+  setForgeViewportView(view: ForgeViewportView, focus: Vector3 | null = null): void {
+    if (!this.forgeKbm) return;
+    if (view === 'perspective') {
+      if (this.viewportView !== 'perspective') {
+        this.perspectiveCamera.position.copy(this.orthographicCamera.position);
+        this.perspectiveCamera.rotation.copy(this.orthographicCamera.rotation);
+        this.activeCamera = this.perspectiveCamera;
+      }
+      this.viewportView = view;
+      this.yaw = wrapYawRad(this.perspectiveCamera.rotation.y);
+      this.pitch = this.clampPitch(this.perspectiveCamera.rotation.x);
+      this.apply();
+      return;
+    }
+
+    const orientation: Record<Exclude<ForgeViewportView, 'perspective'>, [number, number]> = {
+      top: [0, -PITCH_LIMIT],
+      bottom: [0, PITCH_LIMIT],
+      left: [-Math.PI / 2, 0],
+      right: [Math.PI / 2, 0],
+      front: [0, 0],
+      back: [Math.PI, 0],
+    };
+    const target = this.viewportView === 'perspective'
+      ? focus?.clone() ?? this.perspectiveCamera.position.clone().add(this.perspectiveCamera.getWorldDirection(new Vector3()).multiplyScalar(ORTHOGRAPHIC_REFERENCE_DEPTH_ADAPTATION))
+      : this.orthographicCamera.position.clone().add(this.orthographicCamera.getWorldDirection(new Vector3()).multiplyScalar(this.orthographicFocusDistance));
+    if (this.viewportView === 'perspective') {
+      this.orthographicFocusDistance = Math.max(1, target.distanceTo(this.perspectiveCamera.position));
+      this.orthographicHeight = 2 * this.orthographicFocusDistance
+        * Math.tan(MathUtils.degToRad(this.perspectiveCamera.fov) / 2) / this.perspectiveCamera.zoom;
+      this.orthographicCamera.zoom = 1;
+      this.setAspect(this.perspectiveCamera.aspect);
+    }
+    [this.yaw, this.pitch] = orientation[view];
+    this.viewportView = view;
+    this.activeCamera = this.orthographicCamera;
+    this.apply();
+    const forward = this.orthographicCamera.getWorldDirection(new Vector3());
+    this.orthographicCamera.position.copy(target).addScaledVector(forward, -this.orthographicFocusDistance);
+    this.rightMouseHeld = false;
+    this.options.onLookHoldChange?.(false);
+    if (globalThis.document?.pointerLockElement === this.canvas) globalThis.document.exitPointerLock?.();
+  }
+
+  forgeViewportView(): ForgeViewportView {
+    return this.viewportView;
+  }
+
+  orbitForgeViewport(dx: number, dy: number, focus: Vector3): void {
+    if (!this.forgeKbm || (dx === 0 && dy === 0)) return;
+    if (this.activeCamera === this.orthographicCamera) this.setForgeViewportView('perspective');
+    const distance = Math.max(1, this.activeCamera.position.distanceTo(focus));
+    this.yaw = wrapYawRad(this.yaw - dx * LOOK * this.lookSpeedMultiplier);
+    this.pitch = this.clampPitch(this.pitch - dy * LOOK * this.lookSpeedMultiplier);
+    this.apply();
+    this.activeCamera.position.copy(focus).addScaledVector(this.activeCamera.getWorldDirection(new Vector3()), -distance);
+    this.velocity.set(0, 0, 0);
+  }
+
+  viewportCamera(): PerspectiveCamera | OrthographicCamera {
+    return this.activeCamera;
+  }
+
+  setSpeedMultiplier(multiplier: number): void {
+    this.speedMultiplier = MathUtils.clamp(multiplier, FORGE_SPEED_MIN_ADAPTATION, FORGE_SPEED_MAX_ADAPTATION);
+    this.options.onSpeedChange?.(this.speedMultiplier, 'setting');
+  }
+
+  setLookSpeedMultiplier(multiplier: number): void {
+    this.lookSpeedMultiplier = MathUtils.clamp(multiplier, FORGE_LOOK_SPEED_MIN_ADAPTATION, FORGE_LOOK_SPEED_MAX_ADAPTATION);
+  }
+
+  lookSpeed(): number {
+    return this.lookSpeedMultiplier;
+  }
+
+  fieldOfView(): number {
+    return this.restFov;
   }
 
   /** The projection's width/height, the value `setAspect` last wrote (the canvas, or the PS2 aspect). */
   aspect(): number {
-    return this.camera.aspect;
+    return this.perspectiveCamera.aspect;
+  }
+
+  isLookHeld(): boolean {
+    return this.rightMouseHeld;
   }
 
   /** The wheel's speed trim, for the page's hint line. */
@@ -379,15 +550,15 @@ export class FlyCamera {
    */
   setPose(pose: Partial<Pose>): void {
     const now = this.pose();
-    this.camera.position.set(pose.x ?? now.x, pose.y ?? now.y, pose.z ?? now.z);
+    this.activeCamera.position.set(pose.x ?? now.x, pose.y ?? now.y, pose.z ?? now.z);
     this.yaw = wrapYawRad(MathUtils.degToRad(pose.yaw ?? now.yaw));
     if (pose.yaw !== undefined) this.touchYaw = 0;              // a facing set: a finger's look still owed is spent
     if (pose.pitch !== undefined) this.touchPitch = 0;
     this.pitch = this.clampPitch(MathUtils.degToRad(pose.pitch ?? now.pitch));
     this.velocity.set(0, 0, 0);
     this.fov = this.restFov;
-    this.camera.fov = this.restFov;
-    this.camera.updateProjectionMatrix();
+    this.perspectiveCamera.fov = this.restFov;
+    this.perspectiveCamera.updateProjectionMatrix();
     this.apply();
   }
 
@@ -414,7 +585,7 @@ export class FlyCamera {
   }
 
   pose(): Pose {
-    const p = this.camera.position;
+    const p = this.activeCamera.position;
     return { x: p.x, y: p.y, z: p.z, yaw: wrapYaw(MathUtils.radToDeg(this.yaw)), pitch: MathUtils.radToDeg(this.pitch) };
   }
 
@@ -502,7 +673,7 @@ export class FlyCamera {
    */
   screenShift(): [number, number] {
     const [ox, oy] = viewOffset(this.screen[0], this.screen[1]);
-    return [-ox / (this.camera.aspect * SCREEN.height), -oy / SCREEN.height];
+    return [-ox / (this.perspectiveCamera.aspect * SCREEN.height), -oy / SCREEN.height];
   }
 
   /**
@@ -511,14 +682,14 @@ export class FlyCamera {
    * The yaw and pitch themselves are untouched: they are the body's turn and the camera's pitch.
    */
   placeView(eye: readonly [number, number, number], target: readonly [number, number, number] | null): void {
-    this.camera.position.set(eye[0], eye[1], eye[2]);
-    if (target) this.camera.lookAt(target[0], target[1], target[2]);
+    this.activeCamera.position.set(eye[0], eye[1], eye[2]);
+    if (target) this.activeCamera.lookAt(target[0], target[1], target[2]);
     else this.apply();
   }
 
   /** Stand the camera at a point without touching the look, the FOV or anything else `setPose` resets. */
   moveTo(x: number, y: number, z: number): void {
-    this.camera.position.set(x, y, z);
+    this.activeCamera.position.set(x, y, z);
   }
 
   /**
@@ -557,37 +728,48 @@ export class FlyCamera {
       const lookX = this.lookX / rim, lookY = this.lookY / rim;
       const turn = Math.abs(lookX) > Math.abs(arrowTurn) ? -lookX : arrowTurn;
       const tilt = Math.abs(lookY) > Math.abs(arrowTilt) ? lookY : arrowTilt;
-      if (turn !== 0 || tilt !== 0) {
-        this.yaw = wrapYawRad(this.yaw + turn * ARROW_LOOK * dt);
-        this.pitch = this.clampPitch(this.pitch + tilt * ARROW_LOOK * dt);
+      if ((!this.forgeKbm || this.activeCamera !== this.orthographicCamera) && (turn !== 0 || tilt !== 0)) {
+        const lookSpeed = this.forgeKbm ? this.lookSpeedMultiplier : 1;
+        this.yaw = wrapYawRad(this.yaw + turn * ARROW_LOOK * dt * lookSpeed);
+        this.pitch = this.clampPitch(this.pitch + tilt * ARROW_LOOK * dt * lookSpeed);
         this.apply();
       }
     }
 
     // Forward carries the pitch; right is taken from the yaw alone so strafing stays level.
-    const forward = new Vector3(0, 0, -1).applyEuler(this.camera.rotation);
+    const forward = new Vector3(0, 0, -1).applyEuler(this.activeCamera.rotation);
     const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
     const wish = new Vector3();
     // The touch stick, before the keys: it is an analogue pair on the same two axes, so it adds to the
     // same wish vector and everything below -- the ramp, the glide, the frame-rate independence -- is
     // the keys' own model doing the work.
-    if (this.stickX !== 0 || this.stickY !== 0) {
+    const orthographicView = this.forgeKbm && this.activeCamera === this.orthographicCamera;
+    if (!orthographicView && (this.stickX !== 0 || this.stickY !== 0)) {
       wish.addScaledVector(forward, this.stickY);
       wish.addScaledVector(right, this.stickX);
     }
-    if (this.lift !== 0) wish.y += this.lift;
-    if (this.keys.has('keyw')) wish.add(forward);
-    if (this.keys.has('keys')) wish.sub(forward);
-    if (this.keys.has('keyd')) wish.add(right);
-    if (this.keys.has('keya')) wish.sub(right);
-    if (this.keys.has('space') || this.keys.has('keye')) wish.y += 1;
-    if (this.down() || this.keys.has('keyq')) wish.y -= 1;
+    if (!orthographicView && this.lift !== 0) wish.y += this.lift;
+    const keyboardMove = !this.forgeKbm || (this.activeCamera === this.perspectiveCamera && this.rightMouseHeld);
+    if (keyboardMove && this.keys.has('keyw')) wish.add(forward);
+    if (keyboardMove && this.keys.has('keys')) wish.sub(forward);
+    if (keyboardMove && this.keys.has('keyd')) wish.add(right);
+    if (keyboardMove && this.keys.has('keya')) wish.sub(right);
+    if (keyboardMove && (this.keys.has('space') || this.keys.has('keye'))) wish.y += 1;
+    if (keyboardMove && ((!this.forgeKbm && this.down()) || this.keys.has('keyq'))) wish.y -= 1;
+    if (keyboardMove && this.keys.has('keyr')) wish.add(new Vector3(0, 1, 0).applyEuler(this.activeCamera.rotation));
+    if (keyboardMove && this.keys.has('keyf')) wish.sub(new Vector3(0, 1, 0).applyEuler(this.activeCamera.rotation));
 
     const moving = wish.lengthSq() > 0;
     // The walk has no boost (W2.R2: the game's run is 65 and nothing faster), so neither has its field of view.
-    const boosting = !this.walking && moving && (this.sprinting() || (this.stickBoost && (this.stickX !== 0 || this.stickY !== 0)));
-    const cruise = this.speed * this.speedMultiplier * (boosting ? SPRINT : 1);
+    const boosting = !this.walking && moving && (
+      this.sprinting()
+      || (this.stickBoost && (this.stickX !== 0 || this.stickY !== 0))
+      || (this.forgeKbm && this.down())
+    );
+    const forgeMovementFactor = this.forgeMovementFactor();
+    if (forgeMovementFactor === 0) this.velocity.set(0, 0, 0);
+    const cruise = this.speed * this.speedMultiplier * forgeMovementFactor * (boosting ? SPRINT : 1);
     // One key or three, the speed is the same: clamping stops diagonals being 1.7x faster. It *clamps*
     // rather than normalises so that a stick pushed half way moves at half speed -- with keys the
     // vector is always at least unit length, so they are unaffected.
@@ -603,8 +785,23 @@ export class FlyCamera {
     const y = glide(this.velocity.y, target.y, rate, dt);
     const z = glide(this.velocity.z, target.z, rate, dt);
     if (!this.walking) {
-      this.camera.position.set(this.camera.position.x + x.moved, this.camera.position.y + y.moved, this.camera.position.z + z.moved);
-      this.velocity.set(x.velocity, y.velocity, z.velocity);
+      const from = this.activeCamera.position.clone();
+      const to = from.clone().add(new Vector3(x.moved, y.moved, z.moved));
+      const collisionActive = this.forgeKbm && this.cameraCollisionEnabled
+        && this.activeCamera === this.perspectiveCamera && this.rightMouseHeld;
+      const constraint = collisionActive
+        ? this.options.constrainMovement?.(from, to, 0.25 / this.metersPerUnit)
+        : undefined;
+      const resolved = constraint?.position ?? to;
+      this.activeCamera.position.copy(resolved);
+      if (constraint?.normals.length) {
+        this.velocity.set(x.velocity, y.velocity, z.velocity);
+        for (const normal of constraint.normals) this.velocity.projectOnPlane(normal);
+      } else if (collisionActive && !resolved.equals(to)) {
+        this.velocity.set(0, 0, 0);
+      } else {
+        this.velocity.set(x.velocity, y.velocity, z.velocity);
+      }
     }
 
     // Below a millimetre a second the glide is over; snapping to zero keeps a released key from
@@ -612,10 +809,10 @@ export class FlyCamera {
     if (!moving && this.velocity.lengthSq() < 1e-4) this.velocity.set(0, 0, 0);
 
     const fovTarget = boosting ? this.restFov * SPRINT_FOV : this.restFov;
-    if (Math.abs(this.fov - fovTarget) > 1e-3) {
+    if (this.activeCamera === this.perspectiveCamera && Math.abs(this.fov - fovTarget) > 1e-3) {
       this.fov = approach(this.fov, fovTarget, FOV_RATE, dt);
-      this.camera.fov = this.fov;
-      this.camera.updateProjectionMatrix();
+      this.perspectiveCamera.fov = this.fov;
+      this.perspectiveCamera.updateProjectionMatrix();
     }
   }
 
@@ -729,12 +926,12 @@ export class FlyCamera {
   private setScreenOffset(x: number, y: number): void {
     this.screen = [x, y];
     if (x === 0 && y === 0) {
-      if (this.camera.view?.enabled) this.camera.clearViewOffset();
+      if (this.activeCamera.view?.enabled) this.activeCamera.clearViewOffset();
       return;
     }
     const [ox, oy] = viewOffset(x, y);
-    const w = this.camera.aspect * SCREEN.height;
-    this.camera.setViewOffset(w, SCREEN.height, ox, oy, w, SCREEN.height);
+    const w = this.perspectiveCamera.aspect * SCREEN.height;
+    this.activeCamera.setViewOffset(w, SCREEN.height, ox, oy, w, SCREEN.height);
   }
 
   /** Double-tapped forward, still held. Released, the sprint ends. */
@@ -746,11 +943,18 @@ export class FlyCamera {
     return this.keys.has('shiftleft') || this.keys.has('shiftright');
   }
 
+  private forgeMovementFactor(): number {
+    if (!this.forgeKbm) return 1;
+    if (this.keys.has('controlleft') || this.keys.has('controlright')) return 0;
+    return 1;
+  }
+
   private apply(): void {
-    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    this.activeCamera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
   }
 
   private look(dx: number, dy: number): void {
+    if (this.forgeKbm && this.activeCamera === this.orthographicCamera) return;
     if (this.walking) {
       // The viewer's mouse mapping (`LookLaw.mouse`): raw angles now, or counts kept for the stick law's frame.
       const [yaw, pitch] = this.law.mouse(dx, dy);
@@ -760,8 +964,9 @@ export class FlyCamera {
       this.apply();
       return;
     }
-    this.yaw = wrapYawRad(this.yaw - dx * LOOK);
-    this.pitch = this.clampPitch(this.pitch - dy * LOOK);
+    const sensitivity = this.forgeKbm ? this.lookSpeedMultiplier : 1;
+    this.yaw = wrapYawRad(this.yaw - dx * LOOK * sensitivity);
+    this.pitch = this.clampPitch(this.pitch - dy * LOOK * sensitivity);
     this.apply();
   }
 
@@ -777,6 +982,51 @@ export class FlyCamera {
   private readonly onPointerDown = (e: PointerEvent): void => {
     // Without this a drag across the canvas selects the panel's text and the page flashes blue.
     e.preventDefault();
+    if (this.forgeKbm && this.activeCamera === this.perspectiveCamera && e.altKey && (e.button === 0 || e.button === 2)) {
+      const pivot = this.options.pivotAt?.(e.clientX, e.clientY)
+        ?? this.activeCamera.position.clone().add(this.activeCamera.getWorldDirection(new Vector3()).multiplyScalar(FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION));
+      this.velocity.set(0, 0, 0);
+      if (e.button === 0) {
+        this.orbiting = {
+          id: e.pointerId, pivot, position: this.activeCamera.position.clone(), yaw: this.yaw, pitch: this.pitch,
+          x: e.clientX, y: e.clientY,
+        };
+      } else {
+        this.rightMouseHeld = true;
+        this.options.onLookHoldChange?.(true);
+        this.dollying = { id: e.pointerId, pivot, offset: this.activeCamera.position.clone().sub(pivot), y: e.clientY };
+      }
+      if (!this.locked && !capturePointer(this.pointerInput, e.pointerId)) {
+        this.orbiting = null;
+        this.dollying = null;
+        if (e.button === 2) {
+          this.rightMouseHeld = false;
+          this.options.onLookHoldChange?.(false);
+        }
+      }
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (this.forgeKbm && (e.button === 1 || (e.button === 2 && this.activeCamera === this.orthographicCamera))) {
+      this.panning = e.pointerId;
+      this.panButton = e.button;
+      this.lastPanX = e.clientX;
+      this.lastPanY = e.clientY;
+      const rect = this.pointerInput.getBoundingClientRect();
+      const depth = this.options.panDepthAt?.(e.clientX, e.clientY) ?? FORGE_PIVOT_FALLBACK_DEPTH_ADAPTATION;
+      const verticalSpan = this.activeCamera === this.perspectiveCamera
+        ? 2 * Math.max(0.1, depth) * Math.tan(MathUtils.degToRad(this.perspectiveCamera.fov) / 2)
+        : this.orthographicHeight;
+      this.panUnitsPerPixel = verticalSpan / (Math.max(1, rect.height) * this.activeCamera.zoom);
+      if (!this.locked && !capturePointer(this.pointerInput, e.pointerId)) this.panning = null;
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (this.forgeKbm && e.button !== 2 && !(this.locked && e.button === 0)) return;
+    if (this.forgeKbm && e.button === 2) {
+      this.rightMouseHeld = true;
+      this.options.onLookHoldChange?.(true);
+    }
     // A click on a checkbox leaves it focused, and `onKeyDown` ignores anything aimed at an input --
     // so without this, touching any panel control killed WASD until the page was reloaded. The canvas
     // has no tabindex and never takes focus by itself, so the focus is dropped by hand.
@@ -784,14 +1034,14 @@ export class FlyCamera {
     if (focused instanceof HTMLElement && focused !== this.canvas) focused.blur();
     // OT.R38 / H115 ("Controller only"): the pointer lock, the locked mouse's trigger and look, and a mouse's or a pen's
     // drag look are a development build's only (`./mouseTesting`); a release keeps a finger's drag (the touch layer).
-    // OT.R68: the forge editor's captured mouse (its page asks the lock on a right-click) clicks at the centre in every build.
+    // OT.R68: the forge editor's page asks for its right-button look lock in every build.
     if (import.meta.env.DEV || this.forgeKbm) {
       if (import.meta.env.DEV) mouseSite('s2u-mouse-pointer-lock');
       if (this.locked) {
         if (e.button === 0) { this.triggerHeld = true; this.options.onFire?.(true); }
         return;
       }
-      if (import.meta.env.DEV && e.pointerType === 'mouse') {
+      if (import.meta.env.DEV && !this.forgeKbm && e.pointerType === 'mouse') {
         // Raw mouse input where the browser offers it: the OS's pointer acceleration is for a cursor, not for a look. A
         // refusal of the raw request falls back to the plain one, and a refusal of that to the drag; none of them may
         // reach the console as an uncaught rejection (`./pointer`, `requestLock`).
@@ -800,7 +1050,7 @@ export class FlyCamera {
     }
     if (e.pointerType !== 'touch') {
       if (import.meta.env.DEV) mouseSite('s2u-mouse-drag-look');
-      else return;                                                   // a release: only a finger drags the look
+      else if (!this.forgeKbm) return;                               // a release: only a finger drags the look
     }
     if (this.dragging !== null) return;
     this.dragging = e.pointerId;
@@ -808,13 +1058,48 @@ export class FlyCamera {
     this.lastY = e.clientY;
     // Refused when the pointer is already gone (the click became the lock, a synthetic event): no `pointerup` will come
     // for it, so there is no drag to keep, and it is not an error (`./pointer`).
-    if (!capturePointer(this.canvas, e.pointerId)) this.dragging = null;
+    if (!capturePointer(this.pointerInput, e.pointerId)) this.dragging = null;
   };
 
   private readonly onPointerMove = (e: PointerEvent): void => {
     if (this.suspended) return;                     // a menu holds the input
+    if (this.forgeKbm && this.orbiting !== null && this.orbiting.id === e.pointerId) {
+      const state = this.orbiting;
+      const sensitivity = this.lookSpeedMultiplier;
+      const yawDelta = -(e.clientX - state.x) * LOOK * sensitivity;
+      const yaw = wrapYawRad(state.yaw + yawDelta);
+      const pitch = this.clampPitch(state.pitch - (e.clientY - state.y) * LOOK * sensitivity);
+      const offset = state.position.clone().sub(state.pivot).applyAxisAngle(new Vector3(0, 1, 0), yawDelta);
+      const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+      offset.applyAxisAngle(right, pitch - state.pitch);
+      this.activeCamera.position.copy(state.pivot).add(offset);
+      this.yaw = yaw;
+      this.pitch = pitch;
+      this.apply();
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (this.forgeKbm && this.dollying !== null && this.dollying.id === e.pointerId) {
+      const state = this.dollying;
+      const distance = Math.max(0.1, state.offset.length() * Math.exp((e.clientY - state.y) * FORGE_DOLLY_RATE_ADAPTATION));
+      this.activeCamera.position.copy(state.pivot).add(state.offset.clone().setLength(distance));
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (this.forgeKbm && this.panning !== null && this.panning === e.pointerId) {
+      const dx = e.clientX - this.lastPanX, dy = e.clientY - this.lastPanY;
+      this.activeCamera.translateX(-dx * this.panUnitsPerPixel);
+      this.activeCamera.translateY(dy * this.panUnitsPerPixel);
+      this.lastPanX = e.clientX;
+      this.lastPanY = e.clientY;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     if ((import.meta.env.DEV || this.forgeKbm) && this.locked) {   // OT.R38: the locked look a development build's; OT.R68 the forge's
-      this.look(e.movementX ?? 0, e.movementY ?? 0);
+      if (!this.forgeKbm || this.rightMouseHeld) this.look(e.movementX ?? 0, e.movementY ?? 0);
       return;
     }
     if (this.dragging !== e.pointerId) return;
@@ -830,18 +1115,42 @@ export class FlyCamera {
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
+    if (this.forgeKbm && (e.button === 0 || e.type === 'pointercancel') && this.orbiting !== null && this.orbiting.id === e.pointerId) {
+      this.orbiting = null;
+      releasePointer(this.pointerInput, e.pointerId);
+      e.stopImmediatePropagation();
+    }
+    if (this.forgeKbm && (e.button === 2 || e.type === 'pointercancel') && this.dollying !== null && this.dollying.id === e.pointerId) {
+      this.dollying = null;
+      releasePointer(this.pointerInput, e.pointerId);
+      e.stopImmediatePropagation();
+    }
+    if (this.forgeKbm && (e.button === this.panButton || e.type === 'pointercancel') && this.panning !== null && this.panning === e.pointerId) {
+      this.panning = null;
+      this.panButton = null;
+      releasePointer(this.pointerInput, e.pointerId);
+      e.stopImmediatePropagation();
+    }
+    if (this.forgeKbm && (e.button === 2 || e.type === 'pointercancel')) {
+      this.rightMouseHeld = false;
+      this.options.onLookHoldChange?.(false);
+      for (const key of ['keyw', 'keys', 'keya', 'keyd', 'keyq', 'keye', 'keyr', 'keyf', 'space', 'shiftleft', 'shiftright']) this.keys.delete(key);
+      this.velocity.set(0, 0, 0);
+      if (globalThis.document?.pointerLockElement === this.canvas) globalThis.document.exitPointerLock?.();
+    }
     if (e.button === 0) this.letGo();
     if (this.dragging !== e.pointerId) return;
     this.dragging = null;
-    releasePointer(this.canvas, e.pointerId);
+    releasePointer(this.pointerInput, e.pointerId);
   };
 
   private readonly onLockChange = (): void => {
     this.locked = globalThis.document?.pointerLockElement === this.canvas;
+    if (this.forgeKbm && this.locked && !this.rightMouseHeld) globalThis.document?.exitPointerLock?.();
     if (!this.locked) this.letGo();
     if (this.locked && this.dragging !== null) {
       // The click that took the lock also started a drag; the lock owns the look from here.
-      releasePointer(this.canvas, this.dragging);
+      releasePointer(this.pointerInput, this.dragging);
       this.dragging = null;
     }
     this.options.onLockChange?.(this.locked);
@@ -858,13 +1167,50 @@ export class FlyCamera {
     e.preventDefault();
   };
 
-  /** The wheel trims the fly speed, the way every build camera does. */
+  /** The Forge moves along its look unless RMB is held, when the wheel trims fly speed instead. */
   private readonly onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    if (this.forgeKbm) {
+      if (this.suspended) return;
+      if (this.rightMouseHeld) {
+        const step = e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+        this.speedMultiplier = MathUtils.clamp(this.speedMultiplier * step, SPEED_MIN, SPEED_MAX);
+        this.options.onSpeedChange?.(this.speedMultiplier, 'wheel');
+        return;
+      }
+      const deltaY = e.deltaMode === 1
+        ? e.deltaY * 16
+        : e.deltaMode === 2
+          ? e.deltaY * (this.pointerInput.clientHeight || 800)
+          : e.deltaY;
+      const movementFactor = this.forgeMovementFactor();
+      if (this.activeCamera === this.orthographicCamera) {
+        const zoomFactor = Math.exp(-deltaY * 0.002);
+        this.orthographicCamera.zoom = MathUtils.clamp(this.orthographicCamera.zoom * zoomFactor, 0.1, 100);
+        this.orthographicCamera.updateProjectionMatrix();
+      } else if (movementFactor !== 0) {
+        const forward = this.activeCamera.getWorldDirection(new Vector3());
+        this.activeCamera.position.addScaledVector(
+          forward,
+          -deltaY * this.speed * this.speedMultiplier * FORGE_WHEEL_TRAVEL_ADAPTATION * movementFactor,
+        );
+      }
+      return;
+    }
     const step = e.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
     this.speedMultiplier = MathUtils.clamp(this.speedMultiplier * step, SPEED_MIN, SPEED_MAX);
-    this.options.onSpeedChange?.(this.speedMultiplier);
+    this.options.onSpeedChange?.(this.speedMultiplier, 'wheel');
   };
+
+  /**
+   * Whether a navigation gesture holds the viewport: RMB held (the fly look, the Alt+RMB dolly), the MMB or orthographic
+   * RMB pan, the Alt+LMB orbit, or a drag look. The Forge's key map reads it (`./forge/keys` `navigating`): its own
+   * keydown listener runs in the capture phase, before this camera's, so the camera cannot keep the keys from it alone.
+   */
+  navigating(): boolean { return this.forgeNavigating(); }
+  private forgeNavigating(): boolean {
+    return this.rightMouseHeld || this.panning !== null || this.orbiting !== null || this.dollying !== null || this.dragging !== null;
+  }
 
   /** `code`, not `key`: WASD stays where it is on an AZERTY keyboard, and shift does not rename letters. */
   private readonly onKeyDown = (e: KeyboardEvent): void => {
@@ -879,7 +1225,21 @@ export class FlyCamera {
     if (this.suspended) return;                     // a menu holds the input (`setInputSuspended`)
     if (e.target instanceof HTMLElement && (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT')) return;
     const code = e.code.toLowerCase();
-    if (OWNED.has(code)) e.preventDefault();
+    // While the Forge navigates -- RMB held to fly, or any other navigation drag (`forgeNavigating`) -- its fly keys are
+    // the camera's alone, so the editor's W / E / R (the gizmo's modes) and the rest of the letters it flies on never
+    // reach the page's own keys then.
+    if (this.forgeKbm && this.forgeNavigating() && FORGE_FLY_KEYS.has(code)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    } else if (this.forgeKbm && this.rightMouseHeld && (code === 'keyz' || code === 'keyc')) {
+      e.preventDefault();
+      if (!e.repeat && this.activeCamera === this.perspectiveCamera) {
+        this.setFov(MathUtils.clamp(this.perspectiveCamera.fov + (code === 'keyz' ? FORGE_FOV_STEP_ADAPTATION : -FORGE_FOV_STEP_ADAPTATION), FORGE_FOV_MIN_ADAPTATION, FORGE_FOV_MAX_ADAPTATION));
+      } else if (!e.repeat) {
+        this.setMagnification(MathUtils.clamp(this.activeCamera.zoom * (code === 'keyz' ? 0.9 : 1 / 0.9), 0.1, 100));
+      }
+      e.stopImmediatePropagation();
+    } else if (OWNED.has(code)) e.preventDefault();
 
     if (code === 'keyw' && !this.keys.has('keyw') && !this.walking) {   // the press, not the auto-repeat; no sprint on foot
       const now = performance.now();
@@ -912,5 +1272,15 @@ export class FlyCamera {
    */
   private readonly onBlur = (): void => {
     this.halt();
+    if (this.panning !== null) releasePointer(this.pointerInput, this.panning);
+    if (this.orbiting !== null) releasePointer(this.pointerInput, this.orbiting.id);
+    if (this.dollying !== null) releasePointer(this.pointerInput, this.dollying.id);
+    this.panning = null;
+    this.panButton = null;
+    this.orbiting = null;
+    this.dollying = null;
+    this.rightMouseHeld = false;
+    this.options.onLookHoldChange?.(false);
+    if (this.forgeKbm && globalThis.document?.pointerLockElement === this.canvas) globalThis.document.exitPointerLock?.();
   };
 }

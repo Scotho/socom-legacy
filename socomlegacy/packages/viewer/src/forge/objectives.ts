@@ -35,11 +35,25 @@ export interface ObjectiveMap {
   path?: string;
   /** Present on a map base. A blank floor arrives without them (`forgeSimMap` drops the library's). */
   escortees?: readonly unknown[];
+  /**
+   * The layout's placed escort zones' names (`Layout.extractionZones`; a browser adaptation, FG.R2), set by the page:
+   * where no escort script is read, a layout placing Safety plays ESCORT by the room's placeholder script.
+   */
+  forgeEscortZones?: readonly string[];
 }
 
 const stemOfMap = (map: ObjectiveMap): string => (map.stem ?? (map.path ? stemOf(map.path) : '')).toUpperCase();
 
 /** A demolition bomb the match can run: a start and at least one site for each planting team. */
+/**
+ * BREACH from the layout's own markers (the owner, 2026-11-06; a browser adaptation, FG.R2 -- untested against a run):
+ * the room's BREACH reads StartBomb and the SEALs' site (`BombAuthority.of`, research 174 s2), so a layout's bomb start
+ * and a SEALs' site (team 0) stand for them where the base has none (a blank floor). The Terrorists' site plays no part.
+ */
+export function breachReady(bomb: BombObjectives | undefined): boolean {
+  return !!bomb?.start && bomb.sites.some((s) => s.team === 0);
+}
+
 export function bombReady(bomb: BombObjectives | undefined): boolean {
   if (!bomb?.start) return false;
   let seal = false;
@@ -69,12 +83,19 @@ export function bombReady(bomb: BombObjectives | undefined): boolean {
  */
 export function forgeTypeUnplayable(gameType: number, objectives: ForgeObjectives | undefined, map: ObjectiveMap): string | null {
   switch (gameType) {
-    case 1: return map.bombStart && plantSite('seal', map.meta?.actions ?? []) ? null : 'Breach needs the base\'s bomb start and the SEALs\' site';
+    case 1: return (map.bombStart && plantSite('seal', map.meta?.actions ?? [])) || breachReady(objectives?.bomb) ? null
+      : 'Breach needs a bomb start and the SEALs\' site: the base\'s, or placed (Bomb, Site SEAL)';
     case 2: return bombReady(objectives?.bomb) ? null : 'Demolition needs a start and one site for each team';
     case 3: {
       if (!map.escortees?.length) return 'Escort needs the base\'s escortees';
       const stem = stemOfMap(map);
-      return escortScriptOf(stem) !== ESCORT_UNREAD_MAP_PLACEHOLDER ? null : 'Escort plays only on an escort map';
+      if (escortScriptOf(stem) !== ESCORT_UNREAD_MAP_PLACEHOLDER) return null;
+      // The owner (2026-11-06; a browser adaptation): a layout placing its own escort zones plays the room's placeholder
+      // script (`ESCORT_UNREAD_MAP_PLACEHOLDER`: the 30 s wait, Safety and Safety2 by name) -- with three VIPs, as
+      // SEALcheck counts (`sealCheck`), and a Safety to stage in. A base alone, none of its own: M2's refusal.
+      if (!map.forgeEscortZones?.length) return 'Escort plays only on an escort map';
+      if (map.escortees.length !== 3) return `Escort needs three hostages (the VIPs): it has ${map.escortees.length}`;
+      return map.forgeEscortZones.some((n) => n.toLowerCase() === 'safety') ? null : 'Escort needs a zone named Safety';
     }
     case 4: return map.escortees?.length ? null : 'Extraction needs the base\'s escortees';
     case 5: return null;
@@ -85,6 +106,32 @@ export function forgeTypeUnplayable(gameType: number, objectives: ForgeObjective
 /** `forgeTypeUnplayable` as a yes or no. */
 export function forgeTypePlayable(gameType: number, objectives: ForgeObjectives | undefined, map: ObjectiveMap): boolean {
   return forgeTypeUnplayable(gameType, objectives, map) === null;
+}
+
+/**
+ * A blank floor's map from its library's (a browser adaptation, FG.R2; the owner, 2026-11-05: "the blank map has no
+ * predefined game mode or map data"): the library lends its archive (the palette, the characters, the kits, the light),
+ * never its map -- so no game type, no StartBomb, no context action (doors, switches, plant sites), no AI map (its grid,
+ * zones and named points), no tactical map, no spectator view, no slot, respawn, door, gate, crane, turret or escortee.
+ * All of those stand at the library map's own places, off the floor.
+ */
+export function blankFloorOf<T extends ObjectiveMap>(map: T): T {
+  const { gameType: _type, bombStart: _start, ai: _ai, ...rest } = map as T & { ai?: unknown };
+  return {
+    ...rest, ...(map.meta ? { meta: { ...map.meta, actions: [] } } : {}),
+    escortees: [], scenicViews: [], gates: [], cranes: [], doors: [], turrets: [], slots: [], respawns: [], tac: null,
+  } as unknown as T;
+}
+
+/**
+ * `map` with no bomb of its own: no StartBomb and no MPBOMB site record, its other actions kept. A blank floor's map
+ * (a browser adaptation, FG.R2): the library lends its archive, not its world, so its StartBomb and its plant sites --
+ * at that map's own places, off the floor -- go with its spawn slots and escortees, and the layout's bomb is the only one.
+ */
+export function withoutBaseBomb<T extends ObjectiveMap>(map: T): T {
+  const { bombStart: _dropped, ...rest } = map;
+  const actions = (map.meta?.actions ?? []).filter((a) => a.typeCode !== ACTION_TYPE_CODES['MPBOMB']);
+  return (map.meta ? { ...rest, meta: { ...map.meta, actions } } : rest) as T;
 }
 
 /**
@@ -99,7 +146,10 @@ export function applyForgeObjectives<T extends ObjectiveMap>(map: T, objectives:
   if (!forgeTypePlayable(objectives.gameType, objectives, map)) return map;
   const next: T = { ...map, gameType: objectives.gameType };
   const bomb = objectives.bomb;
-  if (objectives.gameType !== 2 || !bomb?.start) return next;
+  // DEMOLITION plays the layout's bomb; BREACH too where the layout places its start and the SEALs' site (`breachReady`),
+  // else the base's own.
+  const own = objectives.gameType === 2 ? !!bomb?.start : objectives.gameType === 1 && breachReady(bomb);
+  if (!own || !bomb?.start) return next;
   const kept = (map.meta?.actions ?? []).filter((a) => a.typeCode !== ACTION_TYPE_CODES['MPBOMB']);
   const actions = [...kept, ...forgeBombActions(bomb)];
   const meta = map.meta ? { ...map.meta, actions } : { ...bareMeta(map.stem ?? ''), actions };

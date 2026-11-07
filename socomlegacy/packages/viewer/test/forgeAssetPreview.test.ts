@@ -37,6 +37,16 @@ function rejectingCleanup() {
 }
 
 describe('real staged-handle preview adaptation', () => {
+  it('captures one static frame from the preview canvas', async () => {
+    const r = rig();
+    const canvas = r.preview.root.querySelector('canvas')!;
+    const snapshot = vi.spyOn(canvas, 'toDataURL').mockReturnValue('data:image/png;base64,frame');
+    await expect(r.preview.capture('crate', 160, 120)).resolves.toBe('data:image/png;base64,frame');
+    expect(r.view.resize).toHaveBeenCalledWith(160, 120);
+    expect(r.view.render).toHaveBeenCalledOnce();
+    expect(snapshot).toHaveBeenCalledWith('image/png');
+    r.preview.dispose();
+  });
   it('does not mistake Promise.resolve of its native cleanup promise for a rejection handler', () => {
     const cleanup = rejectingCleanup();
     expect(cleanup.promise.constructor).toBe(Promise);

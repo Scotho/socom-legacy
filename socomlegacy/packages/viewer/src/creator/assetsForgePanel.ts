@@ -1,4 +1,4 @@
-import type { PreviewRenderer } from '../forge/assetPreview';
+import { createAssetPreview, type PreviewRenderer } from '../forge/assetPreview';
 import { createAssetTooltip, type AssetTooltip } from '../forge/assetTooltip';
 import { ASSET_DRAG_MIME, createAssetDrag } from '../forge/assetDrag';
 import { agentCodeWords } from '../agent/codes';
@@ -18,6 +18,7 @@ export type AssetDropProjection = {
 } | { reason: string };
 export interface AssetViewportEditor extends ForgeEditor {
   stagePiece(asset: string): Promise<AssetGhostStage | null>;
+  previewPiece?(asset: string): Promise<Pick<StagedPiece, 'object' | 'dispose'> | null>;
   viewport(): HTMLElement;
   projectDrop(clientX: number, clientY: number): AssetDropProjection;
   sourceIdentity(asset: string): object | null;
@@ -43,12 +44,15 @@ export interface AssetTiles extends Required<Pick<ForgePanelInstance, 'update' |
   redrawn(): void;
   /** The page's Escape: the tooltip goes, and an unplaced drag with it. */
   escape(): void;
+  /** A static image rendered by the shared thumbnail preview. */
+  thumbnail(asset: string, width: number, height: number): Promise<string | null>;
   readonly tooltip: AssetTooltip;
 }
 
 export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, options: AssetTilesOptions = {}): AssetTiles {
   const doc = ctx.doc;
   const events = new ((doc.defaultView as (Window & typeof globalThis) | null)?.AbortController ?? AbortController)();
+  const documentVisible = (): boolean => doc.visibilityState !== 'hidden';
   const candidate = ctx.editor as Partial<AssetViewportEditor> | undefined;
   const editor = candidate && ['stagePiece', 'place', 'viewport', 'projectDrop', 'sourceIdentity'].every(key =>
     typeof candidate[key as keyof AssetViewportEditor] === 'function') ? candidate as AssetViewportEditor : null;
@@ -137,29 +141,69 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     },
   });
   // D1: the one tooltip, its preview the panel's as it was -- the real staged piece, its admission checked first.
+  const stagePreview = async (asset: string, currentRequest: () => boolean, accepted?: (source: object) => void) => {
+    if (blockReason() || !editor || !currentRequest()) return null;
+    const revision = ctx.state().revision, source = editor.sourceIdentity(asset);
+    if (!source) return null;
+    const handle = await editor.stagePiece(asset);
+    if (!handle) return null;
+    if (!currentRequest() || blockReason() || ctx.state().revision !== revision || editor.sourceIdentity(asset) !== source) {
+      releaseStage(handle);
+      return null;
+    }
+    if (!ghostCapable(handle)) {
+      releaseStage(handle);
+      if (!blockReason()) ctx.ui.refused('This page cannot preview the prepared asset yet.');
+      return null;
+    }
+    previewStages.add(handle);
+    accepted?.(source);
+    const id = asset.indexOf(':');
+    return {
+      object: handle.object,
+      name: palette.find(entry => entry.asset === asset)?.model ?? (id > 0 ? asset.slice(id + 1) : asset),
+      source: id > 0 ? asset.slice(0, id) : asset,
+      collision: 'Collision checked in the world',
+      dispose: () => releaseStage(handle),
+    };
+  };
   const tooltip = createAssetTooltip(doc, {
     ...(options.renderer ? { renderer: options.renderer } : {}),
+    clearColor: [64, 64, 64],
     allowed: () => !blockReason() && (options.tips?.() ?? true),
     resolve: async asset => {
       const request = ++previewRequest;
-      if (blockReason() || !editor) return null;
-      const revision = ctx.state().revision, source = editor.sourceIdentity(asset);
-      if (!source) return null;
-      const handle = await editor.stagePiece(asset);
-      if (!handle) return null;
-      // Admission, source and request ownership precede any visible refusal. A superseded hover still releases
-      // its handle, but must not speak over a newer preview (including a later request for the same asset).
-      if (request !== previewRequest || blockReason() || ctx.state().revision !== revision || editor.sourceIdentity(asset) !== source) { releaseStage(handle); return null; }
-      if (!ghostCapable(handle)) {
-        releaseStage(handle); if (!blockReason()) ctx.ui.refused('This page cannot preview the prepared asset yet.'); return null;
-      }
-      // Own the raw stage before returning its async preview wrapper: teardown can happen between these awaits.
-      previewStages.add(handle); previewSource = source;
-      // The name the list shows (the palette's model; a favourite from another archive by its id's model part).
-      const id = asset.indexOf(':');
-      return { object: handle.object, name: palette.find(entry => entry.asset === asset)?.model ?? (id > 0 ? asset.slice(id + 1) : asset), source: id > 0 ? asset.slice(0, id) : asset,
-        collision: 'Collision checked in the world', dispose: () => releaseStage(handle) };
+      return stagePreview(asset, () => request === previewRequest, source => { previewSource = source; });
     },
+  });
+  const resolveThumbnail = async (asset: string) => {
+    if (disposed || !visible || !documentVisible() || !editor?.previewPiece) return null;
+    const revision = ctx.state().revision;
+    const handle = await editor.previewPiece(asset);
+    if (!handle) return null;
+    const source = editor.sourceIdentity(asset);
+    if (disposed || !visible || !documentVisible() || ctx.state().revision !== revision || editor.sourceIdentity(asset) !== source) {
+      handle.dispose();
+      return null;
+    }
+    if (!source) { handle.dispose(); return null; }
+    const id = asset.indexOf(':');
+    return {
+      object: handle.object,
+      name: palette.find(entry => entry.asset === asset)?.model ?? (id > 0 ? asset.slice(id + 1) : asset),
+      source: id > 0 ? asset.slice(0, id) : asset,
+      collision: 'Collision checked in the world',
+      dispose: handle.dispose,
+    };
+  };
+  const thumbnailHost = doc.createElement('div');
+  thumbnailHost.className = 'fx-asset-thumbnail-host';
+  thumbnailHost.setAttribute('aria-hidden', 'true');
+  doc.body.append(thumbnailHost);
+  const thumbnailPreview = createAssetPreview(thumbnailHost, {
+    ...(options.renderer ? { renderer: options.renderer } : {}),
+    clearColor: [64, 64, 64],
+    resolve: resolveThumbnail,
   });
   const offTips = tooltip.attach(list);
   const start = (asset: string, event: DragEvent): void => {
@@ -198,6 +242,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     if (session && staleReason(session)) finish(session);
     const admitted = !blockReason(); if (!admitted) previewRequest++;
     tooltip.setActive(admitted);
+    thumbnailPreview.setActive(!disposed && visible && documentVisible());
     if (!admitted) for (const handle of [...previewStages]) releaseStage(handle);
     const catalogue = ctx.forge.read().catalogue;
     palette = Array.isArray(catalogue.palette) ? catalogue.palette as ForgeAgentCatalogue['palette'] : [];
@@ -251,7 +296,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
   const unsubscribe = ctx.forge.subscribe(update);
   const dispose = (): void => {
     if (disposed) return;
-    disposed = true; if (session) finish(session); offTips(); tooltip.dispose();
+    disposed = true; if (session) finish(session); offTips(); tooltip.dispose(); thumbnailPreview.dispose(); thumbnailHost.remove();
     for (const handle of [...previewStages]) releaseStage(handle);
     unsubscribe(); events.abort(); doc.removeEventListener('visibilitychange', onVisibility); ctx.signal.removeEventListener('abort', dispose);
     clearHint(); hint.remove();
@@ -263,6 +308,9 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
     frame(dt) { if (session && staleReason(session)) finish(session); tooltip.frame(dt); },
     visibility(shown) { visible = shown; if (!shown) tooltip.hide(); update(); },
     activate(asset) { if (!disposed) tooltip.activate(asset); },
+    thumbnail(asset, width, height) {
+      return disposed || !visible || !documentVisible() ? Promise.resolve(null) : thumbnailPreview.capture(asset, width, height);
+    },
     redrawn() { if (!disposed) tooltip.reanchor(); },
   };
 }

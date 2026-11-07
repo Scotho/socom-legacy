@@ -4,8 +4,12 @@
 .fx-asset-tip { position: fixed; z-index: var(--fx-z-menu); width: 220px; box-sizing: border-box; padding: var(--s2u-space-2); background: var(--fx-panel-2); border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); box-shadow: var(--fx-lift); pointer-events: none; }
 .fx-asset-tip[hidden] { display: none; }
 .fx-asset-preview { min-width: 0; }
-.fx-asset-preview canvas { display: block; width: 100%; height: 150px; border: 1px solid var(--fx-edge); background: var(--fx-deep); border-radius: var(--fx-radius); }
+.fx-asset-preview canvas { display: block; width: 100%; height: 150px; border: 1px solid var(--fx-edge); background-color: #b8b8b8; background-image: conic-gradient(#909090 25%, #b8b8b8 0 50%, #909090 0 75%, #b8b8b8 0); background-size: 16px 16px; border-radius: 6px; }
 .fx-asset-preview [hidden] { display: none !important; }
+.fx-asset-thumbnail-host { position: fixed; z-index: -1; top: 0; left: -10000px; width: 160px; height: 120px; overflow: hidden; opacity: 0; pointer-events: none; }
+.fx-asset-thumbnail-host .fx-asset-preview { width: 100%; height: 100%; }
+.fx-asset-thumbnail-host .fx-asset-preview canvas { width: 160px; height: 120px; }
+.fx-asset-thumbnail-host .fx-preview-name, .fx-asset-thumbnail-host .fx-preview-detail, .fx-asset-thumbnail-host .fx-preview-status { display: none; }
 .fx-preview-name { margin: 6px 0 2px; overflow-wrap: anywhere; font: var(--fx-type-mono); color: var(--fx-text); }
 .fx-preview-detail, .fx-preview-status { margin: 4px 0 0; color: var(--fx-dim); font: var(--fx-type-body); overflow-wrap: anywhere; }
 .fx-preview-status:empty { display: none; }

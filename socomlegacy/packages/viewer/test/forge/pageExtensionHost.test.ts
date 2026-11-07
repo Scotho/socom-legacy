@@ -188,7 +188,7 @@ describe('LATER 471: the mounted Forge calls the host\'s frame(dt) and onMapSwit
     const call = loop.indexOf('extensions?.frame(dt);');
     expect(call).toBeGreaterThan(loop.indexOf('if (match) {'));
     expect(call).toBeGreaterThan(loop.indexOf('return;', loop.indexOf('if (match) {')));
-    expect(call).toBeLessThan(loop.indexOf('created.render(scene, fly.camera);'));
+    expect(call).toBeLessThan(loop.indexOf('created.render(scene, fly.viewportCamera());'));   // the view menu's camera (perspective or a side)
     expect(page.split('extensions?.onMapSwitch(').length - 1).toBe(1);
     const prepareAt = page.indexOf('const prepareBase = async (b: LayoutBase) => {');
     const commitAt = page.indexOf('commit: (): void => {', prepareAt);

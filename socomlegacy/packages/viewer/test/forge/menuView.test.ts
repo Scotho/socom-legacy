@@ -313,10 +313,9 @@ describe('FUI-3: the Forge\'s menu as the page composes it', () => {
     const rows = [...document.querySelectorAll<HTMLElement>('.fx-menu li[data-forge-menu-row]')].map((r) => r.dataset['forgeMenuRow']);
     // PAD-6, PAD-7, PAD-8's row: Check, Lock and Frame selection, the grid and turn steps, the Outliner and Props screens.
     for (const id of ['check', 'lock-selection', 'frame-selection', 'grid-step', 'turn-step', 'outliner-screen', 'props']) expect(rows, id).toContain(id);
-    // The nine view switches the menu lacked, beside the four it had: all thirteen, and the saved-lighting feature's
-    // camera preference (#517, Left drag to look) ahead of them, as the View panel lists it.
+    // The View switches, followed by the detail-distance control.
     const views = rows.filter((r) => r?.startsWith('view-'));
-    expect(views).toEqual(['view-leftDragLook', 'view-wireframe', 'view-untextured', 'view-collision', 'view-grid', 'view-spawns', 'view-fog', 'view-shadows',
+    expect(views).toEqual(['view-wireframe', 'view-untextured', 'view-collision', 'view-grid', 'view-spawns', 'view-fog', 'view-shadows',
       'view-detail', 'view-billboards', 'view-alternate', 'view-blendgraded', 'view-engineorder', 'view-ps2',
       'view-detailDistance']);   // PF.R60: the detail distance, after the PS2 picture
     // The legend follows the menu: its Circle closes at the root.

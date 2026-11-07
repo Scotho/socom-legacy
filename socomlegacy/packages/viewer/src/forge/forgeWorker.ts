@@ -4,6 +4,7 @@ import { sourceCache, type SourceRequest } from '../discSource';
 import { loadMap, transferables, type LoadedMap, type LoadStage } from '../loadMap';
 import { playFromDisc, playTransferables, type PlayData } from '../motionTable';
 import { archivesOf, missionName } from './catalog';
+import { copiesOf, type MapCopies } from './mapCensus';
 import { servedPaths } from './servedPaths';
 
 /**
@@ -21,13 +22,16 @@ export interface ListedArchive { stem: string; path: string; name: string; campa
 export type ForgeRequest =
   | { kind: 'list'; id: number; source: SourceRequest }
   | { kind: 'load'; id: number; source: SourceRequest; path: string }
-  | { kind: 'play'; id: number; source: SourceRequest; clips: string[] };
+  | { kind: 'play'; id: number; source: SourceRequest; clips: string[] }
+  /** The map's doors, turrets and hostages listed (`./mapCensus` `copiesOf`), the map itself let go: nothing transferred. */
+  | { kind: 'census'; id: number; source: SourceRequest; path: string };
 
 export type ForgeResponse =
   | { kind: 'list'; id: number; archives: ListedArchive[]; problems: string[] }
   | { kind: 'progress'; id: number; stage: LoadStage; done: number; total: number }
   | { kind: 'map'; id: number; map: LoadedMap }
   | { kind: 'play'; id: number; data: PlayData | null }
+  | { kind: 'census'; id: number; copies: MapCopies }
   | { kind: 'error'; id: number; message: string };
 
 const ctx = self as unknown as {
@@ -70,6 +74,8 @@ ctx.addEventListener('message', (event: MessageEvent<ForgeRequest>) => {
       } else if (request.kind === 'play') {
         const data = await playFromDisc(sourceFor(request.source), request.clips);
         ctx.postMessage({ kind: 'play', id: request.id, data }, data ? playTransferables(data) : []);
+      } else if (request.kind === 'census') {
+        ctx.postMessage({ kind: 'census', id: request.id, copies: copiesOf(await loadMap(sourceFor(request.source), request.path)) });
       } else {
         let last = -1;
         const map = await loadMap(sourceFor(request.source), request.path, (stage, done, total) => {

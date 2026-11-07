@@ -52,7 +52,10 @@ describe('saved Forge day/night adaptation', () => {
     expect(dom.lightIn.getAttribute('aria-label')).toBe('Night to day');
     expect([dom.lightIn.min, dom.lightIn.max, dom.lightIn.step]).toEqual(['0', '1', '0.05']);
     expect(dom.lightReset.textContent).toBe('Original');
-    expect(dom.body.contains(dom.lightControls) && dom.lightControls.contains(dom.lightIn) && dom.lightControls.contains(dom.lightReset)).toBe(true);
+    // The layout's lighting rows are the Environment panel's (built here, mounted there): not in Settings' own body.
+    expect(dom.lightingRows.some((r) => r.contains(dom.lightControls)) && dom.lightControls.contains(dom.lightIn) && dom.lightControls.contains(dom.lightReset)).toBe(true);
+    expect(dom.lightingRows.some((r) => r.contains(dom.fogIn))).toBe(true);
+    expect(dom.body.contains(dom.lightControls) || dom.body.contains(dom.fogIn)).toBe(false);
     const calls: string[] = [];
     let locked = false;
     const hooks: SettingsMenuHooks = {
@@ -67,11 +70,9 @@ describe('saved Forge day/night adaptation', () => {
     locked = true;
     expect(settingsMenuSection(hooks).find((i) => i.id === 'setting-timeOfDay')!.disabled).toBe(true);
   });
-  it('the legend names the default-on drag look (re-expressed from #517\'s hint line under #520\'s legend strip)', () => {
-    const words = (dragLook?: boolean, tool = 'select') => legendFor({ kind: 'build', tool, selection: 0, ...(dragLook === undefined ? {} : { dragLook }) }, 'keys').map((p) => [p.key, p.label]);
-    expect(words(true)).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Shift+drag', 'Box'], ['Drag / right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
-    expect(words(true, 'place')).toContainEqual(['Drag / right-drag', 'Look']);
-    expect(words(false)).toEqual(words());
-    expect(words(false)).toContainEqual(['Right-drag', 'Look']);
+  it('the legend always assigns look to a right drag', () => {
+    const words = (tool = 'select') => legendFor({ kind: 'build', tool, selection: 0 }, 'keys').map((p) => [p.key, p.label]);
+    expect(words()).toEqual([['Click', 'Select'], ['Shift+click', 'Add'], ['Shift+drag', 'Box'], ['Right-drag', 'Look'], ['WASD', 'Fly'], ['F', 'Frame'], ['M', 'Menu']]);
+    expect(words('place')).toContainEqual(['Right-drag', 'Look']);
   });
 });

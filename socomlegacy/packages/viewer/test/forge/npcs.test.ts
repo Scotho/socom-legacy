@@ -7,7 +7,7 @@ import { groundGrid, packGround, type SimMap } from '../../src/sim';
 import type { NpcMarker } from '../../src/forge/layout';
 import { seatSlots } from '../../src/forge/matchMap';
 import {
-  ForgeNpcs, lookStep, NPC_OPENING_TICKS, NPC_PITCH_STEP_DEG, NPC_SEAT_BASE, NPC_YAW_STEP_DEG, PLAYER_SEAT, playerSideOf, soloSideOf,
+  ForgeNpcs, lookStep, NPC_OPENING_TICKS, NPC_PITCH_STEP_DEG, NPC_SEAT_BASE, NPC_YAW_STEP_DEG, PLAYER_SEAT, playerSideOf, soloSideOf, soloSideOption,
 } from '../../src/forge/npcs';
 
 /**
@@ -35,6 +35,15 @@ describe('FG-21: the sides', () => {
     expect(playerSideOf([npc('seal', 0), npc('seal', 0), npc('terrorist', 0)])).toBe('terrorist');
     const side = soloSideOf([npc('terrorist', 0), npc('seal', 0)]);
     expect([PLAYER_SEAT, NPC_SEAT_BASE, NPC_SEAT_BASE + 1, NPC_SEAT_BASE + 2].map(side)).toEqual(['seal', 'terrorist', 'seal', undefined]);
+  });
+});
+
+describe('Play settings: the side chosen seats the player there, NPCs or none', () => {
+  it('a side named reaches the room with no NPC placed; neither, the room keeps its own seat', () => {
+    expect(soloSideOption([], 'terrorist').soloSide?.(PLAYER_SEAT)).toBe('terrorist');
+    expect(soloSideOption([npc('terrorist', 0)], 'terrorist').soloSide?.(NPC_SEAT_BASE)).toBe('terrorist');
+    expect(soloSideOption([npc('seal', 0), npc('seal', 0)]).soloSide?.(PLAYER_SEAT)).toBe('terrorist');
+    expect(soloSideOption([])).toEqual({});
   });
 });
 

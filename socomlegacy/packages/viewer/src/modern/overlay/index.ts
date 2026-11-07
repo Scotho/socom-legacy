@@ -866,16 +866,21 @@ export function mountOverlay(doc: Document, opts: OverlayOptions): Overlay {
     if (touchMenu.hidden) return;
     touchMenu.style.top = '';
     setClear(null);
-    const bar = doc.querySelector(TOUCH_MENU_BAR_SELECTOR);
-    if (!bar) return;
-    const b = bar.getBoundingClientRect();
-    if (b.width === 0 || b.height === 0) return;
+    // Every bar the button would sit on, in turn (the forge's toolbar and its tools' row under it, the owner 2026-11-06):
+    // below one, then below the next it lands on, until none covers it.
+    const bars = [...doc.querySelectorAll(TOUCH_MENU_BAR_SELECTOR)].map((x) => x.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
+    if (!bars.length) return;
     const m = touchMenu.getBoundingClientRect();
-    const covers = m.left < b.right && b.left < m.right && m.top < b.bottom && b.top < m.bottom;
-    if (!covers) return;
-    const top = Math.ceil(b.bottom) + TOUCH_MENU_BAR_GAP_ADAPTATION;
-    touchMenu.style.top = `${top}px`;
-    setClear(top + Math.ceil(m.height) + TOUCH_MENU_BAR_GAP_ADAPTATION);
+    let at = m.top, moved = false;
+    for (let pass = 0; pass < bars.length; pass++) {
+      const hit = bars.find((b) => m.left < b.right && b.left < m.right && at < b.bottom && b.top < at + m.height);
+      if (!hit) break;
+      at = Math.ceil(hit.bottom) + TOUCH_MENU_BAR_GAP_ADAPTATION;
+      moved = true;
+    }
+    if (!moved) return;
+    touchMenu.style.top = `${at}px`;
+    setClear(at + Math.ceil(m.height) + TOUCH_MENU_BAR_GAP_ADAPTATION);
   };
   // Browser adaptation (the mobile-controls rework's merge, `../../mobileControls.css`): the touch dock moves the button to
   // the bottom while the touch layer walks (the body's `touch is-walking`, not `pad-on`; the front end's `#menu-touch`

@@ -50,6 +50,7 @@ export const AGENT_CODE_WORDS: Readonly<Record<string, string>> = Object.freeze(
   UNSUPPORTED: 'That is not something this page can do here.',
   REFUSED: 'The page refused the request (the status line says why).',
   LOCKED: 'That placement is locked. Unlock it first.',
+  GAME_TYPE: 'That plays in another game type: set the game type first (World tab, Settings).',
   INVALID_ARGUMENT: 'The agent’s request was malformed.',
   MISSING_ARGS: 'The agent’s request was missing a value.',
   UNKNOWN_FIELD: 'The agent’s request carried a field this page does not know.',

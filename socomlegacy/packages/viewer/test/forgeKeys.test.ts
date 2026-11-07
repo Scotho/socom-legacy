@@ -12,8 +12,22 @@ const press = (code: string, mods: Partial<{ ctrl: boolean; meta: boolean; alt: 
 describe('OT.R68: the forge editor\'s keys', () => {
   it('the tools, the gizmo, snap, duplicate, delete, frame, docks, deselect -- the development keys, unchanged', () => {
     expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].map((c) => press(c))).toEqual(['select', 'place', 'spawnA', 'spawnB', 'npc']);
-    expect(['KeyT', 'KeyR', 'KeyG', 'KeyC', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
-      .toEqual(['translate', 'rotate', 'snap', 'duplicate', 'delete', 'delete', 'frame', 'docks', 'deselect']);
+    expect(['KeyG', 'KeyC', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
+      .toEqual(['snap', 'duplicate', 'delete', 'delete', 'frame', 'docks', 'deselect']);
+  });
+
+  it('the gizmo\'s modes on W, E and R, as an engine editor\'s (move, turn, scale); T and Y no longer', () => {
+    expect(['KeyW', 'KeyE', 'KeyR'].map((c) => press(c))).toEqual(['translate', 'rotate', 'scale']);
+    expect([press('KeyT'), press('KeyY')]).toEqual([null, null]);
+    for (const c of ['KeyW', 'KeyE', 'KeyR']) expect(press(c, {}, { playing: true }), c).toBeNull();
+  });
+
+  it('while the camera navigates (RMB fly, a pan, an orbit, a dolly) its fly letters are not the editor\'s; the rest still are', () => {
+    for (const c of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyZ', 'KeyC']) expect(press(c, {}, { navigating: true }), c).toBeNull();
+    expect(press('KeyG', {}, { navigating: true })).toBe('snap');
+    expect(press('Delete', {}, { navigating: true })).toBe('delete');
+    expect(press('KeyZ', { ctrl: true }, { navigating: true })).toBe('undo');
+    expect(press('KeyW', {}, { navigating: false })).toBe('translate');
   });
 
   it('FG-51: 6, 7 and 8 the bomb tools -- the start, the SEALs\' site, the Terrorists\' site (moved from page.ts at the merge)', () => {
@@ -35,7 +49,7 @@ describe('OT.R68: the forge editor\'s keys', () => {
     expect(press('KeyV', { meta: true })).toBe('paste');
     expect(press('KeyC', { ctrl: true, shift: true })).toBeNull();
     expect(press('KeyZ', { ctrl: true, alt: true })).toBeNull();
-    expect(press('KeyT', { alt: true })).toBeNull();
+    expect(press('KeyW', { alt: true })).toBeNull();
     expect(press('KeyW', { ctrl: true })).toBeNull();
   });
 
@@ -91,6 +105,8 @@ describe('OT.R68: the forge editor\'s keys', () => {
   });
 
   it('an unbound key is none', () => {
-    for (const c of ['KeyW', 'KeyQ', 'Space', 'ShiftLeft', 'ArrowUp', 'KeyK', 'Tab']) expect(press(c), c).toBeNull();
+    for (const c of ['KeyQ', 'Space', 'ShiftLeft', 'ArrowUp', 'KeyK', 'Tab']) expect(press(c), c).toBeNull();
+    // W, E and R are the gizmo's modes, as an engine editor's (the camera's W flies only while the right button is held).
+    expect([press('KeyW'), press('KeyE'), press('KeyR')]).toEqual(['translate', 'rotate', 'scale']);
   });
 });

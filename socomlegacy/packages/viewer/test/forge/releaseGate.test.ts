@@ -34,6 +34,15 @@ const listed = (file: string, l: string): boolean => OT_R68.some(([f, frag]) => 
  * Key release activates a Settings range endpoint when its thumb has not moved; no key reaches the game.
  */
 const NATIVE_FIELD_KEYS: readonly [string, string][] = [['page.ts', "lightIn.addEventListener('keyup'"]];
+/**
+ * The page's own accessibility keys, no game input (`../keyboardGate.test.ts` lists them too): Enter or Space on the axis
+ * widget's end, the arrows on a dock's resize handle, Escape closing a popover, Escape cancelling a scrub's drag.
+ */
+const ACCESSIBILITY_KEYS: readonly [string, string][] = [
+  ['page.ts', "end.addEventListener('keydown', (event) => {"], ['page.ts', "handle.addEventListener('keydown', (event) => {"],
+  ['page.ts', "doc.addEventListener('keydown', event => {"], ['page.ts', "doc.addEventListener('keydown', (e) => {"],
+  ['scrub.ts', "doc.addEventListener('keydown', onKey, true);"],
+];
 
 describe('FORGE: the release gate', () => {
   it('is loaded in every build (no DEV gate on its loader)', () => {
@@ -45,7 +54,7 @@ describe('FORGE: the release gate', () => {
     for (const { file, lines } of sources) {
       lines.forEach((l, i) => {
         if (listed(file, l)) return;
-        if (/addEventListener\('key(down|up)'/.test(l) && !gated(lines, i) && !NATIVE_FIELD_KEYS.some(([f, frag]) => file === f && l.includes(frag))) bad.push(`${file}:${i + 1} key listener`);
+        if (/addEventListener\('key(down|up)'/.test(l) && !gated(lines, i) && ![...NATIVE_FIELD_KEYS, ...ACCESSIBILITY_KEYS].some(([f, frag]) => file === f && l.includes(frag))) bad.push(`${file}:${i + 1} key listener`);
         if (/requestLock\(|requestPointerLock|pointerlockchange|\.movementX/.test(l) && !gated(lines, i)) bad.push(`${file}:${i + 1} pointer lock`);
       });
     }

@@ -61,6 +61,7 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   FORGE_VIEW_KEY,                    // forge/page.ts: the view panel's switches
   FORGE_PANELS_KEY,                  // forge/shell/panel.ts: the docks' panels open or folded (FUI-1)
   's2u-forge-favourites',            // forge/favourites.ts FAVOURITES_KEY: the starred props
+  's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
   'forge.agent.permissions.shortForm', // agent/panel.ts SHORT_FORM_KEY: the grant panel's "only what the agent asked for" (FUI-25)
   's2u.testroom.mods.v1',            // mods/store.ts MODS_PRESENT_KEY: this browser keeps a test-room mod (the store opens only then)
   's2u-forge-saves',                 // forge/saves.ts FORGE_SAVES_KEY: named layouts; since R3-B read once, moved to forge/savesStore.ts

@@ -39,7 +39,8 @@ const memoryStore = (): ForgeStore & { data: Map<string, string> } => {
 
 function rig(store = memoryStore()) {
   const left = document.createElement('aside'), right = document.createElement('aside'), workspace = createWorkspaceDock(document);
-  document.body.append(left, right, workspace);
+  const top = document.createElement('aside'), bottom = document.createElement('aside'), center = document.createElement('aside');
+  document.body.append(left, right, top, bottom, center, workspace);
   let surface: 'build' | 'walk' | 'play' | 'blocked' = 'build';
   let docksDrawn = true;
   const context: ForgePageContext = {
@@ -49,9 +50,9 @@ function rig(store = memoryStore()) {
     store, doc: document,
   };
   const showDock = vi.fn();
-  const shell: ForgeShellPage = createForgeShell({ doc: document, docks: { left, right, workspace }, context, store, storeKey: FORGE_PANELS_KEY, showDock,
+  const shell: ForgeShellPage = createForgeShell({ doc: document, docks: { left, right, top, bottom, center, workspace }, context, store, storeKey: FORGE_PANELS_KEY, showDock,
     dockShown: () => docksDrawn });
-  return { shell, store, left, right, workspace, showDock, setSurface: (s: typeof surface) => { surface = s; }, setDocksDrawn: (on: boolean) => { docksDrawn = on; } };
+  return { shell, store, left, right, top, bottom, center, workspace, showDock, setSurface: (s: typeof surface) => { surface = s; }, setDocksDrawn: (on: boolean) => { docksDrawn = on; } };
 }
 
 const panel = (id: string, over: Partial<ForgePanel> = {}): ForgePanel => ({
@@ -292,6 +293,8 @@ describe('the Forge shell: the panel registry (FUI-1)', () => {
     expect(r.right.dataset['forgeDockLayout']).toBe('tabs');
     const strip = r.right.firstElementChild as HTMLElement;
     expect(strip.matches('div.fx-dock-tabs[data-forge-tabs][role="tablist"]')).toBe(true);
+    expect([...strip.querySelectorAll<HTMLButtonElement>('[data-forge-tab]')].every((button) => button.draggable)).toBe(true);
+    expect([...r.right.querySelectorAll<HTMLElement>('details.fx-panel > summary')].some((summary) => summary.draggable)).toBe(false);
     const tabs = (): (string | null | undefined)[][] => [...strip.querySelectorAll<HTMLButtonElement>('button[role="tab"][data-forge-tab]')]
       .map((b) => [b.dataset['forgeTab'], b.textContent, b.getAttribute('aria-selected')]);
     expect(tabs()).toEqual([['edit', 'Edit', 'true'], ['world', 'World', 'false'], ['agent', 'Agent', 'false'], ['starters', 'Starter experiences', 'false']]);
@@ -332,6 +335,78 @@ describe('the Forge shell: the panel registry (FUI-1)', () => {
     expect(r.right.querySelector('[data-forge-tabs]')).toBeNull();
     expect(r.shell.tabOf('right')).toBeNull();
     expect(open()).toEqual(['inspector', 'outliner', 'view', 'settings', 'agent']);
+  });
+
+  it('moves and persists a complete tab group; panel summaries are not drag handles', () => {
+    const r = rig();
+    const group = [
+      panel('inspector', { order: 10, tab: 'Edit' }),
+      panel('outliner', { order: 20, tab: 'Edit' }),
+      panel('settings', { order: 30, tab: 'Edit' }),
+      panel('view', { order: 40, tab: 'World' }),
+      panel('starters', { order: 50, title: 'Starter experiences', tab: 'World' }),
+      panel('agent', { order: 60, title: 'Connect your agent', tab: 'Agent' }),
+      panel('files', { order: 70, title: 'Local files', tab: 'Content' }),
+    ];
+    for (const p of group) r.shell.register(p);
+
+    r.shell.moveTab('right', 'edit', 'left');
+    r.shell.moveTab('right', 'world', 'left');
+    expect(r.shell.tabOf('left')).toBe('world');                     // a moved group opens where it lands (`moveTab`)
+    expect([...r.left.querySelectorAll<HTMLElement>(':scope > details.fx-panel')].map((host) => host.dataset['forgePanel']))
+      .toEqual(['inspector', 'outliner', 'settings', 'view', 'starters']);
+    r.left.querySelector<HTMLButtonElement>('[data-forge-tab="world"]')!.click();
+    const inspector = r.left.querySelector<HTMLDetailsElement>('[data-forge-panel="inspector"]')!;
+    inspector.open = true;
+    inspector.dispatchEvent(new Event('toggle'));
+    expect(r.shell.tabOf('left'), 'opening a moved panel selects its current dock tab').toBe('edit');
+    expect([...r.left.querySelectorAll<HTMLElement>('details.fx-panel > summary')].some((summary) => summary.draggable)).toBe(false);
+    expect(JSON.parse(r.store.data.get(`${FORGE_PANELS_KEY}.layout`)!)).toMatchObject({
+      inspector: 'left', outliner: 'left', settings: 'left', view: 'left', starters: 'left',
+    });
+
+    r.shell.moveTab('left', 'edit', 'right');
+    r.shell.moveTab('left', 'world', 'right');
+    expect(r.shell.tabOf('right')).toBe('world');                    // the group moved last opens
+    expect(r.left.hidden).toBe(true);
+    expect(JSON.parse(r.store.data.get(`${FORGE_PANELS_KEY}.layout`)!)).toMatchObject({
+      inspector: 'right', outliner: 'right', settings: 'right', view: 'right', starters: 'right',
+    });
+
+    r.shell.moveTab('right', 'content', 'bottom');
+    r.shell.moveTab('right', 'agent', 'bottom');
+    expect(r.shell.tabOf('right')).toBe('world');                    // the right dock's open tab kept
+    expect([...r.right.querySelectorAll<HTMLButtonElement>(':scope > [data-forge-tabs] [data-forge-tab]')].map((button) => button.textContent))
+      .toEqual(['Edit', 'World']);
+    expect(r.shell.tabOf('bottom')).toBe('agent');                     // the group moved last opens
+
+    r.shell.collapse('inspector');
+    r.shell.resetLayout();
+    expect(r.left.hidden).toBe(true);
+    expect([...r.right.querySelectorAll<HTMLElement>(':scope > details.fx-panel')].map((host) => host.dataset['forgePanel']))
+      .toEqual(['inspector', 'outliner', 'settings', 'view', 'starters', 'agent', 'files']);
+    expect(r.shell.tabOf('right')).toBe('edit');
+    expect(r.shell.isOpen('inspector')).toBe(true);
+    expect(JSON.parse(r.store.data.get(`${FORGE_PANELS_KEY}.layout`)!)).toEqual({});
+  });
+
+  it('keeps the center as a full-viewport tab dock with the viewport available as its own tab', () => {
+    const r = rig();
+    r.shell.register(panel('viewport', { dock: 'center', title: 'Viewport', tab: 'Viewport', order: 0, movable: false }));
+    r.shell.register(panel('tool', { title: 'Tool', tab: 'Tool' }));
+
+    expect(r.center.dataset['forgeDockLayout']).toBe('tabs');
+    expect(r.shell.tabOf('center')).toBe('viewport');
+    const viewportTab = r.center.querySelector<HTMLButtonElement>('[data-forge-tab="viewport"]');
+    expect(viewportTab?.textContent).toBe('Viewport');
+    expect(viewportTab?.draggable).toBe(false);
+
+    r.shell.moveTab('right', 'tool', 'center');
+    expect(r.shell.tabOf('center')).toBe('tool');
+    expect(r.center.querySelector('[data-forge-tab="viewport"]')).not.toBeNull();
+    expect(r.center.querySelector('[data-forge-tab="tool"]')?.getAttribute('aria-selected')).toBe('true');
+    r.shell.moveTab('center', 'viewport', 'left');
+    expect(r.center.querySelector('[data-forge-panel="viewport"]')).not.toBeNull();   // the viewport is not movable: it stays
   });
 
   it('FUI-22 (D6, FUI.R22): a tab shows only its own sections -- the others\' hidden, not folded in view; L1 / R1 and a reveal keep the jump inside the tabs', () => {
@@ -488,7 +563,39 @@ describe('the Forge shell: its stylesheet (A2, A3, A4)', () => {
 
   it('A4: the tab strip and its open tab are drawn', () => {
     expect(ruleOf('.fx-dock-tabs')).toMatch(/display:\s*flex/);
+    expect(ruleOf('.fx-dock-tabs')).toMatch(/flex:\s*0 0 auto/);
+    expect(ruleOf('.fx-dock-tabs')).toMatch(/flex-wrap:\s*nowrap/);
+    expect(ruleOf('.fx-left > .fx-dock-tabs')).toMatch(/margin:\s*calc\(-1 \* var\(--s2u-space-2\)\)\s+calc\(-1 \* var\(--s2u-space-2\)\)\s+0/);
+    expect(ruleOf('.fx-dock-center')).toMatch(/top:\s*calc\(var\(--fx-top\)\s*\+\s*var\(--fx-dock-top\)\)/);
+    expect(ruleOf('.fx-dock-center')).toMatch(/bottom:\s*calc\(var\(--fx-status\)\s*\+\s*var\(--fx-dock-bottom\)\)/);
+    expect(ruleOf('.fx-dock-center')).toMatch(/display:\s*grid/);
+    expect(ruleOf('.fx-dock-center')).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\)/);
+    expect(ruleOf('.fx-dock-center > .fx-panel')).toMatch(/display:\s*flex/);
+    expect(ruleOf('.fx-dock-center > .fx-panel')).toMatch(/position:\s*relative/);
+    expect(ruleOf('.fx-dock-center > .fx-panel > .fx-viewport')).toMatch(/position:\s*absolute/);
+    expect(ruleOf('.fx-dock-tab')).toMatch(/flex:\s*0 0 auto/);
+    expect(ruleOf('.fx-dock-tab')).toMatch(/border-radius:\s*var\(--fx-radius\) var\(--fx-radius\) 0 0/);   // the system's corner token (FUI-7)
     expect(ruleOf('.fx-dock-tab[aria-selected="true"]')).toMatch(/border-bottom-color/);
+  });
+
+  it('sizes dock previews and resize handles to match their destination docks', () => {
+    expect(ruleOf(".fx-dock-preview[data-zone='left']")).toMatch(/width:\s*var\(--fx-left\)/);
+    expect(ruleOf(".fx-dock-preview[data-zone='right']")).toMatch(/width:\s*var\(--fx-right\)/);
+    expect(ruleOf(".fx-dock-preview[data-zone='top']")).toMatch(/height:\s*var\(--fx-dock-top\)/);
+    expect(ruleOf(".fx-dock-preview[data-zone='bottom']")).toMatch(/height:\s*var\(--fx-dock-bottom\)/);
+    expect(ruleOf(".fx-dock-preview[data-zone='center']")).toMatch(/inset:\s*calc\(var\(--fx-top\)\s*\+\s*var\(--fx-dock-top\)\)\s*var\(--fx-right\)\s*calc\(var\(--fx-status\)\s*\+\s*var\(--fx-dock-bottom\)\)\s*var\(--fx-left\)/);
+    expect(ruleOf("body:not(.has-fx-dock-left) .fx-dock-preview[data-zone='center']")).toMatch(/left:\s*0/);
+    expect(ruleOf("body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='center']")).toMatch(/right:\s*0/);
+    expect(ruleOf("body:not(.has-fx-dock-top) .fx-dock-preview[data-zone='center']")).toMatch(/top:\s*var\(--fx-top\)/);
+    expect(ruleOf("body:not(.has-fx-dock-bottom) .fx-dock-preview[data-zone='center']")).toMatch(/bottom:\s*var\(--fx-status\)/);
+    expect(ruleOf('.fx-left')).toMatch(/top:\s*var\(--fx-top\)/);
+    expect(ruleOf('.fx-left')).toMatch(/bottom:\s*var\(--fx-status\)/);
+    expect(ruleOf('.fx-right')).toMatch(/top:\s*var\(--fx-top\)/);
+    expect(ruleOf('.fx-right')).toMatch(/bottom:\s*var\(--fx-status\)/);
+    expect(ruleOf('body:not(.has-fx-dock-top) .fx-viewport')).toMatch(/top:\s*var\(--fx-top\)/);
+    expect(ruleOf('body:not(.has-fx-dock-bottom) .fx-viewport')).toMatch(/bottom:\s*var\(--fx-status\)/);
+    expect(ruleOf('.fx-dock-resizer--right')).toMatch(/top:\s*var\(--fx-top\)/);
+    expect(ruleOf('.fx-dock-resizer--right')).toMatch(/bottom:\s*var\(--fx-status\)/);
   });
 });
 
@@ -504,23 +611,25 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
 
   const summaries = (): string[] => [...document.querySelectorAll('.fx-right > details.fx-panel > summary')].map((s) => s.textContent ?? '');
 
-  it('registers Inspector, Outliner, View and Settings with their classes unchanged, then the starters; returns the shell', async () => {
+  it('registers Inspector, Outliner and Settings with their classes unchanged, then the starters; returns the shell', async () => {
     const { mountForge } = await import('../../src/forge/page');
     let api!: ForgeAgentApi;
     const shell = await mountForge(document, { onAgentReady: (a) => { api = a; } });
     expect(api.read().ready).toBe(true);
     // FUI-22 (D5): the Local files panel (the creator's pack loading) joins the right dock last, so six draw the tabs
-    // even before the agent's dock is handed in; the order and the classes are as they were. The open state moved with
-    // the layout: Edit's three open, View (World) folded away with its tab, the starters folded.
-    expect(summaries()).toEqual(['Inspector', 'Outliner', 'Rules', 'View', 'Settings', 'Starter experiences', 'Local files']);
+    // even before the agent's dock is handed in. View controls live in the viewport dropdown, not a World panel.
+    // The Environment panel (World: the map's light rig, fog, night and shadows, read only) between Rules and Settings.
+    expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Environment', 'Settings', 'Starter experiences', 'Local files']);
     const panels = [...document.querySelectorAll<HTMLDetailsElement>('.fx-right > details.fx-panel')];
-    expect(panels.map((d) => d.open)).toEqual([true, true, false, false, true, false, false]);
+    // The Object tab shows at mount; Environment and Settings sit in World's (closed until it shows), Rules starts folded.
+    expect(panels.map((d) => d.open)).toEqual([true, true, false, false, false, false, false]);
     expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
     // The bodies the e2e specs reach, as they were: directly under each details.
     expect(document.querySelector('[data-forge-panel="inspector"] > .fx-inspector .fx-fields .fx-field input.fx-num')).not.toBeNull();
     expect(document.querySelector('[data-forge-panel="outliner"] > div > .fx-outliner-tools > input.fx-search')).not.toBeNull();
     expect(document.querySelector('[data-forge-panel="outliner"] > div > ul.fx-outliner')).not.toBeNull();
-    expect(document.querySelector('[data-forge-panel="view"] > .fx-view label.fx-toggle input')).not.toBeNull();
+    expect(document.querySelector('[data-forge-panel="view"]')).toBeNull();
+    expect(document.querySelector('.fx-viewport-modes-list [aria-label="Wireframe"]')).not.toBeNull();
     expect(document.querySelector('[data-forge-panel="settings"] > .fx-settings select.fx-game-type[aria-label="Game type"]')).not.toBeNull();
     // The starters (FCW-03's card, unchanged): folded, no card in the page (its list would sit beside the Saves card's);
     // START > Panels shows it (R6: the toolbar's Starters button is gone, the rendered pass's R4), its Close folds it again.
@@ -543,16 +652,16 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
       menuSection: () => [{ id: 'panel-agent', label: 'Connect your agent' }],
       mount: (host, ctx) => { expect(ctx.forge.status().mode).toBe('forge-editor'); host.append(document.createElement('section')); return { dispose: () => undefined }; } };
     const shell = await mountForge(document, { panels: [Promise.resolve(late)] });
-    await vi.waitFor(() => expect(summaries()).toEqual(['Inspector', 'Outliner', 'Rules', 'View', 'Settings', 'Connect your agent', 'Starter experiences', 'Local files']));
+    await vi.waitFor(() => expect(summaries()).toEqual(['Outliner', 'Inspector', 'Rules', 'Environment', 'Settings', 'Connect your agent', 'Starter experiences', 'Local files']));
     expect(document.querySelector<HTMLDetailsElement>('[data-forge-panel="agent"]')!.open).toBe(false);
-    // FUI.R5: six panels draw the tabs, Edit open (the e2e specs' Outliner and Inspector together).
+    // FUI.R5: the panels draw the tabs, Object open (the e2e specs' Outliner and Inspector together; Settings under World).
     expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
-    expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Edit', 'World', 'Agent', 'Content']);
+    expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Object', 'World', 'Agent', 'Content']);
     expect([...document.querySelectorAll<HTMLDetailsElement>('.fx-right > details.fx-panel')].filter((d) => d.open).map((d) => d.dataset['forgePanel']))
-      .toEqual(['inspector', 'outliner', 'settings']);
+      .toEqual(['outliner', 'inspector']);
     document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
     const labels = [...document.querySelectorAll('.fx-menu li .fx-menu-label')].map((l) => l.textContent);
-    const wanted = ['Inspector', 'Outliner', 'View', 'Settings', 'Wireframe', 'Day / night', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
+    const wanted = ['Inspector', 'Outliner', 'Settings', 'Wireframe', 'Day / night', 'Friendly fire', 'Connect your agent', 'Starter experiences', 'Saves'];
     for (const label of wanted) expect(labels).toContain(label);
     expect(labels.filter((l) => l === 'Connect your agent')).toHaveLength(1);
     expect([...document.querySelectorAll('.fx-menu li.is-head')].map((h) => h.textContent)).toContain(PANELS_MENU_HEADING);
@@ -560,7 +669,7 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
     expect(summaries()).not.toContain('Connect your agent');
     // FUI-22: six remain (the Local files panel's), so the tabs stay; the Agent tab goes with its panel.
     expect(document.querySelector('.fx-right')!.getAttribute('data-forge-dock-layout')).toBe('tabs');
-    expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Edit', 'World', 'Content']);
+    expect([...document.querySelectorAll('.fx-right > [data-forge-tabs] [data-forge-tab]')].map((b) => b.textContent)).toEqual(['Object', 'World', 'Content']);
   }, 90_000);
 
   it('A4 fix-up: in tabs (the agent dock handed in), every dock control the e2e specs drive sits in an open panel -- Settings opens with Edit', async () => {
@@ -577,11 +686,15 @@ describe('the mounted Forge: the first registrants (FUI-1) and the editor seam (
       for (let e: Element | null = at; e; e = e.parentElement) if (e instanceof HTMLDetailsElement && !e.open) return false;
       return true;
     };
-    for (const sel of ['select.fx-game-type[aria-label="Game type"]', '.fx-outliner-tools select', '.fx-outliner-tools input', '.fx-inspector .fx-field input', 'ul.fx-outliner']) {
+    for (const sel of ['.fx-outliner-tools select', '.fx-outliner-tools input', '.fx-inspector .fx-field input', 'ul.fx-outliner']) {
       expect(shown(sel), sel).toBe(true);
     }
-    expect(document.querySelector('.fx-right > [data-forge-tabs] [aria-selected="true"]')!.textContent).toBe('Edit');
-    expect(document.querySelector('.fx-right > [data-forge-tabs] [data-forge-tab="edit"]')!.getAttribute('title')).toContain('Settings');
+    expect(document.querySelector('.fx-right > [data-forge-tabs] [aria-selected="true"]')!.textContent).toBe('Object');
+    expect(document.querySelector('.fx-right > [data-forge-tabs] [data-forge-tab="object"]')!.getAttribute('title')).toContain('Outliner');
+    // Settings is under World: its Game type shown once that tab is (forgeDemolition.spec opens it first).
+    document.querySelector<HTMLButtonElement>('.fx-right > [data-forge-tabs] [data-forge-tab="world"]')!.click();
+    expect(shown('select.fx-game-type[aria-label="Game type"]')).toBe(true);
+    expect(document.querySelector('.fx-right > [data-forge-tabs] [data-forge-tab="world"]')!.getAttribute('title')).toContain('Settings');
   }, 90_000);
 
   it('remembers a folded panel across a reload of the page', async () => {

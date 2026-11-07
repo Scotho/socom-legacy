@@ -551,7 +551,7 @@ original counterpart) or "ruled or for the owner".
 | `HEAD_EYE_WALL_BACK_PLACEHOLDER` | R84 §11 | viewer `cameraRig.ts` (viewer, server) | gap | owed: an estimate kept by PF-16 (research 217 §2.4): the prone fan keeps a body crawled into a wall 8.0 off it, but is cast along the travel, not the facing -- strafing prone along a wall (3.12 off), crawling into it aslant, or peeking, the eye still passes the face; the page's eye and the room's start head kept 0.1 short of a wall, along one line (`headEye`; the room at any polygon, the page at a camera surface), PF-05; owed meanwhile: the room's line at the stance root's eye (prone 5.4), the page's at the posed root's (about 5.77). Also (#479's takeover, 2026-10-23): the third-person DRAWN camera's peek target and eye (`PlayerCamera.tick`) pulled back by it, at every aspect (H309), presentation only -- the game's eye stays the pass's (`CameraView.aim`; the review's F1); no source for the third-person use either (`FUN_0029ae50` is the head's eye, not the third-person camera's: `FUN_0029bf70`'s pass has no such pull). Since WALL-CAM (2026-11-03, research 382 §1): the same pull-back also covers an ordinary (not peeking) drawn target and eye and is re-applied to the interpolated frame (`PlayerCamera.draw`), presentation only, the game's eye still the pass's | PLAT-36 |
 | `SCOPE_EYE_READING` | R84 §11 | viewer `cameraRig.ts` +2 | gap | owed: PLAT-36's first-person frame standing and prone, PINE `cam+0xd8` (research 180 §1.3; PF-05 took the operands, V1 #2) | PLAT-36 |
 
-**PLAT-22** (5) *(added 2026-10-02, INT-AUDIO, one more by INT-AUDIO-WIRE: research 124's, the round's streamed cues;
+**PLAT-22** (6) *(added 2026-10-02, INT-AUDIO, one more by INT-AUDIO-WIRE: research 124's, the round's streamed cues; one more 2026-11-06, the Forge's escort lines;
 the counts above are the note's as written)*
 
 | name | listed at | in code | kind | validation | owner |
@@ -561,6 +561,7 @@ the counts above are the note's as written)*
 | `ROUND_CUE_CONDITIONS_READING` | R124 L195 | *note only* | settled | settled: retired 2026-10-04 (web sprint 26 PF-12): the operators decoded, `FUN_0025e960` ported as `evaluateCondition` (research 210 §2, §5) | PLAT-22 |
 | `STREAM_LEVEL_READING` | R124 L191 | *note only* (was viewer `audio.ts`; removed 2026-10-04, PF-08) | gap | read: research 186 §3.1 STREAM_LEVEL: each stream at its group's level (`roundStreamGains`: line 0.24995, music 0.27321) -- resolved | PLAT-22 |
 | `UNLOCK_RETRY_PLACEHOLDER` | R124 L193 | viewer `roundAudio.ts` | the page's own | none: a browser adaptation (the autoplay rules) | PLAT-22 |
+| `ESCORT_EXTRACTED_SCALE_PLACEHOLDER` | research 175 §4a; `FORGE_ESCORT_LINES_ADAPTATION` | viewer `roundAudio.ts` | the page's own (a Forge layout's escort only) | the scale EndRescueN posts "A VIP HAS BEEN EXTRACTED" at, not quoted beside its text (the staged line's 0.7, MP52 @3836, stands in); settled by EndRescueN's text command read with its scale | PLAT-22 |
 
 **SVC-06** (1)
 

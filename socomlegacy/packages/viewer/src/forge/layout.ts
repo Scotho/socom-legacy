@@ -19,7 +19,7 @@ export {
 } from '@s2u/creator-contracts';
 export type {
   BombObjectives, BombSite, ContentLayout, ContentLayoutBase, ForgeGameType, ForgeObjectives, Layout, LayoutBase, LayoutCamera, LayoutObjectiveIds,
-  LayoutSettings, NpcBehaviour, NpcMarker, Piece, RetailLayoutBase, SpawnMarker,
+  ExtractionZone, FlareMarker, HostageMarker, LayoutSettings, LightRigSetting, ScenicViewMarker, TacPointMarker, TurretMarker, DoorMarker, NpcBehaviour, NpcMarker, Piece, RetailLayoutBase, SpawnMarker,
 } from '@s2u/creator-contracts';
 
 /** The layout's settings whole: what it names over the disc's defaults. */
@@ -45,6 +45,16 @@ export const archiveStem = (archive: string): string => (archive.split('/').pop(
 export const assetId = (archive: string, model: string): string => `${archiveStem(archive)}:${model}`;
 
 export const emptyLayout = (base: LayoutBase): Layout => ({ forge: LAYOUT_VERSION, base, pieces: [], spawns: [] });
+/**
+ * The Night -> Day a base's Original lighting is: none (the map's own) on a map; full day on a blank floor (the owner,
+ * 2026-11-06; a browser adaptation, FG.R2 -- a blank floor has no authored light of its own to keep).
+ */
+export const originalTimeOf = (base: LayoutBase | null | undefined): number | null => (base?.kind === 'blank' ? 1 : null);
+/** A new layout on `base`: empty, at its Original lighting (`originalTimeOf`: a blank floor's full day). */
+export const newLayout = (base: LayoutBase): Layout => {
+  const time = originalTimeOf(base);
+  return time === null ? emptyLayout(base) : { ...emptyLayout(base), settings: { timeOfDay: time } };
+};
 
 export const serializeLayout = (l: Layout): string => JSON.stringify(l, null, 1);
 

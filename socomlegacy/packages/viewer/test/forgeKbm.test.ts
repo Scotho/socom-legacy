@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
 import { FlyCamera } from '../src/camera';
 import { WalkMode } from '../src/walk';
 
@@ -29,14 +30,176 @@ const flown = (fly: FlyCamera): number => {
 };
 
 describe('OT.R68: the forge editor\'s camera reads the keyboard and the captured mouse in a release', () => {
+  it('while RMB is held its fly keys are the camera\'s alone: W, E, R and the rest never reach the editor\'s keys; released, they do', () => {
+    vi.stubEnv('DEV', false);
+    const canvas = document.createElement('canvas');
+    const fly = new FlyCamera(canvas, { forgeKbm: true });
+    const heard: string[] = [];
+    const editor = (e: KeyboardEvent): void => { heard.push(e.code); };
+    globalThis.addEventListener('keydown', editor);              // after the camera's, as the page's is
+    const press = (code: string): void => {
+      globalThis.dispatchEvent(new KeyboardEvent('keydown', { code }));
+      globalThis.dispatchEvent(new KeyboardEvent('keyup', { code }));
+    };
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2 }));
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'KeyF']) press(code);
+    expect(heard).toEqual([]);
+    canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 2 }));
+    for (const code of ['KeyW', 'KeyE', 'KeyR']) press(code);
+    expect(heard).toEqual(['KeyW', 'KeyE', 'KeyR']);
+    globalThis.removeEventListener('keydown', editor);
+    fly.dispose();
+  });
+
+  it('so do they during every other navigation drag -- the MMB pan, the Alt+LMB orbit, the Alt+RMB dolly -- and after it, again the editor\'s', () => {
+    vi.stubEnv('DEV', false);
+    const canvas = document.createElement('canvas');
+    const input = document.createElement('div');
+    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
+    const fly = new FlyCamera(canvas, { forgeKbm: true, pointerInput: input });
+    const heard: string[] = [];
+    const editor = (e: KeyboardEvent): void => { heard.push(e.code); };
+    globalThis.addEventListener('keydown', editor);
+    const press = (code: string): void => {
+      globalThis.dispatchEvent(new KeyboardEvent('keydown', { code }));
+      globalThis.dispatchEvent(new KeyboardEvent('keyup', { code }));
+    };
+    const drags: PointerEventInit[] = [{ button: 1 }, { button: 0, altKey: true }, { button: 2, altKey: true }];
+    drags.forEach((init, i) => {
+      input.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 10 + i, pointerType: 'mouse', clientX: 100, clientY: 100, ...init }));
+      for (const code of ['KeyW', 'KeyE', 'KeyR']) press(code);
+      expect(heard, JSON.stringify(init)).toEqual([]);
+      input.dispatchEvent(new PointerEvent('pointerup', { pointerId: 10 + i, pointerType: 'mouse', ...init }));
+    });
+    press('KeyE');
+    expect(heard).toEqual(['KeyE']);
+    globalThis.removeEventListener('keydown', editor);
+    fly.dispose();
+  });
+
   it('a release: the forge\'s camera (forgeKbm) flies on W; the default camera does not', () => {
     vi.stubEnv('DEV', false);
-    const forge = new FlyCamera(document.createElement('canvas'), { forgeKbm: true });
+    const forgeCanvas = document.createElement('canvas');
+    const forge = new FlyCamera(forgeCanvas, { forgeKbm: true });
+    forgeCanvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2 }));
     expect(flown(forge)).toBeGreaterThan(0.1);
+    forgeCanvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 2 }));
     forge.dispose();
     const other = new FlyCamera(document.createElement('canvas'));
     expect(flown(other)).toBe(0);
     other.dispose();
+  });
+
+  it('the forge requires RMB for keyboard flight', () => {
+    vi.stubEnv('DEV', false);
+    const fly = new FlyCamera(document.createElement('canvas'), { forgeKbm: true });
+    expect(flown(fly)).toBe(0);
+    fly.dispose();
+  });
+
+  it('Forge camera settings adjust FOV and look sensitivity', () => {
+    vi.stubEnv('DEV', false);
+    const fovChanges: number[] = [];
+    const fly = new FlyCamera(document.createElement('canvas'), {
+      forgeKbm: true,
+      onFovChange: (degrees) => fovChanges.push(degrees),
+    });
+    fly.setFov(80);
+    expect(fly.fieldOfView()).toBe(80);
+    expect(fly.camera.fov).toBe(80);
+    expect(fovChanges).toEqual([80]);
+
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 180, pitch: 0 });
+    fly.setLookSpeedMultiplier(2);
+    fly.lookBy(100, 0);
+    expect(fly.pose().yaw).toBeCloseTo(180 - (100 * 0.0028 * 2 * 180) / Math.PI);
+    expect(fly.lookSpeed()).toBe(2);
+    fly.dispose();
+  });
+
+  it('camera collision is opt-in and only constrains perspective flight while RMB is held', () => {
+    vi.stubEnv('DEV', false);
+    const canvas = document.createElement('canvas');
+    const constrainMovement = vi.fn((_from: Vector3, to: Vector3) => ({ position: to, normals: [] }));
+    const fly = new FlyCamera(canvas, { forgeKbm: true, constrainMovement });
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2 }));
+    globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    fly.update(1 / 60);
+    expect(constrainMovement).not.toHaveBeenCalled();
+
+    fly.setCameraCollisionEnabled(true);
+    fly.update(1 / 60);
+    expect(constrainMovement).toHaveBeenCalled();
+
+    fly.setForgeViewportView('top');
+    constrainMovement.mockClear();
+    fly.update(1 / 60);
+    expect(constrainMovement).not.toHaveBeenCalled();
+    globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    fly.dispose();
+  });
+
+  it('the Forge orientation gizmo can orbit around the focus and returns an orthographic view to perspective', () => {
+    vi.stubEnv('DEV', false);
+    const fly = new FlyCamera(document.createElement('canvas'), { forgeKbm: true });
+    const focus = new Vector3(0, 0, 0);
+    fly.setPose({ x: 0, y: 0, z: 10, yaw: 0, pitch: 0 });
+    const distance = fly.camera.position.distanceTo(focus);
+    fly.orbitForgeViewport(30, 12, focus);
+    expect(fly.camera.position.distanceTo(focus)).toBeCloseTo(distance);
+    expect(fly.pose().yaw).not.toBe(0);
+    expect(fly.pose().pitch).not.toBe(0);
+
+    fly.setForgeViewportView('top', focus);
+    fly.orbitForgeViewport(20, 0, focus);
+    expect(fly.viewportCamera()).toBeInstanceOf(PerspectiveCamera);
+    expect(fly.forgeViewportView()).toBe('perspective');
+    fly.dispose();
+  });
+
+  it('the forge switches between perspective and orthographic view directions and exposes camera speed control', () => {
+    vi.stubEnv('DEV', false);
+    const canvas = document.createElement('canvas');
+    const input = document.createElement('div');
+    const fly = new FlyCamera(canvas, { forgeKbm: true, pointerInput: input });
+    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
+    fly.setPose({ x: 2, y: 3, z: 4, yaw: 20, pitch: 10 });
+
+    const focus = new Vector3(0, 0, 0);
+    fly.setForgeViewportView('top', focus);
+    expect(fly.viewportCamera()).toBeInstanceOf(OrthographicCamera);
+    expect(fly.pose().pitch).toBeCloseTo(-89.9, 1);
+    expect(focus.clone().project(fly.viewportCamera()).x).toBeCloseTo(0);
+    expect(focus.clone().project(fly.viewportCamera()).y).toBeCloseTo(0);
+    const orthographic = fly.viewportCamera() as OrthographicCamera;
+    const start = orthographic.position.clone();
+    input.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 1, clientX: 100, clientY: 100 }));
+    input.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: 120, clientY: 130 }));
+    input.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 1 }));
+    expect(orthographic.position.equals(start)).toBe(false);
+    const beforeRightPan = orthographic.position.clone();
+    const orientationBeforeRightPan = fly.pose();
+    input.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 2, pointerType: 'mouse', button: 2, clientX: 100, clientY: 100 }));
+    input.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, pointerType: 'mouse', clientX: 115, clientY: 120 }));
+    input.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, pointerType: 'mouse', button: 2 }));
+    expect(orthographic.position.equals(beforeRightPan)).toBe(false);
+    expect(fly.pose()).toMatchObject({ yaw: orientationBeforeRightPan.yaw, pitch: orientationBeforeRightPan.pitch });
+    expect(fly.isLocked()).toBe(false);
+    const zoom = orthographic.zoom;
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true }));
+    expect(orthographic.zoom).toBeGreaterThan(zoom);
+    fly.setForgeViewportView('front');
+    expect(fly.pose()).toMatchObject({ yaw: 0, pitch: 0 });
+    const orthographicPose = fly.pose();
+    fly.setForgeViewportView('perspective');
+    expect(fly.viewportCamera()).toBeInstanceOf(PerspectiveCamera);
+    expect(fly.pose()).toEqual(orthographicPose);
+
+    fly.setSpeedMultiplier(3);
+    expect(fly.multiplier()).toBe(3);
+    fly.setSpeedMultiplier(20);
+    expect(fly.multiplier()).toBe(16);
+    fly.dispose();
   });
 
   it('a release: the forge\'s camera looks with the captured mouse; the default camera does not', () => {
@@ -45,6 +208,7 @@ describe('OT.R68: the forge editor\'s camera reads the keyboard and the captured
       const c = document.createElement('canvas');
       const fly = new FlyCamera(c, opts);
       fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+      c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
       Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => c });
       document.dispatchEvent(new Event('pointerlockchange'));
       const move = new PointerEvent('pointermove', { pointerType: 'mouse', bubbles: true });
@@ -59,6 +223,173 @@ describe('OT.R68: the forge editor\'s camera reads the keyboard and the captured
     };
     expect(look({ forgeKbm: true })).not.toBe(0);
     expect(look({})).toBe(0);
+  });
+
+  it('a release: the forge releases pointer lock when RMB is released, including a late lock grant', () => {
+    vi.stubEnv('DEV', false);
+    const c = document.createElement('canvas');
+    const fly = new FlyCamera(c, { forgeKbm: true });
+    const exitPointerLock = vi.fn();
+    document.exitPointerLock = exitPointerLock;
+    const mouse = (type: string): void => {
+      c.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    };
+
+    mouse('pointerdown');
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => c });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    mouse('pointerup');
+    expect(exitPointerLock).toHaveBeenCalledTimes(1);
+
+    exitPointerLock.mockClear();
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => null });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    mouse('pointerdown');
+    mouse('pointerup');
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => c });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    expect(exitPointerLock).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => null });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    fly.dispose();
+  });
+
+  it('the forge camera leaves left-button input to the active tool', () => {
+    vi.stubEnv('DEV', true);
+    const c = document.createElement('canvas');
+    const fly = new FlyCamera(c, { forgeKbm: true });
+    const requestPointerLock = vi.fn();
+    c.requestPointerLock = requestPointerLock;
+    const before = fly.pose();
+    c.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 0, bubbles: true }));
+    const move = new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', bubbles: true });
+    Object.defineProperty(move, 'movementX', { value: 60 });
+    c.dispatchEvent(move);
+
+    expect(requestPointerLock).not.toHaveBeenCalled();
+    expect(fly.pose()).toEqual(before);
+    fly.dispose();
+  });
+
+  it('the forge camera receives RMB look input from its overlay and mouse movement from the locked canvas', () => {
+    vi.stubEnv('DEV', false);
+    const c = document.createElement('canvas');
+    const input = document.createElement('div');
+    const fly = new FlyCamera(c, { forgeKbm: true, pointerInput: input });
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    const exitPointerLock = vi.fn();
+    document.exitPointerLock = exitPointerLock;
+    input.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => c });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    const move = new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', bubbles: true });
+    Object.defineProperty(move, 'movementX', { value: 60 });
+    c.dispatchEvent(move);
+    expect(fly.pose().yaw).not.toBe(0);
+
+    c.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    expect(exitPointerLock).toHaveBeenCalledTimes(1);
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => null });
+    document.dispatchEvent(new Event('pointerlockchange'));
+    fly.dispose();
+  });
+
+  it('the forge pans with MMB, moves along the view with the wheel, and changes speed while RMB is held', () => {
+    vi.stubEnv('DEV', false);
+    const c = document.createElement('canvas');
+    const input = document.createElement('div');
+    const speedChanges: Array<[number, 'wheel' | 'setting']> = [];
+    const fly = new FlyCamera(c, {
+      forgeKbm: true,
+      pointerInput: input,
+      panDepthAt: () => 10,
+      onSpeedChange: (multiplier, source) => speedChanges.push([multiplier, source]),
+    });
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
+    const pointer = (type: string, button: number, x: number, y: number): void => {
+      input.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: 'mouse', button, clientX: x, clientY: y, bubbles: true }));
+    };
+
+    const panUnitsPerPixel = (2 * 10 * Math.tan(fly.camera.fov * Math.PI / 360)) / 600;
+    pointer('pointerdown', 1, 100, 100);
+    pointer('pointermove', -1, 120, 130);
+    pointer('pointerup', 1, 120, 130);
+    expect(fly.pose().x).toBeCloseTo(-20 * panUnitsPerPixel);
+    expect(fly.pose().y).toBeCloseTo(30 * panUnitsPerPixel);
+    expect(fly.pose()).toMatchObject({ z: 0, yaw: 0, pitch: 0 });
+
+    const poseBeforeWheel = fly.pose();
+    const zoomBefore = fly.camera.zoom;
+    c.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+    expect(fly.camera.zoom).toBe(zoomBefore);
+    expect(fly.pose().z).toBeLessThan(poseBeforeWheel.z);
+    c.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true }));
+    expect(fly.camera.zoom).toBe(zoomBefore);
+    expect(fly.pose()).toMatchObject({ x: poseBeforeWheel.x, y: poseBeforeWheel.y, z: poseBeforeWheel.z });
+
+    pointer('pointerdown', 2, 120, 130);
+    const zoomPose = fly.pose();
+    const wheelZoom = fly.camera.zoom;
+    const speed = fly.multiplier();
+    c.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }));
+    expect(fly.multiplier()).toBeGreaterThan(speed);
+    expect(speedChanges.at(-1)?.[1]).toBe('wheel');
+    expect(fly.camera.zoom).toBe(wheelZoom);
+    expect(fly.pose()).toEqual(zoomPose);
+    c.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true }));
+    expect(fly.multiplier()).toBeCloseTo(speed);
+    expect(fly.camera.zoom).toBe(wheelZoom);
+    expect(fly.pose()).toEqual(zoomPose);
+    pointer('pointerup', 2, 120, 130);
+    fly.dispose();
+  });
+
+  it('the forge boosts movement with Shift at double-tap speed and stops it with Ctrl', () => {
+    vi.stubEnv('DEV', false);
+    const distance = (modifier?: 'shiftleft' | 'controlleft'): number => {
+      const canvas = document.createElement('canvas');
+      const fly = new FlyCamera(canvas, { forgeKbm: true });
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2 }));
+      if (modifier) globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: modifier === 'shiftleft' ? 'ShiftLeft' : 'ControlLeft' }));
+      globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }));
+      fly.update(1);
+      globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));
+      if (modifier) globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: modifier === 'shiftleft' ? 'ShiftLeft' : 'ControlLeft' }));
+      const x = fly.pose().x;
+      fly.dispose();
+      return x;
+    };
+
+    const normal = distance();
+    expect(distance('shiftleft')).toBeCloseTo(normal * 5);
+    expect(distance('controlleft')).toBe(0);
+  });
+
+  it('the forge orbits and dollies around the point under the cursor with Alt-drag', () => {
+    vi.stubEnv('DEV', false);
+    const c = document.createElement('canvas');
+    const input = document.createElement('div');
+    const pivot = new Vector3(0, 0, -10);
+    const fly = new FlyCamera(c, { forgeKbm: true, pointerInput: input, pivotAt: () => pivot.clone() });
+    fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+    const drag = (button: number, x: number, y: number, altKey: boolean): void => {
+      input.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button, clientX: x, clientY: y, altKey, bubbles: true }));
+    };
+
+    drag(0, 100, 100, true);
+    input.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: 120, clientY: 110, bubbles: true }));
+    input.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 0, bubbles: true }));
+    expect(fly.pose().yaw).not.toBe(0);
+    expect(fly.pose().z).not.toBe(0);
+
+    const beforeDolly = fly.camera.position.distanceTo(pivot);
+    drag(2, 120, 110, true);
+    input.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, pointerType: 'mouse', clientY: 90, bubbles: true }));
+    input.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 2, bubbles: true }));
+    expect(fly.camera.position.distanceTo(pivot)).toBeLessThan(beforeDolly);
+    fly.dispose();
   });
 
   it('a release: the Walk on the layout (the forge\'s camera) binds its keys; a walk on the default camera binds none', () => {
@@ -79,11 +410,14 @@ describe('OT.R68: the forge editor\'s camera reads the keyboard and the captured
 
   it('the editor camera held while a match runs: no key reaches it (setInputSuspended), and it flies again after', () => {
     vi.stubEnv('DEV', false);
-    const fly = new FlyCamera(document.createElement('canvas'), { forgeKbm: true });
+    const canvas = document.createElement('canvas');
+    const fly = new FlyCamera(canvas, { forgeKbm: true });
     fly.setInputSuspended(true);
     expect(flown(fly)).toBe(0);
     fly.setInputSuspended(false);
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 2 }));
     expect(flown(fly)).toBeGreaterThan(0.1);
+    canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 2 }));
     fly.dispose();
   });
 });
@@ -96,6 +430,7 @@ describe('OT.R68: who opts in (source pins; the merge controller\'s care: the ot
   it('forge/page.ts alone constructs a camera with forgeKbm; /testroom\'s and the match\'s construct theirs without it', () => {
     const optIn = all.filter((f) => /forgeKbm:\s*true/.test(read(f)));
     expect(optIn).toEqual(['forge/page.ts']);
+    expect(read('forge/page.ts')).toContain('pointerInput: input,');
     for (const f of ['main.ts', 'matchMount.ts']) {
       const ctor = read(f).split('\n').filter((l) => l.includes('new FlyCamera('));
       expect(ctor.length, f).toBe(1);

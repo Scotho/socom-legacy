@@ -87,27 +87,55 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
   const tipName = (): string | null => tip()?.querySelector('.fx-preview-name')?.textContent ?? null;
   const key = (code: string, k = code): void => { window.dispatchEvent(new KeyboardEvent('keydown', { code, key: k, bubbles: true, cancelable: true })); };
 
-  it('D5 / D3: one asset list -- the archive select, the filter row on one line, stars and counts; no Asset preview; the creator grid gone, its pack loading the Content tab\'s', async () => {
+  it('D5 / D3: one asset list -- the archive select, filter row, view settings popup, previews and counts; the creator grid gone, its pack loading the Content tab\'s', async () => {
     await mounted();
     const left = document.querySelector<HTMLElement>('.fx-left')!;
+    const center = document.querySelector<HTMLElement>('.fx-dock-center')!;
+    expect(center.querySelector(':scope > details.fx-panel[data-forge-panel="viewport"] > .fx-viewport')).not.toBeNull();
+    const viewportTab = center.querySelector<HTMLButtonElement>(':scope > [data-forge-tabs] [data-forge-tab="viewport"]');
+    expect(viewportTab?.textContent).toBe('Viewport');
+    expect(viewportTab?.draggable).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('.fx-dock-target--center')?.textContent).toBe('Center');
+    expect(document.querySelector<HTMLButtonElement>('.fx-top [data-forge="reset-layout"]')?.title)
+      .toBe('Restore the default dock layout and panel sizes');
+    expect(document.querySelector('.fx-dock-target--floating')).toBeNull();
     expect(left.querySelector('.fx-asset-preview, [aria-label="Asset preview"]')).toBeNull();
-    expect(left.textContent).not.toContain('Asset preview');
-    expect(left.querySelectorAll('details.fx-panel'), 'no panel of its own in the left dock').toHaveLength(0);
+    expect(left.querySelector<HTMLElement>('#fx-asset-view-popup')?.hidden).toBe(true);
+    const assetsPanel = left.querySelector<HTMLElement>(':scope > details.fx-panel[data-forge-panel="asset-browser"]');
+    expect(assetsPanel, 'the asset palette is the movable Assets tab').not.toBeNull();
+    expect(left.querySelector<HTMLButtonElement>(':scope > [data-forge-tabs] [data-forge-tab="assets"]')?.draggable).toBe(true);
     expect(left.querySelectorAll('ul.fx-assets'), 'one list').toHaveLength(1);
-    expect(left.querySelector(':scope > select.fx-select')).not.toBeNull();
+    expect(assetsPanel!.querySelector(':scope > .fx-assets-pane > select.fx-select')).not.toBeNull();
     // The search and the filters on one row, not the status strip's chips (whose rule clipped it), and never shrunk.
-    const row = left.querySelector<HTMLElement>(':scope > .fx-asset-filters')!;
+    const row = assetsPanel!.querySelector<HTMLElement>(':scope > .fx-assets-pane > .fx-asset-filters')!;
     expect(row).not.toBeNull();
     expect(row.matches('.fx-chips')).toBe(false);
     expect(row.querySelector('input.fx-search')).not.toBeNull();
-    expect([...row.querySelectorAll('button.fx-chip')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['All', 'Favourites', 'Characters']);
+    expect([...row.querySelectorAll('button.fx-chip')].map((b) => b.getAttribute('aria-label') ?? b.textContent))
+      .toEqual(['All', 'Favourites', 'Characters', 'Asset view options']);
+    expect(row.querySelector('[aria-label="Asset view options"] svg')).not.toBeNull();
+    // The format (list / grid) at the browser's foot, under the list.
+    const modes = assetsPanel!.querySelector<HTMLElement>('.fx-asset-display-modes')!;
+    expect(modes.querySelector('[aria-label="List view"] svg')).not.toBeNull();
+    expect(modes.querySelector('[aria-label="Grid view"] svg')).not.toBeNull();
+    expect(document.querySelector('.fx-viewport-modes-summary svg')).not.toBeNull();
+    expect(assetsPanel!.querySelector<HTMLUListElement>('.fx-assets')?.dataset['view']).toBe('grid');
     expect(ruleOf('.fx-asset-filters')).toMatch(/flex:\s*none/);
+    // Its bar always shown (scroll), thin, its gutter kept.
+    expect(ruleOf('.fx-assets')).toMatch(/overflow-y:\s*scroll/);
+    expect(ruleOf('.fx-assets')).toMatch(/scrollbar-width:\s*thin/);
+    expect(ruleOf('.fx-assets')).toMatch(/scrollbar-gutter:\s*stable/);
+    expect(ruleOf('.fx-assets::-webkit-scrollbar')).toMatch(/width:\s*12px/);
+    expect(ruleOf('.fx-right > .fx-panel[data-forge-panel="asset-browser"]')).toMatch(/flex:\s*1 1 0/);
     // A tile: its star, its name, its count, draggable, a control of its own to focus.
     const barrel = tile('MP2:barrel');
     expect(barrel.draggable).toBe(true);
     expect(barrel.querySelector('button.fx-star')).not.toBeNull();
     expect(barrel.querySelector('button.fx-asset-pick .fx-asset-name')!.textContent).toBe('barrel');
-    expect(barrel.textContent).toContain('×1');
+    // Its placed count in the list view (a grid tile shows its picture and name only), then the grid again.
+    modes.querySelector<HTMLButtonElement>('[aria-label="List view"]')!.click();
+    expect(tile('MP2:barrel').textContent).toContain('×1');
+    modes.querySelector<HTMLButtonElement>('[aria-label="Grid view"]')!.click();
     // A favourite stays the same row style, starred, first.
     barrel.querySelector<HTMLButtonElement>('button.fx-star')!.click();
     expect(tile('MP2:barrel').querySelector('.fx-star')!.classList.contains('is-on')).toBe(true);
@@ -125,19 +153,43 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     const right = document.querySelector<HTMLElement>('.fx-right')!;
     const tabs = (): string[] => [...right.querySelectorAll('[data-forge-tab]')].map((b) => b.textContent ?? '');
     const drawn = (): string[] => [...right.querySelectorAll<HTMLElement>(':scope > details.fx-panel')].filter((d) => !d.hidden).map((d) => d.dataset['forgePanel']!);
-    expect(tabs()).toEqual(['Edit', 'World', 'Content']);
-    // FCW-32 step 4 (FUI.R23 D1): the Rules panel under Edit, after the Outliner, before Settings.
-    expect(drawn()).toEqual(['inspector', 'outliner', 'rules', 'settings']);
+    // The Edit tab is Object now (what is placed), Settings with the map-wide panels under World.
+    expect(tabs()).toEqual(['Object', 'World', 'Content']);
+    // FCW-32 step 4 (FUI.R23 D1): the Rules panel under Object, after the Inspector.
+    expect(drawn()).toEqual(['outliner', 'inspector', 'rules']);
+    const tree = right.querySelector<HTMLUListElement>('ul.fx-outliner')!;
+    // Two roots, Map Data and User Data, each holding its branches.
+    const branchesOf = (parent: Element): (string | null)[] =>
+      [...parent.querySelectorAll(':scope > li.fx-tree-branch')].map((branch) => branch.getAttribute('data-tree-branch'));
+    expect(branchesOf(tree)).toEqual(['mapData', 'userData']);
+    expect(branchesOf(tree.querySelector('[data-tree-branch="mapData"] > .fx-outliner-children')!)).toEqual(['mapProps']);   // no slots on the test map
+    expect(branchesOf(tree.querySelector('[data-tree-branch="userData"] > .fx-outliner-children')!)).toEqual(['userProps', 'userSpawns', 'rules']);
+    expect(tree.querySelector('[data-tree-branch="mapData"] > .fx-tree-toggle')?.textContent).toContain('Map Data');
+    const mapBranch = tree.querySelector<HTMLLIElement>('[data-tree-branch="mapProps"]')!;
+    expect(mapBranch.querySelector('.fx-tree-toggle')?.textContent).toContain('Props');
+    mapBranch.querySelector<HTMLButtonElement>('.fx-tree-toggle')!.click();
+    expect(tree.querySelector('[data-tree-branch="mapProps"] .fx-tree-toggle')?.getAttribute('aria-expanded')).toBe('false');
+    tree.querySelector<HTMLButtonElement>('[data-tree-branch="mapProps"] .fx-tree-toggle')!.click();
+    const settings = right.querySelector<HTMLElement>('[data-forge-panel="settings"] .fx-settings')!;
+    expect(settings.querySelector('input[aria-label="Grid step"], input[aria-label="Turn step (°)"], input[aria-label="Snap"]')).toBeNull();
+    expect(settings.querySelector('[data-forge-setting="assetTips"]')).toBeNull();
     right.querySelector<HTMLButtonElement>('[data-forge-tab="world"]')!.click();
-    expect(drawn(), 'the starters are world content').toEqual(['view', 'starters']);
+    // World: the Environment panel (the layout's lighting and the map's own, read only), Settings and the starters.
+    expect(drawn(), 'the environment, the settings and the starters are world content; view controls are in the viewport dropdown')
+      .toEqual(['environment', 'settings', 'starters']);
+    const environment = right.querySelector<HTMLElement>('[data-forge-panel="environment"] .fx-environment')!;
+    expect(environment.querySelector('input[aria-label="Night to day"]')).not.toBeNull();   // Day / night, moved from Settings
+    expect(right.querySelector('[data-forge-panel="settings"] input[aria-label="Night to day"]')).toBeNull();
     right.querySelector<HTMLButtonElement>('[data-forge-tab="content"]')!.click();
     expect(drawn()).toEqual(['creator-assets']);
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="edit"]')!.click();
+    right.querySelector<HTMLButtonElement>('[data-forge-tab="object"]')!.click();
     // One section style: every open section's body is the one .fx-section, its padding and gap on the tokens.
     document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
     document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="panel-starters"]')!.click();
-    expect(drawn()).toEqual(['view', 'starters']);
-    for (const t of ['edit', 'world', 'content']) {
+    // Its World tab shown (the starters with the tab's other panels), the starters open.
+    expect(drawn()).toEqual(['environment', 'settings', 'starters']);
+    expect(right.querySelector<HTMLDetailsElement>(':scope > details.fx-panel[data-forge-panel="starters"]')!.open).toBe(true);
+    for (const t of ['object', 'world', 'content']) {
       right.querySelector<HTMLButtonElement>(`[data-forge-tab="${t}"]`)!.click();
       for (const d of right.querySelectorAll<HTMLDetailsElement>(':scope > details.fx-panel:not([hidden])[open]')) {
         expect(d.querySelectorAll(':scope > .fx-section'), d.dataset['forgePanel']).toHaveLength(1);
@@ -154,15 +206,42 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(numbers.filter((i) => !i.classList.contains('fx-stepper')).map((i) => i.title || i.dataset['label'])).toEqual([]);
     expect(ruleOf('.fx-stepper')).toMatch(/height:/);
     // The Inspector's head: sticky, the selection's name and kind; nothing selected said in one line.
-    right.querySelector<HTMLButtonElement>('[data-forge-tab="edit"]')!.click();
+    right.querySelector<HTMLButtonElement>('[data-forge-tab="object"]')!.click();
     const head = right.querySelector<HTMLElement>('[data-forge-panel="inspector"] .fx-inspect-head')!;
     expect(head).not.toBeNull();
+    expect(head.closest('[data-forge-panel]')?.previousElementSibling?.getAttribute('data-forge-panel')).toBe('outliner');
+    expect(right.querySelectorAll('[data-forge-panel="inspector"] .fx-position-fields .fx-field')).toHaveLength(3);
+    expect(right.querySelector('[data-forge-panel="inspector"] .fx-rotation-fields .fx-field > input[data-label="Yaw"]')).not.toBeNull();
+    const inspectorField = (label: string): HTMLInputElement =>
+      right.querySelector<HTMLInputElement>(`[data-forge-panel="inspector"] input[data-label="${label}"]`)!;
     expect(ruleOf('.fx-inspect-head')).toMatch(/position:\s*sticky/);
     expect(head.querySelector('.fx-inspect-name')!.textContent).toBe('Nothing selected');
     expect(head.querySelector('.fx-inspect-kind')!.textContent).toBe('');
     expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(head.querySelector('.fx-inspect-kind')!.textContent).toBe('Piece'));
     expect(head.querySelector('.fx-inspect-name')!.textContent).toContain('crate');
+    // Pitch, roll and scale: the piece's own values shown; an edit is a stub -- no edit, the value put back.
+    await vi.waitFor(() => expect(inspectorField('Pitch').value).toBe('0'));
+    expect([inspectorField('Roll').value, inspectorField('Scale X').value, inspectorField('Scale Y').value, inspectorField('Scale Z').value]).toEqual(['0', '1', '1', '1']);
+    expect([inspectorField('Pitch'), inspectorField('Roll'), inspectorField('Scale X')].some((i) => i.disabled)).toBe(false);
+    const revision = api.read().revision;
+    for (const [label, typed] of [['Pitch', '30'], ['Scale Y', '2']] as const) {
+      const f = inspectorField(label);
+      f.value = typed;
+      f.dispatchEvent(new Event('change'));
+    }
+    expect(api.read().revision, 'a stub makes no edit').toBe(revision);
+    expect([inspectorField('Pitch').value, inspectorField('Scale Y').value]).toEqual(['0', '1']);
+    expect(tree.querySelector('[data-tree-branch="userProps"] [data-user-prop]')?.textContent).toContain('crate');
+    for (const at of [[10, 0, 0], [20, 0, 0]]) {
+      expect(await api.execute('piece.place', { asset: 'MP2:crate', at }, api.read().revision)).toMatchObject({ ok: true });
+    }
+    const userRows = (): HTMLElement[] => [...tree.querySelectorAll<HTMLElement>('[data-tree-branch="userProps"] [data-user-prop]')];
+    userRows()[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    userRows()[2]!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    expect(tree.querySelectorAll('[data-tree-branch="userProps"] [data-user-prop].is-on')).toHaveLength(3);
+    document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
+    expect(document.querySelector('.fx-menu-list [data-forge-menu-row="frame-selection"]')?.classList.contains('is-off')).toBe(false);
   }, 90_000);
 
   it('D1: a hovered tile shows the tooltip with its name; the pad\'s prop step shows it beside the picked tile at once; Escape hides it; the setting turns it off', async () => {
@@ -189,7 +268,8 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     key('Escape');
     expect(tip()!.hidden).toBe(true);
     // The Forge setting: off, a hover shows nothing.
-    const setting = document.querySelector<HTMLInputElement>('.fx-right input[data-forge-setting="assetTips"]')!;
+    document.querySelector<HTMLButtonElement>('.fx-left [aria-label="Asset view options"]')!.click();
+    const setting = document.querySelector<HTMLInputElement>('.fx-left input[aria-label="Asset preview on hover"]')!;
     expect(setting).not.toBeNull();
     expect(setting.checked).toBe(true);
     setting.click();
@@ -226,16 +306,18 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(turn(before, yaw())).toBe(15);
     expect(speed(), 'the camera unmoved').toBe(was);
     expect(document.querySelector('.fx-status-msg')!.textContent).toMatch(/15°/);
-    // Escape: the queue cancelled, the selection kept; a second Escape deselects.
+    // Escape (the owner, 2026-11: "on any of the tools ... set the current tool to select tool and deselect any objects"):
+    // the queue cancelled, the Select tool, and the selection dropped, at once.
     key('Escape');
     expect((api.read().view as { tool: string }).tool).toBe('select');
     expect(probe.ctx()!.palette!.chosen()).toBeNull();
-    expect(api.read().selection).toEqual(['piece:0']);
-    key('Escape');
     expect(api.read().selection).toEqual([]);
-    // Nothing queued: the wheel is the camera's as before (its speed trim).
+    // Nothing queued: the wheel is the camera's -- in the forge it moves the camera along its look, its speed kept.
+    const at = (): unknown => (api.read().view as { camera: unknown }).camera;
+    const from = JSON.stringify(at());
     wheel(-100);
-    expect(speed()).not.toBe(was);
+    await vi.waitFor(() => expect(JSON.stringify(at())).not.toBe(from));
+    expect(speed()).toBe(was);
   }, 90_000);
 
   it('F1 (the review): a new palette row starts unturned; with snap on a changed Turn step keeps the carried turn on the new grid', async () => {
@@ -256,6 +338,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(turn(before, yaw()), 'another prop picked: unturned').toBe(0);
     // Snap on: three notches (45 deg) at 15, then the step 20: the carried turn lies on the 20 deg grid.
     expect(await api.execute('snap.set', { on: true, rotation: 15 }, api.read().revision)).toMatchObject({ ok: true });
+    expect(document.querySelector('.fx-viewport-snap-summary')?.classList.contains('is-on')).toBe(true);
     wheel(-100); wheel(-100); wheel(-100);
     expect(await api.execute('snap.set', { on: true, rotation: 20 }, api.read().revision)).toMatchObject({ ok: true });
     const deg = (yaw() * 180) / Math.PI;

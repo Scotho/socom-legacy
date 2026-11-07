@@ -31,7 +31,7 @@ export function buildView<Id extends string>(doc: Document, toggles: readonly Vi
 }
 
 /** The switches the START menu carries, with the menu's own labels. */
-export const VIEW_MENU_ROWS = [['leftDragLook', 'Left drag to look'], ['wireframe', 'Wireframe'], ['collision', 'Collision hull'], ['fog', 'Fog'], ['ps2', 'PS2 picture']] as const;
+export const VIEW_MENU_ROWS = [['wireframe', 'Wireframe'], ['collision', 'Collision hull'], ['fog', 'Fog'], ['ps2', 'PS2 picture']] as const;
 
 export interface ViewMenuHooks<Id extends string> { on(id: Id): boolean; toggle(id: Id): void }
 

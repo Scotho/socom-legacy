@@ -837,7 +837,9 @@ describe('ACT-5: the hostages part on both pages (HX-4a, HX-5; ruling HX.R8 clos
     expect(mm).toMatch(/const teardown = \(\): void => \{[^]*?\n\s+hostages\.reset\(\);/);
     expect(mm).toMatch(/roundClear: \(\) => \{[^\n]*hostages\.reset\(\);[^\n]*\},/);
     expect(mm).toMatch(/\.\.\.sound\.netDeps\(\),[^\n]*\n\s+hostageState: \(ev\) => hostages\.state\(ev\),/);
-    expect(mm).toMatch(/hud\.setHostageMarks\(net\?\.hostageMarks\(map\?\.ai\) \?\? \[\]\);[^\n]*\n\s+hud\.render\(/);
+    // A Forge layout's escort zones' marks beside them (`./forge/playObjectives` `FORGE_ESCORT_ZONE_MARK_ADAPTATION`):
+    // only a Forge map carries `forgeZoneMarks`; any other passes undefined, `main.ts`'s line exactly.
+    expect(mm).toMatch(/hud\.setHostageMarks\(net\?\.hostageMarks\(map\?\.ai(, map\?\.forgeZoneMarks)?\) \?\? \[\]\);[^\n]*\n\s+hud\.render\(/);
   });
   it("the lobby's client in an EXTRACTION welcome: the hostages' states reach the page's HostagePage (state hook), and an escortee under the crosshair alive and in range is offered FOLLOW! (the escortee context; the fire sends hostageOrder)", async () => {
     const frame = vi.spyOn(HostagePage.prototype, 'frame'), state = vi.spyOn(HostagePage.prototype, 'state');

@@ -77,7 +77,9 @@ describe('the page\'s shot seam (pageShot)', () => {
       const fly = new FlyCamera(canvas, options);
       fly.setScale(0.1);
       fly.setPose({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
-      // A glide: the fly key held, then let go -- the camera still coasting when the shot takes it.
+      // A glide: the fly key held, then let go -- the camera still coasting when the shot takes it. The forge's camera
+      // flies on its letters only while the right button is held (its W is the gizmo's otherwise).
+      if (options.forgeKbm) canvas.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true, cancelable: true }));
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w', bubbles: true }));
       for (let i = 0; i < 10; i++) fly.update(1 / 60);
       window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w', bubbles: true }));
@@ -95,6 +97,7 @@ describe('the page\'s shot seam (pageShot)', () => {
       shot.driver.start(spec(), 'real');
       for (let i = 0; i < 61 && shot.driver.active(); i++) shot.frame(1 / 60, () => fly.update(1 / 60));
       expect(shot.driver.status().ended).toBe('done');
+      fly.dispose();                                               // its window listeners gone with it
       canvas.remove();
     }
   });
@@ -283,12 +286,18 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     await api.execute('camera.shot', spec(2), api.status().revision);
     frame(); frame();
     const shotPose = cameraOf(api);
+    // The right button held (the forge's camera flies on W only then), and the fly key.
+    const viewportInput = document.querySelector<HTMLElement>('.fx-input')!;
+    // jsdom has no pointer capture (the gizmo's TransformControls and the camera ask for it).
+    Object.assign(viewportInput, { setPointerCapture: () => undefined, releasePointerCapture: () => undefined });
+    viewportInput.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true, cancelable: true }));
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w', bubbles: true }));
     frame();
     expect(await ended()).toBe('manual');
     const after = cameraOf(api);
     expect(Math.hypot(after.x - shotPose.x, after.y - shotPose.y, after.z - shotPose.z)).toBeGreaterThan(0);
     window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w', bubbles: true }));
+    viewportInput.dispatchEvent(new MouseEvent('pointerup', { button: 2, bubbles: true, cancelable: true }));
     frame();
     // A map change (the glide still coasting from the key is not input: the shot takes the camera and runs).
     await api.execute('camera.shot', spec(2), api.status().revision);

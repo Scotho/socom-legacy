@@ -6,10 +6,17 @@
  */
 @import './tokens.css';
 body.forge-page {
-  --fx-top: 46px;
+  --fx-top: 86px;
+  /* The toolbar's own row; the placing tools' row (`.fx-tools-row`) under it, and the docks under both (`--fx-top`). */
+  --fx-top-bar: 46px;
   --fx-status: 26px;
   --fx-left: 270px;
-  --fx-right: 290px;
+  --fx-right: 360px;                       /* the Inspector's transform rows whole: caption, three fields, reset */
+  --fx-dock-top: 0px;
+  --fx-dock-bottom: 0px;
+  --fx-asset-row-height: 26px;             /* the asset list's rows and tiles, the page's size control sets them */
+  --fx-asset-tile-size: 112px;
+  --fx-legend-h: 0px;                      /* the legend's height, the page measures it */
   margin: 0;
   overflow: hidden;
   background: var(--fx-bg);
@@ -65,7 +72,7 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-top {
   position: fixed;
   inset: 0 0 auto 0;
-  height: var(--fx-top);
+  height: var(--fx-top-bar);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -115,6 +122,11 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
 .fx-tool.fx-side-seal .fx-ico { color: var(--fx-side-seal); }
 .fx-tool.fx-side-terrorist.is-on { color: var(--fx-side-terrorist); border-color: var(--fx-side-terrorist); }
 .fx-tool.fx-side-terrorist .fx-ico { color: var(--fx-side-terrorist); }
+/* The toolbar's buttons each a bordered control at rest, on the controls' ground (as its selects and fields): the
+   hover, the tool on (`.is-on`, its side's colour) and a disabled one keep their own looks over it. */
+:where(.fx-top) :where(.fx-tool) { background: var(--fx-bg); border-color: var(--fx-control-edge); }
+.fx-top .fx-tool:disabled { background: var(--fx-bg); border-color: var(--fx-edge); opacity: var(--fx-disabled); }
+.fx-top .fx-group { gap: 4px; }
 .fx-select, .fx-search, .fx-num {
   font: var(--fx-type-control);
   color: var(--fx-text);
@@ -154,6 +166,8 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
   border-color: var(--fx-gold);
 }
 .fx-play .fx-ico { fill: currentColor; }
+/* The Play settings' gear: an outline, as every other gear (`.fx-ico`), never the play arrow's fill. */
+.fx-play .fx-tool-gear .fx-ico { fill: none; stroke: currentColor; }
 .fx-play:hover { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
 .fx-play.is-on { color: var(--fx-danger); background: color-mix(in srgb, var(--fx-danger) 16%, var(--fx-bg)); border-color: var(--fx-danger); }
 
@@ -168,42 +182,251 @@ body.forge-page [aria-busy="true"] { cursor: progress; }
   background: var(--fx-panel);
   z-index: var(--fx-z-dock);
 }
-.fx-left { left: 0; width: var(--fx-left); border-right: 1px solid var(--fx-edge); padding: var(--s2u-space-2); gap: 6px; }
-/* FUI-22 (D5, FUI.R21; D3; a browser adaptation, FG.R2): the left dock is one asset list -- the archive, one row of the
-   search and the filters (its own class: the status strip's `.fx-chips` rule shrank and clipped it), then the list,
-   which takes the rest of the dock's height (the preview is the list's tooltip now, `./assetPreview.css`). */
+.fx-left { left: 0; top: var(--fx-top); bottom: var(--fx-status); width: var(--fx-left); border-right: 1px solid var(--fx-edge); padding: var(--s2u-space-2); gap: 6px; }
+.fx-left > .fx-dock-tabs { margin: calc(-1 * var(--s2u-space-2)) calc(-1 * var(--s2u-space-2)) 0; }
+/* FUI-22 (D5, FUI.R21; D3; a browser adaptation, FG.R2): the movable Assets tab is one list -- archive, search, filters,
+   view settings and scrollable items; the preview is a static tile image with an optional hover tooltip. */
 .fx-asset-filters { display: flex; align-items: center; gap: var(--s2u-space-1); flex: none; min-width: 0; }
 .fx-asset-filters .fx-search { flex: 1 1 auto; min-width: 0; }
 .fx-asset-chips { display: flex; align-items: center; gap: var(--s2u-space-1); flex: none; }
 .fx-asset-chips .fx-chip { padding: 0 var(--s2u-space-2); }
-.fx-right { right: 0; width: var(--fx-right); border-left: 1px solid var(--fx-edge); overflow-y: auto; }
-body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
+.fx-asset-chip-row { position: relative; }
+.fx-asset-view-popup-button { display: grid; place-items: center; width: 28px; min-width: 28px; padding: 0; }
+.fx-asset-view-popup-button[aria-expanded="true"] { color: var(--fx-gold); border-color: var(--fx-gold); }
+.fx-asset-view-popup-button .fx-ico { width: 16px; height: 16px; }
+.fx-asset-view-popup {
+  position: absolute;
+  z-index: var(--fx-z-popup);
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  gap: 10px;
+  width: min(230px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  background: var(--fx-panel-2);
+  box-shadow: var(--fx-lift);
+}
+.fx-asset-view-popup[hidden] { display: none; }
+/* The asset browser's foot, under the list: the format buttons at its left, the size slider at its right. */
+.fx-assets-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2u-space-2);
+  padding-top: 6px;
+  border-top: 1px solid var(--fx-divider);
+}
+/* The format buttons: one segmented control -- two joined square buttons, their icons drawn in outline at 16 px (the
+   chip's 12 px and its filled "on" icon are overridden: a filled grid reads as one block). */
+.fx-asset-display-modes { display: flex; flex: none; gap: 0; }
+.fx-assets-foot .fx-asset-view-button { display: grid; place-items: center; width: 30px; min-width: 30px; height: 26px; padding: 0; border-radius: 0; }
+.fx-assets-foot .fx-asset-view-button:first-child { border-radius: var(--fx-radius) 0 0 var(--fx-radius); }
+.fx-assets-foot .fx-asset-view-button:last-child { margin-left: -1px; border-radius: 0 var(--fx-radius) var(--fx-radius) 0; }
+.fx-assets-foot .fx-asset-view-button.is-on { position: relative; z-index: var(--fx-z-raised); }
+.fx-assets-foot .fx-asset-view-button .fx-ico,
+.fx-assets-foot .fx-asset-view-button.is-on .fx-ico { width: 16px; height: 16px; fill: none; stroke-width: 1.7; }
+.fx-asset-size-label { display: grid; flex: 0 1 160px; grid-template-columns: 1fr auto; align-items: center; gap: 8px; min-width: 0; color: var(--fx-dim); font: var(--fx-type-caption); }
+.fx-asset-size { width: 100%; min-width: 48px; accent-color: var(--fx-gold); }
+.fx-asset-size-value { min-width: 34px; color: var(--fx-text); font: var(--fx-type-mono); text-align: right; }
+.fx-asset-preview-toggle { display: flex; align-items: center; gap: 8px; color: var(--fx-text); font: var(--fx-type-body); cursor: pointer; }
+.fx-asset-preview-toggle input { accent-color: var(--fx-gold); }
+.fx-right { right: 0; top: var(--fx-top); bottom: var(--fx-status); width: var(--fx-right); border-left: 1px solid var(--fx-edge); overflow-y: auto; }
+.fx-dock[hidden] { display: none; }
+.fx-dock-zone { overflow: auto; padding: var(--s2u-space-2); }
+.fx-dock-top { top: var(--fx-top); left: var(--fx-left); right: var(--fx-right); bottom: auto; height: var(--fx-dock-top); border-bottom: 1px solid var(--fx-edge); }
+.fx-dock-bottom { top: auto; left: var(--fx-left); right: var(--fx-right); bottom: var(--fx-status); height: var(--fx-dock-bottom); border-top: 1px solid var(--fx-edge); }
+.fx-dock-center {
+  top: calc(var(--fx-top) + var(--fx-dock-top));
+  left: var(--fx-left);
+  right: var(--fx-right);
+  bottom: calc(var(--fx-status) + var(--fx-dock-bottom));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0;
+  z-index: var(--fx-z-dock);
+}
+.fx-dock-center > .fx-panel {
+  grid-row: 2;
+  grid-column: 1;
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  resize: none;
+  border: 0;
+}
+.fx-dock-center > .fx-panel > summary { display: none; }
+.fx-dock-zone > .fx-panel { min-height: 90px; resize: vertical; overflow: auto; }
+.fx-dock-zone > .fx-panel[data-forge-panel="asset-browser"], .fx-right > .fx-panel[data-forge-panel="asset-browser"] {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  resize: none;
+  overflow: hidden;
+}
+.fx-panel[data-forge-panel="asset-browser"] { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.fx-left > .fx-panel[data-forge-panel="asset-browser"] { flex: 1 1 auto; border: 0; }
+.fx-panel[data-forge-panel="asset-browser"] > summary { display: none; }
+.fx-assets-pane { display: flex; flex: 1 1 0; flex-direction: column; gap: 6px; height: 100%; min-height: 0; overflow: hidden; }
+/* The asset pane must fill the browser's <details> content wrapper as well as its own dock panel. */
+.fx-panel[data-forge-panel="asset-browser"]::details-content { flex: 1 1 0; min-height: 0; overflow: hidden; }
+.fx-dock-resizer { position: fixed; z-index: var(--fx-z-resizer); touch-action: none; }
+.fx-dock-resizer[hidden] { display: none; }
+.fx-dock-resizer--left, .fx-dock-resizer--right { top: var(--fx-top); bottom: var(--fx-status); width: 6px; cursor: col-resize; }
+.fx-dock-resizer--left { left: calc(var(--fx-left) - 3px); }
+.fx-dock-resizer--right { right: calc(var(--fx-right) - 3px); }
+.fx-dock-resizer--top, .fx-dock-resizer--bottom { left: var(--fx-left); right: var(--fx-right); height: 6px; cursor: row-resize; }
+.fx-dock-resizer--top { top: calc(var(--fx-top) + var(--fx-dock-top) - 3px); }
+.fx-dock-resizer--bottom { bottom: calc(var(--fx-status) + var(--fx-dock-bottom) - 3px); }
+.fx-dock-resizer:hover, .fx-dock-resizer.is-resizing { background: var(--fx-gold); }
+body.fx-docks-off .fx-dock:not(.fx-dock-center), body.is-playing .fx-dock:not(.fx-dock-center) { display: none; }
+body.fx-docks-off .fx-dock-resizer, body.is-playing .fx-dock-resizer { display: none; }
+body:not(.has-fx-dock-left) .fx-viewport { left: 0; }
+body:not(.has-fx-dock-right) .fx-viewport { right: 0; }
+body:not(.has-fx-dock-top) .fx-viewport { top: var(--fx-top); }
+body:not(.has-fx-dock-bottom) .fx-viewport { bottom: var(--fx-status); }
+body:not(.has-fx-dock-left) .fx-dock-center { left: 0; }
+body:not(.has-fx-dock-right) .fx-dock-center { right: 0; }
+body:not(.has-fx-dock-top) .fx-dock-center { top: var(--fx-top); }
+body:not(.has-fx-dock-bottom) .fx-dock-center { bottom: var(--fx-status); }
+body.fx-docks-off .fx-dock-center, body.is-playing .fx-dock-center {
+  top: var(--fx-top);
+  left: 0;
+  right: 0;
+  bottom: var(--fx-status);
+}
+body:not(.has-fx-dock-left) .fx-dock-resizer--left,
+body:not(.has-fx-dock-right) .fx-dock-resizer--right { display: none; }
+body:not(.has-fx-dock-left) :is(.fx-dock-top, .fx-dock-bottom, .fx-dock-resizer--top, .fx-dock-resizer--bottom) { left: 0; }
+body:not(.has-fx-dock-right) :is(.fx-dock-top, .fx-dock-bottom, .fx-dock-resizer--top, .fx-dock-resizer--bottom) { right: 0; }
+body:not(.has-fx-dock-top) .fx-dock-resizer--top,
+body:not(.has-fx-dock-bottom) .fx-dock-resizer--bottom { display: none; }
+body.fx-docks-off { --fx-dock-top: 0px !important; --fx-dock-bottom: 0px !important; }
+.fx-dock-guides {
+  position: fixed;
+  inset: var(--fx-top) 0 var(--fx-status);
+  z-index: var(--fx-z-menu);
+  display: none;
+  pointer-events: none;
+}
+.fx-dock-guides.is-active { display: block; }
+.fx-dock-target {
+  position: absolute;
+  z-index: var(--fx-z-raised);
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 42px;
+  color: var(--fx-text);
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+  font: var(--fx-type-control);
+  text-transform: capitalize;
+  cursor: move;
+  pointer-events: auto;
+}
+.fx-dock-target:hover, .fx-dock-target.is-drop-active { color: var(--fx-gold); border-color: var(--fx-gold); background: var(--fx-selected); }
+.fx-dock-target--left { left: 12px; top: 50%; transform: translateY(-50%); }
+.fx-dock-target--right { right: 12px; top: 50%; transform: translateY(-50%); }
+.fx-dock-target--top { left: 50%; top: 12px; transform: translateX(-50%); }
+.fx-dock-target--bottom { left: 50%; bottom: 12px; transform: translateX(-50%); }
+.fx-dock-target--center { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.fx-dock-preview {
+  position: fixed;
+  box-sizing: border-box;
+  inset: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  pointer-events: none;
+}
+.fx-dock-preview[data-zone='left'] {
+  inset: calc(var(--fx-top) + var(--fx-dock-top)) auto calc(var(--fx-status) + var(--fx-dock-bottom)) 0;
+  width: var(--fx-left);
+}
+.fx-dock-preview[data-zone='right'] {
+  inset: calc(var(--fx-top) + var(--fx-dock-top)) 0 calc(var(--fx-status) + var(--fx-dock-bottom)) auto;
+  width: var(--fx-right);
+}
+.fx-dock-preview[data-zone='top'] {
+  inset: var(--fx-top) var(--fx-right) auto var(--fx-left);
+  height: var(--fx-dock-top);
+}
+.fx-dock-preview[data-zone='bottom'] {
+  inset: auto var(--fx-right) var(--fx-status) var(--fx-left);
+  height: var(--fx-dock-bottom);
+}
+.fx-dock-preview[data-zone='center'] {
+  inset: calc(var(--fx-top) + var(--fx-dock-top)) var(--fx-right) calc(var(--fx-status) + var(--fx-dock-bottom)) var(--fx-left);
+}
+.fx-dock-preview[data-zone] { border-color: var(--fx-gold); background: color-mix(in srgb, var(--fx-gold) 12%, transparent); }
+body:not(.has-fx-dock-top) .fx-dock-preview[data-zone='left'],
+body:not(.has-fx-dock-top) .fx-dock-preview[data-zone='right'] { top: var(--fx-top); }
+body:not(.has-fx-dock-bottom) .fx-dock-preview[data-zone='left'],
+body:not(.has-fx-dock-bottom) .fx-dock-preview[data-zone='right'] { bottom: var(--fx-status); }
+body:not(.has-fx-dock-left) .fx-dock-preview[data-zone='center'] { left: 0; }
+body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='center'] { right: 0; }
+body:not(.has-fx-dock-top) .fx-dock-preview[data-zone='center'] { top: var(--fx-top); }
+body:not(.has-fx-dock-bottom) .fx-dock-preview[data-zone='center'] { bottom: var(--fx-status); }
+body.fx-docks-off .fx-dock-preview[data-zone='center'],
+body.is-playing .fx-dock-preview[data-zone='center'] {
+  inset: var(--fx-top) 0 var(--fx-status);
+}
+body:not(.has-fx-dock-left) .fx-dock-preview[data-zone='top'],
+body:not(.has-fx-dock-left) .fx-dock-preview[data-zone='bottom'] { left: 0; }
+body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='top'],
+body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 /* FUI-1 fix-up (FUI.R5; a browser adaptation, FG.R2): a dock past five panels draws a tab strip over them, one tab open
    at a time (`./shell/panel`); FUI-22 (FUI.R22): a tab shows only its own sections, the other tabs' hidden. */
 .fx-dock-tabs {
   position: sticky;
   top: 0;
+  flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 3px 4px 0;
   background: var(--fx-panel);
   border-bottom: 1px solid var(--fx-edge);
   z-index: var(--fx-z-local);
+  scrollbar-width: thin;
 }
 .fx-dock-tab {
-  flex: 1 1 auto;
-  min-height: 32px;
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 180px;
+  min-height: 28px;
   padding: 0 var(--s2u-space-2);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
+  overflow: hidden;
+  border: 1px solid var(--fx-edge);
+  border-bottom-color: transparent;
+  border-radius: var(--fx-radius) var(--fx-radius) 0 0;
+  background: var(--fx-panel-2);
   color: var(--fx-dim);
   font: var(--fx-type-caption);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: grab;
 }
-.fx-dock-tab:hover { color: var(--fx-text); }
-.fx-dock-tab[aria-selected="true"] { color: var(--fx-text); border-bottom-color: var(--fx-gold); }
+.fx-panel-dragging .fx-dock-tab { cursor: grabbing; }
+.fx-dock-tab:hover { color: var(--fx-text); background: var(--fx-hover); }
+.fx-dock-tab[aria-selected="true"] { color: var(--fx-text); background: var(--fx-panel); border-color: var(--fx-edge); border-bottom-color: var(--fx-panel); }
 /* FUI-1 fix-up: a card registered into a dock (the starters') takes the dock's width (290 px, 240 px at 760 px), not the
    dialog's 420 px; nothing in it runs past the dock's edge. The dialog's cards (`.fx-modal .fx-card`) are unchanged. */
 .fx-dock .fx-card {
@@ -259,9 +482,14 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
 .fx-chip.is-on { background: var(--fx-selected); border-color: var(--fx-gold); color: var(--fx-gold); }
 .fx-chip.is-on .fx-ico { fill: currentColor; }
 .fx-assets {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
-  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--fx-control-edge) var(--fx-bg);
+  scrollbar-width: thin;
   margin: 0;
   padding: 2px 0;
   list-style: none;
@@ -269,6 +497,10 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
   border: 1px solid var(--fx-control-edge);
   border-radius: var(--fx-radius);
 }
+.fx-assets::-webkit-scrollbar { display: block; width: 12px; }
+.fx-assets::-webkit-scrollbar-track { background: var(--fx-bg); }
+.fx-assets::-webkit-scrollbar-thumb { background: var(--fx-control-edge); border: 2px solid var(--fx-bg); border-radius: var(--fx-radius-pill); }
+.fx-assets::-webkit-scrollbar-thumb:hover { background: var(--fx-gold); }
 .fx-assets li {
   display: flex;
   align-items: center;
@@ -279,12 +511,12 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
   font: var(--fx-type-mono);
   border-left: 2px solid transparent;
 }
+.fx-assets li[data-asset] { height: var(--fx-asset-row-height); }
 .fx-assets li:hover { background: var(--fx-hover); }
 .fx-assets li.is-on { background: var(--fx-selected); color: var(--fx-gold); border-left-color: var(--fx-gold); }
 .fx-assets li.fx-sep { height: 0; padding: 0; margin: var(--s2u-space-1) var(--s2u-space-2); border-top: 1px dashed var(--fx-divider); cursor: default; }
 .fx-assets li.fx-sep:hover { background: none; }
-/* FUI-22 (D3): a tile's own control -- its name truncated (the full name in its tooltip), its count -- one row height for
-   every tile; the focus ring (the one rule above) and the picked row's fill and gold rule stay apart. */
+/* FUI-22 (D3): a tile's own pick control; the focus ring and the picked row's fill and gold rule stay apart. */
 .fx-asset-pick {
   display: flex;
   flex: 1 1 auto;
@@ -300,13 +532,106 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
   text-align: left;
   cursor: inherit;
 }
+.fx-assets[data-view="list"] .fx-asset-pick { gap: 8px; }
+.fx-assets[data-view="list"] .fx-asset-thumbnail {
+  flex: none;
+  width: auto;
+  height: 100%;
+  aspect-ratio: 4 / 3;
+}
+/* List view: every other item row striped, counted among the item rows alone (a group head or a separator between them
+   keeps the alternation). Zero specificity (`:where`), so a hovered or selected row's own background shows over it. */
+:where(.fx-assets[data-view="list"] > li[data-asset]:nth-child(even of [data-asset])) {
+  background: color-mix(in srgb, var(--fx-panel-2) 60%, transparent);
+}
+/* List view: the name and its count on one line -- the name truncates, the count keeps its width at the row's right end. */
+.fx-assets[data-view="list"] .fx-asset-card-copy { display: flex; flex: 1 1 auto; flex-direction: row; align-items: baseline; gap: 6px; min-width: 0; }
+.fx-assets[data-view="list"] .fx-asset-card-copy > .fx-asset-name { flex: 1 1 auto; }
+.fx-assets[data-view="list"] .fx-asset-card-copy > :not(.fx-asset-name) { flex: none; margin-left: auto; white-space: nowrap; text-align: right; }
 .fx-asset-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-assets .fx-dim { font: var(--fx-type-mono); }
 .fx-star { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; color: var(--fx-dim); }
+.fx-assets[data-view="list"] .fx-star,
+.fx-assets[data-view="grid"] .fx-star { opacity: 0; pointer-events: none; transition: opacity 100ms ease-out; }
+.fx-assets[data-view="list"] > li[data-asset]:hover .fx-star,
+.fx-assets[data-view="list"] > li[data-asset]:focus-within .fx-star,
+.fx-assets[data-view="grid"] > li[data-asset]:hover .fx-star,
+.fx-assets[data-view="grid"] > li[data-asset]:focus-within .fx-star { opacity: 1; pointer-events: auto; }
 .fx-star .fx-ico { width: 13px; height: 13px; }
 .fx-star:hover { color: var(--fx-gold); }
 .fx-star.is-on { color: var(--fx-gold); }
 .fx-star.is-on .fx-ico { fill: currentColor; }
+.fx-assets[data-view="grid"] {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--fx-asset-tile-size)), 1fr));
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 8px;
+  padding: 8px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+.fx-assets[data-view="grid"] > li[data-asset] {
+  position: relative;
+  box-sizing: border-box;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--fx-radius);
+}
+.fx-assets[data-view="grid"] > li[data-asset]:hover { background: var(--fx-hover); }
+.fx-assets[data-view="grid"] > li[data-asset].is-on { border-color: var(--fx-gold); }
+.fx-assets[data-view="grid"] .fx-asset-pick {
+  box-sizing: border-box;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px;
+  text-align: center;
+  cursor: pointer;
+}
+.fx-asset-thumbnail {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--fx-radius);
+  background-color: var(--fx-checker-light);
+  background-image: conic-gradient(var(--fx-checker-dark) 25%, var(--fx-checker-light) 0 50%, var(--fx-checker-dark) 0 75%, var(--fx-checker-light) 0);
+  background-size: 16px 16px;
+  color: var(--fx-dim);
+}
+.fx-asset-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
+.fx-asset-thumbnail img:not(.is-ready) { visibility: hidden; }
+.fx-asset-thumbnail-status { position: absolute; padding: 4px; color: var(--fx-dim); font: var(--fx-type-caption); text-align: center; }
+.fx-asset-thumbnail img.is-ready + .fx-asset-thumbnail-status { display: none; }
+.fx-asset-card-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fx-assets[data-view="grid"] .fx-asset-name { display: block; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.fx-assets[data-view="grid"] .fx-dim { overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.fx-assets[data-view="grid"] .fx-star {
+  position: absolute;
+  z-index: var(--fx-z-raised);
+  top: 8px;
+  right: 8px;
+  background: var(--fx-panel);
+  border-radius: var(--fx-radius-pill);
+}
+.fx-assets[data-view="grid"] > li.fx-group-head,
+.fx-assets[data-view="grid"] > li.fx-sep,
+.fx-assets[data-view="grid"] > li.fx-empty { grid-column: 1 / -1; }
+.fx-assets[data-view="grid"] > li.fx-group-head { height: auto; padding: 4px; }
+.fx-assets[data-view="grid"] > li.fx-sep { margin: 0; }
+.fx-assets[data-view="grid"] > li.fx-char { height: auto; min-height: 0; flex-direction: column; padding: 6px; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); text-align: center; }
+.fx-assets[data-view="grid"] .fx-char-thumbnail { width: 100%; }
+.fx-assets[data-view="grid"] .fx-char-thumbnail .fx-ico { width: 36px; height: 36px; }
 /* An empty list's line (VP-15: its own rule, more specific than a list's row, so no !important). */
 .fx-empty, :is(.fx-assets, .fx-outliner, .fx-saves-list) li.fx-empty { color: var(--fx-dim); font: var(--fx-type-body); cursor: default; padding: var(--s2u-space-2); height: auto; }
 
@@ -353,13 +678,39 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
 .fx-inspect-kind { flex: none; font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-dim); }
 /* One stepper for every number of the dock: one height, the readout's face. */
 .fx-stepper { box-sizing: border-box; height: 26px; padding: 0 var(--s2u-space-1) 0 var(--s2u-space-2); font: var(--fx-type-mono); }
-.fx-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fx-fields { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.fx-field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+/* The Inspector's transform rows: one grid of four columns -- the caption, then X, Y, Z -- each row's caption inline
+   with its fields, and every row's fields on the same columns (the row itself lays nothing out). */
+.fx-inspector .fx-fields { grid-template-columns: auto repeat(3, minmax(0, 1fr)) 22px; align-items: center; }
+.fx-inspector .fx-field-row { display: contents; }
+/* A row's reset, at its end: shown only off the row's default; hidden, it keeps its cell so the rows stay aligned. */
+.fx-field-reset {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--fx-dim);
+  background: transparent;
+  border: 0;
+  border-radius: var(--fx-radius);
+  cursor: pointer;
+}
+.fx-field-reset[hidden] { visibility: hidden; }
+.fx-field-reset:hover, .fx-field-reset:focus-visible { color: var(--fx-gold); background: var(--fx-hover); }
+.fx-field-reset .fx-ico { width: 14px; height: 14px; }
+/* The scrub (`./scrub`): a number field not being typed in drags left or right; while one drags, the whole page says so. */
+.fx-scrub:not(:focus):not(:disabled),
+.forge-page input[type="number"]:not(:focus):not(:disabled):not([readonly]) { cursor: ew-resize; }
+:root.fx-scrubbing, :root.fx-scrubbing * { cursor: ew-resize !important; user-select: none; }
+.fx-field-caption { font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-dim); white-space: nowrap; }
 .fx-fields.is-off { pointer-events: none; }
 .fx-field { display: flex; align-items: center; gap: 0; }
 .fx-field > span {
   display: grid;
   place-items: center;
-  width: 30px;
+  width: 20px;
   height: 26px;
   font: var(--fx-type-control);
   font-family: var(--s2u-font-label);
@@ -367,13 +718,27 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
   background: var(--fx-dim);
   border-radius: var(--fx-radius) 0 0 var(--fx-radius);
 }
-.fx-field:nth-child(1) > span { background: var(--fx-axis-x); }
-.fx-field:nth-child(2) > span { background: var(--fx-axis-y); }
-.fx-field:nth-child(3) > span { background: var(--fx-axis-z); }
-.fx-field:nth-child(4) > span { background: var(--fx-gold); }
+/* By type, not by child: a row's caption (a div) comes before its fields (labels). */
+.fx-field--x > span { background: var(--fx-axis-x); }
+.fx-field--y > span { background: var(--fx-axis-y); }
+.fx-field--z > span { background: var(--fx-axis-z); }
 .fx-num { width: 100%; min-width: 0; border-radius: 0 var(--fx-radius) var(--fx-radius) 0; font-family: var(--s2u-font-mono); user-select: text; }
-.fx-outliner { margin: 0; padding: var(--s2u-space-1) 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.fx-outliner { margin: 0; padding: var(--s2u-space-1) 0; list-style: none; max-height: min(45vh, 420px); overflow-y: auto; }
+.fx-tree-branch { display: block; height: auto !important; padding: 0 !important; cursor: default !important; }
+.fx-tree-toggle { display: flex; align-items: center; gap: var(--s2u-space-1); width: 100%; min-width: 0; height: 26px; padding: 0 var(--s2u-space-2); color: var(--fx-text); background: transparent; border: 0; text-align: left; font: var(--fx-type-control); cursor: pointer; }
+.fx-tree-toggle:hover { background: var(--fx-hover); }
+.fx-tree-caret { width: 12px; flex: none; color: var(--fx-dim); text-align: center; }
+.fx-outliner-children { margin: 0 0 0 8px; padding: 0 0 0 4px; list-style: none; border-left: 1px solid var(--fx-edge); }
+.fx-outliner-children[hidden] { display: none; }
+.fx-outliner-children > li:not(.fx-tree-branch) { padding-left: 8px; }
 .fx-outliner li { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; cursor: pointer; font: var(--fx-type-mono); }
+/* A branch at any depth (Map Data's and User Data's own too): a block -- its toggle over its rows -- not a row. */
+.fx-outliner li.fx-tree-branch { display: block; height: auto; padding: 0; cursor: default; }
+.fx-outliner li.fx-tree-branch:hover { background: none; }
+/* A branch above a selected row, folded or not: its word (and its caret) in the selection's colour. */
+.fx-outliner li.fx-tree-branch.has-selected > .fx-tree-toggle,
+.fx-outliner li.fx-tree-branch.has-selected > .fx-tree-toggle .fx-tree-caret { color: var(--fx-gold); }
+.fx-outliner-children > li:not(.fx-tree-branch) { padding-left: 8px; }
 .fx-outliner li > span:first-of-type { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-outliner li:hover { background: var(--fx-hover); }
 .fx-outliner li.is-on { background: var(--fx-selected); color: var(--fx-gold); }
@@ -421,6 +786,9 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
 .fx-toggle input[type=checkbox]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
 .fx-toggle input[type=checkbox]:checked { background: var(--fx-gold); }
 .fx-toggle input[type=checkbox]:checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
+/* A switch over several (the Billboards dropdown's All): some on, some off -- its knob midway, the track half lit. */
+.fx-toggle input[type=checkbox]:indeterminate { background: color-mix(in srgb, var(--fx-gold) 45%, var(--fx-divider)); }
+.fx-toggle input[type=checkbox]:indeterminate::after { transform: translateX(7px); }
 .fx-detail-distance .fx-range { flex: 1 1 auto; min-width: 0; }
 .fx-detail-distance__value { flex: none; min-width: 3.5ch; text-align: right; }
 /* FG-45 (an adaptation, no original): the create card's visibility toggle, under the lobby's name. */
@@ -456,29 +824,342 @@ body.fx-docks-off .fx-dock, body.is-playing .fx-dock { display: none; }
 /* ---------- the viewport ---------- */
 .fx-viewport {
   position: fixed;
-  top: var(--fx-top);
-  bottom: var(--fx-status);
+  top: calc(var(--fx-top) + var(--fx-dock-top));
+  bottom: calc(var(--fx-status) + var(--fx-dock-bottom));
   left: var(--fx-left);
   right: var(--fx-right);
   overflow: hidden;
-  background: var(--fx-deep);
+  background: var(--fx-bg);
 }
-body.fx-docks-off .fx-viewport, body.is-playing .fx-viewport { left: 0; right: 0; }
+body.fx-docks-off .fx-viewport, body.is-playing .fx-viewport { left: 0; right: 0; top: var(--fx-top); bottom: var(--fx-status); }
+.fx-dock-center > .fx-panel > .fx-viewport {
+  position: absolute;
+  inset: 0;
+  flex: none;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
 .fx-canvas, .fx-input { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .fx-input { touch-action: none; }
 .fx-input.is-placing { cursor: crosshair; }
 body.is-playing .fx-input { display: none; }
-.fx-vp-label {
+.fx-viewport-left-controls {
   position: absolute;
   top: var(--s2u-space-2);
   left: 10px;
-  padding: 2px var(--s2u-space-2);
-  font: var(--fx-type-mono);
+  z-index: var(--fx-z-float);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2u-space-2);
+}
+.fx-viewport-modes { position: relative; top: auto; left: auto; }
+.fx-viewport-modes-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s2u-space-2);
+  min-width: 90px;
+  height: 28px;
+  padding: 0 var(--s2u-space-3);
   color: var(--fx-text);
   background: var(--fx-veil);
   border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  font: var(--fx-type-control);
+  list-style: none;
+  cursor: pointer;
+}
+.fx-viewport-modes-summary::-webkit-details-marker { display: none; }
+.fx-viewport-modes-summary .fx-ico { width: 14px; height: 14px; }
+.fx-viewport-modes-summary::after { content: ''; width: 0; height: 0; border: 4px solid transparent; border-top-color: currentColor; transform: translateY(2px); }
+.fx-viewport-modes-list {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  display: grid;
+  gap: var(--s2u-space-1);
+  width: max-content;
+  min-width: 260px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  padding: var(--s2u-space-3);
+  color: var(--fx-text);
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+}
+.fx-viewport-modes:not([open]) > .fx-viewport-modes-list { display: none; }
+/* The Billboards dropdown: three columns side by side, tall enough for every switch with no scroll bar. */
+.fx-viewport-modes-list.fx-billboards-list {
+  grid-template-columns: repeat(3, minmax(200px, auto));
+  align-items: start;
+  column-gap: var(--s2u-space-4);
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 80px);
+}
+.fx-billboards-col { display: grid; gap: var(--s2u-space-1); align-content: start; }
+.fx-viewport-billboards:not([open]) > .fx-billboards-list { display: none; }
+.fx-viewport-modes-heading {
+  margin: var(--s2u-space-1) 0 0;
+  color: var(--fx-dim);
+  font: var(--fx-type-caption);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.fx-viewport-mode { min-width: 0; }
+/* The Environment panel's read-only rows (`./panels/environmentPanel`): a label and its value, a colour's swatch first. */
+.fx-env-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--s2u-space-3); margin: 0; font: var(--fx-type-control); }
+.fx-env-rows dt { color: var(--fx-dim); white-space: nowrap; }
+.fx-env-rows dd { display: flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; margin: 0; color: var(--fx-text); font-family: var(--s2u-font-mono); overflow-wrap: anywhere; }
+.fx-env-swatch { flex: none; width: 14px; height: 14px; border: 1px solid var(--fx-control-edge); border-radius: var(--fx-radius); }
+/* A map data switch's mark, before its word: the billboard's own letter on its colour (set by the page), ringed as drawn. */
+.fx-billboard-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--fx-deep);
+  border-radius: 50%;
+  color: var(--fx-deep);
+  font: 700 12px/1 var(--s2u-font-label);
+}
+.fx-billboard-icon.is-square { border-radius: var(--fx-radius); }                       /* a user placement's mark */
+/* A billboard as an Outliner row's icon: the row's own icon size, never stretched -- the row's first span is otherwise its
+   name, which fills the row -- and the name after it takes the row instead. */
+.fx-outliner li > span.fx-billboard-icon { flex: none; width: 14px; height: 14px; overflow: visible; font-size: 12px; }
+.fx-outliner li > span.fx-billboard-icon + span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Billboards dropdown's Solo, at a map data switch's right: only that kind shown (`.fx-chip.is-on` while it is). */
+.fx-billboard-solo { flex: none; margin-left: auto; height: 20px; padding: 0 var(--s2u-space-2); font: var(--fx-type-caption); }
+.fx-viewport-mode.fx-detail-distance { gap: var(--s2u-space-2); }
+.fx-viewport-mode.fx-detail-distance > span:first-child { flex: none; }
+.fx-viewport-mode.fx-detail-distance .fx-range { min-width: 0; }
+body.is-playing .fx-viewport-modes { display: none; }
+.fx-camera-hud {
+  position: absolute;
+  top: var(--s2u-space-2);
+  right: 10px;
+  z-index: var(--fx-z-local);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2u-space-2);
+}
+.fx-camera-views, .fx-camera-settings, .fx-viewport-snap { position: relative; }
+/* The gizmo's modes (Move / Rotate / Scale), left of Snap: one joined group -- no gap, the outer corners rounded, the
+   shared edges single -- on the viewport controls' face, a little more room before Snap than the strip's own gap. */
+.fx-gizmo-tools { display: flex; margin-right: var(--s2u-space-2); }
+.fx-gizmo-tools .fx-tool {
+  height: 28px;
+  gap: var(--s2u-space-1);
+  padding: 0 var(--s2u-space-2);
+  white-space: nowrap;
+  background: var(--fx-veil);
+  border-color: var(--fx-edge);
+  border-radius: 0;
+}
+.fx-gizmo-tools .fx-tool + .fx-tool { margin-left: -1px; }
+.fx-gizmo-tools .fx-tool:first-child { border-radius: var(--fx-radius) 0 0 var(--fx-radius); }
+.fx-gizmo-tools .fx-tool:last-child { border-radius: 0 var(--fx-radius) var(--fx-radius) 0; }
+.fx-gizmo-tools .fx-tool:hover:not(:disabled), .fx-gizmo-tools .fx-tool.is-on { position: relative; z-index: var(--fx-z-raised); }
+.fx-gizmo-tools .fx-tool.is-on { background: var(--fx-selected); border-color: var(--fx-gold); }
+.fx-gizmo-tools .fx-tool .fx-ico { width: 16px; height: 16px; }
+.fx-camera-view, .fx-camera-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2u-space-2);
+  height: 28px;
+  padding: 0 var(--s2u-space-2);
+  color: var(--fx-text);
+  background: var(--fx-veil);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  font: var(--fx-type-control);
+  white-space: nowrap;
+}
+.fx-camera-view { min-width: 130px; cursor: pointer; list-style: none; }
+.fx-camera-view::-webkit-details-marker { display: none; }
+.fx-camera-view .fx-ico, .fx-camera-settings > summary .fx-ico { width: 16px; height: 16px; }
+.fx-camera-view::after { content: ''; width: 0; height: 0; border: 4px solid transparent; border-top-color: currentColor; transform: translateY(2px); }
+.fx-camera-view-list {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  display: grid;
+  min-width: 168px;
+  padding: var(--s2u-space-1);
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+}
+.fx-camera-views:not([open]) > .fx-camera-view-list { display: none; }
+.fx-camera-view-option {
+  display: flex;
+  align-items: center;
+  gap: var(--s2u-space-2);
+  min-height: 30px;
+  padding: 0 var(--s2u-space-2);
+  color: var(--fx-text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--fx-radius);
+  font: var(--fx-type-control);
+  text-align: left;
+  cursor: pointer;
+}
+.fx-camera-view-option:hover, .fx-camera-view-option[aria-pressed="true"] { color: var(--fx-gold); background: var(--fx-hover); }
+.fx-camera-view-option .fx-ico { width: 16px; height: 16px; }
+.fx-camera-settings > summary {
+  min-width: 112px;
+  cursor: pointer;
+  list-style: none;
+}
+.fx-camera-settings > summary::-webkit-details-marker { display: none; }
+.fx-viewport-snap-summary { min-width: 90px; cursor: pointer; }
+.fx-viewport-snap-summary.is-on .fx-ico { color: var(--fx-gold); }
+.fx-viewport-snap-summary::-webkit-details-marker { display: none; }
+.fx-viewport-snap-panel {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  display: grid;
+  gap: var(--s2u-space-2);
+  min-width: 230px;
+  padding: var(--s2u-space-3);
+  color: var(--fx-text);
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+}
+.fx-viewport-snap:not([open]) > .fx-viewport-snap-panel { display: none; }
+.fx-viewport-snap-field { display: grid; gap: var(--s2u-space-1); color: var(--fx-dim); font: var(--fx-type-caption); }
+.fx-viewport-snap-field .fx-num { width: 100%; color: var(--fx-text); }
+.fx-viewport-snap-toggle { color: var(--fx-text); }
+.fx-viewport-snap-toggle input { appearance: none; position: relative; width: 28px; height: 14px; margin: 0; border: 1px solid var(--fx-edge); border-radius: var(--fx-radius-pill); background: var(--fx-veil); cursor: pointer; }
+.fx-viewport-snap-toggle input::after { content: ''; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--fx-text); transition: transform var(--s2u-dur-fast) var(--s2u-ease); }
+.fx-viewport-snap-toggle input:checked { background: var(--fx-gold); }
+.fx-viewport-snap-toggle input:checked::after { transform: translateX(14px); background: var(--fx-on-accent); }
+.fx-camera-speed-button-value {
+  min-width: 2.5em;
+  padding-left: var(--s2u-space-2);
+  border-left: 1px solid var(--fx-edge);
+  font: var(--fx-type-mono);
+  text-align: right;
+}
+.fx-camera-settings-panel {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) auto;
+  align-items: center;
+  gap: var(--s2u-space-2) var(--s2u-space-3);
+  min-width: 280px;
+  padding: var(--s2u-space-3);
+  color: var(--fx-text);
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+}
+.fx-camera-settings:not([open]) > .fx-camera-settings-panel { display: none; }
+.fx-camera-speed-label { grid-column: 1 / -1; color: var(--fx-dim); font: var(--fx-type-caption); }
+.fx-camera-speed, .fx-camera-setting-range { grid-column: 1; width: 100%; }
+.fx-camera-speed-value, .fx-camera-setting-value { min-width: 32px; font: var(--fx-type-mono); text-align: right; }
+.fx-camera-collision-label {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s2u-space-2);
+  color: var(--fx-text);
+  font: var(--fx-type-control);
+  cursor: pointer;
+}
+.fx-camera-collision-label input { accent-color: var(--fx-gold); }
+.fx-camera-speed-feedback {
+  position: absolute;
+  top: 46px;
+  right: 10px;
+  z-index: var(--fx-z-local);
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) auto;
+  align-items: center;
+  gap: var(--s2u-space-1) var(--s2u-space-2);
+  min-width: 190px;
+  padding: var(--s2u-space-2) var(--s2u-space-3);
+  color: var(--fx-text);
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: opacity var(--s2u-dur-fast) var(--s2u-ease), transform var(--s2u-dur-fast) var(--s2u-ease);
   pointer-events: none;
 }
+.fx-camera-speed-feedback.is-on { opacity: 1; transform: none; }
+.fx-camera-speed-feedback-label { grid-column: 1 / -1; color: var(--fx-dim); font: var(--fx-type-caption); }
+.fx-camera-speed-feedback-value { min-width: 3.5ch; font: var(--fx-type-mono); text-align: right; }
+.fx-camera-speed-feedback-track {
+  position: relative;
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  background: var(--fx-divider);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius-pill);
+}
+.fx-camera-speed-feedback-fill {
+  display: block;
+  width: 5.7%;
+  height: 100%;
+  background: var(--fx-gold);
+  border-radius: var(--fx-radius-pill);
+  transition: width 180ms var(--s2u-ease-settle);
+}
+body.is-playing .fx-camera-hud, body.is-playing .fx-viewport-left-controls { display: none; }
+body.is-playing .fx-camera-speed-feedback { display: none; }
+.fx-axis-widget {
+  position: absolute;
+  bottom: 36px;
+  right: 10px;
+  z-index: var(--fx-z-raised);
+  width: 80px;
+  height: 80px;
+  overflow: visible;
+  touch-action: none;
+  user-select: none;
+}
+.fx-axis-lines line { stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; }
+.fx-axis-x { color: var(--fx-axis-x); }
+.fx-axis-y { color: var(--fx-axis-y); }
+.fx-axis-z { color: var(--fx-axis-z); }
+.fx-axis-end { cursor: grab; }
+.fx-axis-end:active { cursor: grabbing; }
+.fx-axis-end circle {
+  fill: currentColor;
+  stroke: var(--fx-panel);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 1px 2px var(--fx-axis-shadow));
+  transition: r var(--s2u-dur-fast) var(--s2u-ease), filter var(--s2u-dur-fast) var(--s2u-ease);
+}
+.fx-axis-end[data-sign="-1"] circle { fill: var(--fx-panel); stroke: currentColor; }
+.fx-axis-end text {
+  fill: var(--fx-deep);
+  font: 700 12px var(--s2u-font-label);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.fx-axis-end[data-sign="-1"] text { fill: currentColor; }
+.fx-axis-end:hover circle, .fx-axis-end:focus-visible circle { filter: drop-shadow(0 0 4px currentColor); stroke-width: 2; }
+.fx-axis-end:focus-visible circle { stroke: var(--fx-text); }
+body.is-playing .fx-axis-widget { display: none; }
 /* FUI-3 (FUI.R6, the review's PAD-5): the legend strip at the status bar, in place of the hint line -- the system's
    prompts (`.s2u-prompts`, glyph + verb), wrapping rather than hiding at any width; a prompt that presses is a touch
    button, the rest of the strip lets the pointer through to the viewport. The Circle wears the owner's red. */
@@ -514,21 +1195,29 @@ body.is-matching .fx-legend { display: none; }
 @media (pointer: coarse) {
   .fx-legend button.s2u-prompt, .fx-legend-inline button.s2u-prompt { min-height: 44px; padding: 0 var(--s2u-space-1); }
 }
+/* The toast: at the viewport's bottom centre, over the legend strip (`--fx-legend-h`, the page's measure of it, 0 when
+   it is hidden) and narrow enough to stay clear of the axis widget in the bottom-right corner (80px + its 10px inset);
+   the camera's chips at the top right are left alone. */
 .fx-toast {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  left: 50%;
+  bottom: calc(var(--fx-legend-h) + var(--s2u-space-3));
+  z-index: var(--fx-z-float);
+  box-sizing: border-box;
+  max-width: calc(100% - 2 * (80px + 10px + var(--s2u-space-3)));
   padding: 6px var(--s2u-space-3);
   background: var(--fx-selected);
   border: 1px solid var(--fx-gold);
   color: var(--fx-gold);
   font: var(--fx-type-control);
+  text-align: center;
+  overflow-wrap: anywhere;
   opacity: 0;
-  transform: translateY(-6px);
+  transform: translateX(-50%) translateY(6px);
   transition: opacity var(--s2u-dur-base) var(--s2u-ease), transform var(--s2u-dur-base) var(--s2u-ease);
   pointer-events: none;
 }
-.fx-toast.is-on { opacity: 1; transform: none; }
+.fx-toast.is-on { opacity: 1; transform: translateX(-50%); }
 /* FUI-4 (`./shell/notify`): a refusal's toast is only its cue (the line keeps it), drawn on the alert state; a toast with an
    action (Undo) takes the pointer while it shows. */
 .fx-toast[data-kind="refusal"] { border-color: var(--fx-alert); color: var(--fx-alert); }
@@ -663,6 +1352,11 @@ body.is-matching .fx-legend { display: none; }
   body.forge-page { --fx-left: 0px; --fx-right: 0px; }
   .fx-left { width: 240px; }
   .fx-right { width: 240px; }
+  .fx-dock-preview[data-zone='left'], .fx-dock-preview[data-zone='right'] { width: 240px; }
+  .fx-dock-resizer--left { left: 237px; }
+  .fx-dock-resizer--right { right: 237px; }
+  :is(.fx-dock-top, .fx-dock-bottom, .fx-dock-resizer--top, .fx-dock-resizer--bottom) { left: 240px; right: 240px; }
+  .fx-dock-preview[data-zone='top'], .fx-dock-preview[data-zone='bottom'] { left: 240px; right: 240px; }
   .fx-dock { box-shadow: var(--fx-lift); }
   /* LATER 176 (the merge controller's product-track call, 2026-10-21): the docks are drawers over the viewport here, and
      the overlay's touch Menu pushed below the toolbar (`../modern/overlay/index.ts`) lay over the left one's top; while
@@ -715,7 +1409,8 @@ body.is-matching .fx-legend { display: none; }
 .fx-card h2 { margin: 0 0 var(--s2u-space-2); font: var(--fx-type-title); letter-spacing: 0.06em; color: var(--fx-text); }
 .fx-card p { margin: 0 0 var(--s2u-space-4); color: var(--fx-dim); line-height: 1.5; }
 .fx-card footer { display: flex; justify-content: flex-end; gap: var(--s2u-space-2); margin-top: var(--s2u-space-3); }
-.fx-modal.fx-check-modal { place-items: center start; padding-left: var(--s2u-space-4); background: transparent; backdrop-filter: none; pointer-events: none; }
+/* The check's card in the middle of the screen (the owner, 2026-11-06), its host still see-through. */
+.fx-modal.fx-check-modal { place-items: center; background: transparent; backdrop-filter: none; pointer-events: none; }
 .fx-check-card { width: min(420px, calc(100vw - 32px)); pointer-events: auto; }
 /* FUI-2 (IA-1): the check's list on demand, a sheet beside the editor -- no scrim, no dialog; only its card takes the
    pointer, so the toolbar, the viewport and a card opened after it (Saves, over it at the dialog's step) stay usable. */
@@ -746,6 +1441,57 @@ body.is-matching .fx-legend { display: none; }
 }
 .fx-check .fx-tool { height: 28px; flex: none; padding: 0 10px; }
 .fx-card footer .fx-tool { border-color: var(--fx-control-edge); padding: 0 14px; }
+/* The Select tool's gear, inside its button after its word: its settings popup (`.fx-tool-popup`). */
+.fx-tool-gear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  border-radius: var(--fx-radius);
+  color: var(--fx-dim);
+  position: relative;
+}
+/* The divider before the gear, as the Camera button's before its value (`.fx-camera-speed-button-value`). */
+.fx-tool-gear::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  bottom: -3px;
+  border-left: 1px solid var(--fx-edge);
+}.fx-tool-gear .fx-ico { width: 13px; height: 13px; }
+.fx-tool-gear:hover, .fx-tool.has-popup .fx-tool-gear { color: var(--fx-gold); background: var(--fx-hover); }
+/* A tool's settings popup, under its button (placed by the page: the toolbar scrolls and would clip it). */
+.fx-tool-popup {
+  position: fixed;
+  z-index: var(--fx-z-popup);
+  display: grid;
+  gap: var(--s2u-space-2);
+  width: min(280px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: var(--s2u-space-3);
+  background: var(--fx-panel-2);
+  border: 1px solid var(--fx-control-edge);
+  border-radius: var(--fx-radius);
+  box-shadow: var(--fx-lift);
+}
+.fx-tool-popup[hidden] { display: none; }
+/* The Inspector's Data: the selection's own record, read only -- a name and its value a row, under the transform. */
+.fx-inspect-data { display: grid; grid-template-columns: minmax(72px, auto) 1fr; gap: 2px var(--s2u-space-2); margin: var(--s2u-space-2) 0; padding-top: var(--s2u-space-2); border-top: 1px solid var(--fx-edge); font: var(--fx-type-caption); }
+.fx-inspect-data[hidden] { display: none; }
+.fx-inspect-data dt { color: var(--fx-dim); overflow-wrap: anywhere; }
+.fx-inspect-data dd .fx-inspect-edit:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+.fx-inspect-data dd { margin: 0; color: var(--fx-text); overflow-wrap: anywhere; user-select: text; }
+.fx-tool-popup-title { font: var(--fx-type-caption); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fx-dim); }
+.fx-tool-popup-note { color: var(--fx-dim); font: var(--fx-type-caption); }
+/* A choice row in a tool's popup: its word, then its select (the Play settings). */
+.fx-tool-popup-row { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: var(--s2u-space-2); }
+.fx-tool-popup-row .fx-select { width: 100%; min-width: 0; }
+/* The Play button's gear: on its gold, in its own ink; the divider the ink too. */
+.fx-play .fx-tool-gear { color: inherit; }
+.fx-play .fx-tool-gear::before { border-left-color: currentColor; opacity: var(--fx-disabled); }
+.fx-play .fx-tool-gear:hover, .fx-play.has-popup .fx-tool-gear { color: inherit; opacity: 1; background: color-mix(in srgb, currentColor 16%, transparent); }
 .fx-tool.fx-primary { color: var(--fx-on-accent); background: var(--fx-gold); border-color: var(--fx-gold); }
 .fx-tool.fx-primary:hover:not(:disabled) { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
 .fx-help { width: min(760px, calc(100vw - 32px)); }
@@ -870,3 +1616,57 @@ body.is-matching .fx-legend { display: none; }
   .fx-menu-step { display: inline-grid; place-items: center; box-sizing: border-box; min-width: 44px; height: 44px; padding: 0; margin: 0 -18px; position: relative; }
   .fx-menu-value.has-steps .fx-menu-text { min-width: 5ch; text-align: center; }
 }
+
+/* The placing tools' row under the toolbar (the owner, 2026-11-06): the toolbar's look, a row of its own; narrower than
+   its tools, it scrolls sideways as the toolbar does. */
+.fx-tools-row {
+  position: fixed;
+  inset: var(--fx-top-bar) 0 auto 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--s2u-space-2);
+  box-sizing: border-box;
+  background: linear-gradient(var(--fx-panel), var(--fx-bar));
+  border-bottom: 1px solid var(--fx-edge);
+  z-index: var(--fx-z-bar);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.fx-tools-row > * { flex: 0 0 auto; }
+:where(.fx-tools-row) :where(.fx-tool) { background: var(--fx-bg); border-color: var(--fx-control-edge); }
+.fx-tools-row .fx-group { gap: 4px; }
+/* Its tools wear their names and their billboards' badges: the toolbar's compact rule (icons alone, `.fx-tool span`) is
+   the toolbar's, and these tools' icons are the badges themselves. */
+.fx-tools-row .fx-tool > span { display: inline; }
+.fx-tools-row .fx-tool > .fx-billboard-icon { display: grid; }
+.fx-tools-row .fx-tool { gap: 6px; padding: 0 8px; }
+/* A section a game mode (the owner, 2026-11-06): its caption, then its groups; greyed whole when its type is not played. */
+.fx-tools-row .fx-mode-section { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; height: 34px; border: 1px solid var(--fx-edge); border-radius: 4px; }
+.fx-tools-row .fx-mode-section > .fx-group:last-child { border-right: 0; }
+.fx-mode-section__label { font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); white-space: nowrap; padding-right: 4px; }
+.fx-tools-row .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; }
+/* Select and Place framed whether chosen or not (the owner, 2026-11-06): the tools row's own look, so they read as buttons. */
+.fx-top .fx-group--modes .fx-tool:not(.is-on) { background: var(--fx-bg); border-color: var(--fx-control-edge); }
+/* A new empty map's light rig (`./panels/lightRigEditor`): a block a light, its rows a label and their fields. */
+.fx-light-rig > h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fx-light-rig__light { margin: 6px 0 10px; }
+.fx-light-rig__title { margin: 0 0 4px; font: var(--fx-type-caption); letter-spacing: .1em; text-transform: uppercase; color: var(--fx-dim); }
+.fx-light-rig__row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.fx-light-rig__label { flex: 0 0 96px; color: var(--fx-dim); }
+.fx-light-rig__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.fx-light-rig__row { flex-wrap: wrap; }
+.fx-light-rig__row .fx-light-rig__num { width: 58px; }
+.fx-light-rig__check { margin: 0; }
+.fx-light-rig__buttons { display: flex; gap: 6px; flex: none; }
+.fx-light-rig__row .fx-num { width: 64px; }
+.fx-light-rig__colour { width: 36px; height: 24px; padding: 0; border: 1px solid var(--fx-control-edge); background: none; cursor: pointer; }
+/* The layout's name: shown, not typed (Saves' Save as names it). */
+.fx-top .fx-name[readonly] { cursor: default; background: transparent; border-color: transparent; text-overflow: ellipsis; }
+.fx-top .fx-name[readonly]:focus { outline: none; }
+.fx-tools-row .fx-mode-section.is-off { border-style: dashed; }
+.fx-tools-row .fx-mode-section.is-off > .fx-mode-section__label { opacity: var(--fx-disabled); }
+/* The View dropdown's sections (the toolbar's headers): a small caption over each group of switches, both columns alike. */
+.fx-billboards-section { margin: 8px 0 2px; font: var(--fx-type-caption); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); opacity: .8; height: 14px; line-height: 14px; white-space: nowrap; }

@@ -22,7 +22,7 @@ import type { ContentPlacement } from './matchMap';
 import type { ForgeLobbyHandOff } from './lobbyClient';
 import { matchHandOff } from './lobbyPage';
 import { forgeMatchSounds, setForgeMatchSounds } from './matchState';
-import { ForgeNpcs, soloSideOf } from './npcs';
+import { ForgeNpcs, soloSideOption } from './npcs';
 import type { ForgePlayPort } from './agent/play';
 import { brainFor, fetchNpcNavigation, type NpcBrain } from './npcBrain';
 import type { RuleHost, RuleLayout } from '../../../match/src/creator/rules';
@@ -264,7 +264,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     // NPB-8: the map's own kit tables, as the test room and the lobby's rooms hold them: every seat carries its type's kit
     // and the brain issues its NPCs the lobby bots' role kits. A map without them (a mission, the blank floor) keeps the baked pair.
     kits: o.map.arsenal ?? null,
-    ...(o.room ?? {}), ...(markers.length ? { soloSide: soloSideOf(markers, o.side) } : {}), beforeStep: () => brain?.step(),
+    ...(o.room ?? {}), ...soloSideOption(markers, o.side), beforeStep: () => brain?.step(),
     ...(ruleHost ? { ruleHost } : {}),
   });
   let npcs: ForgeNpcs | null = null;

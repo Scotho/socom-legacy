@@ -92,3 +92,16 @@ export function openingStand(
     },
   };
 }
+
+/**
+ * The Play settings' random spawn (a browser adaptation, FG.R2; no original): one of `side`'s slots -- the layout's
+ * spawns, or the disc's slots where it placed none, as the match's map holds them -- drawn by `rand` ([0, 1)), facing
+ * as that slot faces (the inverse of `stepOfYaw`). Null when the side has no slot. `openingStand` then stands the
+ * player there for round 1, as it does the camera's spot.
+ */
+export function randomStand(slots: readonly SpawnSlot[], side: 0 | 1, rand: () => number = Math.random): { at: [number, number, number]; yaw: number } | null {
+  const own = slots.filter((s) => s.side === side);
+  if (own.length === 0) return null;
+  const s = own[Math.min(own.length - 1, Math.floor(rand() * own.length))]!;
+  return { at: [s.position[0], s.position[1], s.position[2]], yaw: -(s.step * Math.PI) / 4 + 0 };
+}

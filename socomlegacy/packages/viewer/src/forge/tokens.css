@@ -38,6 +38,11 @@ body.forge-page, .agent-panel, .agent-testroom-dock {
   --fx-wait: var(--s2u-state-wait);
   --fx-alert: var(--s2u-state-alert);
   --fx-danger: var(--s2u-glyph-circle);
+  /* The viewport's axis widget's shadow under its letters (its X, Y, Z colours are `--fx-axis-*` below). */
+  --fx-axis-shadow: var(--s2u-scrim);
+  /* A thumbnail's transparency checkerboard: the system's two text greys. */
+  --fx-checker-light: var(--s2u-text);
+  --fx-checker-dark: var(--s2u-text-dim);
   --fx-disabled: var(--s2u-disabled);
   /* the one focus ring, keyboard and pad (shared/ds README, "The focus ring"); a scroller sets the offset inside */
   --fx-focus: var(--s2u-focus);
@@ -69,7 +74,11 @@ body.forge-page, .agent-panel, .agent-testroom-dock {
      START menu, the lobby window, a dialog, the match. `--fx-z-local` lifts a thing over its siblings in its own box;
      the match's Back sits over the match's own canvas (1000) and touch layer (1001), inside the match's host
      (`./match`); the test room's agent dock over that page's HUD. */
+  --fx-z-raised: 1;                         /* a thing just over its siblings (a pressed tab, a card's star) */
   --fx-z-local: 2;
+  --fx-z-float: 3;                          /* the viewport's floating controls and toasts, over its HUD */
+  --fx-z-resizer: calc(var(--fx-z-dock) + 1);
+  --fx-z-popup: calc(var(--fx-z-menu) + 1);
   --fx-z-dock: 2;
   --fx-z-bar: 3;
   --fx-z-menu: calc(var(--s2u-z-overlay) - 18);

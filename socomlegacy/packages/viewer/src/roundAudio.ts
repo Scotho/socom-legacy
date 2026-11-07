@@ -95,6 +95,20 @@ export function decidedReason(d: DecidedWire): DecidedReason | 'other' {
 }
 
 /**
+ * FORGE_ESCORT_LINES_ADAPTATION (the owner, 2026-11-06; a browser adaptation, FG.R2): ESCORT's in-round lines are read
+ * off the map's own script at run time (`./roundCues` `ESCORT_IN_ROUND_LINES_READING`), by the VIP's `<name>_valve_alive`
+ * -- so a Forge escort (a map with no escort script, or VIPs placed under names its script does not test) posts none and
+ * staging reads as nothing happening. There, RescueN's and EndRescueN's words are posted as the reading quotes them:
+ * "A VIP IS IN THE EXTRACTION ZONE" at 0.7 (MP52 @3836); "A VIP HAS BEEN EXTRACTED" at `ESCORT_EXTRACTED_SCALE_PLACEHOLDER`
+ * (its scale not quoted). No stream or music: those are each map's own. A disc escort map's VIPs keep their own lines.
+ */
+export const ESCORT_EXTRACTED_SCALE_PLACEHOLDER = 0.7;
+export const FORGE_ESCORT_LINES_ADAPTATION = {
+  staged: { text: 'A VIP IS IN THE EXTRACTION ZONE', scale: 0.7 },
+  extracted: { text: 'A VIP HAS BEEN EXTRACTED', scale: ESCORT_EXTRACTED_SCALE_PLACEHOLDER },
+} as const;
+
+/**
  * ESCORT_KILL_COPY_FROM_JOIN_PLACEHOLDER (LATER 125, the review's F1): ESCORT's N-th kill one-shot of a side fires at
  * that side's count `>= N` (`mp_hostages_by_seals` / `_by_turds`: MP52 HostKill2 @2900), so each copy plays its own
  * music. The page counts the kills it is told from the round's start; a page that joined mid-round, which is not told
@@ -107,6 +121,11 @@ export function decidedReason(d: DecidedWire): DecidedReason | 'other' {
 export const ESCORT_KILL_COPY_FROM_JOIN_PLACEHOLDER = 'counted from the round start the page saw';
 
 export class RoundAudio {
+  /**
+   * FORGE_ESCORT_LINES_ADAPTATION's switch: on only for a Forge layout's match (`./matchMount`, a map the Forge composed),
+   * so a disc map whose script names no line for a VIP posts nothing, as the original does.
+   */
+  forgeEscortLines = false;
   private cues: RoundCues | null = null;
   private queue: Due[] = [];
   private decided = false;
@@ -256,7 +275,11 @@ export class RoundAudio {
     const e = this.cues?.escort;
     const by = !e || kind === 'aborted' ? null : kind === 'staged' ? e.staged : e.extracted;
     const steps = kind === 'aborted' ? e?.aborted[code(team)] : by && vip !== null && Object.prototype.hasOwnProperty.call(by, vip) ? by[vip] : undefined;
-    if (!steps) return;
+    if (!steps) {
+      // A Forge escort (no script of its own, or VIPs it does not name): the script's words posted (FORGE_ESCORT_LINES_ADAPTATION).
+      if (this.forgeEscortLines && kind !== 'aborted' && post) post(FORGE_ESCORT_LINES_ADAPTATION[kind].text, FORGE_ESCORT_LINES_ADAPTATION[kind].scale);
+      return;
+    }
     this.schedule(steps, now, false, post, kind === 'aborted' ? 'vipcheck' : 'kept');
     this.frame(now);
   }

@@ -101,7 +101,9 @@ describe('FORGE lobby: the chat\'s typing reaches no forge shortcut (FG.R23)', (
 
   it('the forge\'s development keys return at once on a typing target (page.ts\'s keydown listener)', () => {
     const page = readFileSync(resolve(FORGE, 'page.ts'), 'utf-8').split('\n');
-    const at = page.findIndex((l) => /addEventListener\('keydown'/.test(l));
+    // The editor's key map's own listener (the page's other keydown listeners are its accessibility keys: an axis end,
+    // a dock's resize handle, Escape on a popover).
+    const at = page.findIndex((l) => /globalThis\.addEventListener\('keydown', \(e\) => \{/.test(l));
     expect(at).toBeGreaterThan(0);
     expect(page.slice(at, at + 3).join('\n')).toMatch(/if \(typingTarget\(e\.target\)\) return;/);
   });

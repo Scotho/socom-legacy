@@ -147,6 +147,60 @@ export interface Layout {
    */
   npcs?: NpcMarker[];
   /**
+   * The layout's placed hostages (a browser adaptation, FG.R2; no original): each a place `p` facing `yaw`, added to the
+   * base map's own escortees for an Escort or Extraction match (the Forge's Play). Absent: none. Online refused
+   * (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own escortees.
+   */
+  hostages?: HostageMarker[];
+  /**
+   * The layout's placed extraction zones (a browser adaptation, FG.R2; no original): each a named rectangle on the ground,
+   * an EXTRACT_ZONE (AI-map kind 1) beside the map's own Safety zones for an Extraction match. Absent: none. Online
+   * refused (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own zones.
+   */
+  extractionZones?: ExtractionZone[];
+  /**
+   * The layout's placed tactical points (a browser adaptation, FG.R2): a name, a kind and a place, beside the map's own
+   * AIMAPS named points on its tactical map -- kind 1 a nav point the compass marks by the name's first letter. Absent:
+   * none. Online refused.
+   */
+  tacPoints?: TacPointMarker[];
+  /**
+   * The layout's placed respawn points (a browser adaptation, FG.R2; the owner, 2026-11-06): each a team, a place and a
+   * yaw (radians) as a spawn's, beside the map's own respawn records (`LoadedMap.respawns`, research 91 section 4.2).
+   * Absent: none. Online refused (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own respawns.
+   */
+  respawns?: SpawnMarker[];
+  /**
+   * The layout's placed flares (a browser adaptation, FG.R2; the owner, 2026-11-06): each a copy of one of a disc map's
+   * facade nodes -- a glow the engine turns to the camera, not the lamp it hangs on -- by its archive (`source`) and its
+   * node's name (`name`), at `at`. Absent: none. Online refused (`onlineCreatorLayoutRefusal`).
+   */
+  flares?: FlareMarker[];
+  /**
+   * The layout's placed spectator views (a browser adaptation, FG.R2): a name, a camera place and its yaw and pitch
+   * (degrees, the port's convention, as `mission.rdr`'s Scenic_Views), beside the map's own. Absent: none. Online refused.
+   */
+  scenicViews?: ScenicViewMarker[];
+  /**
+   * The layout's placed turrets (a browser adaptation, FG.R2): each a copy of a disc map's own manual turret -- its
+   * archive (`source`) and placed node's name (`name`) -- stood at `at` facing `yaw` (radians), beside the map's own.
+   * Absent: none. Online refused.
+   */
+  turrets?: TurretMarker[];
+  /**
+   * The layout's placed doors (a browser adaptation, FG.R2): each a copy of a disc map's own door -- its archive
+   * (`source`) and node (`name`) -- its hinge at `at`, turned `yaw` radians from that door's own turn. Absent: none.
+   * Online refused.
+   */
+  doors?: DoorMarker[];
+  /**
+   * The layout's placed gates and C4 barriers (a browser adaptation, FG.R2): each a copy of a disc map's own access
+   * object -- its archive (`source`) and its root node (`name`, `access1`) -- at `at`, turned `yaw` radians. A gate slides
+   * on its lever and C4 wrecks it; a barrier C4 wrecks. Absent: none. Online refused.
+   */
+  gates?: DoorMarker[];
+  barriers?: DoorMarker[];
+  /**
    * FG-24 (FG.R18; the owner, 2026-10-14: "a map settings that includes day/night slider, fog distance slider, max
    * players (up to 32 max)"; an adaptation, no original): the layout's settings, each optional -- absent, the disc's
    * value stands (`DEFAULT_SETTINGS`). Bounded by `SETTINGS_BOUNDS`; a value outside is refused.
@@ -206,9 +260,52 @@ export interface LayoutObjectiveIds {
 export const NPC_BEHAVIOURS = ["sentry", "patrol"] as const;
 export type NpcBehaviour = (typeof NPC_BEHAVIOURS)[number];
 
+/**
+ * A layout's own light rig (the owner, 2026-11-06; a browser adaptation, FG.R2): the disc's `GlobalLighting` record's
+ * shape (`@s2u/scene` `parseGlobalLighting`) -- three directional lights, each the unit direction it shines *from* and
+ * its rgb (1 full brightness), and the ambient rgb every surface takes. Only a new empty map (a blank base) plays one:
+ * a disc map keeps its own rig.
+ */
+export interface LightRigSetting {
+  directions: [[number, number, number], [number, number, number], [number, number, number]];
+  colours: [[number, number, number], [number, number, number], [number, number, number]];
+  ambient: [number, number, number];
+}
+
+/** A rig colour lane's bound: 0 off, 2 twice the disc's full brightness (an editor's bound). */
+export const LIGHT_RIG_COLOUR_MAX = 2;
+
 export interface LayoutSettings {
   /** Forge adaptation: null retains authored/legacy lighting; 0..1 is shared Night -> Day. */
   timeOfDay: number | null;
+  /** A new empty map's own light rig (`LightRigSetting`); absent or null, the rig of the map it is built from. */
+  lightRig?: LightRigSetting | null;
+  /**
+   * A new empty map's own fog colour (the owner, 2026-11-06; a browser adaptation): the camera record's `m_fog_color`
+   * (`@s2u/scene` `CameraParams.fogColor`), rgb 0..255; absent or null, the colour of the map it is built from.
+   */
+  fogColor?: [number, number, number] | null;
+  /**
+   * A new empty map's own drop-shadow direction (as `fogColor`): the world root's `shadowVector` (`@s2u/scene`
+   * `parseWorldRoot`), the way the characters' shadows fall; absent or null, the vector of the map it is built from.
+   */
+  shadowVector?: [number, number, number] | null;
+  /**
+   * A new empty map's sky (the owner, 2026-11-06; a browser adaptation): the disc map (`MP72`) whose sky dome is copied
+   * over the floor (`viewer/src/forge/skyDome`); absent or null, none -- the sky the fog colour clears.
+   */
+  skyFrom?: string | null;
+  /**
+   * A new empty map's own fog beyond its colour and far distance (`fogColor`, `fogFar`; as `fogColor`): the camera
+   * record's on/off (`fogEnabled`), its near distance (`m_fog_near`), and its height band (`fogAltitude`, `m_fog_top` /
+   * `m_fog_bottom`; null, none). Absent or null, the built-from map's.
+   */
+  fog?: { on: boolean; near: number; height: { top: number; bottom: number } | null } | null;
+  /**
+   * A new empty map's own night (as `fog`): the world root's `NightMission` (night vision offered) and `LensFX_NVG` (its
+   * lens, rgb 0..255 and an alpha, as `LoadedMap.night` reads it; null, none). Absent or null, the built-from map's.
+   */
+  night?: { mission: boolean; lens: [number, number, number, number] | null } | null;
   light: number;
   fogFar: number | null;
   players: number;
@@ -231,7 +328,39 @@ export const SETTINGS_BOUNDS = Object.freeze({
   roundSeconds: { min: 30, max: 3600, step: 30 },
 } as const);
 
-const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour"]);
+const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night"]);
+
+/** A night lens: rgb 0..255 and an alpha 0..1 (`settings.night.lens`). */
+function settingsTriple4(v: unknown): [number, number, number, number] {
+  if (!Array.isArray(v) || v.length !== 4 || !v.every(isNum) || v.slice(0, 3).some((n) => n < 0 || n > 255) || v[3] < 0 || v[3] > 1) {
+    throw new Error("settings.night.lens is not rgb 0..255 and an alpha 0..1");
+  }
+  return [v[0], v[1], v[2], v[3]];
+}
+
+/** Three numbers each passing `check`, or null; `what` names the field in the refusal. */
+function settingsTriple(v: unknown, what: string, check: (n: number) => boolean): [number, number, number] | null {
+  if (v === null) return null;
+  if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => isNum(n) && check(n))) throw new Error(`settings.${what} is not three numbers in range`);
+  return [v[0], v[1], v[2]];
+}
+
+/** `settings.lightRig` read: three directions (unit, or zero for a light the rig leaves off), three colours, an ambient. */
+function parseLightRig(v: unknown): LightRigSetting | null {
+  if (v === null) return null;
+  if (!isObj(v)) throw new Error("settings.lightRig is not an object");
+  const vec = (x: unknown, what: string, check: (n: number) => boolean): [number, number, number] => {
+    if (!Array.isArray(x) || x.length !== 3 || !x.every((n) => isNum(n) && check(n))) throw new Error(`settings.lightRig ${what} is not three numbers in range`);
+    return [x[0], x[1], x[2]];
+  };
+  const three = (x: unknown, what: string, check: (n: number) => boolean) => {
+    if (!Array.isArray(x) || x.length !== 3) throw new Error(`settings.lightRig ${what} is not three lights`);
+    return [vec(x[0], `${what} 1`, check), vec(x[1], `${what} 2`, check), vec(x[2], `${what} 3`, check)] as LightRigSetting["directions"];
+  };
+  const dir = (n: number): boolean => n >= -1 && n <= 1;
+  const lane = (n: number): boolean => n >= 0 && n <= LIGHT_RIG_COLOUR_MAX;
+  return { directions: three(v["directions"], "directions", dir), colours: three(v["colours"], "colours", lane), ambient: vec(v["ambient"], "ambient", lane) };
+}
 
 export function parseSettings(raw: unknown): Partial<LayoutSettings> {
   if (!isObj(raw)) throw new Error("settings is not an object");
@@ -255,6 +384,37 @@ export function parseSettings(raw: unknown): Partial<LayoutSettings> {
   if (raw["friendlyFire"] !== undefined) {
     if (typeof raw["friendlyFire"] !== "boolean") throw new Error("settings.friendlyFire is not a boolean");
     out.friendlyFire = raw["friendlyFire"];
+  }
+  if (raw["lightRig"] !== undefined) out.lightRig = parseLightRig(raw["lightRig"]);
+  if (raw["fog"] !== undefined) {
+    const v = raw["fog"];
+    if (v === null) out.fog = null;
+    else {
+      if (!isObj(v) || typeof v["on"] !== "boolean" || !isNum(v["near"]) || v["near"] < 0 || v["near"] > SETTINGS_BOUNDS.fogFar.max) throw new Error("settings.fog is not an on, a near distance and a height band");
+      const h = v["height"];
+      if (h !== null && (!isObj(h) || !isNum(h["top"]) || !isNum(h["bottom"]) || Math.abs(h["top"]) > 100000 || Math.abs(h["bottom"]) > 100000)) throw new Error("settings.fog.height is not a top and a bottom");
+      out.fog = { on: v["on"], near: v["near"], height: h === null ? null : { top: (h as Record<string, number>)["top"]!, bottom: (h as Record<string, number>)["bottom"]! } };
+    }
+  }
+  if (raw["night"] !== undefined) {
+    const v = raw["night"];
+    if (v === null) out.night = null;
+    else {
+      if (!isObj(v) || typeof v["mission"] !== "boolean") throw new Error("settings.night is not a mission and a lens");
+      const lens = v["lens"] === null ? null : settingsTriple4(v["lens"]);
+      out.night = { mission: v["mission"], lens };
+    }
+  }
+  if (raw["skyFrom"] !== undefined) {
+    const v = raw["skyFrom"];
+    if (v !== null && (typeof v !== "string" || !/^[A-Z]{1,3}\d{1,3}$/.test(v))) throw new Error("settings.skyFrom is not a disc map's archive");
+    out.skyFrom = v as string | null;
+  }
+  if (raw["fogColor"] !== undefined) out.fogColor = settingsTriple(raw["fogColor"], "fogColor", (n) => n >= 0 && n <= 255);
+  if (raw["shadowVector"] !== undefined) {
+    const v = settingsTriple(raw["shadowVector"], "shadowVector", (n) => n >= -1000 && n <= 1000);
+    if (v && Math.hypot(v[0], v[1], v[2]) === 0) throw new Error("settings.shadowVector is a zero direction");
+    out.shadowVector = v;
   }
   if (raw["npcBehaviour"] !== undefined) {
     const v = raw["npcBehaviour"];
@@ -310,6 +470,78 @@ export interface ForgeObjectives {
   /** The layout's game type. Omitted under "Map's own" (L1): the base plays its own type and bomb; the markers wait. */
   gameType?: ForgeGameType;
   bomb?: BombObjectives;
+}
+
+/** A placed turret (`Layout.turrets`): the disc turret it copies (its archive, its node's name), its place and facing. */
+export interface TurretMarker {
+  source: string;
+  name: string;
+  at: [number, number, number];
+  yaw: number;
+  locked?: boolean;
+}
+
+/** A placed door (`Layout.doors`): the disc door it copies (its archive, its node), its hinge and its turn from that door's. */
+export interface DoorMarker {
+  source: string;
+  name: string;
+  at: [number, number, number];
+  yaw: number;
+  locked?: boolean;
+}
+
+/** A placed turret's source archive (a disc map's stem) and its turret's node name. */
+const TURRET_SOURCE = /^[A-Z]{1,3}\d{1,3}$/;
+/** The disc's own spelling, a space and all (Enowapi's MGL turret is `mp62MGLturret `): letters, digits, `_` and spaces. */
+const TURRET_NAME = /^[A-Za-z0-9_ ]{1,48}$/;
+
+/** A placed flare (`Layout.flares`): the archive and facade node it copies, its place. No turn: the engine faces it. */
+export interface FlareMarker {
+  source: string;
+  name: string;
+  at: [number, number, number];
+  locked?: boolean;
+}
+
+/** A placed flare's node name: letters, digits, `_`, `.`, `-` and spaces, 1-48 (the viewer's `FLARE_NAME`). */
+const FLARE_NODE = /^[A-Za-z0-9_ .-]{1,48}$/;
+
+/** A placed tactical point (`Layout.tacPoints`): its name, its kind (0-31; 1 a nav point), its place. */
+export interface TacPointMarker {
+  name: string;
+  kind: number;
+  at: [number, number, number];
+  locked?: boolean;
+}
+
+/** A placed spectator view (`Layout.scenicViews`): its name, the camera's place, yaw and pitch (degrees). */
+export interface ScenicViewMarker {
+  name: string;
+  at: [number, number, number];
+  yaw: number;
+  pitch: number;
+  locked?: boolean;
+}
+
+/** A placed extraction zone (`Layout.extractionZones`): its name (Safety, Safety2...), its centre, its width (x) and depth (z). */
+export interface ExtractionZone {
+  name: string;
+  at: [number, number, number];
+  size: [number, number];
+  locked?: boolean;
+}
+
+/** A placed hostage (`Layout.hostages`): its place and facing; a lock as a marker's (FG-49). */
+export interface HostageMarker {
+  p: [number, number, number];
+  yaw: number;
+  locked?: boolean;
+  /** Its scene name (the disc's Hostage1, Hostage2...); absent, the match names it. */
+  name?: string;
+  /** Its body, a hostage character of the base (`thai_wife`), or of `source`'s map; absent, the base's first hostage's. */
+  character?: string;
+  /** The disc map whose hostage character it wears (`MP6`), lent to the match with its body; absent, the base's own. */
+  source?: string;
 }
 
 export interface NpcMarker {
@@ -590,6 +822,110 @@ export function parseLayout(text: string): Layout {
         return { side: n["side"], type: n["type"] as number, p: [x!, y!, z!] as [number, number, number], yaw: n["yaw"], ...(locked ? { locked: true as const } : {}), ...(id ? { id } : {}) };
       }),
     }),
+    ...(raw["hostages"] === undefined ? {} : {
+      hostages: (Array.isArray(raw["hostages"]) ? raw["hostages"] : [null]).map((h, i): HostageMarker => {
+        if (!isObj(h) || !Array.isArray(h["p"]) || h["p"].length !== 3 || !h["p"].every(isNum) || !isNum(h["yaw"])) {
+          throw new Error(`hostage ${i} is not a place and a yaw`);
+        }
+        const [x, y, z] = h["p"] as number[];
+        const locked = lockedFlag(h["locked"], `hostage ${i} lock`);
+        if (h["name"] !== undefined && (typeof h["name"] !== "string" || !HOSTAGE_NAME.test(h["name"]))) throw new Error(`hostage ${i} name is not 1-32 letters, digits, spaces, _ or -`);
+        if (h["character"] !== undefined && (typeof h["character"] !== "string" || !HOSTAGE_CHARACTER.test(h["character"]))) throw new Error(`hostage ${i} character is not a character key`);
+        if (h["source"] !== undefined && (typeof h["source"] !== "string" || !TURRET_SOURCE.test(h["source"]))) throw new Error(`hostage ${i} source is not a disc map's stem`);
+        return { p: [x!, y!, z!] as [number, number, number], yaw: h["yaw"], ...(locked ? { locked: true as const } : {}),
+          ...(typeof h["name"] === "string" ? { name: h["name"] } : {}), ...(typeof h["character"] === "string" ? { character: h["character"] } : {}),
+          ...(typeof h["source"] === "string" ? { source: h["source"] } : {}) };
+      }),
+    }),
+    ...(raw["extractionZones"] === undefined ? {} : {
+      extractionZones: (Array.isArray(raw["extractionZones"]) ? raw["extractionZones"] : [null]).map((z, i): ExtractionZone => {
+        if (!isObj(z) || typeof z["name"] !== "string" || !ZONE_NAME.test(z["name"]) || !Array.isArray(z["at"]) || z["at"].length !== 3
+          || !z["at"].every(isNum) || !Array.isArray(z["size"]) || z["size"].length !== 2 || !z["size"].every((n) => isNum(n) && n > 0)) {
+          throw new Error(`extraction zone ${i} is not a name, a centre and a size`);
+        }
+        const [x, y, zz] = z["at"] as number[];
+        const [w, d] = z["size"] as number[];
+        const locked = lockedFlag(z["locked"], `extraction zone ${i} lock`);
+        return { name: z["name"], at: [x!, y!, zz!] as [number, number, number], size: [w!, d!] as [number, number], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["doors"] === undefined ? {} : {
+      doors: (Array.isArray(raw["doors"]) ? raw["doors"] : [null]).map((t, i): DoorMarker => {
+        if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
+          || !isNum(t["yaw"]) || !Array.isArray(t["at"]) || t["at"].length !== 3 || !t["at"].every(isNum)) {
+          throw new Error(`door ${i} is not a source, a name, a hinge and a yaw`);
+        }
+        const [x, y, z] = t["at"] as number[];
+        const locked = lockedFlag(t["locked"], `door ${i} lock`);
+        return { source: t["source"], name: t["name"], at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(["gates", "barriers"] as const).reduce((out, key) => (raw[key] === undefined ? out : {
+      ...out,
+      [key]: (Array.isArray(raw[key]) ? raw[key] as unknown[] : [null]).map((t, i): DoorMarker => {
+        const what = key === "gates" ? "gate" : "barrier";
+        if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
+          || !isNum(t["yaw"]) || !Array.isArray(t["at"]) || t["at"].length !== 3 || !t["at"].every(isNum)) {
+          throw new Error(`${what} ${i} is not a source, a name, a place and a yaw`);
+        }
+        const [x, y, z] = t["at"] as number[];
+        const locked = lockedFlag(t["locked"], `${what} ${i} lock`);
+        return { source: t["source"], name: t["name"], at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }), {} as Pick<Layout, "gates" | "barriers">),
+    ...(raw["turrets"] === undefined ? {} : {
+      turrets: (Array.isArray(raw["turrets"]) ? raw["turrets"] : [null]).map((t, i): TurretMarker => {
+        if (!isObj(t) || typeof t["source"] !== "string" || !TURRET_SOURCE.test(t["source"]) || typeof t["name"] !== "string" || !TURRET_NAME.test(t["name"])
+          || !isNum(t["yaw"]) || !Array.isArray(t["at"]) || t["at"].length !== 3 || !t["at"].every(isNum)) {
+          throw new Error(`turret ${i} is not a source, a name, a place and a yaw`);
+        }
+        const [x, y, z] = t["at"] as number[];
+        const locked = lockedFlag(t["locked"], `turret ${i} lock`);
+        return { source: t["source"], name: t["name"], at: [x!, y!, z!] as [number, number, number], yaw: t["yaw"], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["flares"] === undefined ? {} : {
+      flares: (Array.isArray(raw["flares"]) ? raw["flares"] : [null]).map((f, i): FlareMarker => {
+        if (!isObj(f) || typeof f["source"] !== "string" || !TURRET_SOURCE.test(f["source"]) || typeof f["name"] !== "string" || !FLARE_NODE.test(f["name"])
+          || !Array.isArray(f["at"]) || f["at"].length !== 3 || !f["at"].every(isNum)) {
+          throw new Error(`flare ${i} is not a source, a name and a place`);
+        }
+        const [x, y, z] = f["at"] as number[];
+        const locked = lockedFlag(f["locked"], `flare ${i} lock`);
+        return { source: f["source"], name: f["name"], at: [x!, y!, z!] as [number, number, number], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["respawns"] === undefined ? {} : {
+      respawns: (Array.isArray(raw["respawns"]) ? raw["respawns"] : [null]).map((s, i): SpawnMarker => {
+        if (!isObj(s) || (s["team"] !== "A" && s["team"] !== "B") || !Array.isArray(s["p"]) || s["p"].length !== 3
+          || !s["p"].every(isNum) || !isNum(s["yaw"])) throw new Error(`respawn point ${i} is not a team, a point and a yaw`);
+        const [x, y, z] = s["p"] as number[];
+        const locked = lockedFlag(s["locked"], `respawn point ${i} lock`);
+        return { team: s["team"], p: [x!, y!, z!] as [number, number, number], yaw: s["yaw"], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["tacPoints"] === undefined ? {} : {
+      tacPoints: (Array.isArray(raw["tacPoints"]) ? raw["tacPoints"] : [null]).map((t, i): TacPointMarker => {
+        if (!isObj(t) || typeof t["name"] !== "string" || !ZONE_NAME.test(t["name"]) || !Number.isInteger(t["kind"]) || (t["kind"] as number) < 0
+          || (t["kind"] as number) > 31 || !Array.isArray(t["at"]) || t["at"].length !== 3 || !t["at"].every(isNum)) {
+          throw new Error(`tactical point ${i} is not a name, a kind and a place`);
+        }
+        const [x, y, z] = t["at"] as number[];
+        const locked = lockedFlag(t["locked"], `tactical point ${i} lock`);
+        return { name: t["name"], kind: t["kind"] as number, at: [x!, y!, z!] as [number, number, number], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
+    ...(raw["scenicViews"] === undefined ? {} : {
+      scenicViews: (Array.isArray(raw["scenicViews"]) ? raw["scenicViews"] : [null]).map((v, i): ScenicViewMarker => {
+        if (!isObj(v) || typeof v["name"] !== "string" || !ZONE_NAME.test(v["name"]) || !isNum(v["yaw"]) || !isNum(v["pitch"])
+          || !Array.isArray(v["at"]) || v["at"].length !== 3 || !v["at"].every(isNum)) {
+          throw new Error(`spectator view ${i} is not a name, a place, a yaw and a pitch`);
+        }
+        const [x, y, z] = v["at"] as number[];
+        const locked = lockedFlag(v["locked"], `spectator view ${i} lock`);
+        return { name: v["name"], at: [x!, y!, z!] as [number, number, number], yaw: v["yaw"], pitch: v["pitch"], ...(locked ? { locked: true as const } : {}) };
+      }),
+    }),
     ...(raw["hidden"] === undefined ? {} : {
       hidden: (Array.isArray(raw["hidden"]) ? raw["hidden"] : [null]).map((h, i) => {
         if (typeof h !== "string" || !PLACEMENT_KEY.test(h)) throw new Error(`hidden ${i} is not a model and a place`);
@@ -804,6 +1140,24 @@ export const RECORD_POSITION_DENOMINATOR = 10;
 export type PieceRow = [asset: number, x: number, y: number, z: number, yaw: number, locked?: true];
 export type SpawnRow = [team: "A" | "B", x: number, y: number, z: number, yaw: number, locked?: true];
 export type NpcRow = [side: "seal" | "terrorist", type: number, x: number, y: number, z: number, yaw: number, locked?: true];
+/** A placed hostage's record row (`Layout.hostages`, a browser adaptation): its place on the lattice, whole degrees. */
+export type HostageRow = [x: number, y: number, z: number, yaw: number, more?: { name?: string; character?: string; source?: string; locked?: true }];
+/** A placed hostage's name (`HostageMarker.name`): 1-32 letters, digits, spaces, `_` or `-` (the disc's Hostage1). */
+const HOSTAGE_NAME = /^[A-Za-z0-9_ -]{1,32}$/;
+/** A placed hostage's character (`HostageMarker.character`): a `chartype.rdr` key, 1-32 letters, digits or `_`. */
+const HOSTAGE_CHARACTER = /^[A-Za-z0-9_]{1,32}$/;
+/** A placed extraction zone's record row (`Layout.extractionZones`, a browser adaptation): its name, centre and size. */
+/** A placed tactical point's record row (`Layout.tacPoints`). */
+/** A placed turret's record row (`Layout.turrets`): its source and name, place, and yaw in whole degrees. */
+export type TurretRow = [source: string, name: string, x: number, y: number, z: number, yaw: number, locked?: true];
+export type TacPointRow = [name: string, x: number, y: number, z: number, kind: number, locked?: true];
+/** A placed flare's record row (`Layout.flares`): its source and node name, its place. */
+export type FlareRow = [source: string, name: string, x: number, y: number, z: number, locked?: true];
+/** A placed spectator view's record row (`Layout.scenicViews`): yaw and pitch in degrees, on the lattice. */
+export type ScenicViewRow = [name: string, x: number, y: number, z: number, yaw: number, pitch: number, locked?: true];
+export type ExtractionZoneRow = [name: string, x: number, y: number, z: number, width: number, depth: number, locked?: true];
+/** A placed extraction zone's name: 1-32 letters, digits, spaces, `_` or `-` (the disc's Safety, Safety2). */
+const ZONE_NAME = /^[A-Za-z0-9_ -]{1,32}$/;
 
 /** The v2 record (FG.R10): what this browser kept and a share code carried until FCW-07a. */
 export interface LayoutRecordV2 {
@@ -870,6 +1224,24 @@ export interface CreatorLayoutRecord {
   ids: RecordIds;
   hidden?: string[];
   npcs?: NpcRow[];
+  /** The placed hostages (`Layout.hostages`), present only when the layout has some: additive inside v3, as `zones`. */
+  hostages?: HostageRow[];
+  /** The placed extraction zones (`Layout.extractionZones`), present only when the layout has some. */
+  extractionZones?: ExtractionZoneRow[];
+  /** The placed tactical points and spectator views, each present only when the layout has some. */
+  tacPoints?: TacPointRow[];
+  /** The placed respawn points (`Layout.respawns`), as the spawns' rows, present only when the layout has some. */
+  respawns?: SpawnRow[];
+  /** The placed flares (`Layout.flares`), present only when the layout has some. */
+  flares?: FlareRow[];
+  scenicViews?: ScenicViewRow[];
+  /** The placed turrets (`Layout.turrets`), present only when the layout has some. */
+  turrets?: TurretRow[];
+  /** The placed doors (`Layout.doors`), as the turrets' rows. */
+  doors?: TurretRow[];
+  /** The placed gates and C4 barriers (`Layout.gates`, `Layout.barriers`), as the doors' rows. */
+  gates?: TurretRow[];
+  barriers?: TurretRow[];
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
   missing?: number[];
@@ -908,7 +1280,7 @@ const BLANK_FLOOR = "floor";
 const ASSET = /^[A-Z]{1,3}\d{1,3}:[A-Za-z0-9_.\-]{1,64}$/;
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners"];
+  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -1019,6 +1391,55 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     if (n.locked === true) row[6] = true;
     return row;
   });
+  if (l.hostages?.length) record.hostages = l.hostages.map((h): HostageRow => {
+    const row: HostageRow = [tenth(h.p[0]), tenth(h.p[1]), tenth(h.p[2]), wholeDeg(h.yaw)];
+    const more = { ...(h.name ? { name: h.name } : {}), ...(h.character ? { character: h.character } : {}), ...(h.source ? { source: h.source } : {}), ...(h.locked === true ? { locked: true as const } : {}) };
+    if (Object.keys(more).length) row[4] = more;
+    return row;
+  });
+  if (l.doors?.length) record.doors = l.doors.map((t): TurretRow => {
+    const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
+    if (t.locked === true) row[6] = true;
+    return row;
+  });
+  for (const key of ["gates", "barriers"] as const) {
+    const list = l[key];
+    if (list?.length) record[key] = list.map((t): TurretRow => {
+      const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
+      if (t.locked === true) row[6] = true;
+      return row;
+    });
+  }
+  if (l.turrets?.length) record.turrets = l.turrets.map((t): TurretRow => {
+    const row: TurretRow = [t.source, t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), wholeDeg(t.yaw)];
+    if (t.locked === true) row[6] = true;
+    return row;
+  });
+  if (l.flares?.length) record.flares = l.flares.map((f): FlareRow => {
+    const row: FlareRow = [f.source, f.name, tenth(f.at[0]), tenth(f.at[1]), tenth(f.at[2])];
+    if (f.locked === true) row[5] = true;
+    return row;
+  });
+  if (l.respawns?.length) record.respawns = l.respawns.map((s): SpawnRow => {
+    const row: SpawnRow = [s.team, tenth(s.p[0]), tenth(s.p[1]), tenth(s.p[2]), wholeDeg(s.yaw)];
+    if (s.locked === true) row[5] = true;
+    return row;
+  });
+  if (l.tacPoints?.length) record.tacPoints = l.tacPoints.map((t): TacPointRow => {
+    const row: TacPointRow = [t.name, tenth(t.at[0]), tenth(t.at[1]), tenth(t.at[2]), t.kind];
+    if (t.locked === true) row[5] = true;
+    return row;
+  });
+  if (l.scenicViews?.length) record.scenicViews = l.scenicViews.map((v): ScenicViewRow => {
+    const row: ScenicViewRow = [v.name, tenth(v.at[0]), tenth(v.at[1]), tenth(v.at[2]), tenth(v.yaw), tenth(v.pitch)];
+    if (v.locked === true) row[6] = true;
+    return row;
+  });
+  if (l.extractionZones?.length) record.extractionZones = l.extractionZones.map((z): ExtractionZoneRow => {
+    const row: ExtractionZoneRow = [z.name, tenth(z.at[0]), tenth(z.at[1]), tenth(z.at[2]), tenth(z.size[0]), tenth(z.size[1])];
+    if (z.locked === true) row[6] = true;
+    return row;
+  });
   if (l.settings && Object.keys(l.settings).length) record.settings = { ...l.settings };
   if (l.camera) record.camera = parseCamera(l.camera);
   const src = l as Layout & Carry;
@@ -1068,6 +1489,37 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   if (r.hidden?.length) layout.hidden = [...r.hidden];
   if (r.npcs?.length) layout.npcs = r.npcs.map(([side, type, x, y, z, yaw, locked], i): NpcMarker => ({
     side, type, p: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}), ...ownId(ids?.npcs?.[i], ID_PREFIX.npc, i),
+  }));
+  if (!isV2(r) && r.hostages?.length) layout.hostages = r.hostages.map(([x, y, z, yaw, more]): HostageMarker => ({
+    p: [x, y, z], yaw: rad(yaw), ...(more?.locked === true ? { locked: true as const } : {}),
+    ...(more?.name ? { name: more.name } : {}), ...(more?.character ? { character: more.character } : {}), ...(more?.source ? { source: more.source } : {}),
+  }));
+  if (!isV2(r) && r.doors?.length) layout.doors = r.doors.map(([source, name, x, y, z, yaw, locked]): DoorMarker => ({
+    source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+  }));
+  for (const key of ["gates", "barriers"] as const) {
+    const rows = isV2(r) ? undefined : r[key];
+    if (rows?.length) layout[key] = rows.map(([source, name, x, y, z, yaw, locked]): DoorMarker => ({
+      source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+    }));
+  }
+  if (!isV2(r) && r.turrets?.length) layout.turrets = r.turrets.map(([source, name, x, y, z, yaw, locked]): TurretMarker => ({
+    source, name, at: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.flares?.length) layout.flares = r.flares.map(([source, name, x, y, z, locked]): FlareMarker => ({
+    source, name, at: [x, y, z], ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.respawns?.length) layout.respawns = r.respawns.map(([team, x, y, z, yaw, locked]): SpawnMarker => ({
+    team, p: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.tacPoints?.length) layout.tacPoints = r.tacPoints.map(([name, x, y, z, kind, locked]): TacPointMarker => ({
+    name, kind, at: [x, y, z], ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.scenicViews?.length) layout.scenicViews = r.scenicViews.map(([name, x, y, z, yaw, pitch, locked]): ScenicViewMarker => ({
+    name, at: [x, y, z], yaw, pitch, ...(locked === true ? { locked: true as const } : {}),
+  }));
+  if (!isV2(r) && r.extractionZones?.length) layout.extractionZones = r.extractionZones.map(([name, x, y, z, w, d, locked]): ExtractionZone => ({
+    name, at: [x, y, z], size: [w, d], ...(locked === true ? { locked: true as const } : {}),
   }));
   if (r.settings && Object.keys(r.settings).length) layout.settings = { ...r.settings };
   const name = r.name.trim();
@@ -1198,6 +1650,98 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
         return `npc ${i} is not [side, type, x, y, z, yaw]`;
       }
       if (n.length === 7 && n[6] !== true) return `npc ${i} lock is not true`;
+    }
+  }
+  if (r["hostages"] !== undefined) {
+    const hostages = r["hostages"];
+    if (!Array.isArray(hostages) || hostages.length === 0 || hostages.length > RECORD_LIMITS.spawns) return "hostages is not a list";
+    for (const [i, h] of hostages.entries()) {
+      if (!Array.isArray(h) || (h.length !== 4 && h.length !== 5) || !inBound(h[0]) || !inBound(h[1]) || !inBound(h[2]) || !isDeg(h[3])) {
+        return `hostage ${i} is not [x, y, z, yaw]`;
+      }
+      if (h.length === 5) {
+        const m = h[4] as unknown;
+        if (!isObj(m) || Object.keys(m).some((k) => k !== "name" && k !== "character" && k !== "source" && k !== "locked")) return `hostage ${i} is not [x, y, z, yaw, { name, character, source, locked }]`;
+        if (m["locked"] !== undefined && m["locked"] !== true) return `hostage ${i} lock is not true`;
+        if (m["name"] !== undefined && (typeof m["name"] !== "string" || !HOSTAGE_NAME.test(m["name"]))) return `hostage ${i} name is not 1-32 letters, digits, spaces, _ or -`;
+        if (m["character"] !== undefined && (typeof m["character"] !== "string" || !HOSTAGE_CHARACTER.test(m["character"]))) return `hostage ${i} character is not a character key`;
+        if (m["source"] !== undefined && (typeof m["source"] !== "string" || !TURRET_SOURCE.test(m["source"]))) return `hostage ${i} source is not a disc map's stem`;
+      }
+    }
+  }
+  if (r["doors"] !== undefined) {
+    const doors = r["doors"];
+    if (!Array.isArray(doors) || doors.length === 0 || doors.length > RECORD_LIMITS.spawns) return "doors is not a list";
+    for (const [i, t] of doors.entries()) {
+      if (!Array.isArray(t) || (t.length !== 6 && t.length !== 7) || typeof t[0] !== "string" || !TURRET_SOURCE.test(t[0]) || typeof t[1] !== "string"
+        || !TURRET_NAME.test(t[1]) || !inBound(t[2]) || !inBound(t[3]) || !inBound(t[4]) || !isDeg(t[5])) return `door ${i} is not [source, name, x, y, z, yaw]`;
+      if (t.length === 7 && t[6] !== true) return `door ${i} lock is not true`;
+    }
+  }
+  for (const [key, what] of [["gates", "gate"], ["barriers", "barrier"]] as const) {
+    if (r[key] === undefined) continue;
+    const rows = r[key];
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > RECORD_LIMITS.spawns) return `${key} is not a list`;
+    for (const [i, t] of rows.entries()) {
+      if (!Array.isArray(t) || (t.length !== 6 && t.length !== 7) || typeof t[0] !== "string" || !TURRET_SOURCE.test(t[0]) || typeof t[1] !== "string"
+        || !TURRET_NAME.test(t[1]) || !inBound(t[2]) || !inBound(t[3]) || !inBound(t[4]) || !isDeg(t[5])) return `${what} ${i} is not [source, name, x, y, z, yaw]`;
+      if (t.length === 7 && t[6] !== true) return `${what} ${i} lock is not true`;
+    }
+  }
+  if (r["turrets"] !== undefined) {
+    const turrets = r["turrets"];
+    if (!Array.isArray(turrets) || turrets.length === 0 || turrets.length > RECORD_LIMITS.spawns) return "turrets is not a list";
+    for (const [i, t] of turrets.entries()) {
+      if (!Array.isArray(t) || (t.length !== 6 && t.length !== 7) || typeof t[0] !== "string" || !TURRET_SOURCE.test(t[0]) || typeof t[1] !== "string"
+        || !TURRET_NAME.test(t[1]) || !inBound(t[2]) || !inBound(t[3]) || !inBound(t[4]) || !isDeg(t[5])) return `turret ${i} is not [source, name, x, y, z, yaw]`;
+      if (t.length === 7 && t[6] !== true) return `turret ${i} lock is not true`;
+    }
+  }
+  if (r["flares"] !== undefined) {
+    const flares = r["flares"];
+    if (!Array.isArray(flares) || flares.length === 0 || flares.length > RECORD_LIMITS.spawns) return "flares is not a list";
+    for (const [i, f] of flares.entries()) {
+      if (!Array.isArray(f) || (f.length !== 5 && f.length !== 6) || typeof f[0] !== "string" || !TURRET_SOURCE.test(f[0]) || typeof f[1] !== "string"
+        || !FLARE_NODE.test(f[1]) || !inBound(f[2]) || !inBound(f[3]) || !inBound(f[4])) return `flare ${i} is not [source, name, x, y, z]`;
+      if (f.length === 6 && f[5] !== true) return `flare ${i} lock is not true`;
+    }
+  }
+  if (r["respawns"] !== undefined) {
+    const respawns = r["respawns"];
+    if (!Array.isArray(respawns) || respawns.length === 0 || respawns.length > RECORD_LIMITS.spawns) return "respawns is not a list";
+    for (const [i, s] of respawns.entries()) {
+      if (!Array.isArray(s) || (s.length !== 5 && s.length !== 6) || (s[0] !== "A" && s[0] !== "B") || !inBound(s[1]) || !inBound(s[2])
+        || !inBound(s[3]) || !isDeg(s[4])) return `respawn point ${i} is not [team, x, y, z, yaw]`;
+      if (s.length === 6 && s[5] !== true) return `respawn point ${i} lock is not true`;
+    }
+  }
+  if (r["tacPoints"] !== undefined) {
+    const points = r["tacPoints"];
+    if (!Array.isArray(points) || points.length === 0 || points.length > RECORD_LIMITS.spawns) return "tacPoints is not a list";
+    for (const [i, t] of points.entries()) {
+      if (!Array.isArray(t) || (t.length !== 5 && t.length !== 6) || typeof t[0] !== "string" || !ZONE_NAME.test(t[0]) || !inBound(t[1]) || !inBound(t[2])
+        || !inBound(t[3]) || !Number.isInteger(t[4]) || (t[4] as number) < 0 || (t[4] as number) > 31) return `tactical point ${i} is not [name, x, y, z, kind]`;
+      if (t.length === 6 && t[5] !== true) return `tactical point ${i} lock is not true`;
+    }
+  }
+  if (r["scenicViews"] !== undefined) {
+    const views = r["scenicViews"];
+    if (!Array.isArray(views) || views.length === 0 || views.length > RECORD_LIMITS.spawns) return "scenicViews is not a list";
+    for (const [i, v] of views.entries()) {
+      const angle = (n: unknown): boolean => inBound(n) && Math.abs(n as number) <= 360;
+      if (!Array.isArray(v) || (v.length !== 6 && v.length !== 7) || typeof v[0] !== "string" || !ZONE_NAME.test(v[0]) || !inBound(v[1]) || !inBound(v[2])
+        || !inBound(v[3]) || !angle(v[4]) || !angle(v[5])) return `spectator view ${i} is not [name, x, y, z, yaw, pitch]`;
+      if (v.length === 7 && v[6] !== true) return `spectator view ${i} lock is not true`;
+    }
+  }
+  if (r["extractionZones"] !== undefined) {
+    const zones = r["extractionZones"];
+    if (!Array.isArray(zones) || zones.length === 0 || zones.length > RECORD_LIMITS.spawns) return "extractionZones is not a list";
+    for (const [i, z] of zones.entries()) {
+      const sized = (n: unknown): boolean => inBound(n) && (n as number) > 0;
+      if (!Array.isArray(z) || (z.length !== 6 && z.length !== 7) || typeof z[0] !== "string" || !ZONE_NAME.test(z[0])
+        || !inBound(z[1]) || !inBound(z[2]) || !inBound(z[3]) || !sized(z[4]) || !sized(z[5])) return `extraction zone ${i} is not [name, x, y, z, width, depth]`;
+      if (z.length === 7 && z[6] !== true) return `extraction zone ${i} lock is not true`;
     }
   }
   if (r["settings"] !== undefined) {
@@ -1426,6 +1970,16 @@ export const RECORD_CODES = {
   legacyCarry: "record.LEGACY_CARRY",
   onlinePacks: "record.ONLINE_PACKS",
   onlineMode: "record.ONLINE_MODE",
+  onlineHostages: "record.ONLINE_HOSTAGES",
+  onlineExtractionZones: "record.ONLINE_EXTRACTION_ZONES",
+  onlineTacticalPoints: "record.ONLINE_TACTICAL_POINTS",
+  onlineRespawns: "record.ONLINE_RESPAWNS",
+  onlineFlares: "record.ONLINE_FLARES",
+  onlineSpectatorViews: "record.ONLINE_SPECTATOR_VIEWS",
+  onlineTurrets: "record.ONLINE_TURRETS",
+  onlineDoors: "record.ONLINE_DOORS",
+  onlineGates: "record.ONLINE_GATES",
+  onlineBarriers: "record.ONLINE_BARRIERS",
   /** FCW-10, H273/H274: an online lobby plays the disc's own maps (`maps.ts` `CONTENT_MAP_CODES.onlineContentMap`). */
   onlineContentMap: "record.ONLINE_CONTENT_MAP",
 } as const;
@@ -1495,7 +2049,39 @@ export function readCreatorRecord(text: string, options: ReadRecordOptions = {})
  * (H275). Empty: admitted. A share code and an account row carry the references only, never a pack's bytes (H276).
  */
 export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
-  return onlineRefusal(r.requires ?? [], r.mode, r.contentBase);
+  return [...onlineRefusal(r.requires ?? [], r.mode, r.contentBase), ...hostagesRefusal(r.hostages?.length ?? 0), ...zonesRefusal(r.extractionZones?.length ?? 0),
+    ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", r.tacPoints?.length ?? 0, "tactical points"),
+    ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", r.respawns?.length ?? 0, "respawn points"),
+    ...placedRefusal(RECORD_CODES.onlineFlares, "flares", r.flares?.length ?? 0, "flares"),
+    ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", r.scenicViews?.length ?? 0, "spectator views"),
+    ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", r.turrets?.length ?? 0, "turrets"),
+    ...placedRefusal(RECORD_CODES.onlineDoors, "doors", r.doors?.length ?? 0, "doors"),
+    ...placedRefusal(RECORD_CODES.onlineGates, "gates", r.gates?.length ?? 0, "gates"),
+    ...placedRefusal(RECORD_CODES.onlineBarriers, "barriers", r.barriers?.length ?? 0, "C4 barriers")];
+}
+
+/** Placed tactical points or spectator views (a browser adaptation) play locally only: a lobby plays the disc's own. */
+function placedRefusal(code: string, field: string, count: number, words: string): Diagnostic[] {
+  return count ? [diagnostic({
+    source: "check", severity: "error", code, field, actual: String(count),
+    text: `An online lobby plays the disc's own ${words}: this layout places its own. Play it locally.`,
+  })] : [];
+}
+
+/** Placed extraction zones (a browser adaptation) play locally only: a lobby's room plays the disc's own zones. */
+function zonesRefusal(count: number): Diagnostic[] {
+  return count ? [diagnostic({
+    source: "check", severity: "error", code: RECORD_CODES.onlineExtractionZones, field: "extractionZones", actual: String(count),
+    text: "An online lobby plays the disc's own extraction zones: this layout places its own. Play it locally.",
+  })] : [];
+}
+
+/** Placed hostages (a browser adaptation) play locally only: a lobby's room plays the disc's own escortees. */
+function hostagesRefusal(count: number): Diagnostic[] {
+  return count ? [diagnostic({
+    source: "check", severity: "error", code: RECORD_CODES.onlineHostages, field: "hostages", actual: String(count),
+    text: "An online lobby plays the disc's own hostages: this layout places its own. Play it locally.",
+  })] : [];
 }
 
 /**
@@ -1508,7 +2094,15 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
 export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnostic[] {
   const map = isContentLayoutBase(l.base) ? l.base : null;
   const packs = sortPackRefs([...(l.requires ?? []), ...(map ? [map.ref] : []), ...l.pieces.flatMap((p) => (p.content ? [p.content.pack] : []))]);
-  return onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined);
+  return [...onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined), ...hostagesRefusal(l.hostages?.length ?? 0), ...zonesRefusal(l.extractionZones?.length ?? 0),
+    ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", l.tacPoints?.length ?? 0, "tactical points"),
+    ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", l.respawns?.length ?? 0, "respawn points"),
+    ...placedRefusal(RECORD_CODES.onlineFlares, "flares", l.flares?.length ?? 0, "flares"),
+    ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", l.scenicViews?.length ?? 0, "spectator views"),
+    ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", l.turrets?.length ?? 0, "turrets"),
+    ...placedRefusal(RECORD_CODES.onlineDoors, "doors", l.doors?.length ?? 0, "doors"),
+    ...placedRefusal(RECORD_CODES.onlineGates, "gates", l.gates?.length ?? 0, "gates"),
+    ...placedRefusal(RECORD_CODES.onlineBarriers, "barriers", l.barriers?.length ?? 0, "C4 barriers")];
 }
 
 /** FCW-07a's name for the layout's online policy: `onlineCreatorLayoutRefusal`, the one body (a content base refused too). */

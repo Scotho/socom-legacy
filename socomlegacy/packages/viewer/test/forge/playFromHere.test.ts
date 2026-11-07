@@ -6,7 +6,7 @@ import { groundGrid } from '../../src/mover';
 import type { SimMap } from '../../src/simMap';
 import { floorGround } from '../../src/forge/ground';
 import { slotsOfSpawns } from '../../src/forge/matchMap';
-import { floorUnder, openingStand, standFromHere, withPlayerHere, type ViewStand } from '../../src/forge/playFromHere';
+import { floorUnder, openingStand, randomStand, standFromHere, withPlayerHere, type ViewStand } from '../../src/forge/playFromHere';
 
 /**
  * FG-50 (a browser adaptation, no original): Play from here stands the local player on the floor under the camera,
@@ -119,5 +119,21 @@ describe('FG-50: round 2 uses the layout slot', () => {
     expect(feet()[0]).toBeCloseTo(80, 0);
     expect(feet()[1]).toBeCloseTo(40, 0);
     expect(events.some((e) => e.type === 'roundStart' && e.round === 2)).toBe(true);
+  });
+});
+
+describe('Play settings: a random spawn of the side (a browser adaptation, FG.R2)', () => {
+  const slots = slotsOfSpawns([
+    { team: 'A', p: [10, 0, 0], yaw: 0 }, { team: 'A', p: [20, 0, 0], yaw: -Math.PI / 2 }, { team: 'B', p: [99, 0, 0], yaw: 0 },
+  ]);
+  it('stands on one of the side\'s own slots, facing as it faces, chosen by the draw', () => {
+    expect(randomStand(slots, 0, () => 0)).toEqual({ at: [10, 0, 0], yaw: 0 });
+    const second = randomStand(slots, 0, () => 0.99)!;
+    expect(second.at).toEqual([20, 0, 0]);
+    expect(second.yaw).toBeCloseTo(-Math.PI / 2);
+    expect(randomStand(slots, 1, () => 0.5)!.at).toEqual([99, 0, 0]);
+  });
+  it('a side with no slot: none', () => {
+    expect(randomStand(slots.filter((s) => s.side === 0), 1, () => 0)).toBeNull();
   });
 });

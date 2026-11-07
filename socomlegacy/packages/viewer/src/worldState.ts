@@ -516,6 +516,22 @@ export class WorldState {
     return { running, opacity };
   }
 
+  /**
+   * The forge's placed plant sites' outlines (`./forge/siteOutlines`; a browser adaptation, FG.R2): a node no program of
+   * the set names, drawn on or off for the page alone (no world flag of its own: the map's scene does not hold it). What
+   * `./bombPage` `worldPulse` drives where the map's `objectives` has no outline of its own to light.
+   */
+  displayNode(path: string, on: boolean): void {
+    if (on) this.displayed.add(path); else this.displayed.delete(path);
+    this.emit(path, on);
+  }
+
+  /** `displayNode`'s opacity: the node's opacity now, as a display run's `OBJECT_OPACITY_FROM_TO` writes it. */
+  displayOpacity(path: string, opacity: number): void {
+    this.opacities.set(path, opacity);
+    for (const h of [...this.hooks]) h.opacity?.(path, opacity);
+  }
+
   /** Whether a program of the name (case aside) is running. */
   running(name: string): boolean {
     const n = name.toLowerCase();
