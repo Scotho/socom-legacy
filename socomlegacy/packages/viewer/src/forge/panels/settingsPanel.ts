@@ -262,6 +262,8 @@ export function settingsMenuSection(hooks: SettingsMenuHooks, rows: readonly Set
  */
 export function settingsPanel(dom: SettingsDom, hooks: SettingsMenuHooks): ForgePanel {
   // Under World, beside the Environment panel: the layout's map-wide settings, not an object's.
-  return builtPanel({ id: 'settings', title: 'Settings', dock: 'right', order: 40, defaultOpen: true, tab: 'World',
+  // Titled Map Settings and first on the Map tab (the owner, 2026-11-06): above the View (30) and the Light rig (35).
+  // Its id kept, so a saved dock layout and the tests still find it.
+  return builtPanel({ id: 'settings', title: 'Map Settings', dock: 'right', order: 25, defaultOpen: true, tab: 'Map',
     padLegend: [{ button: 'dpad', label: 'Change' }, { button: 'cross', label: 'Reset' }], menuSection: () => settingsMenuSection(hooks) }, dom.body);
 }

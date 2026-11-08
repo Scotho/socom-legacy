@@ -56,9 +56,9 @@ export type ViewerRequest =
   /** The play mode's clips (W2.2b): `RUN/MOTION_P.ZAR`'s named clips and `motion.rdr`'s entries for them, once a source. */
   | { kind: 'play'; id: number; source: SourceRequest; clips: string[] }
   /** A map's sound (socomlegacy/docs/research/81, `./soundData`): its banks, the script, the materials, the weapons, the callbacks. */
-  | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string }
+  | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string; cuesFrom?: { path: string; archive: string } }
   /** EFFECTS: a map's effect programs, models, textures and mark tables (socomlegacy/docs/research/89, `./effectData`). */
-  | { kind: 'effects'; id: number; source: SourceRequest; path: string; archive: string }
+  | { kind: 'effects'; id: number; source: SourceRequest; path: string; archive: string; borrow?: { path: string; names: string[] } }
   /** The pre-round ARMORY's layout, scripts, strings, fonts, models, bitmaps and roster for a map (web sprint 5, `./armoryData`). */
   | { kind: 'armory'; id: number; source: SourceRequest; path: string; archive: string; /** The UI models too (false: the page holds them). */ models?: boolean };
 
@@ -145,7 +145,7 @@ ctx.addEventListener('message', (event: MessageEvent<ViewerInbound>) => {
         ctx.postMessage({ kind: 'index', id: request.id, maps, problems, ...(campaign ? { campaign } : {}) });
       } else if (request.kind === 'sound') {
         // Never an error either: without the banks the walk is silent.
-        const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive);
+        const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive, request.cuesFrom);
         data.loopsFollow = true;
         // The loops are rendered from the bank bytes before those are handed over, and sent after the data.
         const loops = renderAmbienceLoops(data, LOOP_SECONDS_PLACEHOLDER, LOOP_FADE_SECONDS_PLACEHOLDER, LONG_LOOP_SECONDS_PLACEHOLDER);
@@ -154,7 +154,7 @@ ctx.addEventListener('message', (event: MessageEvent<ViewerInbound>) => {
         ctx.postMessage({ kind: 'soundLoops', id: request.id, loops }, loopTransferables(loops));
       } else if (request.kind === 'effects') {
         // Never an error either: a part that will not read is left out and named in `missing`.
-        const data = await effectsFromDisc(sourceFor(request.source), request.path, request.archive);
+        const data = await effectsFromDisc(sourceFor(request.source), request.path, request.archive, request.borrow);
         ctx.postMessage({ kind: 'effects', id: request.id, data }, effectTransferables(data));
       } else if (request.kind === 'armory') {
         // Never an error either: a part that will not read is left out and named in `missing`.

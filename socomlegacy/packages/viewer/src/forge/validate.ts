@@ -244,7 +244,7 @@ const atOf = (m: readonly number[]): [number, number, number] => [m[12] ?? 0, m[
  */
 export function checkMap(
   layout: Layout, ground: GroundData, pieces: readonly CheckedPiece[], polyCount?: number, discSpawns?: readonly DiscSpawn[],
-  baseExtraction: { hostages: number; zones: number; safety?: boolean } = { hostages: 0, zones: 0 },
+  baseExtraction: { hostages: number; zones: number; safety?: boolean; bomb?: { start: boolean; seal: boolean; terrorist: boolean } } = { hostages: 0, zones: 0 },
 ): MapCheck {
   const grid = groundGrid(ground);
   const issues: MapIssue[] = [];
@@ -316,11 +316,14 @@ export function checkMap(
 
   // Demolition (game type 2) plays the layout's bomb only whole: a start and one site for each planting team
   // (`./objectives` `bombReady`, the room's rule). A browser adaptation's warning, each part missing named.
+  // With no bomb start of its own the layout plays the base map's (`./objectives` `applyForgeObjectives`): its StartBomb
+  // and its tents (`baseExtraction.bomb`, those the layout has not deleted) count -- a disc Demolition map plays as is.
   if (layout.objectives?.gameType === 2) {
     const bomb = layout.objectives.bomb;
-    if (!bomb?.start) issues.push({ kind: 'bomb-missing', text: 'Demolition has no bomb start: place one with the Bomb tool.', at: null });
-    if (!bomb?.sites.some((s) => s.team === 0)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no SEAL site: place one with the Site SEAL tool.', at: null });
-    if (!bomb?.sites.some((s) => s.team === 1)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no Terrorist site: place one with the Site Terrorist tool.', at: null });
+    const own = bomb?.start ? null : baseExtraction.bomb ?? null;
+    if (!bomb?.start && !own?.start) issues.push({ kind: 'bomb-missing', text: 'Demolition has no bomb start: place one with the Bomb tool.', at: null });
+    if (own ? !own.seal : !bomb?.sites.some((s) => s.team === 0)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no SEAL site: place one with the Site SEAL tool.', at: null });
+    if (own ? !own.terrorist : !bomb?.sites.some((s) => s.team === 1)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no Terrorist site: place one with the Site Terrorist tool.', at: null });
   }
 
   // Extraction (game type 4) needs a hostage to lead out and a zone to lead it to: the base map's own (its escortees,

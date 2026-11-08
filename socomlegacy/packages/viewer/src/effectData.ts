@@ -86,8 +86,13 @@ function programTextures(p: EffectProgram): string[] {
   return out;
 }
 
-/** Reads a map's effect data off `source`. */
-export async function effectsFromDisc(source: AssetSource, mapPath: string, archive: string): Promise<EffectData> {
+/**
+ * Reads a map's effect data off `source`. `borrow` (the owner, 2026-11-06; a browser adaptation, FG.R2 -- the forge's
+ * game type over a map of another, as `./soundData` `cuesFrom`): effect programs the map's own sets lack, by name, read
+ * off another map's mission set -- the detonation's `base_explosion1` (`FUN_002c1c30` D:L163920) lives in a Demolition
+ * or Breach map's own `MZANIM.ZAR`, not the common set; its bitmaps are the common libraries' (EFFE, ALPH).
+ */
+export async function effectsFromDisc(source: AssetSource, mapPath: string, archive: string, borrow?: { path: string; names: readonly string[] }): Promise<EffectData> {
   const missing: string[] = [];
   const member = async (suffix: string): Promise<Uint8Array | null> => {
     try { return await readZdbMember(source, mapPath, suffix); } catch (e) { missing.push(`${mapPath} ${suffix}: ${why(e)}`); return null; }
@@ -118,6 +123,19 @@ export async function effectsFromDisc(source: AssetSource, mapPath: string, arch
         }
       }
     } catch (e) { missing.push(`${archiveName}: ${why(e)}`); }
+  }
+  // The programs a donor lends: only the names asked for that this map's own sets lack.
+  const wanted = (borrow?.names ?? []).filter((n) => !seen.has(n.toLowerCase()));
+  if (borrow && wanted.length) {
+    try {
+      const zar = Zar.parse(await readZdbMember(source, borrow.path, 'MZANIM.ZAR'));
+      for (const set of parseAnimSets(zar).sets) for (const a of set.anims) {
+        const key = a.name.toLowerCase();
+        if (seen.has(key) || !wanted.some((n) => n.toLowerCase() === key)) continue;
+        seen.add(key);
+        programs.push(decodeEffectProgram(a));
+      }
+    } catch (e) { missing.push(`${borrow.path} MZANIM.ZAR (borrowed effects): ${why(e)}`); }
   }
 
   const models: EffectModelData[] = [];

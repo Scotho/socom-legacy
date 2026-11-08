@@ -141,6 +141,13 @@ export interface Layout {
    */
   hidden?: string[];
   /**
+   * The base map's own objectives taken out of this layout (the owner, 2026-11-06; a browser adaptation, FG.R2: a custom
+   * version of an official map), each by its key: `hostage:<name>` (an escortee), `bomb:start` (StartBomb),
+   * `site:<node>` (an MPBOMB plant site), `zone:<name>` (an extraction zone). The disc's map is untouched; this
+   * layout's editor and match leave them out (`viewer/src/forge/mapDataHide`). Absent: none. Online refused.
+   */
+  hiddenData?: string[];
+  /**
    * FG-21: the layout's NPCs -- each a seat of the offline match on `side`, as that side's character `type` of the map
    * (`LoadedMap.types`, protocol 9's), standing at `p` facing `yaw`. Hostile when on the side the player is not on.
    * Absent: none.
@@ -932,6 +939,12 @@ export function parseLayout(text: string): Layout {
         return h;
       }),
     }),
+    ...(raw["hiddenData"] === undefined ? {} : {
+      hiddenData: (Array.isArray(raw["hiddenData"]) ? raw["hiddenData"] : [null]).map((h, i) => {
+        if (typeof h !== "string" || !HIDDEN_DATA_KEY.test(h)) throw new Error(`hiddenData ${i} is not a map objective's key`);
+        return h;
+      }),
+    }),
     ...(raw["settings"] === undefined ? {} : { settings: parseSettings(raw["settings"]) }),
     ...(raw["objectives"] === undefined ? {} : { objectives: parseObjectives(raw["objectives"]) }),
     ...(raw["ids"] === undefined ? {} : objectiveIdsOf(raw["ids"])),
@@ -1168,6 +1181,8 @@ export interface LayoutRecordV2 {
   pieces: PieceRow[];
   spawns: SpawnRow[];
   hidden?: string[];
+  /** The base map's own objectives the layout takes out (`Layout.hiddenData`), present only when it has some. */
+  hiddenData?: string[];
   npcs?: NpcRow[];
   settings?: Partial<LayoutSettings>;
   camera?: LayoutCamera;
@@ -1223,6 +1238,8 @@ export interface CreatorLayoutRecord {
   /** The rows' stable authored ids. */
   ids: RecordIds;
   hidden?: string[];
+  /** The base map's own objectives the layout takes out (`Layout.hiddenData`), present only when it has some. */
+  hiddenData?: string[];
   npcs?: NpcRow[];
   /** The placed hostages (`Layout.hostages`), present only when the layout has some: additive inside v3, as `zones`. */
   hostages?: HostageRow[];
@@ -1278,9 +1295,12 @@ const STEM = /^[A-Z]{1,3}\d{1,3}$/;
 /** The page's blank floor when no archive is the palette (`matchMap` `BLANK_LIBRARY`). */
 const BLANK_FLOOR = "floor";
 const ASSET = /^[A-Z]{1,3}\d{1,3}:[A-Za-z0-9_.\-]{1,64}$/;
+/** A taken-out map objective's key (`Layout.hiddenData`): its kind and its name (a node, a hostage, a zone). */
+const HIDDEN_DATA_KEY = /^(hostage|site|zone):[A-Za-z0-9_ .=\/-]{1,96}$|^bomb:start$|^(slot|respawn):[AB]\d{1,3}$/;
+
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers"];
+  "objectives", "requires", "mode", "legacyCarry", "hiddenData", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -1386,6 +1406,7 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     assets, pieces, spawns, ids,
   };
   if (l.hidden?.length) record.hidden = [...l.hidden];
+  if (l.hiddenData?.length) record.hiddenData = [...l.hiddenData];
   if (l.npcs?.length) record.npcs = l.npcs.map((n): NpcRow => {
     const row: NpcRow = [n.side, n.type, tenth(n.p[0]), tenth(n.p[1]), tenth(n.p[2]), wholeDeg(n.yaw)];
     if (n.locked === true) row[6] = true;
@@ -1487,6 +1508,7 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
     })),
   };
   if (r.hidden?.length) layout.hidden = [...r.hidden];
+  if (!isV2(r) && r.hiddenData?.length) layout.hiddenData = [...r.hiddenData];
   if (r.npcs?.length) layout.npcs = r.npcs.map(([side, type, x, y, z, yaw, locked], i): NpcMarker => ({
     side, type, p: [x, y, z], yaw: rad(yaw), ...(locked === true ? { locked: true as const } : {}), ...ownId(ids?.npcs?.[i], ID_PREFIX.npc, i),
   }));
@@ -1640,6 +1662,11 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
     const hidden = r["hidden"];
     if (!Array.isArray(hidden) || hidden.length === 0 || hidden.length > RECORD_LIMITS.pieces) return "hidden is not a list of placements";
     for (const [i, h] of hidden.entries()) if (typeof h !== "string" || !PLACEMENT_KEY.test(h)) return `hidden ${i} is not a model and a place`;
+  }
+  if (r["hiddenData"] !== undefined) {
+    const keys = r["hiddenData"];
+    if (!Array.isArray(keys) || keys.length === 0 || keys.length > RECORD_LIMITS.pieces) return "hiddenData is not a list of map objectives";
+    for (const [i, h] of keys.entries()) if (typeof h !== "string" || !HIDDEN_DATA_KEY.test(h)) return `hiddenData ${i} is not a map objective's key`;
   }
   if (r["npcs"] !== undefined) {
     const npcs = r["npcs"];
@@ -1975,6 +2002,7 @@ export const RECORD_CODES = {
   onlineTacticalPoints: "record.ONLINE_TACTICAL_POINTS",
   onlineRespawns: "record.ONLINE_RESPAWNS",
   onlineFlares: "record.ONLINE_FLARES",
+  onlineHiddenData: "record.ONLINE_HIDDEN_DATA",
   onlineSpectatorViews: "record.ONLINE_SPECTATOR_VIEWS",
   onlineTurrets: "record.ONLINE_TURRETS",
   onlineDoors: "record.ONLINE_DOORS",
@@ -2053,6 +2081,7 @@ export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
     ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", r.tacPoints?.length ?? 0, "tactical points"),
     ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", r.respawns?.length ?? 0, "respawn points"),
     ...placedRefusal(RECORD_CODES.onlineFlares, "flares", r.flares?.length ?? 0, "flares"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", r.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
     ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", r.scenicViews?.length ?? 0, "spectator views"),
     ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", r.turrets?.length ?? 0, "turrets"),
     ...placedRefusal(RECORD_CODES.onlineDoors, "doors", r.doors?.length ?? 0, "doors"),
@@ -2098,6 +2127,7 @@ export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnosti
     ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", l.tacPoints?.length ?? 0, "tactical points"),
     ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", l.respawns?.length ?? 0, "respawn points"),
     ...placedRefusal(RECORD_CODES.onlineFlares, "flares", l.flares?.length ?? 0, "flares"),
+    ...placedRefusal(RECORD_CODES.onlineHiddenData, "hiddenData", l.hiddenData?.length ?? 0, "objectives (this layout takes some of the map's out)"),
     ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", l.scenicViews?.length ?? 0, "spectator views"),
     ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", l.turrets?.length ?? 0, "turrets"),
     ...placedRefusal(RECORD_CODES.onlineDoors, "doors", l.doors?.length ?? 0, "doors"),

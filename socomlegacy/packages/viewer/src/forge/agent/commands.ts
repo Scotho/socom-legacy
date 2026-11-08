@@ -293,8 +293,12 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
       const kind = args['kind'] as 'start' | 'seal' | 'terrorist';
       if (bombs.some((b) => b.kind === kind && b.locked)) fail('LOCKED', 'The bomb marker is locked');
       for (let i = bombs.length - 1; i >= 0; i--) if (bombs[i]!.kind === kind) bombs.splice(i, 1);
-      // A bomb marker is Demolition's (the owner, 2026-11-05; a browser adaptation): placed only once the layout plays it.
-      if (l.objectives?.gameType !== 2) fail('GAME_TYPE', 'Set the game type to Demolition to place the bomb or its sites');
+      // A bomb marker is Demolition's (the owner, 2026-11-05; a browser adaptation): placed only once the layout plays it --
+      // and Breach's start and SEALs' site (the owner, 2026-11-06: `../objectives` `breachReady`), never its Terrorists' site.
+      const type = l.objectives?.gameType;
+      if (type !== 2 && !(type === 1 && kind !== 'terrorist')) {
+        fail('GAME_TYPE', type === 1 ? 'Breach plays no Terrorist site: only the bomb start and the SEAL site' : 'Set the game type to Demolition or Breach to place the bomb or its sites');
+      }
       bombs.push({ kind, at, yaw, locked: false });
       break;
     }

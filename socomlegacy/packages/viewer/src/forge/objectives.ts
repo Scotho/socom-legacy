@@ -85,7 +85,11 @@ export function forgeTypeUnplayable(gameType: number, objectives: ForgeObjective
   switch (gameType) {
     case 1: return (map.bombStart && plantSite('seal', map.meta?.actions ?? [])) || breachReady(objectives?.bomb) ? null
       : 'Breach needs a bomb start and the SEALs\' site: the base\'s, or placed (Bomb, Site SEAL)';
-    case 2: return bombReady(objectives?.bomb) ? null : 'Demolition needs a start and one site for each team';
+    // The layout's bomb whole; or, with no start of its own, the base's StartBomb and a site for each team (a disc
+    // Demolition map as it is -- `applyForgeObjectives` then keeps the base's).
+    case 2: return bombReady(objectives?.bomb)
+      || (!objectives?.bomb?.start && !!map.bombStart && !!plantSite('seal', map.meta?.actions ?? []) && !!plantSite('terrorist', map.meta?.actions ?? []))
+      ? null : 'Demolition needs a start and one site for each team';
     case 3: {
       if (!map.escortees?.length) return 'Escort needs the base\'s escortees';
       const stem = stemOfMap(map);

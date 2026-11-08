@@ -89,7 +89,7 @@ export function mapDataGroups(map: MapDataSource, floorAt: (x: number, z: number
   const groups: MapDataGroup[] = [];
   const add = (key: string, label: string, rows: MapDataRow[]): void => { if (rows.length) groups.push({ key, label, rows }); };
   const at = (key: string, label: string, p: V3, what: string, data?: unknown): MapDataRow =>
-    ({ key, label, at: [p[0], p[1], p[2]], title: `${what} at ${where(p)} · read only · click to look at it`, ...(data !== undefined ? { data } : {}) });
+    ({ key, label, at: [p[0], p[1], p[2]], title: `${what} at ${where(p)} · click to look at it`, ...(data !== undefined ? { data } : {}) });
 
   add('respawns', 'Respawn Points', [...(map.respawns ?? [])].sort((a, b) => a.side - b.side || a.index - b.index).map((s) => {
     const name = `${s.side === 0 ? 'A' : 'B'}${s.index + 1}`;

@@ -332,7 +332,16 @@ function silent(archive: string, missing: string[]): SoundData {
  * Reads a map's sound data off `source`. A source without `SOUNDS/BNKSTORE.ZAR` (a tree extracted before research
  * 81) gives data with no banks and the archive named in `missing`.
  */
-export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string): Promise<SoundData> {
+/**
+ * `cuesFrom` (the owner, 2026-11-06; a browser adaptation, FG.R2 -- the forge's game type over a map of another): the
+ * round's cues -- its `objectives` script, the lines its locale ids name and the streams it plays -- read off this map
+ * instead of `mapPath`'s, every other sound the map's own. The game has one script a map, its own mode's: a layout that
+ * plays another mode there borrows a map of that mode's script (CUES_FROM_DONOR_READING: its generic valves --
+ * `mp_bomb`, `bomb_owner`, `mp_winner`, `player_team` -- drive it as on its own map; a line testing one of its own map's
+ * names -- a VIP's valve, a tent -- may not fire on this one [reading: not run against the original]).
+ */
+export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }): Promise<SoundData> {
+  const cues = cuesFrom ?? { path: mapPath, archive };
   const files = [...SOUND_BANK_KINDS.map((k) => `${archive}_${k}.bnk`), ...SOUND_GLOBAL_BANKS];
   let found: Map<string, Uint8Array>;
   try {
@@ -419,8 +428,13 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
         if (member === 'MZANIM.ZAR') mission = parsed;
       } catch (e) { missing.push(`${mapPath} ${member}: ${why(e)}`); }
     }
-    // Research 124 §5: the round's cues are the mission set's `objectives` script's.
-    if (mission) { try { roundCues = roundCuesFromArchive(mission, archive); } catch (e) { missing.push(`${mapPath} objectives: ${why(e)}`); } }
+    // Research 124 §5: the round's cues are the mission set's `objectives` script's -- the donor's, where one is named.
+    let cueSet: ZAnimArchive | null = mission;
+    if (cues.path !== mapPath) {
+      try { cueSet = parseAnimSets(Zar.parse(await readZdbMember(source, cues.path, 'MZANIM.ZAR'))); }
+      catch (e) { cueSet = null; missing.push(`${cues.path} MZANIM.ZAR (the round's cues): ${why(e)}`); }
+    }
+    if (cueSet) { try { roundCues = roundCuesFromArchive(cueSet, cues.archive); } catch (e) { missing.push(`${cues.path} objectives: ${why(e)}`); } }
     const payload: ZAnimPayload = (set, anim, offset, length) => {
       for (const z of zars) {
         const key = z.find(`Anim_Sets/${set}/Animation_List/${anim}/Seq_Data`);
@@ -558,10 +572,11 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
   // own `MPnnLOC`, a member of its archive.
   if (roundCues && needsTexts(roundCues)) {                // the objective's lines and the bomb's (XR-06: mp72LOC 7206-7213)
     try {
-      const strings = readLocArchive(await readZdbMember(source, mapPath, mapLocArchive(archive).archive.split('/').pop()!), archive);
+      // The cues' own map's strings (the donor's, where the cues are its).
+      const strings = readLocArchive(await readZdbMember(source, cues.path, mapLocArchive(cues.archive).archive.split('/').pop()!), cues.archive);
       const byId = new Map(strings.entries.map((e) => [e.id, e.text]));
       roundCues = withObjectiveTexts(roundCues, (id) => byId.get(id));
-    } catch (e) { missing.push(`${mapPath} ${archive}LOC.ZAR: ${why(e)}`); }
+    } catch (e) { missing.push(`${cues.path} ${cues.archive}LOC.ZAR: ${why(e)}`); }
   }
 
   // Research 124 §4: the round's streams, by range out of VAGSTORE.
@@ -577,7 +592,10 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
   const membersOf = (name: string): string[] => groups.get(name)?.members.map(m => m.name) ?? [name];
   const streamNames=[...new Set(tauntNames.flatMap(membersOf))];
   if (sets) for (const name of streamNames) { const p = soundParams(sets, missionSoundBlocks(archive), name); if (p) params.push([name, p]); }
-  const streams = streamEntries ? await readSoundStreams(source, streamEntries, archive, [...roundNames.flatMap(membersOf), ...streamNames], missing) : [];
+  // The round's streams out of the cues' own map's blocks (a donor's lines are its blocks', not this map's).
+  const streams = !streamEntries ? []
+    : cues.archive === archive ? await readSoundStreams(source, streamEntries, archive, [...roundNames.flatMap(membersOf), ...streamNames], missing)
+    : [...await readSoundStreams(source, streamEntries, cues.archive, roundNames, missing), ...await readSoundStreams(source, streamEntries, archive, streamNames, missing)];
 
   return {
     archive, banks, materials, params, weapons, callbacks, callbackVolumes, fireDistances, defaultMaterial, beds, layers, emitters,

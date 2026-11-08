@@ -60,7 +60,7 @@ import { CONTENT_METRES_PER_UNIT_ADAPTATION, contentPieceHull, type ContentResol
 import type { ContentLoadStage } from '../packs/content/map';
 import { FORGE_PANELS_KEY, FORGE_VIEW_KEY, pageIndexedDb, pageSettings } from '../pageStore';
 import { decodeHistoryStep, encodeHistoryStep, History, historyCaption, recordEdit, redoMeta, undoMeta } from './history';
-import { doorsAfter, groundWithout, linesWithout, placementOf, placementsOf, propsWithout, type Placement } from './hide';
+import { doorsAfter, groundWithout, linesWithout, placementOf, placementOwners, placementsOf, propsWithout, type Placement } from './hide';
 import { FORGE_MATCHING_CLASS } from './matchState';
 import { contentPropsGroup, lobbyArmoryData, matchExtras, startForgeLobbyMatch, startForgeMatch, type ForgeMatch } from './match';
 import type { ForgeLobbyEnd, ForgeLobbyKick, ForgeLobbyPassword, ForgeLobbyVisibility } from './lobby/deps';
@@ -90,7 +90,7 @@ import { matchBackWords, menuCard, placeMenuCard } from './menuView';
 import { hullSegments } from './hull';
 import {
   assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
-  serializeLayout, settingsOf, withIds, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
+  serializeLayout, settingsOf, withIds, placementKey, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
   type NpcBehaviour, BOMB_SITE_REACH, } from './layout';
 import { blankFloorOf, breachReady, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
 import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
@@ -99,6 +99,8 @@ import { flareModelMap, flareTemplates, withPlacedFlares, type FlareTemplate } f
 import { SITE_OUTLINE_DONOR, withSiteOutlines } from './siteOutlines';
 import { skyDomeFor } from './skyDome';
 import { environmentOf } from './environmentCopy';
+import { hiddenDataKeyOf, withoutHiddenData } from './mapDataHide';
+import { plantSite } from '../net/objective';
 import { BLANK_PRESETS, blankPresetOf, presetLayout, type PresetHostage } from './blankPresets';
 import { hostageCharactersOf, hostagesPlayIn, withLentHostageBodies, hostageDefault, nextHostageName } from './hostages';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
@@ -716,11 +718,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return i;
   };
   selectSettings.append(el(doc, 'div', 'fx-tool-popup-title', 'Select'));
-  const selectMapPropsIn = selectToggle('selectMapProps', 'Select map props',
-    'A click or a selection box picks the base map’s own props; off, they are passed over (the Outliner still selects them)');
-  const selectUserPropsIn = selectToggle('selectUserProps', 'Select user props',
-    'A click or a selection box picks your placements; off, they are passed over (the Outliner still selects them)');
-  selectSettings.append(el(doc, 'div', 'fx-tool-popup-note', 'Off, a click looks through them to what is behind; the Outliner selects either.'));
+  const selectMapPropsIn = selectToggle('selectMapProps', 'Select map data',
+    'A click or a selection box picks the base map’s own props and data (spawns, hostages, sites, zones, doors...); off, they are passed over (the Outliner still selects them)');
+  const selectUserPropsIn = selectToggle('selectUserProps', 'Select user data',
+    'A click or a selection box picks your placements (props, spawns, objectives, objects...); off, they are passed over (the Outliner still selects them)');
+  selectSettings.append(el(doc, 'div', 'fx-tool-popup-note',
+    'Off, a click looks through them to what is behind. A kind switched off in the View dropdown (its billboards) is passed over too; props always follow these two. The Outliner selects any.'));
   const moveBtn = tool('move', 'Move', `Move with the gizmo${key('W')}`);
   const turnBtn = tool('turn', 'Rotate', `Rotate with the gizmo${key('E')}`);
   const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo (not wired yet)${key('R')}`);
@@ -1058,9 +1061,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const rigEditor = buildLightRigEditor(doc, {
     get: () => atmosphereNow(),
     own: () => !!(settings.lightRig || settings.fogColor || settings.shadowVector || settings.skyFrom || settings.fog || settings.night),
-    from: () => (base?.kind === 'blank' ? base.library : ''),
+    from: () => (base?.kind === 'blank' ? base.library : base?.kind === 'map' ? base.archive : ''),
     // Its sky: a disc map's own dome copied over the floor (`./skyDome`), or none.
-    skyChoices: () => entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const),
+    // An official map keeps its own sky (its world's): the copied dome is a new empty map's alone.
+    skyChoices: () => base?.kind !== 'blank' ? [] : entries.filter((e) => !e.campaign && !absent.has(e.stem)).map((e) => [e.stem, `${e.label} · ${e.stem}`] as const),
     flares: () => roots.filter((r) => r.userData['forgeFlare']).length,
     preview: (a) => { if (editsLocked()) return; settings = { ...settings, ...atmosphereSettings(a) }; applySettings(); },
     commit: (a) => { if (refuseEdit()) { applySettings(); return; } settings = { ...settings, ...atmosphereSettings(a) }; applySettings(); settingsEdit(() => edit()); },
@@ -1102,7 +1106,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const placeLightingRows = (): void => {
     const [dayNightRow, fogRow] = settingsDom.lightingRows;
-    const blank = base?.kind === 'blank';
+    const blank = envEditable();
     if (dayNightRow) (blank ? rigEditor.slots.dayNight : environmentDom.layout).append(dayNightRow);
     if (fogRow) (blank ? rigEditor.slots.fogDistance : environmentDom.layout).append(fogRow);
     environmentDom.layout.hidden = blank;
@@ -1232,19 +1236,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     billboardsCol.append(row);
     return checkbox;
   };
-  billboardsCol.append(el(doc, 'h3', 'fx-viewport-modes-heading', 'Billboards'));
-  const billboardsOnIn = billboardToggle('Show billboards');
-  const billboardsTopIn = billboardToggle('Always on top');
-  billboardsTopIn.closest('label')!.title = 'Draw the billboards over all the geometry, so they can be found from anywhere on the map';
+  // One list (the owner, 2026-11-06): the billboards' two switches and the overlays' under a single Overlays heading.
   billboardsCol.append(el(doc, 'h3', 'fx-viewport-modes-heading', 'Overlays'));
-  // Every gizmo at once (the owner, 2026-11-06: one switch): the disc's spawn slots' cells and arrows (`../overlays`) and
-  // the placed spawns' and hostages' cells, the doors' swings, the ladders', turrets', views', gates' and barriers'
-  // guides (`./interactOverlay`) -- the view setting the disc's slots had. Its own listener: View's switches took theirs
-  // before this one joined them.
+  const billboardsOnIn = billboardToggle('Show billboards');
+  // Every gizmo at once (the owner, 2026-11-06: one switch; second in the list): the disc's spawn slots' cells and arrows
+  // (`../overlays`) and the placed spawns' and hostages' cells, the doors' swings, the ladders', turrets', views', gates'
+  // and barriers' guides (`./interactOverlay`) -- the view setting the disc's slots had. Its own listener: View's switches
+  // took theirs before this one joined them.
   const discSlotsIn = billboardToggle('Gizmos');
   discSlotsIn.closest('label')!.title = 'Every gizmo on or off: spawn and hostage cells, door swings, ladder, turret, view, gate and C4 barrier guides';
   viewportToggleInputs.set('spawns', discSlotsIn);
   discSlotsIn.addEventListener('change', () => { view.spawns = discSlotsIn.checked; applyView(); });
+  // Both the billboards' and the gizmos' (`applyGizmoDepth`), so its own switch whatever Show billboards says.
+  const billboardsTopIn = billboardToggle('Always on top');
+  billboardsTopIn.closest('label')!.title = 'Draw the billboards and the gizmos over all the geometry, so they can be found from anywhere on the map; off, walls hide them';
   // The map's own flare glows (its lights', the sun's, the sky's): drawn as the game draws them, or out of the way.
   const flareGlowsIn = billboardToggle('Flare glows');
   flareGlowsIn.closest('label')!.title = "The map's own light glows, sun, moon and stars; off, they are not drawn (nor picked)";
@@ -1355,7 +1360,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       solo.setAttribute('aria-pressed', String(on));
       solo.disabled = !billboardsOn;
     }
-    billboardsTopIn.disabled = !billboardsOn;
+    billboardsTopIn.disabled = false;                           // the gizmos' too: never held by Show billboards
   };
   billboardsOnIn.addEventListener('change', () => { billboardsOn = billboardsOnIn.checked; applyView(); });
   billboardsTopIn.addEventListener('change', () => { billboardsOnTop = billboardsTopIn.checked; applyView(); });
@@ -1874,7 +1879,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   toolsRow.append(
     modeSection('Spawn', 'spawn', group(modeBtns.spawnA, modeBtns.spawnB), group(modeBtns.respawnA, modeBtns.respawnB)),
     modeSection('Objects', 'objects', group(modeBtns.door, modeBtns.gate, modeBtns.barrier, modeBtns.ladder, modeBtns.turret, modeBtns.flare)),
-    modeSection(FORGE_GAME_TYPE_NAME[2], 'demolition', group(modeBtns.bomb, modeBtns.siteSeal, modeBtns.siteTerrorist)),
+    // Breach plays the bomb's start and the SEALs' site too (`./objectives` `breachReady`): one section, both modes named.
+    modeSection(`${FORGE_GAME_TYPE_NAME[2]} · ${FORGE_GAME_TYPE_NAME[1]}`, 'demolition', group(modeBtns.bomb, modeBtns.siteSeal, modeBtns.siteTerrorist)),
     modeSection(`${FORGE_GAME_TYPE_NAME[3]} · ${FORGE_GAME_TYPE_NAME[4]}`, 'escort', group(modeBtns.hostage, modeBtns.zone)),
     modeSection('Info', 'info', group(modeBtns.point, modeBtns.view)),
     modeSection('Other', 'other', group(modeBtns.npc)),
@@ -2295,7 +2301,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       scene.add(mapTurretGuides);
     }
     // The map's hostages as the placed ones: a spawn's box alone at each start (`../overlays` `slotBoxSegments`).
-    const hostageSlots = (baseMap.escortees ?? []).map((e): SpawnSlot => ({ side: 0, index: 0, position: [e.at[0], e.at[1] - HOSTAGE_START_LIFT_READING + 0.5, e.at[2]], onFloor: true, step: 0, facing: yawWay(e.yaw), loc: e.loc }));
+    const hostageSlots = (withoutHiddenData(baseMap, hiddenData).escortees ?? []).map((e): SpawnSlot => ({ side: 0, index: 0, position: [e.at[0], e.at[1] - HOSTAGE_START_LIFT_READING + 0.5, e.at[2]], onFloor: true, step: 0, facing: yawWay(e.yaw), loc: e.loc }));
     // Its gates' and C4 barriers' gizmos (`./placedAccess` `accessGizmo`): each lever at its own place.
     for (const t of accessTemplates(baseMap, baseMap.archive)) {
       const g = accessGizmo(t, 'disc');
@@ -2304,8 +2310,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       mapAccessGuides.push(guide);
       scene.add(guide);
     }
-    // Its plant sites' reach (MPBOMB context actions): each action's own `actions.rdr` range and elevation (`../mapActions`).
-    for (const a of baseMap.actions ?? []) {
+    // Its plant sites' reach (MPBOMB context actions): each action's own `actions.rdr` range and elevation (`../mapActions`);
+    // a site this layout takes out (`./mapDataHide`) has none.
+    for (const a of withoutHiddenData(baseMap, hiddenData).actions ?? []) {
       if (a.type.toUpperCase() !== 'MPBOMB') continue;
       const g = bombSiteShapes(a.at, a.range, a.elevation);
       if (!g.segments.length) continue;
@@ -2372,7 +2379,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   scene.add(mapPropProxy);
   let dragFrom: { centre: Vec3; poses: Pose[] } | null = null;
   let duplicateModifierOnPointerDown = false;
-  let pendingMapPropDrag: { source: BaseProp; before: string[] } | null = null;
+  /** A map prop's drag waiting on its first move: a copy (Ctrl, `take` false) or the prop taken over (a plain drag). */
+  let pendingMapPropDrag: { source: BaseProp; before: string[]; take: boolean } | null = null;
   let pendingUserPropDrag: { source: Object3D; matrix: Matrix4; before: string[] } | null = null;
   let pendingGroupPropDrag: { sources: Object3D[]; poses: Pose[]; scales: Vector3[]; centre: Vec3; before: string[]; started: boolean; ended: boolean } | null = null;
   let groupPropDragStep: { step: OperationStep; before: string[] } | null = null;
@@ -2381,7 +2389,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (gizmo.object === mapPropProxy && pendingMapPropDrag) {
       const pending = pendingMapPropDrag;
       pendingMapPropDrag = null;
-      duplicateMapPropForDrag(pending.source, pending.before);
+      duplicateMapPropForDrag(pending.source, pending.before, pending.take);
     }
     if (pendingUserPropDrag) {
       const pending = pendingUserPropDrag;
@@ -2476,7 +2484,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           passOver('copied');
         } else passOver('moved');
       }
-      else if (gizmo.object === mapPropProxy && baseSelected && duplicateModifierOnPointerDown) pendingMapPropDrag = { source: baseSelected, before: selectionIds() };
+      // A map prop dragged: Ctrl copies it (the original stays); a plain drag takes it over (the owner, 2026-11-06: a custom
+      // version of an official map) -- it becomes the layout's own piece at its place, the original hidden, one edit.
+      else if (gizmo.object === mapPropProxy && baseSelected) pendingMapPropDrag = { source: baseSelected, before: selectionIds(), take: !duplicateModifierOnPointerDown };
       else if (selected && gizmo.object === selected && (selected.userData['forgePiece'] || cloneable(selected)) && duplicateModifierOnPointerDown) {
         pendingUserPropDrag = { source: selected, matrix: selected.matrix.clone(), before: selectionIds() };
       }
@@ -2763,19 +2773,67 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     v.setEngineOrder(view.engineorder);
   };
   pieces.onBuild = applyWorld;
+  /**
+   * Whether a gizmo of a kind draws (the owner, 2026-11-06): its kind's View switch on -- the switch whose id or whose
+   * mark kinds name it (`MAP_DATA_KIND_TOGGLES`: `doors`, `userTurrets`, `slotA`...). A kind no switch names draws.
+   */
+  /**
+   * The gizmos drawn as the billboards are (the owner, 2026-11-06): with Always on top on, over everything (as they were
+   * made: no depth test); off, behind what stands in front -- every guide (door swings, rings, arrows, cells) and the
+   * placed spawns', hostages' and zones' own lines, the map's spawn slots, the map's zone rectangles. Run with the view,
+   * and whenever new gizmos are made (a placement added, the map's guides drawn).
+   */
+  function applyGizmoDepth(): void {
+    const top = billboardsOnTop;
+    const set = (o: Object3D): void => {
+      const m = (o as Partial<Mesh>).material as Material | Material[] | undefined;
+      for (const x of Array.isArray(m) ? m : m ? [m] : []) {
+        if (x.visible === false || x.depthTest === !top) continue;                  // a pick box (unseen), or already so
+        x.depthTest = !top;
+        x.needsUpdate = true;
+      }
+    };
+    const guides = [mapDoorGuides, mapLadderGuides, mapTurretGuides, mapHostageGuides, mapViewGuides, ...mapAccessGuides, mapZoneLines];
+    for (const g of guides) g?.traverse(set);
+    for (const r of roots) {
+      r.traverse((o) => { if (o.userData['forgeGuideKind'] || o.userData['forgeGuide']) o.traverse(set); });
+      if (r.userData['forgeSpawn'] || r.userData['forgeRespawn'] || r.userData['forgeHostage'] || r.userData['forgeZone']) {
+        for (const child of r.children) if ((child as LineSegments).isLineSegments) set(child);
+      }
+    }
+    overlays.setSpawnsOnTop(top);
+  }
+  function guideShown(kind: string | undefined): boolean {
+    if (!kind) return true;
+    const t = MAP_DATA_KIND_TOGGLES.find((x) => x.id === kind || x.kinds.includes(kind));
+    return !t || !billboardsOff.has(t.id);
+  }
   const applyView = (): void => {
     for (const v of [baseView, ...pieces.views()]) if (v) applyWorld(v);
     overlays.setGrid(view.grid && !!baseMap);
-    overlays.setSpawns(view.spawns && !!baseMap);
+    // The gizmos (the owner, 2026-11-06): the Gizmos switch, and each kind's own View switch -- a kind switched off in the
+    // View dropdown (its billboards) draws no gizmo either (`guideShown`).
+    overlays.setSpawns(view.spawns && !!baseMap && guideShown('slotA'));
     setSlotCellsShown(view.spawns);                           // the placed spawns' and hostages' cells too, as the disc's
-    // The guides with them (one switch): the map's own and each placed object's.
-    for (const g of [mapDoorGuides, mapLadderGuides, mapTurretGuides, mapHostageGuides, mapViewGuides, ...mapAccessGuides]) if (g) g.visible = view.spawns;
-    for (const r of roots) r.traverse((o) => { if (o.userData['forgeGuideKind']) o.visible = view.spawns; });
+    // The guides with them: the map's own and each placed object's, each by its kind.
+    for (const g of [mapDoorGuides, mapLadderGuides, mapTurretGuides, mapHostageGuides, mapViewGuides, ...mapAccessGuides]) {
+      if (g) g.visible = view.spawns && guideShown(g.userData['forgeGuideKind'] as string | undefined);
+    }
+    applyGizmoDepth();                                        // drawn over everything or behind, as the billboards
+    for (const r of roots) {
+      r.traverse((o) => { if (o.userData['forgeGuideKind']) o.visible = view.spawns && guideShown(o.userData['forgeGuideKind'] as string); });
+      // A placed spawn's, respawn's or hostage's cell and an extraction zone's outline (their own lines, not tagged guides).
+      if (r.userData['forgeSpawn'] || r.userData['forgeRespawn'] || r.userData['forgeHostage'] || r.userData['forgeZone']) {
+        const on = (r.userData['forgeZone'] || view.spawns) && guideShown(userKindOfRoot(r) ?? undefined);
+        for (const child of r.children) if ((child as LineSegments).isLineSegments && !child.userData['forgeGuideKind']) child.visible = !!on;
+      }
+    }
     applyBillboards();
     // A new empty map fogs too (the owner, 2026-11-06): its fog the built-from map's, its own colour and distance over it.
-    fog.enabled = view.fog && (base?.kind === 'map' || (base?.kind === 'blank' && (settings.fog?.on ?? discFog.enabled)));
+    // A map's fog on as the view has it, unless the layout turns it off (its own environment); an empty map's as its own.
+    fog.enabled = view.fog && (base?.kind === 'map' ? settings.fog?.on ?? true : base?.kind === 'blank' && (settings.fog?.on ?? discFog.enabled));
     // A new empty map's own fog colour is kept over Day / night's tint (`lightingFog` `keepColour`).
-    liftForgeFog(scene, fog, lighting, null, created.setClearColor, settings.timeOfDay, base?.kind === 'blank' && !!settings.fogColor);
+    liftForgeFog(scene, fog, lighting, null, created.setClearColor, settings.timeOfDay, envEditable() && !!settings.fogColor);
     if (base?.kind === 'blank' && settings.timeOfDay === null) created.setClearColor([12, 20, 24]);
     created.setPresentation(view.ps2 ? 'ps2' : 'native');
     fit();
@@ -2817,10 +2875,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * the same rig: a uniform, no rebake); the fog colour and the cleared background follow the brighten (`liftFog`).
    */
   /** A new empty map's own rig, where it has one (a blank base only); null on a disc map, which keeps its own. */
-  const customRig = (): GlobalLighting | null => (base?.kind === 'blank' ? (settings.lightRig as GlobalLighting | null | undefined) ?? null : null);
+  /**
+   * Whether the base's environment is the layout's to edit (the owner, 2026-11-06): a new empty map's, and an official
+   * map's for a custom version of it -- each starting from the map's own values, Reset back to them. An authored map's is
+   * its pack's.
+   */
+  function envEditable(): boolean { return base?.kind === 'blank' || base?.kind === 'map'; }
+  const customRig = (): GlobalLighting | null => (envEditable() ? (settings.lightRig as GlobalLighting | null | undefined) ?? null : null);
   /** The rig of the map a new empty map is built from (its library): what it plays with none of its own. */
-  const libraryRig = (): GlobalLighting | null => (base?.kind === 'blank' ? charMap?.lightRig ?? null : null);
+  const libraryRig = (): GlobalLighting | null => (base?.kind === 'blank' ? charMap?.lightRig ?? null : base?.kind === 'map' ? baseMap?.lightRig ?? null : null);
   /** A new empty map's drop-shadow way: its own, else the built-from map's, else `FALLBACK_SHADOW` (as the editor shows). */
+  /** Where an official map's Light directions arrows stand: its middle and its size (the map data's draw sets it). */
+  let mapArrowsAt: { centre: [number, number, number]; size: number } = { centre: [0, 0, 0], size: 0 };
   const blankShadow = (): readonly number[] => settings.shadowVector ?? charMap?.shadowVector ?? FALLBACK_SHADOW;
   /**
    * A new empty map's sky in the editor (`settings.skyFrom`, `./skyDome`): the chosen disc map's dome, built as a world
@@ -2884,22 +2950,27 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     agentMark();                                              // browser adaptation: the agent's layout revision
     Object.assign(fog, fogWithFar(discFog, settings.fogFar));
     // A new empty map's own fog colour over the one it is built from (a blank base only).
-    if (base?.kind === 'blank' && settings.fogColor) fog.color = [settings.fogColor[0], settings.fogColor[1], settings.fogColor[2]];
+    if (envEditable() && settings.fogColor) fog.color = [settings.fogColor[0], settings.fogColor[1], settings.fogColor[2]];
     // Its own near distance and height band likewise (its on is the view's, `applyView`).
-    if (base?.kind === 'blank' && settings.fog) {
+    if (envEditable() && settings.fog) {
       fog.near = Math.max(0, Math.min(settings.fog.near, fog.far - 1));
       fog.altitude = settings.fog.height ? { top: settings.fog.height.top, bottom: settings.fog.height.bottom } : null;
     }
     lighting.brighten = brightenFor(DEFAULT_LIGHTING.brighten, settings.timeOfDay === null ? settings.light : 1);
+    // An official map's own world under the layout's rig where it has one (a custom version), else the map's again.
+    if (base?.kind === 'map') lighting.rig = customRig() ?? baseMap?.lightRig ?? null;
     baseView?.setLighting(lighting);
     pieces.setRig(customRig());                                // a new empty map's own rig over the pieces' own (a blank base only)
     pieces.setBrighten(lighting.brighten);
     if (base?.kind === 'blank') {
       // The rig it plays drawn as the Light directions arrows, across the floor's middle; the editor with it.
       lightArrows.set((customRig() ?? libraryRig()) as GlobalLighting | null, [0, 0, 0], BLANK_RIG_ARROWS_SPAN, blankShadow());
-      rigEditor.draw();
+    } else if (base?.kind === 'map') {
+      // An official map's: across its own middle, sized to it (`mapArrowsAt`, the map data's draw).
+      lightArrows.set(customRig() ?? libraryRig(), mapArrowsAt.centre, mapArrowsAt.size, settings.shadowVector ?? baseMap?.shadowVector ?? null);
     }
-    rigEditor.body.hidden = base?.kind !== 'blank';
+    if (envEditable()) rigEditor.draw();
+    rigEditor.body.hidden = !envEditable();
     placeLightingRows();
     void drawSky();
     // The bodies (the NPCs' figures, the walk's SEAL) on the same uniform, each with its own map's rig.
@@ -2948,7 +3019,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const objectiveBase = (): ObjectiveMap => {
     const m = baseMap ?? (base?.kind === 'blank' ? charMap : null);
-    return !m ? {} : base?.kind === 'blank' ? blankFloorOf(m) : m;   // the library's archive, none of its map (`./objectives`)
+    // The library's archive, none of its map (`./objectives`); a map's own objectives this layout takes out, left out.
+    return !m ? {} : base?.kind === 'blank' ? blankFloorOf(m) : withoutHiddenData(m, hiddenData);
   };
   /**
    * FCW-32 step 4 fold F2 (review; a browser adaptation): why Play would refuse the layout's own rules mode on this base --
@@ -3137,6 +3209,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /* ---------- the layout ---------- */
   /** FG-17: the base map's own props hidden in this layout (`./hide`; `Layout.hidden`), by key. */
   let hiddenKeys = new Set<string>();
+  /**
+   * The base map's own objectives picked by a box (the owner, 2026-11-06): the deletable ones (`./mapDataHide`
+   * `hiddenDataKeyOf`) -- spawn slots, respawns, hostages, the bomb start, plant sites, extraction zones -- by their
+   * billboard's key, beside the props and placements the box picks; Delete takes them all out in one step.
+   */
+  const dataPicks = new Map<string, BillboardSpec>();
+  /** The base map's own objectives this layout takes out (`Layout.hiddenData`, `./mapDataHide`): its custom version's. */
+  let hiddenData = new Set<string>();
   /** FG-17: one of the base map's own props (hide-only: a placement of the disc's, not a piece); FG-47: its box, read at the pick. */
   type BaseProp = Placement & { model: string; object: Object3D; instance: number | null; matrix: Matrix4; box: Box3 };
   /** FG-47: the map's own props picked, by their placement key. */
@@ -3313,6 +3393,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ...(name ? { name } : {}),
       ...(withCamera ? { camera: cameraNow() } : {}),
       ...(hiddenKeys.size ? { hidden: [...hiddenKeys].sort() } : {}),
+      ...(hiddenData.size ? { hiddenData: [...hiddenData].sort() } : {}),
       ...(Object.keys(delta).length ? { settings: delta } : {}),
     };
     // R3-B (FCW-07a part 2): each row's authored id rides its object (`forgeId`, set by `prepareLayout`), so a reorder, a
@@ -3920,7 +4001,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (baseSelected) {
       fields.classList.add('is-off');
-      inspectName.textContent = `Map prop \u00b7 ${baseSelected.model} \u2014 Delete hides it in this layout`;
+      inspectName.textContent = `Map prop \u00b7 ${baseSelected.model} \u2014 drag it to make it yours, Delete hides it`;
       for (const f of [fx, fy, fz, fyaw]) f.value = '';
       return;
     }
@@ -4388,7 +4469,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return null;
     }
     if (mode === 'only') { picks.clear(); basePicks.only(prop); }
-    else if (mode === 'toggle') { picks.clear(); basePicks.toggle(prop); }
+    else if (mode === 'toggle') basePicks.toggle(prop);      // Ctrl: this prop in or out, the rest of the selection kept
     else basePicks.add(prop);
     entityPicked = null;
     showSelection();
@@ -4579,8 +4660,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
      * double-click -- frames it (the row is redrawn by the first, so the count is read, as the map props' rows read it).
      */
     const mapDataRow = (li: HTMLLIElement, key: string): void => {
-      li.classList.toggle('is-on', mapDataSelected?.key === key);
+      li.dataset['mapKey'] = key;                              // the rows' order, for a Shift range
+      li.classList.toggle('is-on', mapDataSelected?.key === key || dataPicks.has(key));
       li.addEventListener('click', (e) => {
+        // Shift: every map data row from the last one clicked to this (the owner, 2026-11-06: read only ones too); Ctrl
+        // (Cmd): this one in or out; else this one alone, as before.
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          pickMapDataRows(li, key, e.shiftKey ? 'range' : 'toggle');
+          return;
+        }
+        mapDataAnchor = key;
         selectMapData(key);
         const item = mapDataIndex.get(key);
         if (item && e.detail > 1) frameMapData(item);
@@ -4589,7 +4678,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     };
     // The map's own data (a browser adaptation, FG.R2): the disc's spawn slots, read only -- a row each, selected and
     // framed as any map data (`mapDataRow`), its key its billboard's (`slot:A1`).
-    const slotRows = baseMap && (want === 'all' || want === 'spawns') ? spawnSlotRows(baseMap.slots).flatMap((s) => {
+    const slotRows = baseMap && (want === 'all' || want === 'spawns') ? spawnSlotRows(withoutHiddenData(baseMap, hiddenData).slots).flatMap((s) => {
       if (q && !`${s.label} ${s.key}`.toLowerCase().includes(q)) return [];
       const li = el(doc, 'li', 'fx-spawn-slot');
       li.dataset['spawnSlot'] = s.key;
@@ -4634,7 +4723,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         : nothing ?? (baseMap || baseContentProps ? 'No map props' : 'Load a map to see its props')));
     }
     // The spawn slots only on a map that has them (a blank floor has none).
-    if ((want === 'all' || want === 'spawns') && baseMap?.slots.length) {
+    if ((want === 'all' || want === 'spawns') && baseMap && withoutHiddenData(baseMap, hiddenData).slots.length) {
       mapKids.push(sub('spawnSlots', 'Spawns', slotRows, nothing ?? 'No spawn slots'));
     }
     // The rest of the map's own data (`./mapData`), a branch a kind the map has, read only: a click selects a row, a
@@ -4774,7 +4863,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       gizmo.showZ = true;
     } else gizmo.detach();
     dupBtn.disabled = picks.size === 0;
-    delBtn.disabled = picks.size + basePicks.size === 0 && entityPicked === null;   // FCW-32 step 4: an entity's row too
+    delBtn.disabled = picks.size + basePicks.size + dataPicks.size === 0 && entityPicked === null && !(mapDataSelected && hiddenDataKeyOf(mapDataSelected));   // FCW-32 step 4: an entity's row too
     const unlocking = picks.size === 0 && lockHeld.length > 0;
     lockBtn.disabled = (picks.size === 0 && !unlocking) || editsLocked();
     lockBtn.textContent = unlocking ? 'Unlock' : 'Lock';
@@ -4793,6 +4882,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (o && lockedOf(o)) return;
     if (o === null) lockHeld = [];                            // a deselect lets the just-locked go
     if (o === null && mapDataSelected) { mapDataSelected = null; mapBillboards.highlight(null); }   // and a map data item
+    dataPicks.clear();                                       // and the map objectives a box picked
     if (replacing && o !== replacing.r) { endReplace(true); setMode('select'); }   // another selection: the re-placed prop back
     // FCW-32 step 4 fold F3: nothing selected drops a picked rules entity too (Circle, Escape, a click on empty ground).
     if (o === null && entityPicked !== null) { entityPicked = null; drawRulesScene(); }
@@ -4804,9 +4894,42 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * One of the base map's own data items selected by its key (its Outliner row, its billboard): every other selection
    * let go, its billboard drawn larger, the Inspector naming it -- read only, nothing to move.
    */
+  /** The last Map Data row clicked: a Shift range runs from it. */
+  let mapDataAnchor: string | null = null;
+  /**
+   * Map Data rows picked together from the Outliner (the owner, 2026-11-06): a Shift range from the anchor, or a Ctrl
+   * toggle -- any map data, read only ones too, held with a box's picks (`dataPicks`): highlighted, framed, and the
+   * deletable ones taken out by Delete. Every other selection let go.
+   */
+  const pickMapDataRows = (li: HTMLElement, key: string, how: 'range' | 'toggle'): void => {
+    if (replacing) { endReplace(true); setMode('select'); }
+    if (mapDataSelected) { dataPicks.set(mapDataSelected.key, mapDataSelected); mapDataSelected = null; }
+    if (how === 'toggle') {
+      const item = mapDataIndex.get(key);
+      if (dataPicks.has(key)) dataPicks.delete(key); else if (item) dataPicks.set(key, item);
+      mapDataAnchor = key;
+    } else {
+      const tree = li.closest('ul, ol')?.parentElement?.closest('[role="tree"], .fx-outliner, .fx-section') ?? li.ownerDocument;
+      const order = Array.from(tree.querySelectorAll<HTMLElement>('[data-map-key]')).map((row) => row.dataset['mapKey']!);
+      const to = order.indexOf(key);
+      const from = mapDataAnchor ? order.indexOf(mapDataAnchor) : -1;
+      const [a, b] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
+      dataPicks.clear();
+      for (const k of order.slice(a, b + 1)) { const item = mapDataIndex.get(k); if (item) dataPicks.set(k, item); }
+    }
+    picks.clear();
+    basePicks.clear();
+    if (entityPicked !== null) { entityPicked = null; drawRulesScene(); }
+    showSelection();
+    highlightSelectionMark();
+    drawOutliner();
+    const deletable = [...dataPicks.values()].filter((spec) => hiddenDataKeyOf(spec) !== null).length;
+    say(`${dataPicks.size} map item${dataPicks.size === 1 ? '' : 's'} selected${deletable < dataPicks.size ? ` · ${deletable} can be deleted, the rest are read only` : ''}`);
+  };
   const selectMapData = (key: string): void => {
     const item = mapDataIndex.get(key);
     if (!item) return;
+    dataPicks.clear();
     if (replacing) { endReplace(true); setMode('select'); }
     lockHeld = [];
     picks.clear();
@@ -4855,6 +4978,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const bounds = new Box3();
     for (const prop of basePicks.items) bounds.union(prop.box);
     for (const root of picks.items) bounds.union(new Box3().setFromObject(root));
+    // Map items picked together (a box, the Outliner's Shift / Ctrl): their places, each with a little room round it.
+    for (const spec of dataPicks.values()) bounds.union(new Box3().setFromCenterAndSize(new Vector3(...spec.at), new Vector3(20, 20, 20).addScalar(spec.reach ?? 0)));
     focusOnBounds(bounds);
   };
   const setMode = (m: Mode): void => {
@@ -5191,7 +5316,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
 
   /* ---------- pieces and markers ---------- */
-  const addRoot = (r: Object3D): void => { roots.push(r); scene.add(r); publishCreatorPiece(r); };
+  const addRoot = (r: Object3D): void => { roots.push(r); scene.add(r); publishCreatorPiece(r); applyGizmoDepth(); };
   /** A copy joins its kind (pieces, then spawns, then NPCs), the order a restore rebuilds, so its row does not move. */
   const addPlacement = (r: Object3D): void => {
     const rank = (o: Object3D): number => o.userData['forgePiece'] ? 0 : o.userData['forgeSpawn'] ? 1 : 2;
@@ -5305,7 +5430,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   /** The map data the Outliner and the billboards read: the loaded map's, and the flares its drawn world holds. */
   function mapDataSource(map: LoadedMap): MapDataSource {
-    return { ...map, flares: baseView?.flares?.() ?? [], ladders: mapLadders };
+    // The map's own objectives this layout takes out are no rows (`./mapDataHide`).
+    return { ...withoutHiddenData(map, hiddenData), flares: baseView?.flares?.() ?? [], ladders: mapLadders };
   }
   function floorUnder(x: number, z: number): number {
     try {
@@ -5328,7 +5454,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const at = placement.index * 16;
       return m && m.length >= at + 16 ? [{ key: placement.key, model, at: [m[at + 12]!, m[at + 13]!, m[at + 14]!] }] : [];
     }) : [];
-    const specs = baseMap ? billboardSpecs(mapDataGroups(mapDataSource(baseMap), floorUnder), baseMap.slots, props) : [];
+    // The spawn slots this map still has (one deleted from it, `./mapDataHide`, no billboard and no cell).
+    const slotsNow = baseMap ? withoutHiddenData(baseMap, hiddenData).slots : [];
+    if (baseMap && base?.kind === 'map') overlays.placeSpawns(spawnsFor(baseMap.name) ?? null, slotsNow);
+    const specs = baseMap ? billboardSpecs(mapDataGroups(mapDataSource(baseMap), floorUnder), slotsNow, props) : [];
     mapDataIndex = new Map(specs.map((s) => [s.key, s]));
     // A selected item the marks no longer have (hidden since) goes; a new base clears it before (`door:0` is another door).
     if (mapDataSelected && !mapDataIndex.has(mapDataSelected.key)) mapDataSelected = null;
@@ -5338,15 +5467,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const box = baseView?.box;
     const centre: [number, number, number] = box && !box.isEmpty() ? box.getCenter(new Vector3()).toArray() : [0, 0, 0];
     if (base?.kind === 'blank') lightArrows.set(customRig() ?? libraryRig(), [0, 0, 0], BLANK_RIG_ARROWS_SPAN, blankShadow());   // a new empty map's rig
-    else lightArrows.set(baseMap?.lightRig ?? null, centre, box && !box.isEmpty() ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) : 0, baseMap?.shadowVector ?? null);
+    else {
+      mapArrowsAt = { centre, size: box && !box.isEmpty() ? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) : 0 };
+      lightArrows.set(customRig() ?? baseMap?.lightRig ?? null, mapArrowsAt.centre, mapArrowsAt.size, settings.shadowVector ?? baseMap?.shadowVector ?? null);
+    }
     // The map's tactical zones' rectangles, each at the floor under its middle (the file places them on the ground plane only).
     if (mapZoneLines) { scene.remove(mapZoneLines); mapZoneLines.geometry.dispose(); (mapZoneLines.material as Material).dispose(); mapZoneLines = null; }
-    const tacZones = baseMap?.tac?.zones ?? [];
+    // The zones this map still has: one deleted from it (`./mapDataHide`) leaves no rectangle behind.
+    const tacZones = baseMap ? withoutHiddenData(baseMap, hiddenData).tac?.zones ?? [] : [];
     if (tacZones.length) {
       mapZoneLines = zoneOutlines(tacZones.map((z) => ({ ...z, y: floorUnder((z.minX + z.maxX) / 2, (z.minZ + z.maxZ) / 2) })));
       scene.add(mapZoneLines);
     }
     drawMapGuides();                                           // its doors' swings, its ladders' climb sides
+    applyGizmoDepth();                                         // and those, with the zones' rectangles, drawn as the view has them
     drawEnvironmentPanel();
     applyBillboards();
   };
@@ -5369,7 +5503,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }) : []);
   }
   function highlightSelectionMark(): void {                    // a declaration: `showSelection` may run before this line
-    mapBillboards.highlight(mapDataSelected?.key ?? (baseSelected ? propMarkKey(baseSelected.key) : selected ? userMarkKeyOf(selected) : null));
+    // Every mark of the selection, a box's or a group's too: each map prop's M, each placement's own, each map item's.
+    const keys = new Set<string>([
+      ...dataPicks.keys(),
+      ...(mapDataSelected ? [mapDataSelected.key] : []),
+      ...basePicks.items.map((b) => propMarkKey(b.key)),
+      ...picks.items.map((r) => userMarkKeyOf(r)),
+    ]);
+    mapBillboards.highlight(keys.size ? [...keys] : null);
   }
   /**
    * The user's placements' billboards (`./mapDataBillboards` `setUser`): a mark each -- a piece, a spawn by its team, an
@@ -5387,6 +5528,35 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The placement a user mark's key names, or null (a key not of a user mark, or one gone since). */
   const rootOfUserMark = (key: string): Object3D | null =>
     (key.startsWith('user:') ? roots.find((r) => userMarkKeys.get(r) === key) ?? null : null);
+  /** A placement's mark kind (`./mapDataBillboards` `userMarkKind`): what its View switch is. */
+  function userKindOfRoot(r: Object3D): string | null {
+    return userMarkKind({
+      piece: !!r.userData['forgePiece'], npc: !!npcOf(r), bomb: bombKindOf(r), hostage: !!r.userData['forgeHostage'], zone: !!r.userData['forgeZone'],
+      point: !!r.userData['forgePoint'], view: !!r.userData['forgeView'], turret: !!r.userData['forgeTurret'], door: !!r.userData['forgeDoor'],
+      ladder: !!r.userData['forgeLadder'], flare: r.userData['forgeFlare'] !== undefined, gate: !!r.userData['forgeGate'], barrier: !!r.userData['forgeBarrier'],
+      ...(r.userData['forgeSpawn'] === 'A' || r.userData['forgeSpawn'] === 'B' ? { team: r.userData['forgeSpawn'] as 'A' | 'B' } : {}),
+      ...(r.userData['forgeRespawn'] === 'A' || r.userData['forgeRespawn'] === 'B' ? { respawn: r.userData['forgeRespawn'] as 'A' | 'B' } : {}),
+    });
+  }
+  /**
+   * Whether a kind of thing can be picked by a click or a box (the owner, 2026-11-06): only while its View switch shows
+   * it (the Billboards' kinds, `MAP_DATA_KIND_TOGGLES`; Show billboards off, none) -- map data and user data alike. Props
+   * are the exception: they draw themselves, their marks start switched off, and a prop follows the Select settings alone.
+   */
+  const PROP_MARK_KINDS = new Set(['mapProps', 'userProps']);
+  function kindSelectable(kind: string | null | undefined): boolean {
+    if (!kind || PROP_MARK_KINDS.has(kind)) return true;
+    if (!billboardsOn) return false;
+    return !MAP_DATA_KIND_TOGGLES.some((t) => billboardsOff.has(t.id) && t.kinds.includes(kind));
+  }
+  /**
+   * Whether the map props' M billboards show (the owner, 2026-11-06: map props select by them when they do) -- Show
+   * billboards on and the View dropdown's Map Data Props on. On: a box picks props by their M alone, a click by its M or
+   * the prop. Off: a box and a click both hit-test the props' drawn bodies.
+   */
+  const propMarksShown = (): boolean => billboardsOn && !billboardsOff.has('mapProps');
+  /** A placement a click or a box may pick: its kind shown (`kindSelectable`). */
+  const rootSelectable = (r: Object3D): boolean => kindSelectable(userKindOfRoot(r));
   function syncUserBillboards(): void {
     if (roots.length !== userMarksOf.length || roots.some((r, i) => r !== userMarksOf[i])) {
       userMarksOf = [...roots];
@@ -5485,7 +5655,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       });
     }, 250);
   };
-  const duplicateMapPropForDrag = (source: BaseProp, before: string[]): void => {
+  const duplicateMapPropForDrag = (source: BaseProp, before: string[], take = false): void => {
     const map = baseMap;
     if (!map || baseSelected?.key !== source.key) return;
     const asset = assetId(map.archive, source.model);
@@ -5507,6 +5677,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     pieceSources.set(id.archive, map);
     const accepted = personEdit('selection.duplicate', { refs: [source.key] }, (step) => {
       mapPropDragStep = { step, before };
+      // Taken over: the original hidden in the same step (FG-17's hide), the copy now the prop.
+      if (take) { hiddenKeys.add(source.key); drawHidden(); warnBakedCollision([source.key]); }
       addPlacement(copy);
       picks.only(copy);
       basePicks.clear();
@@ -5853,6 +6025,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       stagedBase?.commit();
     select(null);
     hiddenKeys = new Set(l.hidden ?? []);
+    hiddenData = new Set(l.hiddenData ?? []);
     drawHidden();
     settings = settingsOf(l);                                // FG-24: the layout's settings, the panel with them
     applySettings();
@@ -6157,12 +6330,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const chose = selectMapProps && selectUserProps ? hit : selectUserProps ? pick(ndc, 'placed') : selectMapProps ? pick(ndc, 'map') : null;
       // A map data billboard, when it is the nearest thing under the cursor (one behind a wall is not drawn, so not
       // picked), is the map's own data selected (read only); under the same setting as the map's props.
-      if (!toggle) {
+      {
         const mark = mapBillboards.pick(ray);
         const userRoot = mark ? rootOfUserMark(mark.key) : null;
         // A user placement's mark (square) under "Select user props"; the map's own (round) under "Select map props".
-        const allowed = mark && (userRoot ? selectUserProps : selectMapProps);
+        // A map prop's M only while the Ms show (`propMarksShown`); with them off a click hit-tests the prop itself.
+        const propMark = !!mark && !!placementOfMark(mark.key);
+        const allowed = mark && (userRoot ? selectUserProps && rootSelectable(userRoot)
+          : selectMapProps && (propMark ? propMarksShown() : kindSelectable(mapDataIndex.get(mark.key)?.kind ?? null)));
         if (mark && allowed && mark.distance <= (chose?.distance ?? Infinity)) {
+          // Ctrl (or Shift) on a mark (the owner, 2026-11-06): its object in or out of the selection, the rest kept --
+          // as Ctrl in the Outliner. A placement's, a map prop's (by its M) or a map data item's.
+          if (toggle) {
+            if (userRoot) { picks.toggle(userRoot); showSelection(); return; }
+            const propKey = placementOfMark(mark.key);
+            const found = propKey ? mapPropPlacements().find(({ placement }) => placement.key === propKey) : undefined;
+            if (found) { selectMapProp(found.placement, found.model, 'toggle'); return; }
+            const item = mapDataIndex.get(mark.key);
+            if (!propKey && item) {
+              if (mapDataSelected) { dataPicks.set(mapDataSelected.key, mapDataSelected); mapDataSelected = null; }
+              if (dataPicks.has(item.key)) dataPicks.delete(item.key); else dataPicks.set(item.key, item);
+              mapDataAnchor = item.key;
+              showSelection();
+              highlightSelectionMark();
+              drawOutliner();
+            }
+            return;
+          }
           if (userRoot) { select(userRoot); return; }               // a user mark: its placement selected, as a click on it
           // A map prop's mark (M) selects the prop itself, as a click on it does; any other, the map data item.
           const propKey = placementOfMark(mark.key);
@@ -6172,8 +6366,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           return;
         }
       }
-      const root = forgeRootOf(chose?.object ?? null);
-      if (selectMapProps && !root && chose && baseMap && baseView && isUnder(chose.object, baseView.group)) {
+      // A placement of a kind its View switch hides is passed over, as nothing there.
+      const struck = forgeRootOf(chose?.object ?? null);
+      const root = struck && rootSelectable(struck) ? struck : null;
+      if (selectMapProps && !struck && chose && baseMap && baseView && isUnder(chose.object, baseView.group)) {
         // FG-17: one of the map's own props -- its placement by model and place (`./hide` `placementOf`).
         const o = chose.object as Mesh;
         const model = o.name.replace(/ \((lod|flare)\)$/, '');
@@ -6345,7 +6541,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (mode === 'zone') {
       // Placed extraction zones play in Extraction only (the owner, 2026-11-05): another type, the player is told.
-      if (authoredType !== 3 && authoredType !== 4) { notifier.refused('Safety zones play in Escort or Extraction: set the game type first (World tab, Settings)'); return; }
+      if (authoredType !== 3 && authoredType !== 4) { notifier.refused('Safety zones play in Escort or Extraction: set the game type first (Map tab, Map Settings)'); return; }
       personEdit('extraction.place', {}, () => {
         const before = selectionIds();
         const r = newZone(nextSafetyName(zoneNamesTaken()), EXTRACTION_ZONE_SIZE, EXTRACTION_ZONE_SIZE);
@@ -6359,7 +6555,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (mode === 'hostage') {
       // Placed hostages play in Escort and Extraction only (the owner, 2026-11-05): another type, the player is told.
-      if (!hostagesPlayIn(authoredType ?? undefined)) { notifier.refused('Hostages play in Escort or Extraction: set the game type first (World tab, Settings)'); return; }
+      if (!hostagesPlayIn(authoredType ?? undefined)) { notifier.refused('Hostages play in Escort or Extraction: set the game type first (Map tab, Map Settings)'); return; }
       personEdit('hostage.place', {}, () => {
         const before = selectionIds();
         const r = hostageMarker();
@@ -6376,9 +6572,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return;
     }
     if (mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist') {
-      // The bomb and its sites are Demolition's (the owner, 2026-11-05): another type, the player is told to change it.
-      if (authoredType !== 2 && !(authoredType === 1 && kind !== 'terrorist')) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return; }
+      // The bomb and its sites are Demolition's (the owner, 2026-11-05), the start and the SEALs' site Breach's too: another
+      // type, the player is told to change it. Its kind first: the type's test reads it.
       const kind: BombMarkerKind = mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist';
+      if (authoredType !== 2 && !(authoredType === 1 && kind !== 'terrorist')) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (Map tab, Map Settings)'); return; }
       // One start, and one site a planting team: a new one replaces every marker of its kind (a file may name two).
       const prevs = roots.filter((r) => bombKindOf(r) === kind);
       // A lock means "don't change this" (the merge controller's call, 2026-10-22): never a silent removal.
@@ -6527,28 +6724,163 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const camera = fly.viewportCamera();
     camera.updateMatrixWorld();
     // The Select tool's settings: a kind switched off is left out of the box.
-    const shownRoots = selectUserProps ? roots.filter((r) => shown(r) && !lockedOf(r)) : [];
+    const shownRoots = selectUserProps ? roots.filter((r) => shown(r) && !lockedOf(r) && rootSelectable(r)) : [];
     const ndcs = shownRoots.map((r) => { const v = r.getWorldPosition(new Vector3()).project(camera); return [v.x, v.y, v.z] as Vec3; });
     const inBox = inRect(ndcs, [d.ndc.x, d.ndc.y], [end.x, end.y]).map((i) => shownRoots[i]!);
-    const mapCandidates = !selectMapProps ? [] : mapPropPlacements().flatMap(({ placement, model }) => {
-      if (hiddenKeys.has(placement.key)) return [];
-      const prop = resolveMapProp(placement, model);
-      if (!prop || !shown(prop.object)) return [];
-      if (prop.instance !== null) {
-        const matrix = new Matrix4();
-        (prop.object as InstancedMesh).getMatrixAt(prop.instance, matrix);
-        if (Math.abs(matrix.determinant()) < 1e-12) return [];
+    // The map's own props, by the owner's rules (2026-11-06; `propMarksShown`): with their M billboards on, every M in
+    // the box (behind a wall or not, drawn or an alternate state); with them off, a hit test of the drawn props -- the
+    // middle of each drawn body in the box. Its drawn mesh found through one walk of the base world, every entry of its
+    // placement tried (a LOD pair's near and far copies are two entries); one with none drawn sized from its geometry.
+    const placements = !selectMapProps || !baseMap ? [] : mapPropPlacements().filter(({ placement }) => !hiddenKeys.has(placement.key));
+    const meshesOf = new Map<number, Mesh[]>();
+    const entriesOf = new Map<string, [number, number][]>();
+    if (placements.length && baseMap && baseView) {
+      baseView.group.updateMatrixWorld(true);
+      baseView.group.traverse((o) => {
+        const tag = o.userData['forgeBaseProp'] as { prop?: number } | undefined;
+        if (!(o instanceof Mesh) || typeof tag?.prop !== 'number') return;
+        const list = meshesOf.get(tag.prop) ?? [];
+        list.push(o);
+        meshesOf.set(tag.prop, list);
+      });
+      for (const [entry, prop] of baseMap.props.entries()) {
+        for (let i = 0; i < prop.matrices.length / 16; i++) {
+          const m = prop.matrices, at = i * 16;
+          const key = placementKey(prop.modelName, m[at + 12]!, m[at + 13]!, m[at + 14]!);
+          const list = entriesOf.get(key) ?? [];
+          list.push([entry, i]);
+          entriesOf.set(key, list);
+        }
       }
-      const centre = prop.box.getCenter(new Vector3()).project(camera);
-      return [[prop, [centre.x, centre.y, centre.z] as Vec3] as const];
+    }
+    const meshOf = (entry: number, index: number): { o: Mesh; matrix: Matrix4; drawn: boolean } | null => {
+      let fallback: { o: Mesh; matrix: Matrix4; drawn: boolean } | null = null;
+      for (const o of meshesOf.get(entry) ?? []) {
+        const tag = o.userData['forgeBaseProp'] as { index?: number };
+        const matrix = new Matrix4();
+        if (o instanceof InstancedMesh) {
+          if (index >= o.count) continue;
+          o.getMatrixAt(index, matrix);
+          if (Math.abs(matrix.determinant()) < 1e-12) continue;   // an instance drawn hidden: its geometry below instead
+          matrix.premultiply(o.matrixWorld);
+        } else {
+          if (tag.index !== undefined && tag.index !== index) continue;
+          matrix.copy(o.matrixWorld);
+        }
+        const found = { o, matrix, drawn: shown(o) };
+        if (found.drawn) return found;
+        fallback ??= found;
+      }
+      return fallback;
+    };
+    /** A placement's own geometry's bounds, from the map's prop entry (no drawn mesh needed). */
+    const partsBox = (entry: number, index: number): { matrix: Matrix4; box: Box3 } | null => {
+      const prop = baseMap?.props[entry];
+      if (!prop) return null;
+      const matrix = new Matrix4().fromArray(Array.from(prop.matrices.subarray(index * 16, index * 16 + 16)));
+      const box = new Box3(), v = new Vector3();
+      for (const part of prop.parts) {
+        const pos = part.positions;
+        for (let k = 0; k + 2 < pos.length; k += 3) box.expandByPoint(v.set(pos[k]!, pos[k + 1]!, pos[k + 2]!));
+      }
+      return box.isEmpty() ? null : { matrix, box: box.applyMatrix4(matrix) };
+    };
+    const [rx0, rx1] = [Math.min(d.ndc.x, end.x), Math.max(d.ndc.x, end.x)];
+    const [ry0, ry1] = [Math.min(d.ndc.y, end.y), Math.max(d.ndc.y, end.y)];
+    const inside = (p: Vector3): boolean => { const v = p.clone().project(camera); return v.x >= rx0 && v.x <= rx1 && v.y >= ry0 && v.y <= ry1 && v.z >= -1 && v.z <= 1; };
+    /**
+     * M billboards off: whether a prop shows from the camera inside the box (the owner, 2026-11-06: no geometry behind a
+     * wall or across the map) -- a ray from the camera to its middle, then (blocked) to points across its body, each
+     * inside the box: shown when the first drawn thing a ray meets is the prop itself (any mesh drawing its placement), or
+     * nothing before the point. The world, the other props and the layout's own pieces all block.
+     */
+    const occluders: Object3D[] = [...roots];
+    if (baseView) occluders.push(baseView.group);
+    const sightRay = new Raycaster();
+    const seenFromCamera = (own: Set<Object3D>, instance: number | null, box: Box3): boolean => {
+      const c = box.getCenter(new Vector3());
+      const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => new Vector3(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z)
+        .lerp(c, 0.35));                                      // a third of the way in: on the body, not its box's air
+      for (const target of [c, ...corners]) {
+        if (!inside(target)) continue;
+        // The camera's own ray through the point's place on screen (a perspective eye, or an orthographic view's parallel).
+        const ndcAt = target.clone().project(camera);
+        sightRay.setFromCamera(new Vector2(ndcAt.x, ndcAt.y), camera);
+        const dist = sightRay.ray.origin.distanceTo(target);
+        if (!(dist > 0)) return true;
+        sightRay.far = dist + 1;
+        const first = sightRay.intersectObjects(occluders, true).find((h) => {
+          if (!shown(h.object)) return false;
+          const root = forgeRootOf(h.object);
+          return !root || !lockedOf(root);
+        });
+        if (!first || first.distance >= dist - 1) return true;               // nothing before the point
+        if (own.has(first.object) && (instance === null || first.instanceId === undefined || first.instanceId === instance)) return true;
+      }
+      return false;
+    };
+    /**
+     * A billboard seen from the camera (the owner, 2026-11-06): with Always on top off its icons are drawn behind what
+     * stands in front, so a box picks only those it can see -- nothing drawn between the camera and the icon. With Always
+     * on top on, every icon in the box (all are drawn).
+     */
+    const markSeen = (at: Vector3): boolean => {
+      if (billboardsOnTop) return true;
+      const ndcAt = at.clone().project(camera);
+      sightRay.setFromCamera(new Vector2(ndcAt.x, ndcAt.y), camera);
+      const dist = sightRay.ray.origin.distanceTo(at);
+      if (!(dist > 0)) return true;
+      sightRay.far = dist;
+      const first = sightRay.intersectObjects(occluders, true).find((h) => {
+        if (!shown(h.object)) return false;
+        const root = forgeRootOf(h.object);
+        return !root || !lockedOf(root);
+      });
+      return !first || first.distance >= dist - 1;
+    };
+    let unresolved = 0;
+    const mapInBox = placements.flatMap(({ placement, model }) => {
+      const tried: [number, number][] = [[placement.prop, placement.index], ...(entriesOf.get(placement.key) ?? [])];
+      let mesh: { o: Mesh; matrix: Matrix4; drawn: boolean } | null = null;
+      for (const [entry, index] of tried) {
+        const m = meshOf(entry, index);
+        if (m && (m.drawn || !mesh)) mesh = m;
+        if (mesh?.drawn) break;
+      }
+      // M billboards on: the prop's M alone (its place) -- every M in the box, drawn or not. Off: a hit test of its drawn
+      // body, as before -- the middle of a drawn prop in the box (nothing drawn, nothing to hit).
+      const marks = propMarksShown();
+      if (!marks && !mesh?.drawn) return [];
+      const own = mesh ? { matrix: mesh.matrix, box: basePropBox(mesh.o, mesh.matrix) } : partsBox(placement.prop, placement.index);
+      if (!own) { unresolved++; return []; }
+      // The M where it is drawn (lifted over the prop's place: a box round the icon close up holds the icon, not the place).
+      const markAt = marks ? mapBillboards.markAt(propMarkKey(placement.key)) ?? new Vector3().setFromMatrixPosition(own.matrix) : null;
+      if (markAt ? !inside(markAt) || !markSeen(markAt) : !inside(own.box.getCenter(new Vector3()))) return [];
+      // M billboards off: only a prop the camera sees (`seenFromCamera`), any of its placement's drawn meshes its own.
+      if (!marks && mesh) {
+        const meshes = new Set<Object3D>(tried.flatMap(([entry]) => meshesOf.get(entry) ?? []));
+        if (!seenFromCamera(meshes, mesh.o instanceof InstancedMesh ? placement.index : null, own.box)) return [];
+      }
+      return [{ ...placement, model, object: mesh?.o ?? baseView!.group, instance: mesh && mesh.o instanceof InstancedMesh ? placement.index : null,
+        matrix: own.matrix, box: own.box } as BaseProp];
     });
-    const mapInBox = inRect(mapCandidates.map(([, point]) => point), [d.ndc.x, d.ndc.y], [end.x, end.y])
-      .map((i) => mapCandidates[i]![0]);
-    if (!d.add) { picks.clear(); basePicks.clear(); }
+    // Every map data item whose marks show (the View dropdown's switches; the owner, 2026-11-06: read only ones too) --
+    // spawns, respawns, hostages, the bomb start, doors, gates, turrets, ladders, actions, points, zones, views, flares,
+    // cranes -- at its billboard's place; Delete then takes out the deletable ones (`./mapDataHide`) and says of the rest.
+    const dataCandidates = !selectMapProps ? [] : [...mapDataIndex.values()].filter((spec) => !PROP_MARK_KINDS.has(spec.kind) && kindSelectable(spec.kind));
+    // Each where its mark is drawn (lifted over its place), as the props' Ms; with Always on top off, only those seen.
+    const dataAt = dataCandidates.map((spec) => mapBillboards.markAt(spec.key) ?? new Vector3(...spec.at));
+    const dataInBox = inRect(dataAt.map((at) => { const v = at.clone().project(camera); return [v.x, v.y, v.z] as Vec3; }),
+      [d.ndc.x, d.ndc.y], [end.x, end.y]).filter((i) => markSeen(dataAt[i]!)).map((i) => dataCandidates[i]!);
+    if (!d.add) { picks.clear(); basePicks.clear(); dataPicks.clear(); mapDataSelected = null; }
     picks.addAll(inBox);
     basePicks.addAll(mapInBox);
+    for (const spec of dataInBox) dataPicks.set(spec.key, spec);
     showSelection();
-    say(`${inBox.length + mapInBox.length} in the box · ${picks.size + basePicks.size} selected`);
+    highlightSelectionMark();
+    const n = picks.size + basePicks.size + dataPicks.size;
+    const deletable = [...dataPicks.values()].filter((spec) => hiddenDataKeyOf(spec) !== null).length;
+    say(`${inBox.length + mapInBox.length + dataInBox.length} in the box · ${n} selected${mapInBox.length ? ` · ${mapInBox.length} map prop${mapInBox.length === 1 ? '' : 's'}` : ''}${unresolved ? ` · ${unresolved} map prop${unresolved === 1 ? '' : 's'} not drawn` : ''}${dataPicks.size ? ` · ${dataPicks.size} map item${dataPicks.size === 1 ? '' : 's'}${deletable < dataPicks.size ? ` (${deletable} can be deleted)` : ''}` : ''}`);
   });
   input.addEventListener('pointercancel', (e) => {
     if (placeHold && placeHold.pointerId === e.pointerId) {
@@ -6847,11 +7179,63 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       else if (asset) void newPiece(asset, s.userData['forgeContent']).then((r) => { if (r) place(contentOf(r, s.userData['forgeContent'])); });
     }, true);
   };
+  /**
+   * The map props among `keys` (their placement keys) whose collision hiding them cannot take out (`./hide`
+   * `placementOwners`: no hull owner of their own) -- each by its model, once. Said after a hide (the owner, 2026-11-06):
+   * the prop is gone from the drawing, and, if it is solid in the game, its collision may stay in the map's.
+   */
+  const bakedCollisionOf = (keys: readonly string[]): string[] => {
+    if (!baseMap?.ground) return [];
+    const ground = baseMap.ground;
+    const models = new Set<string>();
+    for (const key of keys) {
+      const entries = [...placementsOf(baseMap, [key])];
+      if (!entries.length || entries.some((e) => placementOwners(baseMap, ground, e).length > 0)) continue;
+      models.add(key.split('@')[0]?.split(':')[0] ?? key);
+    }
+    return [...models];
+  };
+  const warnBakedCollision = (keys: readonly string[]): void => {
+    const models = bakedCollisionOf(keys);
+    if (!models.length) return;
+    const named = models.length <= 3 ? models.join(', ') : `${models.slice(0, 3).join(', ')} and ${models.length - 3} more`;
+    notifier.refused(`Hidden, but no collision of its own was found for ${named}: if it is solid in the game, its collision is part of the map and stays (an invisible wall)`);
+  };
   const remove = (): void => {
     // FCW-32 step 4 (D4): a rules entity picked from its row is deleted by its reference (refused while a rule names it).
     if (entityPicked !== null && picks.size + basePicks.size === 0) { entityEdit('piece.delete', { refs: [entityPicked] }); return; }
     if ((picks.size || basePicks.size) && refuseEdit()) return;
     const before = selectionIds();
+    // A box's map objectives (the owner, 2026-11-06), with whatever else it picked: every placement deleted, every map
+    // prop hidden, every objective taken out of this map -- one step.
+    const dataKeys = [...dataPicks.values()].map(hiddenDataKeyOf).filter((k): k is string => k !== null);
+    // Only read-only map data picked (doors, views, turrets...): nothing to delete, and said.
+    if (!dataKeys.length && dataPicks.size && picks.size + basePicks.size === 0) {
+      notifier.refused('These map items are read only: spawn slots, respawn points, hostages, the bomb start, plant sites and extraction zones can be deleted');
+      return;
+    }
+    if (dataKeys.length) {
+      if (refuseEdit()) return;
+      const gone = [...picks.items].filter((r) => !lockedOf(r));
+      const props = [...basePicks.items];
+      personEdit(gone.length ? 'piece.delete' : 'piece.hide', gone.length ? { refs: before } : { keys: [...props.map((b) => b.key), ...dataKeys] }, () => {
+        for (const k of dataKeys) hiddenData.add(k);
+        for (const b of props) hiddenKeys.add(b.key);
+        for (const r of gone) removeRoot(r);
+        dataPicks.clear(); picks.clear(); basePicks.clear(); mapDataSelected = null;
+        drawHidden();
+        drawMapBillboards();
+        drawMapGuides();
+        drawOutliner();
+        refreshGameTypes();
+        showSelection();
+        highlightSelectionMark();
+        edit(before);
+        say(`${dataKeys.length} map objective${dataKeys.length === 1 ? '' : 's'} deleted${gone.length ? ` · ${gone.length} deleted` : ''}${props.length ? ` · ${props.length} map prop${props.length === 1 ? '' : 's'} hidden` : ''}`);
+        warnBakedCollision(props.map((b) => b.key));
+      }, true);
+      return;
+    }
     if (isGroup()) {
       // FG-47: every placement removed, every map prop hidden (FG-17's path, never deleted); one step.
       const gone = [...picks.items];
@@ -6866,6 +7250,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         showSelection();
         edit(before);
         say(`${gone.length} deleted${hid ? ` · ${hid} map prop${hid === 1 ? '' : 's'} hidden in this layout` : ''}`);
+        warnBakedCollision(keys);
       }, true);
       return;
     }
@@ -6875,10 +7260,31 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       personEdit('piece.hide', { keys: [prop.key] }, () => {
         hiddenKeys.add(prop.key);
         say(`${prop.model} hidden in this layout`);
+        warnBakedCollision([prop.key]);
         basePicks.clear();
         drawHidden();
         showSelection();
         edit(before);
+      }, true);
+      return;
+    }
+    // A map's own objective selected in Map Data (the owner, 2026-11-06): taken out of this layout, not off the disc --
+    // a hostage, the bomb start, a plant site, an extraction zone (`./mapDataHide`). Any other map data stays read only.
+    if (!selected && mapDataSelected) {
+      const row = mapDataSelected;
+      const key = hiddenDataKeyOf(row);
+      if (!key) { notifier.refused(`${row.label} can't be deleted yet: spawn slots, respawn points, hostages, the bomb start, plant sites and extraction zones can`); return; }
+      if (refuseEdit()) return;
+      personEdit('piece.hide', { keys: [key] }, () => {
+        hiddenData.add(key);
+        mapDataSelected = null;
+        drawMapBillboards();
+        drawMapGuides();                                       // its hostage cell, its plant site's reach: gone with it
+        drawOutliner();
+        refreshGameTypes();
+        showSelection();
+        edit(before);
+        say(`${row.label} deleted from this map`);
       }, true);
       return;
     }
@@ -7122,7 +7528,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       : (() => {
         const hiddenNow = placementsOf(c.groundMap, hiddenKeys);
         // FG-36: the hidden placements' line strips out of the match's map too (`./hide` `linesWithout`).
-        return { ...c.groundMap, props: propsWithout(c.groundMap, hiddenNow), lines: linesWithout(c.groundMap, hiddenNow) } as LoadedMap;
+        // The map's own objectives this layout takes out (`./mapDataHide`): the room's rules never see them.
+        return withoutHiddenData({ ...c.groundMap, props: propsWithout(c.groundMap, hiddenNow), lines: linesWithout(c.groundMap, hiddenNow) } as LoadedMap, hiddenData);
       })();
     const markers = npcs ? layout.npcs ?? [] : [];
     // The Play settings' side (Play's own: `npcs`), else the side the NPCs leave the player (`./npcs` `playerSideOf`).
@@ -7184,7 +7591,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
      * the fog distance's own near (`withSettings`) -- set last, so the near it names is the near played.
      */
     const ownAtmosphere = (m: LoadedMap): LoadedMap => {
-      if (base.kind !== 'blank') return m;
+      if (base.kind !== 'blank' && base.kind !== 'map') return m;
       const f = own.fog, cam = m.camera;
       return {
         ...m,
@@ -7194,7 +7601,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       };
     };
     // Its fog colour (the camera record's) and drop-shadow direction likewise.
-    const lit = base.kind !== 'blank' ? aimed : {
+    const lit = base.kind !== 'blank' && base.kind !== 'map' ? aimed : {
       ...aimed,
       ...(own.lightRig ? { lightRig: own.lightRig as GlobalLighting } : {}),
       ...(skyDome ? { world: [...aimed.world, ...skyDome.world], textures: { ...aimed.textures, ...skyDome.textures },
@@ -7248,11 +7655,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       pieces.push({ index, asset, m: Array.from(r.matrix.elements), polys, owner: `forge/piece_${rootIndex}` });
       index++;
     }
-    const disc = l.base.kind === 'map' && baseMap ? baseMap.slots.map((s) => ({ side: s.side, at: s.position })) : undefined;
+    const disc = l.base.kind === 'map' && baseMap ? withoutHiddenData(baseMap, hiddenData).slots.map((s) => ({ side: s.side, at: s.position })) : undefined;
     // Extraction's hostages and zones the base holds itself: a map's escortees and kind-1 zones; a blank floor none.
-    const own = l.base.kind === 'map' && baseMap
-      ? { hostages: baseMap.escortees?.length ?? 0, zones: baseMap.ai ? zonesOfKind(baseMap.ai, 1).length : 0,
-        safety: !!baseMap.ai?.maps.some((s) => s.zones.some((z) => z.name.toLowerCase() === 'safety')) } : { hostages: 0, zones: 0 };
+    // The base's own objectives as this layout keeps them (those it deleted out, `./mapDataHide`): its hostages, its
+    // extraction zones, its bomb start and its tents.
+    const kept = l.base.kind === 'map' && baseMap ? withoutHiddenData(baseMap, hiddenData) : null;
+    const own = kept
+      ? { hostages: kept.escortees?.length ?? 0, zones: kept.ai ? zonesOfKind(kept.ai, 1).length : 0,
+        safety: !!kept.ai?.maps.some((s) => s.zones.some((z) => z.kind === 1 && z.name.toLowerCase() === 'safety')),
+        bomb: { start: !!kept.bombStart, seal: !!plantSite('seal', kept.meta?.actions ?? []), terrorist: !!plantSite('terrorist', kept.meta?.actions ?? []) } }
+      : { hostages: 0, zones: 0 };
     return checkMap(l, ground, pieces, polyCount, disc, own);
   };
   const collectCheck = async (): Promise<MapCheck | null> => {
@@ -7366,6 +7778,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return await askMapCheck(found, yes);
     } finally { checking = false; }
   };
+  /**
+   * The map whose round cues a match plays (the owner, 2026-11-06; `../soundData` `soundFromDisc` `cuesFrom`): where the
+   * layout plays a game type other than its map's own (`missionlist.rdr`, `kitGameType`), a disc map of that type --
+   * the intro, the bomb's and the hostages' lines, the win and loss and their voices and music its script's. Undefined
+   * where the map's own already is that type, or no map of it is on this disc (its own then, as before).
+   */
+  const cueDonorFor = async (archive: string): Promise<{ path: string; archive: string } | undefined> => {
+    const type = layoutMode ? null : authoredType;
+    if (type === null) return undefined;
+    if (!missionKitsRead) { try { missionKits = await loadKitSource(assetSourceFor(archives.sourceRequest())); } catch { missionKits = null; } missionKitsRead = true; }
+    if (kitGameType(missionKits, archive) === type) return undefined;
+    const donor = entries.find((e) => !e.campaign && !absent.has(e.stem) && kitGameType(missionKits, e.stem) === type);
+    return donor ? { path: donor.path, archive: donor.stem } : undefined;
+  };
   const startMatch = async (agentGuard?: () => void): Promise<void> => {
     if (match || playing || busy || !base) return;
     if (editsLocked()) { notifier.refused('Play waits while a lobby is open: the lobby\'s host launches its match'); return; }
@@ -7400,7 +7826,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         say('nowhere to stand: place a spawn marker on a floor', true);
         return;
       }
-      const [clips, extras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), c.groundMap)]);
+      const [clips, extras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), c.groundMap, await cueDonorFor(c.groundMap.archive))]);
       // LATER 456 (H336; FORGE_PLAY_CONTENT_PROPS_ADAPTATION, on by the owner's answer): with the flag on, the composed content
       // props drawn by the editor's own draw, each at its placement; a piece that fails is left out and counted.
       const props = forgePlayContentProps.drawn() ? await contentPropsGroup(composed.content, (p) => newContentPiece(p.def.ref)) : null;
@@ -7417,7 +7843,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         normalInput: agentPlay.port,
         map: mapForMatch, clips, effects: extras.effects, sound: extras.sound, name: 'FORGE', npcs: fit.kept, npcBehaviour: own.npcBehaviour, side: playerSide,
         room: { ...roomOptionsOf(own), onRoundStart: (round) => { if (round === 1) opening?.restore(); } },
-        forgeLighting: forgeLightingOptions(own, baseMap), brighten: matchBrightenOf(own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
+        forgeLighting: forgeLightingOptions(own, baseMap, (base?.kind === 'blank' || base?.kind === 'map') && !!own.fogColor), brighten: matchBrightenOf(own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
         ...(props ? { extraWorld: props.group } : {}),                                // LATER 456: only with the flag on
         ...(playRules ? { rules: { ...playRules, names: playNames }, onRules: (ev: unknown) => { rulesPresenter.take(ev); } } : {}),   // FCW-32 round 2
         ...(playRules ? { onRulesAudio: (a: RulesCueAudio | null) => { rulesPresenter.audio(a); }, rulesCueStats: () => rulesPresenter.cueStats() } : {}),       // FUI-23: the cues on the match's audio (and their counts, the DEV readout)
@@ -7655,7 +8081,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     try {
       const m = await composeForMatch(false);
       if (!m) throw new Error('this base has no hull to play on');
-      const [clips, extras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), m.c.groundMap)]);
+      const [clips, extras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), m.c.groundMap, await cueDonorFor(m.c.groundMap.archive))]);
       if (lobby !== l) return;
       const h = l.session.handOff();
       if (!h) throw new Error('the lobby ended before its match');
@@ -7667,7 +8093,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       matchHost.replaceChildren(matchBack, statusChips.matchElement);   // FUI-4: the agent's chip beside Back
       match = startForgeLobbyMatch(matchHost, {
         map: m.map, clips, effects: extras.effects, sound: extras.sound, handOff: h, pinned: l.pinned, gameName: l.name, lateJoiner: l.lateJoiner,
-        forgeLighting: forgeLightingOptions(m.own, baseMap), brighten: matchBrightenOf(m.own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
+        forgeLighting: forgeLightingOptions(m.own, baseMap, (base?.kind === 'blank' || base?.kind === 'map') && !!m.own.fogColor), brighten: matchBrightenOf(m.own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
       });
       matchOfLobby = true;
       say(m.unplayable ? `the lobby's match · ${l.name} · ${m.unplayable}` : `the lobby's match · ${l.name}`, m.unplayable !== undefined);
@@ -7937,12 +8363,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   selectMapPropsIn.addEventListener('change', () => {
     selectMapProps = selectMapPropsIn.checked;
     writeView();
-    say(selectMapProps ? 'Select: map props can be selected' : 'Select: map props are passed over');
+    say(selectMapProps ? 'Select: map data can be selected' : 'Select: map data is passed over');
   });
   selectUserPropsIn.addEventListener('change', () => {
     selectUserProps = selectUserPropsIn.checked;
     writeView();
-    say(selectUserProps ? 'Select: user props can be selected' : 'Select: user props are passed over');
+    say(selectUserProps ? 'Select: user data can be selected' : 'Select: user data is passed over');
   });
   moveBtn.addEventListener('click', () => setGizmo('translate'));
   turnBtn.addEventListener('click', () => setGizmo('rotate'));
@@ -9063,7 +9489,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   pageChip('lobby', () => lobbyChip({ open: editsLocked(), ...(lobby ? { role: lobby.role } : {}) }));
   pageChip('issues', () => issuesChip(lastIssues));
   // FUI.R5's tabs; FUI-22 (D2, ruled): the starters under World -- "they are world content, not an edit tool".
-  shell.register(asPerson({ ...examplesForgePanel(() => starterContext()), tab: 'World' }));
+  shell.register(asPerson({ ...examplesForgePanel(() => starterContext()), tab: 'Map' }));
   /**
    * FCW-32 step 4 (FUI-18's rules half, FUI.R23 D1, D3, D4; RULES_PANEL_ADAPTATION): the Rules panel under Edit, after the
    * Outliner -- the person's, every edit the planner's through this facade -- and its START section while the layout has
@@ -9272,7 +9698,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     skyView?.frame(fly.viewportCamera(), dt);               // a new empty map's copied sky: its clouds' scroll
     turnPlacedFlares(fly.viewportCamera().position);
     if (selected || isGroup()) refreshBox();
-    forgeLighting.update([scene], forgeLightingOptions(settings, baseMap));
+    forgeLighting.update([scene], forgeLightingOptions(settings, baseMap, envEditable() && !!settings.fogColor));
     // LATER 471 (a browser adaptation, `EXTENSION_HOST_ADAPTATION`; dot's placement 2026-10-25T21:45Z): the extension
     // host's schedule -- each enabled system's `frame(dt)`, dt in seconds -- once a drawn frame, never under a match.
     extensions?.frame(dt);

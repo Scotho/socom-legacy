@@ -1,4 +1,4 @@
-import { CanvasTexture, Group, Sprite, SpriteMaterial, type Intersection, type Object3D, type Raycaster } from 'three';
+import { CanvasTexture, Group, Sprite, SpriteMaterial, Vector3, type Intersection, type Object3D, type Raycaster } from 'three';
 import type { SpawnSlot } from '@s2u/scene';
 import type { MapDataGroup, MapDataRow } from './mapData';
 
@@ -237,7 +237,8 @@ export class MapDataBillboards {
   private readonly sprites = new Map<string, Sprite>();
   /** A user mark's sprite and the placement it follows (`sync`). */
   private readonly tracked = new Map<Sprite, Object3D>();
-  private selected: string | null = null;
+  /** The selected marks' keys (one, or a box's several). */
+  private selected: readonly string[] = [];
   /** The mark kinds hidden by their switches (`setHiddenKinds`). */
   private hidden = new Set<string>();
   /** Drawn over all the geometry (`setOnTop`), so a mark is found from anywhere on the map. */
@@ -341,11 +342,21 @@ export class MapDataBillboards {
     return first && typeof key === 'string' ? { key, distance: this.onTop ? 0 : first.distance } : null;
   }
 
-  /** The selected mark drawn larger (`BILLBOARD_SELECTED_SCALE`) and ringed in the selection colour; null, none. */
-  highlight(key: string | null): void {
-    this.selected = key;
+  /**
+   * Where a mark is drawn now, world space (its place lifted `BILLBOARD_LIFT`), or null for a mark not drawn: what a
+   * selection box tests, so a box round the icon picks it however near the camera (the owner, 2026-11-06).
+   */
+  markAt(key: string): Vector3 | null {
+    const sprite = this.sprites.get(key);
+    return sprite ? sprite.getWorldPosition(new Vector3()) : null;
+  }
+
+  /** The selected marks drawn larger (`BILLBOARD_SELECTED_SCALE`) and ringed in the selection colour; null, none. */
+  highlight(key: string | readonly string[] | null): void {
+    this.selected = key === null ? [] : typeof key === 'string' ? [key] : [...key];
+    const keys = new Set(this.selected);
     for (const [k, sprite] of this.sprites) {
-      const on = k === key;
+      const on = keys.has(k);
       const size = BILLBOARD_SCREEN_SIZE * (on ? BILLBOARD_SELECTED_SCALE : 1);
       sprite.scale.set(size, size, 1);
       sprite.renderOrder = (this.onTop ? BILLBOARD_ON_TOP_ORDER : 0) + (on ? 1 : 0);
@@ -395,7 +406,7 @@ type KindToggle = (typeof MAP_DATA_KIND_TOGGLES)[number];
 export const BILLBOARD_SECTIONS: readonly { heading: string; map: readonly string[]; user?: readonly string[] }[] = [
   { heading: 'Spawn', map: ['slots', 'respawns'] },
   { heading: 'Objects', map: ['mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares'] },
-  { heading: 'Demolition', map: ['bombStart', 'actions'] },
+  { heading: 'Demolition · Breach', map: ['bombStart', 'actions'] },
   { heading: 'Escort · Extraction', map: ['escortees', 'tacZones'] },
   { heading: 'Info', map: ['tacPoints', 'scenicViews'] },
   { heading: 'Other', map: ['cranes'], user: ['userNpcs'] },

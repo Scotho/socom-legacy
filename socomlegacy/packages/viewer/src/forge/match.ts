@@ -1,4 +1,5 @@
 import type { ForgeLightingOptions } from './lighting';
+import { BLAST_EFFECT } from '../bombPage';
 import { Group, type Object3D } from 'three';
 import type { AssetSource } from '@s2u/archive';
 import type { UiSoundCues } from '@s2u/ui';
@@ -54,7 +55,7 @@ export interface ForgeMatch {
  * The map's effect data and sound, read off the same source as the test room reads them (`../worker`'s `effects`,
  * `sound` and `soundLoops`): what the match's firearm, marks and sound draw on. Null each where the source has none.
  */
-export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
+export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
@@ -73,8 +74,9 @@ export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'p
   });
   try {
     const [e, s] = await Promise.all([
-      ask((id) => ({ kind: 'effects', id, source, path: map.path, archive: map.archive })),
-      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive })),
+      // The bomb's blast borrowed with the cues where the map's own sets lack it (`../effectData` `borrow`).
+      ask((id) => ({ kind: 'effects', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { borrow: { path: cuesFrom.path, names: [BLAST_EFFECT] } } : {}) })),
+      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}) })),
     ]);
     const data = s?.kind === 'soundLoops' ? [...sounds.values()][0] ?? null : null;
     return { effects: e?.kind === 'effects' ? e.data : null, sound: data && s?.kind === 'soundLoops' ? { data, loops: s.loops } : null };
