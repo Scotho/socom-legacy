@@ -3,8 +3,8 @@ import { checkCreatorRecord, layoutOfRecord, onlineLayoutRefusal, onlineRecordRe
 
 /**
  * The layout's placed hostages (a browser adaptation, FG.R2; no original): each a place and a facing, added to the base
- * map's own escortees for an Escort or Extraction match. Kept by the file and the v3 record; refused online, which
- * plays the disc's own escortees.
+ * map's own escortees for an Escort or Extraction match. Kept by the file and the v3 record; admitted online (FP-1a:
+ * the lobby's room places them as the page's Play does, `match/src/forgeSimMap.ts` through `playObjectives`).
  */
 const layout: Layout = {
   forge: 1, base: { kind: "map", archive: "MP6" }, pieces: [], spawns: [],
@@ -45,9 +45,9 @@ describe("placed hostages", () => {
     expect(layoutOfRecord(record).hostages![0]).toMatchObject({ source: "MP6", character: "thai_biologist01" });
   });
 
-  it("an online lobby refuses placed hostages; none, admitted as before", () => {
-    expect(onlineLayoutRefusal(layout).map((d) => d.field)).toEqual(["hostages"]);
+  it("an online lobby admits placed hostages (FP-1a; refused record.ONLINE_HOSTAGES before); none, admitted as before", () => {
+    expect(onlineLayoutRefusal(layout)).toEqual([]);
     expect(onlineLayoutRefusal({ ...layout, hostages: undefined } as Layout)).toEqual([]);
-    expect(onlineRecordRefusal(recordOfLayout(layout, "hostages")).map((d) => d.code)).toEqual(["record.ONLINE_HOSTAGES"]);
+    expect(onlineRecordRefusal(recordOfLayout(layout, "hostages"))).toEqual([]);
   });
 });

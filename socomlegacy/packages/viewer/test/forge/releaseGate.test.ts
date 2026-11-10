@@ -44,6 +44,20 @@ const ACCESSIBILITY_KEYS: readonly [string, string][] = [
   ['scrub.ts', "doc.addEventListener('keydown', onKey, true);"],
 ];
 
+
+/**
+ * FP-1b (REVIEW-C 18): the Forge page's accessibility exemptions are fragments, and `doc.addEventListener('keydown', ...)`
+ * would match any later listener of that form -- a game key slipped past the gate unseen. Each is pinned to its live lines
+ * exactly: how many lines it matches, and for the document's two forms the Escape-only guard that opens each handler.
+ */
+const FORGE_PAGE_EXEMPT_LINES: Readonly<Record<string, number>> = {
+  "end.addEventListener('keydown', (event) => {": 1,
+  "handle.addEventListener('keydown', (event) => {": 1,
+  "doc.addEventListener('keydown', event => {": 1,
+  "doc.addEventListener('keydown', (e) => {": 2,
+};
+const ESCAPE_ONLY = /^\s*if \((?:e|event)\.key !== 'Escape' \|\| \w+\.hidden\) return;$/;
+
 describe('FORGE: the release gate', () => {
   it('is loaded in every build (no DEV gate on its loader)', () => {
     expect(Object.keys(PAGE_LOADERS)).toContain('forge');
@@ -81,6 +95,16 @@ describe('FORGE: the release gate', () => {
     }
   });
 
+  it("FP-1b: each of the Forge page's accessibility exemptions matches exactly its own lines; the document's two open on an Escape-only guard", () => {
+    const lines = sources.find((s) => s.file === 'page.ts')!.lines;
+    for (const [frag, count] of Object.entries(FORGE_PAGE_EXEMPT_LINES)) {
+      expect(ACCESSIBILITY_KEYS.some(([f, x]) => f === 'page.ts' && x === frag), frag).toBe(true);
+      const at = lines.flatMap((l, i) => (l.includes(frag) ? [i] : []));
+      expect(at, frag).toHaveLength(count);
+      if (frag.startsWith('doc.')) for (const i of at) expect(lines[i + 1], `page.ts:${i + 2}`).toMatch(ESCAPE_ONLY);
+    }
+    expect(ACCESSIBILITY_KEYS.filter(([f]) => f === 'page.ts').map(([, x]) => x).sort()).toEqual(Object.keys(FORGE_PAGE_EXEMPT_LINES).sort());
+  });
   it('asks nothing through a browser dialog (confirm, alert, prompt): its own cards answer a pad', () => {
     const bad = sources.flatMap(({ file, lines }) => lines.flatMap((l, i) => (/\b(confirm|alert|prompt)\(/.test(l) && /globalThis\.|window\./.test(l) ? [`${file}:${i + 1}`] : [])));
     expect(bad).toEqual([]);

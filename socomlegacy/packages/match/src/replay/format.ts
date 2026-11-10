@@ -111,6 +111,9 @@ const DECODERS: ReadonlyMap<number, WireDecoders> = new Map<number, WireDecoders
   [11, { snapshot: decodeSnapshot, commands: decodeCommands }],
   // Protocol 12: the live decoders -- 13 (PLANT-AIM) changed the JSON alone (the plant's `bombAction` 'aim').
   [12, { snapshot: decodeSnapshot, commands: decodeCommands }],
+  // Protocol 13: the live decoders -- 14 (ENEMY-RAISE ER-2) added only the command's bit 7 (`raised`; a 13 weapon is 0 or
+  // 1, so the bit was never set) and the body's `BodyFlag.Raised` (bit 16, never set by a 13 room).
+  [13, { snapshot: decodeSnapshot, commands: decodeCommands }],
   [PROTOCOL_VERSION, { snapshot: decodeSnapshot, commands: decodeCommands }],
 ]);
 /** The protocols whose recordings this build plays, oldest first. */

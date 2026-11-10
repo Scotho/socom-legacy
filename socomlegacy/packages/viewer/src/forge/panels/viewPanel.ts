@@ -1,6 +1,7 @@
 import type { MenuItem } from '../padMenu';
 import { builtPanel, forgeEl, type ForgePanel } from '../shell/panel';
 import { DETAIL_DISTANCE_MAX, DETAIL_DISTANCE_MIN, DETAIL_DISTANCE_STEP, formatDetailDistance } from '../../detailDistance';
+import { RENDER_SCALE_WORDS, RENDER_SCALES, type RenderScale } from '../../videoSettings';
 
 /**
  * FUI-1 (a browser adaptation, FG.R2): the View panel -- the editor's draw switches, grouped as the page grouped them
@@ -78,6 +79,50 @@ export function buildDetailDistance(doc: Document, hooks: DetailDistanceHooks, s
     row.title = ps2 ? 'The PS2 picture draws the original detail distance.' : 'How far the detail textures reach (1.0× is the original).';
   };
   input.addEventListener('input', () => { if (!hooks.ps2()) { set(Number(input.value)); sync(); } });
+  return { row, input, sync };
+}
+
+/**
+ * FP-2 (FP.R5; a browser adaptation, FG.R2 -- the game has no editor): the render scale -- the page's one stored video
+ * setting (`../../videoSettings`, CPS.R7), the launcher's and VIDEO OPTIONS' too -- beside the detail distance, on its
+ * shape. Under the PS2 picture the console's 640 x 448 frame is drawn and the row does not apply.
+ */
+export interface RenderScaleHooks { value(): RenderScale; step(d: -1 | 1): void; ps2(): boolean }
+
+/** FP-2: the row's words under the PS2 picture: the console's frame, whatever the preset. */
+export const RENDER_SCALE_PS2_WORDS = '640 x 448 (PS2)';
+
+/** FP-2: the START menu's row, as `detailDistanceMenuItem`'s: ← → step the preset; under the PS2 picture it reads the console's frame and is disabled. */
+export function renderScaleMenuItem(hooks: RenderScaleHooks): MenuItem {
+  if (hooks.ps2()) return { id: 'view-renderScale', label: 'Render scale', value: RENDER_SCALE_PS2_WORDS, disabled: true, keepOpen: true };
+  return {
+    id: 'view-renderScale', label: 'Render scale', value: RENDER_SCALE_WORDS[hooks.value()], keepOpen: true,
+    left: () => hooks.step(-1), right: () => hooks.step(1),
+  };
+}
+
+/**
+ * FP-2: the panel's slider (one stop a preset, `RENDER_SCALES`' order) and its word, under a 'Render scale' label; `sync`
+ * redraws it from the hooks (the caller's first `sync` draws it), as `buildDetailDistance`'s.
+ */
+export function buildRenderScale(doc: Document, hooks: RenderScaleHooks, set: (v: RenderScale) => void): { row: HTMLLabelElement; input: HTMLInputElement; sync(): void } {
+  const row = forgeEl(doc, 'label', 'fx-toggle fx-render-scale');
+  const input = forgeEl(doc, 'input', 'fx-range');
+  input.type = 'range';
+  input.min = '0'; input.max = String(RENDER_SCALES.length - 1); input.step = '1';
+  const out = forgeEl(doc, 'span', 'fx-render-scale__value');
+  row.append(forgeEl(doc, 'span', '', 'Render scale'), input, out);
+  const sync = (): void => {
+    const ps2 = hooks.ps2(), value = hooks.value();
+    input.disabled = ps2;
+    input.value = String(RENDER_SCALES.indexOf(value));
+    out.textContent = ps2 ? RENDER_SCALE_PS2_WORDS : RENDER_SCALE_WORDS[value];
+    row.title = ps2 ? "The PS2 picture draws the console's 640 x 448 frame." : 'How sharp the viewport draws: the render scale the launcher and VIDEO OPTIONS set.';
+  };
+  input.addEventListener('input', () => {
+    const to = RENDER_SCALES[Number(input.value)];
+    if (!hooks.ps2() && to) { set(to); sync(); }
+  });
   return { row, input, sync };
 }
 

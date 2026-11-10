@@ -204,9 +204,10 @@ async function profile(context: BrowserContext, backend: Backend, picture: Pictu
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(e.message));
   await page.addInitScript(installFrameLogger);
-  const renderer = backend === 'webgl2' ? '&renderer=webgl2' : '&renderer=webgpu';   // WEBGL2-DEFAULT (LATER 708): auto is WebGL2 now
+  const renderer = backend === 'webgl2' ? '&renderer=webgl2' : '&renderer=webgpu';   // WG-7 (LATER 708): each leg asks its backend; Automatic asks WebGPU first
   const view = picture === 'ps2' ? 'ps2' : 'modern';
-  await page.goto(`${TEST_ROOM}?mode=play&map=${MAP}&view=${view}&online=off&devmode&noarmory&nomatch&kit=${KIT}${renderer}`);
+  // GLOW_TARGET_SCALE_ADAPTATION: the full glow target, as measured before the step-down (SwiftShader would take half).
+  await page.goto(`${TEST_ROOM}?mode=play&map=${MAP}&view=${view}&online=off&devmode&noarmory&nomatch&kit=${KIT}${renderer}&glowscale=full`);
   await expect(page.locator('#status')).toContainText('triangles');
   await holdReleased(page);
   const drawn = (await page.evaluate(() => window.__viewer.stats())).backend;

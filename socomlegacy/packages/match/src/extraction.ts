@@ -2,7 +2,7 @@ import { TRAVERSAL_CLIPS } from '../../viewer/src/traversal';
 import type { SimClips } from '../../viewer/src/simMap';
 import { HostageObstacles } from './hostageObstacles';
 import { HostageYieldRandom, HOSTAGE_YIELD_SEED_PLACEHOLDER, type HostageActor } from './hostageActors';
-import { aiCellOf, GameFrameAccumulator, GAME_FRAME_DT, ITEM, zoneContains, zonesOfKind, type AiGrid, type AiLoc, type AiMaps, type AiZone, type EscorteeStart } from '@s2u/scene';
+import { GameFrameAccumulator, GAME_FRAME_DT, ITEM, zoneContains, zonesOfKind, type AiLoc, type AiMaps, type AiZone, type EscorteeStart } from '@s2u/scene';
 import { BodyFlag, TICK_HZ, type BodyState, type ServerEvent, type SimMap, type Team } from '../../viewer/src/sim';
 import type { Health } from '../../viewer/src/net/damage';
 import { HOSTAGE_KILL_WIN_HOLD_READING, RESCUE_WIN_HOLD_READING } from '../../viewer/src/net/rules';
@@ -14,6 +14,7 @@ import {
   HostageLeaders, onCommand, orderRefusal, releaseLeader, unitOfSeat, unitTick, PLAYER_TEAM_MASKS, type HostageCommand, type OrderPick,
   type OrderRefusal,
 } from './hostageOrders';
+import { orderCellOf } from '../../viewer/src/net/hostageOrder';
 
 /**
  * HX-1, EXTRACTION's rules in the room (web sprint 31; socomlegacy/docs/research/237-extraction-as-built.md s2-s5; research
@@ -48,6 +49,13 @@ type V3 = [number, number, number];
  * seats alone do not keep a member's u8 id below 240; the cap does, and a joiner past it is refused as the full room's.
  */
 export const HOSTAGE_ID_BASE = 240;
+
+/**
+ * How many hostages the room can number (a port rule, as `HOSTAGE_ID_BASE` is): the snapshot writes a body id as a u8,
+ * so the ids 240..255 -- 16 -- and no more; a 17th would wrap onto a member's id. The Forge's placed hostages stop here
+ * (`viewer/src/forge/hostages.ts` `withPlacedHostages`; a browser adaptation, FG.R2).
+ */
+export const HOSTAGE_SLOTS = 256 - HOSTAGE_ID_BASE;
 
 /**
  * A hostage's part health: the values HX-2's read gives (`@s2u/scene` `healthOf` on `HOSTAGE_HEALTH_READING`,
@@ -98,7 +106,8 @@ export const PENALTY_COALESCE_READING = 'one minute per observed change';
  * `rescuecheck`: SEALcheck sets it (and stops) when `freecount == 3`, or `freecount == 2 AND killcount == 1`, or
  * `freecount == 1 AND killcount == 2`, or `killcount == 3` -- all three hostages resolved, rescued or dead (190 s4 C's
  * table; V2 s10.7 decoded the four branches from the raw bytes). Built as the four equality tests, polled once a tick:
- * a sum past three without passing one of them (a rescued hostage killed in its fade, counted twice) sets nothing. [reading]
+ * a sum past three without passing one of them (a hostage counted twice: killed in its fade, or dead on a zone cell before
+ * RescueN polled it, `RESCUE_VALVE_READING`) sets nothing. [reading]
  */
 export const RESCUECHECK_READING = 'all three resolved';
 
@@ -178,11 +187,19 @@ export const TERRORIST_LEAD_RESCUE_READING = 'a SEAL rescue, no points';
 /**
  * MP6's Rescue1-3 (190 s4 C's table; re-read off the MP6 fixture 2026-10-06): `IF ( ai::INREGION(HostageN) ) OR ( )` ->
  * `^PH_0013`, "A HOSTAGE HAS BEEN RESCUED", `rescuecount` += 1, `freecount` += 1, stop -- once per hostage, with no
- * state or leader test (the empty `( )` is the left operand's, 190 U9). Built as the zone test on the hostage's cell,
- * polled once a tick for each hostage; whether INREGION reads a dead actor is unread (a hostage cannot reach the zone
- * dead). [reading]
+ * state, leader or alive test. DF-7 (research 175 s3): the empty `( )` is INREGION alone, not "never" -- the IF's
+ * evaluator `FUN_0025e960` (D:L108288-108425; called by the IF, `FUN_0025e630` D:L108140) keeps its running value
+ * in s1, which nothing in it writes before the `)` branch returns it (`move v0, s1`, 0x25ebc8-0x25ebd4 on the disc's
+ * ELF; D:L108366-108367), so an empty group hands back the caller's value and the OR (0x25eb98-0x25ebb8; D:L108339-108343)
+ * leaves INREGION's result; and INREGION's actor mode (`FUN_005ced60` D:L484861-484903) finds the hostage by id
+ * (`FUN_0029e4e0` D:L144688-144701, no state test) and reads its `+0xe4` with no alive test (the one `+0xe1` bit it
+ * reads is bit 5, which only picks whether its name lookup is cached, D:L484876-484884; alive is bit 4). So a hostage
+ * dead on a zone cell before RescueN polls it counts in `freecount` once, and in `killcount` once after its kill
+ * one-shot: the original's double, copied (a pin in `extraction.test.ts`). Built as the zone test on the hostage's cell, alive or dead, polled once a tick for each
+ * hostage. Unread: whether a corpse's `+0xe4` follows it after death (`FUN_005b7ba0`, the writer, is reached through a
+ * vtable; LATER 354's thrown corpse is re-located by the port). [reading, pending review]
  */
-export const RESCUE_VALVE_READING = 'INREGION once per hostage, no leader test';
+export const RESCUE_VALVE_READING = 'INREGION once per hostage, no leader or alive test; the empty OR arm is INREGION alone';
 
 /**
  * R4B-04 (G12; OT.R97, research 377 §2): r0004's escortee post-tick credits a hostage once. Its twin of `FUN_0056f970`
@@ -512,8 +529,6 @@ export class ExtractionAuthority {
   private readonly listeners = new Map<ExtractionEventKind, Set<(e: ExtractionEvent) => void>>();
   /** HX-4a (research 239 s2): the leaders' counts (`+0x520`, `HOSTAGES_CONTROLLED_READING`). */
   readonly leaders = new HostageLeaders();
-  /** HX-4a: sub-map 0's grid, the order's cells (`ORDER_CELL_FIELD_READING`); null without the AI maps (no order). */
-  private readonly cells: AiGrid | null;
   private readonly planner: HostagePathPlanner | null;
   /** Actor +0xe4, distinct from the navigable occupancy cell +0xe8 (research 335 section 9). */
   private readonly rawCells = new Map<number, AiLoc>();
@@ -574,7 +589,6 @@ export class ExtractionAuthority {
     this.extractZones = named(this.escort.extract);
     // Research 333 §4: the room's planner queue, served once a game frame in `step` (HOSTAGE_PATH_SLICE_READING).
     this.planner = ai ? new HostagePathPlanner(ai, this.obstacles, HOSTAGE_PATH_SLICE_BUDGET_PLACEHOLDER.expansions) : null;
-    this.cells = ai?.maps[0] ?? null;
     this.zones = ai ? zonesOfKind(ai, 1).map((z) => z.zone) : [];
     // HX-0b's review: the starts' `at` tuples are shared by reference across the map's rooms -- copied, every one.
     this.hostages = starts.map((s, i) => {
@@ -1038,8 +1052,8 @@ export class ExtractionAuthority {
 
   /**
    * HX-4a (research 239 s1-s2, s9.1): a player's order (`hostageOrder`) -- the issuer's console's test run by the room
-   * (`orderRefusal`, `ORDER_VALIDATION_READING`) on sub-map 0's cells and the room's pick; refused, the room's tally
-   * (`dropped`) and nothing else; taken, OnCommand's case (`onCommand`: FOLLOW or HOLD) and every page told. The refusal
+   * (`orderRefusal`, `ORDER_VALIDATION_READING`) on the bodies' located cells (`orderCellOf`) and the room's pick;
+   * refused, the room's tally (`dropped`) and nothing else; taken, OnCommand's case (`onCommand`: FOLLOW or HOLD) and every page told. The refusal
    * or null.
    */
   order(issuerId: number, ev: HostageOrderEvent): OrderRefusal | 'unknown hostage' | null {
@@ -1051,7 +1065,7 @@ export class ExtractionAuthority {
       hostage: { id: h.id, alive: h.alive, team: h.start.team, feet: h.at, unit: h.ai.unit, hidden: h.ai.hidden, rescued: h.ai.state === 0x11 },
       eye: ev.eye, dir: ev.dir,
     }, {
-      cellOf: (f) => (this.cells ? aiCellOf(this.cells, f[0]!, f[2]!) : null),
+      cellOf: (f) => orderCellOf(this.map.ai, f),                                // ORDER_CELL_FIELD_READING: the located cell, no maps no order
       pick: (eye, dir) => this.host.pick!(issuerId, [eye[0]!, eye[1]!, eye[2]!], [dir[0]!, dir[1]!, dir[2]!], ev.seq, h!.id),
     });
     if (why || !h || !issuer) { this.host.dropped?.(why ?? 'not alive', issuerId); return why ?? 'not alive'; }

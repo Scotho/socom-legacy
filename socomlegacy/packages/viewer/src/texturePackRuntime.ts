@@ -2,13 +2,13 @@ import {DataTexture,type Texture} from 'three';
 import {hdTextures} from './hdTexturePack';
 import {descriptorDigest,boundedBytes,hashString,PACK_LIMITS,requirePack,sha256,sourceDigest,validateManifest,validateSource,type PackEntry,type PackRoles,type PackSource,mapArchiveOf,packMap,packRoot,
   indexMatches,PACK_CHOICE_DEFAULT,PACK_INDEX_LIMITS,PackRefusal,refusePack,validatePackIndex,type PackIndexEntry,type PackLibrary,type PackManifest,type PackMap,type TexturePackIndexEntry} from './texturePack';
-import {showPackLibrary} from './experimentalGraphics';
 import {UploadedPacks,UploadStoreUnavailable,idbUploadBackend} from './texturePackStore';
 import {buildUploadPart,importSummary,plainProvenance,readUpload,skippedLine,stagedFilesWithin,stagedPart} from './texturePackUpload';
 import {viewerCommit} from './revision';
 import type {BuiltPack} from './texturePackBuild';
 import {blobSource} from './zipReader';
 import {pageIndexedDb} from './pageStore';
+import type {PackApplyProgress} from './packApplyOverlay';
 
 /** Owns replacement images, never source pixels or shader/material graphs. GPU recreation awaits browser validation. */
 export class TexturePackTarget {
@@ -16,7 +16,8 @@ export class TexturePackTarget {
   private originals=new Map<string,{texture:DataTexture;image:DataTexture['image'];mips:DataTexture['mipmaps'];generate:boolean;bytes:number}>();
   /** `sources(roles)` is the map's eligible set for a manifest's roles (`packSourcesFor`); world and prop draws share one texture object per name. */
   /** `map` is the loaded archive's id (`LoadedMap.archive`): only a pack made from that map applies (GX-1c). */
-  constructor(private sources:(roles:PackRoles)=>Map<string,PackSource>,private textures:ReadonlyMap<string,Texture>,readonly map:string){ }
+  /** `textures`: the world's textures by name (B206 ML-3: read to register a live map's decodes, ML.R9). */
+  constructor(private sources:(roles:PackRoles)=>Map<string,PackSource>,readonly textures:ReadonlyMap<string,Texture>,readonly map:string){ }
   get retainedBytes():number{return [...this.originals.values()].reduce((n,v)=>n+v.bytes,0);}
   get applied():number{return this.originals.size;}
   private sourceCache=new Map<PackRoles,Map<string,PackSource>>();
@@ -66,7 +67,11 @@ type FetchPack=(url:string,init?:RequestInit)=>Promise<Response>;
 export interface PackSkip {key:string;reason:string}
 export interface PackReport {library:PackLibrary|null;chosen:PackIndexEntry|null;applied:number;done:boolean;refused:string|null;skipped:PackSkip[]}
 const OFF_REPORT:PackReport={library:null,chosen:null,applied:0,done:true,refused:null,skipped:[]};
-/** The status line (GX-21): the applied pack by name and its count, a refusal with its reason, or the originals. */
+/**
+ * The status line (GX-21): the applied pack by name and its count, a refusal with its reason, or the originals. ML-10 F6:
+ * no page shows it since ML-6 removed the panel's status line; kept as the tests' one reading of a `PackReport`
+ * (`texturePackLibrary.test.ts`, `texturePackUi.test.ts`), the words a report stands for.
+ */
 export function packStatusText(r:PackReport):string{
   // GX-27: a refused served library still lists the uploaded packs; one of them chosen reports as any pack does.
   if(r.library?.refused&&!r.chosen)return `${r.library.refusedFile??'packs.json'}: refused -- ${r.library.refused}`;
@@ -83,10 +88,11 @@ interface Listed {library:PackLibrary;manifests:Map<string,Uint8Array>;uploaded?
  */
 /** `hd` (OT.R92, HD-6): offered each zip first; it answers the status line of an HD pack zip it imported or refused, or null. */
 export interface UploadHooks {store?:UploadedPacks|null;status?:(text:string)=>void;selected?:(value:string)=>void;removed?:(id:string)=>void;state?:()=>void;
-  hd?:(file:Blob,name:string)=>Promise<string|null>}
+  hd?:(file:Blob,name:string)=>Promise<string|null>;
+  /** B206 ML-4 (ML.R10): each texture's upload takes its turn of the page's frame budget (`hdTexturePack.ts` `ApplyFrames`). */
+  frames?:{turn(bytes:number):Promise<void>}}
 const reasonOf=(e:unknown):string=>e instanceof PackRefusal?e.reason:e instanceof UploadStoreUnavailable?`uploads are unavailable (${e.message})`:e instanceof Error?e.message:String(e);
 const packFiles=(pack:BuiltPack):Map<string,Uint8Array>=>new Map([['manifest.json',pack.manifestBytes],...pack.payloads]);
-const MOUNTED=new WeakMap<Document,LocalTexturePacks>();
 const randomId=():string=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');
 const decode=(bytes:Uint8Array)=>new TextDecoder().decode(bytes);
 /**
@@ -171,7 +177,10 @@ export class LocalTexturePacks {
    * GX-27: imports an uploaded base pack zip (`texturePackUpload.ts`) while the Experimental view is on: the loaded map's
    * part is built now against its sources, stored, listed and chosen; another map's part is stored staged and built when
    * that map is loaded. A plain pack (no `export.json`) is built for the loaded map at once and never staged. The status
-   * line says what happened, or the refusal with its reason; nothing is applied otherwise.
+   * line says what happened, or the refusal with its reason; nothing is applied otherwise. ML-10 F6: no page calls it
+   * since ML-6 (packs are added in Home > Experiments > Mods, `packs/registry.ts` `importDrop`); kept because it is the
+   * tests' one way to stage an upload, and the staged build at map load (`sessionFor`) stays live for uploads a browser
+   * kept before B206 (`texturePackUi.test.ts` GX-27, `texturePackPlain.test.ts`, `hdTexturePackImport.test.ts`).
    */
   setArchiveReader(read:()=>Promise<Uint8Array>):void{this.readArchive=read;}
   importZip(file:Blob,name:string):Promise<void>{
@@ -391,6 +400,7 @@ export class LocalTexturePacks {
         if(await sha256(data)!==entry.sha256)return 'payload hash mismatch';
         for(let i=3;i<data.length;i+=4)if(data[i]!==255)return 'payload alpha is not 255';
         if(!current())return undefined;
+        if(this.uploads.frames){await this.uploads.frames.turn(entry.bytes);if(!current())return undefined;}
         if(!target.apply(entry,data))return `not applied (no such texture, or over the ${PACK_LIMITS.totalBytes/1024/1024} MiB cap)`;
         this.changed(this.applied);report({});return undefined;
       };
@@ -405,44 +415,33 @@ export class LocalTexturePacks {
 }
 
 /**
- * Only a testroom document can create a pack loader. Leaving that route cancels and restores immediately. GX-27: `store` is the page's pack store (the page's own IndexedDB unless a test passes one; null for none). The
- * panel's import controls (`#exp-pack-import`, `#exp-pack-file`, `#exp-pack-remove`, `#exp-pack-import-status`) are
- * wired by delegation, so the panel may be mounted after this.
+ * B206 ML-3 (plan 2026-11-06-mods-loader, ML.R5, R8; product track, ML.R2): the GX per-map packs for a page with no
+ * panel -- the front end's match and the Forge -- applied from the MODS state (`./packs/pagePacks` `PackApplier`): the
+ * page's pack store, the frame budget (ML-4), and the reports told to the overlay. No document is read or written.
+ */
+export function pageGxPacks(reported:(report:PackReport)=>void=()=>undefined,frames?:UploadHooks['frames']):LocalTexturePacks{
+  return new LocalTexturePacks(undefined,undefined,undefined,reported,{store:new UploadedPacks(idbUploadBackend(pageIndexedDb)),...(frames?{frames}:{})});
+}
+/** ML-4: a GX report as the overlay draws it -- the chosen pack's name, n of its textures applied; null with none chosen. */
+export function gxApplyProgress(r:PackReport):PackApplyProgress|null{
+  if(!r.chosen)return null;
+  const total='textures' in r.chosen?r.chosen.textures:0;
+  return {name:r.chosen.name,applied:r.applied,total,done:r.done,refused:r.refused};
+}
+
+/**
+ * Only a testroom document can create a pack loader. Leaving that route cancels and restores immediately. GX-27: `store` is
+ * the page's pack store (the page's own IndexedDB unless a test passes one; null for none). B206 ML-6 (plan
+ * 2026-11-06-mods-loader, ML.R11, R16; OT.R110): the Experimental panel's texture-pack group -- its chooser, "Import pack
+ * (.zip)", Remove and their status lines -- is removed, so nothing of the document is wired here: the test room's packs
+ * are imported and chosen in Home > Experiments > Mods and applied from that choice (`./packs/pagePacks` `PackApplier`).
  */
 export function mountLocalTexturePacks(doc:Document,fetcher?:FetchPack,store:UploadedPacks|null=new UploadedPacks(idbUploadBackend(pageIndexedDb)),
-  hd?:UploadHooks['hd']):LocalTexturePacks|null {
+  extra:{reported?:(report:PackReport)=>void;frames?:UploadHooks['frames']}={}):LocalTexturePacks|null {
   if(!doc.body.classList.contains('test-room'))return null;
-  const select=()=>doc.getElementById('exp-texturePack') as HTMLSelectElement|null;
-  const sync=():void=>{
-    const importer=doc.getElementById('exp-pack-import') as HTMLButtonElement|null,remover=doc.getElementById('exp-pack-remove') as HTMLButtonElement|null,value=select()?.value??'';
-    if(importer)importer.disabled=!packs.isEnabled||packs.busy||!packs.uploadsAvailable;
-    if(remover)remover.disabled=!packs.isEnabled||packs.busy||!packs.isUploaded(value);
-  };
   const packs:LocalTexturePacks=new LocalTexturePacks(fetcher,undefined,undefined,report=>{
-    if(report.library)showPackLibrary(doc,report.library);
-    const note=doc.getElementById('exp-pack-status');if(note)note.textContent=packStatusText(report);
-    sync();
-  },{store,state:sync,hd,
-    status:text=>{const note=doc.getElementById('exp-pack-import-status');if(note)note.textContent=text;},
-    selected:value=>{const s=select();if(s&&s.value!==value){s.value=value;s.dispatchEvent(new Event('change'));}sync();},
-    removed:id=>{for(const o of Array.from(select()?.options??[]))if(o.value===id)o.remove();}});
-  // One loader answers the panel: a document mounted again (a test's next page) leaves the earlier listeners inert.
-  MOUNTED.set(doc,packs);const live=()=>MOUNTED.get(doc)===packs;
-  doc.addEventListener('click',e=>{
-    if(!live())return;
-    const button=(e.target as Element|null)?.closest?.('button');
-    if(button?.id==='exp-pack-import')(doc.getElementById('exp-pack-file') as HTMLInputElement|null)?.click();
-    else if(button?.id==='exp-pack-remove'){const value=select()?.value??'';if(packs.isUploaded(value))void packs.removeUploaded(value);}
-  });
-  doc.addEventListener('change',e=>{
-    if(!live())return;
-    const el=e.target as HTMLElement|null;
-    if(el?.id==='exp-pack-file'){
-      const input=el as HTMLInputElement,file=input.files?.[0];
-      if(file)void packs.importZip(file,file.name);
-      try{input.value='';}catch{/* a browser that refuses: the next choice of the same file still fires */}
-    }else if(el?.id==='exp-texturePack')sync();
-  },true);   // the capture phase: a change event that does not bubble still reaches the document's listener first
+    extra.reported?.(report);   // B206 ML-4: the overlay's count
+  },{store,...(extra.frames?{frames:extra.frames}:{})});
   const Observer=doc.defaultView?.MutationObserver;
   const observer=Observer?new Observer(()=>{if(!doc.body.classList.contains('test-room'))packs.setEnabled(false);}):null;
   observer?.observe(doc.body,{attributes:true,attributeFilter:['class']});

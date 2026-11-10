@@ -71,7 +71,7 @@ describe('the replays adapter', () => {
     expect(document.querySelector('#stage .cx-rooms__foot')!.textContent).toContain('2 saved');
     expect(ctl.S.screen).toBe('replays');
     const rows = [...document.querySelectorAll('#stage .cx-room')].map((r) => [...r.children].map((c) => c.textContent!.trim()));
-    expect(rows.map((r) => r[0])).toEqual(['MP51', 'MP2']);
+    expect(rows.map((r) => r[0])).toEqual(['Vigilance', 'Frostfire']);
     expect(rows[0]!.slice(1)).toEqual(['classic', '2026-10-03 21:30', '12:34', '2']);
     expect(document.querySelector('#stage .cx-drawer__cta')!.textContent).toContain('Watch');
     ctl.press('circle');
@@ -143,7 +143,7 @@ describe('the replays adapter', () => {
     await flush();
     expect(f.calls.map((c) => c.url)).toEqual([`${BASE}/replays`, `${BASE}/replays?before=c1`]);
     expect(f.calls[1]).toMatchObject({ method: 'GET', auth: `Bearer ${TICKET}` });
-    expect([...document.querySelectorAll('#stage .cx-room .cx-room__name')].map((n) => n.textContent)).toEqual(['MP51', 'MP2']);
+    expect([...document.querySelectorAll('#stage .cx-room .cx-room__name')].map((n) => n.textContent)).toEqual(['Vigilance', 'Frostfire']);
     expect(document.querySelector('#stage [data-more]')).toBeNull();
     expect(page.ctl.S.rp.row).toBe(0);
   });

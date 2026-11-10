@@ -417,7 +417,7 @@ describe('the render: the rows and their glyphs', () => {
     expect(rows()).toHaveLength(remapOwnRows('separate') + 2); // h59U9CLb: Extra binds; OBF-13: Finish, the last row
     expect(remapOwnRows('separate')).toBe(20);
     expect([REMAP_STANCE_ROW, REMAP_DEAD_ROW, REMAP_ACTION_ROW]).toEqual([0, 1, 2]);
-    expect([0, 1, 2].map(rowTitle)).toEqual(['Stance mode', 'Stick dead zone', 'Cross']);
+    expect([0, 1, 2].map(rowTitle)).toEqual(['Stance mode', 'Pad dead zone (this browser)', 'Cross']);
     expect(rowTitle(REMAP_STANCE_ROW)).toBe('Stance mode');
     expect(rows().slice(A(0), A(16)).map((_, i) => rowTitle(A(i)))).toEqual(['Cross', 'Circle', 'Square', 'Triangle', 'L1', 'R1', 'L2', 'R2', 'Select', 'Start', 'L3', 'R3', 'Up', 'Down', 'Left', 'Right']);
     for (const [i, k] of [[0, 'cross'], [1, 'circle'], [2, 'square'], [3, 'triangle']] as const) expect(glyph(A(i)).querySelector(`.cx-btn--${k}`)).not.toBeNull();
@@ -425,7 +425,7 @@ describe('the render: the rows and their glyphs', () => {
     expect(glyph(A(7)).querySelector('.cx-shoulder.is-trigger')!.textContent).toBe('R2');
     expect(glyph(A(9)).textContent).toBe('Options');                // OBF-10: the PlayStation pad's own print (the action stays Start)
     expect(rows()[A(0)]!.classList.contains('is-focused')).toBe(true);   // STANCE-TOP: it opens on Cross
-    expect([rowTitle(REMAP_DEAD_ROW), rowValue(REMAP_DEAD_ROW)]).toEqual(['Stick dead zone', '15%']);
+    expect([rowTitle(REMAP_DEAD_ROW), rowValue(REMAP_DEAD_ROW)]).toEqual(['Pad dead zone (this browser)', '15%']);
     expect([rowTitle(REMAP_CROUCH_ROW), glyph(REMAP_CROUCH_ROW).textContent]).toEqual(['Crouch', 'Unbound']);
     // The review's F1 (a): a SEPARATE reached through storage (saved, not stepped on the row) clones nothing -- Prone shows
     // Unbound, and Triangle keeps its stance until Prone is bound (`ControllerInput.poll`; `../stanceModes.test.ts`).

@@ -1,4 +1,4 @@
-import { flashLevel, segmentHit, type Grid } from '@s2u/scene';
+import { flashLevel, segmentHits, surfaceMaterial, type Grid, type SurfaceMaterial } from '@s2u/scene';
 import type { Stance, Walker } from '../mover';
 import { roundAdmits } from '../round';
 import { applyHit, fragmentCount, fragmentDamage, fragmentPart, PART, type Health } from './damage';
@@ -175,10 +175,42 @@ export function blastKnock(victim: BlastVictim, point: readonly number[], record
  * LATER 416 (LATER 413's review, F2; research 84 section 13): the blast's line to a body's head (`FUN_005ac070`
  * D:L464853) clear of the world -- queued through `FUN_0031dd90` as a round's segment is, so the batch's class
  * (`FUN_002d3030` at class 0) admits it as the round's (`../round` `roundAdmits`: the side bit, and the camera-only
- * faces passed). Was every polygon: a camera-only frame (Frostfire's panes' `camcol`) refused the blast.
+ * faces passed). Was every polygon: a camera-only frame (Frostfire's panes' `camcol`) refused the blast. Research 386
+ * §3.2 (the review's A): one-sided -- the batch's `FUN_002d3030` runs a hull collider (its +0x80 bit 1 clear,
+ * `FUN_00316e30` D:L215827-215828) in crossing mode `DAT_003df270` 0x20 (D:L175276-175281), which meets a face only from
+ * its front (research 281 §4.3, micro 288-333): `segmentHits`' `frontOnly`, the line from the blast to the head. Was
+ * two-sided: Crossroads' terrorist base's round, 0.5 u under the floor, reached no body.
  */
 export function blastSeen(grid: Grid, from: readonly number[], to: readonly number[]): boolean {
-  return segmentHit(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], roundAdmits) === null;
+  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], roundAdmits, undefined, true).length === 0;
+}
+
+/**
+ * R4B-10 (research 388; LATER 615, then G6 under OT.R97): whether the blast's exposure test on a body sees through a hit
+ * of material `m` -- r0001 `FUN_005a0e70` D:L459177-459189, r0004's twin r4 0x5a6b00-0x5a6bc8 (the same words in the
+ * PINE dump and the served decrypt). The hit is cover only when its entry exists and its `+0x3c` bit 3, bit 1 (LIQUID)
+ * and bit 4 (PICKUP) are clear and its id is not PERSON's (`DAT_003e14f8`, `FUN_002de9e0("PERSON")` D:L323423; r4
+ * 0x5a6b98-0x5a6ba8); r0004 adds METAL_GRATE's and INVISIBLE_DI's ids (`FUN_002de9e0`'s twin r4 0x2fb9d0 on the
+ * strings at r4 0x65f1a0 / 0x65f1b0, called at r4 0x5a6b38 / 0x5a6b48 and compared at 0x5a6bb0-0x5a6bc8). Bit 3 is set
+ * on PARTICLE_SYSTEM alone (`FUN_002de4b0` D:L181550; the SOILS parser sets bits 0, 1, 2 and 4 only, D:L181403-181422),
+ * so it is read here by that entry's name. The entry is never absent: the table holds only constructed entries
+ * (`FUN_002de4b0`, `FUN_002dde40`), so the null test has no case in the port (research 388 s2).
+ */
+export function blastSeesThrough(m: SurfaceMaterial): boolean {
+  return m.liquid || m.pickup || m.name === 'PARTICLE_SYSTEM' || m.name === 'PERSON' || m.name === 'METAL_GRATE' || m.name === 'INVISIBLE_DI';
+}
+
+/**
+ * R4B-10 (research 388): the blast's line to a body's head (`FUN_005ac070` D:L464853) judged as the body's handler
+ * judges its hits (`FUN_005a0e70`; r0004 r4 0x5a6920): the round's query class and one side as `blastSeen`, and a hit
+ * whose material the exposure test sees through (`blastSeesThrough`; a polygon's byte 0 the map's `defaultMaterial`,
+ * `FUN_002dc1d0` D:L180305-180319) passed -- the walk going on to the next hit, so any cover beyond still shelters.
+ * The room's players and hostages take it; a resting charge's line (`blastSeen`, PF-36) does not: its consumer is the
+ * explosion's own walk (`FUN_003c80e0`), unchanged in r0004.
+ */
+export function blastExposed(grid: Grid, from: readonly number[], to: readonly number[], defaultMaterial: string): boolean {
+  const admits = (p: Parameters<typeof roundAdmits>[0]): boolean => roundAdmits(p) && !blastSeesThrough(surfaceMaterial(p.material, defaultMaterial));
+  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], admits, undefined, true).length === 0;
 }
 
 /**

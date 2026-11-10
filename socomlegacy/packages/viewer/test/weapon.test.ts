@@ -22,7 +22,7 @@ import {
   ALL_RELOAD_CLIPS, PISTOL_RELOAD_CLIPS, RELOAD_CLIPS as SHARED_RELOAD_CLIPS, RELOAD_SECONDS_PLACEHOLDER, reloadClip, reloadLockSeconds,
   reloadMoving, reloadSeconds, type ReloadItem, type ReloadStance,
 } from '../src/reloadClip';
-import { AIM_HOLDS_RAISE, ease, Envelope, LOWER_DELAY, nextEdge, RAISE_TIMES, WeaponRaise } from '../src/weaponRaise';
+import { ease, Envelope, LOWER_DELAY, nextEdge, RAISE_GATE_READING, RAISE_TIMES, WeaponRaise } from '../src/weaponRaise';
 
 /**
  * The WEAPON workstream: the rifle in the hands (`./heldItem`), raised to fire (`./weaponRaise`, `./weaponPose`), its
@@ -82,7 +82,8 @@ describe('the raise envelope (FUN_00286b80 .. FUN_00286d90, seal+0x1160)', () =>
   it('pins FUN_005dffc0\'s rifle times and the controller\'s 5 s (FUN_00598280)', () => {
     expect(RAISE_TIMES).toEqual({ in: 0.1, hold: 100000, out: 0.5 });
     expect(LOWER_DELAY).toEqual({ base: 5, random: 0 });
-    expect(AIM_HOLDS_RAISE).toBe(true);
+    // ENEMY-RAISE ER-1: ctrl+0xc0 is the marked-enemy count (FUN_005c9b30), not the aim lane (was: AIM_HOLDS_RAISE, retired)
+    expect(RAISE_GATE_READING).toMatch(/round screens/);
   });
 });
 
@@ -527,7 +528,14 @@ describe('the weapon in the hand changes (Fire.setWeapon): each keeps its magazi
     fire.setWeapon(HELD_SIDEARM);
     expect(events.at(-1)).toMatchObject({ type: 'reloadEnd', completed: false, weapon: { name: 'M4A1 SD' } });
     expect(fire.state().magazine).toEqual({ rounds: 12, capacity: 12, spare: 2, reloading: false });
-    fire.shoot();
+    // TRIGGER-SWAP fold (research 211 §10.4): the rate's timer (kit +0x81c) is the kit's and the slot change
+    // (`FUN_005c4b10` D:L478779-478936) leaves it, so the Mark 23 waits out the rifle's last round's FireWait, set
+    // 0.021 s ago (`FUN_005c0ae0` D:L476446-476448). Was: fired at once, the wait zeroed at the swap.
+    const before = events.length;
+    expect(fire.shoot()).toBeNull();
+    expect(events.length).toBe(before);
+    fire.update(0.5);                                          // past the carried wait
+    expect(fire.shoot()).not.toBeNull();
     expect(events.at(-1)).toMatchObject({ type: 'round', weapon: { name: 'Mark 23', id: 15, fireAnim: 'muzzle_mark23', sounds: { close: '.MARK_23' } } });
     fire.setWeapon(HELD_RIFLE);
     expect(fire.state().magazine).toMatchObject({ rounds: 30, capacity: 30, spare: 2 });   // 30 in, the 28 and a full one kept

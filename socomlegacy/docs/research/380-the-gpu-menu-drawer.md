@@ -30,15 +30,85 @@ Four classes of equality against `rasterizeUiDrawList` on the same list, texture
 - **C (capture):** every pinned `judge` row reproduces to its printed digit when the GPU frame is scored instead of the
   software frame, by the same scorer functions in Node (GM-11c), from a frame the browser wrote out.
 
-The tolerance, per backend (GM.R5): **provisional** -- max(the f32 twin, SwiftShader), measured in GM-11b, gates no
-flip; **pinned** -- max(twin, SwiftShader, each real backend run), GM-27, dated, with the host and
-`UNMASKED_RENDERER_WEBGL` named ("one backend only" said where only one ran). *Not measured yet: both values are
-owed by GM-11b and GM-27.* The twin's leg is measured (§1.1).
+The tolerance, per class -- the software rasterisers and the GPUs (GM.R5; GM-27 review finding 1): **provisional** --
+max(the f32 twin, SwiftShader), measured in GM-11b, gates no flip; **pinned** -- per class, max(twin, that class's
+runs): the software rasterisers' class from SwiftShader and llvmpipe, the GPUs' from every run (each real backend's), GM-27,
+dated, with the host and `UNMASKED_RENDERER_WEBGL` named ("one backend only" said where only one ran). The twin's leg is measured (§1.1).
+
+**Pinned, GM-27, 2026-11-09 (reading: the re-pin's review PASS WITH FINDINGS, high, reproduced byte for byte, `agent-mail/evidence/mega/REVIEW-GM27-AND-GM-BATCH.md`): one vendor only (NVIDIA: D3D11 x2, Vulkan x1) plus SwiftShader
+and llvmpipe** -- the owner's ruling, 2026-11-09T01:41Z in seat redotcom-46: "NVIDIA only, said" (AWS offers this
+account no AMD GPU; the host's Intel iGPU is off). `GPU_RASTER_TOLERANCE_ADAPTATION` (`packages/viewer/src/uiGpuTolerance.ts`,
+its data `uiGpuToleranceData.ts` written by `tools/gm-pin-tolerance.ts`) holds two classes (GM-27 review finding 1), each
+per run key (case@scale/mode/blend, the 312 of GM-03's table at 1, 2 and 4), field by field: **`software`**, the max over
+every line's f32 twin and the SwiftShader and llvmpipe records; **`gpu`**, the max over the twin and every record (a
+software record enters it only where it exceeds the hardware's). The parity spec holds a run to the class its renderer
+names (`isSoftwareAdapter`, `uiGpuSwitch.ts`: SwiftShader, llvmpipe, Microsoft Basic Render Driver are software; any
+other renderer, AMD and Intel included, the GPUs'). Nine parity records, each named with its host, renderer and sha:
+
+| backend | renderer (`UNMASKED_RENDERER_WEBGL`) | host, head | max \|Δ\| | largest count at \|Δ\| >= 1 |
+|---|---|---|---|---|
+| ANGLE D3D11 | NVIDIA RTX A4500 (0x00002232) | the owner's second PC, `7a1a4f1c6` (2026-11-09) | 1 (R, G, B) | 5931 (13.warm/hot@4x ff) |
+| ANGLE D3D11 | NVIDIA GeForce RTX 4070 SUPER (0x00002783) | the owner's host, `c438dd514` (2026-11-04; models then L1) | 1 (R, G, B) | 5931 |
+| ANGLE Vulkan | NVIDIA Tesla T4 (0x00001EB8), Vulkan 1.4.329 | AWS g4dn.xlarge, `21df7aeb0` (2026-11-09) | 1 (R, G, B) | 5931 |
+| SwiftShader | SwiftShader Device (Subzero), Vulkan 1.3.0 | the same three hosts, and the AWS box `932f4d986` | 1 (R, G, B) | 176 (13.warm/hot@4x ff) |
+| llvmpipe | Mesa llvmpipe (LLVM 20.1.2), OpenGL 4.5 | the AWS box, `932f4d986` and `a34cb3c09` | 1 (R, G, B) | 167 (13.warm/hot@4x exact) |
+
+**The `software` class** is the twin's and the software rasterisers' own: non-zero on the same 40 keys, cases 6 and 13
+(`ff` 6@2x 60, 6@4x 162; 13.cold 14 / 28 / 64 and 13.warm/hot 43 / 84 / 176 at 1x / 2x / 4x; `exact` 13.cold 7 / 16 / 33,
+13.warm/hot 44 / 79 / 167), so a software-rasteriser regression is no longer hidden under NVIDIA's counts. **The `gpu`
+class:** the three NVIDIA runs agree to the pixel count on every key: the pinned bound is theirs where it exceeds the twin and
+the software rasterisers, on cases 6 and 13 under `ff` (6@2x 72, 6@4x 216; 13.cold 354 / 1437 / 5826 and 13.warm/hot
+370 / 1461 / 5931 at 1x / 2x / 4x) and case 13's `exact` legs (13.cold@4x 40, 13.warm/hot@1x 48): NVIDIA's
+fixed-function blend and filtering rounding one unit apart from the software on textured HD pixels, never more. Every
+other key is the twin's (its largest 168, 13.warm/hot@4x ff) or 0; max |Δ| is 1 on every key, alpha 0 on every key. Each of the other 22 parity records
+under the evidence root (the T4's earlier runs, the GM-14a/15a/15c boxes) gives the same pin, both classes, field for field. **Re-pinned 2026-11-09** (`agent/gm-repin`; the plan's Log
+2026-11-09T18:35Z) with four more records at `cf124a15c` carrying GM-30's loading leg (the A4500 and the 4070 SUPER on
+D3D11, each with its host's SwiftShader; now NVIDIA: D3D11 x4, Vulkan x1): GM-03's 312 keys unchanged, and the loading
+leg's 18 keys (exact only) added, the same in both classes, max |Δ| 1 (`loading.black` 0) and at most 1814 pixels at
+|Δ| >= 1 (`loading.alpha192@4x`).
+
+Its guard (the lane holder's ruling, GM-27): a pin past |Δ| 1 on any channel of any key, or counting a pixel at |Δ| >= 2,
+is refused at load with the key named (`checkTolerancePin`, `UI_GPU_TOLERANCE_MAX_ABS` = 1), never taken as a wider bound;
+both classes are checked; an E or E\* run under `exact` must pin 0 in both, and the parity spec asserts its 0 bytes
+whatever the bound. The parity spec holds every run to the pin's class when no `S2U_UI_GPU_PARITY_BOUND` is given, and
+to the named file when one is; GM-30's loading leg is held to the pin's loading keys since the re-pin above (a loading
+run a pin lacks runs with its B recorded unjudged, "B unjudged: no pinned bound yet"), and a file bound must still
+hold its runs. Evidence kind: the pin is read from rendered browser runs on real GPUs and on the software rasterisers
+(`summary.jsonl`, `renderer.json`); the spec's default bound is written and unit-tested, and the flip's runs held J3p to
+the pin on the RTX 4070 (D3D11) and the T4 (the plan's Log 2026-11-09T10:12Z, 13:27Z); no capture comparison. Not measured: a second vendor (ruled out above), a low-end iGPU, GM-04's
+corpus on a real GPU.
 
 What every rendered browser run must hold: E 0 bytes; E\* 0 bytes or a written finding; B within the pinned bound; C
 every pinned row unchanged (`uiCompositorScore` 95.8/60.2/true, 98.1/38.2/true, 97.1/63.8/true; CREATE GAME
 98.1/75.2/true and 97.9/73.9/true; every other pinned row, from the one shared table of GM-11c). Absent references are
 skipped by name: `mb10_pcsx2`, `s4_pcsx2`, `menu_explore`, `pcsx2_mission_*`, `SOCOM_PARITY_ARCHIVE`.
+
+**How a C row is scored on a GPU frame (GM-11c, 2026-11-09; the instrument, reading: its fresh review PASS WITH FINDINGS, folded, the GPU menus plan's Log 2026-11-09T06:23Z).** The scorer's
+functions are one module, `socomlegacy/tools/test/menuCaptureScore.ts`, moved without a change of number from
+`uiCompositorScore.test.ts` (PLAT-14's `crop` and `inPcsx2Window`, W7.R7; the score is `captureScore.ts` `judge`); its
+`MENU_C_ROWS` is the one shared score table: per row the frame it scores, the reference under `SOCOM_PC_ROOT`
+(`scripts/parity/`), the view (as drawn, or squeezed into PCSX2's 4:3 box), band, mask and the pinned digits (95.8/60.2/
+true, 98.1/38.2/true, 79.4, 97.1/63.8/true, 94.9, 80.7/false, 98.1/75.2/true, 88.2, 97.9/73.9/true). **A frame writer
+must name its frames exactly as `MENU_C_FRAMES` (exported there): `dlgMenu.rdr`, `dlgMenu.rdr hide LoadGameBack` (that
+node's `visible` false) and `dlgCreateGame.rdr`, each drawn as built with MENUFADER at 0, scale 1, opaque, in the
+header's `dialog`.** `uiCompositorScore.test.ts` scores through the rows, its literals unchanged, its frames drawn by
+the moved `menuCaptureFrames.ts` (`drawDialog`). `tools/menu-gpu-compare.ts --frames <dir>` reads each GM-11b frame
+file's header line (`e2e/uiGpuParityRecord.ts`, `s2u-ui-frame/1`), scores every frame whose `dialog` is a row's frame --
+each blend and each of `gpu`/`cpu` its own line, renderer and presenter path (`software` for an L1 frame) beside it --
+by `scoreCRow`, and writes the table (the pin as the software score, this frame's, the delta, the result). **A row
+passes when every field it pins is equal at the scorer's printed digit** (`judge` rounds to one decimal). No root, no
+reference, another scale or transparent, or no frame naming the dialog: skipped by name. An unreadable frame file, a
+truncated frame, a wrong-size reference: an `error` line by name. Exit (review F1-F4): 2 usage (no or empty `--frames`,
+an `--out` inside the root), 1 a fail, 4 an error, 3 nothing scored, 0 only when a row scored and none failed. Held by
+`tools/test/menuGpuCompare.test.ts`: a software frame drawn in Node by the reference path, written as a frame file,
+reproduces all nine (dev-disc); the rules on a synthetic reference (no data). **The writer (GM-31, written, not run):**
+`e2e/uiGpuMenuFrames.spec.ts` draws the three `MENU_C_FRAMES` as `drawDialog` does (no tick, so no tick matching) through
+the front end's GPU surface and its software path, asserts the GPU frames L0, writes them and runs this tool, failing on
+any exit but 0; until a box runs it **no C row has been scored on a GPU frame** (the 4070's files hold cases only). The other
+capture scorers (`widgetScore`, `popupPlaceScore`, `netLoginScore`, `personaScore`, `connectScore`, `universeScore`,
+`usagePolicyScore`, `worldOfSocomScore`, `mainMenuDisc`, `mainMenuMovie`, `menuEntryFadeDisc`, `titleMenuDisc`) score a
+dialog driven to a state by a script, a movie or a rig, which no frame file names; they join the table when the parity
+spec writes those states (owed, GM-11c's row).
 
 ### 1.1 The f32 twin's leg (GM-08, 2026-11-02; reading, pending review)
 
@@ -90,6 +160,10 @@ corpus); no browser, no GPU.
   (research 185 §3.1, pending review) would always draw it. Neither reproduces the software. Held by a unit test
   (`uiGpuTwin.test.ts`, "finding: the software's tie ..."). `UI_MODEL_DEPTH_FORMAT_READING`'s correction is its own
   simulation-track task, software first (GM.R14); until it, these pixels are B and their |Δ| sets the models' bound.
+  *Resolved by GM-15d (2026-11-09; the plan's Log, R1 resolved by (a)):* the software, the twin and the GPU now test
+  the f32 depth `>=` the f32 store (`TEST_1` ZTST GEQUAL), so the second face draws at every pixel it covers on all
+  three, and the speckle is gone (M3 below; the unit test is now "GM-15d: coplanar triangles ..."). The twin's B record
+  (`UI_GPU_TWIN_CORPUS_B`) was measured before it and is re-measured by the next dev-disc run.
 - **Finding 2 -- an opaque frame's alpha is not always 255** (P14 × P23). A quad whose alpha is NaN or infinite stores
   the alpha 0 on an opaque frame too, and later quads raise it by `A + (255 − A)·min(1, a)`; P14's "alpha `colorMask`
   off" cannot follow (seeded lists: alpha |Δ| up to 223 masked). The twin models `ONE_MINUS_DST_ALPHA, ONE` on both
@@ -139,8 +213,8 @@ CPU executor equals the reference, GM-06a/b), `twin` is `test/uiGpuTwin.test.ts`
 | # | Rule | Source (carried) | Software line | GPU | Class | Test | Level |
 |---|---|---|---|---|---|---|---|
 | M1 | Drop zero-area triangles; cull when the mesh culls; a per-triangle bind | `UI_MESH_BIND_READING` | :418-440 | Planner, the same f64 numbers | E | exec; case 18 | reading, pending review |
-| M2 | Bounding box `ceil(min)..ceil(max)`; barycentrics at the integer pixel; inclusive on every edge | no source (`UI_MODEL_EDGE_RULE_READING`, §4) | :441-446 | Integer box; edge functions in the software's order; `discard` unless all ≥ 0 | B (f32 edge ties) | case 2 (a shared edge at equal `invW` is drawn once -- the second triangle fails M3's strict `>` -- and twice only where the later triangle is nearer; u4 §2.3's "drawn twice" is corrected here, the software reproduced, GM.R14); twin T2-T3 | reading, pending review |
-| M3 | Depth: f32 `invW`, strict `>`, 0 = empty; the first drawn wins ties | `TEST_1` ZTE 1 GEQUAL (research 185 §3.1); the `ZBUF_1` format unread (`UI_MODEL_DEPTH_FORMAT_READING`, §4) | :447-458 | `DEPTH_COMPONENT32F`, `GREATER`, a power-of-two `depthScale` | B (ties) | case 3; twin T4-T5 | reading, pending review |
+| M2 | Bounding box `ceil(min)..ceil(max)`; barycentrics at the integer pixel; **the GS's top-left fill rule** (GM-15d): a pixel whose edge function is 0 is the triangle's only on a left edge (the interior at +x) or a top edge (horizontal, the interior at +y), the winding's sign applied (`modelEdgeOwns`); before GM-15d inclusive on every edge | the GS's fill rule, hardware, in no repository source (`UI_MODEL_EDGE_RULE_READING`, §4); the port's own GS reading for its 2D quads is the same half-open rule (research 185 §3.3) | `drawModels` (the three edge functions and `modelEdgeOwns`) | Integer box; the three edge functions in the software's order; `discard` unless `owns()` on each (T3; `T3_inside`/`T3_owns`) | B (f32 edge ties) | case 2 (a shared edge drawn once, by its top/left owner, at equal `invW` and where the later triangle is nearer; GM-15d re-pinned its "twice"); case 17 (the hypotenuse out); the seam squares (every seam pixel once at 0.7 and the dyadic depths; on a real GPU, GM-31's `e2e/uiGpuSeams.spec.ts`, written, not run); twin T2-T3 | reading (GM-15d's fresh review PASS WITH FINDINGS, folded; the GPU menus lane batch review, `agent-mail/evidence/mega/REVIEW-GM27-AND-GM-BATCH.md`) |
+| M3 | Depth: the f32 of `invW`, tested **GEQUAL** against the f32 store (GM-15d), 0 = empty; the later of two equal depths wins; before GM-15d an f64 `invW` strictly greater than the f32 store, the first winning (the R1 artefact, §5) | `TEST_1` 0x5000c: ZTE 1, ZTST GEQUAL (research 185 §3.1, re-read §11.3); `ZBUF_1` 0x3a000118: ZBP 0x118, PSMZ16S, ZMSK 0, at ELF 0x3e0940 (the env packet 0x3e0880) and 0x3e09f0 (the per-flip packet 0x3e0980), not patched at run time (`FUN_003aff30` patches FRAME_1 and XYOFFSET only, D:L304822-304823; its pointers set by `FUN_003b1180` at D:L305249-305250); the 16-bit store not modelled (`UI_MODEL_DEPTH_FORMAT_READING`, `UI_MODEL_DEPTH_QUANTISE_READING`, §4) | `drawModels` (`z >= depth[i]`) | `DEPTH_COMPONENT32F`, `GEQUAL`, cleared to 0, a power-of-two `depthScale` | B (ties) | case 3 (the later wins); the coplanar faces doubled on all three; twin T4-T5 | reading (GM-15d's fresh review PASS WITH FINDINGS, folded; the GPU menus lane batch review, `agent-mail/evidence/mega/REVIEW-GM27-AND-GM-BATCH.md`) |
 | M4 | Perspective-correct texel and colour | the colour has no source (`UI_MODEL_GOURAUD_READING`, §4) | :447-450 | From the barycentrics and the three `invW`, in the shader | B | twin T6-T7 | reading, pending review |
 | M5 | Texture at `(u·W, (1 − v)·H)`, REPEAT, `sample()`'s lerp form | `UI_MODEL_TEXTURE_ROWS_READING`, `UV_REPEAT_READING` | `sample` :165-176 | T8, in its own order | B | twin; drift | reading, pending review |
 | M6 | `al <= 0` writes no colour and no depth | `UI_MODEL_ZWRITE_READING` (contradicted, §7) | :458 | `discard` before any write | E (rule) | case 16: an alpha-0 texel in front of an opaque triangle -- the opaque one shows and its depth wins | reading, pending review |
@@ -332,13 +406,31 @@ scale 1 every quad takes the programmable path anyway (GM.R6, `exact`); the coun
 | UiParams.rdr | 60 | 0 | 0 .. 0 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | uisounds.rdr | 60 | 0 | 0 .. 0 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | dlgMenu + MENULOOP (300 frames) | 300 | 250 | 0 .. 254 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 12 | 0 | 128 | 0 |
-| CREATE GAME (PLAY LIST, four maps) | 121 | 1084 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
+| CREATE GAME (PLAY LIST, four maps) | 121 | 1142 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | ARMORY (MP51, seal) | 270 | 703 | 12.800000190734863 .. 128 | 172260 | 0 | 0 / 0 / 0 | 228 | 0 | 128 | 0 |
 | ARMORY (MP51, terrorist) | 270 | 657 | 12.800000190734863 .. 128 | 166793 | 0 | 0 / 0 / 0 | 198 | 0 | 128 | 0 |
 | Settings overlay (in match) | 184 | 568 | 25 .. 128 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | Loader screens (the sequence) | 96 | 2 | 0.5019607843137255 .. 128 | 19 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 
 <!-- GM-04 tally: end -->
+
+Re-filed 2026-11-07 (V13-2, OT.R58 as amended by #723): CREATE GAME's "Quads (most in a frame)" 1084 -> 1102 (+18).
+The PLAY LIST holds five rows (The Ruins the fifth); the corpus still focuses its first four, and the most-quads frame
+draws THE RUINS' extra row (the list's glyph quads 94 -> 116 in a probe's raw count of the rig's frames, +22; the tally counts +18). No
+other cell changed.
+
+Re-filed 2026-11-08 (V13-3, Blizzard the sixth): CREATE GAME's "Quads (most in a frame)" 1102 -> 1118 (+16), the
+tally's own write mode on agent/v13-3e; no other cell changed. The sixth row, 1 BLIZZARD, is the only change to the
+frame; no glyph probe was run this time (+16 against The Ruins' +18 fits a row of one glyph fewer -- an inference).
+
+Re-filed 2026-11-08 (DF-14, Fish Hook and Desert Glory the seventh and eighth): CREATE GAME's "Quads (most in a
+frame)" 1118 -> 1142 (+24), the tally's own write mode (`GM04_TALLY_WRITE=1`) on agent/df-14-offer with `SOCOM_DISC`;
+no other cell changed. The list's window now holds seven of the eight rows at the opening; no glyph probe was run.
+
+Re-filed 2026-11-09 (agent/fix-gate-reds, the 0b6cf4a17 data view's red): the CREATE GAME row's label back to
+"four maps" -- the DF-14 review fold (b2833137b) wrote "eight maps" here but not in the corpus, whose case is named
+"PLAY LIST, four maps" (`packages/viewer/test/uiGpuCorpus.ts`) and focuses the list's first four rows of its eight; the
+count, 1142, is DF-14's and unchanged (the tally re-run on 617f6451f with `SOCOM_DISC`). No other cell changed.
 
 Filed as `UI_QUAD_ALPHA_RANGE_READING` (§4), reading, pending review.
 
@@ -357,14 +449,15 @@ spellings were checked against research 112 and 185 first: neither names any of 
 | `GS_BLEND_ROUNDING_READING` | Float64 blend (0x44 `C + (r - C) a`, 0x48 `C + r a`), stored through `Uint8ClampedArray` after every quad: clamp 0..255, round half to even, NaN to 0 | the GS's integer blend `((A - B) C >> 7) + D`, `COLCLAMP` 1 (0x3e0880, research 185 §3.1); `DTHE` written by the per-flip 0x3e0980 (`FUN_003aff30` D:L304731-304835, research 141 §2), its value in no note; the arithmetic unread | the GS's `>> 7` blend transcribed at its source, and a console capture of a fader ramp (`mb10_pcsx2/s06_burst_*`, absent on this host) scored byte for byte | reading, pending review |
 | `GS_BILINEAR_WEIGHT_READING` | the texel coordinate's full Float64 fraction (`columnAxis`, `rowAxis`, `sample`) | `TEX1_1` 0x60 LINEAR on every UI bind (research 185 §3.1); the weight's 1/16 step is the hardware's, unread | the GS's 1/16 fraction, and a capture of a scaled sprite | reading, pending review |
 | `GS_SPRITE_SUBPIXEL_READING` | the corners stay Float64 into `coverageBounds` | `FUN_003643b0` maps each corner (`DAT_0049ea00` + x `DAT_0049e9f0`, D:L261689-261690, D:L261696-261697) and sends it through `vftoi4` (`FUN_001bfee8` D:L40826-40838; D:L261695, D:L261700): x 16, truncated -- a 1/16 corner (research 185 §3.3). An untransformed quad's position is an int (D:L261675-261679), so its corners are whole either way | a reviewer's re-read of the two functions, and a capture of a scaled node's quad (a 0.5-scaled one, research 185 §3.3) | reading, pending review |
-| `UI_MODEL_EDGE_RULE_READING` | a model triangle covers each pixel of its box whose integer point gives no negative barycentric weight: inclusive on every edge | the meshes reach the GS through VU1; the GS's triangle fill rule is the hardware's, unread | the GS triangle fill rule, from captures of the roller's seams | reading, pending review |
-| `UI_MODEL_DEPTH_FORMAT_READING` | invW in a Float32 buffer per pass, 0 empty; a pixel draws when its Float64 invW is strictly greater, so the first drawn wins a tie | the bind packets' `TEST_1` ZTE 1, ZTST GEQUAL (research 185 §3.1); `ZBUF_1` written by 0x3e0880 and 0x3e0980, its format (the plan's "Z16S") stated by no note; unread in the decompilation | the `ZBUF_1` PSM read off the packets, and a capture of two overlapping model faces | reading, pending review |
+| `UI_MODEL_EDGE_RULE_READING` | **GM-15d:** the GS's top-left rule -- a pixel of the box whose three edge functions, times the winding's sign, are not negative, and on an edge (a function exactly 0) only a left edge (the interior at +x) or a top edge (horizontal, the interior at +y) (`modelEdgeOwns`, `uiRasterRules.ts`); before GM-15d inclusive on every edge | the meshes reach the GS through VU1; the GS's triangle fill rule is the hardware's, in no repository source. The port's own GS reading for its 2D quads is the half-open rule (research 185 §3.3), and `drawModels`' doc already said "top-left" while its code was inclusive (the R1 report, 2026-11-09). Filed as the lane holder's choice between readings (the plan's Log, GM-15d), both values recorded: inclusive (the port's before) and top-left (now) | a GS dump of the roller's and the terrorist ARMORY's first frames, replayed draw by draw (whether a shared-edge pixel is written by one triangle), then a console capture scored | reading (GM-15d's fresh review PASS WITH FINDINGS, folded; the GPU menus lane batch review, `agent-mail/evidence/mega/REVIEW-GM27-AND-GM-BATCH.md`; a capture owed) |
+| `UI_MODEL_DEPTH_FORMAT_READING` | **GM-15d:** invW computed in f32, each operation rounded (`modelDepthF32`, the GPU's arithmetic; the disc fold), in a Float32 buffer per pass, 0 empty; a pixel draws when its f32 depth is `>=` the stored f32 (GEQUAL), so the later of two equal depths wins; before GM-15d the f64 invW had to be strictly greater, the first winning | the bind packets' `TEST_1` 0x5000c, ZTE 1, ZTST GEQUAL (research 185 §3.1, re-read §11.3); `ZBUF_1` 0x3a000118 = ZBP 0x118, **PSMZ16S**, ZMSK 0, read off the ELF at 0x3e0940 (in the env packet 0x3e0880) and 0x3e09f0 (in the per-flip packet 0x3e0980), and not patched at run time: `FUN_003aff30` (D:L304731-304835) patches only FRAME_1's FBP and XYOFFSET's y (D:L304822-304823) through the pointers `FUN_003b1180` sets at D:L305249-305250 (the R1 report, 2026-11-09; this note's "format stated by no note" is corrected). The GEQUAL test is the original's; the 16-bit store is the next row's | a reviewer's re-read of the two packets and the per-flip function; a GS dump of two overlapping model faces | reading (GM-15d's fresh review PASS WITH FINDINGS, folded; the GPU menus lane batch review, `agent-mail/evidence/mega/REVIEW-GM27-AND-GM-BATCH.md`) |
+| `UI_MODEL_DEPTH_QUANTISE_READING` | **GM-15d:** none -- the f32 invW is compared as it stands, no 16-bit quantisation and no Z scale | the GS stores a 16-bit Z (PSMZ16S, the row above) of the integer Z each vertex's XYZF2 carries (`FTOI4`; desktop research 12 at `desktop@be5578311:docs/research/12-vu1-entry0-ui-path.md` L530-626, the recompilation's VU1 dumps); the menus' own VU1 lists, so their Z scale, are unread, and with them which f32 depths one Z unit merges (a tie band far wider than an f32 ulp: the later triangle wins inside it) | the menus' VU1 lists decoded for their viewport's Z scale, or a GS dump of the roller and the ARMORY giving each vertex's Z | reading (GM-15d's fresh review PASS WITH FINDINGS, folded; the GPU menus lane batch review, `agent-mail/evidence/mega/REVIEW-GM27-AND-GM-BATCH.md`) |
 | `UI_MODEL_GOURAUD_READING` | a model's vertex colour interpolated perspective-correctly (by 1/w), as its texel | the GS interpolates colour screen-linearly and only STQ by 1/w; the meshes' PRIM is VU1's, unread | the meshes' PRIM (IIP) read, and a capture of a lit roller face | reading, pending review |
 | `UI_2D_QUAD_Z_READING` | a 2D quad carries no depth: list order only, never tested against the 3D pass | each quad's XYZ2 carries a Z: `DAT_004a44e0` untransformed (`FUN_003643b0` D:L261681-261683), the transformed point's otherwise (`FUN_00308640`, D:L261686-261687), the first corner's for both (D:L261691); `TEST_1` ZTE 1 GEQUAL on the binds (research 185 §3.1). `DAT_004a44e0`'s value unread | `DAT_004a44e0` read, and a capture of a 2D quad over the roller | reading, pending review |
 | `UI_TEXTURE_WRAP_READING` | every bitmap repeats on both axes (`wrap`; `UiBitmap` carries no clamp) | each texture's `CLAMP_1` in its bind packet (`FUN_00354f80` D:L252786-252801 for `FUN_003c3ce0`); research 185 §3.1: REPEAT on 536 of 537 binds, CLAMP on `UI_TXR/specular_map.tif` | whether the menus draw `specular_map.tif`, and a per-texture clamp where one does | reading, pending review |
 | `UI_QUAD_ALPHA_RANGE_READING` | the alpha taken as it stands, `rgba[3] / 128`, unclamped and possibly fractional (255 gives 1.9921875); GM-04's tally (§3): the menus send 0 .. 254, whole on the dialogs' quads and glyphs, fractional on the ARMORY's quads, the TELETYPE cursor and the loader's PMODE fade | `vftoi0` (`FUN_001bfef8` D:L40841-40853; `FUN_003643b0` D:L261694, D:L261699) into a PACKED RGBAQ whose alpha is the low byte (research 141 R141.5): a whole 0..255 | the tally reviewed; which draw path the ARMORY's quads and the TELETYPE cursor take in the original (a whole byte there would make the port's fractional bytes a contradiction, its own task under GM.R14) | reading, pending review |
 
-| `LOADING_PANEL_ALPHA_CLAMP_READING` | the loading panel (`loadingPanel.ts` L207, L219; the fader L197) draws each quad through Canvas 2D at `globalAlpha = min(1, alpha / 128)`: an alpha over 128 is clamped to 1, where the menus' compositor takes it as it stands (P8-P10, `UI_QUAD_ALPHA_RANGE_READING`) | **the menus' own path, so no clamp**: LoadState's Init builds its `dlgLoad.rdr` screen as MenuState builds a menu -- the same `CGameMenu` constructor `FUN_00369b60` and builder `FUN_00368570` (LoadState `FUN_001f6660` D:L55818, D:L55826; MenuState `FUN_001f4860` D:L54824, D:L54856) -- and its Tick `FUN_001f5e70` draws it with `FUN_003691c0` (D:L55769), which hands the screen object itself to the walker `FUN_00336c10(0x4887c0, ...)` (D:L264266-264274) -- the walker and context MenuState's foreplane draw `FUN_00369170` uses, though that one hands it the sub-object `*(param_1+200)` (D:L264251-264262; walk `FUN_00336a60`, P1) -- then flips with `FUN_003aff30(1, 1)` (D:L55775), the per-flip function that sends the env packet 0x3e0880 only when the setting changed (`DAT_004a44f5 != DAT_004a44f4`, D:L304752-304754; otherwise the blend state carries over; research 141 §2; P10's source blend). No step of that path clamps the alpha byte; the one rule is P9/P10's | a reviewer's re-read of the cited lines (it settles which rule at the reading level); then GM-22's code step draws the panel's quads as `UiDrawItem`s through the compositor, and a console capture of the loading screen (`s4_pcsx2/A_ready012.png`, Vigilance; none of the shipped screen's quads exceeds 128, so the clamp itself has no pixel there) scored against that draw makes it proven | reading (re-read at the source by GM-22's reviewer, 2026-11-01); contradicted by the citation, kept at today's clamp (owner default O5, H378) until GM-22's code step; note only (no constant in the code yet) |
+| `LOADING_PANEL_ALPHA_CLAMP_READING` | since GM-22's code step (2026-11-09) the loading panel draws its quads as `UiDrawItem`s (`loadingPanel.ts` `loadingDrawList`) through the menus' rasteriser behind the presenter seam (`CpuUiPresenter`): the alpha as it stands, `rgba[3] / 128`, unclamped (P8-P10, `UI_QUAD_ALPHA_RANGE_READING`), the fader an untextured MENUFADER quad. Until then it drew each quad through Canvas 2D at `globalAlpha = min(1, alpha / 128)` (`loadingPanel.ts` L207, L219; the fader L197, on `855bc5df0`): an alpha over 128 clamped to 1 | **the menus' own path, so no clamp**: LoadState's Init builds its `dlgLoad.rdr` screen as MenuState builds a menu -- the same `CGameMenu` constructor `FUN_00369b60` and builder `FUN_00368570` (LoadState `FUN_001f6660` D:L55818, D:L55826; MenuState `FUN_001f4860` D:L54824, D:L54856) -- and its Tick `FUN_001f5e70` draws it with `FUN_003691c0` (D:L55769), which hands the screen object itself to the walker `FUN_00336c10(0x4887c0, ...)` (D:L264266-264274) -- the walker and context MenuState's foreplane draw `FUN_00369170` uses, though that one hands it the sub-object `*(param_1+200)` (D:L264251-264262; walk `FUN_00336a60`, P1) -- then flips with `FUN_003aff30(1, 1)` (D:L55775), the per-flip function that sends the env packet 0x3e0880 only when the setting changed (`DAT_004a44f5 != DAT_004a44f4`, D:L304752-304754; otherwise the blend state carries over; research 141 §2; P10's source blend). No step of that path clamps the alpha byte; the one rule is P9/P10's | a reviewer's re-read of the cited lines (done, 2026-11-01: it settles which rule at the reading level); GM-22's code step (done, 2026-11-09: the clamp removed, the quads drawn through the compositor); **to proven**: a console capture of the loading screen (`s4_pcsx2/A_ready012.png`, Vigilance; none of the shipped screen's quads exceeds 128, so the clamp itself has no pixel there) scored against the panel's compositor frame | reading (re-read at the source by GM-22's reviewer, 2026-11-01); the clamp removed by GM-22's code step (2026-11-09; the code step a reading: GM-22's re-review PASS WITH FINDINGS, high, `agent-mail/evidence/gpu-menus/gm22-rereview/REVIEW.md`), so no constant holds it; proven owed: `A_ready012.png` scored against the panel's frame |
 
 *GM-22, the reading step, 2026-11-01.* The original draws the loading screen through the menus' own path (the row
 above), so the loading panel's clamp is not the original's rule: the menus' unclamped alpha is. It is filed as a
@@ -378,6 +471,33 @@ compositor would blend at 1.5): that pins today's clamp. The rest of the panel's
 coverage against P3 and P6, `tintTexels`' `Math.round` against P8's) differs from the menus' rules too and moves with
 the code step, which re-pins `loadingPanelHd.test.ts`'s `TODAY`.
 
+*GM-22, the code step, 2026-11-09 (reading: GM-22's re-review PASS WITH FINDINGS, high, `agent-mail/evidence/gpu-menus/gm22-rereview/REVIEW.md`).* The panel follows the reading: `loadingPanel.ts`
+`loadingDrawList` makes each of `loadingQuads`' quads a sprite of its bitmap (`armoryRaster.ts` `armoryDrawList`, the
+lobby ARMORY's conversion: texels over the bitmap's size, the GS colour and alpha as they stand) and appends MENUFADER, an
+untextured black quad over the frame at `loadingFaderAlpha`, blended by the register the last bind left (P2); the
+list goes through `CpuUiPresenter` (`rasterizeUiDrawList`, then `putImageData`; GM-09's seam, where GM-23's GPU
+presenter plugs in). So the clamp is gone (P8-P10), and the rest of the panel's drawing moved with it onto the menus'
+rules: the bilinear filter and integer coverage (P3, P6) for Canvas 2D's own, P8's float modulate for `tintTexels`'
+`Math.round` (removed). HD-4 is kept: the page's scale, lookup and raster cache go to the compositor as the menus'
+do (HD-3), the canvas following the frame's size. The re-pins (unit): `loadingPanelHd.test.ts`'s `TODAY`, the sha of
+the Canvas 2D calls, became the sha of the scale-1 frame's bytes; `loadingPanelAlphaReading.test.ts` holds no clamp
+(a glyph at 192 blended at 1.5); `loadingPanelCompositor.test.ts` holds the panel's frame equal to the compositor's
+for a list built from the rules on its own, at scale 1, at 2x with a replaced bitmap, and over 128.
+
+What it did not change, each its own question: the quads are still `loadingLayout`'s (the ARMORY's layout and text
+rules), not `@s2u/ui`'s `composeScreen` of `dlgLoad.rdr`; their alphas stay fractional (opacity x 128: 89.6 for the
+face's 0.7), where the original's `FUN_003643b0` sends a whole byte through `vftoi0` (`UI_QUAD_ALPHA_RANGE_READING`):
+the loading screen joins the three paths that do not pack, a correction being its own task (GM.R14). The loading
+screen's bitmaps blend by `source`, today's behaviour, named `LOADING_TEXTURE_BLEND_READING` (below). Evidence: unit
+tests and source inspection only; no rendered browser run and no capture was scored. §6.1's loading-screen row
+measured the Canvas 2D panel (p50 0.1-0.2 ms a draw at every scale); the compositor's draw was not measured, and at
+an HD scale it is a software raster of the whole frame each animation frame -- GM-28 keeps the panel at scale 1 until
+its surface is on the GPU (GM-23).
+
+| Name | What the software does today (the value) | Where the original stands | What would settle it | Status |
+|---|---|---|---|---|
+| `LOADING_TEXTURE_BLEND_READING` | the loading screen's bitmaps blend by `source`, `ALPHA_1` 0x44 (P10): set on each bitmap by `loadingBitmap` from the constant (`loadingPanel.ts`; GM-22 review F3), which a settled reading changes | they come from the map archive's own `<stem>_TXR.ZED` libraries (`loadingAssets.ts`), whose bind packets' `ALPHA_1` no tally has read; `GS_MODULATE_BLEND_READING`'s tally (0x44 on every texture but the main menu roller's twelve; `tools/test/menuEntryFadeDisc.test.ts`) covers `FONT_TXR` and the 57 `RUN/UI/*_TXR.ZED` libraries only | a tally of those libraries' bind packets over the 22 MP maps (the reader `menuEntryFadeDisc` uses) | reading (GM-22's re-review PASS WITH FINDINGS, high) |
+
 The existing readings the GPU drawer reproduces unchanged are listed in their own notes (research 112 §9, 185, 95,
 121, 110): the 2D quads' coverage, filter, wrap and modulate; the frame-start blend; the mesh bind; the models'
 texture rows, depth write and focal; the movie's rectangle and hold; the clock's catch-up limit; and the glyphs'
@@ -390,8 +510,10 @@ No original stands behind these; each bounds the browser's hosting of the drawer
 They carry the `_ADAPTATION` suffix, which the placeholder ledger does not read; each gets a one-line "no original;
 bounds the browser's ..." comment where it is defined.
 
-- switch and modes: `UI_GPU_SURFACES_ADAPTATION`, `UI_GPU_BLEND_ADAPTATION`; GM-16b's `UI_GPU_DEV_SURFACES_ADAPTATION` (pages the Vite dev server serves only -- DEV and MODE `development`, `front.hd` `shadow`; every built page, the nightly's `NODE_ENV=development` build included, reads the landed table);
-- tolerance and fallback: `GPU_RASTER_TOLERANCE_ADAPTATION`, `UI_GPU_FRAME_FALLBACK_SCALE_ADAPTATION`,
+- switch and modes: `UI_GPU_SURFACES_ADAPTATION`, `UI_GPU_BLEND_ADAPTATION` (scale 1 `exact`; HD `ff`, the loading screen escalated to `exact` by the flip's 4070 evidence, GM.R5); GM-16b's `UI_GPU_DEV_SURFACES_ADAPTATION` (pages the Vite dev server serves only -- DEV and MODE `development`; every built page, the nightly's `NODE_ENV=development` build included, reads the landed table). **The flip** (GM-17, GM-18, GM-19a/b, GM-21, GM-23 in one change, `agent/gm-flip`; approved 2026-11-09T14:28Z on the owner's word, MEGA.R7, and merged into `agent/mega` at `de632e9ac`; GM-16 met on the shadow PC's A4500 after GM-32, `33002ed6d`; GM.R18, the owner's word in the seat, 2026-11-09): every cell of `UI_GPU_SURFACES_ADAPTATION` `on` -- front, armory, overlay and loading, `hd` and `sd` -- and `UI_GPU_DEV_SURFACES_ADAPTATION` the same cells (was `front.hd` `shadow`; the guard stays reachable on the dev server by `?uiGpuGuard=on`, a `shadow` frame by `?uiGpu=shadow`); the blend table as GM.R6 sets it (scale 1 `exact`, HD `ff`), the loading screen since escalated to `exact` at HD by the 4070 evidence (GM.R5; the Log). `on` asks for the GPU: the capability gate still sends no WebGL2, a software adapter (SwiftShader, llvmpipe, the Basic Render Driver; `?uiGpuAllowSoftwareAdapter=1` the only opt-in), `MAX_TEXTURE_SIZE < 4096` and a link failure to the software at 1x (L4, GM-28, GM.R19), the loss limit and a guard trip to it for the session (L3); `?uiGpu=off` and the storage kill `s2u.uiGpu = 'off'` stay the rollback (GM.R13). Since the flip `&uiGpuSurface=` no longer isolates a surface -- the unnamed ones fall through to the table, `on` -- and `?uiGpuAllowSoftwareAdapter=1` applies page-wide (review F4). The front end's path is the page's 1x software whenever its surface cannot present (L4, L3; review F3), and its L4 or L3 lets the menus' HD pack go for the session (review F2);
+- tolerance and fallback: `GPU_RASTER_TOLERANCE_ADAPTATION` (GM-27, `uiGpuTolerance.ts`, its data written by
+  `tools/gm-pin-tolerance.ts`: class B's bound per class -- software rasterisers and GPUs, by the renderer -- and run key, pinned 2026-11-09 on NVIDIA D3D11 x2 and Vulkan x1 plus
+  SwiftShader and llvmpipe, §1; refused past |Δ| 1; the parity spec's default bound), `UI_GPU_FRAME_FALLBACK_SCALE_ADAPTATION`,
   `UI_GPU_DEV_SAMPLING_FALLBACK_ADAPTATION` (GM-14a, `uiFramePlan.ts`, carried on each plan as `fallback`: an L1 frame
   under HD drawn by the software at 1x with no HD lookup or quad cache and shown each pixel `s x s` by one NEAREST blit,
   `UiGpuBackend.uploadFrame` at a scale -- the owner's O2, H375, default yes; under dev `uiSampling` other than bilinear,
@@ -404,25 +526,115 @@ bounds the browser's ..." comment where it is defined.
   8 ms, 16 frame rows a step; the last 64 records kept) and `UI_GPU_GUARD_TRIP_ADAPTATION` (the first trip escalates the
   surface to `exact` for the session, GM.R5/R6; a trip on a frame drawn at `exact`, or the second trip, is the
   session kill `guard-trip`, today's path). A trip is an exact-class pixel that differs (E/E\*: 0 bytes), or B beyond
-  a bound the guard is given; with none pinned (GM-11b's provisional tolerance and GM-27's pinned one are not in the
-  code) B is recorded with the renderer, never judged. The compare runs in idle callbacks, its frames out of
+  a bound the guard is given; the guard is given none yet (GM-27's pin is in the code, `uiGpuTolerance.ts`, and
+  holds the parity spec; wiring it into the guard is not GM-27's) so B is recorded with the renderer, never judged. The compare runs in idle callbacks, its frames out of
   `lostSeconds` (GM.R11); the read-back is a pack buffer and a fence, polled, never waited on;
 - the perf instrument (GM-16, `uiGpuPerf.ts`): `UI_PERF_COLD_SWITCH_ADAPTATION` (GM-02b's cold-switch target carried
   as numbers, §6.2: no animation frame over 50.0 ms and 0.00 s lost, printed to two digits, at 2x and 4x, judged on the
   GPU leg by `coldSwitchVerdict`; GM-13b's 33.4 ms aim reported beside it, never judged);
 - presentation and loss: `UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION`, `UI_GPU_LOSS_FALLBACK_ADAPTATION`,
   `UI_GPU_LOSS_LIMIT_ADAPTATION`, `UI_GPU_RESTORE_WAIT_MS_ADAPTATION` (GM-12a, `uiGpuPresenter.ts`: the software frame
-  at scale 1 with no HD lookup or quad cache while the GPU is lost; 3 losses in 5 minutes; 5000 ms for a restore);
+  at scale 1 with no HD lookup or quad cache while the GPU is lost; 3 losses in 5 minutes; 5000 ms for a restore).
+  GM-28 (GM.R19, the owner's "the original 1x frame") widens `UI_GPU_LOSS_FALLBACK_ADAPTATION` to every state that
+  does not present: L4, waiting for the links, released in a match, before the surface's module lands, a guard trip
+  and `off`. It and `uiGpuLossFallbackOptions` now live in `uiGpuSwitch.ts`, re-exported by `uiGpuPresenter.ts`, so the
+  page's frame loop draws its own software frames at 1x by the same rule (`uiGpuFront.ts` `uiGpuFrontFrameOptions`).
+  Only dev `shadow` and GM-02's `?uiPerfHd` keep the shown scale, both development builds only.
+  GM-19a defines `UI_GPU_PREMULTIPLIED_PRESENT_ADAPTATION` (`uiGpuWebgl2.ts`; GM-11a-1 review F3). The overlay's canvas
+  is `premultipliedAlpha: true`, and its frame target holds the software's bytes before the divide (P14/P22). A channel
+  there can exceed the alpha, because the software clamps each channel of its premultiplied sum on its own (P12), and a
+  premultiplied canvas composites such a pixel undefined (WebGL 1.0 §5.2.1). So a transparent frame, L0 or L1, reaches
+  the canvas by a draw, not a blit: one triangle through the `present` program, each colour channel `min(channel,
+  alpha)` (`uiGpuPremultipliedPresent`, the same rule on the CPU), flipped once as the blit flips. That is what the 2D
+  canvas composites of the software's straight frame (each channel divided and clamped at 255, then multiplied back by
+  the browser), within the browser's rounding of 1 (`test/uiGpuPremultipliedPresent.test.ts` over every value and
+  alpha). The frame target keeps the pre-divide bytes, which `readPixels`, `readFrame` and the parity spec read. An
+  opaque surface is blitted as before. Unit evidence only (the fake WebGL2); a real composite is the GPU boxes'.
+  GM-19a and GM-23 put the overlay and the loading screen on their own GPU surfaces through one mount
+  (`uiGpuSurfaceMount.ts`, factored from GM-12b's `FrontEndGpu`). The mount holds the canvas, its standby, the
+  tick-boundary swap and the surface's `import()` after the first software frame (GM.R15). GM-28's rule holds there
+  too, per surface (review fold 1, `uiGpuSurfaceHd`): the HD options go to a surface only when its own mode is `on`, or
+  `shadow` on the dev server; a built page's URL `shadow` is handed 1x. Every software frame is the 1x frame. The
+  overlay's twin is hidden while its transparent GPU frame shows (`UI_GPU_UNDER_CLASS`, a CSS class). The overlay's
+  context is made at its first open and disposed at the match's end (`NativeSettings.interrupt`; a released context
+  would stay live where the browser has no `WEBGL_lose_context`). The loading screen's context is let go when the
+  screen hides. Both send frames to the GPU only once every program has linked (`UiGpuSurfacePresenter.prepare`, polled
+  only under `KHR_parallel_shader_compile`); the extension is checked when the context is made, before any compile
+  (`no-parallel-link`). Without it the surface keeps its 1x software for the session and lets the GPU go, so no link
+  status is read on the page's frames;
 - the context (GM-11a-1, `uiGpuWebgl2.ts`): `UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION` (the WebGL2 context's attributes:
   `alpha` only on a transparent surface -- the overlay; `#front-end-gpu` is opaque -- `premultipliedAlpha`, no MSAA (a
   blit into a multisampled default framebuffer is an INVALID_OPERATION, and nothing here is anti-aliased), no depth or
   stencil on the canvas (the models' depth is the frame target's, GM-11a-3), the drawing buffer not preserved (every
   present blits a whole frame));
+- one context on Xbox (GM-XBOX1, 2026-11-10; `uiGpuSurfaceMount.ts` `gpuSurfaceAllowed` and `uiGpuSurfaceWiring`, the
+  latter called by `frontEnd.ts` and `main.ts`): `UI_GPU_XBOX_ONE_CONTEXT_ADAPTATION` (the loading screen and the
+  overlay: on the Xbox device class, `deviceClass.ts` `pageDeviceClass() === 'xbox'`, the page hands neither surface its
+  GPU option and hands each the 1x HD option with it -- `() => ({ scale: 1 })`, what v0.4.17 handed both -- so each draws
+  the original 640 x 448 software frame with no GPU canvas and no WebGL context; the front end and the ARMORY keep
+  theirs). No original; bounds the browser's live WebGL contexts on one device class: the shadow PC's Xbox GPU trace
+  (mega 7cd782a5f against v0.4.17, the Xbox preset) found the loading screen's surface (about 3.1 MB) live beside the
+  match's context through the load, released only when the panel hides at the match's start -- two live contexts at
+  READY where v0.4.17 held one -- and the overlay's a second beside the match's at its first open; Xbox Edge already
+  loses contexts. The front end's (9.3 MB) is released at `leave`, before the match makes its own, so it is not gated.
+  The 1x HD option goes with the withheld GPU option because the menus' HD pack is **not** refused on the Xbox class
+  in this tree (`autoQuality.ts`: that refusal is owed to a later lane merge); without it a withheld surface's software
+  would raster the pack's scale itself, up to 4x every frame through the load (the review's F1). What shows: with no
+  HD pack, the same frame (scale 1, where `UI_GPU_BLEND_ADAPTATION` is `exact` and the GPU's frames equal the
+  software's); with an HD pack chosen, these two surfaces show the 1x frame on Xbox, as v0.4.17 did, where mega's GPU
+  surfaces showed the pack's scale. The class is read when each surface is built (the panel once a page, the test
+  room's overlay at the page's load), so a manual Xbox pick mid-session takes effect at the next page load (review F2).
+  Unit tests and source inspection (`test/uiGpuXboxOneContext.test.ts`; the "GM-XBOX1" cases of `loadingPanelGpu` and
+  `nativeSettingsGpu`, under a 4x pack);
+  no Xbox run;
 - HD textures (GM-13, `uiGpuTextures.ts`, start values to be measured on the box): `HD_UI_RESIDENCY_ADAPTATION` (1800
   drawn frames a texture stays unused; one frame is one tick, a `stage` and its draw counted once, GM-13 review F1), `HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION` (32 MiB uploaded a frame; the rest
   waits, that frame L1), `HD_UI_VRAM_BYTES_ADAPTATION` (256 MiB, least recently used first); and the HD replacement
   loads' bytes at their peak, `HD_UI_LOAD_BYTES_ADAPTATION` (256 MiB, `uiGpuLoadBudget.ts`; agent/hd-subrect review F3; a replaced lookup's waiting
   loads are dropped unrun, GM-13 review F2);
+- the front end's textures decoded ahead (GM-29, `frontEndAssets.ts`, `frontEndTextureWorker.ts`; no original -- the
+  original has every bank in memory before a dialog's first draw): `UI_TEXTURE_PREFETCH_ADAPTATION` (at most 32 MiB of
+  decoded RGBA prefetched; every bank the page loads is 26,159,104 bytes decoded, GM-29's dev-disc count). After the
+  page's first frame, at idle, the page reads the lazy banks and hands each bank's names not yet decoded to a module
+  worker that runs the page's own decode (the same functions, so the same bytes), caching each answer unless the lookup
+  decoded it first; a name asked before its answer is decoded synchronously, so no dialog draws later. With the GPU
+  surface it also seeds the texture cache's content hash (`seedUiGpuTextureKey`, the worker's `fnv1a64` of the same
+  bytes). A bank's arrival no longer clears the decode cache: the same name resolves to the same bank, the same bytes
+  and now the same object. Decides when a bitmap is decoded and hashed, never its bytes;
+- the menus' art decoded ahead (GM-32, `menuArt.ts`; no original, the same reason): `MENU_ART_PREFETCH_ADAPTATION` (at
+  most 16 MiB of decoded RGBA; the art the page reads -- dlgMenu's UI2D and UIBF, FONT, UI -- is 133 bitmaps, 10,657,024
+  bytes decoded, none of whose decodes says anything, GM-32's dev-disc count). The page's lookup asks the art before the
+  banks, so the banks' prefetch never reached the names both hold (`multplay_back.tif`, `font_titlebar_01.tif`: OPTIONS'
+  first frame). Run first in the same prefetch on the same worker (`chainUiTexturePrefetch`), it keeps each answer for
+  the lookup's first ask only where the decode said nothing (the worker answers its diagnostic lines when asked); a name
+  whose decode says anything, or one asked first, is the lookup's, decoded synchronously as before. With the bank
+  prefetch the page holds about 37 MB of front-end bitmaps decoded ahead. Decides when a bitmap is decoded, never its
+  bytes;
+- a movie's decoded sound kept across opens (GM-32, `movieSound.ts` `MovieSoundKeep`, the feed's in `frontEndMovies.ts`;
+  no original -- the original streams the sound off the disc at every play): `MOVIE_SOUND_KEEP_ADAPTATION` (the last
+  track read whole, at most 32 MiB of PCM; MENULOOP's is 5,951,744 frames, 23,806,976 bytes of 16-bit stereo, 124.0 s,
+  GM-32's dev-disc count; replayed one piece -- about 1 s of sound -- every 250 ms). The next open of the same file hands
+  the same pieces to its new sound, then its timeline, instead of reading and decoding the file again; the sound starts
+  at picture 0 from frame 0 with the same samples, as a re-read's does. A read cut short by a close is never kept. The
+  pieces are the ones the open sound already holds while it plays, so the cost is that track kept while another
+  front-end dialog shows: the front end's sleep, its hand-off to a match and its stop let it go (GM-32 review F1). Decides when the sound is decoded, never what plays;
+- the large-image route (GM-14b, case 15; `uiGpuTextures.ts`, `UiGpuBackend.refusal` in `uiGpuWebgl2.ts`):
+  `UI_GPU_OVERSIZE_ROUTE_ADAPTATION` -- a frame whose plan samples an image (a bitmap or its HD replacement) past the
+  device's `MAX_TEXTURE_SIZE` is **L1 at its fallback scale**: 1x under HD, the original frame (GM.R9, GM.R19), shown
+  `s x s`; no texture past the limit is made or sent; the frame counted on `window.__uiGpu.refusals.counts` under the
+  route's one reason, whatever the image or the limit. Where it can fire: the capability floor is 4096
+  (`UI_GPU_MIN_MAX_TEXTURE_SIZE`, `uiGpuSwitch.ts`) and the HD pack may name an image up to `HD_LIMITS.outputEdge`
+  (8192 a side, `hdTexturePack.ts`); a 4x replacement of a source at `HD_LIMITS.sourceEdge` (1024) is 4096 and fits,
+  so on a device past the gate only a replacement at a larger ratio, or a placement composite (HD.R9) past 4096, takes
+  it; the frame (2560 x 1792 at 4x) always fits. Why this route and not the two others the brief named (the plan and
+  this note documented none before): a downscaled-to-fit copy, or the 1x bitmap drawn on the GPU, would each put on the
+  canvas a picture that the reference at the shown scale -- `rasterizeUiDrawList` with the pack's image, the frame §1's
+  B bound and the guard compare against -- does not draw, so the frame would leave the contract (and trip the guard in
+  shadow); the L1 frame is the 1x software's byte for byte, which the parity spec already holds. The price: such a frame
+  loses HD whole, not only the one image. An exact alternative that keeps HD -- the image split into tiles each within
+  the limit, a quad's columns and rows planned per tile with REPEAT's wrap across tiles -- is not built (it changes the
+  planner's runs and the programs; no pack measured to need it). Unit evidence only (`test/uiGpuOversize.test.ts`, the
+  fake WebGL2's `maxTexture`); the rendered browser run is owed to the GPU boxes;
 - the movie and the GPU timer (GM-11a-3): `UI_GPU_MOVIE_TEXTURES_ADAPTATION` (two `RGBA8UI` pictures, uploaded in
   the render that first shows each, keyed on the picture object), `UI_GPU_TIMER_PENDING_ADAPTATION` (timer queries in
   flight). The quads' instancing (`UI_GPU_INSTANCE_LAYOUT`) is no adaptation: it carries GM-11a-2's uniform values per
@@ -430,7 +642,15 @@ bounds the browser's ..." comment where it is defined.
 - not an adaptation (GM-15a): the models' `depthScale` (`UiPlanPass.depthScale`, `passDepthScale` in `uiFramePlan.ts`; GM.R10) -- the largest power of two at most 1 that brings every vertex's f32 `invW` of the pass to at most 1, written as `gl_FragDepth = clamp(invW * depthScale, 0, 1)` -- decides no byte (a power of two scales an f32 exactly unless it underflows, GM-15b's edge), so it has no constant; the models' instancing (`UI_GPU_TRIANGLE_LAYOUT`) likewise.
 - not an adaptation (GM-15b, `uiFramePlan.ts`): `depthScale` now brings every vertex's f32 `invW` to at most 1/2 (a pixel's f32 `invW` can pass its largest vertex's by an ulp; at 1/2 no depth reaches the clamp at 1); `UI_GPU_MODEL_DEPTH_FLOOR` (2^-100, and a `depthScale` of at least 2^-126) and `UI_GPU_MODEL_TEXEL_RANGE` (2^30 on a vertex's `|u W|`, `|(1 - v) H|`) bound the range in which the GPU's f32 and int arithmetic is the twin's -- a pass or triangle outside is the software's (L1, named), so neither decides a byte and neither is a game value.
 - not an adaptation, a measurement (GM-15c, R1; the controller's ruling, b6 2026-11-06): **the seam double adds on the
-  corpus** (M3). The software tests a pixel's f64 `invW` against the f32 it stored, so where its own f32 equals the store
+  corpus** (M3). *Superseded by GM-15d (2026-11-09; the plan's Log, R1 resolved by (a)):* the counts below are the
+  port's artefact -- an f64 `invW` compared against its own f32 store under a strict `>`, with inclusive edges -- not the
+  original's rule (the R1 report, 2026-11-09: the GS keeps the later of two equal Z under GEQUAL and gives a shared-edge
+  pixel to one triangle). The software now carries the GS's rules (M2 top-left, M3 GEQUAL on the f32 store), the twin
+  and the GPU follow, and R1's instrument counts the ties on which the software and the twin decide differently: 0 on
+  every unit case (the seam squares at 0.7 and the dyadic depths, the coplanar faces, GM-03's cases at 1, 2 and 4),
+  and pinned at 0 per corpus entry as GM-17's precondition (measured: the disc fold below). Under the new rules a coplanar face adds at every pixel both faces write, on the software and the GPU alike
+  (equal f32 depth, GEQUAL), as the GS would draw it; a shared edge adds once on both. The table is kept as the
+  artefact's record: The software tests a pixel's f64 `invW` against the f32 it stored, so where its own f32 equals the store
   but the f64 is above it, it draws again (the texel added twice); an f32 GREATER test (the twin, a GPU) draws once.
   Counted by `test/uiGpuSeamCount.ts` over every distinct model frame of GM-04's corpus at 1, 2 and 4
   (`test/uiGpuModelsCorpus.disc.test.ts`, which pins the table), each hit classed by the triangle that stored the depth:
@@ -447,8 +667,28 @@ bounds the browser's ..." comment where it is defined.
   | ARMORY (MP51, terrorist) | 3,622 | 819 | 733 | frames 72-80, 95-101, 123-132, 248-250 |
   | **corpus** | **3,622** | **88,465** | **814** | |
 
-  Pinned and deferred: no refusal is added; "hits = 0" stays an open precondition of GM-17's gate, where matching the
-  double add on the GPU or sending those frames to L1 is chosen with GM-27's real-GPU reading.
+  Pinned and deferred (GM-15c): no refusal is added; "hits = 0" stays an open precondition of GM-17's gate, where matching the
+  double add on the GPU or sending those frames to L1 is chosen with GM-27's real-GPU reading. *GM-15d:* that choice
+  is moot -- neither side doubles a seam now, and both double a coplanar face -- and the precondition reads "software
+  and twin agree on every tie" (`test/uiGpuSeamCount.ts`, redefined; `test/uiGpuModelsCorpus.disc.test.ts`'s
+  `GM15D_TIE_DISAGREEMENTS`). What it does not see: a tie a 16-bit Z would make and f32 does not
+  (`UI_MODEL_DEPTH_QUANTISE_READING`).
+  *GM-15d's disc fold (dev-disc test, the owner's host):* the first run at `4d62d9c02` read seam 1,479 / coplanar 53 /
+  other 410 on the ARMORY (61 of 2,256 frames; dlgMenu 0), every one a depth tie: the software computed its edge
+  functions, weights and `invW` in f64 and rounded only the stored depth, while the twin rounds each operation. The
+  reference now decides coverage and depth in the GPU's f32 arithmetic (`modelEdgeF32`, `modelDepthF32`,
+  `uiRasterRules.ts`: the twin's T2-T4 step for step), its attributes still f64; no case hash, `TODAY` or
+  `experimentalMenu` pin moved. The re-run at `4d014b66a`: 0 / 0 / 0 on every entry, 0 of 2,256 frames (dlgMenu depth ties
+  86,880; seal ARMORY 62, terrorist 7,196). The twin against the software, filtered runs (`S2U_TWIN_ONLY`): the ARMORY's
+  max |Δ| 1 at 1, 2 and 4 under both tables, dlgMenu's 1 -- the whole-corpus `UI_GPU_TWIN_CORPUS_B` (max |Δ| 123/29/82,
+  the model boxes') is not re-measured: its default run takes about an hour, past the seat's 10-minute cap.
+  *GM-15d review F1:* since the fold the instrument's software side runs the same f32 helpers as the twin's steps and
+  never `drawModels` or the executor, so the corpus 0 / 0 / 0 is a consistency check of the two transcriptions, not an
+  independent measure. GM-17's R1 precondition rests on the whole-corpus `uiFramePlan.disc` (executor = software, 0
+  bytes) and `uiGpuTwin.disc` (twin against software, B within its record) and the fake-GL byte compares; both
+  whole-corpus runs are owed in a long slot (the lane holder's). *Review F2:* the one-owner property of a shared edge
+  holds in IEEE arithmetic; a GPU that contracts the edge functions into FMAs can double-write or drop a seam pixel, and
+  GLSL ES 3.00 has no qualifier against it (`precise` is ES 3.20) -- GM-27 measures the model seams on real GPUs.
 
 ## 6. Performance
 
@@ -600,6 +840,57 @@ path**; no GPU leg exists yet, so none is met or missed.
   -- none measured, or an invariant or rollout check rather than a perf number.
 - **Owed:** GPU-path CPU per frame (plan + axis + encode + upload), set when GM-06a's axis microbench exists; the
   ARMORY's and the overlay's targets, once a walk measures them; a d3d11 baseline (O3).
+
+### 6.3 GM-29: the cold switch's main-thread work (2026-11-09; built, reviewed PASS WITH FINDINGS, folded)
+
+Perf, never a parity claim; product track. From the T4's CPU profile of the cold dlgMenu -> dlgOptions_Menu switch
+(`agent-mail/evidence/gpu-menus/gm-f1-t4p/PROFILE.md`, a rendered browser run under the profiler, diagnostic only):
+- **The long frame** (137-162 ms, about 650 ms after the press): the dialog's palettized bank decode (`palettized`,
+  `palettized4`, 57 ms) and the GPU cache's content hash (`fnv1a64`) on the main thread. Its cause in the source: UIOP,
+  OPTIONS' lazy bank, arrived and `pageUiTextures` cleared its whole decode cache, so every bitmap on the screen was
+  decoded, hashed and looked up in the HD pack again on the next frame. GM-29 keeps the cache (§5) and decodes every
+  bank ahead in a worker (`UI_TEXTURE_PREFETCH_ADAPTATION`, §5).
+- **The planner on every frame** (`addQuad`, `reserve`, `done`, `nums`, `wrap`, `rowAxis`, `columnAxis`: 525 ms over
+  the 2x window): the axis table sized from the last plan and handed out without a copy, no per-quad throwaway arrays,
+  `wrapIndex` (`wrap` without the division for an index in range). Every GM-03 case's whole plan is pinned to its base's
+  bytes (`uiFramePlanStable.test.ts`), and the dev disc's dlgMenu and dlgOptions_Menu frames plan to the same digest.
+- **Node microbench** (`planFrame` over 60 consecutive frames at 60 Hz after 150, the disc's banks, MENULOOP the black
+  stand-in; Node on the owner's host through the seat's runner; recorded, not asserted; `uiFramePlan.bench.ts` holds
+  the same frames for `vitest bench`), base -> GM-29 in ms a frame, two pairs (the host's load moved between them):
+  dlgMenu 2x 1.79 -> 0.81 and 1.18 -> 0.49, 4x 2.46 -> 1.16 and 1.68 -> 0.84; dlgOptions_Menu 2x 2.41 -> 0.93 and
+  1.50 -> 0.73, 4x 3.53 -> 1.41 and 2.13 -> 1.03 -- about 2.0-2.6 times less.
+- **Not measured here:** the rendered cold switch (no browser ran); the lane holder's on the shadow PC and the T4.
+
+### 6.4 GM-32: the cold switch's second pass (2026-11-09; built, reviewed PASS WITH FINDINGS, folded)
+
+Perf, never a parity claim; product track. From the T4's CPU profile at `82ef1260f` (after GM-29;
+`agent-mail/evidence/gpu-menus/gm-flip-t4/PROFILE.md`, a rendered browser run under the profiler, diagnostic only),
+with the judged run beside it (`RECORD.md`, J1: the cold dlgMenu -> dlgOptions_Menu switch 66.6 ms / 0.02 s at 2x,
+83.4 ms / 0.03 s at 4x, 66.6 ms at 1x; the warm return 116.7 ms at every scale):
+- **The longest stretch** (88.5 ms, about 651 ms into the 4x cold switch): `planFrame` -> the lookup -> `menuArt`'s
+  `textures` -> `decode` -> `decodeNamedTextures` -> `decodeTexture`, 48.4 ms on the stack. Its cause in the source: the
+  page's lookup asks MENU-02a's art before ONL-01's banks, the art read the libraries dlgMenu names (UI2D, UIBF, FONT,
+  UI), and OPTIONS' first frame asks it for names it holds and dlgMenu never drew -- `multplay_back.tif` and
+  `font_titlebar_01.tif` (512 x 512 each, 7.0 and 6.9 ms each in Node), `brown_back*.tif`, `op_check*.tif`,
+  `backsolid.tif`, `font_special_01.tif` (a dev-disc count of the first asks). GM-29's prefetch decoded the banks' copies,
+  which the art shadows. `planFrame` decodes once per name, not every frame: both readers cache by lower-cased name.
+  GM-32 decodes the art ahead in the same worker (`MENU_ART_PREFETCH_ADAPTATION`, §5).
+- **The planner** (`addQuad` 221.2 ms self, `rowAxis` 31.5, `wrapIndex` 19.5, `columnAxis` 17.0): each quad's column and
+  row entries kept from one plan to the next and copied in where every input that decides them is the same bit for bit
+  (two generations, at most two plans' tables); every GM-03 plan is still its base's bytes (`uiFramePlanStable`), and the
+  warm plan equals the cold one on every case (`uiFramePlanMemo`).
+- **The uploads** (`uploadAxis` 31.0 ms, `texSubImage2D` 47.9 ms, `uploadInstances` 18.2 ms): the axis table is uploaded
+  only when its f32 bits differ from the texture's (a fade changes colours, not texels); the instance records are written
+  word by word, the same bytes (`uiGpuUploads`). The bitmaps' uploads were already under
+  `HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION` (GM-13).
+- **The warm return**: MENULOOP's sound is kept decoded across the round trip (`MOVIE_SOUND_KEEP_ADAPTATION`, §5). The
+  profile's `musicStream next` (55.2 ms over the 4x window) is the menu music's VPK stream (`@s2u/sound`
+  `musicStream.ts`, `menuMusic.ts`), decoded a buffer at a time while it plays -- not MENULOOP's sound and not kept here.
+- **Node microbench** (`planFrame` over 60 consecutive frames at 60 Hz after 150, the disc's banks and art, MENULOOP the
+  black stand-in; recorded, not asserted), base -> GM-32 in ms a frame (median of five passes): see the plan's Log
+  2026-11-09 GM-32 entry for the numbers.
+- **Not measured here:** the rendered cold switch and warm return (no browser ran); the lane holder's on the shadow PC
+  and the T4.
 
 ## 7. The contradicted readings: not changed by this port
 

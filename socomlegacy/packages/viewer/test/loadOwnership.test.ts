@@ -50,7 +50,7 @@ describe('LATER 440: a superseded map load\'s late replies answer for their own 
     expect(main).toMatch(/soundLane\.ask\(\+\+requests, shownLoad\)/);
     expect(main).toMatch(/effectsLane\.ask\(\+\+requests, shownLoad\)/);
     expect(main).toMatch(/armoryLane\.ask\(\+\+requests, shownLoad\)/);
-    expect(main).toMatch(/view: sceneViewFor\(view, shownLoad, wantedMap\)/);
+    expect(main).toMatch(/view: customProps\.ready\(wantedMap\) \? sceneViewFor\(view, shownLoad, wantedMap\) : null/);   // FP-6 5.P2e: held until a custom map's props are drawn
     expect(main).toMatch(/const stale = ownedStale\(load0, built0, \(\) => \(\{ wanted: wantedMap, view \}\)\)/);
   });
 });

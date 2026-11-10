@@ -87,7 +87,7 @@ the original's order:
 | past the fade | the node inactive: the pick cannot find it (`FUN_002d6260` D:L176893) | `'gone'` (opacity 0) |
 | a shared team bit | `+200 & +200` (D:L450735, D:L451400-451405) -- no side test anywhere (189 §14.12, HX.R3) | `'team'` (`ORDER_SIDE_READING`) |
 | the crosshair | `FUN_005aa690(issuer) == hostage` (D:L451421-451426) | `'not aimed'`, or `'blocked'` when the ray met the hostage behind a blocking surface (`ORDER_PICK_READING`) |
-| the range | Manhattan cells `< 0x14` on `+0xe8`, the sub-map ignored (D:L451427-451448) | `'range'` (`ORDER_RANGE_CELLS_READING`, `ORDER_CELL_FIELD_READING`) |
+| the range | Manhattan cells `< 0x14` on `+0xe8`, each body's located sub-map's own indices, the sub-map ignored (D:L451427-451448; §9, DF-7) | `'range'` (`ORDER_RANGE_CELLS_READING`, `ORDER_CELL_FIELD_READING`) |
 | rescued | online no exclusion (the 0x11 test is offline's, behind `+0x105d` bit 0, D:L451409-451412) | none (`rescuedRefusal`, `RESCUED_REORDER_READING`; owner call 1) |
 | FOLLOW | in unit 0x11 (`FUN_00591ab0` D:L451279-451283) | `'led'` |
 | HOLD | not in 0x11 and, online, in the issuer's unit (`FUN_00591770` D:L451232-451240, `FUN_005ef340`) | `'not yours'` (`HOLD_ISSUER_READING`) |
@@ -115,7 +115,11 @@ Desert Glory's jail bars `nohostagerescue` / `okhostagerescue` are the same nine
 (penetration 0.4) and 3 INVISIBLE_DI (1.0) (199 §6, §12.7; the indices checked against `materialTable()` in the test):
 shut, the bars block the pick and no prompt shows through them; opened, the pick passes (`BARS_MATERIAL_READING`). The
 swap itself is the door's `okforhostages` / `not_okforhostages` helper calls (175 §5.1), which no code of the port's
-world state runs: `BARS_SWAP_PLACEHOLDER`. The room half's probe of the MP6 fixture (`roomHostageOrders.test.ts`)
+world state ran: `BARS_SWAP_PLACEHOLDER` until DF-4 (2026-11-08; the paragraph below is HX-4a's state, kept as the
+record). **DF-4:** the door host hands its program's `CALL_ANIMATION` to the room's world (`DOOR_CALL_READING`,
+research 92 §7), which runs the set's helper there -- after the open's swing the grate is off and the pick passes the
+bars, after the close's the invisible set is off and the grate blocks, both whole at the reset; the `EnvWire` carries
+it to the page (`roomHostageOrders.test.ts`, the MP6 fixture; `roomDoorCall.test.ts`, synthetic). The room half's probe of the MP6 fixture (`roomHostageOrders.test.ts`)
 found the room's grid holding **both** sets on the same faces (x 1731.16 and 1734 at z 1190-1235, both nodes active),
 so the grate blocks the order's pick across the bars open or shut -- a departure until the door's helper calls run
 (one set active at a time); through the doorway gap the cell door leaf's faces (both materials) are the static grid's.
@@ -627,12 +631,12 @@ screen are the gate's browser check.
 | name | where | status |
 |---|---|---|
 | `ORDER_RANGE_CELLS_READING` | viewer `net/hostageOrder.ts` | `20`: Manhattan cells `< 0x14` (`sltiu` at 0x591f94, `FUN_00591dc0` D:L451427-451448; 189 §14.6). Owed: C2 (19 offered, 20 not) |
-| `ORDER_CELL_FIELD_READING` | viewer `net/hostageOrder.ts` | `'+0xe8, sub-map ignored'`: x = (word & 0x7ffff) >> 6, z = u16 `+0xea` >> 3 (189 §14.6 correction 1); the port's `aiCellOf` on sub-map 0, off the grid out of range |
+| `ORDER_CELL_FIELD_READING` | viewer `net/hostageOrder.ts` (`orderCellOf`; match `hostagePath.ts` `locateAiCell`) | `"+0xe8: the located sub-map's own cell, the sub-map ignored"`: x = (word & 0x7ffff) >> 6, z = u16 `+0xea` >> 3 (189 §14.6 correction 1), the word `FUN_005b7ba0` writes (D:L471318) from `FUN_0052dc70`'s locator (D:L471278), whose x / z are the located sub-map's own indices (D:L397251-397252, D:L397264-397266); the port locates both bodies the same way, page and room. Not modelled: `+0xe8` kept at the last traversable cell (D:L471284-471291, D:L471309). Reading (DF-7, §9; its review PASS WITH FINDINGS, high, `agent-mail/evidence/dg-fishhook-readiness-2026-11-08/REVIEW-DF-7-1.md`). Was: `'+0xe8, sub-map ignored'`, sub-map 0's lattice for both bodies |
 | `ORDER_PICK_READING` | viewer `net/hostageOrder.ts` | `'crosshair entity'`: `FUN_005aa690(issuer) == hostage` (D:L451421-451426); the nearest body before a blocking surface (`crosshairPick`) |
 | `ORDER_PICK_REACH_READING` | viewer `net/hostageOrder.ts` | `600`: the aim pick's ray length (`FUN_005aa6e0` D:L464097-464106): 600, the held item's range when longer, capped by a global's `+0xec` (unread); the port takes the floor |
 | `AIM_PICK_IGNORE_READING` | viewer `net/hostageOrder.ts` | `'penetration >= 0.98 without flag bit 4, or liquid'`: `FUN_005aa6e0` D:L464148-464153 (VOLUMETRIC or LIQUID, bits 0-1); bit 4 taken clear (the port's materials carry bits 0-2) |
 | `BARS_MATERIAL_READING` | viewer `net/hostageOrder.ts` | `'28 METAL_GRATE shut, 3 INVISIBLE_DI open'`: the same nine polygons (199 §6, §12.7; 175 §5.1) |
-| `BARS_SWAP_PLACEHOLDER` | viewer `net/hostageOrder.ts` | `'not swapped'`: the door's `okforhostages` / `not_okforhostages` helper calls (175 §5.1) are run by no port code; MP6's room grid holds both sets (probed, §1.2), so the grate always blocks the pick across the bars; settles: the world state running them |
+| `BARS_SWAP_PLACEHOLDER` | viewer `net/hostageOrder.ts` (removed) | was `'not swapped'` (the door's helper calls run by no port code; MP6's room grid held both sets, §1.2). Retired by DF-4 (2026-11-08): the door program's CALL runs on the room's world (`DOOR_CALL_READING`, research 92 §7), the swap pinned on the MP6 fixture (`roomHostageOrders.test.ts`) -- retired |
 | `ORDER_SIDE_READING` | viewer `net/hostageOrder.ts` | `'none'`: no side test on the offer, the forward, the handler or OnCommand (189 §14.12, V2 #24; HX.R3). Owed: C2 (a Terrorist offered FOLLOW!) |
 | `HOLD_ISSUER_READING` | viewer `net/hostageOrder.ts` | `"in the hostage's unit"`: `FUN_00591770` D:L451232-451240, `FUN_005ef340` (189 §14.6) |
 | `UNIT_PER_PLAYER_READING` | viewer `net/hostageOrder.ts` | `'own unit'`: a seat's unit = its id + 0x20 (`FUN_002bdea0`, field 0x74, D:L162119-162171; 199 §12.6); owed: V2's #1 (every online player has one) |
@@ -655,7 +659,7 @@ screen are the gate's browser check.
 | `RESCUE_CREDIT_READING` | server `extraction.ts` (`room.ts` `on('rescued')`) | `'the last leader, a SEAL: +3, brought out +1'`: `FUN_00545480` D:L411554-411572 |
 | `RESCUE_DEAD_LEADER_READING` | server `extraction.ts` | `'credited while the id resolves'`: `FUN_0029e4e0` finds a dead type-2 entity; a departed one resets `+0x5d8` (D:L432967-432973). Owed: C2 (the leader killed mid-lead) |
 | `TERRORIST_LEAD_RESCUE_READING` | server `extraction.ts` | `'a SEAL rescue, no points'`: 0x11 whatever the side, `FUN_00545480` credits a SEAL only (190 U6, V2 s14.12). Owed: C2 (a Terrorist's lead into Safety) |
-| `RESCUE_VALVE_READING` | server `extraction.ts` (`script`) | `'INREGION once per hostage, no leader test'`: MP6's Rescue1-3 (190 s4 C, U9); INREGION on a dead actor unread |
+| `RESCUE_VALVE_READING` | server `extraction.ts` (`script`) | `'INREGION once per hostage, no leader or alive test; the empty OR arm is INREGION alone'`: MP6's Rescue1-3 (190 s4 C, U9); DF-7 (175 §3): the empty group returns `FUN_0025e960`'s caller's s1 (0x25ebc8-0x25ebd4, D:L108366-108367), so the OR is INREGION alone; INREGION's actor mode has no alive test (`FUN_005ced60` D:L484861-484903, `FUN_0029e4e0`), so a hostage dead on a zone cell counts in Rescue and in its kill one-shot -- the original's double, copied (`extraction.test.ts`). Unread: a corpse's `+0xe4` after death. Reading (DF-7's review). Was: `'INREGION once per hostage, no leader test'`, INREGION on a dead actor unread |
 | `DOUBLE_COUNT_READING` | server `extraction.ts` (`targetable`) | `'copied'`: `FUN_0059ee20` D:L458113-458145 has no state test (199 s2); owner call 2 (HX.R5), C2 -- retired by R4B-04: r0001, superseded by r0004 (research 377 §3, §5; OT.R97) |
 | `PRIMARY_OBJECTIVE_READING` | server `extraction.ts` (`room.ts` `hostagePrimaryObjectives`) | `"a living SEAL with the side's brought out > 1; a living Terrorist with no SEAL alive"`: `FUN_00224d10` D:L76550-76558 |
 | `HOSTAGES_RESCUED_STAT_READING` | server `extraction.ts` (`MatchStats.hostagesRescued`) | `'+0x24 from the match brought out, not in ESCORT'`: `FUN_00225070` D:L76619-76632; drawn nowhere yet (research 155's stats record, owed) |
@@ -677,18 +681,40 @@ screen are the gate's browser check.
 
 ## 9. Owed
 
-- C2 (HX-4a): the jail's cells (`ORDER_CELL_FIELD_READING`: body `+0xe8` of a hostage on sub-map 3/4 and of a SEAL
-  outside); a Terrorist aims at a hostage within 20 m -- FOLLOW! offered (`+0xed0` bit 14) and taken (ctrl `+0x5d4`);
+- C2 (HX-4a): the jail's cells (`ORDER_CELL_FIELD_READING`: body `+0xe8` of a jailed hostage, of a SEAL at the bars and
+  of one on the jail's upper floor -- sub-maps 0, 0 and 3 by the read below); a Terrorist aims at a hostage within 20 m -- FOLLOW! offered (`+0xed0` bit 14) and taken (ctrl `+0x5d4`);
   the 19/20-cell edge; a leader killed and a leader quitting mid-lead -- the YES, the hostage's ctrl `+0x10c` unit with
   `+0x58` == 0x11 within a frame, FOLLOW! offered to a second SEAL; HOLD inside the fade (with HX-5's score read);
   whether a client hears the YES.
 - V2's owed #1: every online player has a unit of its own (`UNIT_PER_PLAYER_READING`).
-- `ORDER_CELL_FIELD_READING` (the review of 27e2bf99): MP6's jail lies on sub-maps 3 and 4, whose origins are 91 / 84
-  cells off sub-map 0's; the port measures both bodies on sub-map 0's lattice. If body `+0xe8` holds a sub-map's
-  *local* indices (as the AI loc word's x/z bits are per sub-map), a SEAL outside the jail on sub-map 0 and a hostage
-  inside on sub-map 3 or 4 are tens of cells apart in the original -- out of range -- yet offered the order in the
-  port. Owed: the read of who writes `+0xe8` (local or world-lattice cells), and C2 (a SEAL beside the shut and the
-  opened door: is FOLLOW! offered).
+- `ORDER_CELL_FIELD_READING` (the review of 27e2bf99) -- **read, DF-7 (2026-11-08; reading, its review `agent-mail/evidence/dg-fishhook-readiness-2026-11-08/REVIEW-DF-7-1.md`).** The
+  writer of body `+0xe8` is `FUN_005b7ba0` (D:L471318): it stores the word `FUN_0052dc70` locates for the body's feet
+  (D:L471278) when that cell is traversable (`FUN_0052a090`, D:L471288-471291) and its x / z changed or `+0x1061` bit 6
+  is set (D:L471284-471286, D:L471309); `+0xe4` takes the located word every time (D:L471283). The locator's x / z are
+  the located sub-map's **own** indices -- (x - the sub-map's min) x its scale (D:L397251-397252), the sub-map in bits
+  0-5 (D:L397264), bounded by its width and depth (D:L397265-397266) -- so `FUN_00591dc0`'s range (D:L451427-451448)
+  compares two local cells as one lattice; r0004's twin keeps it (r4 0x597758-0x5977c0). The premise above was half
+  right: on the MP6 fixture the hostages' starts (and a body on the jail's floor, y ~50) locate on **sub-map 0** (the
+  base map stores those cells and, though its layered bit 21 is set there, no other sub-map's cell lies nearer the
+  feet's height), and so does a SEAL at the bars outside (1700, 50, 1190): (99, 6)
+  against (104, 5), 6 cells, FOLLOW! offered in both. Where the lattices part is a body on another sub-map: a SEAL on
+  "Jail House - Upper" (sub-map 3, origin 91 x 2 cells off sub-map 0's) above the cell at (1740.3, 90.2, 1249.7) is
+  (12, 10) on sub-map 3, 97 cells off the hostage in the original, 8 on the port's old sub-map-0 lattice; in the
+  basement (sub-map 4, 84 x 2) at (1690.3, 10.2, 1229.7), (14, 8): 93 against 11. Built: the page and the room both take
+  the located cell (`orderCellOf` -> match `hostagePath.ts` `locateAiCell`, the planner's own locator made a free
+  function); `roomHostageOrders.test.ts` holds the three positions on the MP6 fixture (RED on the old lattice: the
+  upper-floor order taken). Not modelled: the hold of `+0xe8` at the last traversable cell while a body stands on an
+  untraversable or unstored one (the port takes the located cell, or none: out of range) -- the page keeps no per-body
+  cell, and page and room must agree (LATER 780: a per-body hold both would keep). **Death Trap (MP11) changes widely**
+  (the review's F1): its hostages start on sub-map 2 ('Hostage' at (1195.85, -139, 784.24) is its (35, 69); sub-map 2's
+  origin is 84 x 3 cells off sub-map 0's), and at her height the locator puts a SEAL 30 u to her +z (and Hostage2's +x and
+  -x, Hostage3's +z and -x) on sub-map 0, 84-90 cells off her -- refused, where sub-map 0's lattice gave 3 cells (offered);
+  30 u to her +x he stays on sub-map 2, 3 cells, offered (`roomHostageOrders.test.ts`'s MP11 case, on the disc; RED on
+  the old lattice). Which side of such a seam a body falls is the locator's (`HOSTAGE_LOCATION_READING`: the first map's
+  layered bit, the height tolerance), so the order's offer near a sub-map seam is only as good as that reading. Owed:
+  C2 (a SEAL beside the shut and the opened door on MP6, and one on its upper floor; on MP11 a SEAL a few metres to a
+  hostage's +z and +x at her start: is FOLLOW! offered) -- added to the plan's H431 (the C2 session re-asked for the
+  release, `docs/plans/2026-11-08-desert-glory-fish-hook.md` on `agent/df-plan`).
 - C2 (HX-5): a SEAL leading a hostage onto Safety (the AI word's 0x11 and `+0x5c` within a frame; the leader's +3 and
   brought out); a Terrorist's lead into Safety (no score change; `rescuecount` +1); HOLD inside the fade (the leader's
   score twice, the AI's top state) and a shot inside it from the host and from a client (+0x1044, +0xe1 bit 4, +0x105c);

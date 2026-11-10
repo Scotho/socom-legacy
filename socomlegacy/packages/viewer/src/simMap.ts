@@ -11,9 +11,10 @@ import {
 import { actionRoots, ACTION_CLIPS, groundGrid, HOLD_CODES, packGround, type GroundData, type Stance } from './mover';
 import { CIV_ANIMS, SEAL_ANIMS } from './locomotion';
 import { clipsFromPack, motionTableFromArchive, MOTION_PACK_PATH, type MotionEntry } from './motionTable';
-import { TRAVERSAL_CLIPS } from './traversal';
+import { leanClip, TRAVERSAL_CLIPS } from './traversal';
 import { TURRET_CLIPS } from './net/emplacement';
 import { FLINCH_CLIPS } from './net/deaths';
+import { HIT_POSE_CLIPS, type HitMotion } from './net/hitPose';
 import { ALL_RELOAD_CLIPS } from './reloadClip';
 import { DOOR_CLIPS, readDoors, type DoorSpec } from './doors';
 import { readGates, type GateSpec } from './gates';
@@ -295,8 +296,27 @@ export interface SimSkeleton {
   skeleton: Skeleton;
   /** The idle each posture stands in (`SEAL_ANIMS` stand, crouch, prone); null when the pack lacks it. */
   idles: Record<Stance, MotionClip | null>;
+  /**
+   * LEAN-HIT (issue #752; research 217 s3.6): each posture's two lean clips, `seal_<stance>2<l|r>lean` (`./traversal`
+   * `leanClip`), the full-body clip `FUN_0057d810` (D:L440437-440510) pushes and holds on its last key -- the hit
+   * volumes' pose under a held peek (`./net/hitVolumes` `stanceVolumes`). Null where the pack lacks one; a hostage's all
+   * null (it never peeks).
+   */
+  leans: LeanClips;
+  /**
+   * HIT-POSE (research 217 s3.6): the motion the room poses the body's live skeleton with (`./net/hitPose`: the clips a
+   * page's copy plays, `HIT_POSE_CLIPS`, and `motion.rdr`'s table), one object a map, shared by its skeletons. Absent
+   * without `READERC.ZAR`'s table or `MOTION_P.ZAR` (a hostage's too: its body stays on its idles) -- the room then
+   * keeps the idle sets (`idles`, `leans`), and without a skeleton the placeholder capsules.
+   */
+  motion?: HitMotion;
   notes: string[];
 }
+
+/** LEAN-HIT: a posture's left and right lean clips, each posture's. */
+export type LeanClips = Record<Stance, { l: MotionClip | null; r: MotionClip | null }>;
+const noLeans = (): LeanClips => ({ stand: { l: null, r: null }, crouch: { l: null, r: null }, prone: { l: null, r: null } });
+const STANCES: readonly Stance[] = ['stand', 'crouch', 'prone'];
 
 /** The SEAL model `./body` falls back to (W2.R4), and a LOD copy's suffix (`_1`, `_2`). */
 const SEAL_FALLBACK = 'seal_A_scuba', LOD_COPY = /_\d+$/;
@@ -315,8 +335,12 @@ interface SkeletonSource {
   chartype: RdrNode | null;
   table: CharacterTable | null;
   idles: Record<Stance, MotionClip | null>;
+  /** LEAN-HIT: the six lean clips (`SimSkeleton.leans`). */
+  leans: LeanClips;
   /** HX-2: the hostages' idles (`ESCORTEE_IDLE_CLIPS`), read only when the map lists escortees. */
   escorteeIdles: Record<Stance, MotionClip | null>;
+  /** HIT-POSE: the players' motion (`SimSkeleton.motion`), null without the table or the pack. */
+  motion: HitMotion | null;
   /** The lines every skeleton of the map carries (a missing table, a missing idle). */
   notes: string[];
 }
@@ -350,23 +374,36 @@ function skeletonSource(bytes: Uint8Array, readerc: Uint8Array | null, motionPac
   }
   const idles: Record<Stance, MotionClip | null> = { stand: null, crouch: null, prone: null };
   const escorteeIdles: Record<Stance, MotionClip | null> = { stand: null, crouch: null, prone: null };
+  const leans = noLeans();
   const escortees = chartype !== null && teamCharacter(chartype, 'escortees', 0) !== null;
+  let motion: HitMotion | null = null;
   if (motionPack) {
     try {
       const civ = escortees ? Object.values(ESCORTEE_IDLE_CLIPS).filter((n): n is string => n !== null) : [];
-      const clips = clipsFromPack(motionPack, [...Object.values(IDLE_CLIPS), ...civ]);
+      const leanNames = STANCES.flatMap((k) => [leanClip(k, -1), leanClip(k, 1)]);
+      // HIT-POSE: with `motion.rdr`'s table, every clip a page's copy plays (the idles and the leans among them), once.
+      let motionTable: Map<string, MotionEntry> | null = null;
+      if (readerc) {
+        try { motionTable = motionTableFromArchive(readerc); } catch (e) { keep(`motion table: ${say(e)}`); }
+      }
+      const clips = clipsFromPack(motionPack, [...new Set([...Object.values(IDLE_CLIPS), ...civ, ...leanNames, ...(motionTable ? HIT_POSE_CLIPS : [])])]);
+      if (motionTable) motion = { clips: clips.filter((c) => HIT_POSE_CLIPS.includes(c.name)), table: motionTable };
       for (const k of Object.keys(IDLE_CLIPS) as Stance[]) idles[k] = clips.find((c) => c.name === IDLE_CLIPS[k]) ?? null;
+      for (const k of STANCES) leans[k] = { l: clips.find((c) => c.name === leanClip(k, -1)) ?? null, r: clips.find((c) => c.name === leanClip(k, 1)) ?? null };
       if (escortees) for (const k of Object.keys(ESCORTEE_IDLE_CLIPS) as Stance[]) escorteeIdles[k] = clips.find((c) => c.name === ESCORTEE_IDLE_CLIPS[k]) ?? null;
     } catch (e) {
       keep(`idle clips: ${say(e)}`);
     }
   }
   for (const k of Object.keys(idles) as Stance[]) if (!idles[k]) keep(`no ${IDLE_CLIPS[k]}: ${k} stands in the bind pose`);
+  for (const k of STANCES) for (const side of [-1, 1] as const) {
+    if (!leans[k][side < 0 ? 'l' : 'r']) keep(`no ${leanClip(k, side)}: a ${k} peek is hit at the idle`);
+  }
   if (escortees) for (const k of Object.keys(escorteeIdles) as Stance[]) {
     const name = ESCORTEE_IDLE_CLIPS[k];
     if (name !== null && !escorteeIdles[k]) note(`no ${name}: a hostage ${k}s in the bind pose`);
   }
-  return { geo, chartype, table, idles, escorteeIdles, notes };
+  return { geo, chartype, table, idles, leans, escorteeIdles, motion, notes };
 }
 
 /**
@@ -396,7 +433,11 @@ function typeSkeleton(src: SkeletonSource, team: CharacterTeam, index: number, n
     }
     models.set(model, skeleton);
   }
-  return { model, character, skeleton, idles: team === 'escortees' ? src.escorteeIdles : src.idles, notes: [...src.notes] };
+  return {
+    model, character, skeleton, idles: team === 'escortees' ? src.escorteeIdles : src.idles,
+    leans: team === 'escortees' ? noLeans() : src.leans,
+    ...(team !== 'escortees' && src.motion ? { motion: src.motion } : {}), notes: [...src.notes],
+  };
 }
 
 /**

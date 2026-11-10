@@ -17,6 +17,7 @@ import type { PaletteEntry } from '../library';
 import type { BombMarkerKind } from '../pieces';
 import { boundStep, GRID_STEP_MAX, GRID_STEP_MIN, pastedPlaces, TURN_STEP_MAX, TURN_STEP_MIN } from '../placement';
 import { recordOfLayout } from '../record';
+import { probeForge, type ForgeProbeWorld } from './probe';
 import {
   checkForgeRecord, checkForgeRules, exportRulesPack, FORGE_AUTHORING_SCHEMA, FORGE_AUTHORING_VERSION, forgeModeList, importRulesPack, layoutOfAuthoring,
   parseForgeLayout, RulesPackError, sealForgeRules, spawnerSources, type ForgeLayout, type RulesPackFile,
@@ -26,7 +27,7 @@ import { deleteNamed, renameNamed, saveNamedRules, type NamedSave } from '../sav
 import type { OperationRegistry, OperationStep } from '../shell/operations';
 import type { MapCheck } from '../validate';
 import {
-  ForgeAgentError, type ForgeAgentFacade, type ForgeAgentPrepared, type ForgeAgentSnapshot, type ForgeAgentStatus, type ForgeAgentView,
+  ForgeAgentError, type ForgeAgentFacade, type ForgeAgentFocus, type ForgeAgentPrepared, type ForgeAgentSnapshot, type ForgeAgentStatus, type ForgeAgentView,
   type ForgeAgentViewToggle,
 } from './api';
 import { adoptForgeRules, FORGE_LAYOUT_OPERATIONS, importedLayout, planForgeLayout } from './commands';
@@ -99,7 +100,7 @@ export function createForgeAgentRevisions(): ForgeAgentRevisions {
 }
 
 /** The editor clipboard's rows the paste reads (`../page` `ClipItem`). */
-export interface ForgeAgentClip { asset: string | null; team: 'A' | 'B' | null; npc: { side: Side; type: number } | null; offset: Vec3; q: Quat; content: Piece['content'] | null }
+export interface ForgeAgentClip { asset: string | null; team: 'A' | 'B' | null; respawn: 'A' | 'B' | null; npc: { side: Side; type: number } | null; offset: Vec3; q: Quat; content: Piece['content'] | null }
 type CreatorCatalogue = ReturnType<typeof createCreatorCatalogue>;
 
 /** LATER 422: what the facade needs from the page -- its reads, then its actions (each the page's own code). */
@@ -114,6 +115,8 @@ export interface ForgeAgentEditor {
   mapBounds: () => ShotBounds | null;
   /** The page's words for a list written elsewhere first (`../page` `SAVED_ELSEWHERE`). */
   savedElsewhereWords: string;
+  /** AX-13: the clock a click's time is read from (ms since the epoch); `Date.now` when absent. */
+  now?: () => number;
   // ---- reads
   /** The surface as the agent names it (`../shell/state` `agentModeOf`). */
   mode(): ForgeAgentSnapshot['mode'];
@@ -166,6 +169,11 @@ export interface ForgeAgentEditor {
   clipboard(): readonly ForgeAgentClip[];
   queryAssets(query: CreatorAssetQuery, cursor: string | undefined): ReturnType<CreatorCatalogue['queryCreatorAssets']>;
   checkPlacement(ref: string, transform: { at: Vec3; yaw?: number }): ReturnType<CreatorCatalogue['checkPlacement']>;
+  /**
+   * AX-17 (a browser adaptation): the collision and bounds the placement check reads -- the placement grid, the pieces'
+   * bounds by ref and a hull owner's ref -- for `world.probe` (`./probe`). Absent, `world.probe` refuses UNSUPPORTED.
+   */
+  probeWorld?(): Omit<ForgeProbeWorld, 'gridStep'>;
   starterContext(guard: () => void): Promise<StarterContext>;
   missingPacks(): PackRef[];
   missingPacksWords(what: string, packs: readonly PackRef[]): string;
@@ -217,6 +225,15 @@ export interface ForgeEditorFacade extends ForgeAgentFacade {
   subscribe(listener: () => void): () => void;
   layoutRevision(): number;
   ready(): boolean;
+  /**
+   * AX-13 (plan item 13, a browser adaptation): the page's hook beside its own pick (`../page` `act`): the world point
+   * the editor picked under the player's left click (a placement, the base map or the floor), or null when the click hit
+   * nothing. Kept as `lastPoint` with its time; the listeners told, no revision advanced (it changes no layout).
+   */
+  notePoint(point: readonly [number, number, number] | null): void;
+  /** AX-13: the last click's point and time, or null before any click or once the base is replaced (a layout reload). */
+  lastPoint(): { point: [number, number, number] | null; at: number } | null;
+  focus(): ForgeAgentFocus;
 }
 
 /** The agent's view operations: they need the current layout revision (the guard) but advance only the view's. */
@@ -273,6 +290,24 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
         camera: editor.camera(), scenario: editor.play.status(), saves: editor.named().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
         issuesRevision: revisions.issues ? revision : null, notes: revisions.issues?.notes ?? [] },
       canUndo: editor.history.canUndo(), canRedo: editor.history.canRedo(), play: editor.play.read(), rules: l?.rules ?? null };
+  };
+  // AX-13: the point under the player's last left click. It belongs to the base it was picked on: a base staged anew
+  // (`../page` `prepareBase` assigns a new base object on every load, the same map's included) clears it.
+  let lastPoint: { point: [number, number, number] | null; at: number; base: LayoutBase | null } | null = null;
+  /** World points to the hundredth of a game unit: the pick's float noise is no part of where the player pointed. */
+  const hundredth = (v: number): number => Math.round(v * 100) / 100 || 0;
+  const notePoint = (point: readonly [number, number, number] | null): void => {
+    lastPoint = { point: point ? [hundredth(point[0]), hundredth(point[1]), hundredth(point[2])] : null, at: (editor.now ?? Date.now)(), base: editor.base() };
+    revisions.notify();
+  };
+  const agentLastPoint = (): { point: [number, number, number] | null; at: number } | null => {
+    if (lastPoint && lastPoint.base !== editor.base()) lastPoint = null;
+    return lastPoint ? { point: lastPoint.point ? [...lastPoint.point] : null, at: lastPoint.at } : null;
+  };
+  const agentFocus = (): ForgeAgentFocus => {
+    const last = agentLastPoint(), revision = agentLayoutRevision(), camera = editor.camera();
+    return { point: last?.point ?? null, pointAt: last?.at ?? null, selection: editor.selectionIds(),
+      camera: { x: camera.x, y: camera.y, z: camera.z, yaw: camera.yaw, pitch: camera.pitch }, revision };
   };
   const agentRef = (ref: string, allowLocked = false): Object3D => {
     const r = editor.placementIds().get(ref);
@@ -384,6 +419,12 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
     }
     if (operation === 'placement.check') return immediate(() => editor.checkPlacement(args['ref'] as string,
       { at: args['at'] as Vec3, ...(args['yaw'] === undefined ? {} : { yaw: args['yaw'] as number }) }));
+    // AX-17: read-only; the guard's revision check holds the read to one layout revision.
+    if (operation === 'world.probe') {
+      if (!editor.probeWorld) throw new ForgeAgentError('UNSUPPORTED', 'The probe is not available on this page');
+      const probeWorld = editor.probeWorld;
+      return immediate(() => probeForge({ ...probeWorld(), gridStep: editor.gridStep() }, args, agentLayoutRevision()));
+    }
     if (operation === 'issues.read') return noop({ issues: revisions.issues?.issues ?? [], notes: revisions.issues?.notes ?? [] });
     if (operation === 'saves.list') return noop(editor.named().map(({ id, name, savedAt, record }) => ({ id, name, savedAt, record })));
     if (operation === 'undo' || operation === 'redo') {
@@ -423,7 +464,7 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
       else if (operation === 'turret.place') picked = [`turret:${(next.turrets?.length ?? 1) - 1}`];
       else if (operation === 'point.place') picked = [`point:${(next.tacPoints?.length ?? 1) - 1}`];
       else if (operation === 'view.place') picked = [`view:${(next.scenicViews?.length ?? 1) - 1}`];
-      else if (operation === 'extraction.place') picked = [`zone:${(next.extractionZones?.length ?? 1) - 1}`];
+      else if (operation === 'extraction.place') picked = [`xzone:${(next.extractionZones?.length ?? 1) - 1}`];
       else if (operation === 'hostage.place') picked = [`hostage:${(next.hostages?.length ?? 1) - 1}`];
       else if (operation === 'bomb.place') picked = [`bomb:${args['kind'] as string}:0`];
       else if (operation === 'piece.delete' || operation === 'layout.new' || operation === 'layout.import') picked = [];
@@ -454,6 +495,7 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
       clipboard.forEach((c, i) => {
         const p = positions[i]!;
         if (c.team) { picked.push(`spawn:${l.spawns.length}`); l.spawns.push({ team: c.team, p: [p[0], p[1], p[2]], yaw: yawOf(c.q) }); }
+        else if (c.respawn) { picked.push(`respawn:${l.respawns?.length ?? 0}`); (l.respawns ??= []).push({ team: c.respawn, p: [p[0], p[1], p[2]], yaw: yawOf(c.q) }); }
         else if (c.npc) { picked.push(`npc:${l.npcs?.length ?? 0}`); (l.npcs ??= []).push({ ...c.npc, p: [p[0], p[1], p[2]], yaw: yawOf(c.q) }); }
         else if (c.asset) {
           const r = new Object3D(); r.position.set(...p); r.quaternion.set(...c.q); r.updateMatrix();
@@ -558,5 +600,6 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
     shotDriver: editor.shotDriver, mapBounds: editor.mapBounds,                // R5-B: the agent's camera shot
     refreshExternalState: () => { revisions.changed(); editor.rereadLists(); },
     subscribe: (listener) => revisions.subscribe(listener),
-    layoutRevision: agentLayoutRevision, ready: agentReady };
+    layoutRevision: agentLayoutRevision, ready: agentReady,
+    notePoint, lastPoint: agentLastPoint, focus: agentFocus };                // AX-13: the player's focus
 }

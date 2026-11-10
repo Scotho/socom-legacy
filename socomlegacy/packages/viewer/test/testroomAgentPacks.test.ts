@@ -29,9 +29,10 @@ function setup() {
   const drivers = createLiveLocalPackDrivers({ allowed: () => allowed, modPanel: () => panel, texturePacks: () => null, textureContext: async () => { throw new Error('no map'); }, modelAddress: () => '/testroom?modmodels', reload });
   return { drivers, panel, library, reload, posted, block: () => { allowed = false; } };
 }
+/** B206 ML-7: the master is MODS's (Home > Experiments > Mods) -- written to the same store, as MODS writes it. */
 async function enableMods(library: ReturnType<typeof memoryModLibrary>): Promise<void> {
-  const master = document.getElementById('mods-enabled') as HTMLInputElement;
-  master.checked = true; master.dispatchEvent(new Event('change', { bubbles: true }));
+  const { choices } = await library.read();
+  await library.writeChoices({ ...choices, enabled: true });
   await vi.waitFor(async () => expect((await library.read()).choices.enabled).toBe(true));
 }
 

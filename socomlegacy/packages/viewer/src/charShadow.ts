@@ -87,16 +87,81 @@ target.texture.minFilter = NearestFilter;
 target.texture.magFilter = NearestFilter;
 
 /**
+ * VS-5 (VS.R5; the video settings design §4.2, §7): the Shadows row's tiers -- a browser adaptation over the original's
+ * one shadow, which has no tiers (one 256x256 map, `SHADOW_MAP_SIZE`, unchanged). Each tier scales the map's side; Medium
+ * is the original's map and today's draw exactly. Who casts (the local player only, the header), the formula and the
+ * receivers are the same under every tier: a tier only sharpens or softens the one shadow. Off is the page's switch
+ * (`./matchMount`: the pass skipped and the world's decals hidden, as before), not a tier here.
+ */
+export type ShadowTier = 'low' | 'medium' | 'high';
+/** VS-5, an adaptation (no original): Low's map is half the original's side, 128. */
+export const SHADOW_MAP_SCALE_LOW_ADAPTATION = 0.5;
+/** VS-5, an adaptation (no original): High's map is twice the original's side, 512. */
+export const SHADOW_MAP_SCALE_HIGH_ADAPTATION = 2;
+/**
+ * VS-5, an adaptation (no original: the GS samples the map once a pixel): High's soft edge, a 2x2 percentage-closer
+ * tap -- the coverage averaged over the four texels half a texel each way. Medium and Low take the single nearest tap.
+ */
+export const SHADOW_SOFT_TAPS_ADAPTATION = 4;
+const TIER_SCALE: Readonly<Record<ShadowTier, number>> = { low: SHADOW_MAP_SCALE_LOW_ADAPTATION, medium: 1, high: SHADOW_MAP_SCALE_HIGH_ADAPTATION };
+/** A tier's map side: `SHADOW_MAP_SIZE` times its scale (Medium: the original's 256). */
+export function shadowMapSize(tier: ShadowTier): number { return SHADOW_MAP_SIZE * TIER_SCALE[tier]; }
+/** The map's current side and tier (Medium until `setShadowTier` is told another). */
+let mapSize = SHADOW_MAP_SIZE;
+let mapTier: ShadowTier = 'medium';
+/** 1 / the map's side, for High's taps (read by High's graph alone). */
+const texel = uniform(1 / SHADOW_MAP_SIZE).setName('shadowTexel').setGroup(renderGroup);
+/**
+ * Whether High's soft taps are taken. VS-12: a graph of their own (`shadowFactor(map, true)`), swapped in by the world
+ * (`onShadowSoftChange`) -- never a uniform-guarded branch in the default graph, which Medium's shader would then carry
+ * (CPS.R7: at Balanced's defaults the game draws what it drew, `test/experimentalOriginal.test.ts`'s pinned source).
+ */
+let soft = false;
+const softHeard = new Set<() => void>();
+/** Called when High's taps come or go (a tier to or from High); the returned function stops it. */
+export function onShadowSoftChange(changed: () => void): () => void {
+  softHeard.add(changed);
+  return () => { softHeard.delete(changed); };
+}
+/** The corners' reach, `(size - 2) / size`: a texel of margin each side at the map's current size (254/256 at Medium). */
+export function shadowMapMargin(): number { return (mapSize - 2) / mapSize; }
+/** The soft taps taken: `SHADOW_SOFT_TAPS_ADAPTATION` under High, 0 (today's single tap) otherwise. */
+export function shadowSoftTaps(): number { return soft ? SHADOW_SOFT_TAPS_ADAPTATION : 0; }
+/**
+ * The page's map at a tier: the render target resized (three's `setSize` disposes its GPU side, remade at the next draw at
+ * the new size; the same `Texture` object, so the world's graphs keep sampling it), the margin and the taps with it. The
+ * map is redrawn by the next frame (no shadow's last draw stands). The same tier changes nothing.
+ */
+function setShadowTier(tier: ShadowTier): void {
+  if (tier === mapTier) return;
+  mapTier = tier;
+  mapSize = shadowMapSize(tier);
+  target.setSize(mapSize, mapSize);
+  texel.value = 1 / mapSize;
+  drawnBy = null;
+  const nextSoft = tier === 'high';
+  if (nextSoft !== soft) { soft = nextSoft; for (const changed of [...softHeard]) changed(); }
+}
+
+/**
  * The receiver's darkening, 0..1, for the world's graph: `a * coverage` of the header's formula. The normal is the
  * surface's own where the draw carries one and the flat triangle's otherwise (three derives it for a geometry with no
  * normal lane), as the VU reads each vertex's.
  */
-export function shadowFactor(map: Texture = target.texture): Node<'float'> {
+export function shadowFactor(map: Texture = target.texture, softTaps: boolean = soft): Node<'float'> {
   const light = toLight.mul(vec4(positionWorld, 1));
   // A render target's texel rows run top-down in three's node textures (WebGPU's convention, kept by the WebGL2 backend).
   const uv = vec2(light.x.mul(0.5).add(0.5), light.y.mul(-0.5).add(0.5));
   const inside = uv.x.greaterThan(0).and(uv.x.lessThan(1)).and(uv.y.greaterThan(0)).and(uv.y.lessThan(1));
-  const coverage = select(inside, textureNode(map, uv).a, float(0));
+  // VS-5: High's 2x2 tap (`SHADOW_SOFT_TAPS_ADAPTATION`), its own graph (VS-12); Medium and Low take the one nearest
+  // tap, today's expression and today's shader byte for byte. The review's F1: the taps are explicit-LOD samples
+  // (`level(0)`: textureLod / textureSampleLevel); the map has no mips and nearest filtering, so level 0 is the texel the
+  // implicit sample reads.
+  const tap = (dx: number, dy: number) => textureNode(map, uv.add(vec2(dx, dy).mul(texel))).level(float(0)).a;
+  const sampled = softTaps
+    ? tap(-0.5, -0.5).add(tap(0.5, -0.5)).add(tap(-0.5, 0.5)).add(tap(0.5, 0.5)).mul(1 / SHADOW_SOFT_TAPS_ADAPTATION)
+    : textureNode(map, uv).a;
+  const coverage = select(inside, sampled, float(0));
   const n = normalWorld;
   const facing = n.dot(toward).clamp(0, 1);
   const height = centre.sub(positionWorld).dot(n);
@@ -108,7 +173,8 @@ export function shadowFactor(map: Texture = target.texture): Node<'float'> {
 /**
  * `FUN_0031a180`'s camera for one actor's bounds: at their centre looking down `direction`, the orthographic frustum
  * fitted to the eight corners in the light's frame with a texel of margin each side (the corners land within
- * `(size - 2) / size` of the edges), the depth range +-1.5x the largest side. Returns that range (the map's far).
+ * `(size - 2) / size` of the edges, `size` the map's current side: VS-5's tier), the depth range +-1.5x the largest
+ * side. Returns that range (the map's far).
  */
 export function fitShadowCamera(cam: OrthographicCamera, box: Box3, direction: Vector3): number {
   const mid = box.getCenter(new Vector3());
@@ -127,7 +193,7 @@ export function fitShadowCamera(cam: OrthographicCamera, box: Box3, direction: V
     minX = Math.min(minX, corner.x); maxX = Math.max(maxX, corner.x);
     minY = Math.min(minY, corner.y); maxY = Math.max(maxY, corner.y);
   }
-  const margin = SHADOW_MAP_SIZE / (SHADOW_MAP_SIZE - 2);
+  const margin = mapSize / (mapSize - 2);                        // VS-5: the map's current side (256 at Medium, as before)
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   const hx = ((maxX - minX) / 2) * margin, hy = ((maxY - minY) / 2) * margin;
   cam.left = cx - hx; cam.right = cx + hx; cam.bottom = cy - hy; cam.top = cy + hy;
@@ -430,6 +496,16 @@ export class CharacterShadow {
     toward.value.copy(this.direction).negate();
   }
 
+  /**
+   * VS-5 (VS.R5, a browser adaptation): the Shadows row's tier for the page's one map -- Medium the original's 256 (the
+   * default; today's draw), Low 128, High 512 with the soft taps (`setShadowTier`). The next frame redraws the map.
+   */
+  setTier(tier: ShadowTier): void {
+    if (tier === mapTier) return;
+    setShadowTier(tier);
+    this.drawn = false;
+  }
+
   /** No actor to shadow this frame (fly mode with the body hidden): the receivers take none. */
   clear(): void { strength.value = 0; }
 
@@ -600,6 +676,7 @@ export function mountCharShadow(): MatchShadow {
       if (gone) return;
       gone = true;
       shadow.clear();
+      shadow.setTier('medium');                    // VS-5: the page's map left at the original's size for the next page
       shadow.dispose();
       shadow.target.dispose();
     },

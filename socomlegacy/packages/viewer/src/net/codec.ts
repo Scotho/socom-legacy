@@ -18,6 +18,15 @@ export { decodeCommandsV10, decodeSnapshotV10, type OwnStateV10, type SnapshotV1
  * and 1080); 24 seats' bodies: 1402 and 1418 (1500 and 1528).
  */
 
+/**
+ * The most doors and gates a snapshot carries (FP-1a, Codex on #745; the browser's own wire, no original): the room sends
+ * its doors then its gates as one tail (`match/src/room.ts` MAP-07, `[...doorWire, ...gateWire]`) behind one u8 count
+ * (`encodeSnapshot`'s `w.u8(doors.length)`), so the count's byte holds at most 2^8 - 1. A room past it is refused, never
+ * sent short: the Forge's shared compose bounds its placed ones to it (`forge/placedDoors.ts` `withPlacedDoors`,
+ * `forge/placedAccess.ts` `withPlacedAccess`), the room refuses (`match/src/forgeSimMap.ts` `ForgeDoorsPastWire`).
+ */
+export const DOOR_GATE_WIRE_SLOTS = 2 ** 8 - 1;
+
 class Writer {
   private buf = new ArrayBuffer(256);
   private view = new DataView(this.buf);
@@ -112,11 +121,13 @@ const dqSeconds = (q: number): number => (q === 0xffff ? -1 : q / 1000);
 
 /** A command as the server will read it: the quantisers applied (the client predicts with this, not the raw input). */
 export function quantiseCommand(c: Command): Command {
+  const { raised, ...rest } = c;
   return {
-    ...c,
+    ...rest,
     forward: dqStick(qStick(c.forward)), right: dqStick(qStick(c.right)),
     yaw: dqYaw(qYaw(c.yaw)), pitch: dqPitch(qPitch(c.pitch)), turn: dqTurn(qTurn(c.turn)),
     separate: c.separate === true,                               // SEP-POP: the wire's bit, always read back
+    ...(raised ? { raised: true } : {}),                         // ER-2: the wire's bit, read back only when set
   };
 }
 
@@ -124,8 +135,9 @@ export function quantiseCommand(c: Command): Command {
 
 /**
  * `Frame.Commands`: u8 kind, f32 view tick, u8 count, then per command u32 seq, i8 x2, u16 yaw, i16 pitch, i16 turn, u16
- * buttons, u8 stance|separate<<3|weapon<<4 (protocol 12, SEP-POP: `Command.separate` in the stance nibble's bit 3, its
- * codes 0-3; an 11 command never set the bit).
+ * buttons, u8 stance|separate<<3|weapon<<4|raised<<7 (protocol 12, SEP-POP: `Command.separate` in the stance nibble's
+ * bit 3, its codes 0-3; an 11 command never set the bit. Protocol 14, ENEMY-RAISE ER-2: `Command.raised` in bit 7, the
+ * weapon narrowed to bits 4-6 -- its codes 0 and 1 -- so a 13 command, which never set bit 7, reads as not raised).
  */
 export function encodeCommands(batch: CommandBatch): Uint8Array {
   const w = new Writer();
@@ -138,7 +150,7 @@ export function encodeCommands(batch: CommandBatch): Uint8Array {
     w.i8(qStick(c.forward)); w.i8(qStick(c.right));
     w.u16(qYaw(c.yaw)); w.i16(qPitch(c.pitch)); w.i16(qTurn(c.turn));
     w.u16(c.buttons & 0xffff);
-    w.u8((c.stance & 0x07) | (c.separate ? 0x08 : 0) | ((c.weapon & 0x0f) << 4));
+    w.u8((c.stance & 0x07) | (c.separate ? 0x08 : 0) | ((c.weapon & 0x07) << 4) | (c.raised ? 0x80 : 0));
   }
   return w.bytes();
 }
@@ -152,7 +164,10 @@ export function decodeCommands(bytes: Uint8Array): CommandBatch {
   for (let i = 0; i < n; i++) {
     const seq = r.u32(), forward = dqStick(r.i8()), right = dqStick(r.i8()), yaw = dqYaw(r.u16()), pitch = dqPitch(r.i16());
     const turn = dqTurn(r.i16()), buttons = r.u16(), sw = r.u8();
-    commands.push({ seq, forward, right, yaw, pitch, turn, buttons, stance: sw & 0x07, weapon: sw >> 4, separate: (sw & 0x08) !== 0 });
+    commands.push({
+      seq, forward, right, yaw, pitch, turn, buttons, stance: sw & 0x07, weapon: (sw >> 4) & 0x07, separate: (sw & 0x08) !== 0,
+      ...((sw & 0x80) !== 0 ? { raised: true } : {}),          // ER-2 (protocol 14): only when set, as a command without it
+    });
   }
   return { viewTick, commands };
 }
@@ -199,6 +214,44 @@ function readBody(r: Reader, o: readonly [number, number, number]): BodyState {
   };
 }
 
+/** The widths `Writer` writes a number at, read back as `Reader` reads it (DataView's ToUint8 / ToInt8 / ...). */
+const asU8 = (v: number): number => v & 0xff;
+const asI8 = (v: number): number => (v << 24) >> 24;
+const asU16 = (v: number): number => v & 0xffff;
+const asI16 = (v: number): number => (v << 16) >> 16;
+
+/**
+ * A body as `decodeSnapshot(encodeSnapshot({ bodies: [b] }))` gives it back, written into `out` without the frame
+ * (HIT-POSE's perf fold, research 217 s3.6a: the room's poser, `./hitPose`, takes each body as a page's copy does, every
+ * tick): each field through `writeBody`'s quantiser and the width it is written at, read back as `readBody` reads it --
+ * the feet on the origin `encodeSnapshot` takes from the body alone (`bodiesOrigin`: its own feet, whole units; the
+ * steps are the same from any whole-unit origin within `FEET_RANGE`). Allocates nothing; `out` is not `b`. Held equal to
+ * the round trip, number for number (`test/quantiseBody.test.ts`). A wire step, no reading.
+ */
+export function quantiseBody(b: BodyState, out: BodyState): BodyState {
+  out.id = asU8(b.id);
+  for (let k = 0; k < 3; k++) {
+    const o = asI16(qOrigin(b.feet[k]!));
+    out.feet[k] = dqFeet(asI16(qFeet(b.feet[k]!, o)), o);
+  }
+  out.yaw = dqYaw(asU16(qYaw(b.yaw))); out.pitch = dqPitch(asI16(qPitch(b.pitch)));
+  out.vx = dqSpeed(asI16(qSpeed(b.vx))); out.vy = dqSpeed(asI16(qSpeed(b.vy))); out.vz = dqSpeed(asI16(qSpeed(b.vz)));
+  out.flags = b.flags >>> 0;
+  const packed = asU8((b.stance & 3) | ((b.landing & 3) << 2) | ((b.ground & 3) << 4) | ((b.slot & 1) << 6) | (((b.stickSnaps ?? 0) & 1) << 7));
+  out.stance = packed & 3; out.landing = (packed >> 2) & 3; out.ground = (packed >> 4) & 3; out.slot = (packed >> 6) & 1; out.stickSnaps = (packed >> 7) & 1;
+  out.weapon = asU8(b.weapon & 0xff);
+  out.jumps = asU8(b.jumps & 0xff);
+  out.groundForward = dqStick(asI8(qStick(b.groundForward))); out.groundRight = dqStick(asI8(qStick(b.groundRight))); out.groundCls = asI8(b.groundCls);
+  out.action = asU8(b.action); out.actionSerial = asU8(b.actionSerial & 0xff);
+  out.actionT = dqSeconds(asU16(qSeconds(b.actionT))); out.actionSeconds = dqSeconds(asU16(qSeconds(b.actionSeconds < 0 ? null : b.actionSeconds)));
+  out.overlay = asU8(b.overlay); out.overlayT = dqSeconds(asU16(qSeconds(b.overlayT))); out.overlaySeconds = dqSeconds(asU16(qSeconds(b.overlaySeconds)));
+  out.turnRate = dqTurn(asI16(qTurn(b.turnRate)));
+  out.trav = asU8(b.trav); out.travFrame = Math.fround(b.travFrame); out.travRootY = Math.fround(b.travRootY);
+  out.travBlend = asU8(b.travBlend); out.travBlendWeight = asU8(Math.round(clamp(b.travBlendWeight, 0, 1) * 255)) / 255;
+  out.peek = asI8(b.peek);
+  return out;
+}
+
 /**
  * The snapshot's sections byte (protocol 11): which of the optional parts follow.
  * Bit 2 is Chain Reaction's hooks (research 176 §9). It is set only when the snapshot names them, so a map
@@ -243,7 +296,7 @@ export function encodeSnapshot(s: Snapshot, origin?: readonly [number, number, n
   }
   w.u8(s.bodies.length);
   for (const b of s.bodies) writeBody(w, b, o);
-  const doors = (s.doors ?? []).slice(0, 255);
+  const doors = (s.doors ?? []).slice(0, DOOR_GATE_WIRE_SLOTS);
   w.u8(doors.length);
   for (const d of doors) { w.u8(clamp(Math.round(d.valve), 0, 255)); w.u8(clamp(Math.round(d.phase), 0, 255)); }
   // Chain Reaction (research 176 §9): the hooks only when the map has them. Absent, the bytes stop where they used to.

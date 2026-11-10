@@ -330,7 +330,7 @@ and the shade. The image is context, never evidence; it is authored or shipped m
 
 ### Icons and the emblem (authored)
 
-`icons.ts`: ten marks drawn by the project -- play, news, roadmap, journey, archive, playtest, external, back, server, status -- and
+`icons.ts`: eleven marks drawn by the project -- play, news, roadmap, journey, archive, playtest, external, back, server, status, leaderboard -- and
 `emblem.svg`: the project emblem, renamed "SOCOM 2 Legacy" in its accessible name (the guide's was "II"), in token
 colours only. Licence: the project's own work, the repository's GPL-3.0 (the teaser's repository is the same
 author's); nothing third-party, so no entry is needed beside the fonts' OFL texts in `shared/fonts/`. `icon(name,
@@ -683,6 +683,13 @@ launcher's look only, nothing of the game.
   (`socomlegacy/packages/viewer/src/console/render/theme.ts`, held equal to these tokens by its test).
 - tokens.test.ts holds every value to the artifact's and every text role at 4.5:1 on the panel and the toast over each
   theme's sky and over white.
+
+## The leaderboard mark (2.4.0)
+
+LCM-16 of the LIVE cards plan (LCM.R18 (e)): `icons.ts` gains `leaderboard` (three podium blocks on a base line and a
+medal over the tallest, in the guide marks' 1.5 stroke on the 24 grid) for the reading pages' nav, whose seventh link,
+Leaderboard, it draws. Additive: no earlier mark, class or token changes. The project's own work, the repository's
+GPL-3.0; decorative like the others. A browser adaptation: nothing of the game.
 
 ## Voice
 

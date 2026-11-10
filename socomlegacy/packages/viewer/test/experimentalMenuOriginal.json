@@ -2,12 +2,13 @@
   "sourceCommit": "8181ebab7",
   "sourceFile": "socomlegacy/packages/viewer/src/uiCompositorView.ts",
   "fixture": "experimentalMenuFixture.ts",
+  "repinned": "GM-15d: the frame hash re-taken after drawModels took the GS top-left edge rule and GEQUAL on the f32 depth store (the GPU menus plan Log, R1 resolved by (a)); the fixture draws a model",
   "frame": {
     "width": 640,
     "height": 448,
     "undrawn": [
       "missing: no bitmap missing"
     ],
-    "sha256": "f27e23f4c675d1c13360b9a66a2c6180b20f16987da7e0b1979b3b432a4f83b8"
+    "sha256": "1401d7bc924b2cc2555b1f4b912b44ae963a67ae848577716ca82535bf4cbcba"
   }
 }

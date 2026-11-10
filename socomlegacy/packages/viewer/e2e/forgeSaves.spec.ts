@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { recordOfLayout } from '../src/forge/record';
 import { encodeShare } from '../src/forge/share';
+import { expectBase, OUTLINER_ROW, placingTool } from './forgeBase';
 
 /**
  * FORGE: named saves and a share link on a blank floor (a browser adaptation, no original). No disc: the palette is
@@ -14,7 +15,7 @@ async function ready(page: Page): Promise<void> {
   await page.goto('/forge?floor');
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
   await expect(page.locator('.fx-loading')).toBeHidden();
-  await expect(page.locator('.fx-top select.fx-select')).toHaveValue('blank');
+  await expectBase(page, /New Empty Map/);                              // OT.R112: the blank floor's row named (`./forgeBase`)
 }
 
 /**
@@ -36,24 +37,30 @@ async function storedList(page: Page, name: 'saves' | 'autosave' | 'autosaveAsid
   }), name);
 }
 
+/**
+ * A marker's four fields by their names (`../src/forge/panels/inspectorPanel.ts` `buildInspector`, `data-label`), not by
+ * place: since the Overhaul (36ddf4282) the Inspector's rows are Position X Y Z, Rotation Pitch Yaw Roll, Scale X Y Z, so
+ * the fourth input is Pitch -- hidden by FC-1 (f2601a93c, `FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION`) -- and Yaw the fifth.
+ */
+const MARKER_FIELDS = ['X', 'Y', 'Z', 'Yaw'] as const;
+const field = (page: Page, label: string) => page.locator(`.fx-fields input[data-label="${label}"]`);
+
 async function place(page: Page, team: 'A' | 'B', x: string, y: string, z: string, yaw: string): Promise<void> {
-  // Under 1440px the toolbar hides the label, so the accessible name is the title.
-  await page.getByRole('button', { name: new RegExp(`team ${team} spawn`) }).click();
+  // OT.R112: the placing tools are on their own row with their labels shown at every width (`./forgeBase` `placingTool`).
+  await placingTool(page, team === 'A' ? 'Spawn SEAL' : 'Spawn Terrorist').click();
   await page.locator('.fx-input').click();
-  const fields = page.locator('.fx-fields input');
   const values = [x, y, z, yaw];
   for (let i = 0; i < values.length; i++) {
-    await fields.nth(i).fill(values[i]!);
-    await fields.nth(i).blur();
+    await field(page, MARKER_FIELDS[i]!).fill(values[i]!);
+    await field(page, MARKER_FIELDS[i]!).blur();
   }
   await expect(page.locator('.fx-outliner')).toContainText(`Spawn ${team}`);
 }
 
 async function marker(page: Page, label: string): Promise<string> {
-  await page.locator('.fx-outliner li', { hasText: label }).click();
-  const fields = page.locator('.fx-fields input');
+  await page.locator(OUTLINER_ROW, { hasText: label }).click();
   const parts: string[] = [];
-  for (let i = 0; i < 4; i++) parts.push(await fields.nth(i).inputValue());
+  for (const name of MARKER_FIELDS) parts.push(await field(page, name).inputValue());
   return parts.join(',');
 }
 
@@ -68,7 +75,7 @@ test('a named save survives a reload, and a share link opens the same markers', 
 
   await page.locator('[data-forge="saves"]').click();
   await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
-  await page.locator('.fx-modal input').fill('Yard');
+  await page.locator('.fx-modal form.fx-card input').fill('Yard');
   await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('.fx-saves-list')).toContainText('Yard');
   await page.locator('.fx-modal').getByRole('button', { name: 'Close' }).click();
@@ -164,7 +171,7 @@ test('a share link asks before it replaces a layout, and leaves the autosave whe
   await page.locator('.fx-modal').getByRole('button', { name: 'Cancel' }).click();
   await expect(page).not.toHaveURL(/#forge=/);
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
-  await page.locator('.fx-outliner li', { hasText: 'Spawn A' }).click();
+  await page.locator(OUTLINER_ROW, { hasText: 'Spawn A' }).click();
   await expect(page.locator('.fx-fields input').nth(0)).toHaveValue('100');
 });
 
@@ -183,14 +190,14 @@ test('a share link over an autosave this build cannot read sets it aside and ope
   await expect(page.locator('.fx-status-msg')).toHaveText(/kept aside/, { timeout: 60_000 });
   await expect(page.locator('.fx-modal').filter({ hasText: 'Open this shared layout?' })).toBeHidden();   // no question asked
   expect(JSON.parse((await storedList(page, 'autosaveAside')) || '[]')).toEqual([unreadable]);
-  await page.locator('.fx-outliner li', { hasText: 'Spawn A' }).click();
+  await page.locator(OUTLINER_ROW, { hasText: 'Spawn A' }).click();
   await expect(page.locator('.fx-fields input').nth(0)).toHaveValue('7');
 });
 
 test('a locked spawn survives a reload and a share link', async ({ page }) => {
   await ready(page);
   await place(page, 'A', '100', '0', '200', '0');
-  const row = page.locator('.fx-outliner li', { hasText: 'Spawn A' });
+  const row = page.locator(OUTLINER_ROW, { hasText: 'Spawn A' });
   await row.getByRole('button', { name: 'Lock' }).click();
   await expect(row).toContainText('locked');
   await expect(row.getByRole('button', { name: 'Unlock' })).toBeVisible();
@@ -199,7 +206,7 @@ test('a locked spawn survives a reload and a share link', async ({ page }) => {
   await page.reload();
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
   await expect(page.locator('.fx-loading')).toBeHidden();
-  const kept = page.locator('.fx-outliner li', { hasText: 'Spawn A' });
+  const kept = page.locator(OUTLINER_ROW, { hasText: 'Spawn A' });
   await expect(kept).toContainText('locked');
   await expect(kept.getByRole('button', { name: 'Unlock' })).toBeVisible();
 
@@ -215,7 +222,7 @@ test('a locked spawn survives a reload and a share link', async ({ page }) => {
   await shared.locator('.fx-modal').getByRole('button', { name: 'Open the link' }).click();
   await expect(shared).not.toHaveURL(/#forge=/);
   await expect(shared.locator('.fx-status-msg')).toHaveText(/layout open/, { timeout: 60_000 });
-  const opened = shared.locator('.fx-outliner li', { hasText: 'Spawn A' });
+  const opened = shared.locator(OUTLINER_ROW, { hasText: 'Spawn A' });
   await expect(opened).toContainText('locked');
   await expect(opened.getByRole('button', { name: 'Unlock' })).toBeVisible();
 });
@@ -254,8 +261,8 @@ test("a locked piece and a locked NPC survive a reload through the page's own au
   await page.goto('/forge');
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open|not found on this disc/, { timeout: 60_000 });
   await expect(page.locator('.fx-loading')).toBeHidden();
-  const piece = (): ReturnType<Page['locator']> => page.locator('.fx-outliner li', { hasText: 'does_not_exist' });
-  const npc = (): ReturnType<Page['locator']> => page.locator('.fx-outliner li', { hasText: 'NPC ·' });
+  const piece = (): ReturnType<Page['locator']> => page.locator(OUTLINER_ROW, { hasText: 'does_not_exist' });
+  const npc = (): ReturnType<Page['locator']> => page.locator(OUTLINER_ROW, { hasText: 'NPC ·' });
   await expect(piece()).toContainText('locked');
   await expect(npc()).toContainText('locked');
   await place(page, 'A', '100', '0', '200', '0');                    // an edit: the page writes the autosave itself
@@ -344,7 +351,7 @@ test.describe('the Saves card on a pad', () => {
     await ready(page);
     await page.locator('[data-forge="saves"]').click();             // one named save, so Cross has something to spare
     await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
-    await page.locator('.fx-modal input').fill('Yard');
+    await page.locator('.fx-modal form.fx-card input').fill('Yard');
     await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('.fx-saves-list')).toContainText('Yard');
     await page.locator('.fx-modal').getByRole('button', { name: 'Close' }).click();
@@ -379,7 +386,7 @@ test.describe('the Saves card on a pad', () => {
     await ready(page);
     await page.locator('[data-forge="saves"]').click();
     await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
-    await page.locator('.fx-modal input').fill('Yard');
+    await page.locator('.fx-modal form.fx-card input').fill('Yard');
     await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('.fx-saves-list')).toContainText('Yard');
     await page.locator('.fx-modal').getByRole('button', { name: 'Close' }).click();
@@ -408,7 +415,9 @@ test.describe('the Saves card on a pad', () => {
     expect(errors).toEqual([]);
   });
 
-  test('FUI-2 (PAD-2): START > Base, Cross, Cross keeps the layout -- the question starts on Cancel', async ({ page }) => {
+  // OT.R112 (the contributor's New, `../src/forge/page.ts` `chooseNewBase`): the menu's Base row is now New layout, and
+  // Cross on it opens New's card on its list of bases -- no act focused, nothing dropped; Circle backs out of it.
+  test("FUI-2 (PAD-2): START > New layout, Cross opens New's card on its list; Circle keeps the layout", async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await padStub(page);
@@ -416,13 +425,13 @@ test.describe('the Saves card on a pad', () => {
     await place(page, 'A', '100', '0', '200', '0');
     await press(page, START);
     await expect(page.locator('.fx-menu')).toBeVisible();
-    for (let n = 0; n < 60 && (await menuRow(page).innerText()) !== 'Base'; n++) await press(page, UP);
-    await expect(menuRow(page)).toHaveText('Base');
+    for (let n = 0; n < 60 && (await menuRow(page).innerText()) !== 'New layout'; n++) await press(page, UP);
+    await expect(menuRow(page)).toHaveText('New layout');
     await press(page, CROSS);
-    const ask = page.getByRole('dialog', { name: 'Start a new layout?' });
+    const ask = page.getByRole('dialog', { name: 'New layout' });
     await expect(ask).toBeVisible();
-    await expect(page.locator(':focus')).toHaveText('Cancel');
-    await press(page, CROSS);
+    await expect(page.locator(':focus')).toHaveAttribute('aria-label', 'New layout');
+    await press(page, CIRCLE);
     await expect(ask).toBeHidden();
     await expect(page.locator('.fx-outliner')).toContainText('Spawn A');
     expect(errors).toEqual([]);

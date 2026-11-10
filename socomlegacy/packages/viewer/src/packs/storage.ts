@@ -9,7 +9,14 @@ export const PACKS_MIGRATIONS = 'migrations';
 export const PACK_MIGRATION_RENEW_MS_ADAPTATION = 30_000;
 export const PACK_MIGRATION_LEASE_MS_ADAPTATION = 2 * PACK_MIGRATION_RENEW_MS_ADAPTATION;
 export const PACK_MIGRATION_RECLAIM_MS_ADAPTATION = 10 * 60_000;
-export type PackStoreKind = 'mods' | 'models' | 'textures' | 'packs';
+/**
+ * `state` (B206 ML-1, ML.R7): the MODS state record -- the chosen texture pack and the model slots' switches (`./modsState`).
+ * `custom-maps` (FP-5, FP.R12): the imported forge-map bundles, each a read-only custom map keyed by its digest
+ * (`./customMaps` `CustomMapData`). Its migration: none -- a new scope with no earlier store to read, so its `legacy` is
+ * the empty list (`emptyCustomMaps`), written on the first patch as `state`'s was; the database's version stays 1 (a
+ * scope is a key in `PACKS_SCOPES`, not an object store).
+ */
+export type PackStoreKind = 'mods' | 'models' | 'textures' | 'packs' | 'state' | 'custom-maps';
 export interface PackScope<T> { kind: PackStoreKind; generation: number; data: T }
 export interface PackMetadata { kind: PackStoreKind; generation: number; data: unknown;
   binary: readonly { path: readonly (string | number)[]; byteLength: number }[] }
@@ -45,6 +52,14 @@ export interface PackDatabase {
   patch<T>(kind: PackStoreKind, legacy: () => Promise<T>, edit: (data: StoredData<T>) => StoredData<T>,
     options?: PackWriteOptions): Promise<{ kind: PackStoreKind; generation: number }>;
   readAt<T>(kind: PackStoreKind, path: readonly (string | number)[], signal?: AbortSignal): Promise<PackScope<T> | null>;
+  /**
+   * FP-5 (the review's F1, F2): chosen members of one scope read in ONE transaction. `select` sees the scope's metadata
+   * (binary members null) inside that transaction and names the paths to read -- so a caller resolves what it wants (a
+   * pack by its reference) against the very state it reads, never by an index taken in an earlier transaction. Each path
+   * is hydrated as `readAt` hydrates it; null when the scope is absent.
+   */
+  readSelected<T>(kind: PackStoreKind, select: (data: unknown) => readonly (readonly (string | number)[])[],
+    signal?: AbortSignal): Promise<{ generation: number; values: (T | undefined)[] } | null>;
   /** Bounded snapshot byte records. An identity writer must still CAS the observed scope generation after validation. */
   streamAt(kind: PackStoreKind, path: readonly (string | number)[],
     options?: { expectedGeneration?: number; signal?: AbortSignal }): AsyncIterable<Uint8Array>;
@@ -466,6 +481,31 @@ export function idbPackDatabase(factory: () => IDBFactory | null | undefined,
             const binary = record.binary.filter(member => path.every((key, index) => key === member.path[index]))
               .map(member => ({ ...member, path: member.path.slice(path.length) }));
             hydrate<T>({ ...record, data, binary }, tx, result, fail);
+          } catch (e) { fail(e); }
+        };
+      });
+    },
+    readSelected<T>(kind: PackStoreKind, select: (data: unknown) => readonly (readonly (string | number)[])[], signal?: AbortSignal) {
+      return transaction<{ generation: number; values: (T | undefined)[] } | null>('readonly', [PACKS_SCOPES, PACKS_BYTES], signal, (tx, result, fail) => {
+        const get = tx.objectStore(PACKS_SCOPES).get(kind);
+        get.onsuccess = () => {
+          try {
+            const record = get.result as StoredScope | undefined;
+            if (!record) { result(null); return; }
+            const paths = select(record.data);   // the transaction's own copy: never stored back
+            const values: (T | undefined)[] = new Array(paths.length);
+            let left = paths.length;
+            if (!left) { result({ generation: record.generation, values }); return; }
+            paths.forEach((path, i) => {
+              let data = record.data;
+              for (const key of path) data = data == null ? undefined : (data as Record<string | number, unknown>)[key];
+              const binary = record.binary.filter(member => path.every((key, index) => key === member.path[index]))
+                .map(member => ({ ...member, path: member.path.slice(path.length) }));
+              hydrate<T>({ ...record, data, binary }, tx, (scope) => {
+                values[i] = scope.data;
+                if (!--left) result({ generation: record.generation, values });
+              }, fail);
+            });
           } catch (e) { fail(e); }
         };
       });

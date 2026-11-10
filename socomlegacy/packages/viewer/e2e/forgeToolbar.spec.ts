@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyLayout } from '../src/forge/layout';
+import { expectBase } from './forgeBase';
 
 /**
  * LATER 226 (the merge controller's product-track call, 2026-10-21): the forge's toolbar is one row about 1112-1271 px
@@ -55,27 +56,26 @@ for (const size of [{ width: 390, height: 844 }, { width: 760, height: 900 }]) {
       await expect(page.locator('.fx-left')).toBeVisible();
     });
 
-    // The review's F2 (the merge controller's word: folded into LATER 226): a base changed opens the inline ask right of
-    // the select, past a phone's edge; it is brought into view as it opens, Apply and Cancel on the screen untouched.
-    test('a base changed: the ask\'s Apply and Cancel are on the screen without a drag', async ({ page }) => {
+    // The review's F2 (the merge controller's word: folded into LATER 226): a base change asked on a phone has its
+    // buttons on the screen untouched. OT.R112: the contributor's toolbar has no base list and no inline ask -- New asks
+    // for the base on a card (`./forgeBase`); its Next and Cancel are what must be on the screen.
+    test('a base changed: New\'s card has its Next and Cancel on the screen without a drag', async ({ page }) => {
       test.skip(size.width !== 390, 'one phone width is enough');
       test.skip(!HAVE_MAPS, 'needs socomlegacy/public/maps/index.json and RUN/MP2.ZDB, the served maps as bases (not committed)');
       await page.goto('/forge?devmode');                                    // the served maps as bases (`./forgePlayFromHere.spec.ts`)
-      await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
-      const sel = page.locator('header.fx-top select[title^="The base"]');
-      await expect.poll(async () => sel.locator('option').count(), { timeout: 120_000 }).toBeGreaterThan(1);
-      const other = await sel.evaluate((s: HTMLSelectElement) => [...s.options].find((o) => o.value !== s.value)!.value);
-      await sel.selectOption(other);
-      const apply = page.locator('.fx-base-ask button', { hasText: 'Apply' });
-      const cancel = page.locator('.fx-base-ask button', { hasText: 'Cancel' });
-      await expect(apply).toBeVisible();
-      for (const b of [apply, cancel]) {
+      await expectBase(page);
+      await page.locator('header.fx-top button[title^="Start a new layout"]').click();
+      const card = page.locator('.fx-modal .fx-card').filter({ has: page.locator('select[aria-label="New layout"]') });
+      await expect(card).toBeVisible({ timeout: 30_000 });
+      const next = card.getByRole('button', { name: 'Next' });
+      const cancel = card.getByRole('button', { name: 'Cancel' });
+      for (const b of [next, cancel]) {
         const r = (await b.boundingBox())!;
         expect(r.x, 'its left on the screen').toBeGreaterThanOrEqual(-0.5);
         expect(r.x + r.width, 'its right on the screen').toBeLessThanOrEqual(size.width + 0.5);
       }
       await cancel.tap();
-      await expect(page.locator('.fx-base-ask')).toBeHidden();
+      await expect(card).toBeHidden();
     });
   });
 }
@@ -89,8 +89,13 @@ test.describe('a 1024 px window', () => {
     await page.locator('button.fx-play').scrollIntoViewIfNeeded();
     const top = (await page.locator('header.fx-top').boundingBox())!;
     expect(top.height, 'the row\'s height').toBeCloseTo(46, 0);
+    // OT.R112: the docks start under the toolbar's 46 px and the placing tools' 40 px row under it
+    // (`../src/forge/forge.css`: `--fx-top: 86px`, `--fx-top-bar: 46px`, `.fx-tools-row` height 40px).
+    const tools = (await page.locator('nav.fx-tools-row').boundingBox())!;
+    expect(tools.y, 'the tools row\'s top').toBeCloseTo(46, 0);
+    expect(tools.height, 'the tools row\'s height').toBeCloseTo(40, 0);
     const left = (await page.locator('.fx-left').boundingBox())!;
-    expect(left.y, 'the docks\' top').toBeCloseTo(46, 0);
+    expect(left.y, 'the docks\' top').toBeCloseTo(86, 0);
   });
 });
 

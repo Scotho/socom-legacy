@@ -1,3 +1,4 @@
+import { mapLabel } from '@s2u/archive/mapNames';
 import { esc, ico } from '../icons';
 import { screenHead } from './head';
 import { lxRowWith, stepRowHtml } from './profile';
@@ -74,11 +75,11 @@ export function loadoutsHtml(s: ConsoleState, a: Adapters): string {
     const rows = v.rows;
     items = rows.map((r, i) => {
       const off = r.state === 'unoffered';
-      return lxRowWith({ kind: 'list', id: `lo-${r.mission}`, label: r.name, hint: off ? `${r.mission} · ${LOADOUT_UNOFFERED_WORDS}` : r.mission, value: CHIP[r.state][0] },
+      return lxRowWith({ kind: 'list', id: `lo-${r.mission}`, label: mapLabel(r.name), hint: off ? LOADOUT_UNOFFERED_WORDS : '', value: CHIP[r.state][0] },   // MN-1 F1: named; the stem only in data-mission
         { focused: i === s.lo.row, index: i, act: 'lorow' }, { attrs: `data-mission="${esc(r.mission)}" data-state="${r.state}"`, ...(off ? { muted: true, icon: 'lock' as const } : {}), ...(CHIP[r.state][1] ? { tone: 'good' as const } : {}) });
     }).join('') + (v.empty ? emptyItem(v.empty) : '');
     const r = rows[s.lo.row];
-    if (r) about = aside('About this mission', r.name, ABOUT[r.state], 'Your loadouts are kept on the server, for each mission and side.');
+    if (r) about = aside('About this mission', mapLabel(r.name), ABOUT[r.state], 'Your loadouts are kept on the server, for each mission and side.');
   }
   return `<section class="cx-screen" aria-label="${esc(title)}" data-key="loadouts-${s.lo.side}">
     ${head('Armory', title, '', 'Loadouts', LIST_DESC)}

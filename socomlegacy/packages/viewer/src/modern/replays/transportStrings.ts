@@ -24,3 +24,24 @@ export const HELD_STATUS = "Loading the match's world";
  * the video players' convention; the game has no replay to take it from. A browser adaptation.
  */
 export const MU_REPLAY_JUMP_SECONDS_ADAPTATION = 10;
+
+/**
+ * RB-33 (the replay batch plan; the owner's "S2 Launcher v2" export, `D:1056`): the round text beside the time -- "ROUND n
+ * OF N" (`count` the match's, `roundsOf`; "ROUND n" without one) and, at the recording's last tick, `END_OF_RECORDING`.
+ * Here, dependency-free, so the e2e specs read the same words. A browser adaptation's words.
+ */
+export const END_OF_RECORDING = 'END OF RECORDING';
+export function roundText(round: number, count: number | null): string {
+  return count === null ? `ROUND ${round}` : `ROUND ${round} OF ${count}`;
+}
+
+/**
+ * RB-34 (the replay batch plan; the owner's "S2 Launcher v2" export, its seek note `D:841-842`): in the viewer the seek
+ * note is a toast over the world (`./hud`) for `SEEK_TOAST_MS` (the export's 3200 ms timer), in the export's words with
+ * the recording's time it landed on (`clock`, `m:ss` as the transport's time says it). The bar alone (no viewer HUD)
+ * keeps `SEEK_NOTE`. Here, dependency-free, so the e2e specs read the same words. A browser adaptation's words.
+ */
+export const SEEK_TOAST_MS = 3200;
+export function seekToastText(clock: string): string {
+  return `Jumped to ${clock} — sounds, messages and effects in between weren’t played.`;
+}

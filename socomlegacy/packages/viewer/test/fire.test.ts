@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { Mesh, Vector3 } from 'three';
 import { FsAssetSource } from '@s2u/archive/node';
 import {
-  buildGrid, DEFAULT_RIFLE, GAME_FRAME_DT, M60E3_FIRE_WAIT_READING, M67, materialTable, readKitTable, soilsTable, UNITS_PER_METRE, type CollisionOwner, type Grid, type GridParams,
+  buildGrid, DEFAULT_RIFLE, GAME_FRAME_DT, ITEM, M60E3_FIRE_WAIT_READING, M67, materialTable, readKitTable, soilsTable, UNITS_PER_METRE, type CollisionOwner, type Grid, type GridParams,
   type KitRound, type Loadout, type SurfaceMaterial, type WeaponRecord, type WorldPoly,
 } from '@s2u/scene';
-import { parseRdr, Zar } from '@s2u/archive';
+import { parseRdr, rdrGet, Zar, type RdrNode } from '@s2u/archive';
 import { MagazineRing } from '../src/magazines';
-import { KitRounds, reloadDelayOf } from '../src/firearms';
+import { KitRounds, RELOAD_DELAY_DEFAULT, reloadDelayOf } from '../src/firearms';
 import { kitRecords } from '../src/loadout';
 import { TICK_HZ } from '../src/net/protocol';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
@@ -19,7 +19,7 @@ import { loadMap } from '../src/loadMap';
 import { readFileSync } from 'node:fs';
 import {
   AIM_REACH_FLOOR, aimHitKept, aimQueryAdmits, aimReach, ammoText, cameraAimCap, DECAL_OFFSET, DRY_CLICK_FRAME_READING, Fire, MAX_DECALS, PIP_TOLERANCE,
-  RELOAD_DELAY, type FireAim, type FireEvent, type FireGun, type FireSource,
+  RELOAD_DELAY, RELOAD_LAUNCHER_UP_READING, type FireAim, type FireEvent, type FireGun, type FireSource,
 } from '../src/fire';
 import { RELOAD_SECONDS_PLACEHOLDER, reloadLockSeconds } from '../src/reloadClip';
 import { packGround, WalkMode } from '../src/walk';
@@ -408,6 +408,51 @@ describe('the reload gates and the fresh kit of a spawn (research 84 §18, resea
     taken = false;
     expect(fire.reload()).toBe(true);
     expect(asked).toBe(2);
+  });
+
+  it("GRENADE-RELOAD (RELOAD_ITEM_UP_READING; research 361 s5): R with a throwable, a charge or the Detonator up works on the hand's slot (FUN_00594cf0 D:L453459-453463 -> FUN_005c32b0 -> FUN_005c3780), whose one magazine gives FUN_005c2a90's walk nothing -- no press, no reloadStart, the firearm's magazine unchanged, by the call and by the key; put away, R is the firearm's again", () => {
+    const grid = world([wallAt(-30)]);
+    let up = true;
+    const eye: V3 = [0, 20, 0];
+    const fire = new Fire({ grid: () => grid, aim: () => ({ eye, far: [0, 20, -1000] }), itemUp: () => up }, DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.takeWeapon(DEFAULT_RIFLE, [10, DEFAULT_RIFLE.magazine, DEFAULT_RIFLE.magazine]);
+    const before = fire.state().magazine;
+    const events: FireEvent[] = [];
+    fire.subscribe((e) => { events.push(e); });
+    expect(fire.reload()).toBe(false);
+    const target = new EventTarget();
+    fire.bindKey(target);
+    target.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyR' }));
+    fire.update(RELOAD_DELAY + RELOAD_SECONDS_PLACEHOLDER);
+    expect(fire.state().magazine).toEqual(before);
+    expect(events.filter((e) => e.type === 'reloadPress' || e.type === 'reloadStart')).toEqual([]);
+    up = false;
+    expect(fire.reload()).toBe(true);
+    expect(events.filter((e) => e.type === 'reloadPress')).toHaveLength(1);
+    fire.unbindKey();
+  });
+
+  it("GRENADE-RELOAD fold (RELOAD_LAUNCHER_UP_READING; research 361 s5): R with the LAW or the RPG-7 up works on the round's slot (FUN_005c2a90 D:L477413-477444 via FUN_005bd7e0 D:L474371-474397), one magazine, so nothing -- no press, no reloadStart, the firearm's magazine unchanged, by the call and by the key; put away, R is the firearm's again", () => {
+    expect(RELOAD_LAUNCHER_UP_READING).toBe('nothing moves');
+    const grid = world([wallAt(-30)]);
+    let up = true;
+    const eye: V3 = [0, 20, 0];
+    const fire = new Fire({ grid: () => grid, aim: () => ({ eye, far: [0, 20, -1000] }), launcherUp: () => up }, DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.takeWeapon(DEFAULT_RIFLE, [10, DEFAULT_RIFLE.magazine, DEFAULT_RIFLE.magazine]);
+    const before = fire.state().magazine;
+    const events: FireEvent[] = [];
+    fire.subscribe((e) => { events.push(e); });
+    expect(fire.reload()).toBe(false);
+    const target = new EventTarget();
+    fire.bindKey(target);
+    target.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyR' }));
+    fire.update(RELOAD_DELAY + RELOAD_SECONDS_PLACEHOLDER);
+    expect(fire.state().magazine).toEqual(before);
+    expect(events.filter((e) => e.type === 'reloadPress' || e.type === 'reloadStart')).toEqual([]);
+    up = false;
+    expect(fire.reload()).toBe(true);
+    expect(events.filter((e) => e.type === 'reloadPress')).toHaveLength(1);
+    fire.unbindKey();
   });
 
   it('a full magazine reloads when another slot holds rounds; a one-magazine kit does not (FUN_005c2a90 477462-477483)', () => {
@@ -2803,5 +2848,156 @@ describe('LATER 530 (R2): the clip under way at a refused take kept and handed b
     (fire as unknown as Untake).mountUntake();
     expect(fire.state().magazine.reloading).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: 'reloadResume', kind: 'reload' });
+  });
+});
+
+// TRIGGER-SWAP (Craig's report, 2026-11-09: a grenade put away with R1 held, the primary would not fire until R1 was let go
+// and pressed again). The kit's pull count `kit+0x818` is the kit's, not the weapon's: the slot change (`FUN_005c4b10`
+// D:L478779-478936) leaves it, and only a frame whose trigger reads 0 or 3 zeroes it (`FUN_005c0ae0` D:L476380-476382,
+// D:L476399-476400). A trigger held into the firearm from another item comes with the count that item raised in the hold
+// (a hand throw's end under it, `FUN_005c1970` D:L477023-477025; a launch, `FUN_005be9a0` D:L475514-475516), and the round
+// is refused at the count's limit (`FUN_005c0ae0` D:L476439-476441: `FUN_005c0940`'s 1, 3 or 10000).
+describe('TRIGGER-SWAP: a trigger held into the firearm from another item carries the kit pull count (kit +0x818)', () => {
+  const armed = (perPull: number): Fire => {
+    const { fire } = rig(world([wallAt(-30)]), [0, 0, -1], { ...DEFAULT_RIFLE, magazine: 100 });
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => perPull, interval: (w) => w, round: (d) => d });
+    return fire;
+  };
+  it('count 0: the round at once, as a press; count 1: single refused until the release, burst two more, automatic runs on', () => {
+    expect(armed(1).pull(0)).not.toBeNull();
+    const single = armed(1);
+    expect(single.pull(1)).toBeNull();
+    for (let i = 0; i < 20; i++) single.update(DEFAULT_RIFLE.fireWait);
+    expect(single.state().shots).toBe(0);
+    single.release();
+    single.update(1);
+    expect(single.pull()).not.toBeNull();                 // the next press's own round
+    const burst = armed(3);
+    expect(burst.pull(1)).not.toBeNull();
+    for (let i = 0; i < 20; i++) burst.update(DEFAULT_RIFLE.fireWait);
+    expect(burst.state().shots).toBe(2);
+    const auto = armed(Infinity);
+    expect(auto.pull(1)).not.toBeNull();
+    for (let i = 0; i < 9; i++) auto.update(pastRate(DEFAULT_RIFLE.fireWait));
+    expect(auto.state().shots).toBe(10);
+  });
+  it('an empty single held in with count 1 asks no click and no reload (FUN_005c0fd0 D:L476591, D:L476616: the count under the limit); count 0 clicks', () => {
+    const dry = (count: number): string[] => {
+      const fire = armed(1);
+      while (fire.state().magazine.rounds > 0) { fire.release(); fire.update(1); fire.pull(); }
+      fire.release(); fire.update(5);
+      const seen: string[] = [];
+      fire.subscribe((e) => { seen.push(e.type); });
+      fire.pull(count);
+      return seen;
+    };
+    expect(dry(1)).not.toContain('dry');
+    expect(dry(0)).toContain('dry');
+  });
+});
+
+// TRIGGER-SWAP fold (research 211 §10): the slot change keeps the kit's pull count +0x818 and its rate timer +0x81c --
+// `FUN_005c4b10` (D:L478779-478936) zeroes +0x810 (D:L478836-478839, D:L478926-478929) and the throw's power +0x11c
+// (`FUN_00592d40`, D:L478915), neither of those; `FUN_005c0ae0` refuses at the count's limit (D:L476439-476441) and while
+// +0x81c is above 0 (D:L476446-476448). A rocket sets the same +0x81c (`FUN_005be9a0` D:L475514-475517).
+describe('TRIGGER-SWAP fold: the kit pull count and rate timer kept through a firearm swap; another item\'s timer carried', () => {
+  const PISTOL = { ...DEFAULT_RIFLE, name: 'TEST PISTOL', magazine: 100 };
+  const armed = (perPull: number): Fire => {
+    const { fire } = rig(world([wallAt(-30)]), [0, 0, -1], { ...DEFAULT_RIFLE, magazine: 100 });
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => perPull, interval: (w) => w, round: (d) => d });
+    return fire;
+  };
+  it('a single fired, held through setWeapon: the count stays at its limit -- nothing until the release', () => {
+    const fire = armed(1);
+    expect(fire.pull()).not.toBeNull();
+    fire.setWeapon(PISTOL);
+    expect(fire.triggerHeld()).toBe(true);
+    for (let i = 0; i < 20; i++) fire.update(1);
+    expect(fire.state().shots).toBe(1);
+    fire.release();
+    expect(fire.pull()).not.toBeNull();
+  });
+  it('an automatic fired, held through setWeapon: the rate timer runs on, the next round no sooner than it allows', () => {
+    const fire = armed(Infinity);
+    expect(fire.pull()).not.toBeNull();
+    fire.setWeapon(PISTOL);
+    fire.update(GAME_FRAME_DT + 1e-6);
+    expect(fire.state().shots).toBe(1);                   // was: the wait zeroed, a round at once
+    for (let i = 0; i < 10; i++) fire.update(pastRate(PISTOL.fireWait));
+    expect(fire.state().shots).toBeGreaterThan(1);
+  });
+  // The fold's review F2: a weapon taken from the ground into the hand's slot (`FUN_0059f0c0`'s same-family branch,
+  // D:L458278-458282, installing through `FUN_005bc410` D:L473809-473875 with no slot change) zeroes +0x810
+  // (D:L473865-473868) and the throw's power (`FUN_00592d40`, D:L473854), never +0x818 or +0x81c: the count and the timer
+  // stay, whether the weapon taken is the one in the hand or another (was: zeroed on a same-name pickup).
+  it.each([
+    ['the same weapon', DEFAULT_RIFLE.name],
+    ['another weapon', 'TEST PICKUP'],
+  ] as const)('a single fired, held through takeWeapon of %s: the count stays at its limit -- nothing until the release', (_what, name) => {
+    const fire = armed(1);
+    expect(fire.pull()).not.toBeNull();
+    fire.takeWeapon({ ...DEFAULT_RIFLE, name, magazine: 100 }, [100, 100]);
+    expect(fire.triggerHeld()).toBe(true);
+    for (let i = 0; i < 20; i++) fire.update(1);
+    expect(fire.state().shots).toBe(1);
+    fire.release();
+    expect(fire.pull()).not.toBeNull();
+  });
+  it.each([
+    ['the same weapon', DEFAULT_RIFLE.name],
+    ['another weapon', 'TEST PICKUP'],
+  ] as const)('an automatic fired, held through takeWeapon of %s: the rate timer runs on', (_what, name) => {
+    const fire = armed(Infinity);
+    expect(fire.pull()).not.toBeNull();
+    fire.takeWeapon({ ...DEFAULT_RIFLE, name, magazine: 100 }, [100, 100]);
+    fire.update(GAME_FRAME_DT + 1e-6);
+    expect(fire.state().shots).toBe(1);                   // was (the same weapon): the wait zeroed, a round at once
+    for (let i = 0; i < 10; i++) fire.update(pastRate(DEFAULT_RIFLE.fireWait));
+    expect(fire.state().shots).toBeGreaterThan(1);
+  });
+  it('holdWait: another item\'s timer (a rocket\'s FireWait) holds the first round; the longer stands', () => {
+    const fire = armed(1);
+    fire.holdWait(1);
+    fire.holdWait(0.5);
+    expect(fire.pull()).toBeNull();
+    for (let i = 0; i < Math.ceil(0.9 / GAME_FRAME_DT); i++) fire.update(GAME_FRAME_DT);
+    expect(fire.state().shots).toBe(0);
+    for (let i = 0; i < Math.ceil(0.2 / GAME_FRAME_DT); i++) fire.update(GAME_FRAME_DT);
+    expect(fire.state().shots).toBe(1);                   // held, it goes once the timer reads 0
+  });
+});
+
+const zweaponItemReload = fixture('RUN/ZWEAPON.ZAR');
+describe.skipIf(zweaponItemReload === null)(`GRENADE-RELOAD fold: what R reads off the hand's record and slot, through the reader (research 361 s5)${zweaponItemReload ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  const table = zweaponItemReload ? readKitTable(zweaponItemReload) : null;
+  const zar = zweaponItemReload ? Zar.parse(zweaponItemReload) : null;
+  const raw = zar ? parseRdr(zar.data(zar.root.children.find((k) => k.name.toLowerCase() === 'zweapon.rdr')!)) : null;
+  const rawRecords = raw ? (rdrGet(raw, 'ZWEAPON') as RdrNode[]).filter((r): r is RdrNode[] => Array.isArray(r)) : [];
+  const rawOf = (name: string): RdrNode[] | undefined => rawRecords.find((r) => { const n = rdrGet(r, 'InternalName'); return (Array.isArray(n) ? n[0] : n) === name; });
+
+  it("ITEM_RELOAD_TIMER_READING: every throwable, charge and the Detonator carry no ReloadDelay key, so the parser's default 0.01 s (FUN_003cda30, firearms.ts RELOAD_DELAY_DEFAULT) -- R's timer on kit+0x820 skips one FUN_005c1970 frame", () => {
+    const items = [...table!.arsenal.items.values()];
+    const throwables = [...table!.throwables!.keys()];
+    expect(throwables.length).toBeGreaterThanOrEqual(7);
+    const held = [...throwables, ITEM.DETONATOR];
+    for (const id of held) {
+      const item = table!.arsenal.items.get(id)!;
+      expect(item, String(id)).toBeDefined();
+      expect(item.reloadDelay, item.name).toBe(RELOAD_DELAY_DEFAULT);
+      expect(rdrGet(rawOf(item.name)!, 'ReloadDelay'), item.name).toBeUndefined();
+    }
+    // The records that do carry the key are the firearms and rounds the walk can find, none of the above.
+    const keyed = rawRecords.filter((r) => rdrGet(r, 'ReloadDelay') !== undefined).map((r) => { const n = rdrGet(r, 'InternalName'); return Array.isArray(n) ? n[0] : n; });
+    expect(keyed.some((n) => held.some((id) => table!.arsenal.items.get(id)!.name === n))).toBe(false);
+    expect(items.length).toBe(rawRecords.length);
+  });
+
+  it("RELOAD_LAUNCHER_UP_READING: the rounds the redirect reaches carry one magazine (the walk finds nothing) and a ReloadDelay of 1 s; the RPG-7's own NumMags 2 is its launcher slot's, never reached; the Detonator carries no magazine (NumMags 0), class 0xbe", () => {
+    const at = (id: number) => table!.arsenal.items.get(id)!;
+    expect([at(ITEM.LAW_HEAT).mags, at(ITEM.RPG_ROUND).mags]).toEqual([1, 1]);
+    expect([at(ITEM.LAW_HEAT).reloadDelay, at(ITEM.RPG_ROUND).reloadDelay]).toEqual([1, 1]);
+    expect([at(ITEM.LAW).mags, at(ITEM.RPG7).mags]).toEqual([1, 2]);
+    expect([at(ITEM.LAW).cls, at(ITEM.RPG7).cls, at(ITEM.LAW_HEAT).cls, at(ITEM.RPG_ROUND).cls]).toEqual(['rocketLauncher', 'rocketLauncher', 'rocketRound', 'rocketRound']);
+    expect(at(ITEM.DETONATOR)).toMatchObject({ name: 'Detonator', mags: 0, magazine: 0, cls: 'gear' });
   });
 });

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildGrid, polygonNormal, probeGround, SEAL_TUNING, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
-import { groundGrid, groundPolygons, STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
+import { groundGrid, groundPolygons, probeLiftOf, Walker } from '../src/mover';
 import { simMapFromBytes } from '../src/simMap';
 import { Traversal } from '../src/traversal';
 
@@ -47,7 +47,7 @@ describe('LATER 590: the segments hold a body off a tall steep face (synthetic: 
     for (const [stance, yaw] of [['stand', 270], ['stand', 300], ['stand', 330], ['stand', 346.3], ['crouch', 330], ['prone', 270], ['prone', 330]] as const) {
       it(`n_y ${NY}, ${stance} at yaw ${yaw}: 3 s at full stick, the body stays on the flat, held by the segments`, () => {
         const w = new Walker(buildGrid(params, [], [], polys, owners));
-        w.place(0, STEP_PROBE_LIFT_READING, 0);
+        w.place(0, probeLiftOf('stand'), 0);
         w.stance = stance; w.state.yaw = yaw;
         let top = 0, hitTicks = 0, maxX = 0;
         for (let i = 0; i < 180; i++) {
@@ -73,7 +73,7 @@ type Disc = ReturnType<typeof disc>;
 function walkFrom(d: Disc, at: readonly [number, number, number], stance: 'stand' | 'crouch' | 'prone', yaw: number, push = 1, ticks = 120) {
   const w = new Walker(d.grid);
   w.driver = new Traversal(d.grid, d.polys);
-  w.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+  w.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
   w.stance = stance; w.state.yaw = yaw;
   const y0 = w.state.y, x0 = w.state.x, z0 = w.state.z;
   let top = y0;
@@ -102,7 +102,7 @@ describe.skipIf(!DISC)('LATER 590: no steep-rise refusal on the disc', () => {
       const w = new Walker(d.grid);
       w.driver = new Traversal(d.grid, d.polys);
       const g = Math.max(...probeGround(d.grid, x, z).filter((h) => h.poly.path === 'worldmodel/land_04').map((h) => h.y));
-      w.place(x, g + STEP_PROBE_LIFT_READING, z);
+      w.place(x, g + probeLiftOf('stand'), z);
       w.state.yaw = (Math.atan2(-(C[0] - x), -(C[1] - z)) * 180) / Math.PI;
       for (let i = 0; i < 90; i++) w.tick(go(1));
       const end = [w.state.x, w.state.y, w.state.z] as const;

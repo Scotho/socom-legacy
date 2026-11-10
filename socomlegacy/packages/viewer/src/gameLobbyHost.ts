@@ -999,6 +999,7 @@ export class GameSocketHost implements GameSocketPort {
     // OBF-3: the welcome kept is this lobby's socket's; a drop in the match seated the page's new socket, perhaps afresh
     // under another id -- the next match names this seat by the client's own (`adoptedWelcome`).
     this.welcome = adoptedWelcome(this.welcome, client);
+    this.welcome = returnedWelcome(this.welcome);                // HOTFIX spin-spectate: as the returned room would welcome it
     this.roundStarted = null;                                     // the match's rounds are over: none handed on with the next launch
     this.roundEnded = null; this.scored = null;
     this.ownSpawn = null;                                         // LATE-SPAWN-HANDOFF: nor the spawn of a round the match played
@@ -1130,6 +1131,25 @@ export function adoptedWelcome(
   const { char: _type, ...moved } = welcome;
   const kept = !sameSeat ? rest : welcome.team === seat.team ? welcome : moved;
   return { ...kept, id: seat.id, name, players, role: 'player', team: seat.team, queue: 0 };
+}
+
+/**
+ * HOTFIX spin-spectate (game 3783, 2026-11-07; a browser adaptation of the transport, ONL-18's way back, changing nothing
+ * the room does): the welcome the lobby keeps, as the room would welcome the seat after the match's return. A seat
+ * welcomed while a classic round was in play is a ghost (`room.ts` welcome: `ghost` = `seatsGhosts()`, `phase` the
+ * room's); kept unchanged across the match's end, the next launch handed that welcome on and the next match's page
+ * replayed it -- the walk dead and the death camera's orbit (`NetPage.seatGhost`) over a seat the room had spawned alive
+ * in round 1. The room back in its lobby (`room.ts` `returnToLobby`: `state` 'waiting', `lastResult` null, the late
+ * state cleared) welcomes no ghost (`seatsGhosts()` false while waiting), sends no `startTick` or `decided` (both only
+ * outside 'waiting') and stands no result; so: `ghost` false, `phase` 'waiting', the round's tick, its decision and the
+ * old match's join envelope (its corpses, projectiles, ghosts and result -- `applyJoinState`'s replay) dropped. The
+ * round is `roundWelcome`'s (1 after the return, `GameSocketHost.roundNow`). A welcome heard after the return (a fresh
+ * hello, a promotion) replaces this one, so a true late joiner of the next match is welcomed as the room says.
+ */
+export function returnedWelcome(welcome: GameLobbyHandOff['welcome']): GameLobbyHandOff['welcome'] {
+  if (!welcome) return welcome;
+  const { join: _join, startTick: _tick, decided: _decided, ...rest } = welcome;
+  return { ...rest, ghost: false, phase: 'waiting' };
 }
 
 /** The seats of the bridge's last `gameLobby` view (each one's room id, name and side; null a watcher's), or none yet. */

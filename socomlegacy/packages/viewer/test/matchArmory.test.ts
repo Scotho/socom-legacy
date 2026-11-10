@@ -213,7 +213,7 @@ const walk = {
 const remote = { setTeam: () => undefined, setType: () => undefined, setKit: () => undefined, forget: () => undefined, died: () => undefined, clear: () => undefined, frame: () => undefined, bodies: () => [] } as unknown as RemotePlayers;
 /** Every part's deps a page's switch owes but the ARMORY's (stubs). */
 const OTHER_PARTS = {
-  remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {},
+  remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {}, sceneRound: () => {},
   voiceFloor: () => {}, voiceFrame: () => {},
   reloadSound: () => {}, deathVoice: () => {}, hurtVoice: () => {}, ring: () => {}, roundAudio: { roundStart: () => {}, eliminated: () => {}, timeExpired: () => {}, roundOver: () => {}, reset: () => {}, frame: () => {} } as never, objective: () => null, escorteeVoice: () => {},
   taunt: () => {}, communication: () => {}, hostageState: () => {},

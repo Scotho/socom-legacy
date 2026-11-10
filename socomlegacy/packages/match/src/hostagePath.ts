@@ -136,6 +136,34 @@ class OpenHeap {
   }
 }
 
+/**
+ * FUN_0052dc70 D:L397225-397428: stored-cell location, not a traversability query -- the cell a body's `+0xe4` takes and,
+ * when traversable, `+0xe8` (`FUN_005b7ba0` D:L471278-471318). Its x / z are the located sub-map's own indices ((x - the
+ * sub-map's min) x its scale, D:L397251-397252) with the sub-map in bits 0-5 (D:L397264). The first map's bit 21 enables stacked-map
+ * height selection. No preferred-map tie override in the original. Pure: the planner's `locate` and the hostage order's
+ * cell (viewer `net/hostageOrder` `orderCellOf`) both take it.
+ */
+export function locateAiCell(ai: AiMaps, feet: readonly [number, number, number]): AiLoc | null {
+  let best: AiLoc | null = null, delta = 0, walkable = false, stacked = false;
+  for (const sub of ai.maps) {
+    const loc = aiCellOf(sub, feet[0], feet[2]);
+    if (!loc) continue;
+    const index = aiCellIndex(sub, loc.x, loc.z), w = index < 0 ? null : sub.cells[index] ?? null;
+    if (w === null) continue;
+    if (sub.index === 0) stacked = (w & HOSTAGE_LOCATION_READING.layeredBit) !== 0;
+    const soil = w & 31;
+    if (stacked && soil === 10) continue;
+    const d = feet[1] - aiCellY(sub, w), valid = ![0, 8, 9, 10].includes(soil);
+    if (best === null) {
+      best = loc; delta = d; walkable = valid;
+      if (!stacked || (valid && Math.abs(d) <= HOSTAGE_LOCATION_READING.tolerance)) return best;
+    } else if (d > HOSTAGE_LOCATION_READING.below && Math.abs(d) <= Math.abs(delta) + (valid && !walkable ? HOSTAGE_LOCATION_READING.tolerance : 0)) {
+      best = loc; delta = d; walkable = valid;
+    }
+  }
+  return best;
+}
+
 export class HostagePathPlanner {
   private readonly graph: LinkGraph;
   private readonly queue: PathRequest[] = [];
@@ -322,28 +350,9 @@ export class HostagePathPlanner {
     const length = Math.hypot(x, z), scale = length > HOSTAGE_AI_COLLISION_READING.cap ? HOSTAGE_AI_COLLISION_READING.cap / length : 1;
     return { feet: [proposed[0] + x * scale, proposed[1], proposed[2] + z * scale], obstacle };
   }
-  /** FUN_0052dc70 D:L397225-397428: stored-cell location, not a traversability query.
-   * First map's bit21 enables stacked-map height selection. No preferred-map tie override in the original.
-   */
+  /** FUN_0052dc70 D:L397225-397428: stored-cell location, not a traversability query (`locateAiCell`). */
   locate(feet: readonly [number, number, number], _preferredMap?: number): AiLoc | null {
-    let best: AiLoc | null = null, delta = 0, walkable = false, stacked = false;
-    for (const sub of this.ai.maps) {
-      const loc = aiCellOf(sub, feet[0], feet[2]);
-      if (!loc) continue;
-      const w = this.word(loc);
-      if (w === null) continue;
-      if (sub.index === 0) stacked = (w & HOSTAGE_LOCATION_READING.layeredBit) !== 0;
-      const soil = w & 31;
-      if (stacked && soil === 10) continue;
-      const d = feet[1] - aiCellY(sub, w), valid = ![0, 8, 9, 10].includes(soil);
-      if (best === null) {
-        best = loc; delta = d; walkable = valid;
-        if (!stacked || (valid && Math.abs(d) <= HOSTAGE_LOCATION_READING.tolerance)) return best;
-      } else if (d > HOSTAGE_LOCATION_READING.below && Math.abs(d) <= Math.abs(delta) + (valid && !walkable ? HOSTAGE_LOCATION_READING.tolerance : 0)) {
-        best = loc; delta = d; walkable = valid;
-      }
-    }
-    return best;
+    return locateAiCell(this.ai, feet);
   }
   private marker(loc: AiLoc): AiMarker | undefined {
     return this.ai.maps[loc.map]?.markers.find((v) => same(v.loc, loc));

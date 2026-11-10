@@ -159,7 +159,7 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
   it('the throwables\' NetPage hooks: every one PART_DEPS lists, each onto the grenade page', () => {
     const { t } = rig();
     const d = t.netDeps();
-    expect(Object.keys(d).sort()).toEqual([...PART_DEPS.throwables].sort());
+    expect(Object.keys(d).sort()).toEqual([...PART_DEPS.throwables, 'roundEndEffects'].sort());   // ROUND_END_EFFECTS_READING: optional, handed with them
     const giveBack = vi.spyOn(t.grenade, 'giveBack'), launch = vi.spyOn(t.grenade, 'launchRemote');
     d.staleThrow?.('M67');
     expect(giveBack).toHaveBeenCalledWith('M67');                                          // LOW-2: the item back
@@ -336,6 +336,28 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
     expect(air).toHaveBeenCalled();
     expect(scorches).toHaveBeenCalled();
     expect(wash).toHaveBeenCalled();
+  });
+
+  it('ROUND_END_EFFECTS_READING (research 283 §9): roundStart stops the effects playing -- the smokes pouring and every particle in the air', () => {
+    const { t, deps } = rig();
+    let cleared = 0;
+    (deps.firearm() as unknown as { effects: unknown }).effects = { clearRound: () => { cleared++; } };
+    const smokes = vi.spyOn(t.grenade, 'clearRoundEffects');
+    t.roundStart();
+    expect(smokes).toHaveBeenCalled();
+    expect(cleared).toBe(1);
+  });
+
+  it("ROUND_END_EFFECTS_READING (the fold): netDeps().roundEndEffects stops the effects at the engine's read -- not the air, not the scorches", () => {
+    const { t, deps } = rig();
+    let cleared = 0;
+    (deps.firearm() as unknown as { effects: unknown }).effects = { clearRound: () => { cleared++; } };
+    const smokes = vi.spyOn(t.grenade, 'clearRoundEffects'), air = vi.spyOn(t.grenade, 'clearAir'), scorches = vi.spyOn(t.grenade, 'clearScorches');
+    t.netDeps().roundEndEffects();
+    expect(smokes).toHaveBeenCalled();
+    expect(cleared).toBe(1);
+    expect(air).not.toHaveBeenCalled();
+    expect(scorches).not.toHaveBeenCalled();
   });
 
   it('warm: the throw\'s arc and the scorches handed to the page\'s prepare (research 90 #23)', async () => {
@@ -1615,5 +1637,96 @@ describe("LATER 192: the launcher's rocket waits for the raise (FUN_005c0ae0 D:L
     for (let i = 0; i < 330; i++) r.frame(1 / 60);                                        // 5.5 s dead, the trigger held
     expect(r.raise.stats().state).toBe('down');                                           // was: 'up'
     expect(r.pulls).toEqual([6]);                                                      // LATER 185: was [5], the page's step
+  });
+});
+
+// TRIGGER-SWAP (Craig's report, 2026-11-09): what the hands hand the firearm with a trigger they took and still held -- null
+// while they own it (an item up, the launcher up or still coming down), else the kit pull count `kit+0x818` their item
+// raised in the hold: 0 under a hand throw, a press while it was pending or after its hand opened (the launch's 1,
+// `FUN_005c1970` D:L477023-477025, zeroed by its own kit frame at the edge 0, `FUN_005c0ae0` D:L476380-476382 -- capture
+// GR-1, research 326 §7.2; was: 1 for a press while pending), 1 when a rocket left (`FUN_005be9a0` D:L475514-475516), else 0;
+// zeroed by a let-go (`FUN_005c0ae0` D:L476380-476382, D:L476399-476400).
+describe('TRIGGER-SWAP: the hands hand a held trigger to the firearm (heldPulls)', () => {
+  it('null while a throwable is up; 0 after a wind-up put away; 0 after a press while pending (GR-1) or after the hand opened', () => {
+    const { t } = rig();
+    let up = true, phase: 'ready' | 'throwing' = 'ready';
+    vi.spyOn(t.grenade, 'equipped').mockImplementation(() => up);
+    vi.spyOn(t.grenade, 'phase').mockImplementation(() => phase as never);
+    vi.spyOn(t.grenade, 'pull').mockImplementation(() => {});
+    vi.spyOn(t.grenade, 'release').mockImplementation(() => {});
+    const hands = t.hands();
+    expect(hands.trigger(true)).toBe(true);
+    expect(hands.heldPulls?.()).toBeNull();
+    up = false;
+    expect(hands.heldPulls?.()).toBe(0);
+    up = true;
+    hands.trigger(false);
+    phase = 'throwing';
+    hands.trigger(true);                                 // pressed again before the hand opened
+    phase = 'ready'; up = false;                         // the last one gone: back to the firearm
+    expect(hands.heldPulls?.()).toBe(0);                 // GR-1 (research 326 §7.2), was: 1
+    hands.trigger(false);
+    expect(hands.heldPulls?.()).toBe(0);
+    up = true; phase = 'throwing';                       // GRENADE-RETHROW fold 2: the hand already open
+    hands.trigger(true);
+    phase = 'ready'; up = false;
+    expect(hands.heldPulls?.()).toBe(0);
+    hands.trigger(false);
+  });
+  it('1 after a rocket left in the hold; null while the launcher is up', () => {
+    const { t } = rig();
+    let up = true;
+    vi.spyOn(t.rocket, 'up').mockImplementation(() => up);
+    const launch = vi.spyOn(t.rocket, 'pull').mockReturnValue({} as never);
+    const hands = t.hands();
+    expect(hands.trigger(true)).toBe(true);
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(hands.heldPulls?.()).toBeNull();
+    up = false;
+    expect(hands.heldPulls?.()).toBe(1);
+    hands.trigger(false);
+  });
+});
+
+// TRIGGER-SWAP fold (research 211 §10): the slot change leaves the trigger and the kit's count (`FUN_005c4b10`
+// D:L478779-478936), so an item taken up over a held firearm trigger suspends it (owed back with its count), never a
+// plain let-go; the turret's rounds come with a dismount; and a rocket's FireWait on the kit's timer +0x81c
+// (`FUN_005be9a0` D:L475514-475517, refused at `FUN_005c0ae0` D:L476446-476448) is handed to the firearm at the lower.
+describe('TRIGGER-SWAP fold: the hands and the slot changes', () => {
+  it('a throwable or the launcher up suspends the firearm\'s held trigger (`MatchFirearm.suspendTrigger`)', () => {
+    const { t, deps } = rig();
+    const suspend = vi.fn();
+    (deps.firearm() as unknown as { suspendTrigger: () => void }).suspendTrigger = suspend;
+    (t.grenade as unknown as { emit(k: 'equip', on: boolean, item: string | null): void }).emit('equip', true, 'M67');
+    expect(suspend).toHaveBeenCalledTimes(1);
+    (t.rocket as unknown as { emit(k: 'equip', on: boolean, id: number | null): void }).emit('equip', true, 145);
+    expect(suspend).toHaveBeenCalledTimes(2);
+  });
+  it('heldPulls: the turret\'s count after a dismount (`PageHands.heldPulls`), null while the page owns the trigger', () => {
+    const { t } = rig();
+    let mounted = true;
+    const hands = t.hands({ trigger: () => mounted, mounted: () => mounted, heldPulls: () => (mounted ? null : 3) });
+    expect(hands.trigger(true)).toBe(true);
+    expect(hands.heldPulls?.()).toBeNull();
+    mounted = false;
+    expect(hands.heldPulls?.()).toBe(3);
+  });
+  it('a rocket that left: its FireWait handed to the firearm at the lower (`Fire.holdWait`); a lower with none, nothing', () => {
+    const { t, deps } = rig();
+    const holdWait = vi.fn();
+    (deps.firearm() as unknown as { fire: { holdWait: (s: number) => void } }).fire.holdWait = holdWait;
+    const emit = (on: boolean, id: number | null): void => (t.rocket as unknown as { emit(k: 'equip', on: boolean, id: number | null): void }).emit('equip', on, id);
+    emit(true, 145);
+    emit(false, null);
+    expect(holdWait).not.toHaveBeenCalled();
+    emit(true, 145);
+    vi.spyOn(t.rocket, 'up').mockReturnValue(true);
+    vi.spyOn(t.rocket, 'pull').mockReturnValue({ fireWait: 3 } as never);
+    t.hands().trigger(true);
+    vi.mocked(t.rocket.up).mockReturnValue(false);
+    emit(false, null);
+    expect(holdWait).toHaveBeenCalledTimes(1);
+    expect(holdWait.mock.calls[0]![0]).toBeGreaterThan(2.5);
+    expect(holdWait.mock.calls[0]![0]).toBeLessThanOrEqual(3);
   });
 });

@@ -19,10 +19,10 @@ export const PACK_MANIFEST_FILE = "s2u-pack.json" as const;
  * The engine contract version the browser publishes today (product-track adaptation: the first published contract of
  * the pack framework v2; a manifest's `contract` range is checked against it). Under the repository's caret SemVer
  * (`semver.ts`: `^0.y.z` fixes the minor) an additive seam bumps the patch, so `^0.1.0` packs keep loading, and an
- * incompatible one the minor. 0.1.1 is FCW-30's rules vocabulary (additive; a rules pack states `^0.1.1`). A registry
- * builds its PackContext with it, never with a guessed value.
+ * incompatible one the minor. 0.1.1 is FCW-30's rules vocabulary (a rules pack states `^0.1.1`); 0.1.2 is FP-4's bundle
+ * (`bundle.ts`) and content map v2 (`maps.ts`), both additive. A registry builds its PackContext with it, not a guess.
  */
-export const ENGINE_CONTRACT_VERSION = "0.1.1";
+export const ENGINE_CONTRACT_VERSION = "0.1.2";
 /** The disc revision this build targets (the US disc's product code, DATA_SOURCES.md); a manifest's `target`. */
 export const PACK_TARGET_US = "SCUS-97275";
 /**
@@ -1413,4 +1413,75 @@ export function checkThunderstorePackage(files: readonly BufferedPackFile[], opt
     if (size !== want) error(THUNDERSTORE_CODES.iconInvalid, `icon.png is a ${want} PNG.`, { file: "icon.png", expected: want, actual: size });
   }
   return checkReport(list, { evidence: "validation" });
+}
+
+/** An entry of a dropped zip or folder: its path, and its bytes where the caller has read them (see `unwrapThunderstore`). */
+export interface ThunderstoreUnwrapEntry {
+  readonly path: string;
+  readonly bytes?: Uint8Array;
+}
+export type ThunderstoreUnwrap<T extends ThunderstoreUnwrapEntry> =
+  | { readonly wrapped: false; readonly members: readonly T[] }
+  | {
+      readonly wrapped: true;
+      /** "" for a package at the zip's root, else its one top folder with its slash (a zip of the folder). */
+      readonly root: string;
+      /** The store's `manifest.json` as parsed: its keys are the store's; whether each keeps its rule is `report`'s. */
+      readonly manifest: Readonly<Record<string, unknown>>;
+      /** `checkThunderstorePackage` over the root files: an importer refuses a package whose report is not `pass`. */
+      readonly report: CheckReport;
+      /** The store's root files present (paths relative to `root`): set aside, never members. */
+      readonly store: readonly T[];
+      /** The bare pack: every other entry, a shallow copy with its path relative to `root`. */
+      readonly members: readonly T[];
+    };
+
+/**
+ * B206 ML-5 (plan 2026-11-06-mods-loader, ML.R3; product track): a Thunderstore package -- the owner's upload made by
+ * `tools/thunderstore-wrap.ts`, or any pack wrapped by hand -- recognised and its bare pack yielded, for ML-1's drop
+ * classifier, which then reads the members as it reads an unwrapped drop. Pure: no zip, no fetch.
+ *
+ * Recognised when `manifest.json` sits at the root, or under the one top folder every entry shares (a zip of the
+ * folder, as a mod manager's install leaves it), and parses to a JSON object holding every one of the store's manifest
+ * keys (`THUNDERSTORE_PACKAGE_RULES.manifestKeys`). Anything else is returned unchanged (`members` is `entries`): a
+ * bare pack, and a texture pack whose own root `manifest.json` is its legacy manifest (`format:
+ * 's2u-local-texture-pack'`, without the store's keys). A v2 pack (an `s2u-pack.json` at that root) is returned
+ * unchanged too: its store files are its own validator's defined exception, outside its identity (`validatePack`).
+ *
+ * The caller reads the bytes of the root `manifest.json` and `icon.png` (each small) before the call; the members
+ * need none. A recognised package missing those bytes is a caller's error (thrown), not a refusal.
+ */
+export function unwrapThunderstore<T extends ThunderstoreUnwrapEntry>(entries: readonly T[]): ThunderstoreUnwrap<T> {
+  const bare = { wrapped: false, members: entries } as const;
+  const at = (path: string): T | undefined => entries.find((e) => e.path === path);
+  let root = "";
+  if (at("manifest.json") === undefined) {
+    const top = entries[0]?.path.split("/")[0];
+    if (top === undefined || !entries.every((e) => e.path.startsWith(`${top}/`)) || at(`${top}/manifest.json`) === undefined) return bare;
+    root = `${top}/`;
+  }
+  if (at(`${root}${PACK_MANIFEST_FILE}`) !== undefined) return bare;
+  const need = (path: string): Uint8Array => {
+    const bytes = at(`${root}${path}`)?.bytes;
+    if (bytes === undefined) throw new TypeError(`unwrapThunderstore: read ${root}${path}'s bytes before the call`);
+    return bytes;
+  };
+  const manifestBytes = need("manifest.json");
+  const text = manifestBytes.length <= PACK_MANIFEST_BYTES_ADAPTATION ? utf8Text(manifestBytes) : null;
+  let raw: unknown;
+  try {
+    raw = text === null ? undefined : JSON.parse(text);
+  } catch {
+    return bare;
+  }
+  if (!isObject(raw) || !THUNDERSTORE_PACKAGE_RULES.manifestKeys.every((k) => k in raw)) return bare;
+  const store: T[] = [];
+  const members: T[] = [];
+  for (const e of entries) {
+    const rel = e.path.slice(root.length);
+    const copy = (root === "" ? e : { ...e, path: rel }) as T;
+    (STORE_FILES.has(rel) ? store : members).push(copy);
+  }
+  const buffered: BufferedPackFile[] = store.map((e) => ({ path: e.path, bytes: e.path === "README.md" || e.path === "CHANGELOG.md" ? (e.bytes ?? new Uint8Array(0)) : need(e.path) }));
+  return { wrapped: true, root, manifest: raw, report: checkThunderstorePackage(buffered), store, members };
 }

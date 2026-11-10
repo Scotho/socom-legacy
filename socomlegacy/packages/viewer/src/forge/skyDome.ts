@@ -6,16 +6,17 @@ import type { LoadedMap, LoadedMesh } from '../loadMap';
  * a sky or cloud image, its rim fading into the fog by its vertices' alpha, its clouds on some maps scrolling
  * (`LoadedMesh.scroll`) -- drawn in front of the screen cleared to the fog colour (research 196, D5 and the F rounds).
  *
- * SKY_DOME_TEXTURE_READING: which world parts are the dome is read by their texture's name -- a sky or cloud image
- * (`sky01.tif`, `gen_cloud_n_sun_256x256.tif` on MP51 and MP6, `mp82_skycap.tif`: the names research 196 reads) -- not
- * by a node of the scene. [reading: the names are matched, not each map's dome nodes traced; settles: a read of the
- * 22 multiplayer maps naming each dome's nodes.] A map whose sky textures are named otherwise offers no sky.
+ * SKY_DOME_TEXTURE_ADAPTATION: which world parts are the dome is the Forge's own choice, by their texture's name -- a
+ * sky or cloud image (`sky01.tif`, `gen_cloud_n_sun_256x256.tif` on MP51 and MP6, `mp82_skycap.tif`: the names
+ * research 196 reads) -- not by a node of the scene. [adaptation: the editor's match on the names, not read off the
+ * original -- the game names no dome and copies no sky; each map's dome nodes are not traced.] A map whose sky textures
+ * are named otherwise offers no sky.
  */
-export const SKY_DOME_TEXTURE_READING = /sky|cloud/i;
+export const SKY_DOME_TEXTURE_ADAPTATION = /sky|cloud/i;
 
-/** A map's sky parts: its world chunks textured with a sky or cloud image (`SKY_DOME_TEXTURE_READING`). */
+/** A map's sky parts: its world chunks textured with a sky or cloud image (`SKY_DOME_TEXTURE_ADAPTATION`). */
 export function skyPartsOf(map: Pick<LoadedMap, 'world'>): LoadedMesh[] {
-  return map.world.filter((m) => m.textureName !== null && SKY_DOME_TEXTURE_READING.test(m.textureName));
+  return map.world.filter((m) => m.textureName !== null && SKY_DOME_TEXTURE_ADAPTATION.test(m.textureName));
 }
 
 /** The horizontal middle of a set of parts (world space): the dome's centre over its own map. */

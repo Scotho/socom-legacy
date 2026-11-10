@@ -1,5 +1,9 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { capturePointer, releasePointer, requestLock } from '../src/pointer';
+import { capturePointer, releasePointer } from '../src/pointer';
+import { requestLock } from '../src/pointerLock';
 
 /** The guards around pointer capture: a pointer that is gone is a refusal, never an uncaught throw. */
 const notFound = (): never => { throw new DOMException('No active pointer with the given id is found.', 'NotFoundError'); };
@@ -68,5 +72,27 @@ describe('requestLock: a refused lock is never an uncaught rejection', () => {
   it('takes a browser whose request returns nothing, and one with no request at all', () => {
     expect(requestLock({ requestPointerLock: () => undefined })).toBe(true);
     expect(requestLock({})).toBe(false);
+  });
+});
+
+/**
+ * Where the ask lives decides which built chunk carries it. `pointer.ts`'s capture guards are shared with the touch layer
+ * (`touch.ts`, every page's), so the bundler puts that module in the launcher's shared chunk; when the lock ask sat there
+ * too, the built `requestPointerLock` landed in a chunk with neither the forge editor's nor the kbm camera's marker
+ * (`build_keyboard.test.ts`, OT.R38 / H115; RB-8 6c923e8d5 made the camera's ask live in a build). The ask is its own
+ * module, imported by the camera alone, so it is always bundled beside the camera's `KBM_POINTER_LOCK_SITE`.
+ */
+describe("the pointer lock ask is the camera's alone (OT.R38 / H115, RB-8)", () => {
+  const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../src');
+  const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(resolve(dir, e.name)) : e.name.endsWith('.ts') ? [resolve(dir, e.name)] : []);
+  const sources = walk(SRC).map((f) => ({ f: f.slice(SRC.length + 1).split(/[\\/]/).join('/'), text: readFileSync(f, 'utf-8') }));
+
+  it('the shared capture guards ask no lock', () => {
+    expect(readFileSync(resolve(SRC, 'pointer.ts'), 'utf-8')).not.toMatch(/requestPointerLock/);
+  });
+  it('only camera.ts imports the ask', () => {
+    const importers = sources.filter((s) => /from '(\.\.?\/)+(\w+\/)*pointerLock'/.test(s.text)).map((s) => s.f);
+    expect(importers).toEqual(['camera.ts']);
   });
 });

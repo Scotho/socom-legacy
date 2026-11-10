@@ -127,6 +127,16 @@ for (const [w, h] of VIEWPORTS) {
       }, true);
     });
     await page.context().route('https://discord.gg/**', (r) => r.fulfill({ status: 204, body: '' }));   // LATER 291: never Discord
+    // RC1-CONSOLE-POPUP (a spec correction): Experiments' Forge and Test room rows open `/forge` and `/testroom` in a new
+    // tab, which this spec closes within about 10 ms. Served, those pages cost the launcher: RC2's pw:api log at
+    // e21ad65f6 has the launcher's next call stall 3-8 s after each Forge tab (0.7 s after Test room's), mostly after the
+    // tab was closed; the cause is presumed to be the page's start or teardown sharing the launcher's renderer, not
+    // settled. RC1 (088766214, AWS SwiftShader) failed `settled` at 1280x720 and 1366x768 when the stall outlasted the
+    // toast's 10 s (its words already gone when read). This spec tests the launcher's rows, not those pages: their tabs
+    // are answered with an empty page, so the click still opens one (the `popup` above) and nothing is left to cost.
+    // Was: the real pages served, booting beside the launcher.
+    await page.context().route((url) => ['/forge', '/testroom'].includes(url.pathname.replace(/\/$/, '')),
+      (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>stub</title>' }));
     page.on('popup', (p) => { void p.close(); });                          // a page row's new tab
     page.on('filechooser', () => { /* the disc's chooser: intercepted, left unanswered */ });
     await open(page, w, h);

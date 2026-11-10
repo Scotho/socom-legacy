@@ -61,6 +61,13 @@ function rig(extra: Partial<MatchFirearmDeps> = {}) {
   return { scene, fly, walk, play, remote, hud, loadouts, firearm };
 }
 const sourceOf = (fire: Fire): FireSource => (fire as unknown as { source: FireSource }).source;
+/**
+ * SIGHT-POINTS (LATER 793): a fixture's posed bodies for the perception pass -- another's `neck` node 15.4 over his feet (a
+ * standing body; `RemotePlayers.neckAt`, the sight's end and the cone's point) and the page's own `head` node at the
+ * camera's eye (0, 60, 0) (`Play.nodeWorld`, the sight's start).
+ */
+const neckOver = (f: readonly number[] | null): [number, number, number] | null => (f ? [f[0]!, f[1]! + 15.4, f[2]!] : null);
+const headAtEye = (play: Play): void => { vi.spyOn(play, 'nodeWorld').mockImplementation((name: string) => (name === 'head' ? [0, 60, 0] : null)); };
 
 describe('the Fire source: one, with every page\'s hooks', () => {
   it('explicit FULL_SLOT/EMPTY_ITEM firearm slots never use the baked fallback for firing or shoulder selection', () => {
@@ -116,6 +123,59 @@ describe('the Fire source: one, with every page\'s hooks', () => {
     up.launcher = false;
     expect(src.inHand?.()).toBe(true);
     expect(sourceOf(rig().firearm.fire).inHand?.()).toBe(true);                  // no hands (the front end): always the firearm
+  });
+  it('GRENADE-RELOAD (RELOAD_ITEM_UP_READING; research 361 s5): an M67 up, R tells the net nothing and starts no reload clip, the firearm\'s magazine unchanged; put away, R reloads it as before', () => {
+    let item = true;
+    const told: string[] = [];
+    const { firearm, play } = rig({
+      hands: hands({ itemUp: () => item, handItem: () => (item ? 121 : null) }),
+      net: () => ({ fireEvent: (e: { type: string }) => { told.push(e.type); } }) as unknown as ReturnType<MatchFirearmDeps['net']>,
+    });
+    const clips: string[] = [];
+    vi.spyOn(play, 'weaponEvent').mockImplementation((e) => { clips.push(e.type); });
+    const fire = firearm.fire;
+    expect(sourceOf(fire).itemUp?.()).toBe(true);
+    const rec = fire.weaponRecord();
+    fire.takeWeapon(rec, [5, rec.magazine]);
+    const before = fire.state().magazine;
+    expect(fire.reload()).toBe(false);
+    for (let i = 0; i < 300; i++) firearm.fireFrame(0.01, true);
+    expect(fire.state().magazine).toEqual(before);
+    expect(told.filter((t) => t.startsWith('reload'))).toEqual([]);
+    expect(clips.filter((t) => t.startsWith('reload'))).toEqual([]);
+    item = false;
+    expect(sourceOf(fire).itemUp?.()).toBe(false);
+    expect(fire.reload()).toBe(true);
+    expect(told).toContain('reloadPress');
+    for (let i = 0; i < 300; i++) firearm.fireFrame(0.01, true);
+    expect(clips).toContain('reloadStart');
+  });
+  it('GRENADE-RELOAD fold (RELOAD_LAUNCHER_UP_READING; research 361 s5): the LAW up, R tells the net nothing and starts no reload clip, the firearm\'s magazine unchanged; put away, R reloads it as before', () => {
+    let launcher = true;
+    const told: string[] = [];
+    const { firearm, play } = rig({
+      hands: hands({ launcherUp: () => launcher }),
+      net: () => ({ fireEvent: (e: { type: string }) => { told.push(e.type); } }) as unknown as ReturnType<MatchFirearmDeps['net']>,
+    });
+    const clips: string[] = [];
+    vi.spyOn(play, 'weaponEvent').mockImplementation((e) => { clips.push(e.type); });
+    const fire = firearm.fire;
+    expect(sourceOf(fire).launcherUp?.()).toBe(true);
+    expect(sourceOf(fire).itemUp?.()).toBe(false);
+    const rec = fire.weaponRecord();
+    fire.takeWeapon(rec, [5, rec.magazine]);
+    const before = fire.state().magazine;
+    expect(fire.reload()).toBe(false);
+    for (let i = 0; i < 300; i++) firearm.fireFrame(0.01, true);
+    expect(fire.state().magazine).toEqual(before);
+    expect(told.filter((t) => t.startsWith('reload'))).toEqual([]);
+    expect(clips.filter((t) => t.startsWith('reload'))).toEqual([]);
+    launcher = false;
+    expect(sourceOf(fire).launcherUp?.()).toBe(false);
+    expect(fire.reload()).toBe(true);
+    expect(told).toContain('reloadPress');
+    for (let i = 0; i < 300; i++) firearm.fireFrame(0.01, true);
+    expect(clips).toContain('reloadStart');
   });
   it('LATER 179\'s review F1: a throwable up, the emptied firearm neither clicks nor reloads; put away, it does', () => {
     let item = false;
@@ -1063,6 +1123,7 @@ describe('NU-3b C4: aimReticle over a two-team room', () => {
       aimBodies: () => (under ? [under] : []),
       teamOf: (id: number) => (id === 7 ? 'seal' as const : id === 9 ? 'terrorist' as const : null),
       feet: (id: number) => at[id] ?? null,
+      neckAt: (id: number) => neckOver(at[id] ?? null),
     };
     // NU-3c: the client's part health per seat (`NetClient.healthOf`) -- the teammate's as the room sent it; the enemy's
     // given here only to show the page draws no enemy's bar whatever it holds (the room never sends one).
@@ -1073,6 +1134,7 @@ describe('NU-3b C4: aimReticle over a two-team room', () => {
       rows: [{ id: 7, kills: 0, deaths: 0, score: 0, clan: 'NSW' }, { id: 9, kills: 0, deaths: 0, score: 0, clan: 'X' }],
     };
     const r = rig({ remote: remote as unknown as MatchFirearmDeps['remote'], net: () => net as unknown as ReturnType<MatchFirearmDeps['net']>, hands: hands(over) });
+    headAtEye(r.play);
     vi.spyOn(r.walk, 'aim').mockReturnValue([0, 0, -1000]);
     vi.spyOn(r.walk, 'fireAim').mockReturnValue({ eye: [0, 60, 0], far: [0, 60, -1000] });
     vi.spyOn(r.walk, 'feet').mockReturnValue([0, 0, 0]);
@@ -1159,10 +1221,12 @@ describe("AD-1 F1: the reticle's pick reaches as far as the aim's ray", () => {
       aimDistance: () => null, weaponFrame: () => null,
       aimBodies: (_eye: unknown, _dir: unknown, reach: number) => { asked.push(reach); return distance < reach ? [{ id: 9, distance }] : []; },
       teamOf: (id: number) => (id === 9 ? 'terrorist' as const : null), feet: (id: number) => (id === 9 ? [0, 0, -200] as [number, number, number] : null),
+      neckAt: (id: number) => neckOver(id === 9 ? [0, 0, -200] : null),
     };
     const net = { client: { role: 'player', team: 'seal', healthOf: () => null }, nameOf: () => 'ECHO', rows: [] };
     const map = { camera: { mid, farPlane: 2500 } } as unknown as LoadedMap;
     const r = rig({ remote: remote as unknown as MatchFirearmDeps['remote'], net: () => net as unknown as ReturnType<MatchFirearmDeps['net']>, map: () => map, hands: hands() });
+    headAtEye(r.play);
     vi.spyOn(r.walk, 'aim').mockReturnValue([0, 0, -1000]);
     vi.spyOn(r.walk, 'fireAim').mockReturnValue({ eye: [0, 60, 0], far: [0, 60, -1000] });
     vi.spyOn(r.walk, 'feet').mockReturnValue([0, 0, 0]);
@@ -1211,10 +1275,12 @@ describe("AD-2 F1: the reticle's pick takes the eye query's class", () => {
       aimDistance: () => null, weaponFrame: () => null,
       aimBodies: () => [{ id: 9, distance: 200 }],
       teamOf: (id: number) => (id === 9 ? 'terrorist' as const : null), feet: (id: number) => (id === 9 ? [0, 0, -200] as [number, number, number] : null),
+      neckAt: (id: number) => neckOver(id === 9 ? [0, 0, -200] : null),
     };
     const net = { client: { role: 'player', team: 'seal', healthOf: () => null }, nameOf: () => 'ECHO', rows: [] };
     const map = { camera: { mid: 2500, farPlane: 2500 } } as unknown as LoadedMap;
     const r = rig({ remote: remote as unknown as MatchFirearmDeps['remote'], net: () => net as unknown as ReturnType<MatchFirearmDeps['net']>, map: () => map, hands: hands() });
+    headAtEye(r.play);
     vi.spyOn(r.walk, 'aim').mockReturnValue([0, 0, -1000]);
     vi.spyOn(r.walk, 'fireAim').mockReturnValue({ eye: [0, 60, 0], far: [0, 60, -1000] });
     vi.spyOn(r.walk, 'feet').mockReturnValue([0, 0, 0]);
@@ -1384,7 +1450,8 @@ describe('NU-3b F3: /testroom and the front end both hand mountFirearm the targe
     const main = src('main.ts');
     const call = main.slice(main.indexOf('const firearm = mountFirearm({'));
     const line = call.split('\n').find((l) => /^\s*remote: \{/.test(l)) ?? '';
-    for (const m of ['aimDistance', 'weaponFrame', 'aimBodies', 'teamOf', 'feet']) {
+    // SIGHT-POINTS (LATER 793): and `neckAt`, the perception sight's end and the cone's point (`RemotePlayers.neckAt`).
+    for (const m of ['aimDistance', 'weaponFrame', 'aimBodies', 'teamOf', 'feet', 'neckAt']) {
       expect(line, m).toMatch(new RegExp(`${m}: \\([^)]*\\) => remote\\.${m}\\(`));
     }
     expect(src('matchMount.ts')).toMatch(/scene, fly, walk, play, remote, hud, loadouts/);
@@ -1401,22 +1468,34 @@ describe('AD-3: aimReticle reads the perception\'s mark and the special actors',
   const rgba = (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(255) });
   const PS2 = { autoClear: true, getDrawingBufferSize: (v: Vector2) => v.set(640, 448), render: () => {} };
   const WOOD_THICK = materialTable().findIndex((m) => m.name === 'WOOD_THICK');
-  /** A low wall across the view at z -100 (x -50..50, y 0..40): over it the pick's ray at y 60, into it the sight's ray to (0, 15.4, -200). */
-  const wall = (): Grid => {
-    const points = Float32Array.from([-50, 0, -100, 50, 0, -100, 50, 40, -100, -50, 40, -100]);
+  /**
+   * A low wall across the view at z -100 (x -50..50, y 0..`top`, 40 by default): over it the pick's ray at y 60, into it
+   * the sight's ray from the head at (0, 60, 0) to the neck at (0, 15.4, -200).
+   */
+  const wall = (top = 40): Grid => {
+    const points = Float32Array.from([-50, 0, -100, 50, 0, -100, 50, top, -100, -50, top, -100]);
     const poly: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/wall', region: 0, ditype: 2, material: WOOD_THICK, ptcount: 4, cameratype: 0, points };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
     return buildGrid(params, [], [], [poly], [{ modelName: poly.modelName, path: `${poly.path}0`, first: 0, count: 1 }]);
   };
 
-  function setUp(o: { team?: 'seal' | 'terrorist'; gameType?: number | null; hostages?: Map<number, { id: number; name: string; alive?: boolean }>; at?: [number, number, number] } = {}) {
+  // SIGHT-POINTS (LATER 793): the fixture's bodies are posed -- the page's own `head` node (`Play.nodeWorld`, the sight's
+  // start, slot +0x34) at `head`, (0, 60, 0) by default, the camera's eye; each other's `neck` (`RemotePlayers.neckAt`,
+  // the sight's end and the cone's point, slot +0x38) at `neck` off his feet, 15.4 over them by default (a standing body).
+  function setUp(o: { team?: 'seal' | 'terrorist'; gameType?: number | null; hostages?: Map<number, { id: number; name: string; alive?: boolean }>; at?: [number, number, number]; screenUp?: () => boolean; head?: [number, number, number] | null; neck?: [number, number, number] } = {}) {
     let under: { id: number; distance: number } | null = null;
     let grid: Grid | null = null;
+    let necks = true;
+    const feet = (id: number): [number, number, number] | null => (id === 9 || id === 240 ? o.at ?? [0, 0, -200] : null);
     const remote = {
       aimDistance: () => null, weaponFrame: () => null,
       aimBodies: () => (under ? [under] : []),
       teamOf: (id: number) => (id === 7 ? 'seal' as const : id === 9 ? 'terrorist' as const : null),
-      feet: (id: number) => (id === 9 || id === 240 ? o.at ?? [0, 0, -200] as [number, number, number] : null),
+      feet,
+      neckAt: (id: number): [number, number, number] | null => {
+        const f = feet(id), n = o.neck ?? [0, 15.4, 0];
+        return f && necks ? [f[0] + n[0], f[1] + n[1], f[2] + n[2]] : null;
+      },
     };
     const rows = [{ id: 3, alive: true }, { id: 9, alive: true, clan: '' }];
     const net = {
@@ -1425,12 +1504,14 @@ describe('AD-3: aimReticle reads the perception\'s mark and the special actors',
       rows,
       hostages: () => o.hostages ?? new Map(),
       gameType: () => o.gameType ?? null,
+      screenUp: () => o.screenUp?.() ?? false,
     };
     const r = rig({ remote: remote as unknown as MatchFirearmDeps['remote'], net: () => net as unknown as ReturnType<MatchFirearmDeps['net']>, hands: hands() });
     vi.spyOn(r.walk, 'aim').mockReturnValue([0, 60, -1000]);              // level with the camera: the frame's centre
     vi.spyOn(r.walk, 'fireAim').mockReturnValue({ eye: [0, 60, 0], far: [0, 60, -1000] });
     vi.spyOn(r.walk, 'feet').mockReturnValue([0, 0, 0]);
     vi.spyOn(r.walk, 'grid').mockImplementation(() => grid);
+    vi.spyOn(r.play, 'nodeWorld').mockImplementation((name: string) => (name === 'head' ? (o.head === undefined ? [0, 60, 0] : o.head) : null));
     r.fly.camera.position.set(0, 60, 0);                                    // the camera at the eye, looking down -z
     r.firearm.reticle.setBitmaps({
       fixed: rgba(64, 64), floating: rgba(32, 32), accuracy: null,
@@ -1438,8 +1519,56 @@ describe('AD-3: aimReticle reads the perception\'s mark and the special actors',
     }, rgba(512, 128));
     r.firearm.reticle.setVisible(true);
     const frame = (dt = 1 / 60) => { r.firearm.aimReticle(dt); r.firearm.reticle.render(PS2); return r.firearm.reticle.state(); };
-    return { ...r, frame, rows, aimAt: (id: number | null) => { under = id === null ? null : { id, distance: 200 }; }, setGrid: (g: Grid | null) => { grid = g; } };
+    return { ...r, frame, rows, aimAt: (id: number | null) => { under = id === null ? null : { id, distance: 200 }; }, setGrid: (g: Grid | null) => { grid = g; }, setNecks: (on: boolean) => { necks = on; } };
   }
+
+  // SIGHT-POINTS (LATER 793; research 321 s4.1.1 point 8, s7.5; reading, pending review): the sight query runs from the
+  // observer's posed `head` node (slot +0x34, `FUN_005a31c0`, body+0x308) to the target's posed `neck` node (slot +0x38,
+  // `FUN_005a3160`, body+0x30c; D:L460155-460171), and the cone tests that same neck point (`FUN_005cc120`
+  // D:L483236-483237). Was (`PERCEPTION_SIGHT_PLACEHOLDER`): the aim's eye to the feet raised by `EYE_HEIGHT`, both.
+  it("SIGHT-POINTS: the sight ends at the target's posed neck -- a prone enemy (his neck 3 over his feet) behind a wall 35 high is not seen, though his feet + EYE_HEIGHT clear it", () => {
+    const { frame, aimAt, setGrid } = setUp({ neck: [0, 3, -14] });
+    setGrid(wall(35));                                                     // to (0, 3, -214): 31.3 at the wall; (0, 15.4, -200): 37.7
+    aimAt(9);
+    expect([frame().colour, frame().target]).toEqual(['rest', null]);
+    const standing = setUp();
+    standing.setGrid(wall(35));
+    standing.aimAt(9);
+    expect(standing.frame().colour).toBe('hostile');                       // his neck at 15.4 clears it
+  });
+
+  it("SIGHT-POINTS: the sight starts at the observer's posed head, not the aim's eye -- the head 20 up behind a wall 35 high sees nothing the eye at 60 would", () => {
+    const { frame, aimAt, setGrid } = setUp({ head: [0, 20, 0] });         // the aim's eye still (0, 60, 0)
+    setGrid(wall(35));                                                     // from (0, 20, 0): 17.7 at the wall
+    aimAt(9);
+    expect([frame().colour, frame().target]).toEqual(['rest', null]);
+  });
+
+  it("SIGHT-POINTS: the cone tests the target's neck, not his feet + EYE_HEIGHT -- in at 185 off the axis, out at 205, and the other way round", () => {
+    // The camera at (0, 60, 0) down -z: 200 along it the cone's radius is 25 + 200 x tan 40 = 192.8.
+    const out = setUp({ at: [180, 0, -200], neck: [20, 15.4, 0] });       // feet + 15.4 185.4 off the axis, the neck 204.9
+    out.aimAt(9);
+    expect(out.frame().colour).toBe('rest');                               // rejected
+    const into = setUp({ at: [200, 0, -200], neck: [-20, 15.4, 0] });     // feet + 15.4 204.9 off the axis, the neck 185.4
+    into.aimAt(9);
+    expect(into.frame().colour).toBe('hostile');
+  });
+
+  it('SIGHT-POINTS: a target with no neck point the page holds (its body not drawn) is not active -- its mark cleared, as a body gone', () => {
+    const { frame, aimAt, setNecks } = setUp();
+    aimAt(9);
+    expect(frame().colour).toBe('hostile');
+    setNecks(false);
+    expect(frame().colour).toBe('rest');
+  });
+
+  it('SIGHT-POINTS: the page with no posed head (its own body not built) runs no pass -- no mark, no count, as with no body', () => {
+    const { frame, aimAt, play } = setUp({ head: null });
+    aimAt(9);
+    expect(frame().colour).toBe('rest');
+    frame();
+    expect((play as unknown as { weaponInput: () => { enemies?: number } }).weaponInput().enemies ?? 0).toBe(0);
+  });
 
   it("AD-3's review F1: in a scope the cone takes the zoom's target magnification at once (body +0x204, FUN_005c9520 D:L481801-481806), not the one still easing toward it", () => {
     // The enemy 60 across at 200 out: 74.8 off the camera's axis -- inside the cone at 1.2 (radius 141.5), outside at 4 (35.5).
@@ -1537,6 +1666,101 @@ describe('AD-3: aimReticle reads the perception\'s mark and the special actors',
       expect([team, gameType, s.colour]).toEqual([team, gameType, colour]);
       expect(s.target).toEqual({ name: 'Hostage2', pen: [336, 208], bar: null });
     }
+  });
+
+  // ENEMY-RAISE ER-1 (SCOPE.md s3.4 test 7; reading, pending review): the raise's feed carries the count of marked, active
+  // enemies through the team-word test (`FUN_005c9b30` D:L482090-482132) -- the controller's `ctrl+0xc0`, which
+  // `FUN_00594cf0` raises on (D:L453088-453092) -- from the HUD frame's perception pass; and the gate (`DAT_003df1b0` 0,
+  // D:L453067-453070) from the page's round screens (`RAISE_GATE_READING`).
+  type Feed = { trigger: boolean; aiming: boolean; enemies?: number; gated?: boolean };
+  const feedOf = (play: unknown): Feed => (play as { weaponInput: () => Feed }).weaponInput();
+
+  // ER-1b (research 321 s7.7): the three RED 7 cases take a second frame before the count reads 1 -- the count is the
+  // previous pass's marks (D:L482130-482132 before D:L482204-482220). Was: one frame, the count after the step.
+  it('RED 7: the weapon input carries the marked-enemy count -- an enemy seen 1 (a pass later), gone dead 0; no time passed, the count kept', () => {
+    const { frame, rows, play } = setUp();
+    expect(feedOf(play).enemies ?? 0).toBe(0);
+    frame();                                                               // the Terrorist at 200 out, in the cone, seen: marked
+    frame();                                                               // counted a pass later (ER-1b)
+    expect(feedOf(play)).toMatchObject({ trigger: false, aiming: false, enemies: 1, gated: false });
+    frame(0);
+    expect(feedOf(play).enemies).toBe(1);
+    rows[1]!.alive = false;
+    frame();
+    expect(feedOf(play).enemies).toBe(0);
+  });
+
+  it("RED 7: a teammate seen counts nothing; the hostage list by the round's type -- the VIP (ESCORT) for a Terrorist page, never a hostage", () => {
+    const mate = setUp({ team: 'terrorist' });                             // seat 9 is the page's teammate now
+    mate.frame();
+    mate.frame();                                                          // a pass after its mark, still 0 (ER-1b)
+    expect(feedOf(mate.play).enemies).toBe(0);
+    const hostages = new Map([[240, { id: 240, name: 'VIP1', alive: true }]]);
+    // 9 (a Terrorist) and 240 stand together at 200 out: ESCORT's VIP (0x40020000) counts for the Terrorist page, its
+    // teammate 9 not; the SEAL page counts 9 alone; EXTRACTION's hostage (0xc0020000) for neither
+    for (const [team, gameType, n] of [['terrorist', 3, 1], ['seal', 3, 1], ['terrorist', 4, 0], ['seal', 4, 1]] as const) {
+      const r = setUp({ team, gameType, hostages });
+      r.frame();
+      r.frame();                                                           // counted a pass after the mark (ER-1b)
+      expect([team, gameType, feedOf(r.play).enemies]).toEqual([team, gameType, n]);
+    }
+  });
+
+  it('RED 7: the round screens gate the raise (RAISE_GATE_READING); no room, no count', () => {
+    let up = false;
+    const { frame, play } = setUp({ screenUp: () => up });
+    frame();
+    frame();                                                               // counted a pass after the mark (ER-1b)
+    expect(feedOf(play)).toMatchObject({ enemies: 1, gated: false });
+    up = true;
+    expect(feedOf(play).gated).toBe(true);
+    const offline = rig();
+    expect(feedOf(offline.play)).toMatchObject({ enemies: 0, gated: false });
+  });
+
+  // ENEMY-RAISE ER-1b (research 321 s7.7; the count's order proven for the measured conditions, the mechanism a reading):
+  // the dispatcher counts a record's mark (`FUN_005c9b30` D:L482130-482132) before it takes the record's completed query
+  // and sets or clears that mark (D:L482204-482220), so a threshold mark or clear reaches `ctrl+0xc0` one pass later; a
+  // rejection clears the mark in the enqueue pass the player control runs first (`FUN_00594cf0` D:L453085-453086 ->
+  // `FUN_005ca9f0` D:L482555-482566), so mark and count fall on the same frame (the PINE rows of r0004, 9 crossings).
+  it('ER-1b: a threshold mark is counted one frame later -- the mark set this frame, the count still 0, then 1', () => {
+    const { frame, aimAt, setGrid, play } = setUp();
+    setGrid(wall());
+    aimAt(9);
+    expect(frame().colour).toBe('rest');                                   // never seen: unmarked
+    expect(feedOf(play).enemies ?? 0).toBe(0);
+    setGrid(null);
+    expect(frame().colour).toBe('hostile');                                // seen: marked this frame
+    expect(feedOf(play).enemies).toBe(0);                                  // counted from the previous pass's marks
+    frame();
+    expect(feedOf(play).enemies).toBe(1);
+  });
+
+  it('ER-1b: a threshold clear drops the count one frame later', () => {
+    const { frame, aimAt, setGrid, play } = setUp();
+    aimAt(9);
+    frame();
+    frame();
+    expect(feedOf(play).enemies).toBe(1);                                  // seen: the record at 2, counted
+    setGrid(wall());
+    frame(0.5);                                                            // 1.5, unseen
+    expect(frame(0.5).colour).toBe('hostile');                             // 1.0: still marked
+    expect(feedOf(play).enemies).toBe(1);
+    expect(frame(0.5).colour).toBe('rest');                                // 0.5: the mark cleared this frame
+    expect(feedOf(play).enemies).toBe(1);                                  // the count still the previous pass's
+    frame(0.5);
+    expect(feedOf(play).enemies).toBe(0);
+  });
+
+  it('ER-1b: a rejection (out of the cone) clears the mark and the count on the same frame', () => {
+    const { frame, aimAt, walk, play } = setUp();
+    aimAt(9);
+    frame();
+    frame();
+    expect(feedOf(play).enemies).toBe(1);
+    vi.spyOn(walk, 'gameCamera').mockReturnValue({ eye: [0, 60, 0], target: [1, 60, 0] });   // turned 90 degrees away
+    expect(frame().colour).toBe('rest');                                   // rejected: the mark cleared
+    expect(feedOf(play).enemies).toBe(0);                                  // and the count with it
   });
 });
 
@@ -2646,5 +2870,203 @@ describe('a hidden tab: another player\'s rounds start no effect run, and their 
     firearm.dispose();
     page.flip(true); page.flip(false);
     expect(retire).toHaveBeenCalledTimes(1);
+  });
+});
+
+// TRIGGER-SWAP (Craig's report, 2026-11-09): a grenade up with R1 held, the primary taken, would not fire until R1 was let
+// go and pressed again. The original's trigger is the pad's level, stepped every frame whatever is in the hand
+// (`FUN_00594cf0` D:L453543-453567, the controller's +0x118: 2 pressed, 1 held, 3 let go, 0 up), and the firearm's kit
+// frame fires on 1 or 2 (`FUN_005c0ae0` D:L476420) once its own gates lift; the slot change leaves the level alone
+// (`FUN_005c4b10` D:L478779-478936 zeroes the throw's power, `FUN_00592d40` D:L478915 -> D:L451961-451965, not +0x118).
+describe('TRIGGER-SWAP: a trigger held from a throwable or the launcher into the firearm', () => {
+  it('the firearm takes the held trigger the hands took on the first frame they hand it over -- no new press -- with their pull count', () => {
+    const pull = vi.spyOn(Fire.prototype, 'pull');
+    let up = true, pulls = 0;
+    const { firearm } = rig({ hands: hands({ itemUp: () => up, trigger: () => up, heldPulls: () => (up ? null : pulls) }) });
+    firearm.trigger(true);                               // the grenade's
+    firearm.fireFrame(0.016, true);
+    expect(pull).not.toHaveBeenCalled();                 // still the hands'
+    up = false;                                          // put away, R1 still down
+    firearm.fireFrame(0.016, true);
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenLastCalledWith(0);
+    firearm.fireFrame(0.016, true);
+    expect(pull).toHaveBeenCalledTimes(1);               // once: held, `Fire.update` runs the rate
+    firearm.trigger(false);
+    // let go before the hand-over: nothing owed
+    up = true; firearm.trigger(true); firearm.trigger(false); up = false;
+    firearm.fireFrame(0.016, true);
+    expect(pull).toHaveBeenCalledTimes(1);
+    // a throw ended under the held trigger: the count comes with it
+    up = true; firearm.trigger(true); up = false; pulls = 1;
+    firearm.fireFrame(0.016, true);
+    expect(pull).toHaveBeenCalledTimes(2);
+    expect(pull).toHaveBeenLastCalledWith(1);
+    firearm.trigger(false);
+  });
+  it('nothing handed over out of the walk, under the round screens, or dead', () => {
+    const pull = vi.spyOn(Fire.prototype, 'pull');
+    let up = true, mounted = false;
+    const { firearm, walk } = rig({ hands: hands({ itemUp: () => up, trigger: () => up || mounted, mounted: () => mounted, heldPulls: () => (up || mounted ? null : 0) }) });
+    firearm.trigger(true);
+    up = false;
+    firearm.fireFrame(0.016, false);                     // out of the walk: let go
+    firearm.fireFrame(0.016, true);
+    expect(pull).not.toHaveBeenCalled();
+    firearm.trigger(false);
+    up = true; firearm.trigger(true); up = false;
+    const dead = vi.spyOn(walk, 'isDead').mockReturnValue(true);
+    firearm.fireFrame(0.016, true);
+    expect(pull).not.toHaveBeenCalled();
+    dead.mockReturnValue(false);
+    firearm.trigger(false);
+    expect(mounted).toBe(false);
+  });
+  // TRIGGER-SWAP fold (research 211 §10): the turret is a kit slot (`FUN_005463c0` D:L412214-412218 -> `FUN_005c4b10`), its
+  // rounds raise the kit's count (`FUN_005be9a0` D:L475514-475516) and the dismount leaves the trigger and the count.
+  it('a turret press held through the dismount is the rifle\'s once the hands hand it over, with the turret\'s rounds counted', () => {
+    const pull = vi.spyOn(Fire.prototype, 'pull');
+    let mounted = true;
+    const { firearm } = rig({ hands: hands({ trigger: () => mounted, mounted: () => mounted, heldPulls: () => (mounted ? null : 3) }) });
+    firearm.trigger(true);
+    firearm.fireFrame(0.016, true);
+    expect(pull).not.toHaveBeenCalled();
+    mounted = false;
+    firearm.fireFrame(0.016, true);
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenLastCalledWith(3);
+  });
+  it('a firearm swap keeps the held trigger (no let-go at `started`): FUN_005c4b10 leaves +0x118 and +0x818', () => {
+    const { firearm, walk } = rig();
+    vi.spyOn(walk, 'mode').mockReturnValue('walk');
+    vi.spyOn(walk, 'swapGate').mockReturnValue(true);
+    vi.spyOn(walk, 'swapWeapon').mockReturnValue({ action: 'swapStand', overlay: false, reversed: false, seconds: 1 });
+    firearm.trigger(true);
+    expect(firearm.fire.triggerHeld()).toBe(true);
+    const release = vi.spyOn(firearm.fire, 'release');
+    expect(firearm.kit.select('pistol')).toBe(true);
+    expect(release).not.toHaveBeenCalled();
+    expect(firearm.fire.triggerHeld()).toBe(true);
+  });
+  it('a throwable or the launcher taken up over a held firearm trigger: let go, owed back with the firearm\'s count', () => {
+    let up = false;
+    const { firearm } = rig({ hands: hands({ itemUp: () => up, trigger: () => up, heldPulls: () => (up ? null : 0) }) });
+    firearm.trigger(true);                               // the firearm's own press
+    vi.spyOn(firearm.fire, 'pulls').mockReturnValue(2);
+    firearm.suspendTrigger?.();                          // the grenade comes up (`./matchThrow`'s equip)
+    expect(firearm.fire.triggerHeld()).toBe(false);
+    up = true;
+    const pull = vi.spyOn(Fire.prototype, 'pull');
+    firearm.fireFrame(0.016, true);
+    expect(pull).not.toHaveBeenCalled();
+    up = false;
+    firearm.fireFrame(0.016, true);
+    expect(pull).toHaveBeenLastCalledWith(2);
+  });
+  // RAISE-HELD-FIRE (m02d; `HELD_TRIGGER_ITEM_RAISE_READING`, reading, pending review): the body's raise hears the pad's
+  // level (`FUN_00594cf0` D:L453543-453567), which the slot change leaves (`FUN_005c4b10`) -- so a held trigger owed back
+  // is still down for the raise, whose edge 1 asks the rifle up with a grenade up (D:L453612-453613, `$a1 = 1` at ELF
+  // 0x596128 -> 0x596298).
+  it('RED: the raise\'s feed keeps a held trigger suspended under an item up, until the let-go', () => {
+    let up = false;
+    const { firearm, play } = rig({ hands: hands({ itemUp: () => up, trigger: () => up, heldPulls: () => (up ? null : 0) }) });
+    const feed = (): boolean => (play as unknown as { weaponInput: () => { trigger: boolean } }).weaponInput().trigger;
+    firearm.trigger(true);
+    expect(feed()).toBe(true);
+    firearm.suspendTrigger?.();                          // the grenade comes up over the held trigger
+    up = true;
+    firearm.fireFrame(0.016, true);
+    expect(firearm.fire.triggerHeld()).toBe(false);      // no round of the firearm with an item up
+    expect(feed()).toBe(true);                           // was: false -- the raise heard a let-go
+    firearm.trigger(false);
+    expect(feed()).toBe(false);
+  });
+});
+
+describe('THREAT-MARKS: the firearm feeds the marks (research 321 s2.6; FUN_005c5340 D:L479135-479216)', () => {
+  /** The page a SEAL at the origin facing -z; the room's seats: 9 a Terrorist, 8 a SEAL; the kit table's records and rounds. */
+  function threatRig() {
+    const r = rig({ net: () => ({ client: { role: 'player', team: 'seal' } }) as never });
+    vi.spyOn(r.walk, 'feet').mockReturnValue([0, 0, 0]);
+    vi.spyOn(r.walk, 'isDead').mockReturnValue(false);
+    vi.spyOn(r.fly, 'pose').mockReturnValue({ ...r.fly.pose(), yaw: 0 });
+    vi.spyOn(r.remote, 'teamOf').mockImplementation((id: number) => (id === 9 ? 'terrorist' : id === 8 ? 'seal' : null));
+    const m4: WeaponRecord = { ...HELD_RIFLE, name: 'M4A1', id: 54, soundRadius: 1000 };
+    const table = {
+      records: new Map<number, WeaponRecord>([[62, HELD_RIFLE], [54, m4]]),
+      arsenal: { byName: new Map([['M203 HE', { id: 171 }], ['AN-M8', { id: 122 }]]) },
+      rounds: new Map([[171, { record: { soundRadius: 200 } }]]),
+      throwables: new Map([[122, { record: { soundRadius: 3 } }]]),
+    };
+    vi.spyOn(r.loadouts, 'tables').mockReturnValue(table as never);
+    const round = (id: number, from: [number, number, number]) => ({ type: 'round', weapon: { name: '', id, fireAnim: null, sounds: {} }, from, to: [0, 0, 0], hit: false, rounds: 0 }) as never;
+    return { ...r, round };
+  }
+
+  it('a remote enemy round from the right lights the right mark; a team-mate\'s lights nothing', () => {
+    const { firearm, round } = threatRig();
+    firearm.roundEffects(round(54, [8, 0, 0]), 8);                 // a SEAL team-mate
+    expect(firearm.threat.values().breadth.every((b) => b === 0)).toBe(true);
+    firearm.roundEffects(round(54, [300, 0, 0]), 9);               // a Terrorist, M4A1 (1000)
+    firearm.threat.frame(0);
+    expect(firearm.threat.values().breadth[0]).toBeGreaterThan(0);
+    expect(firearm.threat.values().alpha[0]).toBeGreaterThan(0);
+  });
+
+  it('a suppressed weapon beyond its reach (the M4A1 SD, stored 100) lights nothing; inside it, lit', () => {
+    const { firearm, round } = threatRig();
+    firearm.roundEffects(round(62, [150, 0, 0]), 9);
+    expect(firearm.threat.values().breadth.every((b) => b === 0)).toBe(true);
+    firearm.roundEffects(round(62, [90, 0, 0]), 9);
+    expect(firearm.threat.values().breadth[0]).toBeGreaterThan(0);
+  });
+
+  it('a round whose item has no record lights nothing (FUN_005c3740 returns none)', () => {
+    const { firearm, round } = threatRig();
+    firearm.roundEffects(round(999, [50, 0, 0]), 9);
+    expect(firearm.threat.values().breadth.every((b) => b === 0)).toBe(true);
+  });
+
+  it('a throw lights by its projectile record, raw Sound_Radius x 10: the M203 HE (200 -> 1100 cap) at 500, the AN-M8 (3 -> 30) not at 40', () => {
+    const { firearm } = threatRig();
+    firearm.threatThrow('AN-M8', [-40, 0, 0], 9);
+    expect(firearm.threat.values().breadth.every((b) => b === 0)).toBe(true);
+    firearm.threatThrow('M203 HE', [-500, 0, 0], 9);
+    expect(firearm.threat.values().breadth[4]).toBeGreaterThan(0);
+    const before = firearm.threat.values();
+    firearm.threatThrow('M67', [0, 0, -10], 9);                    // no record by that name in the table: nothing more
+    expect(firearm.threat.values()).toEqual(before);
+  });
+
+  it('the map\'s load resets the marks (THREAT_RESET_READING)', () => {
+    const { firearm, round } = threatRig();
+    firearm.roundEffects(round(54, [300, 0, 0]), 9);
+    firearm.threat.frame(0);
+    firearm.clearMap({ reticle: null, hud: null, bulletMark: null } as never);
+    expect(firearm.threat.values()).toEqual({ breadth: new Array(8).fill(0), alpha: new Array(8).fill(0) });
+  });
+});
+
+/**
+ * ENEMY-RAISE ER-2 (SCOPE.md s3.2, s3.4 test 9's page half; reading, pending review): the owning page computes the raise
+ * state and sends it -- the original packs its own body's `FUN_005e0010` (D:L494306-494309) into byte +0x7e every frame
+ * (`FUN_002bd640` D:L161978) -- so each command the walk sends carries the page's `Play` raise state (`Command.raised`),
+ * after every term (the enemy count, the scope, the trigger, the grenade's lower, the countdown).
+ */
+describe("ER-2: the page's commands carry its own raise state", () => {
+  it("RED 9 (page): each command sent carries `raised` from the page's Play -- up, then down", () => {
+    const w = walking();
+    const sent: Omit<Command, 'seq'>[] = [];
+    w.walk.setNetTap((c) => { sent.push(c); });
+    let up = true;
+    vi.spyOn(w.play, 'raisedUp').mockImplementation(() => up);
+    w.settle();
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((c) => c.raised === true)).toBe(true);
+    sent.length = 0;
+    up = false;
+    w.settle();
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((c) => c.raised !== true)).toBe(true);
   });
 });

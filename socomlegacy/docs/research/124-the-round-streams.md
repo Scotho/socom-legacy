@@ -284,3 +284,14 @@ start (a PS2X audio dump or a capture of a round's start, PLAT-36). Its row: res
   the owner's to hear (HUMAN_TASKS H68).
 - **The room's hold** after an elimination is still MP51's on every map (§11); the cue follows the map's script.
 - PLAT-22's remainder (§10) is unchanged.
+
+**In every view (AMB-1, 2026-11-07; the owner's word: "make sure the music is considered as well").** The match's
+music is the `objectives` script's cues alone (R124.4, §5; reading): its branches test `player_team` and the sides'
+`aiteam_*` counts, never the local player's life or the camera; no note records a death sting or a duck of the slot
+on a death. The port matches: `RoundAudio` is fed by the room's events with `NetPage.localTeam()` (the seat's
+role and side, the same alive, dead, benched or a ghost; null for a spectator) and runs its `frame` from `NetPage.frame`
+in every view; the slot stops only at a round's start, a reset (a close, the level left, a round screen's first frame,
+OBF-31's `ROUND_SCREENS_STOP_ALL_READING`), a map change; nothing in the spectator's cycle, the walk's mode or the
+camera touches it. The blast's duck (research 202, `BLAST_DUCK_GROUPS`, group 1 the music's among them) is the room's
+`blast` event's, not a death's. Pinned per view by `viewer/test/ambienceViews.test.ts` (the slot keeps its cue through
+every view, a cue played while a teammate is watched sounds). No capture of the original's music while dead exists.

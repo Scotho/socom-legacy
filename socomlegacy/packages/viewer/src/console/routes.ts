@@ -98,6 +98,7 @@ export function encodeLauncherPath(s: ConsoleState, a: Adapters): string {
     case 'game': return `online/games/${encodeURIComponent(s.lb.game ?? '')}`;
     case 'custom': return 'online/custom';
     case 'server': return 'online/server';
+    case 'mods': return 'experiments/mods';   // B206 ML-2
     case 'replays': return 'watch';
     case 'options': {
       const id = optCategories(s, a)[s.opt.cat]?.id ?? optCategories(s, a)[0]?.id ?? 'display';
@@ -135,6 +136,7 @@ export function launcherPageKey(s: ConsoleState, a: Adapters): string {
     case 'game': return `game:${s.lb.game ?? ''}`;
     case 'custom': return 'custom';
     case 'server': return 'server';
+    case 'mods': return 'mods';
     case 'replays': return 'replays';
     case 'loadoutSides': return 'loadout-sides';
     case 'loadouts': return `loadouts:${s.lo.side}`;
@@ -162,6 +164,7 @@ export function launcherParentKey(s: ConsoleState, a: Adapters): string | null {
     case 'game': return s.lb.from === 'room' ? `room:${s.lb.room ?? ''}` : 'rooms';
     case 'custom': return 'home';
     case 'server': return 'home';
+    case 'mods': return 'home';
     case 'replays': return 'home';
     case 'loadoutSides': return 'home';
     case 'loadouts': return 'loadout-sides';
@@ -194,7 +197,11 @@ export function decodeLauncherPath(pathname: string, base: string, s: ConsoleSta
     return;
   }
   if (first === 'watch') { s.screen = 'replays'; s.cat = catAt('profile'); return; }
-  if (first === 'experiments') { home(s, 'experiments'); return; }
+  if (first === 'experiments') {
+    home(s, 'experiments');
+    if (segs[1] === 'mods') s.screen = 'mods';   // B206 ML-2: the MODS screen, pushed from Experiments
+    return;
+  }
   if (first === 'profile') {
     const rest = segs[1] ?? '';
     if (rest === '') { home(s, 'profile'); return; }
@@ -264,6 +271,7 @@ export function primeLauncherRoute(s: ConsoleState, a: Adapters, pathname = '', 
   if (s.screen === 'record') a.profile?.open('record');
   if (s.screen === 'remap') a.remap?.open();
   if (s.screen === 'server') a.server.loadNews?.();
+  if (s.screen === 'mods') a.mods?.open();
 }
 
 /** The header Back's label: the parent it returns to. Null on the home screen (the control is hidden there). */
@@ -277,6 +285,7 @@ export function launcherBackLabel(s: ConsoleState): string | null {
     case 'game': return s.lb.from === 'room' ? 'Briefing room' : 'Browse rooms';
     case 'custom': return 'Play online';
     case 'server': return 'Play online';
+    case 'mods': return 'Experiments';
     case 'replays': return 'Profile';
     case 'loadoutSides': return 'Profile';
     case 'loadouts': return 'Loadouts';
@@ -296,7 +305,7 @@ export function launcherPathSamples(): readonly string[] {
     'watch', 'profile', 'profile/personas', 'profile/personas/x', 'profile/personas/new', 'profile/record',
     'profile/armory', 'profile/armory/seal', 'profile/armory/terrorist', 'profile/armory/seal/x', 'profile/armory/terrorist/x',
     'settings', 'settings/display', 'settings/audio', 'settings/controller', 'settings/mobile', 'settings/communication',
-    'settings/account', 'settings/controller/mapping', 'experiments',
+    'settings/account', 'settings/controller/mapping', 'experiments', 'experiments/mods',
   ];
 }
 

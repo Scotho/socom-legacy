@@ -202,8 +202,8 @@ export function sameDir(a: string, b: string): boolean {
   return fold(a) === fold(b);
 }
 
-/** The three maps the fixture-backed tests read, beside the common archives. */
-const FIXTURE_MAPS = ['MP2.ZDB', 'MP6.ZDB', 'MP72.ZDB'];
+/** The four maps the fixture-backed tests read, beside the common archives (MP71 by DF.R5, the Fish Hook plan). */
+const FIXTURE_MAPS = ['MP2.ZDB', 'MP6.ZDB', 'MP71.ZDB', 'MP72.ZDB'];
 
 export async function extractMaps(o: ExtractMapsOptions): Promise<ExtractMapsResult> {
   const fs: ExtractFs = { ...NODE_FS, ...o.fs };
@@ -245,7 +245,7 @@ export async function extractMaps(o: ExtractMapsOptions): Promise<ExtractMapsRes
   // The fixtures, only when a root is named (the extract-maps script's default, unless `--public-only`).
   if (o.fixtures) {
     for (const f of FIXTURE_MAPS) jobs.push([join(disc, 'RUN', f), join(o.fixtures, 'RUN', f), `RUN/${f}`]);
-    // The common archives in the fixtures too, which the fixture-backed tests read beside the three maps (why: the
+    // The common archives in the fixtures too, which the fixture-backed tests read beside the four maps (why: the
     // extract-maps script's comment at its `fixtures` root).
     for (const path of COMMON_ARCHIVES) jobs.push([join(disc, path), join(o.fixtures, path), path]);
   }

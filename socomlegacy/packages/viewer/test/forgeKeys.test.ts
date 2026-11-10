@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { forgeKeyAction, type ForgeKeyState } from '../src/forge/keys';
+import { FORGE_TOOL_ORDER, forgeKeyAction, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from '../src/forge/keys';
 
 /**
  * OT.R68 (the owner, 2026-10-21: keyboard and mouse for everything in the forge's creation UI, not once its matches have
@@ -10,8 +13,15 @@ const press = (code: string, mods: Partial<{ ctrl: boolean; meta: boolean; alt: 
   forgeKeyAction({ code, ctrlKey: !!mods.ctrl, metaKey: !!mods.meta, altKey: !!mods.alt, shiftKey: !!mods.shift, repeat: !!mods.repeat }, { ...at, ...s });
 
 describe('OT.R68: the forge editor\'s keys', () => {
-  it('the tools, the gizmo, snap, duplicate, delete, frame, docks, deselect -- the development keys, unchanged', () => {
-    expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].map((c) => press(c))).toEqual(['select', 'place', 'spawnA', 'spawnB', 'npc']);
+  // OT.R112 (the Forge's UI is its contributor's): the number keys choose the placing tools in the tools row's order
+  // (`../src/forge/keys` `FORGE_TOOL_ORDER`), Q the Select tool; the Place tool has no key (choosing a prop places).
+  it('the tools (Q Select, the number keys the placing tools in the row\'s order), the gizmo, snap, duplicate, delete, frame, docks, deselect', () => {
+    expect(press('KeyQ')).toEqual({ tool: 'select' });
+    expect(['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'].map((c) => press(c)))
+      .toEqual(['spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'gate', 'barrier', 'ladder', 'turret', 'flare'].map((tool) => ({ tool })));
+    expect(['Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'].map((c) => press(c, { shift: true })))
+      .toEqual(['hostage', 'zone', 'point', 'view', 'npc'].map((tool) => ({ tool })));
+    expect([press('Digit9', { shift: true }), press('Digit0', { shift: true })], 'past the last tool, none').toEqual([null, null]);
     expect(['KeyG', 'KeyC', 'Delete', 'Backspace', 'KeyF', 'KeyH', 'Escape'].map((c) => press(c)))
       .toEqual(['snap', 'duplicate', 'delete', 'delete', 'frame', 'docks', 'deselect']);
   });
@@ -30,10 +40,10 @@ describe('OT.R68: the forge editor\'s keys', () => {
     expect(press('KeyW', {}, { navigating: false })).toBe('translate');
   });
 
-  it('FG-51: 6, 7 and 8 the bomb tools -- the start, the SEALs\' site, the Terrorists\' site (moved from page.ts at the merge)', () => {
-    expect(['Digit6', 'Digit7', 'Digit8'].map((c) => press(c))).toEqual(['bomb', 'siteSeal', 'siteTerrorist']);
-    expect(press('Digit9')).toBeNull();
-    for (const c of ['Digit6', 'Digit7', 'Digit8']) expect(press(c, {}, { playing: true }), c).toBeNull();
+  // OT.R112: the bomb tools moved with the key rework (FORGE_TOOL_ORDER's eleventh to thirteenth: Shift with 1, 2, 3).
+  it('FG-51: Shift+1, Shift+2 and Shift+3 the bomb tools -- the start, the SEALs\' site, the Terrorists\' site', () => {
+    expect(['Digit1', 'Digit2', 'Digit3'].map((c) => press(c, { shift: true }))).toEqual(['bomb', 'siteSeal', 'siteTerrorist'].map((tool) => ({ tool })));
+    for (const c of ['Digit1', 'Digit2', 'Digit3']) expect(press(c, { shift: true }, { playing: true }), c).toBeNull();
   });
 
   it('the pad-only actions get keys (the merge controller\'s call (c)): [ ] the prop, , . the turn by the step, M the forge menu', () => {
@@ -105,8 +115,29 @@ describe('OT.R68: the forge editor\'s keys', () => {
   });
 
   it('an unbound key is none', () => {
-    for (const c of ['KeyQ', 'Space', 'ShiftLeft', 'ArrowUp', 'KeyK', 'Tab']) expect(press(c), c).toBeNull();
+    // Q is the Select tool's since the key rework (OT.R112; the first test), and so not here.
+    for (const c of ['Space', 'ShiftLeft', 'ArrowUp', 'KeyK', 'Tab']) expect(press(c), c).toBeNull();
     // W, E and R are the gizmo's modes, as an engine editor's (the camera's W flies only while the right button is held).
     expect([press('KeyW'), press('KeyE'), press('KeyR')]).toEqual(['translate', 'rotate', 'scale']);
+  });
+});
+
+describe("FP-1b: the help card's tool keys read the real order (FORGE_TOOL_ORDER, forgeToolKeyLabel), never a literal list", () => {
+  const NAMES = Object.fromEntries(['select', ...FORGE_TOOL_ORDER].map((t) => [t, `<${t}>`]));
+  it('Q the Select tool, then every placing tool by its key, in the order the keys choose them', () => {
+    const rows = forgeToolKeyHelp((t) => NAMES[t]!);
+    expect(rows[0]).toEqual(['Q', 'Tool: <select>']);
+    expect(rows[1]).toEqual(['1 … 0', `Tools: ${FORGE_TOOL_ORDER.slice(0, 10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
+    expect(rows[2]).toEqual(['Shift+1 … Shift+8', `Tools: ${FORGE_TOOL_ORDER.slice(10).map((t) => `${forgeToolKeyLabel(t)} <${t}>`).join(', ')}`]);
+    expect(rows).toHaveLength(3);
+    // Every tool the keys choose is named once; the Place tool, which has no key, is not.
+    const told = rows.map(([, v]) => v).join(', ');
+    for (const t of FORGE_TOOL_ORDER) expect(told.split(`<${t}>`), t).toHaveLength(2);
+    expect(told).not.toContain('<place>');
+  });
+  it("the page's help card builds its tool rows from forgeToolKeyHelp and keeps no literal 1-8 list", () => {
+    const page = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/forge/page.ts'), 'utf-8');
+    expect(page).not.toMatch(/\['1-8', 'Tools:/);
+    expect(page).toMatch(/\.\.\.forgeToolKeyHelp\(\(t\) => TOOL_NAMES\[t\]\),/);
   });
 });

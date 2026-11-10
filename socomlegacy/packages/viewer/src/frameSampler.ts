@@ -69,6 +69,8 @@ export class FrameSampler {
   private next = 0;
   private count = 0;
   private skip = false;
+  /** Every interval counted since the sampler was made (VS-8 review F3: a match marks it at its attach). */
+  private total = 0;
 
   constructor(size = FRAME_RING_ADAPTATION) { this.ring = new Float64Array(Math.max(1, Math.floor(size))); }
 
@@ -79,6 +81,22 @@ export class FrameSampler {
     this.ring[this.next] = ms;
     this.next = (this.next + 1) % this.ring.length;
     if (this.count < this.ring.length) this.count++;
+    this.total++;
+  }
+
+  /** How many intervals were counted since the sampler was made: a mark for `statsSince`. */
+  frames(): number { return this.total; }
+
+  /**
+   * VS-8 review F3: the statistics of the intervals counted since `mark` (a `frames()` read), capped by the ring -- a span
+   * longer than the ring gives its last `size` intervals; null with none since, or a mark this sampler never reached.
+   */
+  statsSince(mark: number): FrameStats | null {
+    const n = Math.min(this.total - mark, this.count);
+    if (!(n > 0) || mark > this.total) return null;
+    const out: number[] = [];
+    for (let i = n; i >= 1; i--) out.push(this.ring[(this.next - i + this.ring.length) % this.ring.length]!);
+    return frameStats(out);
   }
 
   /** The next interval is not counted: it spans a page that was hidden (no frame was drawn). */
@@ -91,7 +109,15 @@ export class FrameSampler {
     return frameStats(out);
   }
 
-  clear(): void { this.next = 0; this.count = 0; this.skip = false; }
+  /** GLOW-STEPDOWN (`./glowScale`): the last `n` intervals pushed, oldest first (all held when fewer). Read at a flash's start. */
+  recent(n: number): number[] {
+    const k = Math.min(this.count, Math.max(0, Math.floor(n)));
+    const out: number[] = [];
+    for (let i = k; i >= 1; i--) out.push(this.ring[(this.next - i + this.ring.length) % this.ring.length]!);
+    return out;
+  }
+
+  clear(): void { this.next = 0; this.count = 0; this.skip = false; this.total = 0; }
 }
 
 /** The long tasks the browser reported, by start time (`performance.now()`'s clock). */

@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FsAssetSource } from '@s2u/archive/node';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
-import { readSkeleton, transformPoint } from '@s2u/scene';
+import { readSkeleton, transformPoint, type MotionClip } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { PART } from '../src/net/damage';
 import {
@@ -40,6 +40,8 @@ const centre = (c: Capsule): V3 => [(c.a[0] + c.b[0]) / 2, (c.a[1] + c.b[1]) / 2
 const lo = (c: Capsule): number => Math.min(c.a[1], c.b[1]) - c.r;
 const hi = (c: Capsule): number => Math.max(c.a[1], c.b[1]) + c.r;
 const of = (vs: readonly Capsule[], part: number): Capsule[] => vs.filter((c) => c.part === part);
+/** LEAN-HIT: the idle sets' digest before the change, and the standing leans' head offsets, measured (below). */
+const IDLE_DIGEST = '4ab61bf4', STAND_R_HEAD_DX = 3.736285, STAND_L_HEAD_DX = -3.384332;
 
 describe('the placeholder stays the fallback', () => {
   it('bodyVolumes without skeleton volumes is placeholderVolumes', () => {
@@ -201,3 +203,129 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`Frostfire's SEAL hit volumes${MP2 &&
   });
 });
 
+// LEAN-HIT (issue #752; the scope's section 4; reading, pending review): the lean is a full-body clip held on its last
+// key (`FUN_0057d810` D:L440437-440510; research 86 s1, s4), and a round hits the actor's live skeleton nodes
+// (`FUN_005abbc0` D:L464672-464803, bound in `FUN_00553ea0` D:L419606-419652; research 91 s1.3): the hit body under a
+// held peek is the skeleton at the lean clip's held key (`LEAN_HIT_POSE_READING` 'held').
+describe.skipIf(!MP2 || !PACK || !READERC)(`LEAN-HIT: the hit body under the held lean${MP2 && PACK && READERC ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  let sim: SimSkeleton;
+  const get = async (): Promise<SimSkeleton> => {
+    if (!sim) {
+      const loaded = await loadSimSkeleton(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
+      if (!loaded) throw new Error('no skeleton');
+      sim = loaded;
+    }
+    return sim;
+  };
+  /** The `head` bone's capsule (DAMAGE_BONES' second HEAD: the bbox's own axis, centred on the bbox's middle). */
+  const headCap = (caps: readonly Capsule[]): Capsule => of(caps, PART.HEAD)[1]!;
+  /** A short, stable digest of a capsule set (FNV-1a over each number's float64 bytes): the byte-for-byte pin. */
+  const digest = (sets: readonly (readonly Capsule[])[]): string => {
+    let h = 0x811c9dc5;
+    const f = new Float64Array(1), b = new Uint8Array(f.buffer);
+    for (const caps of sets) for (const c of caps) for (const x of [c.part, ...c.a, ...c.b, c.r]) {
+      f[0] = x;
+      for (const y of b) h = Math.imul(h ^ y, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+
+  it('reads the six lean clips (`seal_<stance>2<l|r>lean`, the names `leanClip` gives)', async () => {
+    const s = await get();
+    for (const stance of ['stand', 'crouch', 'prone'] as const) {
+      expect(s.leans[stance].l?.name).toBe(`seal_${stance}2llean`);
+      expect(s.leans[stance].r?.name).toBe(`seal_${stance}2rlean`);
+    }
+  });
+
+  it("peek 0 is today's capsules, byte for byte (the idle sets' digest pinned before LEAN-HIT)", async () => {
+    const s = await get();
+    const v = stanceVolumes(s);
+    expect(digest([v.stand, v.crouch, v.prone])).toBe(IDLE_DIGEST);
+    for (const posture of ['stand', 'crouch', 'prone'] as const) {
+      expect(bodyVolumes(FEET, YAW, posture, v, null, 0)).toEqual(bodyVolumes(FEET, YAW, posture, v));
+    }
+  });
+
+  it("the standing right lean's head sits to the body's right of the idle's by the clip's held-key offset; the left to its left", async () => {
+    const s = await get();
+    const v = stanceVolumes(s);
+    const idle = centre(headCap(v.stand));
+    for (const [side, key] of [[1, 'r'], [-1, 'l']] as const) {
+      const clip = s.leans.stand[key]!;
+      const held = clip.frameCount - 1;
+      // The clip's own head displacement at its held key, read off the clip (the bone's bbox middle, posed).
+      const want = boneCentre(s.skeleton, clip, 'head', held)[0] - boneCentre(s.skeleton, s.idles.stand, 'head')[0];
+      const got = centre(headCap(v.lean!.stand[key]))[0] - idle[0];
+      console.log(`LEAN-HIT: standing ${key} lean head dx ${got.toFixed(6)} (clip ${want.toFixed(6)}), held key ${held}`);
+      expect(got).toBeCloseTo(want, 6);
+      expect(side * got).toBeGreaterThan(2);
+      expect(side * got).toBeLessThan(6);
+    }
+    expect(centre(headCap(v.lean!.stand.r))[0] - idle[0]).toBeCloseTo(STAND_R_HEAD_DX, 3);
+    expect(centre(headCap(v.lean!.stand.l))[0] - idle[0]).toBeCloseTo(STAND_L_HEAD_DX, 3);
+  });
+
+  it('crouch and prone each produce a lean set (13 capsules a side, not the idle), each capsule within 25% of its idle length and radius', async () => {
+    const s = await get();
+    const v = stanceVolumes(s);
+    const len = (c: Capsule): number => Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]);
+    for (const stance of ['stand', 'crouch', 'prone'] as const) {
+      for (const key of ['l', 'r'] as const) {
+        const lean = v.lean![stance][key];
+        expect(lean).toHaveLength(v[stance].length);
+        expect(lean).not.toEqual(v[stance]);
+        expect(v.leanPivot![stance][key]).toHaveLength(3);
+        lean.forEach((c, i) => {
+          const idle = v[stance][i]!;
+          expect(c.part).toBe(idle.part);
+          expect(Math.abs(c.r - idle.r), `${stance} ${key} ${i} radius`).toBeLessThanOrEqual(0.25 * idle.r + 1e-9);
+          expect(Math.abs(len(c) - len(idle)), `${stance} ${key} ${i} length`).toBeLessThanOrEqual(0.25 * Math.max(len(idle), 2 * idle.r) + 1e-9);
+        });
+      }
+    }
+  });
+
+  it('bodyVolumes: peek 1 places the right lean, -1 the left, at the feet and yaw; volumes without a lean set keep the idle', async () => {
+    const s = await get();
+    const v = stanceVolumes(s);
+    const placed = (caps: readonly Capsule[]): Capsule[] => bodyVolumes(FEET, YAW, 'stand', { stand: caps, crouch: v.crouch, prone: v.prone });
+    expect(bodyVolumes(FEET, YAW, 'stand', v, null, 1)).toEqual(placed(v.lean!.stand.r));
+    expect(bodyVolumes(FEET, YAW, 'stand', v, null, -1)).toEqual(placed(v.lean!.stand.l));
+    expect(bodyVolumes(FEET, YAW, 'stand', { stand: v.stand, crouch: v.crouch, prone: v.prone }, null, 1)).toEqual(placed(v.stand));
+    // A round from the front at the leaned head's height and its x: HEAD on the leaning body, not on the upright one.
+    const head = centre(headCap(v.lean!.stand.r));
+    const { o, d } = fromFront(head[0], head[1]);
+    expect(rayBody(o, d, 100, bodyVolumes(FEET, YAW, 'stand', v, null, 1))?.part).toBe(PART.HEAD);
+    expect(rayBody(o, d, 100, bodyVolumes(FEET, YAW, 'stand', v, null, 0))?.part ?? null).not.toBe(PART.HEAD);
+  });
+
+  it("A = B: the page's drawn body (the animator at the lean's held key) and the room's lean capsules put the head alike over the root", async () => {
+    const s = await get();
+    const page = await loadSimSkeleton(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
+    const table = motionTableFromArchive(READERC!)!;
+    const v = stanceVolumes(s);
+    const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    // The page's head over its posed root, drawn standing idle or in the lean's held key (the traversal seam
+    // `Traversal.pose` gives). Over the root: the animator zeroes the root's x and z (`FUN_0057a330`), `writePose` keeps
+    // the bind's.
+    const drawnHead = (clip: MotionClip | null): V3 => {
+      const anim = new Animator(page!.skeleton, [s.idles.stand!, ...(clip ? [clip] : [])], table, { random: () => 0 });
+      const snap: MoverSnapshot = { vx: 0, vz: 0, vy: 0, yaw: 0, airborne: false, crouched: false, landing: null, jumps: 0, stance: 'stand',
+        ground: { state: 'idle', forward: 0, right: 0, cls: -1 }, action: null,
+        traversal: clip ? { clip: clip.name, frame: clip.frameCount - 1, loop: false, rootY: null } : null };
+      for (let i = 0; i < 120; i++) anim.step(1 / 60, snap);
+      const p = page!.skeleton.part('head'), root = page!.skeleton.indexOf('skel_root');
+      const head = transformPoint(page!.skeleton.world[p.index]!, (p.bbox[0]! + p.bbox[3]!) / 2, (p.bbox[1]! + p.bbox[4]!) / 2, (p.bbox[2]! + p.bbox[5]!) / 2);
+      return sub(head, transformPoint(page!.skeleton.world[root]!, 0, 0, 0));
+    };
+    const gap = (a: V3, b: V3): number => Math.hypot(...sub(a, b));
+    // The idle's own page-to-room gap (the two posers' difference before any lean: the animator's blended locals).
+    const idleGap = gap(sub(centre(headCap(v.stand)), v.pivot!.stand), drawnHead(null));
+    for (const key of ['l', 'r'] as const) {
+      const drawn = drawnHead(s.leans.stand[key]!), room = sub(centre(headCap(v.lean!.stand[key])), v.leanPivot!.stand[key]);
+      console.log(`LEAN-HIT A = B: ${key} head over the root, page ${drawn.map((x) => x.toFixed(4)).join(', ')}; room ${room.map((x) => x.toFixed(4)).join(', ')}; gap ${gap(room, drawn).toFixed(4)} (idle ${idleGap.toFixed(4)})`);
+      expect(gap(room, drawn)).toBeLessThan(Math.min(0.1, idleGap));
+    }
+  });
+});

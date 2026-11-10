@@ -241,3 +241,28 @@ The example on this page passes every check, and the wiki's test fails if it eve
 - Try the pack: [Testing a pack locally](/guides/test-locally/).
 - Change the factor, add a rule, or read what else a rule can do in [Rules and limits](/rules-and-limits/).
 - Read the other kinds of pack, and what each can do today, in [Pack kinds](/kinds/).
+
+## For agents
+
+```json
+{
+  "page": "/guides/first-pack/",
+  "audience": [
+    "creators",
+    "agents"
+  ],
+  "summary": "A worked example: a small v2 rules pack from an empty folder through the rules file, its size and hash, the manifest, the store files and the zip to a passing check.",
+  "inputs": [
+    "an empty folder",
+    "a shell with sha256sum or PowerShell Get-FileHash"
+  ],
+  "outputs": [
+    "a rules pack zip that passes the check, to try in the Forge's local Play"
+  ],
+  "see_also": [
+    "/guides/test-locally/",
+    "/rules-and-limits/",
+    "/reference/manifest/"
+  ]
+}
+```

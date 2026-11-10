@@ -1,6 +1,7 @@
 import type { LoadedMap } from '../loadMap';
 import { findLadders } from '@s2u/scene';
 import { groundPolygons } from '../mover';
+import { under } from '../mapMeta';
 import { hostageCharactersOf } from './hostages';
 import { accessTemplates } from './placedAccess';
 import { doorTemplates } from './placedDoors';
@@ -17,7 +18,6 @@ export type CopyKind = 'door' | 'turret' | 'hostage' | 'ladder' | 'gate' | 'barr
 export type MapCensus = Record<CopyKind, number>;
 
 /** A map's doors, turrets and hostage characters (each character once). */
-const beneath = (path: string, root: string): boolean => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}=`);
 
 /**
  * A map's ladder props (the owner, 2026-11-06; a browser adaptation, FG.R2): a ladder is no object of the game's -- the
@@ -29,7 +29,7 @@ export function ladderPropsOf(map: Pick<LoadedMap, 'ground' | 'props'>): { model
   if (!map.ground) return [];
   const out: { model: string; height: number }[] = [];
   for (const l of findLadders(groundPolygons(map.ground))) {
-    const prop = map.props.find((p) => (p.paths ?? []).some((q) => beneath(l.path, q) || beneath(q, l.path)));
+    const prop = map.props.find((p) => (p.paths ?? []).some((q) => under(l.path, q) || under(q, l.path)));
     if (prop && !out.some((o) => o.model === prop.modelName)) out.push({ model: prop.modelName, height: Math.round(l.top - l.bottom) });
   }
   return out;

@@ -64,12 +64,15 @@ describe('SEGMENT-BODY bridge wedge: the segments meet the walls in the air alon
     // move across (`FUN_005483d0` D:L413602-413611; the height is the altitude's, `AIR_HEIGHT_READING`), and the carried velocity loses its part
     // into the face (D:L413588-413594). The body falls straight on from 0.5 short of the plane and lands there (was
     // the disc's 3.5: `BODY_RADIUS`, the port's stand-off).
+    // JUMP-AIR (`AIR_SEGMENT_DIRECTION_READING` 'velocity', research 80 s7): the records slant with the vertical speed on
+    // every tick, not only on the frame's ticks, so the first airborne tick's segments already cross the fin's front
+    // (three hits, the jam): the body falls straight on from where it started, 2.5 short (was 0.5, the crossing frame).
     const top = 20;
     const { w } = fallAt(top, 15, -2.5);
     expect(w.airborne).toBe(false);
     expect(w.state.y).toBeCloseTo(0, 6);
     expect(w.state.z).toBeLessThan(0);
-    expect(w.state.z).toBeCloseTo(-0.5, 3);
+    expect(w.state.z).toBeCloseTo(-2.5, 3);
   });
 
   it('a fin whose top is under the low line on both sides of the crossing is passed over: the segments start at the feet + step_height', () => {
@@ -150,10 +153,13 @@ describe.skipIf(!MP72)(`SEGMENT-BODY bridge wedge on Crossroads with terrorist_d
     // from in front over the slot, carries the body back -z through the fin's back -- a face crossed from behind, no hit
     // (research 281 s4.3) -- and it lands on the floor at 57.48 before the fin. Research 217 s2.8's "the original lands
     // there too" read the entry, not this push; owed the capture (research 213 s3 item 2, H94).
+    // JUMP-AIR (research 80 s7): the records slant with the fall on every tick, so dia's face and the fin's front put it
+    // out sooner and farther back -- it lands about z 1416.3 on a floor point 57.55 (was 57.48, nearer the fin); still
+    // over the fin's plane in the air first, and still before the fin.
     const { w, path } = fall(world());
     expect(path.some(([, , z]) => z > 1422.31)).toBe(true);        // over the fin's plane in the air
     expect(w.airborne).toBe(false);
-    expect(w.state.y).toBeCloseTo(57.48, 1);
+    expect(w.state.y).toBeCloseTo(57.55, 1);
     expect(w.state.z).toBeLessThan(1422.31);
   });
 

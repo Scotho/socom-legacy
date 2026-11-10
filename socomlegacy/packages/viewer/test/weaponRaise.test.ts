@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera, Scene } from 'three';
 import { GAME_FRAME_DT } from '@s2u/scene';
 import {
-  ACTION_PLANT_RAISE_READING, ease, RAISE_TIMES, ZERO_RAISE_TIMES, REMOTE_HAND_RAISE_READING, THROW_LAST_GRENADE_RAISE_READING, THROW_RIFLE_RAISE_READING,
-  throwReleaseOf, WeaponRaise,
+  ACTION_PLANT_RAISE_READING, ease, HELD_TRIGGER_ITEM_RAISE_READING, RAISE_CAPABILITY_GATE_READING, RAISE_TIMES, ZERO_RAISE_TIMES,
+  RaiseFeed, REMOTE_HAND_RAISE_READING, THROW_LAST_GRENADE_RAISE_READING, THROW_RIFLE_RAISE_READING, throwReleaseOf, WeaponRaise,
 } from '../src/weaponRaise';
 import { Play } from '../src/play';
 import { mountThrowables, type MatchThrowDeps } from '../src/matchThrow';
+import { mountFirearm, type MatchFirearm } from '../src/matchFirearm';
+import { FlyCamera } from '../src/camera';
+import { Hud } from '../src/hud';
+import { RemotePlayers } from '../src/remotePlayers';
+import { WalkMode } from '../src/walk';
 import { PlayerLoadout } from '../src/loadout';
 import type { HoldClip, PlaySnapshot } from '../src/mover';
 
@@ -390,6 +395,133 @@ describe("NU-8a B1 on the page's own kit: ./matchThrow feeds the raise (the take
   });
 });
 
+// ---- RAISE-HELD-FIRE (m02d): the trigger held with a hand grenade up -----------------------------------------------------
+
+/**
+ * RAISE-HELD-FIRE (m02d; `HELD_TRIGGER_ITEM_RAISE_READING`, reading, pending review): the controller's trigger is the pad's
+ * level whatever is in the hand (`FUN_00594cf0` D:L453543-453567), and the slot change leaves it (`FUN_005c4b10`; research
+ * 211 §10). A trigger held from before the take-up stays at edge 1, whose call `FUN_005dfe30(body)` (D:L453612-453613)
+ * the decompiler prints with no second argument: the ELF passes `$a1 = 1` (0x596128 `addiu $a1, $zero, 1`, kept through
+ * the edge-1 compare at 0x59612c to the call at 0x596298) -- so a held fire asks the rifle UP every update, the countdown
+ * reset. A fresh press with a hand grenade up (edge 2, the class 'y' with one left, `FUN_005bdb00`) is the wind-up's: the
+ * countdown reset, no request, the edge back to 0 (D:L453624-453660). Let go, the class 'y' lowers it at once (D2).
+ */
+describe('RAISE-HELD-FIRE (m02d): a hand grenade up with the trigger held (FUN_00594cf0 D:L453612-453613, D:L453624-453660)', () => {
+  const HELD_Y = { ...FIRING, grenade: true };
+
+  it('a hot rifle, the trigger held through the take-up: asked up every update, at 1 while held; let go, down at once', () => {
+    const r = new WeaponRaise();
+    frames(r, 12, FIRING);
+    expect(r.weight()).toBe(1);
+    const held = frames(r, Math.round(6 / DT), HELD_Y);                  // past the 5 s countdown: it is reset every update
+    expect(held.every((x) => x === 1)).toBe(true);
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 1, countdown: 5 });
+    expect(r.frame(DT, Y)).toBe(1);                                      // the let-go's edge 3: the countdown reset, no request
+    expect(r.stats().edge).toBe(3);
+    expect(r.frame(DT, Y)).toBeLessThan(1);                              // edge 0 with the class 'y': down at once (D2)
+    expect(r.stats()).toMatchObject({ state: 'down', moving: true });
+  });
+
+  it('a lowered rifle, the trigger held from before the take-up (edge 1): comes up in its 0.1 s, as the firearm\'s hold', () => {
+    const r = new WeaponRaise();
+    r.frame(DT, FIRING);                                                 // the firearm's press, the edge 2
+    r.frame(DT, HELD_Y);                                                 // the grenade up under the hold: the edge 1
+    expect(r.stats().edge).toBe(1);
+    const up = frames(r, 4, HELD_Y);
+    expect(up[0]).toBe(1);                                               // in 0.1 s: three game frames from a cleared envelope
+    expect(r.stats().state).toBe('up');
+  });
+
+  it("RED: a fresh press with a hand grenade up asks nothing (the wind-up's edge 2, D:L453624-453660): the edge back to 0, the countdown reset", () => {
+    const r = new WeaponRaise();
+    frames(r, 30, Y);
+    expect(r.weight()).toBe(0);
+    const w = frames(r, 20, HELD_Y);                                     // each update an edge-2 press: never edge 1
+    expect(w.every((x) => x === 0)).toBe(true);
+    expect(r.stats()).toMatchObject({ state: 'down', edge: 0, countdown: 5 });
+  });
+
+  it('names its readings: HELD_TRIGGER_ITEM_RAISE_READING, RAISE_CAPABILITY_GATE_READING', () => {
+    expect(HELD_TRIGGER_ITEM_RAISE_READING).toBe('up while held from before the take-up; a press with a grenade up asks nothing');
+    expect(RAISE_CAPABILITY_GATE_READING).toBe('taken as passed');
+  });
+});
+
+/**
+ * RAISE-HELD-FIRE (m02d): the page's assembly -- the throwables' part and the one firearm with its hands, as `./main` and
+ * `./matchMount` wire them (`./bombBlastShakeChain.test.ts`'s `page`): a real `grenade.select('M67')` under a held
+ * firearm trigger, the raise's feed the firearm's (`play.setWeaponInput`) and the throwables' (`play.setItemRaise`).
+ */
+function assembledRig() {
+  const c = document.createElement('canvas');
+  c.setPointerCapture = () => undefined;
+  c.releasePointerCapture = () => undefined;
+  c.hasPointerCapture = () => false;
+  const scene = new Scene();
+  const fly = new FlyCamera(c);
+  const walk = new WalkMode(fly);
+  const play = new Play();
+  const loadouts = new PlayerLoadout();
+  const camera = new PerspectiveCamera();
+  const s = snapshot();
+  vi.spyOn(walk, 'snapshot').mockImplementation(() => s);
+  vi.spyOn(walk, 'mode').mockReturnValue('walk');
+  vi.spyOn(walk, 'swapGate').mockReturnValue(true);
+  let firearm: MatchFirearm | null = null;
+  const throws = mountThrowables({
+    scene, walk, fly, play, loadouts, view: () => null, map: () => null, net: () => null, firearm: () => firearm!,
+    audio: { onAnimCallback: () => null, onFire: () => null, play: () => {} } as unknown as MatchThrowDeps['audio'],
+  });
+  firearm = mountFirearm({
+    scene, fly, walk, play, loadouts, remote: new RemotePlayers(scene), hud: new Hud(), view: () => null, map: () => null,
+    body: () => null, net: () => null, blocked: () => false, refreshFog: () => {}, hands: throws.hands(),
+  });
+  const fa = firearm;
+  const bodyWalk = { snapshot: () => s, view: () => 'third' as const };
+  /** The page's order: the firearm's frame, the throwables', then the body's. */
+  const frame = (): number => {
+    fa.fireFrame(DT, true);
+    throws.frame(DT); throws.poseFrame(DT);
+    play.frame(DT, bodyWalk, camera);
+    return play.weaponStats().raise.weight;
+  };
+  const run = (n: number): number[] => Array.from({ length: n }, frame);
+  return { throws, firearm: fa, play, run, dispose: () => { throws.dispose(); } };
+}
+
+describe('RAISE-HELD-FIRE (m02d) on the page\'s assembly: the M67 taken up under a held firearm trigger', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('RED: the rifle stays up while the trigger is held (edge 1 asks up), and lowers at once at the let-go', () => {
+    const p = assembledRig();
+    p.firearm.trigger(true);                                             // the firearm's own press
+    const up = p.run(12);
+    expect(up[11]).toBe(1);
+    expect(p.throws.grenade.select('M67')).toBe(true);                  // the take-up, R1 still down
+    expect(p.throws.grenade.stats().left).toBeGreaterThan(0);
+    const held = p.run(Math.round(6 / DT));
+    expect(held.every((x) => x === 1)).toBe(true);                      // was: lowered within two game frames
+    expect(p.play.weaponStats().raise.edge).toBe(1);
+    p.firearm.trigger(false);                                            // the let-go
+    const down = p.run(20);
+    expect(down[0]).toBe(1);                                             // the edge 3: no request
+    expect(down[1]).toBeLessThan(1);                                     // the edge 0, the class 'y': down at once
+    expect(down[19]).toBe(0);
+    p.dispose();
+  });
+
+  it('the trigger let go before the take-up: the M67 lowers the hot rifle at once (D2 from a real equip)', () => {
+    const p = assembledRig();
+    p.firearm.trigger(true); p.run(12); p.firearm.trigger(false); p.run(1);
+    expect(p.play.weaponStats().raise.weight).toBe(1);
+    expect(p.throws.grenade.select('M67')).toBe(true);
+    const down = p.run(20);
+    expect(down[0]).toBeLessThan(1);
+    expect(down[19]).toBe(0);
+    p.dispose();
+  });
+});
+
 /**
  * LATER 180 (research 215 s8.3): the turret's slot's zero times (`FUN_005dfff0`, the mount's take-up D:L412218) -- a lower
  * ends at once (`seal+0x116c` = 0.99 x `seal+0xeec` = 0, D:L494255) and a raise from it parks the envelope at 0
@@ -411,5 +543,202 @@ describe('LATER 180: the raise under the slot\'s times (FUN_005c4b10 D:L478849-4
     expect(r.weight()).toBe(0);
     r.setTimes(RAISE_TIMES);
     expect(frames(r, 10, FIRING).at(-1)).toBe(1);
+  });
+});
+
+/**
+ * ENEMY-RAISE ER-1 (SCOPE.md s3.4 tests 1-3 and 6; reading, pending review): the controller's `ctrl+0xc0` is the count of
+ * enemies the body's own perception has marked -- `FUN_005c9b30` zeroes it (D:L482090) and adds one for each record that
+ * passes the team-word, active, kind and mark tests (D:L482101-482132) -- and the player control asks the rifle UP while it
+ * is over 0, or in a scope (`FUN_00594cf0` D:L453088-453092); idle, a 1 re-arms the 5.0 s countdown and a 2 runs it down
+ * (D:L453568-453601). The port read `ctrl+0xc0` as the aim lane (`AIM_HOLDS_RAISE`, retired). While `DAT_003df1b0` is 0
+ * the player control returns at once (D:L453067-453070) and the count is not refreshed (D:L454091-454095): `gated`.
+ */
+describe('ENEMY-RAISE ER-1: the marked-enemy count holds the rifle up (FUN_00594cf0 D:L453088-453092, D:L453568-453601)', () => {
+  const ENEMY = { ...IDLE, enemies: 1 };
+  /** Frames until the state is first 'down' (its index), or -1 within `n`. */
+  const firstDown = (r: WeaponRaise, n: number, input: Parameters<WeaponRaise['frame']>[1]): number => {
+    for (let i = 0; i < n; i++) { r.frame(DT, input); if (r.stats().state === 'down') return i; }
+    return -1;
+  };
+
+  it('RED 1: a marked enemy with the trigger idle and no scope asks the rifle UP and re-arms the countdown to 5.0', () => {
+    const r = new WeaponRaise();
+    const up = frames(r, 4, ENEMY);
+    expect(up[2]).toBe(1);                                                // in 0.1 s: three game frames from a cleared envelope
+    expect(r.stats()).toMatchObject({ state: 'up', edge: 0, countdown: 5 });
+    const held = frames(r, Math.round(10 / DT), ENEMY);                   // past the 5 s countdown: re-armed every update
+    expect(held.every((w) => w === 1)).toBe(true);
+    expect(r.stats()).toMatchObject({ state: 'up', countdown: 5 });
+  });
+
+  it('RED 2: the hold -- the count back to 0, the rifle stays up 5.0 s (within one game frame), then DOWN over its 0.5 s out', () => {
+    const r = new WeaponRaise();
+    frames(r, 10, ENEMY);
+    const at = firstDown(r, 400, IDLE);
+    expect(at).toBe(Math.ceil(LOWER_DELAY_S / DT) - 1);                   // the 150th update: 5.005 s (the pilot trace: idle -0.005)
+    expect(Math.abs((at + 1) * DT - LOWER_DELAY_S)).toBeLessThan(DT);
+    const out = frames(r, Math.ceil(0.5 / DT) + 1, IDLE);
+    expect(out[Math.floor(0.5 / DT) - 2]).toBeGreaterThan(0);            // still falling just short of 0.5 s
+    expect(out.at(-1)).toBe(0);                                           // out by 0.5 s (0.99 x 0.5 from full, D:L494250-494255)
+  });
+
+  it('RED 3: the hand grenade (class y) up forces DOWN even with an enemy marked (D:L453598)', () => {
+    const r = new WeaponRaise();
+    frames(r, 10, ENEMY);
+    expect(r.weight()).toBe(1);
+    expect(r.frame(DT, { ...ENEMY, grenade: true })).toBeLessThan(1);     // down at once, the countdown skipped
+    expect(r.stats()).toMatchObject({ state: 'down', moving: true });
+    const w = frames(r, 30, { ...ENEMY, grenade: true });
+    expect(w.at(-1)).toBe(0);
+  });
+
+  it('RED 6: the gate (DAT_003df1b0 0) -- no request, no countdown and no edge while gated; the lower 5.0 s of ungated time after it reopens', () => {
+    const r = new WeaponRaise();
+    frames(r, 10, ENEMY);
+    expect(r.stats()).toMatchObject({ state: 'up', countdown: 5 });
+    const gated = frames(r, Math.round(10 / DT), { ...ENEMY, gated: true });
+    expect(gated.every((w) => w === 1)).toBe(true);
+    expect(r.stats()).toMatchObject({ state: 'up', countdown: 5, edge: 0 });
+    frames(r, Math.round(10 / DT), { ...IDLE, gated: true });              // the stale count gone under the gate: still frozen
+    expect(r.stats()).toMatchObject({ state: 'up', countdown: 5 });
+    const at = firstDown(r, 400, IDLE);                                   // reopened with no enemy: not at once, not held
+    expect(at).toBe(Math.ceil(LOWER_DELAY_S / DT) - 1);
+    frames(r, 30, IDLE);
+    expect(r.weight()).toBe(0);
+    // a lowered rifle: a gated frame with an enemy counted does not raise it (D:L453067-453070, D:L454091-454093)
+    const still = frames(r, 30, { ...ENEMY, gated: true });
+    expect(still.every((w) => w === 0)).toBe(true);
+    expect(r.stats().state).toBe('down');
+    // nor does a trigger under the gate move the edge
+    frames(r, 5, { ...FIRING, gated: true });
+    expect(r.stats()).toMatchObject({ state: 'down', edge: 0 });
+    expect(frames(r, 4, ENEMY)[2]).toBe(1);                               // ungated, the count raises it again
+  });
+
+  // ER-1 gated raise (the second reader's finding, the level-3 round on the shadow PC, 2026-11-10; reading, pending
+  // review): the raise tick `FUN_005dfc80` runs only under `+0x417` bit 6 (D:L418531, D:L418611), which the body runner
+  // stores from the controller's tick (vtable +0xc, `FUN_00594cf0`; D:L418526-418527) -- and that returns 0 while
+  // `DAT_003df1b0` is 0 (D:L453067-453070, D:L453735). So a gated frame holds the envelope where it stands.
+  it('RED 8: a gated frame holds the envelope mid-motion -- the raise tick does not run (D:L418526-418531, D:L418611)', () => {
+    const r = new WeaponRaise();
+    const w0 = r.frame(DT, ENEMY);                                        // one game frame of the raise from cleared
+    expect(w0).toBeGreaterThan(0);
+    expect(w0).toBeLessThan(1);
+    expect(r.stats()).toMatchObject({ state: 'up', moving: true });
+    const held = frames(r, 10, { ...ENEMY, gated: true });
+    expect(held.every((w) => w === w0)).toBe(true);                       // was: advanced to 1 under the gate
+    expect(r.stats()).toMatchObject({ state: 'up', moving: true });
+    expect(frames(r, 4, ENEMY).at(-1)).toBe(1);                           // ungated, it resumes from where it stood
+    // the lower too: a falling envelope stands under the gate
+    frames(r, Math.ceil(LOWER_DELAY_S / DT) + 1, IDLE);
+    expect(r.stats()).toMatchObject({ state: 'down', moving: true });
+    const d0 = r.weight();
+    expect(d0).toBeGreaterThan(0);
+    expect(d0).toBeLessThan(1);
+    expect(frames(r, 10, { ...IDLE, gated: true }).every((w) => w === d0)).toBe(true);
+  });
+
+  it('the scope alone still holds it (the other half of D:L453088-453092), and the held trigger with a grenade up (m02d) is unchanged by the count', () => {
+    const r = new WeaponRaise();
+    expect(frames(r, Math.round(6 / DT), { ...IDLE, aiming: true }).at(-1)).toBe(1);
+    expect(r.stats().countdown).toBe(5);
+    const g = new WeaponRaise();
+    g.frame(DT, FIRING);
+    const held = frames(g, Math.round(6 / DT), { ...FIRING, grenade: true, enemies: 0 });
+    expect(held.at(-1)).toBe(1);
+    expect(g.stats().edge).toBe(1);
+  });
+
+  it('names its readings: RAISE_GATE_READING; AIM_HOLDS_RAISE retired', async () => {
+    const m = await import('../src/weaponRaise') as Record<string, unknown>;
+    expect(m.RAISE_GATE_READING).toBe('the page\'s round screens; the original\'s screens unread');
+    expect('AIM_HOLDS_RAISE' in m).toBe(false);
+  });
+
+  it("RED (the review F1): names the raise tail's other exits -- the mode word, FUN_005966a0, r0004's online freeze -- through which the port raises anyway", async () => {
+    const m = await import('../src/weaponRaise') as Record<string, unknown>;
+    expect(m.RAISE_TAIL_EXITS_READING).toEqual({
+      modeWord: 'DAT_0043668c+4 at 1 or 2 (D:L453064): not modelled, the port raises',
+      exit005966a0: 'FUN_005966a0 answers non-zero (D:L453172): not modelled, the port raises',
+      r0004Freeze: 'online, net+0x10e == 0 or net+0x100 < net+0x108 (0x32a220): not modelled, the port raises',
+    });
+  });
+});
+
+/** `FUN_00598280` D:L454808-454809: the idle countdown's 5.0 s (`LOWER_DELAY.base`, no spread). */
+const LOWER_DELAY_S = 5;
+
+/**
+ * ENEMY-RAISE ER-2 (SCOPE.md s3.4 tests 10-12; reading, pending review): another console's copy takes its owner's raise
+ * state off the wire -- the owner packs `FUN_005e0010` (`body+0xf74 & 0xef`, 1 up or 2 down; D:L494306-494309) into the
+ * player record's byte +0x7e every frame (`FUN_002bd640` D:L161978, under the multiplayer flag D:L161921) and the copy's
+ * `FUN_002be150` replays it as a request, `FUN_005dfe30(copy, byte)` (D:L162310-162312); the copy runs its own envelope
+ * (`FUN_005dfc80`, 0.1 s in, 0.5 s out). The port's wire: protocol 14's `BodyFlag.Raised`, `RaiseInput.raised` here.
+ */
+describe("ER-2: a copy replays its owner's raise state (BodyFlag.Raised -> RaiseInput.raised)", () => {
+  /** A copy's Play (`./remotePlayers`' feed): the wire's trigger and aim, and the owner's raise state. */
+  function copyRig() {
+    const play = new Play();
+    const camera = new PerspectiveCamera();
+    const s = snapshot();
+    const walk = { snapshot: () => s, view: () => 'third' as const };
+    const input: { trigger: boolean; aiming: boolean; raised?: boolean } = { trigger: false, aiming: false, raised: false };
+    play.setWeaponInput(() => ({ ...input }));
+    const frame = (): number => { play.frame(DT, walk as never, camera); return play.weaponStats().raise.weight; };
+    const run = (n: number): number[] => Array.from({ length: n }, frame);
+    return { play, input, run };
+  }
+
+  it('RED 10 (grenade-equip report 1): a hot copy whose owner takes up a hand grenade (Raised falls) starts its lower on that snapshot, 0 in 0.5 s', () => {
+    const r = copyRig();
+    r.input.raised = true; r.input.trigger = true; r.run(12);            // hot: the owner firing, its state up
+    r.input.trigger = false; r.run(1);
+    expect(r.play.weaponStats().raise.weight).toBe(1);
+    r.input.raised = false;                                              // the owner's class 'y' lower at the take-up (D:L453598)
+    const w = r.run(Math.ceil(0.5 / DT) + 1);
+    expect(w[0]).toBeLessThan(1);                                        // falling on the snapshot that carries it
+    expect(w.at(-1)).toBe(0);                                            // out in 0.5 s (`FUN_005dffc0`), not the 5 s countdown
+    expect(r.run(Math.round(5 / DT)).every((x) => x === 0)).toBe(true);
+  });
+
+  it('RED 11: a copy whose owner is up with no trigger and no aim (its enemy count) raises in 0.1 s and stays up while the owner does', () => {
+    const r = copyRig();
+    r.run(5);
+    r.input.raised = true;
+    const w = r.run(Math.ceil(0.1 / DT) + 1);
+    expect(w[0]).toBeGreaterThan(0);
+    expect(w.at(-1)).toBe(1);
+    expect(r.run(Math.round(10 / DT)).every((x) => x === 1)).toBe(true);   // the owner's state, not the copy's countdown
+    r.input.trigger = true; r.input.raised = false;                       // the state decides, not the replicated trigger
+    expect(r.run(Math.ceil(0.5 / DT) + 1).at(-1)).toBe(0);
+  });
+
+  it("RED 12 (LATER 584): an owner's one-tick trigger tap shows as Raised on the copy for at least the owner's 5.0 s countdown", () => {
+    // The owner's page: commands at 60 Hz (each carrying its raise state, `stats().state`), the tap on one odd tick; the
+    // room's snapshots at 30 Hz carry the last command's bit and trigger -- the even ticks', which never hold the tap.
+    const owner = new WeaponRaise(), copy = new WeaponRaise(), feed = new RaiseFeed();
+    const seen: { raised: boolean; weight: number }[] = [];
+    for (let tick = 0; tick < 7 * 60; tick++) {
+      const trigger = tick === 61;
+      owner.frame(1 / 60, { trigger, aiming: false });
+      const raised = owner.stats().state === 'up';
+      if (tick % 2 !== 0) continue;                                       // a snapshot on the even ticks (SNAPSHOT_HZ 30)
+      const weight = copy.frame(1 / 30, feed.input(snapshot(), false, { trigger, aiming: false, raised }, null));
+      seen.push({ raised, weight });
+    }
+    const up = seen.filter((s) => s.raised).length;
+    expect(up / 30).toBeGreaterThanOrEqual(LOWER_DELAY_S - 0.1);         // the owner's countdown, every snapshot in it
+    expect(Math.max(...seen.map((s) => s.weight))).toBe(1);               // the copy raised: was never, the tap unsampled
+    const full = seen.filter((s) => s.weight === 1).length / 30;
+    expect(full).toBeGreaterThanOrEqual(LOWER_DELAY_S - 0.2);
+  });
+
+  it('a body with no raise field (a replay before protocol 14) keeps the inference: the trigger and aim alone, REMOTE_HAND_RAISE_READING', () => {
+    const r = copyRig();
+    delete r.input.raised;
+    r.input.trigger = true; r.run(12); r.input.trigger = false; r.run(1);
+    expect(r.play.weaponStats().raise.weight).toBe(1);
+    expect(r.run(Math.round(4 / DT)).every((x) => x === 1)).toBe(true);  // the copy's own countdown holds it
   });
 });

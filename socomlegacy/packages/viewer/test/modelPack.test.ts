@@ -346,9 +346,14 @@ describe('the test-room gate', () => {
     walk(src);
     // R6 (the Forge batch, item 3): forge/page.ts draws a pack piece's GLB through `parseGlb` (the same outside-URI refusal
     // and visual limits), by a dynamic import, and installs no global model (checked below).
-    expect(hits).toEqual(['forge/page.ts', 'main.ts', 'packs/registry.ts', 'testroom/agent/packs.ts']);
+    // FP-6 item 5: testroomContent.ts draws an authored map's pack props in the test room the same way, and installs none.
+    expect(hits).toEqual(['forge/page.ts', 'main.ts', 'packs/registry.ts', 'testroom/agent/packs.ts', 'testroomContent.ts']);
     const forgePage = readFileSync(join(src, 'forge/page.ts'), 'utf8');
     expect(forgePage).toMatch(/await import\('\.\.\/modelPackRuntime'\)\)\.parseGlb\(/);
+    const roomContent = readFileSync(join(src, 'testroomContent.ts'), 'utf8');
+    expect(roomContent).toMatch(/await import\('\.\/modelPackRuntime'\)\)\.parseGlb\(/);
+    expect(roomContent).not.toMatch(/^import[^;]*modelPackRuntime/m);
+    expect(roomContent).not.toMatch(/\b(?:installModelPack|setModelVisualSource|clearModelPack|keepModelPack|applyEntries)\s*\(/);
     expect(forgePage).not.toMatch(/\b(?:installModelPack|setModelVisualSource|clearModelPack|keepModelPack|applyEntries)\s*\(/);
     const facade = readFileSync(join(src, 'agent/localPacks.ts'), 'utf8');
     expect(facade).toContain('createPackRegistry');
@@ -1276,10 +1281,10 @@ describe('the panel\'s work, in order (#410 F3)', () => {
     expect(log).toEqual(['cleared']);
   });
 
-  it('the panel\'s three imports go through `importing`, none retained bare (LATER 309)', () => {
+  it('the section imports nothing since B206 ML-7 (MODS is the loader), and retains nothing bare (LATER 309)', () => {
     const text = readFileSync(resolve(src, 'modelPackRuntime.ts'), 'utf8');
     const panel = text.slice(text.indexOf('export async function mountModelPack('), text.indexOf('export function packWorkQueue('));
-    expect(panel.match(/queue\.importing\(/g)?.length).toBe(3);
+    expect(panel).not.toMatch(/queue\.importing\(|showDirectoryPicker|type = 'file'/);
     expect(panel).not.toMatch(/\bretain\(/);
   });
 });

@@ -32,6 +32,12 @@ import { Play, type PlayClips } from '../play';
 import { createRenderer, type ViewerRenderer } from '../renderer';
 import { visualPostSeams, type VisualPostSeams } from '../visualPostSeam';
 import { createExtensionHost, type ExtensionHost } from '../packs/systems/host';
+import { PackApplier, collectOnHint, pageHintFlags, pageTextureChoice } from '../packs/pagePacks';
+import { PackApplyOverlay, pagePlayLive } from '../packApplyOverlay';
+import { ApplyFrames, FORGE_MATCH_TEXTURE_SCOPE, hdTextures, rendererUploader } from '../hdTexturePack';
+import { HdServedPack, lazyHdPackDecoders } from '../hdTexturePackServed';
+import { pageHdStore } from '../hdTexturePackStore';
+import { gxApplyProgress, pageGxPacks, type TexturePackTarget } from '../texturePackRuntime';
 import { visualTintHandler } from '../packs/systems/visualTint';
 import { bodyForTeam } from '../teamBody';
 import { groundGrid, WalkMode } from '../walk';
@@ -59,7 +65,8 @@ import type { AssetDefinition } from '../packs/content/assets';
 import { CONTENT_METRES_PER_UNIT_ADAPTATION, contentPieceHull, type ContentResolver } from '../packs/content/collision';
 import type { ContentLoadStage } from '../packs/content/map';
 import { FORGE_PANELS_KEY, FORGE_VIEW_KEY, pageIndexedDb, pageSettings } from '../pageStore';
-import { decodeHistoryStep, encodeHistoryStep, History, historyCaption, recordEdit, redoMeta, undoMeta } from './history';
+import { agentChangedRefs, agentStepCount, decodeHistoryStep, encodeHistoryStep, History, historyCaption, recordEdit, redoMeta, undoAgentRun, undoMeta, undoWhile,
+  type AgentRunUndo, type HistoryMeta } from './history';
 import { doorsAfter, groundWithout, linesWithout, placementOf, placementsOf, propsWithout, type Placement } from './hide';
 import { FORGE_MATCHING_CLASS } from './matchState';
 import { contentPropsGroup, lobbyArmoryData, matchExtras, startForgeLobbyMatch, startForgeMatch, type ForgeMatch } from './match';
@@ -71,8 +78,9 @@ import {
   handOnLobby, kickSeat, openLobbySocket, setListed, setPassword,
 } from './lobbyClient';
 import { defaultLobbyName, forgetStaleHost, joinLockedLobby, leaveLobbyInOrder, lobbyHostProof, lobbyMenuItems, lobbyPasswordField, lobbySocketOf, lobbyVisibilityToggle, typingTarget, type LobbyHostProof } from './lobbyPage';
-import { BLANK_LIBRARY, blankLibraryMap, composeMatchMap, floorMesh, withSettings } from './matchMap';
-import { openingStand, randomStand, standFromHere } from './playFromHere';
+import { BLANK_LIBRARY, blankLibraryMap, floorMesh } from './matchMap';
+import { mapStill } from './mapStills';
+import { openingStand, randomStand, standFromHere, walkFeet } from './playFromHere';
 import { checkMap, type CheckedPiece, type MapCheck } from './validate';
 import { npcsThatFit, playerSideOf } from './npcs';
 import { TRAVERSAL_CLIPS } from '../traversal';
@@ -89,27 +97,27 @@ import {
 import { matchBackWords, menuCard, placeMenuCard } from './menuView';
 import { hullSegments } from './hull';
 import {
-  assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
+  archiveStem, assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
   serializeLayout, settingsOf, withIds, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
   type NpcBehaviour, BOMB_SITE_REACH, } from './layout';
-import { blankFloorOf, breachReady, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
+import { blankFloorOf, bombMarkerPlaysIn, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
 import { censusOfCopies, censusOptions, copiesOf, DEFAULT_LADDER, ladderPropsOf, type CopyKind, type MapCensus, type MapCopies } from './mapCensus';
 import { turnFacade } from '../facade';
-import { flareModelMap, flareTemplates, withPlacedFlares, type FlareTemplate } from './placedFlares';
-import { SITE_OUTLINE_DONOR, withSiteOutlines } from './siteOutlines';
+import { flareModelMap, flareTemplates, type FlareTemplate } from './placedFlares';
+import { SITE_OUTLINE_DONOR } from './siteOutlines';
 import { skyDomeFor } from './skyDome';
+import { composeLayoutFinish, composeLayoutObjects, layoutOwnSites } from './composeLayout';
 import { environmentOf } from './environmentCopy';
 import { BLANK_PRESETS, blankPresetOf, presetLayout, type PresetHostage } from './blankPresets';
-import { hostageCharactersOf, hostagesPlayIn, withLentHostageBodies, hostageDefault, nextHostageName } from './hostages';
+import { hostageCharactersOf, hostagesLeftNotes, hostagesPlayIn, hostageDefault, nextHostageName } from './hostages';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from './extractionZones';
 import { floorAiMaps } from './floorAi';
-import { nextNavName, nextViewName, withPlacedPoints, withPlacedViews } from './placedPoints';
-import { turretModelMap, turretMove, turretTemplates, withPlacedTurrets, type TurretTemplate } from './turrets';
+import { nextNavName, nextViewName } from './placedPoints';
+import { turretModelMap, turretMove, turretTemplates, type TurretTemplate } from './turrets';
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from './agent/commands';
-import { accessGizmo, accessModelMap, accessMove, accessTemplates, withPlacedAccess, type AccessTemplate } from './placedAccess';
-import { doorModelMap, doorMove, doorTemplates, withPlacedDoors, type DoorTemplate } from './placedDoors';
+import { accessGizmo, accessModelMap, accessMove, accessTemplates, type AccessTemplate } from './placedAccess';
+import { doorModelMap, doorMove, doorTemplates, type DoorTemplate } from './placedDoors';
 import { BARRIER_GUIDE_COLOUR, BOMB_SITE_GUIDE_COLOUR, bombSiteShapes, DOOR_SWING_COLOUR, GATE_GUIDE_COLOUR, guideGroup, HOSTAGE_GUIDE_COLOUR, keepWorldTurn, VIEW_GUIDE_COLOUR, viewShapes, yawWay, LADDER_CLIMB_COLOUR, TURRET_GUIDE_COLOUR, turretShapes, ladderSegments, ladderTriangles, swingOf, swingSegments, swingTriangles } from './interactOverlay';
-import { playObjectives } from './playObjectives';
 import {
   contentAssetKey, contentBaseRef, missingPackRefs, onlineRecordRefusal, readContentMapDefinition, type ContentLayoutBase, type ContentMapDefinition,
   type ContentRef, type InstalledRulesPack, type PackRef, type RecordMode,
@@ -126,8 +134,10 @@ import { createStatusChips, FORGE_CHIP_ORDER, issuesChip, lobbyChip, modeChip, s
 import { padActuator } from '../rumble';
 import { CARD_SAFE_ATTR, createCardStack, type CardHandle } from './shell/cards';
 import { PAD_FOCUS_INPUT } from './shell/padFocus';
+import { holdEarlyPresses } from './shell/earlyPress';
 import { agentModeOf, FORGE_REFUSALS, forgeEditRefusal, forgeSurfaceState, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
+import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
 import { scrubAllNumbers, type ScrubDetail } from './scrub';
 import { buildOutliner, outlinerPanel, spawnSlotRows } from './panels/outlinerPanel';
 import { mapDataGroups, type MapDataSource } from './mapData';
@@ -139,8 +149,11 @@ import {
   billboardRows, billboardSpecs, MAP_DATA_KIND_TOGGLES, MAP_DATA_MARKS, MapDataBillboards, placementOfMark, propMarkKey, userMarkKind,
   type BillboardSpec, type PropMark, type UserMark,
 } from './mapDataBillboards';
-import { buildDetailDistance, detailDistanceMenuItem, VIEW_MENU_ROWS, viewMenuSection, type DetailDistanceHooks } from './panels/viewPanel';
+import { buildDetailDistance, buildRenderScale, detailDistanceMenuItem, renderScaleMenuItem, VIEW_MENU_ROWS, viewMenuSection, type DetailDistanceHooks, type RenderScaleHooks } from './panels/viewPanel';
 import { detailDistanceFor, detailDistanceKeeper } from '../detailDistance';
+import { AdaptiveRatio, pixelRatioCap, type RatioTarget } from '../matchViewport';
+import { wantsTouchControls } from '../touch';
+import { renderCapFor, videoSettingsKeeper } from '../videoSettings';
 import { buildSettings, drawCustomModes, formatSetting, MODE_OPTION_PREFIX, modeOptionValue, settingsPanel } from './panels/settingsPanel';
 import { freshEntityId, rulesPanel, RULES_ENTITY_WORD, RULES_PLACE_DEFAULTS_ADAPTATION, type RulesEntityKind } from './panels/rulesPanel';
 import { canvasLabel, createRulesGizmos } from './rulesGizmos';
@@ -158,6 +171,8 @@ import { ForgeSaves, SavesStore } from './savesStore';
 import { bootChoice, ownLayoutOnReturn } from './boot';
 import { cameraFlush, cameraFrame, settleState } from './cameraSettle';
 import { savesCard } from './savesPanel';
+import { CUSTOM_MAPS_GROUP, CUSTOM_VALUE_PREFIX, SAVE_VALUE_PREFIX, customMapRows, customRowLabel, customRowSentence, type CustomMapRow } from './customMaps';
+import { customMapRequires, type CustomMapRecord } from '../packs/customMaps';
 import { codeFromLocation, decodeShare, shareOffer } from './share';
 import {
   boundSetting, brightenFor, fogOfSlider, fogWithFar, matchBrightenOf, roomOptionsOf, settingsDelta, sliderOfFog, stepSetting,
@@ -165,7 +180,7 @@ import {
 } from './settings';
 import { palette, type PaletteEntry } from './library';
 import { standingPose } from './figure';
-import { FORGE_TOOL_ORDER, forgeKeyAction, forgeLeaseExit, forgeToolKeyLabel, type ForgeKeyState } from './keys';
+import { FORGE_TOOL_ORDER, forgeKeyAction, forgeLeaseExit, forgeToolKeyHelp, forgeToolKeyLabel, type ForgeKeyState } from './keys';
 import { servedTreeFallsBackToDisc } from './servedFallback';
 import {
   blockPiece, bombMarker, disposeGhost, extractionZoneMarker, hostageMarker, pointMarker, respawnMarker, zoneOutlines, FORGE_BLOCK, forgeRootOf, ghostOf, missingPiece, npcMarker, PieceLibrary, setSlotCellsShown, spawnMarker, type BombMarkerKind,
@@ -478,6 +493,20 @@ export interface ForgeContentSource {
   asset(ref: ContentRef): AssetDefinition | null;
   member(pack: PackRef, path: string): Uint8Array | null | Promise<Uint8Array | null>;
   map(ref: ContentRef): unknown;
+  /**
+   * FP-6 item 1 (FP.R4): the installed packs' content maps, each by reference with its own name (FP-5's
+   * `RegistryContentSource.mapIndex`), for the base list's Custom Maps group. Absent: none.
+   */
+  mapIndex?(): readonly { ref: ContentRef; name: string }[];
+  /** FP-6 item 1 (FP.R12): the custom maps MODS keeps (`../packs/customMaps`), each a read-only base. Absent: none. */
+  customMaps?(): readonly CustomMapRecord[];
+  /**
+   * FP-6 (the coordinator's FP-5 fold note): settles once each pack's JSON members (its asset definitions) are read
+   * (FP-5's `RegistryContentSource.ready`, its list form since 237de657d). The page awaits it with every pack a chosen
+   * custom base or save requires before it builds the pieces, so a pack piece is never a stand-in only because its
+   * definition was not read yet. Absent: nothing to wait for.
+   */
+  ready?(packs: PackRef | readonly PackRef[]): Promise<void>;
 }
 /**
  * R6: the page's content source until the registry publishes its members -- FCW-06's `LocalPackApi` (`../packs/registry`)
@@ -600,6 +629,9 @@ export function newLayoutDropWords(pieces: number, rules: boolean, entities: num
     : 'The pieces, rules, zones, markers and spawners now in the layout are dropped.';
   return `${dropped} Save first to keep them.`;
 }
+
+/** Each tool's name as the page says it (the status line, the pad's pop, the help card's key rows: `forgeToolKeyHelp`). */
+const TOOL_NAMES: Record<Mode, string> = { select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', gate: 'Gate', barrier: 'C4 barrier', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
 
 export async function mountForge(doc: Document = document, options?: MountForgeOptions): Promise<ForgeShell> {
   const held: { shell?: ForgeShell } = {};
@@ -724,6 +756,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const moveBtn = tool('move', 'Move', `Move with the gizmo${key('W')}`);
   const turnBtn = tool('turn', 'Rotate', `Rotate with the gizmo${key('E')}`);
   const scaleBtn = tool('scale', 'Scale', `Scale with the gizmo (not wired yet)${key('R')}`);
+  scaleBtn.hidden = FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION;    // FC-1: a stub, hidden (`./transformStubs`)
   // Snap left the toolbar: the viewport's snap settings hold it (`drawPlacement`); G and the pad's L3 still turn it on and off.
   const dupBtn = tool('copy', '', `Duplicate · pad □${key('C')}`);
   const delBtn = tool('trash', '', `Delete · pad △${key('Del')}`);
@@ -933,6 +966,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // the front end's launcher Options' too -- beside the PS2 picture switch; the PS2 picture draws the original's (1).
   const detailDistance = detailDistanceKeeper();
   const detailHooks: DetailDistanceHooks = { value: () => detailDistance.get(), step: (d) => detailDistance.step(d), ps2: () => view.ps2 };
+  // FP-2 (FP.R5; a browser adaptation, FG.R2): the render scale -- the page's one stored video setting (`../videoSettings`,
+  // CPS.R7), the launcher's and VIDEO OPTIONS' too; no Forge-only setting -- beside the detail distance, on its shape.
+  const videoSettings = videoSettingsKeeper();
+  const renderScaleHooks: RenderScaleHooks = { value: () => videoSettings.get().renderScale, step: (d) => videoSettings.step(d), ps2: () => view.ps2 };
   // FG-24 (FG.R18; an adaptation, no original): the layout's map settings -- the light and the fog applied live, the
   // room's options at Play; each change an edit of the layout (saved, undone and redone with it).
   const settingsDom = buildSettings(doc);
@@ -993,6 +1030,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       viewport: () => viewport,
       projectDrop: (x, y) => (shellEditor ? shellEditor.projectDrop(x, y) : { reason: FORGE_REFUSALS.busy }),
       sourceIdentity: (asset) => (shellEditor ? shellEditor.sourceIdentity(asset) : null),
+      // AX-15: the agent's changes, undone through the page's own undo (`restore`), and read off the history.
+      undoAgentRun: (sessionId) => undoAgentRunNow(sessionId),
+      undoWhile: (match) => undoWhileNow(match),
+      historyTop: () => undoMeta(history),
+      agentStepCount: (sessionId) => agentStepCount(history, sessionId),
+      agentChangedRefs: (sessionId) => agentChangedRefs(history, sessionId),
     },
     // R6 (the UI seat's palette seam to dot, 2026-10-25 17:23Z / 17:24Z): the page's palette, the page's state throughout.
     palette: {
@@ -1165,6 +1208,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const viewportDetailDom = buildDetailDistance(doc, detailHooks, (value) => detailDistance.set(value));
   viewportDetailDom.row.classList.add('fx-viewport-mode');
   viewportModesList.append(viewportDetailDom.row);
+  const viewportRenderScaleDom = buildRenderScale(doc, renderScaleHooks, (renderScale) => videoSettings.set({ renderScale }));   // FP-2
+  viewportRenderScaleDom.row.classList.add('fx-viewport-mode');
+  viewportModesList.append(viewportRenderScaleDom.row);
   const snapSettings = doc.createElement('details');
   snapSettings.className = 'fx-viewport-snap';
   const snapSettingsSummary = doc.createElement('summary');
@@ -1722,8 +1768,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ['W A S D &#xb7; Q / E', 'Fly / move down or up while holding RMB'], ['Shift / Ctrl', 'Move 2x faster / stop while flying'],
       ['R / F', 'Move up / down in camera space while holding RMB'],
       ['Z / C', 'Widen / narrow the view while holding RMB'], ['Esc', 'Release the mouse lock'],
-      ['1-8', 'Tools: select, place, spawn A, spawn B, NPC, bomb start, the two plant sites'],
-      ['W / E / R / G', 'Move / rotate / scale / snap'], ['C / Del', 'Duplicate / delete'], ['[ / ]', 'Previous / next prop (a character with the NPC tool)'], [', / .', 'Turn the selection by the turn step'],
+      ...forgeToolKeyHelp((t) => TOOL_NAMES[t]),                // FP-1b: the keys' real order, never a literal list
+      FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION ? ['W / E / G', 'Move / rotate / snap'] : ['W / E / R / G', 'Move / rotate / scale / snap'], ['C / Del', 'Duplicate / delete'], ['[ / ]', 'Previous / next prop (a character with the NPC tool)'], [', / .', 'Turn the selection by the turn step'],
       ['M', 'The forge menu (arrows, Enter, Esc)'], ['Ctrl+C / Ctrl+V', 'Copy / paste the selection at the cursor'], ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['F / H / P / V', 'Frame / docks / play / walk'],
       ['Walking', 'W A S D &#xb7; mouse &#xb7; Space jump &#xb7; C stance &#xb7; X doors &#xb7; V, P or Esc back'], ['In the match', 'The controller (the keyboard is not the match&#x2019;s)'],
     ])}</div><footer><button type="button" class="fx-tool fx-primary">Close</button></footer>`;
@@ -1880,6 +1926,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     modeSection('Other', 'other', group(modeBtns.npc)),
   );
   doc.body.append(top, toolsRow, left, right, topDock, bottomDock, centerDock, dockGuides, statusBar, checkSheet, modal, help, workspaceDock, selectSettings, playSettings);
+  /*
+   * The early tap (product track, a browser adaptation with no original; shadow's GPU trace at 1da70bdac): the shell is on
+   * the page from here while the renderer starts below (WebGPU's start, slow on a real GPU), its listeners wired only
+   * after it. A press on the toolbar meanwhile is held and pressed once the page is wired (`./shell/earlyPress`; help and
+   * reset-layout are wired already), and the controls that act on the scene -- the placing tools, the viewport, the
+   * modes, the edits, Walk, Check, Create lobby, Save map and Play -- are inert until then. Open too: its press opens the
+   * file chooser, which a browser allows only within a user activation's few seconds, so a replay after a slow start
+   * could do nothing (its listener reads `refuseUnderCard` and `lobby`, made after the await, so it cannot be wired
+   * early). Nothing changes once wired.
+   */
+  const earlyPresses = holdEarlyPresses(top, [helpBtn, resetLayoutBtn]);
+  const untilWired: HTMLElement[] = [toolsRow, viewport, openBtn, modeBtns.select, modeBtns.place, dupBtn, delBtn, undoBtn, redoBtn, walkBtn, checkBtn, lobbyBtn, saveMapBtn, playBtn];
+  for (const c of untilWired) c.toggleAttribute('inert', true);
   // The wrapped toolbar's height, so the docks and the viewport (top: var(--fx-top)) follow it.
   const fitToolbar = (): void => {
     const h = top.offsetHeight;
@@ -1946,7 +2005,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * The page's own question with a list to choose from (no browser dialog; the owner, 2026-11-06): the value chosen, or
    * null when cancelled. `options` grouped (`[group, [[value, label], ...]]`), `value` chosen at first.
    */
-  const askChoice = (heading: string, body: string, options: readonly (readonly [string, readonly (readonly [string, string])[]])[], value: string, yes: string): Promise<string | null> => new Promise((resolve) => {
+  const askChoice = (heading: string, body: string, options: readonly (readonly [string, readonly (readonly [string, string, string?])[]])[], value: string, yes: string): Promise<string | null> => new Promise((resolve) => {
     const card = el(doc, 'form', 'fx-card');
     const field = el(doc, 'select', 'fx-select');
     field.setAttribute('aria-label', heading);
@@ -1954,7 +2013,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (!rows.length) continue;
       const g = el(doc, 'optgroup');
       g.label = label;
-      for (const [v, w] of rows) { const o = el(doc, 'option', '', w); o.value = v; g.append(o); }
+      for (const [v, w, t] of rows) { const o = el(doc, 'option', '', w); o.value = v; if (t) o.title = t; g.append(o); }   // FP-6 2: a row's title
       field.append(g);
     }
     if (value) field.value = value;
@@ -2023,7 +2082,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const pop = (line: string): void => { notifier.toast(line); };
 
   /* ================= the renderer, the camera, the scene ================= */
-  const created = await createRenderer(canvas);
+  showLoading('Starting the Forge');                         // the early tap: the shell is inert in part meanwhile, and says why
+  // The early tap: a renderer that never starts is said, not left as "Starting the Forge" (the page stops, as before).
+  const created = await createRenderer(canvas).catch((e: unknown) => {
+    showLoading(null);
+    say(`the renderer did not start: ${e instanceof Error ? e.message : String(e)}`, true);
+    throw e;
+  });
+  showLoading(null);
   /*
    * R7-2 (owed by FCW-07b-2; product track, a browser adaptation with no original): the extension host, composed here
    * and only here -- the renderer's one seam (`visualPostSeams`, claimed once, for the renderer this page made) and the
@@ -2038,6 +2104,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   fly = new FlyCamera(canvas, {
     forgeKbm: true,                                                // OT.R68: its keys and captured look in every build
     pointerInput: input,
+    // The camera's own return to perspective (a Walk from Top, Front...): the view menu says so (a browser adaptation, FG.R2).
+    onViewportViewChange: (view) => { syncViewportViewMenu(view); gizmo.camera = fly.viewportCamera(); },
     constrainMovement: (from, to, radius) => {
       const camera = fly.viewportCamera();
       camera.updateMatrixWorld();
@@ -2146,16 +2214,34 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     cameraLookSpeedValue.textContent = `${multiplier.toFixed(1)}×`;
   });
   cameraCollisionInput.addEventListener('change', () => fly.setCameraCollisionEnabled(cameraCollisionInput.checked));
+  // FP-2 (FP.R5; a browser adaptation, FG.R2 -- the game has no editor): the viewport draws at the player's RENDER SCALE,
+  // the page's one stored video setting (`../videoSettings`, CPS.R7; no Forge-only setting), wired as `../matchMount`
+  // wires a match: `fit` caps the ratio at the preset's ceiling for the viewport's box, `AdaptiveRatio` (`../matchViewport`)
+  // starts the renderer at the cap and trades pixels for frames under it in the frame's tail. The PS2 picture keeps its
+  // 640 x 448 at ratio 1 (`../renderer`). The renderer's ratio only where it has one (a test's stand-in may not), as
+  // `../matchRenderer` `ratioTargetOf` reads it. The keeper is the Draw dropdown's (`videoSettings`, above).
+  let renderScale = videoSettings.get().renderScale;
+  const adaptiveRatio = new AdaptiveRatio(pixelRatioCap(globalThis.devicePixelRatio, wantsTouchControls()));
+  const ratioTarget: RatioTarget | null = typeof created.setPixelRatio === 'function' && typeof created.pixelRatio === 'function' ? created : null;
   const fit = (): void => {
     // Not before the stylesheet is in (a development build injects it late): unstyled, the viewport takes its height
     // from the canvas, and each resize would grow the other. In the center tab it is relative to fill its panel.
     if (getComputedStyle(viewport).position === 'static') { requestAnimationFrame(fit); return; }
     const w = Math.max(1, viewport.clientWidth), h = Math.max(1, viewport.clientHeight);
+    adaptiveRatio.setCap(renderCapFor(renderScale, globalThis.devicePixelRatio, wantsTouchControls(), w, h).ratioCap);   // FP-2: met at the ratio's next tick
     created.resize(w, h);
     fly.setAspect(created.presentation() === 'ps2' ? 640 / 448 : w / h);
   };
   new ResizeObserver(fit).observe(viewport);
   fit();
+  if (ratioTarget) adaptiveRatio.start(ratioTarget);          // FP-2: at `fit`'s cap (the device's, while the stylesheet is late)
+  // FP-2: a render scale stepped here or by another keeper of this page (the launcher's row, VIDEO OPTIONS) refits and
+  // redraws the Draw dropdown's row; released at teardown. Another browser tab's step is read at this page's next mount
+  // (the keeper hears this page's keepers only, no `storage` event).
+  const offVideoSettings = videoSettings.observe((v) => {
+    if (v.renderScale !== renderScale) { renderScale = v.renderScale; fit(); }
+    viewportRenderScaleDom.sync();
+  });
   const lighting: Lighting = { ...DEFAULT_LIGHTING };
   const fog: FogSettings = { enabled: true, ...fogForExtent(1200), color: [...ELF_DEFAULT_FOGCOL], altitude: null };
   /** FG-24: the base's own fog (the disc's, or the forge's stand-in), what the layout's fog distance is put over. */
@@ -2572,6 +2658,26 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let entries: ArchiveEntry[] = [];
   let base: LayoutBase | null = null;
   let baseView: WorldView | null = null;
+  // B206 ML-3 / ML-4 (ML.R5, R8, R9, R10; product track, ML.R2): the texture pack chosen in MODS applied to the Forge's
+  // world -- the HD pack from the MODS store (drawn as made: the editor is offline, ML.R13), a GX per-map pack on its own
+  // map -- behind the overlay, spread over the frames. The registry collects from here while a pack is enabled (ML.R9);
+  // its own claim name, so the Play's match (its own applier, `../matchMount`) never takes a texture's original twice.
+  collectOnHint(pageHintFlags, hdTextures);
+  const packFrames = new ApplyFrames();
+  packFrames.setUploader(rendererUploader(created.renderer));   // after ML-9 (ML.R10): each upload timed in its frame
+  // ML-9's F1: the strip while the Forge's Play walks or its match runs (`match`, read at each refresh, never before it is set).
+  const packOverlay = new PackApplyOverlay(doc, () => pagePlayLive(playing || match !== null, true, false));
+  let forgeHd: HdServedPack | null = null;
+  const forgePacks = new PackApplier<TexturePackTarget>({
+    choice: pageTextureChoice(), registry: hdTextures,
+    hd: () => forgeHd = new HdServedPack(undefined, () => { packOverlay.update(forgeHd?.progress() ?? null); }, undefined, pageHdStore(),
+      // After ML-9 (ML.R10) and GM-13d: the pack's decodes, keys and alpha rescale in the decode worker, as the match's.
+      lazyHdPackDecoders(() => import('../hdMenuTextures').then((m) => new m.HdMenuDecoder())),
+      // PR #729's Codex P1: the editor's own textures only -- never its Play's or lobby match's (`enterMatchScope`), so the
+      // match's guarded runtime (ML.R13) is the one that draws them.
+      { storeOnly: true, runtime: { frames: packFrames, owner: 'hd:forge', scope: null } }),
+    gx: () => pageGxPacks((r) => { packOverlay.update(gxApplyProgress(r)); }, packFrames),
+  });
   /** R7-3: an authored map's own props as drawn (`newContentBaseProps`), beside its world; null on any other base. */
   let baseContentProps: Group | null = null;
   let baseMap: LoadedMap | null = null;
@@ -2688,6 +2794,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let lobby: LobbyHere | null = null;
   /** FG-26: a joiner's page shows the host's layout: it is not written over this browser's own autosave. */
   let autosaveOff = false;
+  /**
+   * FP-6 item 3 (FP.R12, "a bundle is an installed thing, not a save"; product track, a browser adaptation): the custom
+   * map open as a read-only base, or null. Marked read-only as a joiner's lobby layout is (`autosaveOff`: nothing of it
+   * is written over this browser's autosave, and MODS' record is never written by the page), and the toolbar's Saves is
+   * "Save as" (`saveBundleAs`): the layout copied into the player's saves, a fresh id, and that copy opened.
+   * `bundleOfLayout` ties a Custom Maps choice's record to the very layout object that choice made (PR #756's P2): the
+   * open of THAT layout marks it, and a choice cancelled later (its "Save this layout first?", its save name) leaves
+   * nothing behind for an unrelated open to take -- the record goes with the dropped layout.
+   */
+  let bundleOpen: CustomMapRecord | null = null;
+  const bundleOfLayout = new WeakMap<Layout, CustomMapRecord>();
 
   /* ---------- the view settings ---------- */
   const view: Record<ViewToggle, boolean> = Object.fromEntries(VIEW_TOGGLES.map((t) => [t.id, t.on])) as Record<ViewToggle, boolean>;
@@ -2785,6 +2902,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     texturedInput.checked = texturedOn;
     litInput.checked = litOn;
     viewportDetailDom.sync();
+    viewportRenderScaleDom.sync();                             // FP-2: disabled under the PS2 picture
     writeView();
     refreshHint();
   };
@@ -2795,6 +2913,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // PF.R60: a change from the panel's slider, the menu's row or the launcher's Options redraws every world and the slider.
   detailDistance.observe(() => { applyView(); });
   viewportDetailDom.sync();
+  viewportRenderScaleDom.sync();                               // FP-2
 
   /* ---------- the map settings (FG-24, FG.R18; `./settings`) ---------- */
   /** The panel's controls from the settings (a field being typed in is left alone). */
@@ -3447,7 +3566,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       else if (r.userData['forgeFlare']) map.set(`flare:${flare++}`, r);
       else if (r.userData['forgeNpc']) map.set(`npc:${npc++}`, r);
       else if (r.userData['forgeHostage']) map.set(`hostage:${hostage++}`, r);
-      else if (r.userData['forgeZone']) map.set(`zone:${zone++}`, r);
+      else if (r.userData['forgeZone']) map.set(`xzone:${zone++}`, r);   // `xzone:`, a rules zone's `zone:<id>` apart (FP-1b)
       else if (r.userData['forgeTurret']) map.set(`turret:${turret++}`, r);
       else if (r.userData['forgeDoor']) map.set(`door:${door++}`, r);
       else if (r.userData['forgeGate']) map.set(`gate:${gate++}`, r);
@@ -3886,6 +4005,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     say(`${f.dataset['label'] ?? 'This field'} is not wired yet: a saved layout keeps a piece's yaw only`);
   };
   for (const f of stubFields) f.addEventListener('change', () => transformStub(f));
+  // FC-1 (`./transformStubs`): while the switch is on, the stubs are hidden -- Pitch and Roll beside a real Yaw, and the
+  // whole Scale row with its reset; Position, Yaw and the rotation's reset (a yaw reset) stay.
+  if (FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION) {
+    for (const f of [fpitch, froll]) (f.closest<HTMLElement>('.fx-field') ?? f).hidden = true;
+    (fsx.closest<HTMLElement>('.fx-scale-fields') ?? fsx).hidden = true;
+  }
   const refreshInspectorFields = (): void => {
     const s = selected;
     fillStubFields();
@@ -4768,10 +4893,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (on) {
       if (on === pivot) placePivot();
       if (gizmo.object !== on) gizmo.attach(on);
-      // FG.R10: a piece turns about the vertical only. Every ring is drawn (pitch, roll and the free turn to come), but a
-      // grab of any but yaw is a stub (`tiltRingStub`), so a reload cannot drop a tilt the record does not keep.
-      gizmo.showX = true;
-      gizmo.showZ = true;
+      // FG.R10: a piece turns about the vertical only. FC-1: the tilt rings off while the stubs are hidden
+      // (`./transformStubs`), as before the Overhaul; on, every ring is drawn and a grab of any but yaw is a stub
+      // (`tiltRingStub`), so a reload cannot drop a tilt the record does not keep.
+      gizmo.showX = !FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION || gizmo.mode !== 'rotate';
+      gizmo.showZ = !FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION || gizmo.mode !== 'rotate';
     } else gizmo.detach();
     dupBtn.disabled = picks.size === 0;
     delBtn.disabled = picks.size + basePicks.size === 0 && entityPicked === null;   // FCW-32 step 4: an entity's row too
@@ -5567,7 +5693,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const clearAll = (): void => {
     select(null);
     for (const r of [...roots]) removeRoot(r);
-    if (baseView) { scene.remove(baseView.group); baseView.dispose(); baseView = null; }
+    if (baseView) { forgePacks.setWorld(null, null); scene.remove(baseView.group); baseView.dispose(); baseView = null; }   // ML-3: the pack's originals back first
     if (baseContentProps) { scene.remove(baseContentProps); (baseContentProps.userData['dispose'] as (() => void) | undefined)?.(); baseContentProps = null; }
     baseMap = null;
     charMap = null;
@@ -5679,11 +5805,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const world = v!;
       world.setLighting(lighting);
       baseView = world;
+      forgePacks.setWorld(world, opened.textures);           // B206 ML-3: the MODS texture pack on the new world (ML.R8, R9)
       scene.add(world.group);
       fly.setScale(opened.metersPerUnit);
       fly.setClipPlanes(opened.camera?.nearPlane ?? 4, Math.max(2000, world.box.min.distanceTo(world.box.max) * 1.6));
+      // FP.R15 (the owner, 2026-11-09; a Forge start view, product track): a disc map's base opens at Craig's still for
+      // that map (`./mapStills`, by the archive's stem -- `MP1`; `opened.name` is the mission's name). A map with none, an
+      // authored map and the blank floor keep the stand below; `openLayout` then puts a layout's own camera over either.
+      const still = b.kind === 'map' ? mapStill(archiveStem(b.archive).toUpperCase()) : null;
       const stand = standOf(opened, world);
-      if (stand.spawn) fly.lookFrom(stand.from, stand.to);
+      if (still) fly.setPose(still);
+      else if (stand.spawn) fly.lookFrom(stand.from, stand.to);
       else {
         // No measured spawn (a campaign mission): `standOf` looks from off the map's extent. Open over its own ground
         // instead -- the disc's first slot, else the middle, else the hull's first floor (`./ground` `standingSpot`) --
@@ -5900,14 +6032,45 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // Busy (a restore, an open, a Play start) or playing: no step taken, so the history's pointer stays with the scene.
   const undo = (): void => { if (!refuseEdit()) restore(history.undo(busy || playing), 'Undone'); };
   const redo = (): void => { if (!refuseEdit()) restore(history.redo(busy || playing), 'Redone'); };
+  /**
+   * AX-15 (a browser adaptation, FG.R2): the agent's run undone -- the history's pointer moved past each of the agent's
+   * top steps (one redo each), then the scene restored once, as a normal undo restores it; the words say how many and
+   * why it stopped. A person's step is never undone.
+   */
+  const undoAgentRunNow = (sessionId?: string | null): AgentRunUndo => {
+    if (refuseEdit()) return { undone: 0, stopped: 'busy', state: null, message: 'Edits are held now: no agent changes undone' };
+    const out = undoAgentRun(history, sessionId, busy || playing);
+    if (out.state !== null) restore(out.state, out.message);
+    return out;
+  };
+  /** AX-15: one activity row's own step undone (the top steps while `match` holds), as a normal undo. */
+  const undoWhileNow = (match: (meta: HistoryMeta) => boolean): number => {
+    if (refuseEdit()) return 0;
+    const out = undoWhile(history, match, busy || playing);
+    if (out.state !== null) restore(out.state, 'Undone');
+    return out.undone;
+  };
   undoBtn.addEventListener('click', undo);
   redoBtn.addEventListener('click', redo);
-  const openLayout = async (l: Layout): Promise<void> => {
+  /**
+   * The e2e-mega lost press (a browser adaptation, no original): one open at a time, in the order asked. An open asked while
+   * another is under way (a file opened while the boot's first map still decodes) runs after it, so the one asked last is
+   * the layout open -- never the earlier, slower one committing over it (`test/forge/pageFirstOpen.test.ts` (B)).
+   */
+  let opensAsked: Promise<unknown> = Promise.resolve();
+  const openLayout = (l: Layout): Promise<void> => {
+    const run = opensAsked.then(() => openLayoutNow(l));
+    opensAsked = run.catch(() => undefined);
+    return run;
+  };
+  const openLayoutNow = async (l: Layout): Promise<void> => {
+    const opening = bundleOfLayout.get(l) ?? null;                 // FP-6 item 3: this open's own bundle, or none
     busy = true;
     const stem = l.base.kind === 'map' ? l.base.archive : null;
     showLoading(`Loading ${stem ? entries.find((a) => a.stem === stem)?.label ?? stem : l.base.kind === 'content' ? `the authored map ${l.base.mapId}` : 'the blank floor'}`);
     try {
       await setBase(l.base);
+      markBundle(opening);
       const missing = await placeAll(l);
       if (l.camera) fly.setPose(l.camera);
       else if (applySavedViewCamera && viewCamera) fly.setPose(viewCamera);
@@ -5926,6 +6089,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     } finally { busy = false; showLoading(null); }
   };
 
+  // FP-6 item 6 (a test instrument, a development build's only; no game behaviour): `e2e/forgeCustomMaps.spec.ts` counts
+  // the open base's own content props drawn (an authored map's, `baseContentProps`: each tagged `forgeContentKey`).
+  if (import.meta.env.DEV) {
+    (globalThis as { __forgeContentProps?: unknown }).__forgeContentProps = (): number => {
+      let n = 0;
+      baseContentProps?.traverse((o) => { if (typeof o.userData['forgeContentKey'] === 'string') n++; });
+      return n;
+    };
+  }
   // LATER 141 (a test instrument, a development build's only; no game behaviour): `e2e/forgeHide.spec.ts` opens a map,
   // hides and shows a map prop's placement by its key as Hide and the outliner's Show do (FG-17), and reads the base
   // view's drawn line strips -- their summed segment length; a hidden placement's strips collapse onto a point
@@ -5961,6 +6133,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   }
 
   /* ---------- picking ---------- */
+  /** AX-13 (a browser adaptation): the agent facade's `notePoint`, set once the facade is built (`agentFacade` below). */
+  let agentPointHook: ((point: [number, number, number] | null) => void) | null = null;
   const isUnder = (o: Object3D, g: Object3D): boolean => { for (let at: Object3D | null = o; at; at = at.parent) if (at === g) return true; return false; };
   const ray = new Raycaster();
   const shown = (o: Object3D): boolean => { for (let at: Object3D | null = o; at; at = at.parent) if (!at.visible) return false; return true; };
@@ -6148,6 +6322,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const act = (ndc: Vector2, toggle = false): void => {
     if (busy) return;
     const hit = pick(ndc);
+    agentPointHook?.(hit ? [hit.point.x, hit.point.y, hit.point.z] : null);   // AX-13: the agent's forge.focus reads this pick
     // A re-placed prop: a click puts it down where it follows the cursor (a modified click changes nothing meanwhile).
     if (replacing) { if (!toggle && !refuseEdit()) commitReplace(placeAt(hit)); return; }
     if (entityTool !== null && !toggle) { placeEntity(entityTool, placeAt(hit)); return; }   // FCW-32 step 4 (D4)
@@ -6376,9 +6551,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       return;
     }
     if (mode === 'bomb' || mode === 'siteSeal' || mode === 'siteTerrorist') {
-      // The bomb and its sites are Demolition's (the owner, 2026-11-05): another type, the player is told to change it.
-      if (authoredType !== 2 && !(authoredType === 1 && kind !== 'terrorist')) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return; }
       const kind: BombMarkerKind = mode === 'bomb' ? 'start' : mode === 'siteSeal' ? 'seal' : 'terrorist';
+      // The bomb and its sites play in Demolition, the start and the SEALs' site in Breach too (the owner, 2026-11-05/06;
+      // `./objectives` `bombMarkerPlaysIn`, the agent's `bomb.place` alike): another type, the player is told to change it.
+      if (!bombMarkerPlaysIn(kind, authoredType)) { notifier.refused('The bomb plays in Demolition (and its start and the SEALs\' site in Breach): set the game type first (World tab, Settings)'); return; }
       // One start, and one site a planting team: a new one replaces every marker of its kind (a file may name two).
       const prevs = roots.filter((r) => bombKindOf(r) === kind);
       // A lock means "don't change this" (the merge controller's call, 2026-10-22): never a silent removal.
@@ -6635,9 +6811,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       case 'door': walk.action(); break;                        // the test room's action key (a door)
       case 'docks': setDocks(doc.body.classList.contains('fx-docks-off')); break;
       case 'frame': frameSelection(); break;
-      case 'place': enterPlace(); break;                         // with a user prop selected, it picks that prop up
       // Not mid-drag: a gizmo drag keeps the mode it began in (the camera keeps W / E / R itself while it navigates).
-      case 'translate': case 'rotate': case 'scale': if (!gizmo.dragging) setGizmo(a); break;
+      case 'translate': case 'rotate': case 'scale':
+        // FC-1: R picks no scale gizmo while the stubs are hidden (`./transformStubs`).
+        if (!gizmo.dragging && !(a === 'scale' && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION)) setGizmo(a);
+        break;
       case 'snap': setSnap(!snap); break;
       case 'duplicate': duplicate(); break;
       case 'delete': remove(); break;
@@ -6674,6 +6852,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   type ClipItem = {
     asset: string | null;
     team: 'A' | 'B' | null;
+    /** A placed respawn point's team (`userData.forgeRespawn`): built afresh at the paste, as the duplicate paths do. */
+    respawn: 'A' | 'B' | null;
     npc: { side: 'seal' | 'terrorist'; type: number } | null;
     offset: Vec3;
     q: Quat;
@@ -6701,6 +6881,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     clipboard = from.map((r, i) => ({
       asset: (r.userData['forgePiece'] as string | undefined) ?? null,
       team: (r.userData['forgeSpawn'] as 'A' | 'B' | undefined) ?? null,
+      respawn: (r.userData['forgeRespawn'] as 'A' | 'B' | undefined) ?? null,
       npc: npcOf(r) ?? null,
       offset: clip[i]!.offset,
       q: clip[i]!.q,
@@ -6720,6 +6901,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const places = pastedPlaces(clip.map((c) => c.offset), [at.x, at.y, at.z]);
     personEdit('selection.paste', {}, (step) => void Promise.all(clip.map((c) => {
       if (c.clone) return Promise.resolve(markerClone(c.clone));
+      if (c.respawn) return Promise.resolve(respawnMarker(c.respawn));
       if (c.team) return Promise.resolve(spawnMarker(c.team));
       if (c.npc) return Promise.resolve(newNpc(c.npc.side, c.npc.type));
       if (c.asset && c.missing) return Promise.resolve(contentOf(missingPiece(c.asset), c.content));
@@ -6985,9 +7167,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const grid = groundGrid(c.ground);
       // FG-50: the floor under the camera, else under the cursor. The camera is not moved to a marker: Walk and Edit
       // keep the view where it is, and the walk stands on that floor (a layout spawn only when neither has one).
-      const here = standFromHere(grid, c.ground, viewForStand());
+      // LATER 803: then, on a disc map's base, the map's own stand (`standOf`), as the open looked from before FP.R15.
       const marker = roots.find((r) => r.userData['forgeSpawn'] === 'A') ?? roots.find((r) => r.userData['forgeSpawn']);
-      const feet: [number, number, number] | null = here ? here.at : marker ? [marker.position.x, marker.position.y, marker.position.z] : null;
+      const mapStand = base.kind === 'map' && baseMap && baseView ? standOf(baseMap, baseView) : null;
+      const feet = walkFeet(grid, c.ground, viewForStand(), marker ? [marker.position.x, marker.position.y, marker.position.z] : null, mapStand);
       if (!feet) {
         say('nowhere to stand: place a spawn on a floor', true);
         if (doc.pointerLockElement) doc.exitPointerLock();
@@ -7079,7 +7262,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** FUI-2: a panel holding the focus lease holds the camera's keys and lanes as a match does; let go, it flies again. */
   leaseChanged = () => { fly.setInputSuspended(editorHeld || leases.holder() !== null); };
+  /**
+   * PR #729's Codex P1 (ML.R13): the textures a match registers carry its scope (`FORGE_MATCH_TEXTURE_SCOPE`), from just
+   * before it starts to its end, so the editor's HD runtime (scope null) leaves them to the match's guarded one.
+   */
+  let leaveScope: (() => void) | null = null;
+  const enterMatchScope = (): void => { leaveScope?.(); leaveScope = hdTextures.enterScope(FORGE_MATCH_TEXTURE_SCOPE); };
+  const leaveMatchScope = (): void => { leaveScope?.(); leaveScope = null; };
   const endMatch = (): void => {
+    leaveMatchScope();
     agentPlay.port.end('Forge Play ended');
     rulesPresenter.clear();                                   // FCW-32 round 2: the rules' words go with the match
     if (!match) return;
@@ -7129,82 +7320,40 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const playerSide = npcs && playSide !== 'auto' ? playSide : playerSideOf(markers);
     const own = settingsOf(layout);
     const fit = npcsThatFit(markers, playerSide, own.players);
-    // R6 (3): the same resolver as the ground's, so a pack piece is solid in the match exactly when it is drawn here.
-    const composed = composeMatchMap(baseMap, { ...layout, npcs: fit.kept }, libs, c.ground, playerSide, resolveContent);
-    const type = layout.objectives?.gameType;
-    // The placed hostages and zones on the map, then the game type, its test reading them (`./playObjectives`); a blank
-    // floor's hostages copy its library's character (`blankFloorOf` dropped its escortees).
-    // The bodies placed hostages borrow from other disc maps (`./hostages` `withLentHostageBodies`); one whose map or
-    // character is not here wears the default instead, as it would with none named.
+    // The pure chain (`./composeLayout`, its steps in their order; FP-1b): the page loads what it reads -- the hostages'
+    // lent bodies, the placed copies' templates, the outline donor and the sky -- and the chain composes the map.
     const lentLibs = new Map<string, LoadedMap>();
     for (const h of layout.hostages ?? []) if (h.source && !lentLibs.has(h.source)) { const lib = await hostageLibOf(h.source); if (lib) lentLibs.set(h.source, lib); }
-    const bodied = withLentHostageBodies(composed.map, layout.hostages, (s) => lentLibs.get(s) ?? null);
-    const worn = new Set(hostageCharactersOf(bodied.map));
-    const hostages = layout.hostages?.map((h) => (h.source && !worn.has(h.character ?? '') ? (({ source: _s, character: _c, ...rest }) => rest)(h) : h));
-    // The team and default character: the base's first hostage's (a blank floor's library's), else a lending map's.
-    const lent = (base.kind === 'blank' ? c.groundMap.escortees?.[0] : composed.map.escortees?.[0])
-      ?? [...lentLibs.values()].map((l) => l.escortees?.[0]).find((e) => !!e);
-    const played = playObjectives(bodied.map, { ...layout, ...(hostages ? { hostages } : {}) }, lent, type === undefined ? null : blankWhy(type));
-    // The layout's placed tactical points and spectator views beside the map's own (`./placedPoints`), in any type.
-    const pointed = withPlacedViews(withPlacedPoints(played.map, layout.tacPoints), layout.scenicViews), why = played.why;
-    // The layout's placed turrets beside the map's own (`./turrets`): each its disc template's copy, in any type.
     const templates = new Map<string, TurretTemplate>();
     for (const t of layout.turrets ?? []) { const found = await turretTemplate(t.source, t.name); if (found) templates.set(`${t.source}:${t.name}`, found); }
-    const turreted = withPlacedTurrets(pointed, layout.turrets, (s, n) => templates.get(`${s}:${n}`) ?? null);
-    // The layout's placed doors beside the map's own (`./placedDoors`): each its disc template's copy, its leaf in the hull.
     const doorTemplatesNow = new Map<string, DoorTemplate>();
     for (const t of layout.doors ?? []) { const found = await doorTemplate(t.source, t.name); if (found) doorTemplatesNow.set(`${t.source}:${t.name}`, found); }
-    const doored = withPlacedDoors(turreted.map, layout.doors, (s, n) => doorTemplatesNow.get(`${s}:${n}`) ?? null);
-    // The layout's placed gates and C4 barriers (`./placedAccess`): each its disc access object's copy, whole.
     const accessNow = new Map<string, AccessTemplate>();
     for (const [kind, list] of [['gate', layout.gates], ['barrier', layout.barriers]] as const) {
       for (const t of list ?? []) { const found = await accessTemplate(kind, t.source, t.name); if (found) accessNow.set(`${kind}:${t.source}:${t.name}`, found); }
     }
-    const accessed = withPlacedAccess(doored.map, [
-      ...(layout.gates ?? []).map((t) => ({ kind: 'gate' as const, ...t })), ...(layout.barriers ?? []).map((t) => ({ kind: 'barrier' as const, ...t })),
-    ], (m) => accessNow.get(`${m.kind}:${m.source}:${m.name}`) ?? null);
-    // The layout's placed flares (`./placedFlares`): each its disc facade node, drawn and turned as the map's own.
     const flaresNow = new Map<string, FlareTemplate>();
     for (const f of layout.flares ?? []) { const found = await flareTemplate(f.source, f.name); if (found) flaresNow.set(`${f.source}:${f.name}`, found); }
-    const flared = withPlacedFlares(accessed.map, layout.flares, (src, n) => flaresNow.get(`${src}:${n}`) ?? null).map;
+    const type = layout.objectives?.gameType;
+    const { composed, played, why, turreted, doored, flared } = composeLayoutObjects({
+      baseMap, layout, libs, ground: c.ground, playerSide, resolveContent, npcs: fit.kept, lentLibs,
+      blank: base.kind === 'blank', libraryEscortee: c.groundMap.escortees?.[0], blocked: type === undefined ? null : blankWhy(type),
+      turretOf: (s, n) => templates.get(`${s}:${n}`) ?? null, doorOf: (s, n) => doorTemplatesNow.get(`${s}:${n}`) ?? null,
+      accessOf: (m) => accessNow.get(`${m.kind}:${m.source}:${m.name}`) ?? null, flareOf: (src, n) => flaresNow.get(`${src}:${n}`) ?? null,
+    });
     // The layout's own Demolition sites wear the map's bases' outlines (`./siteOutlines`): the disc's pulse at the sites
     // that plant, none left at the tents that no longer do.
-    const ownSites = (type === 2 || (type === 1 && breachReady(layout.objectives?.bomb))) && why === null ? layout.objectives?.bomb?.sites ?? [] : [];
+    const ownSites = layoutOwnSites(layout, why);
     // A base with no outline of its own (a blank floor) borrows the donor's (`SITE_OUTLINE_DONOR`), when it is on this disc.
     const outlineDonor = ownSites.length && !absent.has(SITE_OUTLINE_DONOR) ? await hostageLibOf(SITE_OUTLINE_DONOR) : null;
-    const aimed = withSiteOutlines(flared, ownSites, outlineDonor);
     const unplayable = why === null ? undefined : `${why}; playing the base's mode`;
-    // FG-24: the layout's fog and light on the map's camera and rig (`./matchMap` `withSettings`, its limit said there).
-    // A new empty map's own light rig (`settings.lightRig`) over the one its library lends: the match lit as the editor is.
-    // Its sky: the chosen disc map's dome over the floor (`./skyDome`), its textures carried as a turret's are.
-    const skyLib = base.kind === 'blank' && own.skyFrom ? await hostageLibOf(own.skyFrom) : null;
-    const skyDome = skyLib ? skyDomeFor(skyLib, aimed.archive) : null;
-    /**
-     * Its fog's on, near distance and height band (the camera record's) and its night (`NightMission`, `LensFX_NVG`), over
-     * the fog distance's own near (`withSettings`) -- set last, so the near it names is the near played.
-     */
-    const ownAtmosphere = (m: LoadedMap): LoadedMap => {
-      if (base.kind !== 'blank') return m;
-      const f = own.fog, cam = m.camera;
-      return {
-        ...m,
-        ...(f && cam ? { camera: { ...cam, fogEnabled: f.on, fogNear: Math.max(0, Math.min(f.near, cam.fogFar - 1)), fogAltitude: f.height !== null,
-          ...(f.height ? { fogTop: f.height.top, fogBottom: f.height.bottom } : {}) } } : {}),
-        ...(own.night ? { night: { mission: own.night.mission, lens: own.night.lens ? [...own.night.lens] as [number, number, number, number] : null } } : {}),
-      };
-    };
-    // Its fog colour (the camera record's) and drop-shadow direction likewise.
-    const lit = base.kind !== 'blank' ? aimed : {
-      ...aimed,
-      ...(own.lightRig ? { lightRig: own.lightRig as GlobalLighting } : {}),
-      ...(skyDome ? { world: [...aimed.world, ...skyDome.world], textures: { ...aimed.textures, ...skyDome.textures },
-        textureFlags: { ...aimed.textureFlags, ...skyDome.textureFlags },
-        ...(aimed.textureMips || skyDome.textureMips ? { textureMips: { ...(aimed.textureMips ?? {}), ...(skyDome.textureMips ?? {}) } } : {}) } : {}),
-      ...(own.shadowVector ? { shadowVector: [...own.shadowVector] as [number, number, number] } : {}),
-      // A colour chosen is a fog to see: on, whatever the built-from map's camera had.
-      ...(own.fogColor && aimed.camera ? { camera: { ...aimed.camera, fogEnabled: true, fogColor: [...own.fogColor] as [number, number, number] } } : {}),
-    };
-    return { c, layout, own, fit, playerSide, composed, hostagesLeft: played.hostagesLeft, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, map: ownAtmosphere(withSettings(lit, own)), gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
+    // FG-24: the layout's fog and light on the map's camera and rig, and a new empty map's own environment over the one
+    // its library lends (`./ownEnvironment` `withLayoutEnvironment`): the match lit as the editor is. Its sky: the chosen
+    // disc map's dome over the floor (`./skyDome`), its textures carried as a turret's are.
+    const blankBase = base.kind === 'blank';
+    const skyLib = blankBase && own.skyFrom ? await hostageLibOf(own.skyFrom) : null;
+    const map = composeLayoutFinish(flared, ownSites, outlineDonor, own, blankBase, (aimed) => (skyLib ? skyDomeFor(skyLib, aimed.archive) : null));
+    return { c, layout, own, fit, playerSide, composed, hostagesOffGrid: played.hostagesOffGrid, hostagesPastBound: played.hostagesPastBound, zonesLeft: played.zonesLeft, turretsLeft: turreted.unplaced, doorsLeft: doored.unplaced, map, gameMode: type !== undefined && why === null ? modeCaption(type) : undefined, unplayable };
   };
   /** The map check (`./validate`) is running: Play and Create lobby wait, and a second click does not start another. */
   let checking = false;
@@ -7250,9 +7399,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     const disc = l.base.kind === 'map' && baseMap ? baseMap.slots.map((s) => ({ side: s.side, at: s.position })) : undefined;
     // Extraction's hostages and zones the base holds itself: a map's escortees and kind-1 zones; a blank floor none.
+    // Its AI map too, where Play stands the placed hostages (a blank floor's own, `./floorAi`): Check counts as Play places.
     const own = l.base.kind === 'map' && baseMap
-      ? { hostages: baseMap.escortees?.length ?? 0, zones: baseMap.ai ? zonesOfKind(baseMap.ai, 1).length : 0,
-        safety: !!baseMap.ai?.maps.some((s) => s.zones.some((z) => z.name.toLowerCase() === 'safety')) } : { hostages: 0, zones: 0 };
+      ? { ai: baseMap.ai, hostages: baseMap.escortees?.length ?? 0, zones: baseMap.ai ? zonesOfKind(baseMap.ai, 1).length : 0,
+        safety: !!baseMap.ai?.maps.some((s) => s.zones.some((z) => z.name.toLowerCase() === 'safety')) } : { ai: floorAiMaps(FLOOR_SIZE), hostages: 0, zones: 0 };
     return checkMap(l, ground, pieces, polyCount, disc, own);
   };
   const collectCheck = async (): Promise<MapCheck | null> => {
@@ -7413,6 +7563,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       matchHost.hidden = false;
       drawMatchBack();
       matchHost.replaceChildren(matchBack, statusChips.matchElement);   // FUI-4: the agent's chip beside Back
+      enterMatchScope();
       const started = await startForgeMatch(matchHost, {
         normalInput: agentPlay.port,
         map: mapForMatch, clips, effects: extras.effects, sound: extras.sound, name: 'FORGE', npcs: fit.kept, npcBehaviour: own.npcBehaviour, side: playerSide,
@@ -7439,7 +7590,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         ...(m.doorsLeft ? [`${m.doorsLeft} door${m.doorsLeft === 1 ? '' : 's'} not on this disc, left out`] : []),
         ...(m.turretsLeft ? [`${m.turretsLeft} turret${m.turretsLeft === 1 ? '' : 's'} not on this disc, left out`] : []),
         ...(m.zonesLeft ? [`${m.zonesLeft} extraction zone${m.zonesLeft === 1 ? '' : 's'} off the AI grid, left out`] : []),
-        ...(m.hostagesLeft ? [`${m.hostagesLeft} hostage${m.hostagesLeft === 1 ? '' : 's'} off the AI grid, left out`] : []),
+        ...hostagesLeftNotes(m.hostagesOffGrid, m.hostagesPastBound),     // off the AI grid; past the room's 16 (`./hostages`)
         ...(fit.dropped ? [`${fit.dropped} NPC${fit.dropped === 1 ? '' : 's'} sit out (8 a side, ${Math.min(own.players, 16)} in all)`] : []),
       ];
       const against = fit.kept.length ? ` against ${fit.kept.length} NPC${fit.kept.length === 1 ? '' : 's'}` : '';
@@ -7632,6 +7783,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const ownLayoutBack = async (): Promise<void> => {
     await savesOpen();
     listsReread(await forgeSaves.reread());
+    drawCustomMaps();                                         // FP-6: the group the join's load did not read (R7-A)
     forgeSaves.take('autosave');                              // the autosave this return opens (or keeps) is the page's now
     const back = await ownLayoutOnReturn(forgeSaves.text('autosave'), (l) => holdsBase(l.base), setAsideAutosaveNow);
     keepEarlier = back.keepEarlier;
@@ -7665,6 +7817,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       matchHost.hidden = false;
       drawMatchBack();
       matchHost.replaceChildren(matchBack, statusChips.matchElement);   // FUI-4: the agent's chip beside Back
+      enterMatchScope();
       match = startForgeLobbyMatch(matchHost, {
         map: m.map, clips, effects: extras.effects, sound: extras.sound, handOff: h, pinned: l.pinned, gameName: l.name, lateJoiner: l.lateJoiner,
         forgeLighting: forgeLightingOptions(m.own, baseMap), brighten: matchBrightenOf(m.own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
@@ -7975,15 +8128,53 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   search.addEventListener('input', drawAssets);
   paletteSel.addEventListener('change', () => { void showPalette(paletteSel.value).catch((e: unknown) => say(String(e), true)); });
   /**
+   * FP-6 item 1 (FP.R4; product track, a browser adaptation with no original): the base list's Custom Maps group, added
+   * after the page's own groups (OT.R112: Crispy's picker, one group in his conventions and nothing of his changed) --
+   * the installed bundles, the bare content maps no bundle stands on, the player's saves (`./customMaps`). No row, no
+   * group. Drawn at boot and again each time New asks, so an install made since is listed.
+   */
+  const customRecords = (): readonly CustomMapRecord[] => { try { return contentSource.customMaps?.() ?? []; } catch { return []; } };
+  const customIndex = (): readonly { ref: ContentRef; name: string }[] => { try { return contentSource.mapIndex?.() ?? []; } catch { return []; } };
+  /** The rows last drawn, and (item 2) the readiness sentence a Custom Maps open owes the toast once it has opened. */
+  let customRows: CustomMapRow[] = [];
+  let customSwitchWords: string | null = null;
+  /** Item 3: the open base's bundle marked (`bundleOpen`): autosave off and Save as while one is open; put back after. */
+  function markBundle(r: CustomMapRecord | null): void {
+    if (!r && !bundleOpen) return;
+    if (r && !bundleOpen) autosaveOff = true;
+    else if (!r && bundleOpen) autosaveOff = false;
+    bundleOpen = r;
+    const label = saveBtn.querySelector('span');
+    if (label) label.textContent = r ? 'Save as' : 'Saves';
+    saveBtn.title = r ? 'Copy this installed custom map into your saves, to edit' : 'Named layouts in this browser, a file, or a share link';
+  }
+  /** Item 2: said once per switch, after the open (a refused open says its own words instead). */
+  const sayCustomSwitch = (): void => { const w = customSwitchWords; customSwitchWords = null; if (w) pop(w); };
+  const drawCustomMaps = (): void => {
+    baseSel.querySelector('optgroup[data-forge-group="custom-maps"]')?.remove();
+    const rows = customMapRows({ records: customRecords(), mapIndex: customIndex(), saves: named, available: availablePacks() });
+    if (!rows.length) return;
+    const g = el(doc, 'optgroup');
+    g.label = CUSTOM_MAPS_GROUP;
+    g.dataset['forgeGroup'] = 'custom-maps';
+    customRows = rows;
+    // Item 2 (FP.R4): the short caption on the row, the whole readiness sentence its title (`../packs/readiness`).
+    for (const r of rows) { const o = el(doc, 'option', '', customRowLabel(r)); o.value = r.value; o.title = customRowSentence(r); g.append(o); }
+    const current = baseSel.value;
+    baseSel.append(g);
+    if (current) baseSel.value = current;
+  };
+  /**
    * New's first question (the owner, 2026-11-06): what the layout starts from -- the bases `baseSel` lists, in its groups
    * (Custom / Preset: the new empty maps; Multiplayer and Campaign: the disc's maps, each with its own game type), the
    * current base's row chosen at first. Null when cancelled.
    */
   const chooseNewBase = (): Promise<string | null> => {
-    const groups: (readonly [string, (readonly [string, string])[]])[] = [];
+    drawCustomMaps();                                             // FP-6: the group read again (an install since boot)
+    const groups: (readonly [string, (readonly [string, string, string?])[]])[] = [];
     for (const child of Array.from(baseSel.children)) {
       if (child instanceof HTMLOptGroupElement) {
-        const rows = Array.from(child.querySelectorAll('option')).filter((o) => !o.disabled).map((o) => [o.value, o.textContent ?? o.value] as const);
+        const rows = Array.from(child.querySelectorAll('option')).filter((o) => !o.disabled).map((o) => [o.value, o.textContent ?? o.value, o.title] as const);
         groups.push([child.label, rows]);
       } else if (child instanceof HTMLOptionElement && !child.disabled) {
         groups.push(['Custom / Preset', [[child.value, child.textContent ?? child.value]]]);
@@ -8021,7 +8212,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         pop(`Saved ${name}`);
       }
     }
-    await openLayout(next).catch((e: unknown) => say(String(e), true));
+    await openLayout(next).then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; say(String(e), true); });
   })(); });
   layoutNameIn.addEventListener('change', () => {
     const next = layoutNameIn.value.trim().slice(0, LAYOUT_NAME_MAX);
@@ -8035,7 +8226,35 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   outlinerSearch.addEventListener('input', drawOutliner);
   outlinerFilter.addEventListener('change', drawOutliner);
   /** The layout a save writes. A joiner's is the lobby's copy: the server's layout, including a piece this disc could not draw. */
+  /**
+   * FP-6 item 3: the open bundle copied into the player's saves as an ordinary layout (a fresh id, `saveNamedRules`; a
+   * save of the name replaced, as the Saves card's Save as), then that copy opened -- the record in MODS untouched.
+   */
+  const saveBundleAs = async (): Promise<void> => {
+    const from = bundleOpen;
+    const l = layoutNow();
+    if (!from || !l) return;
+    await savesOpen();
+    const name = await askText('Save as', 'This custom map is installed and read-only: a copy is saved in this browser, and opened to edit.', layoutName || from.name, RECORD_LIMITS.name, 'Save');
+    if (!name) return;
+    const next = saveNamedRules(named, name, recordOfLayout(l, name), (l as ForgeLayout).rules);
+    if (next.error) { say(next.error, true); return; }
+    if ((await persistNamed(next.saves)) !== 'written') return;
+    const saved = named.find((x) => x.name === name);
+    if (!saved) return;
+    await openLayout(layoutOfAuthoring(saved)).then(() => pop(`Saved ${name}`), (e: unknown) => say(e instanceof Error ? e.message : String(e), true));
+  };
   const layoutForSave = (): Layout | null => (lobby && lobby.role === 'joiner' && !lobby.ended && lobby.layout ? lobby.layout : layoutNow());
+  /**
+   * The e2e-mega lost press (a browser adaptation, no original): the layout a Saves card press takes (Save as, Download,
+   * Share link) -- or, while the page opens one (`busy`) or before any base is open, that press refused and said, never a
+   * press that does nothing (`test/forge/pageFirstOpen.test.ts` (A)).
+   */
+  const layoutToSave = (): Layout | null => {
+    const l = busy ? null : layoutForSave();
+    if (!l) notifier.refused(busy ? FORGE_REFUSALS.busy : FORGE_REFUSALS.noBase);
+    return l;
+  };
   /**
    * Writes `list`, and keeps it as `named` only when the write went through (the fold's re-review, finding A). R3-B: an
    * awaited compare-and-swap on the list last read; a list written elsewhere first answers `conflict` (said, read again).
@@ -8060,7 +8279,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return r.value && (r.outcome === 'written' || r.outcome === 'unchanged');
   };
   const downloadLayout = (): void => {
-    const l = layoutForSave();
+    const l = layoutToSave();
     if (!l) return;
     const record = recordOfLayout(l, l.name?.trim() || 'Layout');
     // FCW-32: a layout with rules downloads its authoring envelope (the record and its rules), which the file open reads.
@@ -8144,7 +8363,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         openSaves();
       })(); },
       onSaveAs: () => { void (async () => {
-        const l = layoutForSave();
+        const l = layoutToSave();
         if (!l) return;
         const name = await askText('Save this layout', 'A save with this name is replaced. It stays in this browser.', layoutName, RECORD_LIMITS.name, 'Save');
         if (!name) { openSaves(); return; }
@@ -8171,7 +8390,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     savesHandle = cards.open(card, { onBack: () => closeSaves(), initialFocus: null, label: 'Saves' });
   };
   const shareCurrent = async (): Promise<void> => {
-    const l = layoutForSave();
+    const l = layoutToSave();
     if (!l) return;
     // FCW-32 round 2 (the review's F4; FUI.R19): a share code carries the record alone, whose check knows no rules mode --
     // refused by name before the encoding, as the page's other refusals are said.
@@ -8205,7 +8424,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (next.error) { say(next.error, true); return; }
     if ((await persistNamed(next.saves)) === 'written') pop(`Saved ${name}`);
   };
-  saveBtn.addEventListener('click', () => { if (!refuseUnderCard()) openSaves(); });   // FUI-2 (IA-1): never over another card
+  saveBtn.addEventListener('click', () => { if (refuseUnderCard()) return; if (bundleOpen) void saveBundleAs(); else openSaves(); });   // FP-6 3   // FUI-2 (IA-1): never over another card
   saveMapBtn.addEventListener('click', () => { void saveLobbyMap(); });
   openBtn.addEventListener('click', () => { if (!refuseUnderCard() && !refuseEdit()) file.click(); });
   file.addEventListener('change', () => {
@@ -8354,6 +8573,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ...(shellSections.find((x) => x.id === 'view')?.rows ?? []),
       ...viewMenuSection(viewMenuRows, { on: (id) => view[id], toggle: (id) => { view[id] = !view[id]; applyView(); } }),
       detailDistanceMenuItem(detailHooks),
+      renderScaleMenuItem(renderScaleHooks),                   // FP-2 (FP.R5): the render scale, after the detail distance
     ];
     return [
       ...sectioned('play', 'Play', [
@@ -8473,6 +8693,41 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     return null;
   };
+  /** FP-6: the required packs' definitions read before the pieces are built (`ForgeContentSource.ready`, one call); never throws. */
+  const packsReady = async (packs: readonly PackRef[]): Promise<void> => {
+    if (!contentSource.ready || !packs.length) return;
+    try { await contentSource.ready(packs); } catch { /* read on first use instead */ }
+  };
+  /**
+   * FP-6 item 1: the layout a Custom Maps row opens -- a bundle's own layout (`custom:<digest>`), a new layout on a bare
+   * content map (`content:...`, the library the empty map's), a save as the Saves card opens it (`save:<id>`); undefined
+   * for any other row, null for a row whose record or save is gone (said).
+   */
+  const customLayoutFor = async (v: string, library: string): Promise<Layout | null | undefined> => {
+    const row = customRows.find((r) => r.value === v);
+    customSwitchWords = row ? customRowSentence(row) : null;
+    if (v.startsWith(CUSTOM_VALUE_PREFIX)) {
+      const r = customRecords().find((x) => `${CUSTOM_VALUE_PREFIX}${x.digest}` === v);
+      if (!r) { say('That custom map is no longer installed', true); return null; }
+      await packsReady(customMapRequires(r.layout));
+      const opened = layoutOfRecord(r.layout);
+      bundleOfLayout.set(opened, r);                               // item 3: this layout's open marks it read-only
+      return opened;
+    }
+    if (v.startsWith(SAVE_VALUE_PREFIX)) {
+      const s = named.find((x) => `${SAVE_VALUE_PREFIX}${x.id}` === v);
+      if (!s) { say('That save is no longer in this browser', true); return null; }
+      await packsReady(customMapRequires(s.record as Parameters<typeof customMapRequires>[0]));
+      return layoutOfAuthoring(s);
+    }
+    if (v.startsWith('content:') && !(base?.kind === 'content' && v === contentBaseValue(base))) {
+      const m = customIndex().find((x) => `content:${x.ref.pack.id}@${x.ref.pack.version}/${x.ref.assetId}` === v);
+      if (!m) return undefined;
+      const lib = /^[A-Za-z0-9_]{1,16}$/.test(library) ? library : BLANK_LIBRARY;
+      return { ...newLayout({ kind: 'content', ref: { ...m.ref.pack }, mapId: m.ref.assetId, library: lib } as LayoutBase), name: m.name };
+    }
+    return undefined;
+  };
   /**
    * The layout a base choice opens: a preset's set up for its mode (`./blankPresets`), else a new layout on the base;
    * null when its question is cancelled. A new empty map asks first which disc map it is built from (the owner,
@@ -8480,6 +8735,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * `library`) -- only the maps of the preset's own mode, `library` chosen at first where it is one.
    */
   const layoutForSelect = async (v: string, library: string): Promise<Layout | null> => {
+    const custom = await customLayoutFor(v, library);
+    if (custom !== undefined) return custom;
     const preset = blankPresetOf(v);
     if (!preset) return newLayout(baseOfSelect(v, library));
     const row = (e: ArchiveEntry): readonly [string, string] => [e.stem, `${e.label} · ${e.stem}`] as const;
@@ -8521,7 +8778,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     baseAsk.hidden = true;
     // A cancelled question (the empty map's library) leaves the layout as it was, the base list put back.
     void layoutForSelect(baseSel.value, blankLibrary()).then((l) => {
-      if (l) return openLayout(l);
+      if (l) return openLayout(l).then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; throw e; });
       baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false;
       return undefined;
     }).catch((e: unknown) => say(String(e), true));
@@ -8532,7 +8789,6 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const forgePad = new ForgePad();
   /** The tools L1 / R1 step through: every tool, in the tools row's order (`./keys` `FORGE_TOOL_ORDER`), Select and Place first. */
   const TOOLS: Mode[] = ['select', 'place', ...FORGE_TOOL_ORDER];
-  const TOOL_NAMES: Record<Mode, string> = { select: 'Select', place: 'Place', spawnA: 'Spawn SEAL', spawnB: 'Spawn Terrorist', respawnA: 'Respawn SEAL', respawnB: 'Respawn Terrorist', npc: 'NPC', hostage: 'Hostage', zone: 'Extraction zone', turret: 'Turret', door: 'Door', gate: 'Gate', barrier: 'C4 barrier', ladder: 'Ladder', flare: 'Flare', point: 'Tactical point', view: 'Spectator view', bomb: 'Bomb', siteSeal: 'Site SEAL', siteTerrorist: 'Site Terrorist' };
   /** A pad seen once: said once, with where its menu is. */
   let padGreeted = false;
   /** When a pad last moved or pressed anything: while recent, the centre's reticle shows (the pad acts there). */
@@ -8766,6 +9022,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     statusChips.dispose();
     void closeStore();                                        // R3-B: once the last write (the close's own flush) is done
     forgeLighting.dispose();
+    offVideoSettings();                                       // FP-2: the render scale no longer heard
   }
   /**
    * The review of R3-B: the store is closed once every write this page asked is done -- the pagehide's flushes
@@ -8855,6 +9112,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     clipboard: () => clipboard,
     queryAssets: (query, cursor) => creatorCatalogue.queryCreatorAssets(query, cursor),
     checkPlacement: (ref, transform) => creatorCatalogue.checkPlacement(ref, transform),
+    // AX-17 (a browser adaptation): forge.probe reads the placement check's own grid and the pieces' bounds, by ref.
+    probeWorld: () => {
+      refreshPlacementGround();
+      const ids = placementIds(), refOf = new Map<Object3D, string>([...ids].map(([ref, r]) => [r, ref]));
+      const obstacles = [...ids].flatMap(([ref, r]) => {
+        if (!ref.startsWith('piece:')) return [];
+        const b = new Box3().setFromObject(r);
+        return b.isEmpty() ? [] : [{ ref, bounds: { min: b.min.toArray(), max: b.max.toArray() } }];
+      });
+      return { grid: placementGrid, obstacles, refOfOwner: (path: string) => {
+        const m = /^forge\/piece_(\d+)$/.exec(path), r = m ? roots[Number(m[1])] : undefined;
+        return r ? refOf.get(r) ?? null : null;
+      } };
+    },
     starterContext: (guard) => starterContext(guard), missingPacks, missingPacksWords, installedRules,
     prepareLayout, applyPicked, changed, refreshUndo, edit, noteMissingPacks,
     adoptLayoutCamera: (camera) => { if (camera) { fly.setPose(camera); fly.halt(); viewCamera = cameraNow(); noteCamera(); writeView(); } cameraReady = true; },
@@ -8874,6 +9145,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // R3-B: the lists read again from the store (another writer's); the card and the agent told once they are.
     rereadLists: () => { void savesOpen().then(() => forgeSaves.reread()).then(listsReread); },
   });
+  agentPointHook = agentFacade.notePoint;                     // AX-13: the player's last clicked point, for forge.focus
   const agentLayoutRevision = agentFacade.layoutRevision;
   const agentReady = agentFacade.ready;
   const agentSnapshot = agentFacade.snapshot;
@@ -9218,6 +9490,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let shellStateStamp = '';
   let fpsAt = last, frames = 0;
   const frame = (now: number): void => {
+    packOverlay.refresh();                                   // ML-9's F1 / F2: the strip as the Play or a load starts and ends
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     // FUI-22: the list's tiles told when their dock is drawn or not (Docks, Walk, a match); their tooltip's frame.
@@ -9278,6 +9551,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     extensions?.frame(dt);
     syncAxisWidget();
     created.render(scene, fly.viewportCamera());
+    adaptiveRatio.frame(dt, now, ratioTarget, view.ps2 || busy);   // FP-2: `../matchMount`'s tail; held under the PS2 frame and while the page loads
     frames++;
     if (now - fpsAt > 500) {
       sFps.textContent = `${Math.round((frames * 1000) / (now - fpsAt))} fps · ${created.backend}`;
@@ -9357,6 +9631,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       throw e;
     }
   };
+  // The early tap: the page is wired (every listener above attached); the scene's controls take input, and a press held
+  // while the renderer started is pressed now, as it would be from here on.
+  for (const c of untilWired) c.toggleAttribute('inert', false);
+  earlyPresses.release();
   // `let`: a development build with no served tree turns to the disc below (./servedFallback)
   let wantsDisc = !import.meta.env.DEV || new URLSearchParams(globalThis.location?.search ?? '').has('disc');
   const address = globalThis.location?.search ?? '';
@@ -9505,6 +9783,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (saved && saved.base.kind === 'map') { say(['no archives in the served tree (socomlegacy/public/maps)', asideWords(found)].filter(Boolean).join('. '), true); return; }
     keepEarlier = found.held;                                      // the review's F1: an unreadable autosave held in place
     baseSel.append(opt('blank', 'New Empty Map'));
+    drawCustomMaps();                                              // FP-6: after the page's own row
     try {
       await openLayout(saved ?? newLayout({ kind: 'blank', library: BLANK_LIBRARY }));
       // After the open, whose own line would replace it (the fold's review, low 3).
@@ -9568,6 +9847,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // that stops opens the forge as ever.
   const joinId = lobbyIdOf(globalThis.location?.search ?? '', globalThis.location?.pathname ?? '');
   if (joinId && await joinLobby(joinId)) return;
+  // FP-6: after the page's own groups, the saves read -- and only once the page is not joining: a join opens no saves
+  // store (R7-A, LATER 215); a joiner's return draws the group (`ownLayoutBack`).
+  void savesOpen().then(drawCustomMaps, () => undefined);
   const found = await savedLayout();
   let first = found.layout;
   // A share or an autosave wins. Otherwise `/forge?floor` pins the blank floor, with or without a disc.

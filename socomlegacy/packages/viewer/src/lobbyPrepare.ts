@@ -1,3 +1,4 @@
+import { pageDeviceClass, type DeviceClass } from './deviceClass';
 import { readGraphicsBackend } from './graphicsBackend';
 
 /**
@@ -32,15 +33,19 @@ export interface LobbyPrepareContext {
   deviceMemory?: number | undefined;
   /** The address's query. */
   search?: string;
+  /** VS-7: the device class (`./deviceClass` `pageDeviceClass`); the Xbox class, by VS.R1's certain bar or the pick, prepares nothing. */
+  deviceClass?: DeviceClass;
 }
 
 /**
- * Whether the lobby prepares: never under the Xbox preset (off there until measured); `?lobbyprepare=0` off, `=1` on;
+ * Whether the lobby prepares: never under the Xbox preset or the Xbox device class (off there until measured; VS-7, the
+ * spec §4.4 item 5); `?lobbyprepare=0` off, `=1` on;
  * otherwise off when the device memory is known and below `LOBBY_PREPARE_MIN_DEVICE_MEMORY_GB`, else on.
  */
 export function lobbyPrepareAllowed(c: LobbyPrepareContext = {}): boolean {
   const graphics = c.graphics ?? readGraphicsBackend(c.search);
   if (graphics === 'xbox') return false;
+  if ((c.deviceClass ?? pageDeviceClass()) === 'xbox') return false;
   const override = lobbyPrepareOverride(c.search);
   if (override !== null) return override;
   const memory = 'deviceMemory' in c ? c.deviceMemory : (globalThis.navigator as { deviceMemory?: number } | undefined)?.deviceMemory;

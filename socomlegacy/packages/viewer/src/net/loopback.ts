@@ -1,4 +1,5 @@
-import { Room, type Conn, type RoomOptions } from '../../../match/src/room';
+import { Room, roomLookGateMode, type Conn, type RoomOptions } from '../../../match/src/room';
+import type { LookGateMode } from './lookGate';
 import type { AiMaps, EscorteeStart, GameType, SpawnSlot, TurretPlacement } from '@s2u/scene';
 import { actionRoots, groundGrid, type GroundData } from '../mover';
 import type { MotionClip } from '@s2u/scene';
@@ -140,6 +141,15 @@ export interface LoopbackOptions extends Partial<RoomOptions> {
   /** Run the room's clock (the page); false: the caller steps it (`step`, the tests). */
   auto?: boolean;
   /**
+   * RB-2 (the replay batch; OT.R114, RB.R4, RB.R6 -- a BROWSER ADAPTATION, no original): the room's look gate,
+   * `RoomOptions.lookRate` passed through -- 'free' opens the movers' gates (`./lookGate` `LookGateMode`: no clamp, no
+   * bank) in this, the page's own offline room, the one room that may (match `room.ts` `roomLookGateMode` asks for
+   * `solo`, which this room always is); absent, the law, as every room. Who passes 'free' (the test room's and the Forge's
+   * offline Play under `kbmAllowed`) is RB-9's; the page's prediction follows whatever this room runs
+   * (`offlineRoomLookRate`, read by `../walk` `WalkMode`).
+   */
+  lookRate?: RoomOptions['lookRate'];
+  /**
    * Whether the respawn rules may be played (`./protocol` `RESPAWN_RULES_ENABLED`, off by the owner's ruling of
    * 2026-09-29): off, the match is classic whatever `rules` asks. The respawn room's tests turn it on.
    */
@@ -195,6 +205,24 @@ type Defaults = Partial<LoopbackOptions> | (() => Partial<LoopbackOptions>);
 let defaults: Defaults = {};
 export function setLoopbackDefaults(opts: Defaults): void { defaults = typeof opts === 'function' ? opts : { ...opts }; }
 
+/**
+ * RB-9 (the replay batch, KBM-3; OT.R114, RB.R4, RB.R6 -- a BROWSER ADAPTATION with no original, reviewed as the
+ * simulation track because the room's shot cone follows the gated look, match `room.ts` `Room` step's `aim` on the gate's
+ * `looked`): the look gate mode of the page's own offline room -- the newest live `LoopbackMatch`, which records the mode
+ * its room's movers run (`roomLookGateMode`: 'free' only for its solo room that asked) at its construction and withdraws
+ * it at its `stop`. The page's prediction (`../walk` `WalkMode`, its gate step on each tick's command) takes the same
+ * mode, so the page and the room hold the same look; with no live offline room, the law, as every server room's. Only a
+ * `LoopbackMatch` writes it (module state, a source pin in `lookGate.test.ts`): never the network client, the mover sim,
+ * the match server or central. A mode, never a rate: the pad's look law (`../look` `LookLaw.frame`, 128.1 deg/s at the
+ * full push) is the camera's, untouched.
+ */
+let offlineRoom: { owner: LoopbackMatch; mode: LookGateMode } | null = null;
+
+/** RB-9: the look gate mode of the page's live offline room (the newest `LoopbackMatch` not stopped); none, the law. */
+export function offlineRoomLookRate(): LookGateMode {
+  return offlineRoom?.mode ?? 'law';
+}
+
 export class LoopbackMatch {
   readonly room: Room;
   /** Whether the room has the clips (a match made before the worker sent them is made again when they come). */
@@ -232,6 +260,8 @@ export class LoopbackMatch {
     this.clips = clips !== null;
     this.delayMs = Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
     this.room = new Room(map, clips, { now: () => performance.now(), ...room, rules: offeredRules(room.rules, respawnRules), solo: true }, bodies, kits);
+    // RB-9: the page's prediction follows the gate this room's movers run (`offlineRoomLookRate`); the newest room's.
+    offlineRoom = { owner: this, mode: roomLookGateMode({ solo: true, lookRate: room.lookRate }) };
     if (world) {
       const resolve = typeof world === 'function' ? world : (): WorldState | null => world;
       const follow = (): void => {
@@ -362,6 +392,7 @@ export class LoopbackMatch {
 
   stop(): void {
     this.stopped = true;
+    if (offlineRoom?.owner === this) offlineRoom = null;       // RB-9: an older room stopped later leaves the newer one's
     this.unfollow?.();
     this.unfollow = null;
     this.syncPageWorld = null;

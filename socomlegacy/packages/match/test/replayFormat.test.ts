@@ -99,11 +99,11 @@ describe('the .s2r versions (PT-01b)', () => {
     Buffer.from(encodeRecord({ kind: 'snap', tick: 2, bodies: [body(1, 10)] })),
   ]);
   it('refuses a replay recorded under a protocol it holds no decoder for, and readReplayHeader still names it', () => {
-    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13]);
-    expect(PROTOCOL_VERSION).toBe(13);                           // PLANT-AIM (F2): the plant's pick; 12 SEP-POP (B1): the command's `separate` bit
+    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14]);
+    expect(PROTOCOL_VERSION).toBe(14);                           // ER-2: the command's `raised` bit; 13 PLANT-AIM (F2): the plant's pick; 12 SEP-POP (B1): the command's `separate` bit
     for (const protocol of [PROTOCOL_VERSION + 1, 9]) {
       const bytes = fileOf({ protocol });
-      expect(() => decodeRecords(bytes)).toThrow(`unsupported replay protocol ${protocol} (this build decodes 10, 11, 12, 13)`);
+      expect(() => decodeRecords(bytes)).toThrow(`unsupported replay protocol ${protocol} (this build decodes 10, 11, 12, 13, 14)`);
       expect(readReplayHeader(bytes)?.protocol).toBe(protocol);
       expect(readReplayHeader(bytes)?.map).toBe('MP2');
     }

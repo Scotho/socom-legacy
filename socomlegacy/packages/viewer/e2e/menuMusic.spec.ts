@@ -53,7 +53,14 @@ test('SOCOM II ONLINE: after a gesture MUS_ONLINE_MENU plays MUUI0003.VPK from V
   await expect.poll(async () => (await view(page)).music?.plays ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
   // A key no binding of the screen reads (Q): the gesture the front end's audio unlock counts.
   await page.keyboard.press('KeyQ');
-  await page.locator('canvas#front-end').click({ position: { x: 5, y: 5 } });
+  // RC-MENUMUSIC-CLICK (a spec correction): the click lands where a player's does -- on whichever menu surface is on top.
+  // Since the GPU menus' flip (GM.R18) a GPU host shows `#front-end-gpu` over `#front-end` (`./uiGpuFront`), so a click
+  // aimed at `#front-end` itself was refused by Playwright as intercepted (shadow's A4500 at d628ce86e: 226 retries,
+  // 120 s); SwiftShader keeps the software path and never showed it. The unlock it gives is the document's (`pageUiSounds`
+  // binds `unlockOn` to the document, capture phase), so either canvas unlocks the music, for a player as here.
+  // Was: `locator('canvas#front-end').click({ position: { x: 5, y: 5 } })`.
+  const front = (await page.locator('canvas#front-end').boundingBox())!;
+  await page.mouse.click(front.x + 5, front.y + 5);
   await expect.poll(async () => playing(await view(page))?.buffers ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
   const v1 = await view(page);
   await page.waitForTimeout(3_000);

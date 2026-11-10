@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FsAssetSource } from '@s2u/archive/node';
 import { buildGrid, type WorldPoly } from '@s2u/scene';
-import { STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
+import { probeLiftOf, Walker } from '../src/mover';
 import { loadSimMap } from '../src/simMap';
 import { victoryEligibility, type VictoryActor } from '../src/victory';
 import { findVictoryArrangement, requireVictoryPlacement } from '../e2e/victoryArrangement';
@@ -24,7 +24,7 @@ describe('victory browser fixture checked placement', () => {
   });
   it('rejects the old no-floor z+20 and checks another non-overlapping candidate', () => {
     const grid = floor(15, 25, -5, 5), old = new Walker(grid);
-    expect(old.place(0, STEP_PROBE_LIFT_READING, 20)).toBe(false);
+    expect(old.place(0, probeLiftOf('stand'), 20)).toBe(false);
     expect(findVictoryArrangement(grid, actor, 'terrorist')?.placedAt).toEqual([20, 0, 0]);
   });
   // The room's dead drop their weapon at their feet (PF-34, `match/src/pickups.ts` `dropsOf`), and the page offers it
@@ -48,7 +48,7 @@ describe('victory browser fixture checked placement', () => {
   });
   it('rejects a floor whose vertical separation exceeds native eligibility', () => {
     const grid = floor(-100, 100, -100, 100, -40), probe = new Walker(grid);
-    expect(probe.place(0, STEP_PROBE_LIFT_READING, 20)).toBe(true);
+    expect(probe.place(0, probeLiftOf('stand'), 20)).toBe(true);
     expect(findVictoryArrangement(grid, actor, 'terrorist')).toBeNull();
   });
   it('rejects nonfinite actors and actual spawns that disagree with the probe', () => {
@@ -67,12 +67,12 @@ describe.skipIf(!disc || !existsSync(join(disc, 'RUN/MP51.ZDB')))('victory arran
     // Browser failure capture, not an original-game spawn claim.
     const captured = { ...actor, position: [1079.7619018554688, 48.71479326297069, 156.11111450195312] as const };
     const old = new Walker(map.grid);
-    expect(old.place(captured.position[0], captured.position[1] + STEP_PROBE_LIFT_READING, captured.position[2] + 20)).toBe(false);
+    expect(old.place(captured.position[0], captured.position[1] + probeLiftOf('stand'), captured.position[2] + 20)).toBe(false);
     const plan = findVictoryArrangement(map.grid, captured, 'terrorist');
     expect(plan).not.toBeNull();
     expect(plan!.placedAt).toEqual([1099.7619018554688, 51.219684472117784, 156.11111450195312]);
     const spawned = new Walker(map.grid);
-    expect(spawned.place(plan!.spawnAt[0], plan!.spawnAt[1] + STEP_PROBE_LIFT_READING, plan!.spawnAt[2])).toBe(true);
+    expect(spawned.place(plan!.spawnAt[0], plan!.spawnAt[1] + probeLiftOf('stand'), plan!.spawnAt[2])).toBe(true);
     requireVictoryPlacement(plan!, [spawned.state.x, spawned.state.y, spawned.state.z]);
   });
   it('finds checked nonzero corpse positions at both deterministic fixture spawn origins on all 22 maps', async () => {
@@ -87,7 +87,7 @@ describe.skipIf(!disc || !existsSync(join(disc, 'RUN/MP51.ZDB')))('victory arran
         // Room.spawn's SPAWN_LIFT=1 (room.ts) plus the actual exported mover origin;
         // .5 matches victoryServer's deterministic fixture random, not a game rule.
         const w = new Walker(map.grid), at = slot.position;
-        if (!w.place(at[0], at[1] + 1 + STEP_PROBE_LIFT_READING, at[2])) { failures.push(`${name}/${side}: actor floor absent`); continue; }
+        if (!w.place(at[0], at[1] + 1 + probeLiftOf('stand'), at[2])) { failures.push(`${name}/${side}: actor floor absent`); continue; }
         const origin: VictoryActor = { ...actor, team: side === 0 ? 'seal' : 'terrorist', position: [w.state.x, w.state.y, w.state.z] };
         const enemy = side === 0 ? 'terrorist' : 'seal', plan = findVictoryArrangement(map.grid, origin, enemy);
         if (!plan) { failures.push(`${name}/${side}: no eligible candidate`); continue; }

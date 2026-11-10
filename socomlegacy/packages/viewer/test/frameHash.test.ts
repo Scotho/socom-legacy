@@ -159,7 +159,10 @@ describe('CPS.R9 (e): the replay holds its frame at tick=&pause (the spec\'s hol
     expect(c.dtScale()).toBe(0);
   });
   it('the replay mount pauses at the open on `pause`, registered before the tick= seek (`test/replayPause.test.ts` drives it)', () => {
-    expect(src('replay/mount.ts')).toMatch(/\n {4}if \(replayPauseAsked\(search\)\) void client\.ready\.then\(\(\) => \{ if \(client\.state === 'open'\) client\.pause\(\); \}\);\n {4}seekOnOpen\(search, client\);/);
+    expect(src('replay/mount.ts')).toMatch(/\n {4}const still = replayPauseAsked\(search\);\n {4}if \(still\) void client\.ready\.then\(\(\) => \{ if \(client\.state === 'open'\) client\.pause\(\); \}\);\n {4}seekOnOpen\(search, client\);/);
+  });
+  it('the loading hold\'s release (RV2-03) ends the hold paused on `pause`, never playing on from the paused seek', () => {
+    expect(src('replay/mount.ts')).toMatch(/if \(client\.held\(\)\) client\.release\(!still\);/);
   });
 });
 

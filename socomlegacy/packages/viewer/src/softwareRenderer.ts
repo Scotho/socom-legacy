@@ -56,6 +56,21 @@ export function probeSoftwareRenderer(doc: Document): SoftwareProbe {
   return { renderer, software: isSoftwareRenderer(renderer) };
 }
 
+// N1b (the fresh review of N1): the page's one memoised probe, here so the error beacon reads it without pulling
+// `./deviceClass` into the page's entry (OT.R12; `clientErrorBeacon.test.ts` pins that). `./deviceClass` `pageRendererProbe`
+// returns it; never a second throwaway WebGL context beside a live one on the Xbox class (GM-XBOX1); a browser adaptation.
+let pageProbe: SoftwareProbe | null = null;
+/** The page's renderer probe, made once a page load: it makes (and loses) a throwaway WebGL context; a throw reads "no verdict". */
+export function pageSoftwareProbe(): SoftwareProbe {
+  if (!pageProbe) {
+    try { pageProbe = probeSoftwareRenderer(globalThis.document); } catch { pageProbe = { renderer: null, software: false }; }
+  }
+  return pageProbe;
+}
+
+/** Tests only: the page's probe forgotten, so the next read makes it again. */
+export function resetPageSoftwareProbeForTest(): void { pageProbe = null; }
+
 /**
  * Whether the no-GPU notice stays silent: the notice is for a player; an automated browser (Playwright, the perf drivers)
  * runs on SwiftShader by design -- the batch review, 2026-11-02. A test driver sets `navigator.webdriver`; a player's

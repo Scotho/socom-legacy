@@ -144,6 +144,27 @@ describe('the current state\'s +0x2c: the front end, a round, a load', () => {
     expect(u.events).toEqual([[0x3a, TEXT]]);
   });
 
+  it('OA-3: systemMessage routes every system entry as before and never sees a say', async () => {
+    // OA-3 (the operator announcement plan, OA.R1; a browser adaptation): a reply with central's `says` only -- the page's
+    // toast takes them (viewer `operatorToast.ts`); this routing (FUN_0030dce0, the cases above) never sees one.
+    for (const state of [11, 17]) {
+      const says = [{ id: 9, severity: 0, text: TEXT, until: Date.now() + 600_000, kind: 'say' }, { id: 8, withdrawn: true }];
+      const lines: RoundQueueLine[] = [];
+      const u = unit({ state, reply: () => Promise.resolve({ lines: [], says } as unknown as ChatLinesReply) });
+      u.chat.frame(CHAT_POLL_MS_ADAPTATION);
+      await flush();
+      u.chat.systemMessages();
+      expect([u.events, lines, u.panel(), u.lobbyPanel()]).toEqual([[], [], [], []]);   // no popup, no line
+      const r = unit({ round: () => (l) => { lines.push(l); }, reply: () => Promise.resolve({ lines: [], says } as unknown as ChatLinesReply) });
+      r.chat.frame(CHAT_POLL_MS_ADAPTATION);
+      await flush();
+      expect(lines).toEqual([]);                                                // nor the round's line
+    }
+    const after = unit();
+    await after.poll([notice(1)]);                                              // the restart notice beside: as before
+    expect(after.events).toEqual([[0x3a, TEXT]]);
+  });
+
   it('an older reply (an array of lines, no `system`) is read as before', async () => {
     const u = unit({ reply: () => Promise.resolve([]) });
     u.chat.frame(CHAT_POLL_MS_ADAPTATION);

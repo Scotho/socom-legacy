@@ -11,7 +11,8 @@ import { RenderTarget, type ColorSpace, type PixelFormatGPU } from 'three';
  *   buffer, or the stencil pair), its `outputColorSpace`, and under WebGPU the canvas's own format as the colour
  *   texture's `internalFormat` (three's `WebGPUTextureUtils.createTexture` takes it before its own mapping). WebGL2
  *   links programs by their code, not by the target, so no format is forced there.
- * - **One size a flash.** It is allocated at a flash's first glowing frame at the drawing buffer's size, kept at that
+ * - **One size a flash.** It is allocated at a flash's first glowing frame at the drawing buffer's size (half of it each
+ *   way on a weak GPU: GLOW-STEPDOWN, `./glowScale`, a browser adaptation), kept at that
  *   size to the flash's end (a pixel-ratio step mid-flash finishes at the old size, drawn stretched), and disposed when
  *   the glow ends: no memory held between flashes, no reallocation inside one.
  */
@@ -78,11 +79,14 @@ export class GlowFrame {
    */
   twin(): RenderTarget { return glowTargetOf(this.main); }
 
-  /** The target for this glowing frame: sized `width` x `height` at a flash's first, kept at that size to its end. */
-  acquire(width: number, height: number): RenderTarget {
+  /**
+   * The target for this glowing frame: sized `width` x `height` times `scale` at a flash's first, kept at that size to
+   * its end. `scale` is GLOW-STEPDOWN's (`./glowScale`, a browser adaptation: 0.5 on a weak GPU, else 1).
+   */
+  acquire(width: number, height: number, scale = 1): RenderTarget {
     const t = this.object;
     if (!this.active) {
-      t.setSize(Math.max(1, Math.floor(width)), Math.max(1, Math.floor(height)));
+      t.setSize(Math.max(1, Math.floor(width * scale)), Math.max(1, Math.floor(height * scale)));
       this.active = true;
     }
     return t;

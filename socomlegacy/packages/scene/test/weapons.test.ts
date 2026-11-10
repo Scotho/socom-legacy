@@ -426,3 +426,102 @@ describe.skipIf(!ZWEAPON)('R4B-01 off the disc: r0001\'s M60E3 record, read as r
     expect(others).toBeGreaterThan(30);
   });
 });
+
+describe('THREAT-MARKS: the record\'s stored Sound_Radius (FUN_003cda30 D:L322484-322488, FUN_003d2a00 D:L325313-325320)', () => {
+  it('a record\'s Sound_Radius x 10 is its soundRadius; an absent key is 0', () => {
+    const z: RdrNode = ['ZAMMO', zweapon[3]!, 'ZWEAPON', [[...m4, 'Sound_Radius', ['4.5']], m16]];
+    expect(weaponRecord(z, 'M4A1').soundRadius).toBe(45);
+    expect(weaponRecord(zweapon, 'M4A1').soundRadius).toBe(0);
+  });
+
+  it('the baked records carry the disc\'s: the M4A1 1000, the M4A1 SD 100, the Mark 23 600', () => {
+    expect([DEFAULT_RIFLE.soundRadius, HELD_RIFLE.soundRadius, HELD_SIDEARM.soundRadius]).toEqual([1000, 100, 600]);
+  });
+});
+
+describe.skipIf(!ZWEAPON)('THREAT-MARKS off the disc: zweapon.rdr\'s Sound_Radius (research 94 C1 row 1; research 321 s2.6)', () => {
+  const script = (): RdrNode => parseRdr(Zar.parse(bytes(ZWEAPON!)).data(Zar.parse(bytes(ZWEAPON!)).root.children[0]!));
+  const raw = (name: string): number | undefined => {
+    const list = rdrGet(script(), 'ZWEAPON') as RdrNode[];
+    const r = list.find((x) => Array.isArray(x) && rdrGet(x, 'InternalName') === name);
+    const v = r === undefined ? undefined : rdrGet(r, 'Sound_Radius');
+    return v === undefined ? undefined : Number(Array.isArray(v) ? v[0] : v);
+  };
+
+  it('the raw values: M4A1 100, M4A1 SD 10, 552SD 40 (r0001), M14 150, AN-M8 3', () => {
+    expect(['M4A1', 'M4A1 SD', '552SD', 'M14', 'AN-M8'].map(raw)).toEqual([100, 10, 40, 150, 3]);
+  });
+
+  // The 552SD's is r0004's initializer override 50 (R4B-10a, research 384: 0x3e6bc8), not the disc's 40 x 10.
+  it('weaponRecord stores them x 10 (+0x30): M4A1 1000, M4A1 SD 100, 552SD 50 (r0004\'s override, R4B-10a), M14 1500', () => {
+    const z = script();
+    expect(['M4A1', 'M4A1 SD', '552SD', 'M14'].map((n) => weaponRecord(z, n).soundRadius)).toEqual([1000, 100, 50, 1500]);
+  });
+
+  it('every equipment record holds no Sound_Radius or 0: the gate never passes for it', () => {
+    const list = (rdrGet(script(), 'ZWEAPON') as RdrNode[]).filter((x): x is RdrNode[] => Array.isArray(x));
+    const equipment = ['Double Ammo Load', 'Binoculars', 'Detonator'].filter((n) => list.some((r) => rdrGet(r, 'InternalName') === n));
+    expect(equipment.length).toBeGreaterThan(0);
+    for (const n of equipment) expect([n, raw(n) ?? 0]).toEqual([n, 0]);
+  });
+});
+
+// ---- R4B-10a: the stored sound radius after r0004's weapon-resource initialization (research 384) ------------------
+// R1 FUN_003cda30 D:L322484-322488 / r4 0x3f09d8-0x3f0a14 reads Sound_Radius (absent: 0), then scales by 10.
+// R4 0x3e6850 adds an exact InternalName == "552SD" override at 0x3e6bc8-0x3e6bf4: setter 0x3f4c50 receives
+// 50 directly, after parsing. This tests the stored weapon value only; player audibility and AI responses are unmeasured.
+const soundRadiusScript = (name: string, radius: string | undefined): RdrNode => [
+  'ZAMMO', [rec(['InternalName', '5.56 x 45mm'], ['ID', '8']), rec(['InternalName', '9x19P'], ['ID', '1'])],
+  // Keep ID 67 under nearby names too: the original condition is the name, not the ID or an SD suffix.
+  'ZWEAPON', [classRecord(name, 67, radius === undefined ? [] : [['Sound_Radius', radius]]), m16],
+];
+
+describe('R4B-10a: the stored Sound_Radius after r0004 initialization', () => {
+  it.each(['40', '7', '0'])('552SD replaces parsed Sound_Radius %s with 50 world units, without rescaling the override', (raw) => {
+    const weapon = weaponRecord(soundRadiusScript('552SD', raw), '552SD');
+    expect(weapon).toHaveProperty('soundRadius', 50);
+  });
+
+  it.each(['552', '552SD ', '552sd', 'M4A1 SD', 'HK5SD'])('%s keeps a parsed radius of 40 metres as 400 world units', (name) => {
+    expect(weaponRecord(soundRadiusScript(name, '40'), name)).toHaveProperty('soundRadius', 400);
+  });
+
+  it('an ordinary fractional radius is scaled from metres to world units', () => {
+    expect(weaponRecord(soundRadiusScript('Mark 23SD', '4.5'), 'Mark 23SD')).toHaveProperty('soundRadius', 45);
+  });
+
+  it('an ordinary record with no Sound_Radius keeps the parser default of zero', () => {
+    expect(weaponRecord(soundRadiusScript('552', undefined), '552')).toHaveProperty('soundRadius', 0);
+  });
+
+  it('552SD receives the initializer override even when Sound_Radius is absent', () => {
+    expect(weaponRecord(soundRadiusScript('552SD', undefined), '552SD')).toHaveProperty('soundRadius', 50);
+  });
+});
+
+// New dev-disc cases use only configured data roots; an unconfigured host skips them.
+const SOUND_RADIUS_ZWEAPON = [
+  ...(process.env.SOCOM_DISC ? [resolve(process.env.SOCOM_DISC, 'RUN/ZWEAPON.ZAR')] : []),
+  ...(process.env.SOCOM_PC_ROOT ? [resolve(process.env.SOCOM_PC_ROOT, 'game/disc/RUN/ZWEAPON.ZAR')] : []),
+].find((path) => existsSync(path));
+
+describe.skipIf(!SOUND_RADIUS_ZWEAPON)('R4B-10a off the disc: full weapon records through the archive and weapon readers', () => {
+  it.each([
+    // InternalName, archive Sound_Radius in metres, stored radius in world units after r0004 initialization.
+    ['552SD', '40', 50],
+    ['552', '65', 650],
+    ['M4A1', '100', 1000],
+    ['M4A1 SD', '10', 100],
+    ['HK5SD', '5', 50],
+    ['Mark 23SD', '4.5', 45],
+    ['M60E3', '110', 1100],
+  ] as const)('%s: disc Sound_Radius %s becomes stored radius %s', (name, raw, stored) => {
+    const zar = Zar.parse(bytes(SOUND_RADIUS_ZWEAPON!));
+    const member = zar.root.children.find((k) => k.name.toLowerCase() === 'zweapon.rdr')!;
+    const script = parseRdr(zar.data(member));
+    const records = rdrGet(script, 'ZWEAPON') as RdrNode[][];
+    const record = records.find((r) => rdrGet(r, 'InternalName') === name)!;
+    expect(rdrGet(record, 'Sound_Radius')).toBe(raw);
+    expect(weaponRecord(script, name)).toHaveProperty('soundRadius', stored);
+  });
+});

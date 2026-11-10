@@ -1,3 +1,4 @@
+import { mapLabel } from '@s2u/archive/mapNames';
 import {
   GAME_LIST_QUERY, MEDIUS_STATUS, ROOM_LIST_QUERY, gameDetails, gameListRow, gameStatsD, roomEligibleRanks, roomOrder,
   type ChannelListEntry, type GameDetails, type GameListEntry, type MissionRecord,
@@ -411,14 +412,15 @@ export function fetchCustomMatchSource(base: string, fetchFn: typeof fetch = (..
 /**
  * A lobby's map as the area names it: a multiplayer map (`MP<n>`) by the disc's mission table when the disc is in --
  * the table's first multiplayer record of that number, the lookup GAME DETAILS reads a game's map by (`@s2u/ui`
- * `gameDetails`' `mpMission`, `FUN_002c9040`) -- else its stem (MU.R3: nothing of the disc before it is in); a blank
+ * `gameDetails`' `mpMission`, `FUN_002c9040`) -- else the one name table's name (`@s2u/archive` `mapLabel`; MN-1,
+ * OT.R113: never the stem; a decoded name in code, not a disc asset, so MU.R3 stands); a blank
  * floor (`blank:<library>`) said as one, with its library's name; any other stem (a campaign mission) as it stands.
  */
 export function customMatchMap(base: string, missions: readonly MissionRecord[] | null): string {
   const stemName = (stem: string): string => {
     const m = /^MP(\d+)$/i.exec(stem);
     const record = m && missions ? missions.find((r) => r.multiplayer && r.number === Number(m[1])) : undefined;
-    return record?.name ?? stem;
+    return mapLabel(record?.name ?? stem);
   };
   return base.startsWith('blank:') ? `Blank floor (${stemName(base.slice('blank:'.length))})` : stemName(base);
 }

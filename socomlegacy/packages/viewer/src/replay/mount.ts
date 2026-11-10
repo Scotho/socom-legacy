@@ -7,6 +7,7 @@ import { devSwitches } from '../source';
 import { mountReplayBar } from './controls';
 import { mountEmbed, replaySeeker, seekOnOpen, segmentIndex } from './embed';
 import { checkReplayUrl, loadSegment, type LoadedSegment } from './load';
+import { replayMapOpening, replayMapRefusal } from './refusalKind';
 import { asNetClient, ReplayClient } from './replayClient';
 import { mountTimeline, parseListing, type TimelineListing } from './timeline';
 
@@ -59,7 +60,9 @@ export function replayServer(
  * opens -- `pause` in the address beside `replay=` (`/testroom?devmode&replay=<url>&tick=<t>&pause`). The recording plays
  * from its open (`ReplayClient`'s `clock.play()`), and a `tick=` seek keeps it playing; with `pause` the clock is paused
  * at the open, before the seek, so the seek sets the tick exactly and the page draws that tick's frame every time (the
- * frame identity gate, `e2e/zz-frame-identity.spec.ts`). Space plays on as before. REPLAY_ADAPTATION: no game value.
+ * frame identity gate, `e2e/zz-frame-identity.spec.ts`). Held by the page's loading screen (RV2-03, `ReplayPageHooks.held`),
+ * the hold's release keeps it paused (`ReplayClient.release(false)`) in either order of the open and the release. Space
+ * plays on as before. REPLAY_ADAPTATION: no game value.
  */
 export function replayPauseAsked(search: string): boolean {
   try { return new URLSearchParams(search).has('pause'); } catch { return false; }
@@ -84,7 +87,7 @@ export function replayMapAddress(search: string, headerMap: string, shown: strin
   const i = parts.findIndex((p) => key(p) === 'map');
   const asked = i >= 0 ? (parts[i]!.split('=')[1] ?? '') : null;
   if (asked !== null && decodeURIComponent(asked).toUpperCase() === want) {
-    return { refuse: `This recording is of map ${want}, which the page could not open.` };
+    return { refuse: replayMapRefusal(want) };
   }
   const pair = `map=${encodeURIComponent(want)}`;
   if (i >= 0) parts[i] = pair; else parts.push(pair);
@@ -180,7 +183,7 @@ export function replayClient(search: string, deps?: ReplayMountDeps, page: Repla
         const r = replayMapAddress(d.location.search, seg.header.map, opts.map);
         if (r && 'navigate' in r) {
           d.location.replace(`${d.location.pathname}${r.navigate}${d.location.hash}`);
-          return `Opening the recording's map, ${seg.header.map.toUpperCase()}.`;
+          return replayMapOpening(seg.header.map);          // MN-1 review F2: the map named
         }
         return r ? r.refuse : null;
       },
@@ -201,13 +204,15 @@ export function replayClient(search: string, deps?: ReplayMountDeps, page: Repla
     });
     const view = d.document.defaultView;
     const embed = view ? mountEmbed({ window: view, search, seek }) : null;
-    // CPS.R9 (e): `pause` paused at the open, registered before `seekOnOpen` so the seek lands on a paused clock (exact tick)
-    if (replayPauseAsked(search)) void client.ready.then(() => { if (client.state === 'open') client.pause(); });
+    // CPS.R9 (e): `pause` paused at the open, registered before `seekOnOpen` so the seek lands on a paused clock (exact tick);
+    // and the loading hold's release (RV2-03) ends the hold without playing, so a release after the open keeps it paused
+    const still = replayPauseAsked(search);
+    if (still) void client.ready.then(() => { if (client.state === 'open') client.pause(); });
     seekOnOpen(search, client);
     const loop = (): void => {
       if (client.state === 'closed') { bar.dispose(); timeline.dispose(); embed?.dispose(); return; }
       if (!page.held?.()) {                                 // RV2-03: no advance while the page's loading screen shows
-        if (client.held()) client.release();
+        if (client.held()) client.release(!still);          // CPS.R9 (e): with `pause`, the hold ends paused
         client.advance();
       }
       bar.render();

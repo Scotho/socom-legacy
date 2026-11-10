@@ -8,6 +8,13 @@ import { screenHead } from './head';
 import { PAD_ART } from './padArt';
 
 /**
+ * SS-1's D2 and REVIEW-1's F3 (a browser adaptation, product track): the browser's dead zone -- this browser's pad
+ * calibration before the game's own curve -- by one name on Options > Controller and on Button mapping, apart from the
+ * card's Dead zone (CONTROLLER OPTIONS' DEAD ZONE, "In the game"). The controller's taste call, 2026-11-07.
+ */
+export const PAD_DEAD_ZONE_LABEL = 'Pad dead zone (this browser)';
+
+/**
  * The button mapping screen (CX-14 of the console launcher plan; CX.R13, OT.R60: the overlay is this console, and its
  * mapping view is the console's own): a pushed screen, as Browse rooms and the replays list are, opened from Settings >
  * Controller's Button mapping row. It draws `../../padBinding` `PadBinding` -- the machine lifted out of the setup page's
@@ -118,7 +125,7 @@ export const REMAP_HOLD_WORDS = 'Hold a button…';
 /** The seconds a listen has left, whole and rounded up (12 at its start). */
 export const secondsLeft = (b: PadBinding): number => Math.ceil(b.remaining() / 1000);
 
-/** The dead zone's roller: 0-40 % in steps of 1 %, as Options' Stick dead zone (`../adapters/options` `padDead`). */
+/** The dead zone's roller: 0-40 % in steps of 1 %, as Options' Pad dead zone (this browser) (`../adapters/options` `padDead`). */
 export const DEAD_VALUES = Array.from({ length: 41 }, (_, i) => `${i}%`);
 
 /** A bind's button (`CROUCH_BIND`, `PRONE_BIND`; -1 unbound). */
@@ -233,7 +240,7 @@ function asideHtml(s: ConsoleState, b: PadBinding, lock: { line: string } | null
           ? [extraName(b, x), x.warning === 'same-thumb' ? `${REMAP_SAME_THUMB_WARNING} Cross removes it.` : 'Cross removes it.', EXTRAS_NOTE]
           : extra ? [EXTRA_WORDS[extra as FixedExtra].title, EXTRA_WORDS[extra as FixedExtra].about, EXTRA_WORDS[extra as FixedExtra].note]
     : r === REMAP_DEAD_ROW
-    ? ['Stick dead zone', 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', 'Saved to this browser, for this controller.']
+    ? [PAD_DEAD_ZONE_LABEL, 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', 'Saved to this browser, for this controller.']
     : r === REMAP_STANCE_ROW
       ? ['Stance mode', STANCE_MODE_ABOUT, 'Saved to this browser, for every controller.']
       : bind === CROUCH_BIND
@@ -416,7 +423,7 @@ export function remapHtml(s: ConsoleState, a: Adapters): string {
     ? teachHtml(b, s.rm.teachDeclined === true)
     : `<ul class="cx-list" role="list" aria-label="Bindings" data-scroll data-key="remap-rows">
         ${rollerRow(s, REMAP_STANCE_ROW, 'Stance mode', STANCE_MODE_WORDS[mode], mode !== 'pop', null)}
-        ${rollerRow(s, REMAP_DEAD_ROW, 'Stick dead zone', DEAD_VALUES[dz] ?? `${dz}%`, dz !== Math.round(def.deadZone * 100), lock)}
+        ${rollerRow(s, REMAP_DEAD_ROW, PAD_DEAD_ZONE_LABEL, DEAD_VALUES[dz] ?? `${dz}%`, dz !== Math.round(def.deadZone * 100), lock)}
         ${b.actions().map((_, i) => actionRow(s, b, i, lock, live)).join('')}
         ${mode === 'separate' ? `${bindRow(s, b, REMAP_CROUCH_ROW, lock, live)}${bindRow(s, b, REMAP_PRONE_ROW, lock, live)}` : ''}
         ${remapExtras(b).map((k, j) => extraRow(s, b, remapOwnRows(mode) + j, k)).join('')}

@@ -148,55 +148,57 @@ export interface Layout {
   npcs?: NpcMarker[];
   /**
    * The layout's placed hostages (a browser adaptation, FG.R2; no original): each a place `p` facing `yaw`, added to the
-   * base map's own escortees for an Escort or Extraction match (the Forge's Play). Absent: none. Online refused
-   * (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own escortees.
+   * base map's own escortees for an Escort or Extraction match (the Forge's Play). Absent: none. Online admitted (FP-1a):
+   * the lobby's room places them as the page's Play does (`playObjectives`).
    */
   hostages?: HostageMarker[];
   /**
    * The layout's placed extraction zones (a browser adaptation, FG.R2; no original): each a named rectangle on the ground,
    * an EXTRACT_ZONE (AI-map kind 1) beside the map's own Safety zones for an Extraction match. Absent: none. Online
-   * refused (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own zones.
+   * admitted (FP-1a): the lobby's room places them as the page's Play does (`playObjectives`).
    */
   extractionZones?: ExtractionZone[];
   /**
    * The layout's placed tactical points (a browser adaptation, FG.R2): a name, a kind and a place, beside the map's own
    * AIMAPS named points on its tactical map -- kind 1 a nav point the compass marks by the name's first letter. Absent:
-   * none. Online refused.
+   * none. Online admitted (FP-1a): the room holds no tactical map; the lobby's page composes them as its Play does.
    */
   tacPoints?: TacPointMarker[];
   /**
    * The layout's placed respawn points (a browser adaptation, FG.R2; the owner, 2026-11-06): each a team, a place and a
    * yaw (radians) as a spawn's, beside the map's own respawn records (`LoadedMap.respawns`, research 91 section 4.2).
-   * Absent: none. Online refused (`onlineCreatorLayoutRefusal`): a lobby plays the disc's own respawns.
+   * Absent: none. Online admitted (FP-1a): the lobby's room composes them as the page's Play does (`placedRespawns`).
    */
   respawns?: SpawnMarker[];
   /**
    * The layout's placed flares (a browser adaptation, FG.R2; the owner, 2026-11-06): each a copy of one of a disc map's
    * facade nodes -- a glow the engine turns to the camera, not the lamp it hangs on -- by its archive (`source`) and its
-   * node's name (`name`), at `at`. Absent: none. Online refused (`onlineCreatorLayoutRefusal`).
+   * node's name (`name`), at `at`. Absent: none. Online admitted (FP-1a): a light the page draws, nothing the room holds.
    */
   flares?: FlareMarker[];
   /**
    * The layout's placed spectator views (a browser adaptation, FG.R2): a name, a camera place and its yaw and pitch
-   * (degrees, the port's convention, as `mission.rdr`'s Scenic_Views), beside the map's own. Absent: none. Online refused.
+   * (degrees, the port's convention, as `mission.rdr`'s Scenic_Views), beside the map's own. Absent: none. Online
+   * admitted (FP-1a): the room holds no scenic view; the lobby's page composes them as its Play does.
    */
   scenicViews?: ScenicViewMarker[];
   /**
    * The layout's placed turrets (a browser adaptation, FG.R2): each a copy of a disc map's own manual turret -- its
    * archive (`source`) and placed node's name (`name`) -- stood at `at` facing `yaw` (radians), beside the map's own.
-   * Absent: none. Online refused.
+   * Absent: none. Online admitted (FP-1a): the lobby's room places them as the page's Play does (`withPlacedTurrets`).
    */
   turrets?: TurretMarker[];
   /**
    * The layout's placed doors (a browser adaptation, FG.R2): each a copy of a disc map's own door -- its archive
    * (`source`) and node (`name`) -- its hinge at `at`, turned `yaw` radians from that door's own turn. Absent: none.
-   * Online refused.
+   * Online admitted (FP-1a): the lobby's room places them as the page's Play does (`withPlacedDoors`).
    */
   doors?: DoorMarker[];
   /**
    * The layout's placed gates and C4 barriers (a browser adaptation, FG.R2): each a copy of a disc map's own access
    * object -- its archive (`source`) and its root node (`name`, `access1`) -- at `at`, turned `yaw` radians. A gate slides
-   * on its lever and C4 wrecks it; a barrier C4 wrecks. Absent: none. Online refused.
+   * on its lever and C4 wrecks it; a barrier C4 wrecks. Absent: none. Online admitted (FP-1a): the lobby's room places
+   * them as the page's Play does (`withPlacedAccess`).
    */
   gates?: DoorMarker[];
   barriers?: DoorMarker[];
@@ -303,7 +305,9 @@ export interface LayoutSettings {
   fog?: { on: boolean; near: number; height: { top: number; bottom: number } | null } | null;
   /**
    * A new empty map's own night (as `fog`): the world root's `NightMission` (night vision offered) and `LensFX_NVG` (its
-   * lens, rgb 0..255 and an alpha, as `LoadedMap.night` reads it; null, none). Absent or null, the built-from map's.
+   * lens: four floats 0..1, the disc's range, as `LoadedMap.night` reads it -- (0.2, 0.898, 0.2, 0.24) on every map,
+   * research 84 s14; null, none). Absent or null, the built-from map's. An earlier save's rgb 0..255 is read once as such
+   * (`nightLensOf`, FP-1b).
    */
   night?: { mission: boolean; lens: [number, number, number, number] | null } | null;
   light: number;
@@ -330,12 +334,25 @@ export const SETTINGS_BOUNDS = Object.freeze({
 
 const SETTINGS_FIELDS = new Set(["timeOfDay", "light", "fogFar", "players", "rounds", "roundSeconds", "friendlyFire", "npcBehaviour", "lightRig", "fogColor", "shadowVector", "skyFrom", "fog", "night"]);
 
-/** A night lens: rgb 0..255 and an alpha 0..1 (`settings.night.lens`). */
+/**
+ * A night lens (`settings.night.lens`): four floats 0..1, the disc's `LensFX_NVG` range (research 84 s14). The migration
+ * (FP-1b; REVIEW-A 12; a browser adaptation, FG.R2): the Overhaul's first saves stored the rgb as bytes 0..255, so a
+ * lens with any rgb lane above 1 is an earlier save's and is read once as such -- its rgb divided by 255, its alpha kept;
+ * written back, it is in the disc's range. A lane past 255 or an alpha past 1 is refused.
+ */
 function settingsTriple4(v: unknown): [number, number, number, number] {
-  if (!Array.isArray(v) || v.length !== 4 || !v.every(isNum) || v.slice(0, 3).some((n) => n < 0 || n > 255) || v[3] < 0 || v[3] > 1) {
-    throw new Error("settings.night.lens is not rgb 0..255 and an alpha 0..1");
+  const [r, g, b, a] = Array.isArray(v) && v.length === 4 ? v : [];
+  const rgb = (n: unknown): n is number => isNum(n) && n >= 0 && n <= 255;
+  if (!rgb(r) || !rgb(g) || !rgb(b) || !isNum(a) || a < 0 || a > 1) {
+    throw new Error("settings.night.lens is not rgb 0..1 (or an earlier save's 0..255) and an alpha 0..1");
   }
-  return [v[0], v[1], v[2], v[3]];
+  return nightLensOf([r, g, b, a]);
+}
+
+/** `settingsTriple4`'s migration alone: an earlier save's 0..255 rgb to the disc's 0..1, else the lens as it is. */
+export function nightLensOf(lens: readonly [number, number, number, number]): [number, number, number, number] {
+  const [r, g, b, a] = lens;
+  return r > 1 || g > 1 || b > 1 ? [r / 255, g / 255, b / 255, a] : [r, g, b, a];
 }
 
 /** Three numbers each passing `check`, or null; `what` names the field in the refusal. */
@@ -1132,6 +1149,31 @@ export const RECORD_V2 = 2 as const;
 export const RECORD_LIMITS = { name: 48, assets: 256, pieces: 2000, spawns: 48, coord: 100_000, requires: 64 } as const;
 
 /**
+ * FP-1a, Codex P1 on #745 (a browser/server adaptation, FG.R2; OT.R26): the layout's placed kinds, each a list of copies
+ * or markers the page's Play and a lobby's room compose. The record bounds each to 1..`RECORD_LIMITS.spawns`
+ * (`checkCreatorRecord`: hostages, doors, gates, barriers, turrets, flares, respawns, tacPoints, scenicViews,
+ * extractionZones); the file's JSON path bounds none, so a lobby's create checks the same number
+ * (`placedKindsPast`; central `forgeLobby.ts` `layoutWithinBounds`, `match/src/forgeSimMap.ts` `composeForgeSimMap`),
+ * and the page's Check says it first. The rules entities and the bomb's sites are bounded by the parse already
+ * (`RECORD_ENTITIES_MAX`, `BOMB_SITES_MAX`); the NPC markers by central (`FORGE_NPCS_MAX`).
+ */
+export const PLACED_KINDS = [
+  "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers",
+] as const satisfies readonly (keyof Layout)[];
+/** Each placed kind's most copies or markers: the record's marker bound (`RECORD_LIMITS.spawns`, 48), so the two paths agree. */
+export const FORGE_PLACED_MAX_ADAPTATION = RECORD_LIMITS.spawns;
+
+/** The placed kinds `l` holds past `FORGE_PLACED_MAX_ADAPTATION`, each with its count, in `PLACED_KINDS` order. Empty: within. */
+export function placedKindsPast(l: Pick<Layout, (typeof PLACED_KINDS)[number]>): { kind: (typeof PLACED_KINDS)[number]; count: number }[] {
+  const out: { kind: (typeof PLACED_KINDS)[number]; count: number }[] = [];
+  for (const kind of PLACED_KINDS) {
+    const count = l[kind]?.length ?? 0;
+    if (count > FORGE_PLACED_MAX_ADAPTATION) out.push({ kind, count });
+  }
+  return out;
+}
+
+/**
  * The v2/v3 record's position lattice: a coordinate is stored as a multiple of one tenth of a game unit
  * (`round(x * 10) / 10`), so a disc height on a half unit (42.5) stays. The catalogue binds the same lattice.
  */
@@ -1521,7 +1563,12 @@ export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   if (!isV2(r) && r.extractionZones?.length) layout.extractionZones = r.extractionZones.map(([name, x, y, z, w, d, locked]): ExtractionZone => ({
     name, at: [x, y, z], size: [w, d], ...(locked === true ? { locked: true as const } : {}),
   }));
-  if (r.settings && Object.keys(r.settings).length) layout.settings = { ...r.settings };
+  if (r.settings && Object.keys(r.settings).length) {
+    layout.settings = { ...r.settings };
+    // An earlier save's night lens in bytes, read once in the disc's range (`nightLensOf`, FP-1b).
+    const night = r.settings.night;
+    if (night?.lens) layout.settings.night = { ...night, lens: nightLensOf(night.lens) };
+  }
   const name = r.name.trim();
   if (name) layout.name = name;
   if (r.camera) layout.camera = parseCamera(r.camera);
@@ -1970,15 +2017,25 @@ export const RECORD_CODES = {
   legacyCarry: "record.LEGACY_CARRY",
   onlinePacks: "record.ONLINE_PACKS",
   onlineMode: "record.ONLINE_MODE",
+  /** FP-1a: no longer raised -- the room places them (`playObjectives`); kept so an old reader's code still names. */
   onlineHostages: "record.ONLINE_HOSTAGES",
+  /** FP-1a: no longer raised -- the room places them (`playObjectives`); kept likewise. */
   onlineExtractionZones: "record.ONLINE_EXTRACTION_ZONES",
+  /** FP-1a: no longer raised -- the room holds no tactical map; the lobby's page composes the points. Kept likewise. */
   onlineTacticalPoints: "record.ONLINE_TACTICAL_POINTS",
+  /** FP-1a: no longer raised -- the room composes placed respawn points (`placedRespawns`); kept so an old reader's code still names. */
   onlineRespawns: "record.ONLINE_RESPAWNS",
+  /** FP-1a: no longer raised -- a placed flare is a light the page draws, nothing the room holds; kept likewise. */
   onlineFlares: "record.ONLINE_FLARES",
+  /** FP-1a: no longer raised -- the room holds no scenic view; the lobby's page composes them. Kept likewise. */
   onlineSpectatorViews: "record.ONLINE_SPECTATOR_VIEWS",
+  /** FP-1a: no longer raised -- the room places them (`withPlacedObjects`); kept likewise. */
   onlineTurrets: "record.ONLINE_TURRETS",
+  /** FP-1a: no longer raised -- the room places them (`withPlacedObjects`); kept likewise. */
   onlineDoors: "record.ONLINE_DOORS",
+  /** FP-1a: no longer raised -- the room places them (`withPlacedObjects`); kept likewise. */
   onlineGates: "record.ONLINE_GATES",
+  /** FP-1a: no longer raised -- the room places them (`withPlacedObjects`); kept likewise. */
   onlineBarriers: "record.ONLINE_BARRIERS",
   /** FCW-10, H273/H274: an online lobby plays the disc's own maps (`maps.ts` `CONTENT_MAP_CODES.onlineContentMap`). */
   onlineContentMap: "record.ONLINE_CONTENT_MAP",
@@ -2049,39 +2106,7 @@ export function readCreatorRecord(text: string, options: ReadRecordOptions = {})
  * (H275). Empty: admitted. A share code and an account row carry the references only, never a pack's bytes (H276).
  */
 export function onlineRecordRefusal(r: CreatorLayoutRecord): Diagnostic[] {
-  return [...onlineRefusal(r.requires ?? [], r.mode, r.contentBase), ...hostagesRefusal(r.hostages?.length ?? 0), ...zonesRefusal(r.extractionZones?.length ?? 0),
-    ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", r.tacPoints?.length ?? 0, "tactical points"),
-    ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", r.respawns?.length ?? 0, "respawn points"),
-    ...placedRefusal(RECORD_CODES.onlineFlares, "flares", r.flares?.length ?? 0, "flares"),
-    ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", r.scenicViews?.length ?? 0, "spectator views"),
-    ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", r.turrets?.length ?? 0, "turrets"),
-    ...placedRefusal(RECORD_CODES.onlineDoors, "doors", r.doors?.length ?? 0, "doors"),
-    ...placedRefusal(RECORD_CODES.onlineGates, "gates", r.gates?.length ?? 0, "gates"),
-    ...placedRefusal(RECORD_CODES.onlineBarriers, "barriers", r.barriers?.length ?? 0, "C4 barriers")];
-}
-
-/** Placed tactical points or spectator views (a browser adaptation) play locally only: a lobby plays the disc's own. */
-function placedRefusal(code: string, field: string, count: number, words: string): Diagnostic[] {
-  return count ? [diagnostic({
-    source: "check", severity: "error", code, field, actual: String(count),
-    text: `An online lobby plays the disc's own ${words}: this layout places its own. Play it locally.`,
-  })] : [];
-}
-
-/** Placed extraction zones (a browser adaptation) play locally only: a lobby's room plays the disc's own zones. */
-function zonesRefusal(count: number): Diagnostic[] {
-  return count ? [diagnostic({
-    source: "check", severity: "error", code: RECORD_CODES.onlineExtractionZones, field: "extractionZones", actual: String(count),
-    text: "An online lobby plays the disc's own extraction zones: this layout places its own. Play it locally.",
-  })] : [];
-}
-
-/** Placed hostages (a browser adaptation) play locally only: a lobby's room plays the disc's own escortees. */
-function hostagesRefusal(count: number): Diagnostic[] {
-  return count ? [diagnostic({
-    source: "check", severity: "error", code: RECORD_CODES.onlineHostages, field: "hostages", actual: String(count),
-    text: "An online lobby plays the disc's own hostages: this layout places its own. Play it locally.",
-  })] : [];
+  return onlineRefusal(r.requires ?? [], r.mode, r.contentBase);
 }
 
 /**
@@ -2094,15 +2119,7 @@ function hostagesRefusal(count: number): Diagnostic[] {
 export function onlineCreatorLayoutRefusal(l: Layout | ContentLayout): Diagnostic[] {
   const map = isContentLayoutBase(l.base) ? l.base : null;
   const packs = sortPackRefs([...(l.requires ?? []), ...(map ? [map.ref] : []), ...l.pieces.flatMap((p) => (p.content ? [p.content.pack] : []))]);
-  return [...onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined), ...hostagesRefusal(l.hostages?.length ?? 0), ...zonesRefusal(l.extractionZones?.length ?? 0),
-    ...placedRefusal(RECORD_CODES.onlineTacticalPoints, "tacPoints", l.tacPoints?.length ?? 0, "tactical points"),
-    ...placedRefusal(RECORD_CODES.onlineRespawns, "respawns", l.respawns?.length ?? 0, "respawn points"),
-    ...placedRefusal(RECORD_CODES.onlineFlares, "flares", l.flares?.length ?? 0, "flares"),
-    ...placedRefusal(RECORD_CODES.onlineSpectatorViews, "scenicViews", l.scenicViews?.length ?? 0, "spectator views"),
-    ...placedRefusal(RECORD_CODES.onlineTurrets, "turrets", l.turrets?.length ?? 0, "turrets"),
-    ...placedRefusal(RECORD_CODES.onlineDoors, "doors", l.doors?.length ?? 0, "doors"),
-    ...placedRefusal(RECORD_CODES.onlineGates, "gates", l.gates?.length ?? 0, "gates"),
-    ...placedRefusal(RECORD_CODES.onlineBarriers, "barriers", l.barriers?.length ?? 0, "C4 barriers")];
+  return onlineRefusal(packs, l.mode, map ? { ref: map.ref, mapId: map.mapId } : undefined);
 }
 
 /** FCW-07a's name for the layout's online policy: `onlineCreatorLayoutRefusal`, the one body (a content base refused too). */

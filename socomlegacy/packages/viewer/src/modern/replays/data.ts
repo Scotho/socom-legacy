@@ -63,6 +63,12 @@ export interface ReplayEntry {
   result?: ReplayResult;
   /** SA-9b: the hostId of the host that keeps it; absent, central keeps it (fetched at `<base>/replays/<id>`). */
   host?: string;
+  /**
+   * RB-32 (the replay batch, `docs/plans/2026-11-08-replay-batch.md`): the match's mode as the listing names it, when it
+   * names one (the viewer's head draws it as a chip, the S2 Launcher v2 export's `D:256`); absent -- today's listing, or
+   * an empty string -- no chip. Additive: no route writes it yet. A browser adaptation's field (OT.R53).
+   */
+  mode?: string;
 }
 
 /** Why the list failed: no answer, no replays kept on this server (404: `REPLAYS_DIR` unset), or another refusal. */
@@ -97,8 +103,9 @@ function resultOf(raw: unknown): ReplayResult {
 
 function entryOf(raw: unknown): ReplayEntry {
   const e = obj(raw);
-  const { id, room, map, rules, startedAt, seconds, players, result, host } = e;
+  const { id, room, map, rules, startedAt, seconds, players, result, host, mode } = e;
   if (host !== undefined && !(isStr(host) && HOST_ID.test(host))) throw new Error('replays: not the shape');
+  if (mode !== undefined && !isStr(mode)) throw new Error('replays: not the shape');   // RB-32: a string or absent
   if (!isStr(id) || !ID.test(id) || !isStr(room) || !isStr(map) || !isStr(rules) || !isStr(startedAt)) throw new Error('replays: not the shape');
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) throw new Error('replays: not the shape');
   if (!Array.isArray(players)) throw new Error('replays: not the shape');
@@ -111,6 +118,7 @@ function entryOf(raw: unknown): ReplayEntry {
     }),
     ...(result === undefined ? {} : { result: resultOf(result) }),
     ...(host === undefined ? {} : { host }),
+    ...(isStr(mode) && mode !== '' ? { mode } : {}),
   };
 }
 

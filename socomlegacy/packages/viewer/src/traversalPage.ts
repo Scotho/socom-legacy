@@ -251,11 +251,15 @@ export class TraversalPage {
   /** Whether the keys may act now (false while a menu over the game holds the input: the ARMORY). */
   keysOpen: () => boolean = () => true;
 
-  /** Development X: living Action on release, respawn Action on a nonrepeat press; Q/E peek held (research 354). */
-  bindKeys(target: EventTarget = globalThis): void {
-    if (!import.meta.env.DEV) return;                                // OT.R29: the keys a development build's only
-    keyboardSite('s2u-kb-traversal');
+  /**
+   * Development X: living Action on release, respawn Action on a nonrepeat press; Q/E peek held (research 354).
+   * RB-8 (OT.R114, RB.R4): `kbm`, a page's opt-in (the test room's `kbmAllowed`), attaches the keys in every build and is asked again at each press.
+   */
+  bindKeys(target: EventTarget = globalThis, kbm: (() => boolean) | null = null): void {
+    if (!import.meta.env.DEV && kbm === null) return;               // OT.R29: the keys a development build's only; RB-8: or a `kbm` page's
+    if (import.meta.env.DEV) keyboardSite('s2u-kb-traversal');
     target.addEventListener('keydown', ((e: KeyboardEvent) => {
+      if (!import.meta.env.DEV && !kbm?.()) return;
       if (!['KeyX', 'KeyQ', 'KeyE'].includes(e.code) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (this.walk.mode() !== 'walk') return;
       const el = e.target;
@@ -270,7 +274,7 @@ export class TraversalPage {
       if (e.code === 'KeyX') { this.keyHeld = true; this.pushHold(); return; }
       this.held.add(e.code);
     }) as EventListener);
-    if (import.meta.env.DEV) target.addEventListener('keyup', ((e: KeyboardEvent) => {
+    target.addEventListener('keyup', ((e: KeyboardEvent) => {       // a release lets go whatever the opt-in says now
       this.held.delete(e.code);
       if (e.code !== 'KeyX') return;
       const respawn = this.keyRespawnOwned || this.respawnInputActive();

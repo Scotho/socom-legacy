@@ -10,6 +10,7 @@ import {
 import { ForgeAgentError, validateForgeAgentArguments } from './api';
 import { EXTRACTION_ZONE_SIZE, nextSafetyName } from '../extractionZones';
 import { nextHostageName } from '../hostages';
+import { bombMarkerPlaysIn } from '../objectives';
 import { nextNavName, nextViewName } from '../placedPoints';
 // The disc objects a placement copies unless it names one (`../copyDefaults`), re-exported where the planner's callers read them.
 import { DEFAULT_BARRIER, DEFAULT_DOOR, DEFAULT_GATE, DEFAULT_TURRET } from '../copyDefaults';
@@ -114,8 +115,10 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
     (d) => { l.tacPoints!.push({ ...t, name: nextNavName(l.tacPoints!.map((x) => x.name)), at: t.at.map((v, k) => v + d[k]!) as [number, number, number] }); });
   for (const [i, v] of (l.scenicViews ?? []).entries()) pointRow(`view:${i}`, v, () => { l.scenicViews!.splice(l.scenicViews!.indexOf(v), 1); },
     (d) => { l.scenicViews!.push({ ...v, name: nextViewName(l.scenicViews!.map((x) => x.name)), at: v.at.map((n, k) => n + d[k]!) as [number, number, number] }); });
+  // A placed extraction zone keys `xzone:<index>`, never `zone:` -- a rules zone's `zone:<authored id>` (FCW-32, below)
+  // may be "0" (FP-1b, REVIEW-A 14: one key per kind; a browser adaptation, FG.R2).
   for (const [i, z] of (l.extractionZones ?? []).entries()) {
-    rows.set(`zone:${i}`, { locked: !!z.locked, p: [...z.at], move: (p) => { z.at = p as [number, number, number]; }, turn: () => undefined,
+    rows.set(`xzone:${i}`, { locked: !!z.locked, p: [...z.at], move: (p) => { z.at = p as [number, number, number]; }, turn: () => undefined,
       lock: (on) => { if (on) z.locked = true; else delete z.locked; }, remove: () => { l.extractionZones!.splice(l.extractionZones!.indexOf(z), 1); },
       duplicate: (d) => { l.extractionZones!.push({ ...z, name: nextSafetyName(l.extractionZones!.map((x) => x.name)), at: z.at.map((v, k) => v + d[k]!) as [number, number, number] }); } });
   }
@@ -174,7 +177,7 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
       const bad = (why: string): never => fail('INVALID_ARGUMENT', `${field} ${why}`);
       const above0 = (): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : bad('must be a number above 0'));
       const [kind, a, b] = ref.split(':');
-      if (kind === 'zone') {
+      if (kind === 'xzone') {
         const z = l.extractionZones![Number(a)]!;
         if (field === 'name') z.name = typeof value === 'string' && /^[A-Za-z0-9_ -]{1,32}$/.test(value) ? value : bad('must be 1-32 letters, digits, spaces, _ or -');
         else if (field === 'width') z.size = [above0(), z.size[1]];
@@ -182,6 +185,8 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
         else bad('is not a zone\'s');
       } else if (kind === 'piece') {
         // A placed ladder's Map and Ladder (the owner, 2026-11-06): the disc prop it is, `<archive>:<model>`.
+        // FC-1 (`../transformStubs`): a piece's tilt is not kept by the record (v3 keeps its yaw alone) -- said, not dropped.
+        if (field === 'pitch') bad('is not supported yet: a saved layout keeps a piece\'s yaw only');
         if (field !== 'model') bad('is not a piece\'s');
         const id = typeof value === 'string' ? parseAssetId(value) : null;
         if (!id || !/^[A-Z]{1,3}\d{1,3}$/.test(id.archive)) bad('must be a disc prop <archive>:<model>, as MP73:ladder35');
@@ -293,8 +298,13 @@ export function planForgeLayout(current: ForgeLayout, operation: string, args: R
       const kind = args['kind'] as 'start' | 'seal' | 'terrorist';
       if (bombs.some((b) => b.kind === kind && b.locked)) fail('LOCKED', 'The bomb marker is locked');
       for (let i = bombs.length - 1; i >= 0; i--) if (bombs[i]!.kind === kind) bombs.splice(i, 1);
-      // A bomb marker is Demolition's (the owner, 2026-11-05; a browser adaptation): placed only once the layout plays it.
-      if (l.objectives?.gameType !== 2) fail('GAME_TYPE', 'Set the game type to Demolition to place the bomb or its sites');
+      // A bomb marker is placed only once the layout plays it (the owner, 2026-11-05/06; a browser adaptation, FG.R2): the
+      // page's own rule (`../objectives` `bombMarkerPlaysIn`) -- Demolition all three, Breach its start and the SEALs' site.
+      if (!bombMarkerPlaysIn(kind, l.objectives?.gameType)) {
+        fail('GAME_TYPE', l.objectives?.gameType === 1
+          ? "The Terrorists' site plays no part in Breach; set the game type to Demolition to place it"
+          : 'Set the game type to Demolition to place the bomb or its sites');
+      }
       bombs.push({ kind, at, yaw, locked: false });
       break;
     }

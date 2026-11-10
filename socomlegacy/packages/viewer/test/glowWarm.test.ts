@@ -8,7 +8,8 @@ import { Group, Mesh, MeshBasicMaterial, PerspectiveCamera, PlaneGeometry, Scene
  * `count:format:type:samples:depthBuffer:stencilBuffer`; WebGPU's `needsRenderUpdate` also compares the colour space and
  * the colour format). The map's warm (`ViewerRenderer.warm`) compiled only the canvas context, so the first flash built
  * every world mesh's render objects inside one frame. The warm now compiles the world under a twin of the glow target as
- * well -- the same attachments at 1 x 1 -- and frees the twin once its compiles settle. No game timing is touched. The
+ * well -- the same attachments at 1 x 1 -- and keeps the twin for the renderer's life (FLASH-GLOW-BODIES: `prepare`
+ * compiles under it too, `./flashWarm.test.ts`), freed with the renderer. No game timing is touched. The
  * renderer below is a fake: it records each `compileAsync` and each `render` with the target then set; no GPU, no browser.
  */
 
@@ -113,16 +114,17 @@ describe('L3lsGcIs fix 1: the map warm compiles the world under the glow target\
     await v.renderer.dispose();
   });
 
-  it('frees the twin: its dispose runs after the warm\'s compiles', async () => {
+  it('FLASH-GLOW-BODIES: the twin is kept past the warm\'s compiles (`prepare` compiles under it all match), freed with the renderer', async () => {
     const dispose = vi.spyOn((await import('three')).RenderTarget.prototype, 'dispose');
     const v = await createRenderer({} as HTMLCanvasElement), scene = world(), camera = new PerspectiveCamera();
     dispose.mockClear();
     await v.warm(scene, camera);
     await Promise.resolve();
     const twin = seen.compiles.find((c) => c.scene === scene && c.key !== null)!.target!;
+    expect(dispose.mock.contexts).not.toContain(twin);
+    await v.renderer.dispose();
     expect(dispose.mock.contexts).toContain(twin);
     dispose.mockRestore();
-    await v.renderer.dispose();
   });
 
   it('a failed glow-context compile never fails the map\'s warm', async () => {

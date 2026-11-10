@@ -105,7 +105,7 @@ const run = (doors: DoorSet, seconds: number): void => { for (let k = 0; k < sec
 
 describe("SUP-02: a door's breakable pane on the page and in the room", () => {
   it("the page takes a pane the room broke: a live snapshot plays breakapane's sound and debris once and spends the record; a joiner's silent one turns it off with neither; the reset restores it silently", () => {
-    expect(SCENE_DEATH_ON_WIRE_READING).toBe('targetOff');
+    expect(SCENE_DEATH_ON_WIRE_READING).toBe('targetOffOrTold');
     expect(GLASS_FRAGMENTS_PLACEHOLDER).toBe('sound-and-pane-off');
     const parse = hull();
     const room = page(forkGround(parse));

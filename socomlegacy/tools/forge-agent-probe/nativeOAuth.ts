@@ -1,13 +1,19 @@
 /** Product adaptation: validate copied setup and client-owned OAuth flow; secrets remain in memory. */
 import type { BrowserContext } from '@playwright/test';
 import type { ClientName } from './isolation';
+import { PROBE_WORDS } from './browser';
+/**
+ * The page's copied setup (`./browser` `copiedInstructions`): the first-time disclosure's command for this gateway, then
+ * the one connect line (AX-U, C6) -- `Connect to my SOCOM 2 Legacy page: <gateway>/join/<invitation>` on this gateway.
+ */
 export function copiedSetup(blurb: string, client: ClientName, gateway: string) {
   const endpoint = `${gateway}/mcp`;
   const command = client === 'codex' ? 'codex mcp add socom2legacy --url ' : 'claude mcp add --transport http --scope user socom2legacy ';
-  const line = blurb.split(/\r?\n/).find(value => value.startsWith(command));
-  const match = blurb.match(/Use agent_pair with invitation ("[^"\r\n]+")/);
-  if (line !== command + endpoint || !match) throw Error('COPIED_SETUP_MISMATCH');
-  return { endpoint, invitation: JSON.parse(match[1]!) as string };
+  const lines = blurb.split(/\r?\n/);
+  const line = lines.find(value => value.startsWith(command));
+  const match = blurb.match(/^Connect to my SOCOM 2 Legacy page: (\S+)\/join\/([A-Za-z0-9_.:-]{1,128})$/m);
+  if (line !== command + endpoint || !match || match[1] !== gateway) throw Error('COPIED_SETUP_MISMATCH');
+  return { endpoint, invitation: match[2]! };
 }
 /** OSC 8 carries its URI separately from the visible label. Recover that exact target before VT stripping.
  * https://iterm2.com/documentation-escape-codes.html (Anchor / OSC 8). No decoding or query repair.
@@ -95,7 +101,8 @@ export async function nativeGuestConsent(context: BrowserContext, auth: URL, sig
     const observed = callback.then(value => ({ value }), error => ({ error }));
     if (signal.aborted) throw Error('INTERRUPTED');
     await page.goto(auth.href);
-    try { await page.getByRole('button', { name: 'Continue as guest' }).click(); } catch { /* A pasted callback flow may have no HTTP listener. */ }
+    // FP-14's fold: the consent page's Approve, pressed or the run fails here (a miss was once swallowed).
+    await page.getByRole('button', { name: PROBE_WORDS.consentApprove, exact: true }).click();
     const result = await observed;
     if ('error' in result) throw result.error;
     return result.value;

@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>match-page (mockup)</title>
+<body style="background:#11181a;color:#dfe4e5;font-family:sans-serif;padding:16px">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Saira+Condensed:ital,wght@1,800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  .mp { max-width: 980px; margin: 8px auto; background: #000e11; color: #dfe4e5; font-family: Oswald, sans-serif; border: 1px solid #1c2a2c; }
+  .mp .hero { position: relative; padding: 22px 28px 20px; background:
+      linear-gradient(90deg, rgba(0,14,17,.97) 0%, rgba(0,14,17,.8) 50%, rgba(0,14,17,.5) 100%),
+      repeating-linear-gradient(135deg, #24383a 0 18px, #1b2c2e 18px 36px); }
+  .mp .bgtag { position: absolute; right: 12px; top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8fa3a5; border: 1px dashed #4b5f61; padding: 3px 6px; }
+  .mp .crumb { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a89a5c; }
+  .mp .row { display: flex; align-items: flex-end; gap: 20px; }
+  .mp .map { font-family: 'Saira Condensed', sans-serif; font-style: italic; font-weight: 800; font-size: 64px; line-height: 1; margin-top: 8px; }
+  .mp .mode { color: #c4a04a; letter-spacing: 4px; font-size: 14px; }
+  .mp .score { margin-left: auto; text-align: right; }
+  .mp .score .w { font-size: 13px; letter-spacing: 3px; color: #dcb85c; }
+  .mp .score .n { font-size: 64px; font-weight: 500; line-height: 1; }
+  .mp .gold { color: #dcb85c; } .mp .teal { color: #8fc3c7; } .mp .mut { color: #786e3b; }
+  .mp .meta { display: flex; gap: 18px; margin-top: 12px; font-size: 12px; color: #a3b0b2; letter-spacing: 1px; flex-wrap: wrap; }
+  .mp .btn { display: inline-flex; gap: 8px; align-items: center; border: 1px solid #c4a04a; color: #dcb85c; padding: 8px 16px; font-size: 14px; letter-spacing: 2px; margin-top: 14px; }
+  .mp .btn2 { border-color: #4b5f61; color: #a3b0b2; }
+  .mp .live { display: inline-flex; gap: 6px; align-items: center; background: rgba(220,184,92,.12); border: 1px solid #c4a04a; color: #dcb85c; font-size: 11px; letter-spacing: 2px; padding: 3px 8px; }
+  .mp section { padding: 18px 28px; border-top: 1px solid #13272a; }
+  .mp h4 { margin: 0 0 10px; font-weight: 500; font-size: 13px; letter-spacing: 3px; color: #c4a04a; }
+  .mp table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mp th { color: #786e3b; font-weight: 500; letter-spacing: 1.5px; font-size: 10px; text-align: right; padding: 4px 6px; }
+  .mp th:first-child, .mp td:first-child { text-align: left; }
+  .mp td { padding: 5px 6px; text-align: right; border-top: 1px solid rgba(13,89,92,.45); font-variant-numeric: tabular-nums; }
+  .mp .tag { color: #a89a5c; margin-right: 3px; }
+  .mp .mvp td { background: rgba(220,184,92,.08); }
+  .mp .md { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
+  .mp .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .mp .tile { border: 1px solid rgba(196,160,74,.45); padding: 10px 12px; }
+  .mp .tile .k { font-size: 10px; letter-spacing: 1.5px; color: #c4a04a; }
+  .mp .tile .v { font-size: 22px; font-weight: 500; }
+  .mp .tile .x { font-size: 12px; color: #a3b0b2; }
+  .mp .rounds { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .mp .rnd { border-top: 3px solid; padding: 8px 10px; background: rgba(13,89,92,.12); font-size: 12px; }
+  .mp .rnd .h { font-size: 11px; letter-spacing: 2px; }
+  .mp .feed { font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.8; }
+  .mp .two { display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px; }
+  .mp .bar { height: 8px; background: #dcb85c; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  .note { max-width: 980px; margin: 6px auto 0; font-size: 12px; opacity: .75; }
+</style>
+
+<h2>The match page: socomlegacy.com/match/{id}</h2>
+<p class="subtitle">One long page, top to bottom: the result, the awards, the full scoreboard, the rounds, the kill feed, the weapons. Made-up data; the striped area stands in for your map image; the medal squares stand in for the game's five icons.</p>
+
+<div class="mp">
+  <div class="hero">
+    <div class="bgtag">YOUR FROSTFIRE IMAGE</div>
+    <div class="crumb">SOCOM Legacy / Matches / k3Tq9 &nbsp; <span class="live">● LIVE · ROUND 5</span> <span class="mut">← shown only while the match runs</span></div>
+    <div class="row">
+      <div><div class="map">FROSTFIRE</div><div class="mode">DEMOLITION · RANKED</div></div>
+      <div class="score"><div class="w">SEALS WIN</div><div class="n"><span class="gold">4</span> <span class="mut">–</span> <span class="teal">2</span></div></div>
+    </div>
+    <div class="meta"><span>NOV 8, 2026 · 9:41 PM ET</span><span>31 MIN</span><span>12 PLAYERS</span><span>US CENTRAL · FIREHUGE1</span><span>"Friday Night Scrims"</span></div>
+    <div><span class="btn">▶ WATCH REPLAY</span> <span class="btn btn2">⧉ COPY LINK</span></div>
+  </div>
+
+  <section>
+    <h4>AWARDS</h4>
+    <div class="tiles">
+      <div class="tile" style="border-color:#dcb85c"><div class="k">MVP · TOP SCORE</div><div class="v">42</div><div class="x"><span class="tag">[NSW]</span>Ghostline</div></div>
+      <div class="tile"><div class="k">TOP FRAGGER</div><div class="v">14</div><div class="x">Ghostline</div></div>
+      <div class="tile"><div class="k">SHARPSHOOTER</div><div class="v">38% HS</div><div class="x">Cinder</div></div>
+      <div class="tile"><div class="k">FIRST BLOOD</div><div class="v">3×</div><div class="x">Kestrel</div></div>
+      <div class="tile"><div class="k">OBJECTIVE</div><div class="v">2 plants</div><div class="x">Ghostline</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h4>SCOREBOARD</h4>
+    <table>
+      <tr><th style="color:#dcb85c">SEALS · WIN</th><th>SCORE</th><th>K</th><th>D</th><th>K/D</th><th>HS%</th><th>ACC</th><th>PLANT</th><th>DEFUSE</th><th>RESCUE</th><th>TK</th><th>TIME</th></tr>
+      <tr class="mvp"><td><span class="md" style="background:#222"></span><span class="tag">[NSW]</span>Ghostline ★</td><td>42</td><td>14</td><td>5</td><td>2.80</td><td>43</td><td>31</td><td>2</td><td>0</td><td>0</td><td>0</td><td>31m</td></tr>
+      <tr><td><span class="md" style="background:#c9a23c"></span><span class="tag">[NSW]</span>Kestrel</td><td>33</td><td>11</td><td>6</td><td>1.83</td><td>27</td><td>28</td><td>0</td><td>1</td><td>0</td><td>0</td><td>31m</td></tr>
+      <tr><td><span class="md" style="background:#9aa3a8"></span>Dragnet</td><td>27</td><td>9</td><td>7</td><td>1.29</td><td>33</td><td>24</td><td>0</td><td>0</td><td>0</td><td>1</td><td>31m</td></tr>
+      <tr><td><span class="md" style="background:#9a6a3c"></span>Harrow</td><td>24</td><td>7</td><td>8</td><td>0.88</td><td>14</td><td>22</td><td>1</td><td>0</td><td>0</td><td>0</td><td>24m <span class="mut">joined</span></td></tr>
+      <tr><td><span class="md" style="background:#3c6a9a"></span>Vandal</td><td>15</td><td>5</td><td>9</td><td>0.56</td><td>20</td><td>19</td><td>0</td><td>0</td><td>0</td><td>0</td><td>31m</td></tr>
+      <tr><td><span class="md" style="background:transparent;border:1px solid #4b5f61"></span>Sixgun</td><td>12</td><td>4</td><td>8</td><td>0.50</td><td>0</td><td>17</td><td>0</td><td>0</td><td>0</td><td>0</td><td>31m</td></tr>
+      <tr><th style="color:#8fc3c7; padding-top:14px">TERRORISTS</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr>
+      <tr><td><span class="md" style="background:#c9a23c"></span><span class="tag">[RZR]</span>Cinder</td><td>38</td><td>13</td><td>8</td><td>1.63</td><td>38</td><td>29</td><td>0</td><td>1</td><td>0</td><td>0</td><td>31m</td></tr>
+      <tr><td><span class="md" style="background:#9aa3a8"></span><span class="tag">[RZR]</span>Mako</td><td>30</td><td>10</td><td>9</td><td>1.11</td><td>30</td><td>26</td><td>0</td><td>0</td><td>0</td><td>0</td><td>31m</td></tr>
+      <tr><td class="mut" colspan="12">+ 4 more rows</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h4>ROUNDS</h4>
+    <div class="rounds">
+      <div class="rnd" style="border-color:#dcb85c"><div class="h gold">R1 · SEALS</div>Bomb detonated<br><span class="mut">4:12 · first blood Kestrel</span></div>
+      <div class="rnd" style="border-color:#8fc3c7"><div class="h teal">R2 · TERR</div>Eliminated<br><span class="mut">3:05 · first blood Cinder</span></div>
+      <div class="rnd" style="border-color:#dcb85c"><div class="h gold">R3 · SEALS</div>Bomb detonated<br><span class="mut">5:40 · first blood Kestrel</span></div>
+      <div class="rnd" style="border-color:#dcb85c"><div class="h gold">R4 · SEALS</div>Bomb defused?<br><span class="mut">6:01 · triple kill Mako</span></div>
+      <div class="rnd" style="border-color:#8fc3c7"><div class="h teal">R5 · TERR</div>Time ran out<br><span class="mut">10:00</span></div>
+      <div class="rnd" style="border-color:#dcb85c"><div class="h gold">R6 · SEALS</div>Eliminated<br><span class="mut">2:48 · first blood Kestrel</span></div>
+    </div>
+  </section>
+
+  <section class="two">
+    <div>
+      <h4>KILL FEED · ROUND 1 <span class="mut" style="letter-spacing:1px">(pick a round ▾)</span></h4>
+      <div class="feed">
+        <div><span class="mut">0:41</span> <span class="gold">Kestrel</span> ─ M4A1 ─▶ <span class="teal">Static</span> <span class="gold">◎ HEAD</span></div>
+        <div><span class="mut">1:02</span> <span class="teal">Cinder</span> ─ AK-47 ─▶ <span class="gold">Vandal</span></div>
+        <div><span class="mut">1:30</span> <span class="gold">Ghostline</span> ─ M4A1 ─▶ <span class="teal">Hollis</span> <span class="gold">◎ HEAD</span></div>
+        <div><span class="mut">2:15</span> <span class="gold">Ghostline</span> planted the bomb</div>
+        <div><span class="mut">2:52</span> <span class="teal">Mako</span> ─ M67 grenade ─▶ <span class="gold">Sixgun</span></div>
+        <div><span class="mut">4:12</span> bomb detonated · SEALS win the round</div>
+      </div>
+    </div>
+    <div>
+      <h4>WEAPONS · KILLS</h4>
+      <div style="font-size:13px; line-height:2">
+        <div><span class="bar" style="width:150px"></span>M4A1 · 29</div>
+        <div><span class="bar" style="width:110px"></span>AK-47 · 21</div>
+        <div><span class="bar" style="width:62px"></span>M63A · 12</div>
+        <div><span class="bar" style="width:36px"></span>M67 grenade · 7</div>
+        <div><span class="bar" style="width:20px"></span>SR-25 · 4</div>
+      </div>
+      <h4 style="margin-top:14px">HIT LOCATION · KILLS</h4>
+      <div style="font-size:13px">Head 33% · Torso 54% · Limbs 13%</div>
+    </div>
+  </section>
+</div>
+<p class="note">Live: while the match runs, the page fills in as each round ends (the server records a match round by round), with a LIVE badge. When the match is over, it becomes the permanent record. Every name links to that player's page later, once player pages exist. Weapon names come from the game's own weapon table.</p>
+
+</body>

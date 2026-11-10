@@ -1,5 +1,6 @@
 import type { CollisionOwner, WorldPoly } from '@s2u/scene';
 import type { DoorSpec } from '../doors';
+import type { GateSpec } from '../gates';
 import type { LoadedMap } from '../loadMap';
 import { groundPolygons, packGround, type GroundData } from '../mover';
 import { placementKey } from './layout';
@@ -167,7 +168,22 @@ export function groundWithout(map: Pick<LoadedMap, 'props'>, ground: GroundData,
  * matches a base owner's path, so no door is moved onto one.
  */
 export function doorsAfter(before: GroundData, after: GroundData, doors: readonly DoorSpec[]): DoorSpec[] {
-  if (before === after || doors.length === 0) return [...doors];
+  return ownersAfter(before, after, doors);
+}
+
+/**
+ * FP-1a fold F1: the base's lever gates (`GateSpec`, `../gates`; MAP-07, research 174 s5, 175 s5.3) over the same hull,
+ * remapped as `doorsAfter` remaps the doors -- a gate names its leaf's polygons by owner index too, and keeps its number
+ * (the wire tells the gates by position after the doors, `GateSet.applyWire`). The page's Play (`./matchMap`
+ * `composeMatchMap`) and the lobby's room (`match/src/forgeSimMap.ts`) both carry the base's gates through it.
+ */
+export function gatesAfter(before: GroundData, after: GroundData, gates: readonly GateSpec[]): GateSpec[] {
+  return ownersAfter(before, after, gates);
+}
+
+/** `doorsAfter`'s remap for anything that names hull owners by index (`owners`): each moved, a hidden one dropped. */
+function ownersAfter<T extends { owners: number[] }>(before: GroundData, after: GroundData, specs: readonly T[]): T[] {
+  if (before === after || specs.length === 0) return [...specs];
   const polysBefore = groundPolygons(before), polysAfter = groundPolygons(after);
   const sign = (polys: WorldPoly[], o: GroundData['owners'][number]): string => {
     const p = polys[o.first]?.points;
@@ -179,5 +195,5 @@ export function doorsAfter(before: GroundData, after: GroundData, doors: readonl
     const next = after.owners[j];
     if (next && sign(polysBefore, o) === sign(polysAfter, next)) { moved.set(i, j); j++; }
   });
-  return doors.map((d) => ({ ...d, owners: d.owners.flatMap((i) => (moved.has(i) ? [moved.get(i)!] : [])) }));
+  return specs.map((d) => ({ ...d, owners: d.owners.flatMap((i) => (moved.has(i) ? [moved.get(i)!] : [])) }));
 }

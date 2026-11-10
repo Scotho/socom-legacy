@@ -175,6 +175,13 @@ export interface DoorHooks {
    * (`OPEN_DOOR_TYPE`, the clip `openDoorClip`). Once a use, one tick after it (the ANIMATE's pre-wait tick).
    */
   animate?(door: DoorSpec, type: number, actor: DoorActor): void;
+  /**
+   * DF-4 (`DOOR_CALL_READING`): the door program's `CALL_ANIMATION` of `anim` -- MP6's `singleDoor_right` calls
+   * `okforhostages` after the open's swing under `IF cdoor1 == 1` and `not_okforhostages` after the close's (Seq_Data
+   * +404 / +724, research 175 s5.1). The door runs nothing of it: the holder of the map's world runs it there
+   * (`WorldState.doorCall`; the room's `Room` construction). Heard on a quiet run-out too: what it changes is state.
+   */
+  call?(door: DoorSpec, anim: string): void;
 }
 
 interface Door {
@@ -685,12 +692,31 @@ export class DoorSet {
               return false;
             };
           }
+          // DF-4 (`DOOR_CALL_READING`): the call into the map set, handed to the world's holder.
+          case 'call': this.hooks.call?.(d.spec, op.anim); return;
           default: return;
         }
       },
     };
   }
 }
+
+/**
+ * DOOR_CALL_READING (DF-4; research 175 s5.1, 239 s1.2; research 92): a door program's `CALL_ANIMATION` runs the map
+ * set's animation of the name on the map's world, as any program's call does -- the original has one handler for command
+ * 45 whoever runs it (`FUN_0025bc20` D:L106909 registers `FUN_0025d5c0` in the one table, 0x414bb0), and the door's
+ * program is an animation of the map set started with the door's node and valve as its context (`FUN_002b44e0` ->
+ * `FUN_00272bb0`, research 92 s2). The handler names the callee in the running animation's own names (`FUN_0026e650`,
+ * D:L107575) and, with no context flag set (MP6's two calls carry flags 0: Seq_Data +404 / +724 bytes 4-5), starts it
+ * with no context (`FUN_002734b0(anim, 0)`, D:L107763-107765), so its references resolve on their own (search 3:
+ * `nohostagerescue` / `okhostagerescue`). The port's door host hands the call to its `call` hook and the holder of the
+ * world runs it (`WorldState.doorCall`): the room's world, authoritative, its flags on the `EnvWire`; the page's world
+ * follows the wire. MP6's opening state is both bar sets active: neither reference carries bit 31 and `cdoor1`'s
+ * autostart (flags 0x21) sets only its valve -- read off MP6's `MZANIM.ZAR`. [reading: the original's own network path
+ * for the called animation (each console running the door's program from the logged use, `FUN_002bb5b0`) is not traced;
+ * the room's state on the wire stands in for it, as for every world node (MAP-03).]
+ */
+export const DOOR_CALL_READING = 'mapSetOnWorld' as const;
 
 /** Euler angles (radians) as the engine's node rotation takes them, y then x then z [reading, as `./effects` reads it]. */
 function eulerQuat([x, y, z]: readonly [number, number, number]): Quat {

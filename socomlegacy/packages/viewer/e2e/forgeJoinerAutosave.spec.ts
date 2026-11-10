@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { emptyLayout } from '../src/forge/layout';
+import { placingTool } from './forgeBase';
 import { forgeStoredList } from './forgeStore';
 
 /**
@@ -61,7 +62,7 @@ test('LATER 215: a joiner back from the lobby keeps an unreadable autosave aside
   await expect(page.locator('.fx-lobby-btn', { hasText: /^LEAVE$/ })).toHaveCount(0);
 
   // The next write: an edit of the layout left open (the host's), autosaved after its 300 ms.
-  await page.getByRole('button', { name: /team A spawn/ }).click();
+  await placingTool(page, 'Spawn SEAL').click();                  // OT.R112: the tools row's label (`./forgeBase`)
   await page.locator('.fx-input').click();
   await expect(page.locator('.fx-outliner')).toContainText('Spawn A');
   // The edit itself, not merely "readable": the store held '' at the join, so a poll for "not UNREADABLE" would pass at once.

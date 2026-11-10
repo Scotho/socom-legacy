@@ -142,7 +142,7 @@ describe('main.ts wires the stand (source inspection)', () => {
   });
 
   it('plays a campaign load offline and stands round 1 before the room is made, or refuses on the page', () => {
-    expect(main).toContain('} else if (NET.url && !campaignLoad) {');
+    expect(main).toContain('} else if (NET.url && !campaignLoad && !customLoad) {');   // FP-6 F2: a custom map offline too
     const start = main.indexOf('const soloMap = simMapOfLoaded(map);');
     const room = main.indexOf('solo = new LoopbackMatch(soloMap, simClipsOfPlay(playClips), {');
     expect(start).toBeGreaterThan(0);

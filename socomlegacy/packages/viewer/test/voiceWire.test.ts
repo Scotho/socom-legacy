@@ -157,7 +157,7 @@ describe('voiceWire (V-WIRE): the sizes', () => {
 
 describe('voiceWire (V-WIRE): the protocol', () => {
   it('stays 11: the voice type was reserved, no bump (research 224 §2.6)', () => {
-    expect(PROTOCOL_VERSION).toBe(13);                           // PLANT-AIM's bump (the plant needs the page's pick; 12 SEP-POP's); this part unchanged
+    expect(PROTOCOL_VERSION).toBe(14);                           // ER-2's bump (the command's raise bit); 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
   });
 
   it('VOICE_PACKETS_PER_FRAME_READING is the original\'s four codec frames an 80 ms read', () => {

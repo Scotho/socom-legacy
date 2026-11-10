@@ -6,7 +6,7 @@ import { parseAssetId } from './layout';
 import { floorGround, standingSpot } from './ground';
 import type { AssetDefinition } from '../packs/content/assets';
 import { contentPieceHull, type ContentMiss, type ContentResolver } from '../packs/content/collision';
-import { doorsAfter } from './hide';
+import { doorsAfter, gatesAfter } from './hide';
 import { nearFor } from './settings';
 
 /**
@@ -71,6 +71,18 @@ export function slotsOfSpawns(spawns: Layout['spawns'], grid?: Grid, ground?: Gr
       step, facing: facingOf(step), loc: { map: 0, x: 0, z: 0 },
     };
   });
+}
+
+/**
+ * The placed respawn points (`Layout.respawns`, a browser adaptation, FG.R2): where a side respawns when it has some
+ * (`slotsOfSpawns` over them, probed on the hull when given); a side with none respawns at its `slots`, as every layout
+ * did before. One function for the page's Play (`composeMatchMap`) and the lobby's room (`match/src/forgeSimMap.ts`,
+ * FP-1a), so the two cannot drift. None placed: `slots` itself.
+ */
+export function placedRespawns(slots: readonly SpawnSlot[], placed: Layout['respawns'], grid?: Grid, ground?: GroundData): SpawnSlot[] {
+  if (!placed?.length) return slots as SpawnSlot[];
+  const own = slotsOfSpawns(placed, grid, ground);
+  return [...own, ...([0, 1] as const).flatMap((side) => (own.some((s) => s.side === side) ? [] : slots.filter((s) => s.side === side)))];
 }
 
 const sideOfTeam = (t: 'seal' | 'terrorist'): 0 | 1 => (t === 'seal' ? 0 : 1);
@@ -185,16 +197,12 @@ export function composeMatchMap(base: LoadedMap, layout: Layout, libraries: Read
   // FG-31: `ground` is the base's hull without its hidden owners, the pieces' after them (`layoutGround`), so the doors'
   // owner indices are remapped from the base's own hull onto it.
   const doors = base.doors && base.ground ? doorsAfter(base.ground, ground, base.doors) : base.doors;
-  // The placed respawn points (`Layout.respawns`, a browser adaptation): where a side respawns when it has some; a side
-  // with none respawns at its slots, as every layout did before.
-  let respawns = slots;
-  if (layout.respawns?.length) {
-    const placed = slotsOfSpawns(layout.respawns, grid, ground);
-    respawns = [...placed, ...([0, 1] as const).flatMap((side) => (placed.some((s) => s.side === side) ? [] : slots.filter((s) => s.side === side)))];
-  }
+  // FP-1a fold F1: the base's lever gates remapped alike (`gatesAfter`), as the lobby's room carries them.
+  const gates = base.gates && base.ground ? gatesAfter(base.ground, ground, base.gates) : base.gates;
+  const respawns = placedRespawns(slots, layout.respawns, grid, ground);
   const map: LoadedMap = {
     ...base, props, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ground, slots, respawns,
-    ...(doors ? { doors } : {}),
+    ...(doors ? { doors } : {}), ...(gates ? { gates } : {}),
   };
   return { map, missing, content, misses };
 }

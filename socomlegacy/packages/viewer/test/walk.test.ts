@@ -22,7 +22,7 @@ import { lookHeight, ramp } from '../src/cameraRig';
 import { Traversal } from '../src/traversal';
 import { readMotionTable } from '../src/motionTable';
 import { GATE_MOTION_RECORDS } from './helpers/gateTable';
-import { CROUCH_GATE_REACH_READING, CROUCH_GATE_READING, HEADROOM_HIPS_READING, PRONE_GATE_READING, STEP_PROBE_LIFT_READING, WALL_PROBE_READING, wallProbeHeights } from '../src/mover';
+import { CROUCH_GATE_REACH_READING, CROUCH_GATE_READING, HEADROOM_HIPS_READING, PRONE_GATE_READING, probeLiftOf, WALL_PROBE_READING, wallProbeHeights } from '../src/mover';
 import { MoverSim } from '../src/net/moverSim';
 import { Button, holdBits, STANCE_CODES, type Command } from '../src/net/protocol';
 import { FLINCH_CUT_COMMANDS } from '../src/net/flinchReload';
@@ -395,8 +395,8 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
   });
 
   // Ported from Chris's browser-beta-v5 (walk.test.ts): a kerb 6 to 6.5 over the feet with the lower floor still
-  // under the line (research 101 A7). The step's probe origin is STEP_PROBE_LIFT_READING over the feet, so the
-  // selection window (+ SELECT_ABOVE) reaches step_height.
+  // under the line (research 101 A7). The step's probe origin is the standing lift over the feet (11.48, LATER 785), so
+  // the selection window (+ SELECT_ABOVE) reaches 12.48, past step_height.
   it.each([6, 6.25, 6.5])('steps onto a %s-unit kerb above an overlapping lower floor (research 101 A7)', (height) => {
     for (const base of [0, 40]) {
       const w = new Walker(world([floor(-200, -200, 200, 200, base), floor(30, -200, 200, 200, base + height)]));
@@ -409,8 +409,10 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     }
   });
 
-  it('an overlapping surface 7 over the feet, above step_height, is walked under for the floor below', () => {
-    const w = new Walker(world([floor(-200, -200, 200, 200, 0), floor(30, -200, 200, 200, 7)]));
+  // LATER 785 re-pin: 7 -> 13 -- the standing lift is 11.48 (r0004's floor; the origin trace), so the pick's window is the
+  // feet + 12.48 and a faceless surface 7 over the feet is now stepped onto; 13 keeps the case (a surface over the window).
+  it('an overlapping surface 13 over the feet, above the standing window (12.48), is walked under for the floor below', () => {
+    const w = new Walker(world([floor(-200, -200, 200, 200, 0), floor(30, -200, 200, 200, 13)]));
     w.place(0, 0, 0);
     w.state.yaw = facing(0, 0, 1, 0);
     for (let i = 0; i < 120; i++) w.tick(FORWARD);
@@ -886,7 +888,9 @@ describe.skipIf(!MP2)(`walking Frostfire${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, 
     // floor. SEGMENT-BODY (re-judged; was "walking off it falls 42"): `worldmodel/pipeworks` stands a face toward -x at
     // x 678.3 along that side, met at the feet + 6.5 (148.5); the disc stood 3.5 off it, past the deck's edge, and fell.
     // The segments meet it first -- the centre 5.39 ahead plus the move, or the contact branch's look-ahead
-    // (`FUN_005483d0` D:L413686-413756) -- and the body stays on the deck at every z along that side.
+    // (`FUN_005483d0` D:L413686-413756) -- and the body stays on the deck at every z along that side. The original's square
+    // stand-off is 5.34-5.40 (ac's r0004 capture, agent-mail `eph-hunt-2026-11-01/segment-body/climb-angle/RESULTS.md`
+    // ca-0-t1/t2); the port's beyond it is LATER 681 (open). The page's twin: `e2e/walk.spec.ts`'s deck walk, the same band.
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     const w = new Walker(groundGrid(map.ground!));
     expect(w.place(660, 142 + EYE_HEIGHT, 725)).toBe(true);
@@ -1889,7 +1893,7 @@ describe('walk mode (W1.4 step 5)', () => {
         for (let i = 0; i < 120; i++) mode.frame(TICK);
         const at = sent[sent.length - 1]!.feet;
         const room = new Walker(groundGrid(GROUND));
-        room.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+        room.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
         const sim = new MoverSim(room, null);
         sim.seq = sent.length;
         let ran = sent.length;
@@ -1930,7 +1934,7 @@ describe('walk mode (W1.4 step 5)', () => {
         for (let i = 0; i < 120; i++) mode.frame(TICK);
         const at = sent[sent.length - 1]!.feet;
         const room = new Walker(groundGrid(GROUND));
-        room.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+        room.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
         const sim = new MoverSim(room, null);
         sim.seq = sent.length;
         let ran = sent.length;
@@ -1975,7 +1979,7 @@ describe('walk mode (W1.4 step 5)', () => {
       // The room's mover: stood where the page's stands now, at rest, on the same ground.
       const at = sent[sent.length - 1]!.feet;
       const room = new Walker(groundGrid(GROUND));
-      room.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);
+      room.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
       const sim = new MoverSim(room, null);
       sim.seq = sent.length;
       let ran = sent.length;
@@ -3061,11 +3065,12 @@ describe('an airborne column is entered on the ground\'s own pick (OWNER-5; FUN_
   });
 });
 
-describe('a spawn stands on the tick\'s pick: from the feet + STEP_PROBE_LIFT_READING, not the eye (PL-2; FUN_002b8100 158793, FUN_005b5d40)', () => {
-  /** The ground at 0 everywhere and a crate 12 high over x, z -50..50: two floors over the spawn. */
+describe('a spawn stands on the tick\'s pick: from the feet + the standing lift (probeLiftOf), not the eye (PL-2; FUN_002b8100 158793, FUN_005b5d40)', () => {
+  /** The ground at 0 everywhere and a crate 13 high over x, z -50..50: two floors over the spawn. LATER 785 re-pin: 12 -> 13,
+   * over the standing window (11.48 + 1 = 12.48, r0004's floor; the origin trace) -- 12 is now within it. */
   const CRATE: GroundData = packGround(
     { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
-    [floor(-200, -200, 200, 200, 0), floor(-50, -50, 50, 50, 12)],
+    [floor(-200, -200, 200, 200, 0), floor(-50, -50, 50, 50, 13)],
     [{ modelName: 'worldmodel', path: 'worldmodel/ground', first: 0, count: 1 }, { modelName: 'worldmodel', path: 'worldmodel/crate', first: 1, count: 1 }],
   );
   const made: WalkMode[] = [];
@@ -3079,7 +3084,7 @@ describe('a spawn stands on the tick\'s pick: from the feet + STEP_PROBE_LIFT_RE
     return { fly, mode: m };
   };
 
-  it('the server\'s respawn at feet 0 under the crate stands on the ground, not on the crate 12 over it', () => {
+  it('the server\'s respawn at feet 0 under the crate stands on the ground, not on the crate 13 over it', () => {
     const { mode: m } = mode(null);
     expect(m.respawn([0, 0, 0], 0)).toBe(true);
     expect(m.snapshot()).not.toBeNull();
@@ -3094,7 +3099,7 @@ describe('a spawn stands on the tick\'s pick: from the feet + STEP_PROBE_LIFT_RE
   });
 
   // One probe origin per tick (FUN_005b0840 computes it, FUN_005b5d40 selects with it; socom_pc research 23 sections
-  // 1.1-1.2): the spawn, the grounded step and the airborne fall all pick from the feet + STEP_PROBE_LIFT_READING, so a
+  // 1.1-1.2): the spawn, the grounded step and the airborne fall all pick from the feet + probeLiftOf('stand'), so a
   // kerb 6.25 over the feet with a lower floor under the line is the spawn's floor too, not a 6.25 lift on the first
   // walking tick (PL-2 in the 6-6.5 band; research 101 A7).
   const KERB: GroundData = packGround(
@@ -3107,7 +3112,7 @@ describe('a spawn stands on the tick\'s pick: from the feet + STEP_PROBE_LIFT_RE
     const m = new WalkMode(new FlyCamera(canvas()), () => undefined);
     m.setGround(KERB, null);
     made.push(m);
-    expect(STEP_PROBE_LIFT_READING).toBe(5.5);
+    expect(probeLiftOf('stand')).toBe(11.48);
     expect(m.respawn([0, 0, 0], 0)).toBe(true);
     const w = m['walker']!;
     expect(w.state.y).toBe(6.25);

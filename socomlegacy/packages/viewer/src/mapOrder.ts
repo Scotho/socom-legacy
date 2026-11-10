@@ -1,9 +1,10 @@
 import type { MapInfo } from '@s2u/archive';
+import { MAP_TYPE_WORDS, mapRow } from '@s2u/archive/mapNames';
 
 /**
  * The map picker's order: the owner's popularity ranking of the multiplayer maps (2026-09-21), most played
  * first. `mode` is the map's game type. Names are matched to the archive's own `mission.rdr` description with
- * spaces and punctuation ignored, so "Fox Hunt" finds FOXHUNT and "Rat's Nest" finds RAT'S NEST.
+ * spaces and punctuation ignored, so "Foxhunt" finds FOXHUNT and "Rat's Nest" finds RAT'S NEST.
  *
  * Last Bastion, After Hours and Liberation are on the list but not on the r0001 disc (they were later
  * additions), so they never appear in the picker.
@@ -14,33 +15,27 @@ export interface MapRank {
   readonly popularity: string;
 }
 
-export const MAP_POPULARITY: readonly MapRank[] = [
-  { name: 'Crossroads', mode: 'Demolition', popularity: 'Legendary' },
-  { name: 'Desert Glory', mode: 'Extraction', popularity: 'Legendary' },
-  { name: 'Frostfire', mode: 'Suppression', popularity: 'Legendary' },
-  { name: 'Fish Hook', mode: 'Extraction', popularity: 'Extremely high' },
-  { name: 'Night Stalker', mode: 'Demolition', popularity: 'Extremely high' },
-  { name: 'Blizzard', mode: 'Demolition', popularity: 'Very high' },
-  { name: 'The Ruins', mode: 'Demolition', popularity: 'Very high' },
-  { name: 'Vigilance', mode: 'Suppression', popularity: 'Very high' },
-  { name: 'Fox Hunt', mode: 'Escort', popularity: 'High' },
-  { name: 'Sujo', mode: 'Breach', popularity: 'High' },
-  { name: 'Chain Reaction', mode: 'Suppression', popularity: 'High' },
-  { name: 'Guidance', mode: 'Escort', popularity: 'High/moderate' },
-  { name: 'Enowapi', mode: 'Breach', popularity: 'Moderate' },
-  { name: 'Requiem', mode: 'Demolition', popularity: 'Moderate' },
-  { name: 'The Mixer', mode: 'Escort', popularity: 'Moderate' },
-  { name: 'Sandstorm', mode: 'Breach', popularity: 'Moderate' },
-  { name: 'Shadow Falls', mode: 'Suppression', popularity: 'Lower / cult favorite' },
-  { name: 'Abandoned', mode: 'Suppression', popularity: 'Lower in S2' },
-  { name: 'Death Trap', mode: 'Extraction', popularity: 'Lower / cult favorite' },
-  { name: 'Blood Lake', mode: 'Extraction', popularity: 'Lower / cult favorite' },
-  { name: 'Bitter Jungle', mode: 'Demolition', popularity: 'Lower' },
-  { name: "Rat's Nest", mode: 'Suppression', popularity: 'Lower in S2' },
-  { name: 'Last Bastion', mode: 'Breach', popularity: 'Limited exposure' },
-  { name: 'After Hours', mode: 'Suppression', popularity: 'Limited exposure' },
-  { name: 'Liberation', mode: 'Escort', popularity: 'Limited exposure' },
+/**
+ * The owner's order (2026-09-21) by stem, with his popularity words. MN-1 (OT.R113): each row's `name` and `mode` are
+ * `@s2u/archive`'s one name table's (`MAP_TABLE` `title`, `MAP_TYPE_WORDS[type]`) -- the same words the list held, but
+ * "Fox Hunt", now the disc's own "Foxhunt" (`normaliseName` finds FOXHUNT by either).
+ */
+const POPULARITY: readonly (readonly [stem: string, popularity: string])[] = [
+  ['MP72', 'Legendary'], ['MP6', 'Legendary'], ['MP2', 'Legendary'],
+  ['MP71', 'Extremely high'], ['MP7', 'Extremely high'],
+  ['MP1', 'Very high'], ['MP12', 'Very high'], ['MP51', 'Very high'],
+  ['MP53', 'High'], ['MP61', 'High'], ['MP81', 'High'],
+  ['MP82', 'High/moderate'],
+  ['MP62', 'Moderate'], ['MP83', 'Moderate'], ['MP52', 'Moderate'], ['MP73', 'Moderate'],
+  ['MP64', 'Lower / cult favorite'], ['MP5', 'Lower in S2'], ['MP11', 'Lower / cult favorite'], ['MP10', 'Lower / cult favorite'],
+  ['MP9', 'Lower'], ['MP8', 'Lower in S2'],
+  ['MP54', 'Limited exposure'], ['MP63', 'Limited exposure'], ['MP74', 'Limited exposure'],
 ];
+
+export const MAP_POPULARITY: readonly MapRank[] = POPULARITY.map(([stem, popularity]) => {
+  const row = mapRow(stem)!;
+  return { name: row.title, mode: MAP_TYPE_WORDS[row.type], popularity };
+});
 
 /** "Rat's Nest", "RAT'S NEST" and "ratsnest" all become "ratsnest". */
 export function normaliseName(name: string): string {

@@ -339,7 +339,7 @@ describe('the front end\'s wiring on a real NetPage (research 253 §3\'s hunk, o
       menuOpen: () => ex.isOpen(),
     };
     const deps: NetPageDeps = matchNetDeps(parts, { ...ex.netHooks(), respawned: () => { ex.reset(); } }, {
-      remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {},
+      remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {}, sceneRound: () => {},
       voiceFloor: () => {}, voiceFrame: () => {},   // SVC-20b-page: the voice client's, owed by the front end since sprint 20
       reloadSound: () => {}, deathVoice: () => {}, hurtVoice: () => {}, ring: () => {}, roundAudio: { roundStart: () => {}, eliminated: () => {}, timeExpired: () => {}, roundOver: () => {}, reset: () => {}, frame: () => {} } as never, objective: () => null, escorteeVoice: () => {},
       taunt: () => {}, communication: () => {}, hostageState: () => {},

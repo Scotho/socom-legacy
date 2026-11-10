@@ -16,7 +16,10 @@ export interface Atmosphere {
   /** The disc map whose sky dome is copied over the floor ('' none: the fog colour clears the sky). */
   sky: string;
   fog: { on: boolean; colour: [number, number, number]; near: number; far: number; height: { on: boolean; top: number; bottom: number } };
-  /** `NightMission` and `LensFX_NVG`: rgb 0..255, an alpha 0..1. */
+  /**
+   * `NightMission` and `LensFX_NVG`: four floats 0..1, the disc's range (research 84 s14; FP-1b, REVIEW-A 12) -- the
+   * colour field shows the rgb as bytes and converts back (`lensHex`, `lensOf`); nothing stores 0..255.
+   */
   night: { mission: boolean; lens: [number, number, number, number] };
   /** The world root's `ShadowVector`: the way the characters' shadows fall (its length kept). */
   shadow: [number, number, number];
@@ -90,6 +93,10 @@ const bytesOf = (hex: string): [number, number, number] => {
   const n = /^#([0-9a-f]{6})$/i.exec(hex) ? parseInt(hex.slice(1), 16) : 0;
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 };
+
+/** A lens's 0..1 rgb as the colour field's `#rrggbb` (FP-1b: converted at the field only), and back. */
+const lensHex = (lens: readonly number[]): string => byteHex([lens[0]! * 255, lens[1]! * 255, lens[2]! * 255]);
+const lensOf = (hex: string): [number, number, number] => bytesOf(hex).map((v) => v / 255) as [number, number, number];
 
 export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightRigEditor {
   const body = forgeEl(doc, 'div', 'fx-light-rig');
@@ -223,7 +230,7 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
         near: n(fogNear, 0, 100000, was.fog.near), far: n(fogFar, 100, 100000, was.fog.far),
         height: { on: heightOn.checked, bottom: n(fogBottom, -10000, 10000, was.fog.height.bottom), top: n(fogTop, -10000, 10000, was.fog.height.top) },
       },
-      night: { mission: nightOn.checked, lens: [...bytesOf(lensColour.value), n(lensAlpha, 0, 1, was.night.lens[3])] },
+      night: { mission: nightOn.checked, lens: [...lensOf(lensColour.value), n(lensAlpha, 0, 1, was.night.lens[3])] },
       shadow: [cast[0] * len, cast[1] * len, cast[2] * len],
     };
   };
@@ -263,7 +270,7 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
       put(fogBottom, String(Math.round(a.fog.height.bottom))); put(fogTop, String(Math.round(a.fog.height.top)));
       fogBottom.disabled = fogTop.disabled = !a.fog.height.on;
       nightOn.checked = a.night.mission;
-      put(lensColour, byteHex(a.night.lens)); put(lensAlpha, String(round2(a.night.lens[3])));
+      put(lensColour, lensHex(a.night.lens)); put(lensAlpha, String(round2(a.night.lens[3])));
       const cast = headingOf(a.shadow);
       put(castHeading, String(round1(cast.heading))); put(castDown, String(round1(Math.max(1, -cast.elevation))));
       flareCount.textContent = `${hooks.flares()} placed · the Flare tool places them`;

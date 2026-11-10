@@ -20,7 +20,7 @@ import {
   TURRET_HOLD_CLIP, TURRET_HOLD_OFFSET_READING, TURRET_HOLD_PUSH_READING, TURRET_HELD_WEAPON_READING, TURRET_MOUNT_CLIPS,
   TURRET_MUZZLE_NODE_READING, TURRET_SEAT_READING, type MountShape,
 } from '../src/net/emplacement';
-import { groundGrid, packGround, STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
+import { groundGrid, packGround, probeLiftOf, Walker } from '../src/mover';
 import { simMapFromBytes, SIM_CLIPS, type SimMap } from '../src/simMap';
 
 /**
@@ -134,7 +134,7 @@ async function handsOffGun(root: string, stem: string, names: readonly string[])
     const f = (t.facing * Math.PI) / 180;
     for (const [rel, pitch] of T81_AIMS) {
       const x0 = t.origin[0] + 12 * Math.sin(f), z0 = t.origin[2] + 12 * Math.cos(f);
-      const floor = selectFloor(probeGround(sim.grid, x0, z0), t.origin[1] + STEP_PROBE_LIFT_READING, t.origin[1])!;
+      const floor = selectFloor(probeGround(sim.grid, x0, z0), t.origin[1] + probeLiftOf('stand'), t.origin[1])!;
       const state = { x: x0, y: floor.y, z: z0, yaw: t.facing, vx: 0, vz: 0 };
       const steer = SeatSteer.start(t, shape, [x0, floor.y, z0], t.facing)!;
       while (!steer.step({ state, glide(dx: number, dz: number) { state.x += dx; state.z += dz; }, face(y: number) { state.yaw = y; } }, 1 / 60));
@@ -161,7 +161,7 @@ async function handsOffGun(root: string, stem: string, names: readonly string[])
  */
 function steeredOnGround(sim: SimMap, t: TurretPlacement, shape: MountShape): number {
   const f = (t.facing * Math.PI) / 180, w = new Walker(sim.grid);
-  expect(w.place(t.origin[0] + 12 * Math.sin(f), t.origin[1] + STEP_PROBE_LIFT_READING, t.origin[2] + 12 * Math.cos(f)), `${t.name}: a floor 12 behind`).toBe(true);
+  expect(w.place(t.origin[0] + 12 * Math.sin(f), t.origin[1] + probeLiftOf('stand'), t.origin[2] + 12 * Math.cos(f)), `${t.name}: a floor 12 behind`).toBe(true);
   w.state.yaw = t.facing;
   const steer = SeatSteer.start(t, shape, [w.state.x, w.state.y, w.state.z], t.facing)!;
   let n = 0;
@@ -193,10 +193,10 @@ function hullOutsideTheClip(sim: SimMap, t: TurretPlacement, shape: NonNullable<
     return Math.hypot(w.state.x - hold[0], w.state.z - hold[2]);
   };
   const w = new Walker(sim.grid);
-  w.place(t.origin[0] + 12 * Math.sin(f), t.origin[1] + STEP_PROBE_LIFT_READING, t.origin[2] + 12 * Math.cos(f));
+  w.place(t.origin[0] + 12 * Math.sin(f), t.origin[1] + probeLiftOf('stand'), t.origin[2] + 12 * Math.cos(f));
   const before = walkToHold(w);
   const r = new Walker(sim.grid);
-  r.place(hold[0], t.origin[1] + STEP_PROBE_LIFT_READING, hold[2]);
+  r.place(hold[0], t.origin[1] + probeLiftOf('stand'), hold[2]);
   r.state.yaw = t.facing;
   holdStep(t, r);                                                   // where the hold leaves it, as the release finds it
   const travel = ReleaseTravel.start(shape)!;
@@ -253,7 +253,7 @@ describe('the seat and its steer (no game data)', () => {
       points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
     const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
     const w = new Walker(groundGrid(packGround(params, [floor], owners)));
-    expect(w.place(0, STEP_PROBE_LIFT_READING, 12)).toBe(true);
+    expect(w.place(0, probeLiftOf('stand'), 12)).toBe(true);
     w.state.yaw = 30; w.state.vx = 4; w.state.vz = -2;
     w.setAirborne(true);
     expect(w.airborne).toBe(true);

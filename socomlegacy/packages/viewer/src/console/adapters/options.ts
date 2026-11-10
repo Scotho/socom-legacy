@@ -1,21 +1,27 @@
 import { connectedPads } from '../../controllerInput';
-import { stickTunersOfPreset, VIDEO_PICTURE_CAPTIONS, VIDEO_PICTURE_HD_OFFERED, VIDEO_PICTURES, type ValveEntry } from '@s2u/ui';
+import { CONTROLLER_LAYOUTS, controllerLayoutDescription } from '../../controllerSettings';
+import { stickTunersOfPreset, VIDEO_PICTURES, type ValveEntry } from '@s2u/ui';
 import { MOBILE_LAYOUT_ROW } from '../../mobileLayout';
 import { gameMicrophoneOn, MIC_DEVICE_KEY, MIC_ENABLED_KEY } from '../../gameMicrophone';
 import { launcherState, type LauncherState } from '../../modern/launcherState';
 import { CONTROLS, SLIDER_RANGE_PERCENT, SLIDER_STEP_PERCENT, STICK_PRESET_CUSTOM, tunerDefault, type Control } from '../../modern/settings/model';
-import { cardOptionStore, type OptionStore } from '../../modern/settings/store';
+import { cardOptionStore, TUNER_SAVE_SETTLE_MS_ADAPTATION, type OptionStore } from '../../modern/settings/store';
 import { pageSettings } from '../../pageStore';
 import { PAD_SELECTION_KEY } from '../../setupPad';
 import { TOUCHPAD_CROUCH_TOAST } from '../../controllerInput';
 import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, controllerStanceMode, readPreference, savePreference, setControllerStanceMode } from '../../startupSettings';
 import type { ExtractBackend } from '../../discExtractStore';
-import { DETAIL_DISTANCE_MODERN_DEFAULT, DETAIL_DISTANCE_VALUES, detailDistanceIndex, detailDistanceKeeper, detailDistanceOfIndex } from '../../detailDistance';
 import { pagePicture } from '../../picture';
-import { RENDER_SCALE_DEFAULT_ADAPTATION, RENDER_SCALE_WORDS, RENDER_SCALES, VIDEO_SETTINGS_DEFAULTS, videoSettingsKeeper } from '../../videoSettings';
-import { graphicsBackendOverride, readGraphicsBackend, saveGraphicsBackend, type GraphicsBackendPreference } from '../../graphicsBackend';
+import { NAME_TAGS_DEFAULT_ADAPTATION, NAME_TAGS_LOOKS, NAME_TAGS_WORDS, readNameTags, saveNameTags } from '../../nameTags';
+import { RANGE_READOUT_DEFAULT_ADAPTATION, RANGE_READOUT_VALUES, RANGE_READOUT_WORDS, readRangeReadout, saveRangeReadout } from '../../rangeReadout';
+import { isCustom, PRESET_VALUES, resolveAutomatic, VIDEO_SCHEMA, videoSettingsKeeperV2, type Preset, type Rows, type VideoRow, type VideoSettingsV2 } from '../../videoSettings';
+import { asksForWebGPU, GRAPHICS_BACKEND_APPLY_NOTE, GRAPHICS_BACKEND_KEY, graphicsBackendOverride, type GraphicsBackendPreference } from '../../graphicsBackend';
+import { pageDeviceClass, type DeviceClass } from '../../deviceClass';
+import { presetOfRows } from '../../autoQuality';
+import { clearGraphicsDemoted, readGraphicsDemoted } from '../../graphicsDemotion';
 import type { IconName } from '../icons';
 import { BACKEND_WORDS } from '../render/extract';
+import { PAD_DEAD_ZONE_LABEL } from '../render/remap';
 import { APPEARANCE, THEMES, hex } from '../render/theme';
 import { BACKDROP_URL } from '../backdrop';
 import { installAction, readInstallSurface, type InstallSurface } from '../../pwa/install';
@@ -26,9 +32,6 @@ import { INSTALL_APP_ROW, KEPT_DISC_ROW, REMAP_ROW, SHARE_SEND_ROW, THEME_PANEL_
 import { SHARE_SEND_ROW_ABOUT, SHARE_SEND_ROW_ACTION, SHARE_SEND_ROW_LABEL, SHARE_SEND_ROW_NOTE } from '../../discShareWords';
 import type { LivePad } from './pad';
 import { SKIP_MENU_HINT, SKIP_MENU_LABEL, SKIP_MENU_ROW, setSkipMenu, skipMenuOn } from '../skipMenu';
-
-/** Graphics mode's values in row order (Automatic, Compatibility, Xbox, WebGPU). */
-const GRAPHICS_BACKEND_VALUES: readonly GraphicsBackendPreference[] = ['auto', 'webgl2', 'xbox', 'webgpu'];
 
 /**
  * The console launcher's Options (slice 2, part i; CX-5): the options that really exist, and none of the prototype's
@@ -107,8 +110,8 @@ export const DETAIL_DISTANCE_ROW = 'detail-distance';
 
 /**
  * HD-4 (the owner, 2026-11-01: "make sure home gets the video too"; OT.R79, HD.R8 -- a browser adaptation with no
- * original): Options > Display's "Video", the page's picture -- Modern, PS2, HD (GoE Soul) (the third caption VIDEO MODE's
- * strip's own, `@s2u/ui` `VIDEO_PICTURE_CAPTIONS`) -- read and written through the page's one keeper (`../../picture`
+ * original): Options > Display's "Video", the page's picture -- Modern or PS2 (B206 ML-6 removed HD (GoE Soul): the HD
+ * pack is chosen in Experiments > Mods) -- read and written through the page's one keeper (`../../picture`
  * `pagePicture`), the keeper the disc's VIDEO strip sets and a match started from Home reads (`../../frontEnd` hands it
  * to `../../matchMount`): the two agree both ways, and a running match hears a change. Never the card's `video_mode`.
  */
@@ -116,14 +119,60 @@ export const VIDEO_PICTURE_ROW = 'video-picture';
 
 /**
  * CPS-4a (CPS.R7, a browser adaptation with no original; the owner, Craig, 2026-11-02: "Start building out new video
- * settings with sensible defaults in the client itself"): Options > Display's Render scale (Performance / Balanced /
- * Quality, Balanced by default; locked under the PS2 picture, whose 640 x 448 frame it does not touch), Shadows (On by
- * default) and Show FPS (Off by default; the START menu's SHOW FPS key, `../../matchFps` `FPS_SHOWN_KEY`) -- the page's
- * one video keeper (`../../videoSettings`), which a running match hears.
+ * settings with sensible defaults in the client itself"): Options > Display's Render scale, Shadows and Show FPS -- since
+ * VS-2 three of the video schema's rows (`VIDEO_ROW_IDS`; Show FPS is the performance overlay, the START menu's SHOW FPS
+ * key, `../../matchFps` `FPS_SHOWN_KEY`), their ids kept.
  */
 export const RENDER_SCALE_ROW = 'render-scale';
 export const SHADOWS_ROW = 'shadows';
 export const SHOW_FPS_ROW = 'show-fps';
+
+/**
+ * **VS-2 (the video settings plan, product track; every row a browser adaptation with no original; VS.R4, VS.R8):
+ * Options > Display's "This browser" rows drawn from `../../videoSettings` `VIDEO_SCHEMA`**, through the page's v2 keeper
+ * (`videoSettingsKeeperV2`), in the schema's order under the spec §4.2's groups -- Quality (the Preset row, under the
+ * "This browser" heading the card rows' slice 3 set), Display, Detail, Renderer, Picture (the page's picture and Name tags
+ * beside the schema's colour filter), then Restore defaults and This device (Device memory, Detected, "Not right?" while
+ * an Xbox pick is saved, Copy performance line):
+ * - a `choice` row as its values, a `percent` row as the launcher's slider (50-100 % by 5; its steps staged and written
+ *   through the keeper once, `TUNER_SAVE_SETTLE_MS_ADAPTATION` after the last -- #726's pattern -- or at once on another
+ *   row's change, a reset, the adapter's dispose or `pagehide`), a `toggle` as Off / On;
+ * - each row's help is its schema row's `effect`; a `customOnly` row is drawn only while the settings are Custom
+ *   (`isCustom`); the Preset row offers Custom only then, and a preset chosen writes its values (the keeper's `set`);
+ * - a `nextMatch` row's note says `GRAPHICS_BACKEND_APPLY_NOTE`, and it is marked `nextMatch` so the in-match overlay
+ *   draws it locked (`../state` `optCategories`); no row asks for a reload.
+ * The Graphics and Detail distance rows write through the keeper, so a prepared match (VS-6) and every keeper of the page
+ * hear them.
+ */
+export const VIDEO_PRESET_ROW = 'video-preset';
+export const VIDEO_ROW_IDS: Readonly<Record<VideoRow['key'], string>> = {
+  preset: VIDEO_PRESET_ROW, renderScalePct: RENDER_SCALE_ROW, ceiling: 'video-ceiling', frameCap: 'video-frame-cap', overlay: SHOW_FPS_ROW,
+  shadows: SHADOWS_ROW, detailDistance: DETAIL_DISTANCE_ROW, antialias: 'video-antialias', filtering: 'video-filtering',
+  graphics: 'graphics-backend', power: 'video-power', colourFilter: 'video-colour-filter',
+};
+/** The rows' labels (the spec §4.2's words). */
+export const VIDEO_ROW_LABELS: Readonly<Record<VideoRow['key'], string>> = {
+  preset: 'Preset', renderScalePct: 'Render scale', ceiling: 'Resolution ceiling', frameCap: 'Frame cap', overlay: 'Performance overlay',
+  shadows: 'Shadows', detailDistance: 'Detail distance', antialias: 'Antialias', filtering: 'Texture filtering',
+  graphics: 'Graphics', power: 'Power preference', colourFilter: 'Colour filter',
+};
+/** The groups' headings; the first group's row carries the tab's "This browser" heading instead. */
+export const VIDEO_GROUP_HEADINGS: Readonly<Record<VideoRow['group'], string>> = { quality: 'Quality', display: 'Display', detail: 'Detail', renderer: 'Renderer', picture: 'Picture' };
+/** Restore defaults: Automatic, every row its values, the readout off (the keeper's `restoreDefaults`). */
+export const VIDEO_RESTORE_ROW = 'video-restore';
+/** This device (the spec §4.2): the readouts and the Xbox pick's way out. */
+export const DEVICE_GROUP_HEADING = 'This device';
+export const DEVICE_MEMORY_ROW = 'device-memory';
+export const DEVICE_DETECTED_ROW = 'device-detected';
+export const DEVICE_NOT_RIGHT_ROW = 'device-not-right';
+/** The device classes as Detected names them (`../../deviceClass`). */
+export const DEVICE_CLASS_WORDS: Readonly<Record<DeviceClass, string>> = {
+  xbox: 'Xbox', software: 'Software renderer', touch: 'Touch', lowMemory: 'Low memory', standard: 'Standard', high: 'High',
+};
+/** Device memory under the Xbox class: the browser's own budget, whatever the console holds (`../../autoQuality`, §4.4 item 5). */
+export const XBOX_MEMORY_WORDS = '1 GB (the browser\'s budget)';
+const PRESET_WORDS_OF: Readonly<Record<'performance' | 'balanced' | 'quality', string>> = { performance: 'Performance', balanced: 'Balanced', quality: 'Quality' };
+const ADDRESS_WORDS: Readonly<Record<GraphicsBackendPreference, string>> = { auto: 'Automatic', webgl2: 'WebGL2', xbox: 'Xbox', webgpu: 'WebGPU' };
 
 /**
  * CPS-5 (product track, a browser adaptation with no original): Options > Display's "Copy performance line", last under
@@ -134,6 +183,26 @@ export const SHOW_FPS_ROW = 'show-fps';
  * draws these same rows, so it works mid-match. It changes nothing the game does.
  */
 export const PERF_LINE_ROW = 'perf-line';
+
+/**
+ * SS-2 (H422 answered (a), the owner, Craig, 2026-11-07; product track, a browser adaptation with no original): Options >
+ * Display's "Name tags" under "This browser", Original / Modern (Modern by default, `../../nameTags`
+ * `NAME_TAGS_DEFAULT_ADAPTATION`): the look of the teammates' over-head tags -- the original's, or LATER 671's smaller ones
+ * fading with distance (OT.R101). The card's Teammate names (`DISPLAY_MP_TEAM_NAMES`, the original's 0 / 1) turns them on
+ * and off; this row picks only the look. Read at a match's mount, as the valve is.
+ */
+export const NAME_TAGS_ROW = 'name-tags';
+
+/**
+ * HUD-ALIVE C (OT.R117, the owner, Craig, 2026-11-09; product track, a browser adaptation with no original): Options >
+ * Display's "Range readout" under "This browser", Off / On (Off by default, `../../rangeReadout`
+ * `RANGE_READOUT_DEFAULT_ADAPTATION`): the range finder's metres in the info box's spot, in the consoles' count's place
+ * (`RANGE_READOUT_ADAPTATION`). Read at a match's mount, as Name tags is.
+ */
+export const RANGE_READOUT_ROW = 'range-readout';
+
+/** SS-1's D2: Controller's browser dead zone row, named apart from the card's Dead zone (`../render/remap`'s, one name). */
+export { PAD_DEAD_ZONE_LABEL };
 /** How long the row says "Copied". A browser adaptation. */
 export const PERF_LINE_COPIED_MS_ADAPTATION = 2000;
 
@@ -153,6 +222,7 @@ export const overlayButtonChoices = (home: number): number[] => [home, ...Array.
 export type LiveOptions = Adapters['options'] & { dispose(): void };
 
 export interface OptionsDeps {
+  readDefaults?: () => Promise<readonly ValveEntry[]>;
   store?: OptionStore;
   launcher?: LauncherState;
   pad?: LivePad;
@@ -243,20 +313,19 @@ const OFF_ON = ['Off', 'On'] as const;
 // Neutral by rule (the slice-2 review, CX.R5): each line says what the setting is, from the model's own label and
 // values, and claims no behaviour the original's code or the server does not give.
 const ABOUT: Readonly<Record<string, string>> = {
-  MUSIC_VOLUME: 'The music volume.',
+  MUSIC_VOLUME: 'Menu and match music. The opening movie soundtrack uses Dialog volume.',
   SOUND_VOLUME: 'The sound volume.',
-  DIALOG_VOLUME: 'The dialog volume.',
+  DIALOG_VOLUME: 'Dialogue and movie soundtracks, including the opening menu background.',
   HEADSET_CONTROLLER: 'The headset volume.',
-  STEREO_CONTROLLER: 'Mono, stereo or Dolby.',
+  STEREO_CONTROLLER: 'Stereo, mono or Dolby.',
   BRIGHTNESS: 'The picture’s brightness.',
   BOBBING_1ST_PERSON: 'Head bob on or off.',
-  DISPLAY_MP_TEAM_NAMES: 'Teammate names off, on (smaller, fading with distance) or as the original drew them.',
-  HelpWindowsEnabled: 'Help windows on or off.',
+  DISPLAY_MP_TEAM_NAMES: 'Teammate names on or off. Their look is Name tags, under This browser.',
   VIBRATION_CONTROLLER: 'Vibration on or off, where your controller has it.',
   AutoAim: 'Aim assist on or off.',
   INVERT_PITCH_CONTROLLER: 'Pitch normal or inverted.',
   FIREMODESWAP_CONTROLLER: 'The fire rate on L3 or on Select.',
-  stick_preset: 'The stick preset: Trainee, Soldier, Seal or Custom.',
+  stick_preset: 'The stick preset: Recruit, Sailor, Seal or Custom.',
   STICK_SENSITIVITY: 'The look speed, with the Custom preset.',
   STICK_INERTIA: 'The acceleration, with the Custom preset.',
   STICK_DEADZONE: 'The stick dead zone, with the Custom preset.',
@@ -268,6 +337,7 @@ const ABOUT: Readonly<Record<string, string>> = {
 export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions {
   const store = deps.store ?? cardOptionStore();
   const launcher = deps.launcher ?? launcherState();
+  const offSave = store.observeSaves?.(notify);
   let defaults = new Map<string, number>();
   let table: 'none' | 'reading' | 'read' = 'none';
   let mics: { id: string; name: string }[] = [];
@@ -276,8 +346,8 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   let toast: string | null = null;
 
   const readTable = (): void => {
-    if (!launcher.isoInserted()) { table = 'none'; return; }
-    const a = launcher.assets?.();
+    if (!launcher.isoInserted() && !deps.readDefaults) { table = 'none'; return; }
+    const a = launcher.assets?.() ?? (deps.readDefaults ? { readValveDefaults: deps.readDefaults } : null);
     if (!a || table !== 'none') return;
     table = 'reading';
     a.readValveDefaults().then((rows: readonly ValveEntry[]) => {
@@ -296,18 +366,21 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     if (dismissed) notify(); else watchNotice();
   }) : null;
   noticeObs?.observe(globalThis.document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-pwa-dismissed'] });
-  const offDisc = launcher.onChange(() => { if (!launcher.isoInserted()) { table = 'none'; defaults = new Map(); store.seed?.(null); } readTable(); notify(); });
+  const offDisc = launcher.onChange(() => { if (!launcher.isoInserted() && !deps.readDefaults) { table = 'none'; defaults = new Map(); store.seed?.(null); } readTable(); notify(); });
   const onOffer = (): void => { notify(); };
   const offerWin = typeof globalThis.window === 'undefined' ? null : globalThis.window;
   offerWin?.addEventListener('s2u-install-offer', onOffer);
 
-  const cardNote = (): string => `Saved to your memory card (slot ${store.slot?.() ?? 1}).`;
+  const cardNote = (): string => store.pending?.() ? 'Applies now. Saving to your memory card...' : store.refusal?.() ? `Not saved: ${store.refusal()}` : `Saved to your memory card (slot ${store.slot?.() ?? 1}).`;
   const cardLock = (raw: number | undefined): string | undefined => {
     if (!store.usable()) return 'Card cannot be read';
     if (raw !== undefined) return undefined;
-    return !launcher.isoInserted() ? 'Needs disc' : table === 'reading' ? 'Reading disc' : 'Not saved yet';
+    return !launcher.isoInserted() && !deps.readDefaults ? 'Needs disc' : table === 'reading' ? 'Reading disc' : 'Not saved yet';
   };
   const valveRaw = (name: string): number | undefined => store.valve(name) ?? defaults.get(name);
+  // SS-1's D5 (a browser adaptation): a slider's steps are heard live at once and written to the card once the row
+  // settles (`../../modern/settings/store` `stageTuner`); a reset writes at once. A store without staging writes each step.
+  const stage = (tuner: string, value: number): boolean => (store.stageTuner ? store.stageTuner(tuner, value) : store.setTuner(tuner, value));
 
   const cardSpec = (c: Control): Spec | null => {
     const row = { id: c.id, label: c.label, about: ABOUT[c.id] ?? '', note: cardNote() };
@@ -322,12 +395,12 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
           if (c.customStickOnly && valveRaw('stick_preset') !== STICK_PRESET_CUSTOM) return 'Custom preset';
           return raw() === undefined ? 'Not saved yet' : undefined;
         },
-        set: (i) => store.setTuner(c.tuner, tunerOf(i)),
+        set: (i) => stage(c.tuner, tunerOf(i)),
         step: (d) => {
           const v = raw();
           if (v === undefined) return false;
           const to = tunerOf(percentOf(v) + d * SLIDER_STEP_PERCENT);
-          return to === v ? false : store.setTuner(c.tuner, to);       // at a bound nothing is written
+          return to === v ? false : stage(c.tuner, to);                // at a bound nothing is written
         },
         reset: () => { const d = tunerDefault(c.tuner); return d === null ? false : store.setTuner(c.tuner, d); },
       };
@@ -346,12 +419,17 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     // preset's three sliders too (`@s2u/ui` `stickTunersOfPreset`), which CUSTOM then keeps.
     const set = (i: number): boolean => {
       const v = toValue(i);
+      if (c.valve === 'stick_preset' && store.setStickPreset) return store.setStickPreset(v);
+      const stored = c.valve === 'stick_preset' ? valveRaw('stick_preset') ?? 0 : 0;   // read before the write
       if (!store.setValve(c.valve, v)) return false;
-      if (c.valve === 'stick_preset' && v >= 0 && v < STICK_PRESET_CUSTOM) {
-        const t = stickTunersOfPreset(v);
-        store.setTuner('STICK_SENSITIVITY', t.sensitivity);
-        store.setTuner('STICK_INERTIA', t.inertia);
-        store.setTuner('STICK_DEADZONE', t.deadZone);
+      if (c.valve === 'stick_preset') {
+        // Review F1: a card with no stick variables holds, in the original's session, the STORED preset's three (the boot's
+        // UIStoreOptions, FUN_0027b960 D:L125202-125230); Custom writes nothing (FUN_0027b790 D:L125077-125078) and keeps
+        // them -- RECRUIT's only where the stored preset is RECRUIT or CUSTOM. Every value already held is kept.
+        const t = stickTunersOfPreset(v < STICK_PRESET_CUSTOM ? v : stored > 0 && stored < STICK_PRESET_CUSTOM ? stored : 0);
+        for (const [name, value] of [['STICK_SENSITIVITY', t.sensitivity], ['STICK_INERTIA', t.inertia], ['STICK_DEADZONE', t.deadZone]] as const) {
+          if (v < STICK_PRESET_CUSTOM || store.tuner(name) === undefined) store.setTuner(name, value);
+        }
       }
       return true;
     };
@@ -359,6 +437,16 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
       row, values: () => values, get: () => toIndex(valveRaw(c.valve)), def: () => toIndex(defaults.get(c.valve)),
       lock: () => cardLock(valveRaw(c.valve)), set,
     };
+  };
+  const layout: Spec = {
+    row: { id: 'SelectedControllerConfig', label: 'Controller layout',
+      get about() { return controllerLayoutDescription(valveRaw('SelectedControllerConfig') ?? 1); },
+      get note() { return cardNote(); } },
+    values: () => CONTROLLER_LAYOUTS.map(l => l.label),
+    get: () => Math.max(0, CONTROLLER_LAYOUTS.findIndex(l => l.value === (valveRaw('SelectedControllerConfig') ?? 1))),
+    def: () => 0,
+    lock: () => store.usable() && store.setControllerLayout ? undefined : 'Card cannot be read',
+    set: i => { const selected = CONTROLLER_LAYOUTS[i]; return !!selected && !!store.setControllerLayout?.(selected.value); },
   };
   const cards = (group: Control['group']): Spec[] => CONTROLS.filter((c) => c.group === group).map(cardSpec).filter((s): s is Spec => s !== null);
 
@@ -397,7 +485,9 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     set: (i) => { const key = i === 0 ? 'auto' : pads()[i - 1]?.key ?? 'auto'; savePreference(PAD_SELECTION_KEY, key); deps.pad?.select(key); return true; },
   };
   const padDead: Spec = {
-    row: { id: 'pad-dead', label: 'Stick dead zone', about: 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', note: 'Saved to this browser, for this controller.' },
+    // SS-1's D2 (a browser adaptation): named for what it is -- this browser's pad calibration, before the game's own curve
+    // -- so it cannot be read as the card's Dead zone under "In the game" (CONTROLLER OPTIONS' DEAD ZONE). Id and key kept.
+    row: { id: 'pad-dead', label: PAD_DEAD_ZONE_LABEL, about: 'How far the stick moves before this browser passes it to the game. Raise it if your aim drifts on its own. The game’s own Dead zone, with the Custom preset, is under Layout and aiming.', note: 'Saved to this browser, for this controller.' },
     values: () => Array.from({ length: 41 }, (_, i) => `${i}%`),
     get: () => (deps.pad ? Math.round(deps.pad.deadZone() * 100) : undefined), def: () => 15,
     lock: () => (deps.pad?.connected() ? undefined : 'Connect a controller'),
@@ -424,7 +514,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const remap: Spec = {
     // CX-14 (CX.R13, OT.R60): the console's own mapping screen (`../render/remap`), pushed by the grammar's `optAction`
     // (`REMAP_ROW`); this adapter's action has nothing to say. The prototype's word for the row's action, "Remap".
-    row: { id: REMAP_ROW, label: 'Button mapping', action: 'Remap', hint: REMAP_HINT, about: 'Choose which button does what, action by action.', note: 'Saved to this browser, for this controller.' },
+    row: { id: REMAP_ROW, label: 'Button mapping', action: 'Remap', hint: REMAP_HINT, about: 'Map your controller buttons to the buttons used by your selected layout.', note: 'Saved to this browser, for this controller.' },
     values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false,
   };
   const ob = deps.overlayButton;
@@ -461,14 +551,13 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const videoPicture: Spec = {
     row: {
       id: VIDEO_PICTURE_ROW, label: 'Video',
-      about: 'The picture a match draws: Modern at your screen\u2019s size, PS2\u2019s 640 x 448 frame, or HD (GoE Soul) with the HD texture pack. The same choice as VIDEO MODE in the game\u2019s own Options.',
+      about: 'The picture a match draws: Modern at your screen\u2019s size or PS2\u2019s 640 x 448 frame. The same choice as VIDEO MODE in the game\u2019s own Options.',
       note: 'Saved to this browser. Applies now, in a match too.',
     },
-    values: () => VIDEO_PICTURE_HD_OFFERED ? ['Modern', 'PS2', VIDEO_PICTURE_CAPTIONS[2]!] : ['Modern', 'PS2'],   // HD-HOLD
+    values: () => ['Modern', 'PS2'],
     get: () => Math.max(0, VIDEO_PICTURES.indexOf(picture.get())), def: () => 0, lock: () => undefined,
     set: (i) => { const p = VIDEO_PICTURES[i]; if (!p) return false; picture.set(p); return true; },
   };
-  // Browser adaptation: a shared renderer choice, applied on reload, including lobby-mounted matches.
   // CPS-5 (a browser adaptation): Copy performance line -- "Copied" for two seconds, or the line in the aside if refused.
   let perfCopied = false;
   let perfRefused: string | null = null;
@@ -500,50 +589,197 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     notify();
     return 'Performance line copied';
   };
-  const graphicsBackend: Spec = {
-    row: { id: 'graphics-backend', label: 'Graphics mode',
-      about: 'Automatic uses WebGL2 for now, the same as Compatibility. WebGPU asks for WebGPU where the browser offers it; if the game loads to a black screen, use Automatic or Compatibility. Xbox also turns off edge smoothing for better performance.',
-      note: 'Saved to this browser. Reload the page to apply.' },
-    // WEBGL2-DEFAULT (the owner's word, 2026-11-05; a browser adaptation): Automatic is WebGL2 (DEFAULT_GRAPHICS_BACKEND_ADAPTATION,
-    // LATER 708); WebGPU is its own value, last, so the saved words and the first three indices are unchanged.
-    values: () => ['Automatic', 'Compatibility', 'Xbox', 'WebGPU'], get: () => GRAPHICS_BACKEND_VALUES.indexOf(readGraphicsBackend()),
-    def: () => 0, lock: () => graphicsBackendOverride() === null ? undefined : `Selected by address: ${['Automatic', 'Compatibility', 'Xbox', 'WebGPU'][GRAPHICS_BACKEND_VALUES.indexOf(readGraphicsBackend())]}`,
-    set: (i) => { const v = GRAPHICS_BACKEND_VALUES[i]; if (v === undefined) return false; saveGraphicsBackend(v); return true; },
-  };
-  const detailKeeper = detailDistanceKeeper();
-  const detailDistance: Spec = {
+  // SS-2 (H422 (a)): the tags' look, this browser's key; the card's Teammate names keeps on / off.
+  const nameTags: Spec = {
     row: {
-      id: DETAIL_DISTANCE_ROW, label: 'Detail distance',
-      about: 'How far the fine detail textures on floors and walls reach in a match. 1.0× is the original; the PS2 picture always draws the original.',
-      note: 'Saved to this browser. The Forge uses it too.',
+      id: NAME_TAGS_ROW, label: 'Name tags',
+      about: 'How your teammates\u2019 names over their heads look: Original as the game drew them, or Modern, smaller and fading with distance. Teammate names, above, turns them on and off; this picks the look.',
+      note: 'Saved to this browser. Applies from the next match.',
     },
-    values: () => DETAIL_DISTANCE_VALUES,
-    get: () => detailDistanceIndex(detailKeeper.get()), def: () => detailDistanceIndex(DETAIL_DISTANCE_MODERN_DEFAULT),
-    lock: () => (picture.get() === 'ps2' ? 'PS2 picture: original' : undefined),
-    set: (i) => { detailKeeper.set(detailDistanceOfIndex(i)); return true; },
+    values: () => NAME_TAGS_LOOKS.map((l) => NAME_TAGS_WORDS[l]),
+    get: () => NAME_TAGS_LOOKS.indexOf(readNameTags()), def: () => NAME_TAGS_LOOKS.indexOf(NAME_TAGS_DEFAULT_ADAPTATION), lock: () => undefined,
+    set: (i) => { const l = NAME_TAGS_LOOKS[i]; if (!l) return false; saveNameTags(l); return true; },
   };
-  // CPS-4a (CPS.R7, a browser adaptation): the three video rows, through the page's one video keeper.
-  const video = videoSettingsKeeper();
-  const renderScale: Spec = {
+  // HUD-ALIVE C (OT.R117): the range readout, this browser's key; off draws the original's consoles' count.
+  const rangeReadout: Spec = {
     row: {
-      id: RENDER_SCALE_ROW, label: 'Render scale',
-      about: 'How sharp a match draws. Balanced keeps a large screen at most 1440 pixels tall; Performance draws fewer pixels, for a smoother game; Quality draws at your screen\u2019s full sharpness. When frames run long, the picture lowers its sharpness by itself.',
-      note: 'Saved to this browser. Applies now, in a match too.',
+      id: RANGE_READOUT_ROW, label: 'Range readout',
+      about: 'Shows the distance in metres to what your reticle is on, in the box under your name, in place of the player count the game shows there. The scope\u2019s RANGE line is shown either way.',
+      note: 'Saved to this browser. Applies from the next match.',
     },
-    values: () => RENDER_SCALES.map((s) => RENDER_SCALE_WORDS[s]),
-    get: () => RENDER_SCALES.indexOf(video.get().renderScale), def: () => RENDER_SCALES.indexOf(RENDER_SCALE_DEFAULT_ADAPTATION),
-    lock: () => (picture.get() === 'ps2' ? 'PS2 picture: 640 x 448' : undefined),
-    set: (i) => { const s = RENDER_SCALES[i]; if (!s) return false; video.set({ renderScale: s }); return true; },
+    values: () => RANGE_READOUT_VALUES.map((v) => RANGE_READOUT_WORDS[v]),
+    get: () => RANGE_READOUT_VALUES.indexOf(readRangeReadout()), def: () => RANGE_READOUT_VALUES.indexOf(RANGE_READOUT_DEFAULT_ADAPTATION), lock: () => undefined,
+    set: (i) => { const v = RANGE_READOUT_VALUES[i]; if (!v) return false; saveRangeReadout(v); return true; },
   };
-  const shadows: Spec = {
-    row: { id: SHADOWS_ROW, label: 'Shadows', about: 'The shadows in a match: your soldier\u2019s, and the shadow patches on the ground. Off draws neither, for a smoother game.', note: 'Saved to this browser. Applies now, in a match too.' },
-    values: () => OFF_ON, get: () => (video.get().shadows ? 1 : 0), def: () => (VIDEO_SETTINGS_DEFAULTS.shadows ? 1 : 0), lock: () => undefined,
-    set: (i) => { video.set({ shadows: i === 1 }); return true; },
+  // VS-2: the video rows from the schema, through the page's v2 keeper (a running match and a prepared one hear it).
+  const v2 = videoSettingsKeeperV2();
+  // A change from elsewhere (the native VIDEO rows, a match, another tab's keeper) redraws the rows; this adapter's own
+  // writes are drawn by the caller's notify (`set`, `step`, `reset`, `action`), so they are not drawn twice.
+  let ownWrite = false;
+  const offV2 = v2.observe(() => { if (!ownWrite) notify(); });
+  const quiet = (f: () => void): void => { ownWrite = true; try { f(); } finally { ownWrite = false; } };
+  // The render scale slider's steps staged and written once the row settles (#726's pattern, `TUNER_SAVE_SETTLE_MS_ADAPTATION`).
+  let stagedPct: number | null = null;
+  let pctTimer: ReturnType<typeof setTimeout> | null = null;
+  const pctWin = typeof globalThis.window === 'undefined' ? null : globalThis.window;
+  const onPctHide = (): void => { flushPct(); };
+  function flushPct(): void {
+    if (pctTimer !== null) { clearTimeout(pctTimer); pctTimer = null; }
+    pctWin?.removeEventListener('pagehide', onPctHide);
+    if (stagedPct === null) return;
+    const pct = stagedPct;
+    stagedPct = null;
+    v2.set({ renderScalePct: pct });
+  }
+  const stagePct = (pct: number): void => {
+    stagedPct = pct;
+    if (pctTimer !== null) clearTimeout(pctTimer);
+    pctTimer = setTimeout(() => { pctTimer = null; flushPct(); }, TUNER_SAVE_SETTLE_MS_ADAPTATION);
+    pctWin?.addEventListener('pagehide', onPctHide);
   };
-  const showFps: Spec = {
-    row: { id: SHOW_FPS_ROW, label: 'Show FPS', about: 'A frame-rate counter in the top-right corner of a match. The same switch as SHOW FPS in the match\u2019s START menu.', note: 'Saved to this browser. Applies now, in a match too.' },
-    values: () => OFF_ON, get: () => (video.get().showFps ? 1 : 0), def: () => (VIDEO_SETTINGS_DEFAULTS.showFps ? 1 : 0), lock: () => undefined,
-    set: (i) => { video.set({ showFps: i === 1 }); return true; },
+  /** The values the shown preset stands for: a named preset's, else Automatic's resolved ones (a row's default). */
+  const baseRows = (v: VideoSettingsV2): Rows => (v.preset === 'auto' || v.preset === 'custom' ? resolveAutomatic() : PRESET_VALUES[v.preset]);
+  const videoLock = (key: VideoRow['key']): string | undefined => {
+    if ((key === 'renderScalePct' || key === 'ceiling') && picture.get() === 'ps2') return 'PS2 picture: 640 x 448';
+    if (key === 'detailDistance' && picture.get() === 'ps2') return 'PS2 picture: original';
+    const address = key === 'graphics' ? graphicsBackendOverride() : null;
+    return address === null ? undefined : `Selected by address: ${ADDRESS_WORDS[address]}`;
+  };
+  // WG-7, W5: after a WebGPU error demoted Automatic to WebGL2 (`../../graphicsDemotion`), the Graphics row's WebGL2 value
+  // says so until the player chooses again (a browser adaptation).
+  const DEMOTED_WORDS = '(set after a WebGPU error)';
+  const videoSpec = (r: VideoRow): Spec => {
+    const key = r.key;
+    const values = r.values ?? [];
+    const row = {
+      id: VIDEO_ROW_IDS[key], label: VIDEO_ROW_LABELS[key], about: r.effect,
+      note: r.apply === 'nextMatch' ? `Saved to this browser. ${GRAPHICS_BACKEND_APPLY_NOTE}` : 'Saved to this browser. Applies now, in a match too.',
+      ...(r.apply === 'nextMatch' ? { nextMatch: true } : {}),
+      ...(r.surfaces.includes('overlay') ? {} : { launcherOnly: true }),   // review F2: the schema's surfaces
+    };
+    if (key === 'preset') {
+      const shown = (): typeof values => (isCustom(v2.get()) ? values : values.filter((x) => x.value !== 'custom'));
+      return {
+        row, values: () => shown().map((x) => x.word),
+        get: () => { const v = v2.get(); const p = isCustom(v) ? 'custom' : v.preset; return Math.max(0, shown().findIndex((x) => x.value === p)); },
+        def: () => 0, lock: () => undefined,
+        set: (i) => {
+          const p = shown()[i]?.value as Preset | undefined;
+          if (p === undefined || p === 'custom') return false;           // Custom is reached by changing a row, never chosen
+          quiet(() => { flushPct(); v2.set({ preset: p }); });
+          return true;
+        },
+      };
+    }
+    const current = (): unknown => {
+      if (key === 'renderScalePct' && stagedPct !== null) return stagedPct;
+      const address = key === 'graphics' ? graphicsBackendOverride() : null;
+      return address !== null ? (address === 'xbox' ? 'auto' : address) : v2.get()[key];
+    };
+    const indexOf = (x: unknown): number | undefined => { const i = values.findIndex((w) => w.value === x); return i < 0 ? undefined : i; };
+    const def = (): number | undefined => indexOf(baseRows(v2.get())[key]);
+    const write = (to: unknown): boolean => {
+      if (to === undefined || to === current()) return false;           // a value held is not written again (a saved Xbox pick kept)
+      if (key === 'renderScalePct') { stagePct(to as number); return true; }
+      quiet(() => { flushPct(); v2.set({ [key]: to } as Partial<VideoSettingsV2>); });
+      return true;
+    };
+    return {
+      row, values: () => values.map((x) => (key === 'graphics' && x.value === 'webgl2' && readGraphicsDemoted() !== null ? `${x.word} ${DEMOTED_WORDS}` : x.word)),
+      get: () => indexOf(current()), def, lock: () => videoLock(key),
+      // WG-7, W5 (WEBGPU-DEFAULT, MEGA.R8; a browser adaptation): a Graphics value chosen here, even the one held, forgets a
+      // WebGPU error's demotion (`../../graphicsDemotion`), so the WebGL2 value stops saying it was set after one.
+      set: (i) => {
+        const forgot = key === 'graphics' && values[i] !== undefined && readGraphicsDemoted() !== null;
+        if (forgot) clearGraphicsDemoted();
+        return write(values[i]?.value) || forgot;
+      },
+      ...(key === 'renderScalePct' ? {
+        reset: (): boolean => {                                          // a reset writes at once (#726's pattern)
+          const d = def();
+          const to = d === undefined ? undefined : values[d]?.value;
+          stagedPct = null;
+          flushPct();
+          if (to === undefined || to === v2.get().renderScalePct) return false;
+          quiet(() => { v2.set({ renderScalePct: to as number }); });
+          return true;
+        },
+      } : {}),
+    };
+  };
+  /** Device memory, an estimate: the browser's rounded device memory and, where told, the page's heap of its budget. */
+  const memoryWords = (): string => {
+    if (pageDeviceClass() === 'xbox') return XBOX_MEMORY_WORDS;
+    const gb = (globalThis.navigator as { deviceMemory?: unknown } | undefined)?.deviceMemory;
+    const heap = (globalThis.performance as { memory?: { usedJSHeapSize?: unknown; jsHeapSizeLimit?: unknown } } | undefined)?.memory;
+    const mb = (n: number): number => Math.round(n / 2 ** 20);
+    const parts = [
+      typeof gb === 'number' && gb > 0 ? `${gb} GB` : null,
+      heap && typeof heap.usedJSHeapSize === 'number' && typeof heap.jsHeapSizeLimit === 'number' ? `about ${mb(heap.usedJSHeapSize)} MB of ${mb(heap.jsHeapSizeLimit)} MB` : null,
+    ].filter((x): x is string => x !== null);
+    return parts.length > 0 ? parts.join(' \u00b7 ') : 'Not told by this browser';
+  };
+  const detectedWords = (): string => {
+    const rows = resolveAutomatic();
+    const named = presetOfRows(rows);
+    const chose = named ? PRESET_WORDS_OF[named] : `${rows.renderScalePct}% at ${rows.ceiling === 0 ? 'Native' : `${rows.ceiling}p`}`;
+    // VS-10 F9a (the spec §4): and the backend Automatic asks for (`./graphicsBackend` `asksForWebGPU`; WebGPU still falls
+    // back to WebGL2 past the adapter's wait), in the Graphics row's own words.
+    const backend = VIDEO_SCHEMA.find((r) => r.key === 'graphics')?.values?.find((w) => w.value === (asksForWebGPU(rows.graphics) ? 'webgpu' : 'webgl2'))?.word;
+    return `${DEVICE_CLASS_WORDS[pageDeviceClass()]} \u00b7 Automatic chose: ${chose}${backend ? ` \u00b7 ${backend}` : ''}`;
+  };
+  const xboxPicked = (): boolean => readPreference(GRAPHICS_BACKEND_KEY) === 'xbox';
+  const sectioned = (specs: Spec[], section: string): Spec[] => specs.map((sp, i) => (i === 0 ? { ...sp, row: { ...sp.row, section } } : sp));
+  /** Display's browser rows: the schema's groups (the first unheaded: `headed` gives it "This browser"), Restore defaults, This device. */
+  const videoRows = (): Spec[] => {
+    const custom = isCustom(v2.get());
+    const shown = VIDEO_SCHEMA.filter((r) => r.surfaces.includes('launcher') && (!r.customOnly || custom));
+    const group = (g: VideoRow['group']): Spec[] => shown.filter((r) => r.group === g).map(videoSpec);
+    const groups: [VideoRow['group'], Spec[]][] = [
+      ['quality', group('quality')], ['display', group('display')], ['detail', group('detail')], ['renderer', group('renderer')],
+      ['picture', [...(deps.videoPicture === false ? [] : [videoPicture]), nameTags, rangeReadout, ...group('picture')]],   // the spec §4.2: Video, Name tags, (HUD-ALIVE C) Range readout, then the colour filter
+    ];
+    const none = { values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false };
+    const restore: Spec = {
+      row: {
+        id: VIDEO_RESTORE_ROW, label: 'Restore defaults', action: 'Restore', hint: 'Every row above back to Automatic', launcherOnly: true,
+        about: 'Every video row above back to Automatic -- what this device was found to suit -- and the performance overlay off. The next match tries this device again.',
+        note: `Saved to this browser. Applies now; Antialias, Graphics and Power preference: ${GRAPHICS_BACKEND_APPLY_NOTE.toLowerCase()}`,
+      },
+      ...none,
+    };
+    const device: Spec[] = [
+      {
+        row: {
+          id: DEVICE_MEMORY_ROW, label: 'Device memory', info: { value: memoryWords() },
+          about: 'An estimate: the memory the browser says this device has (it rounds it) and, where it tells it, how much of its own budget this page uses now. The Xbox browser has about 1 GB, whatever the console holds.',
+          note: 'Read from the browser; nothing is sent.',
+        },
+        ...none,
+      },
+      {
+        row: {
+          id: DEVICE_DETECTED_ROW, label: 'Detected', info: { value: detectedWords() }, launcherOnly: true,
+          about: 'The kind of device Automatic found -- Xbox, Touch, Low memory, Software renderer, Standard or High -- and the preset it chose for it.',
+          note: 'Read on this browser; nothing is sent.',
+        },
+        ...none,
+      },
+      ...(xboxPicked() ? [{
+        row: {
+          id: DEVICE_NOT_RIGHT_ROW, label: 'Not right?', action: 'Detect again', hint: 'Forget the Xbox choice', launcherOnly: true,
+          about: 'This browser was set up as an Xbox ("Request Game Files (XBOX)"). If it is not one, this forgets that choice: Automatic reads the device again and chooses for it.',
+          note: `Saved to this browser. Applies now; the renderer: ${GRAPHICS_BACKEND_APPLY_NOTE.toLowerCase()}`,
+        },
+        ...none,
+      }] : []),
+      perfLineSpec(),
+    ];
+    return [
+      ...groups.flatMap(([g, specs], i) => (i === 0 || specs.length === 0 ? specs : sectioned(specs, VIDEO_GROUP_HEADINGS[g]))),
+      restore,
+      ...sectioned(device, DEVICE_GROUP_HEADING),
+    ];
   };
   const remember: Spec = {
     // PERSONA-PERSIST (a) (OT.R61 (b)): chosen at each sign-in (ticked by default); this row says where.
@@ -645,7 +881,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const headed = (before: Spec[], section: string, specs: Spec[]): Spec[] =>
     [...before, ...(before.length === 0 ? specs : specs.map((s, i) => (i === 0 ? { ...s, row: { ...s.row, section } } : s)))];
   const groups: { id: string; label: string; icon: IconName; family: 'game' | 'launcher'; specs: () => Spec[] }[] = [
-    { id: 'display', label: 'Display', icon: 'display', family: 'game', specs: () => headed([...cards('display'), ...cards('console')], 'This browser', [...(deps.videoPicture === false ? [] : [videoPicture]), renderScale, detailDistance, shadows, showFps, graphicsBackend, perfLineSpec()]) },   // HD-4, PF.R60, CPS-4a, CPS-5
+    { id: 'display', label: 'Display', icon: 'display', family: 'game', specs: () => headed([...cards('display'), ...cards('console')], 'This browser', videoRows()) },   // VS-2: the video schema's rows (HD-4, PF.R60, CPS-4a, SS-2, CPS-5 among them)
     { id: 'app', label: 'App', icon: 'install', family: 'launcher', specs: () => [
       { row: { id: INSTALL_APP_ROW, label: 'Install app', action: installAction(surface()), ...(surface() === 'chromium' ? { tone: 'primary' as const } : {}), ...(installAction(surface()) === 'Install' ? { hint: INSTALL_HINT } : {}), about: 'Add SOCOM II Legacy to this device with its own icon and window.', note: 'On iPhone and iPad, installed apps keep storage separate from Safari.' }, values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false },
       // DSH-4 (DSH.R12 leaves the sender's entry without the QR to us): beside Install app, where the launcher's own
@@ -660,7 +896,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     { id: 'audio', label: 'Audio', icon: 'volume', family: 'game', specs: () => cards('audio') },
     // LATER 294 slice 1: the browser's controller rows first (Stance, device, dead zone, Button mapping), then Overlay button, then the card's rows.
     // STANCE-TOP (the owner, 2026-11-02: "move stance mode to the top"; a browser adaptation): the Stance mode the tab's first row.
-    { id: 'controller', label: 'Controller', icon: 'pad', family: 'launcher', specs: () => headed([stanceMode, padDevice, padDead, remap, ...overlayButton], 'In the game', cards('controls')) },
+    { id: 'controller', label: 'Controller', icon: 'pad', family: 'launcher', specs: () => headed([stanceMode, padDevice, padDead, remap, ...overlayButton], 'Layout and aiming', [layout, ...cards('controls')]) },
     { id: 'mobile', label: 'Mobile', icon: 'phone', family: 'launcher', specs: () => [{
       row: { id: MOBILE_LAYOUT_ROW, label: 'Touch layout', action: 'Edit layout', about: 'Drag each button and stick to where your thumbs reach. Portrait and landscape have separate layouts.', note: 'Saved to this browser on this device.' },
       values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false,
@@ -705,6 +941,13 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     installSurface: () => surface(),
     takeToast(): string | null { const t = toast; toast = null; return t; },
     async action(id): Promise<string | null> {
+      if (id === VIDEO_RESTORE_ROW) { stagedPct = null; flushPct(); quiet(() => { v2.restoreDefaults(); }); notify(); return 'Video settings back to Automatic'; }   // VS-2
+      if (id === DEVICE_NOT_RIGHT_ROW) {                        // VS-7 F5: the saved Xbox pick forgotten, only while it is saved
+        if (!xboxPicked()) return null;
+        quiet(() => { v2.set({ graphics: 'auto' }); });
+        notify();
+        return 'Xbox choice forgotten: Automatic reads this device again';
+      }
       if (id === UPDATE_ROW) { if (update.waiting()) update.restart(); return null; }   // LR-5: the notice's Restart
       if (id === PERF_LINE_ROW) return copyPerfLine();          // CPS-5: the line to the clipboard, or into the aside
       const p = pickOf(id);                                     // LR-5: a theme or a picture picked, said as the artifact says it
@@ -721,6 +964,8 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
       }
       return null;                                              // CX-14: Button mapping is the grammar's pushed screen
     },
-    dispose(): void { if (perfTimer !== null) { clearTimeout(perfTimer); perfTimer = null; } noticeObs?.disconnect(); offDisc(); offPicture(); offerWin?.removeEventListener('s2u-install-offer', onOffer); },
+    // review F1: the keeper's observer is let go before the staged step is written, so nothing is drawn into a console torn down;
+    // PR #765: the card store's save observer likewise, first.
+    dispose(): void { offSave?.(); store.flush?.(); offV2(); flushPct(); if (perfTimer !== null) { clearTimeout(perfTimer); perfTimer = null; } noticeObs?.disconnect(); offDisc(); offPicture(); offerWin?.removeEventListener('s2u-install-offer', onOffer); },
   };
 }

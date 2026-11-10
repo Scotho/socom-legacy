@@ -29,8 +29,19 @@ export const GAME_FIRST: readonly string[] = ['main', 'd'];
 /** The launcher's own pages (CX-33): `/online/...`, `/watch`, `/profile/...`, `/settings/...`, `/experiments`. */
 export const LAUNCHER_FIRST: readonly string[] = ['online', 'watch', 'profile', 'settings', 'experiments'];
 
-/** The project pages, each its own document (`<page>/index.html`). */
-export const PROJECT_PAGES: readonly string[] = ['news', 'roadmap', 'journey', 'archive', 'server', 'status'];
+/**
+ * The project pages, each its own document (`<page>/index.html`). `agent` (FP-14, FP.R10; a browser adaptation): the agent
+ * connection's public setup, MC-12's route, steps 1 and 2 before the Forge is open.
+ */
+export const PROJECT_PAGES: readonly string[] = ['news', 'roadmap', 'journey', 'archive', 'server', 'status', 'agent'];
+
+/**
+ * The stats pages (the LIVE cards plan, LCM.R10, R11): each its own document (`<page>/index.html`) in the project site's
+ * shell, reading central's public routes -- `/leaderboard` (LCM-11b). Not a project page (no generated section), but since
+ * LCM-16 (LCM.R18 (e)) the project-site nav's seventh link, Leaderboard.
+ * A browser adaptation: nothing here is a menu place.
+ */
+export const STATS_PAGES: readonly string[] = ['leaderboard'];
 
 /** The console launcher's first address (CX-2), an alias of the base path since CX-9a. */
 export const LAUNCHER_ALIASES: readonly string[] = ['console'];
@@ -52,10 +63,11 @@ export const GAME_PAGES: readonly { readonly page: string; readonly below: boole
 /** A page route as the dev server's rewrite takes it (`vite.config.ts` `projectRoutes`). */
 export interface SitePageRoute { readonly page: string; readonly file: string; readonly below?: true }
 
-/** Every page route: the project pages, the launcher's alias, the game page's paths. */
+/** Every page route: the project pages, the stats pages, the launcher's alias, the game page's paths. */
 export function sitePageRoutes(): SitePageRoute[] {
   return [
     ...PROJECT_PAGES.map((page) => ({ page, file: `${page}/index.html` })),
+    ...STATS_PAGES.map((page) => ({ page, file: `${page}/index.html` })),
     ...LAUNCHER_ALIASES.map((page) => ({ page, file: 'index.html' })),
     ...GAME_PAGES.map((g) => (g.below ? { page: g.page, file: GAME_PAGE_FILE, below: true as const } : { page: g.page, file: GAME_PAGE_FILE })),
   ];
@@ -80,8 +92,22 @@ export const STATIC_FIRST: readonly string[] = ['startup'];
 export const LOBBY_LINK_SEGMENTS = ['online', 'lobby'] as const;
 export const FORGE_LINK_SEGMENTS = ['forge', 'lobby'] as const;
 
+/**
+ * LCM-8: the match page `/match/<id>` (the LCM plan; the design's Part 8): since LCM-16 its own document in the site's
+ * shell (`leaderboard/match/index.html`, central's `MATCH_PAGE_DOCUMENT`), never the launcher's; its head central's
+ * (`matchPageHttp.ts` injects the match's link preview), so a server prefix whose first segment the launcher never writes.
+ */
+export const MATCH_PAGE_SEGMENT = 'match';
+
+/**
+ * LCM-12: the player page `/player/<name>` (the LCM plan; LCM.R10): since LCM-16 its own document in the site's shell
+ * (`leaderboard/player/index.html`, central's `PLAYER_PAGE_DOCUMENT`), never the launcher's; its head central's
+ * (`playerPageHttp.ts` injects the player's link preview), so a server prefix whose first segment the launcher never writes.
+ */
+export const PLAYER_PAGE_SEGMENT = 'player';
+
 /** Server paths below a page's or the launcher's segment: the lobby link's page (central injects its head) and its card. */
-export const SERVER_PREFIXES: readonly string[] = [`/${LOBBY_LINK_SEGMENTS.join('/')}/`, '/api/lobby/'];
+export const SERVER_PREFIXES: readonly string[] = [`/${LOBBY_LINK_SEGMENTS.join('/')}/`, '/api/lobby/', `/${MATCH_PAGE_SEGMENT}/`, `/${PLAYER_PAGE_SEGMENT}/`];
 
 /** Every first segment the launcher's table may never write: the game's, the pages', the server's and the files'. */
 export function reservedFirstSegments(): string[] {
@@ -91,5 +117,7 @@ export function reservedFirstSegments(): string[] {
     ...sitePageRoutes().map((r) => r.page),
     ...SERVER_FIRST,
     ...STATIC_FIRST,
+    MATCH_PAGE_SEGMENT,   // LCM-8: the match page's, the server's head
+    PLAYER_PAGE_SEGMENT,  // LCM-12: the player page's, the server's head
   ])];
 }

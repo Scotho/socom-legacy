@@ -15,7 +15,9 @@ const out = join(wiki, 'out');
 export const SEARCH_INDEX = '/api/search';
 
 /** Each query and the page (a site path, no trailing slash) it must find. */
-export const QUERIES = [{ query: 'manifest', page: '/anatomy' }];
+// ML-11 put "manifest" on many pages and /anatomy fell out of the client's top 60 (the page is still indexed); each
+// query names a page it finds first (verified on the 2026-11-08 exports of the release tree and FP-12a).
+export const QUERIES = [{ query: 'manifest', page: '/reference/manifest' }, { query: 'members', page: '/anatomy' }];
 
 const fail = (problems) => {
   for (const p of problems) console.error(`check-search: ${p}`);

@@ -26,12 +26,18 @@ describe('playObjectives', () => {
     expect(extractionPoints(r.map.ai)).toHaveLength(1);
   });
 
+  it("the hostages left out, each case counted apart: off the AI grid, past the room's 16", () => {
+    const full = { ...floor(), escortees: Array.from({ length: 16 }, () => lent) };
+    const r = playObjectives(full, layoutOf(4, { hostages: [h, { p: [6000, 0, 0], yaw: 0 }] }), lent);
+    expect([r.hostagesLeft, r.hostagesOffGrid, r.hostagesPastBound]).toEqual([2, 1, 1]);
+  });
+
   it('Escort on the blank floor: three VIPs and Safety (kind 5 until promoted) make it play -- the type reaches the map', () => {
     const r = playObjectives(floor(), layoutOf(3, { hostages: [h, h, h], extractionZones: [{ name: 'Safety', at: [300, 0, 300], size: [100, 100] }] }), lent);
     expect([r.why, r.map.gameType, r.map.escortees!.length]).toEqual([null, 3, 3]);
     expect(zonesOfKind(r.map.ai!, 5).map((z) => z.zone.name)).toEqual(['Safety']);
     // The owner (2026-11-06; FORGE_ESCORT_ZONE_MARK_ADAPTATION): a placed escort zone wears the compass's X from the start.
-    expect(r.map.forgeZoneMarks).toEqual([[272, 0, 272]]);           // its whole cells' middle (32-unit cells from -4000: 224 + 3 x 32 / 2)
+    expect(r.map.forgeZoneMarks).toEqual([[300, 0, 300]]);           // its whole cells' middle (10-unit cells from -4000: 250 + 10 x 10 / 2)
     expect(extractionPoints(r.map.ai)).toEqual([]);                    // the original's marks: kind 1 at load, none here
   });
 
@@ -39,5 +45,22 @@ describe('playObjectives', () => {
     const r = playObjectives(floor(), layoutOf(3, { hostages: [h], extractionZones: [{ name: 'Safety', at: [0, 0, 0], size: [10, 10] }] }), lent);
     expect(r.why).toMatch(/three/);
     expect(r.map.gameType).toBeUndefined();
+  });
+});
+
+describe("FP-1b (REVIEW-B 13): the Forge escort's fallback lines switch on only for a layout that places escort objects", () => {
+  it('a layout with no placed hostages or zones names no escort zones on the map: forgeEscortLines stays off (matchMount)', () => {
+    const disc = floor();
+    const r = playObjectives(disc, emptyLayout({ kind: 'map', archive: 'MP6' }), lent);
+    expect(r.why).toBeNull();
+    expect(r.map).toEqual(disc);
+    expect('forgeEscortZones' in r.map).toBe(false);
+    expect('forgeZoneMarks' in r.map).toBe(false);
+    // A type alone, nothing placed, likewise.
+    expect('forgeEscortZones' in playObjectives(floor(), layoutOf(4, {}), lent).map).toBe(false);
+  });
+  it('placed hostages or placed zones name the escort zones (an empty list with hostages alone), so the lines switch on', () => {
+    expect(playObjectives(floor(), layoutOf(4, { hostages: [h] }), lent).map.forgeEscortZones).toEqual([]);
+    expect(playObjectives(floor(), layoutOf(3, { extractionZones: [{ name: 'Safety', at: [0, 0, 0], size: [10, 10] }] }), lent).map.forgeEscortZones).toEqual(['Safety']);
   });
 });

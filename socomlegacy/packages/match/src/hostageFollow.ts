@@ -58,6 +58,59 @@ export const FOLLOW_RULES_READING = {
 export const FOLLOW_SLOTS_READING = [[2, 2], [3, -2], [4, -3], [5, -2], [6, 3], [7, 5], [8, -4], [9, -5]] as const;
 /** Research 334 §3: remaining special controller states and contact/action integrations. */
 export const FOLLOW_STEERING_PLACEHOLDER = 'special aim/strafe and alert states, physical actor contacts, non-route Yield modes, Yield default-wait producer, neighbor ordering and actor-probe disable producer, airborne climb entry, ladder reservations and special action controllers';
+/**
+ * FOLLOW_ACTION_CELL_READING (DF-10; research 334 §14, 200 §3.1) [reading, pending review]: what the path follower does
+ * at a route point whose cell carries an AI marker (`FUN_00567900`'s action dispatch). The marker's type is its u16 at
+ * +6, bits 7-11 (the marker word's bits 23-27); the eight-entry jump table at 0x65c990 (disassembly 0x567c28-0x567c54,
+ * which the decompilation lost at D:L429545-429551) sends type 1 to 0x567ee8, types 4 and 7 to 0x567ce8 and 0x567c60, and
+ * types 0, 2, 3, 5, 6 and 8 up to the plain steering at 0x5682c0. At 0x567ee8-0x567f18 the marker's action id (word bits
+ * 4-19) is looked up in the map's action list (`FUN_002b4d80` D:L157171-157185, by each action's +0x3c, its load index:
+ * D:L157310); no action, plain steering; the action's valve (+0x18, then its u16 at +4) nonzero, plain steering; zero,
+ * `FUN_005f5c00(actor, 0xb, 0 or 3)` (0x567f1c-0x567fb4): a push of AI state 0xb, `CAiSAction` (the factory
+ * `FUN_005f6550` D:L506016-506025; its vtable 0x669660's type names "CAiSAction" at 0x662890), which `FUN_005f0180`
+ * (D:L502697-502761) aims at that action. A FOLLOW stack [9, 0x17] admits 0xb (`FUN_005f5cd0`: the masks' AND
+ * 0x1ffffdfe & 0x190f4bc0 = 0x190f49c0 keeps bit 11); a second test at 0x567f04 (`$s0`) is not transcribed. So a
+ * follower meets a shut door with plain steering -- the leaf's collision stops it, as the MP6 jail door does -- unless the
+ * door's marker binds an action (`FOLLOW_ACTION_BIND_PLACEHOLDER`). Types 4 and 7 are not read here: 'unread'.
+ */
+export const FOLLOW_ACTION_CELL_READING = 'type 1 with a bound action whose valve is 0 pushes CAiSAction; else plain steering';
+
+/**
+ * FOLLOW_ACTION_BIND_PLACEHOLDER (DF-10; research 334 §14): whether any AI marker carries an action's id at run time. On
+ * the disc every marker of the four EXTRACTION maps carries id 0xffff (MP71: six type-1 markers, one at each door; MP6:
+ * one type-0 at cdoor1), and the AI maps' load sets every marker's id to DAT_0065ab30 = 0xffff (`FUN_0052bb70`
+ * D:L395962); actions take ids 0, 1, ... in load order (D:L157310), so none answers 0xffff and the dispatch steers. No
+ * writer of an action id into a marker was found in this read, and the case that one exists is strong: `FUN_0052daa0`
+ * -> `FUN_00530bd0` (D:L398970) finds a marker BY ACTION ID (word bits 4-19), called from eight sites (D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723; the
+ * last inside `FUN_005f0180`, which aims CAiSAction) beside `FUN_002b5760` (D:L157531-157546) -- all dead code in
+ * retail if every marker stays 0xffff. Settles: a writer outside the `& 0xfff0000f | x << 4` idiom (a u16 store at the
+ * marker's +4 or +6, say) found in the code, or a memory read of MP71's marker table (sub-map 0's list at +0x100,
+ * 40-byte records) on a running console after the map loads.
+ */
+export const FOLLOW_ACTION_BIND_PLACEHOLDER = 'none bound: every marker id 0xffff after the load';
+
+/** The follower's dispatch at an action cell (`FOLLOW_ACTION_CELL_READING`). */
+export type FollowActionDispatch = 'steer' | 'action' | 'unread';
+
+/**
+ * The action a marker binds under `FOLLOW_ACTION_BIND_PLACEHOLDER`: its id (word bits 4-19) when an action of the map
+ * answers it -- the actions' ids are 0 .. `actionCount` - 1 in load order -- else null (0xffff answers none).
+ */
+export function markerAction(markerWord: number, actionCount: number): number | null {
+  const id = (markerWord >>> 4) & 0xffff;
+  return id < actionCount ? id : null;
+}
+
+/**
+ * `FUN_00567900`'s dispatch at a route point's marker (`FOLLOW_ACTION_CELL_READING`): `actionValve` is the bound action's
+ * valve (its u16 at +4), null when the marker binds none (`markerAction`).
+ */
+export function followActionDispatch(markerWord: number, actionValve: number | null): FollowActionDispatch {
+  const type = (markerWord >>> 23) & 0x1f;
+  if (type === 4 || type === 7) return 'unread';
+  if (type !== 1 || actionValve === null || actionValve !== 0) return 'steer';
+  return 'action';
+}
 const same = (a: AiLoc, b: AiLoc) => a.map === b.map && a.x === b.x && a.z === b.z;
 const xyCells = (a: AiLoc, b: AiLoc) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 const cells = (a: AiLoc, b: AiLoc) => a.map === b.map ? xyCells(a, b) : Infinity;

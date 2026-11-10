@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>lobby-card (mockup, release candidate)</title>
+<body style="background:#11181a;color:#dfe4e5;font-family:sans-serif;padding:16px">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="m5" viewBox="0 0 12 12"><rect x=".5" y=".5" width="11" height="11" rx="1" fill="#0b0b0b" stroke="#cfcfcf" stroke-width=".9"/><path d="M6 2.4l1 2.2 2.4.3-1.8 1.6.5 2.4L6 7.7 3.9 8.9l.5-2.4-1.8-1.6 2.4-.3z" fill="#fff"/></symbol>
+    <symbol id="m4" viewBox="0 0 12 12"><path d="M1.5 5c1.6-.2 3 .5 4.5 1.9C7.5 5.5 8.9 4.8 10.5 5c-1 1.7-2.6 2.7-4.5 4.6C4.1 7.7 2.5 6.7 1.5 5z" fill="#dcb85c"/><path d="M6 1.6l1 1.7H5z" fill="#dcb85c"/></symbol>
+    <symbol id="m3" viewBox="0 0 12 12"><path d="M6 .8l3.2 5.2L6 11.2 2.8 6z" fill="#dcb85c"/></symbol>
+    <symbol id="m2" viewBox="0 0 12 12"><rect x="2.6" y="1.6" width="2.5" height="8.8" fill="#ece8de"/><rect x="6.9" y="1.6" width="2.5" height="8.8" fill="#ece8de"/></symbol>
+    <symbol id="m1" viewBox="0 0 12 12"><rect x="4.75" y="1.6" width="2.5" height="8.8" fill="#dcb85c"/></symbol>
+  </defs>
+</svg>
+<style>
+  .lc { --ink: 3,13,16; --brass:#e1bd5f; --bone:#efe9dc; --dim: rgba(239,233,220,.55); --teal:#8fd3dc; --live:#e3402f;
+        position: relative; width: 960px; height: 540px; overflow: hidden; background: rgb(var(--ink)); color: var(--bone);
+        font-family: Oswald, sans-serif; margin: 14px auto 0; }
+  .lc .shot { position: absolute; left: 0; right: 0; top: 0; height: 58%; background: url(../../../../../shared/brand/socom-legacy-hero-clean.jpg) 60% 35%/cover no-repeat; filter: saturate(.85) brightness(.85); }
+  .lc .tone { position: absolute; inset: 0; background:
+      linear-gradient(180deg, rgba(var(--ink),.45) 0%, rgba(var(--ink),.12) 16%, rgba(var(--ink),.08) 30%, rgba(var(--ink),.25) 40%,
+                              rgba(var(--ink),.55) 48%, rgba(var(--ink),.82) 54%, rgb(var(--ink)) 60%),
+      linear-gradient(90deg, rgba(var(--ink),.72) 0%, rgba(var(--ink),.35) 30%, rgba(var(--ink),0) 55%); }
+
+  .lc .top { position: absolute; top: 20px; left: 30px; right: 30px; display: flex; align-items: center; }
+  .lc .top img { width: 150px; height: auto; display: block; }
+  .lc .vr { width: 1px; height: 34px; background: rgba(239,233,220,.45); margin: 0 22px 0 20px; }
+  .lc .lobby { font-weight: 500; font-size: 17px; letter-spacing: .12em; text-transform: uppercase; }
+  .lc .lobby .slash { color: var(--dim); margin: 0 10px; font-weight: 300; }
+  .lc .lobby .mode { font-weight: 400; color: rgba(239,233,220,.85); }
+  .lc .live { margin-left: auto; display: flex; align-items: center; font-size: 19px; font-weight: 500; letter-spacing: .04em; }
+  .lc .live i { width: 13px; height: 13px; border-radius: 50%; background: var(--live); margin-right: 10px; }
+  .lc .live .vr { height: 20px; margin: 0 14px; }
+
+  .lc .map { position: absolute; left: 44px; top: 98px; font-weight: 700; font-size: 104px; line-height: 1; letter-spacing: .005em; text-shadow: 0 2px 18px rgba(0,0,0,.4); }
+  .lc .score { position: absolute; left: 48px; top: 214px; display: flex; align-items: center; gap: 22px; font-size: 18px; font-weight: 500; letter-spacing: .08em; }
+  .lc .dots { display: flex; gap: 7px; }
+  .lc .dots i { width: 13px; height: 13px; border-radius: 50%; box-sizing: border-box; }
+  .lc .s .w { background: var(--brass); } .lc .s .o { border: 1.6px solid var(--brass); }
+  .lc .t .w { background: var(--teal); }  .lc .t .o { border: 1.6px solid var(--teal); }
+  .lc .score .vr { width: 1px; height: 18px; background: rgba(239,233,220,.5); margin: 0 -8px 0 -4px; }
+  .lc .next { position: absolute; left: 44px; top: 238px; right: 380px; display: flex; align-items: center; height: 26px; }
+  .lc .chip { height: 22px; padding: 0 16px 0 14px; display: flex; align-items: center; background: rgba(46,60,64,.5); clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+              font-size: 12px; letter-spacing: .1em; color: rgba(239,233,220,.55); }
+  .lc .nextmap { padding-left: 4px; font-size: 14px; font-weight: 400; font-style: italic; letter-spacing: .08em; color: rgba(239,233,220,.6); }
+
+  .lc .count { position: absolute; right: 30px; top: 104px; text-align: center; width: 150px; }
+  .lc .count b { display: block; font-weight: 700; font-size: 64px; line-height: 1; }
+  .lc .count .lab { font-size: 15px; letter-spacing: .3em; margin-top: 2px; padding-left: .3em; }
+  .lc .count .rule { height: 1px; background: rgba(239,233,220,.45); margin: 12px 4px 8px; }
+  .lc .count .w { font-size: 17px; font-weight: 500; color: var(--teal); }
+
+  .lc .sides { position: absolute; left: 34px; right: 34px; top: 312px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 44px; }
+  .lc .hd { display: flex; align-items: baseline; padding-bottom: 6px; border-bottom: 2px solid; margin-bottom: 10px; }
+  .lc .hd .nm { font-weight: 600; font-size: 28px; line-height: 1; }
+  .lc .hd .xy { margin-left: auto; font-size: 18px; font-weight: 500; letter-spacing: .04em; }
+  .lc .seats { display: grid; grid-template-columns: 1.15fr 1fr; column-gap: 14px; }
+  .lc .seat { display: flex; align-items: center; height: 35px; font-size: 18.5px; font-weight: 500; white-space: nowrap; overflow: hidden; }
+  .lc .md { width: 17px; height: 17px; flex: none; margin-right: 18px; }
+  .lc .tg { color: var(--dim); font-weight: 400; margin-right: 7px; }
+  .lc .open { color: rgba(239,233,220,.32); font-weight: 400; padding-left: 0; }
+  .cap { font-size: 12px; opacity: .8; max-width: 960px; margin: 10px auto 0; line-height: 1.5; }
+</style>
+
+<h2>The lobby card, from your reference (v3)</h2>
+<p class="subtitle">Rebuilt to your image, with each side's X/Y at the end of its header. The background is still the brand key art until your map shots arrive.</p>
+
+<div class="lc">
+  <div class="shot"></div><div class="tone"></div>
+  <div class="top">
+    <img src="../../../../../shared/brand/socom-legacy-wordmark.png" alt="SOCOM Legacy"><span class="vr"></span>
+    <span class="lobby">Friday Night Scrims<span class="slash">/</span><span class="mode">Medley</span></span>
+    <span class="live"><i></i>LIVE<span class="vr"></span>9:41 PM ET</span>
+  </div>
+  <div class="map">FROSTFIRE</div>
+  <div class="score">
+    <span class="dots s"><i class="w"></i><i class="w"></i><i class="o"></i><i class="o"></i></span>
+    <span class="dots t"><i class="w"></i><i class="o"></i><i class="o"></i><i class="o"></i></span>
+    <span class="vr"></span><span>ROUND 4</span>
+  </div>
+  <div class="next"><span class="chip">UP NEXT</span><span class="nextmap">CROSSROADS</span></div>
+  <div class="count"><b>14/16</b><div class="rule"></div><div class="w">2 watching</div></div>
+
+  <div class="sides">
+    <div>
+      <div class="hd" style="border-color:var(--brass)"><span class="nm" style="color:var(--brass)">SEALs</span><span class="xy" style="color:var(--brass)">7/8</span></div>
+      <div class="seats">
+        <div class="seat"><svg class="md"><use href="#m5"/></svg><span class="tg">[NSW]</span>Ghostline</div>
+        <div class="seat"><svg class="md"><use href="#m2"/></svg>Tallow</div>
+        <div class="seat"><svg class="md"><use href="#m4"/></svg><span class="tg">[NSW]</span>Kestrel</div>
+        <div class="seat"><svg class="md"><use href="#m1"/></svg>Vandal</div>
+        <div class="seat"><svg class="md"><use href="#m3"/></svg>Dragnet</div>
+        <div class="seat"><svg class="md"><use href="#m1"/></svg>Sixgun</div>
+        <div class="seat"><svg class="md"><use href="#m2"/></svg>Harrow</div>
+        <div class="seat open">Open</div>
+      </div>
+    </div>
+    <div>
+      <div class="hd" style="border-color:var(--teal)"><span class="nm" style="color:var(--teal)">Terrorists</span><span class="xy" style="color:var(--teal)">7/8</span></div>
+      <div class="seats">
+        <div class="seat"><svg class="md"><use href="#m4"/></svg><span class="tg">[RZR]</span>Cinder</div>
+        <div class="seat"><svg class="md"><use href="#m2"/></svg>Fennec</div>
+        <div class="seat"><svg class="md"><use href="#m3"/></svg><span class="tg">[RZR]</span>Mako</div>
+        <div class="seat"><svg class="md"><use href="#m1"/></svg>Quarry</div>
+        <div class="seat"><svg class="md"><use href="#m3"/></svg>Wraith</div>
+        <div class="seat"><svg class="md"><use href="#m1"/></svg>Static</div>
+        <div class="seat"><svg class="md"><use href="#m2"/></svg>Hollis</div>
+        <div class="seat open">Open</div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="cap">From your reference: the wordmark with the lobby name and mode beside it on the top row; LIVE | time at the right; FROSTFIRE upright and heavy; bigger dots in each side's colour, then ROUND 4; an angled UP NEXT tag with CROSSROADS and a rule fading off to the right; 14/16, a rule, 2 watching (no "players" word); bold SEALs and Terrorists headers on full-width rules, now with 7/8 at the end of each; bigger seat rows. The card is 16:9 (1200 × 675) to match your reference.</p>
+
+</body>

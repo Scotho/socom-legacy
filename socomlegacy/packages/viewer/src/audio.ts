@@ -137,10 +137,12 @@ export interface AudioStats {
   decoded: number;
   /**
    * LATER 730: the samples' decodes -- `cold` the plays that decoded a sample in their own call (they sounded, in that
-   * call), `warmed` the samples decoded ahead (`soundWarmSet`), `pending` the warm set's sounds still to decode, `bytes`
-   * the decoded PCM held, `evicted` the samples let go past the cap (`SOUND_DECODE_CACHE_BYTES_ADAPTATION`).
+   * call), `warmed` the samples decoded ahead (`soundWarmSet`), `pending` the warm set's sounds still to decode or to
+   * render once (`SOUND_JIT_WARM_ADAPTATION`), `bytes` the decoded PCM held, `evicted` the samples let go past the cap
+   * (`SOUND_DECODE_CACHE_BYTES_ADAPTATION`), `jitRendered` the warm set's throwaway renders done and `jitMaxMs` the
+   * dearest of them, milliseconds.
    */
-  decode: { cold: number; warmed: number; pending: number; bytes: number; evicted: number };
+  decode: { cold: number; warmed: number; pending: number; bytes: number; evicted: number; jitRendered: number; jitMaxMs: number };
   /** Sounds rendered and started, in all, and by name. */
   played: number;
   byName: Record<string, number>;
@@ -215,6 +217,8 @@ export interface AudioOut {
    */
   context?(): AudioContext | null;
   setGain(gain: number): void;
+  /** SOUND MODE (`SOUND_MODE_ADAPTATION`, optional): `STEREO_CONTROLLER` as stored (`WebAudioOut.setSoundMode`). */
+  setSoundMode?(mode: number): void;
   /** A live group's dry signal and reverb sends; independent of the player's output master. */
   setGroupGain?(group: number, gain: number): void;
   /** Starts a sound; an output that can stop it again returns its voice (`GameAudio.restart`). */
@@ -230,12 +234,14 @@ export interface AudioOut {
    * Research 124: a stream on a voice of its own, each data channel into the output's pair at `gains` (its group's level:
    * `roundStreamGains`, research 186 §3.1). Optional: `play` stands in.
    */
-  playStream?(sound: RenderedSound, gains: StreamVoiceGains, group?: number): void;
+  playStream?(sound: RenderedSound, gains: StreamVoiceGains, group?: number, liveGains?: () => StreamVoiceGains): void;
   /**
    * Research 124: the music slot -- `sound` takes it, at `gains` as `playStream`; what sounds there fades out over
    * `handover` seconds and `sound` starts at their end (0: at once). Optional: an output without it plays nothing in the slot.
    */
-  playMusic?(sound: RenderedSound, handover: number, gains: StreamVoiceGains, group?: number): void;
+  playMusic?(sound: RenderedSound, handover: number, gains: StreamVoiceGains, group?: number, liveGains?: () => StreamVoiceGains): void;
+  /** Research 233 section 1: option masters re-level streams already sounding, including a stream started at zero. */
+  refreshStreams?(): void;
   /** Stops the slot's sound, at once (a new round, a map change, a close). */
   stopMusic?(): void;
   /** Browser lifecycle cleanup: old level's bank/voice sources, excluding the music slot. */
@@ -306,8 +312,10 @@ const builtLoops = new WeakMap<RenderedSound, AudioBuffer>();
 
 export class WebAudioOut implements AudioOut {
   private readonly transient = new Set<AudioBufferSourceNode>();
+  private readonly liveStreams = new Map<AudioBufferSourceNode, () => void>();
+  refreshStreams(): void { for (const refresh of this.liveStreams.values()) refresh(); }
   stopTransient(): void {
-    for (const node of this.transient) { try { node.stop(); } catch { /* already ended */ } node.disconnect(); }
+    for (const node of this.transient) { this.liveStreams.delete(node); try { node.stop(); } catch { /* already ended */ } node.disconnect(); }
     this.transient.clear();
   }
   private ctx: AudioContext | null = null;
@@ -368,11 +376,21 @@ export class WebAudioOut implements AudioOut {
    * menus' context (one context, running since the disc page's click: no second gesture) -- with its own master, reverb
    * bus and music slot, so the match's gain, reverb and round music never touch the menus'. Absent, a context of its own.
    */
-  constructor(private readonly shared: WebAudioOut | null = null, options: { releaseLoopSamples?: boolean } = {}) {
-    this.releaseLoopSamples = options.releaseLoopSamples ?? readGraphicsBackend() === 'xbox';
+  constructor(private readonly shared: WebAudioOut | null = null, options: { releaseLoopSamples?: boolean | (() => boolean) } = {}) {
+    const r = options.releaseLoopSamples ?? readGraphicsBackend() === 'xbox';
+    if (typeof r === 'function') this.releaseLoopSamplesOf = r; else this.releaseLoopSamplesRead = r;
   }
-  /** LOOP_SAMPLES_RELEASE_ADAPTATION: whether a loop's arrays are let go once its buffer is whole (the Xbox preset's). */
-  private readonly releaseLoopSamples: boolean;
+  /**
+   * LOOP_SAMPLES_RELEASE_ADAPTATION: whether a loop's arrays are let go once its buffer is whole (the Xbox preset's). A
+   * function is read once, at the first loop made whole -- the menus' output is built at the front end's start, and its
+   * decision (`./frontEndSleep` `xboxMemoryMeasures`, the device class) makes a WebGL probe that start must not (VS-12).
+   */
+  private releaseLoopSamplesOf: (() => boolean) | null = null;
+  private releaseLoopSamplesRead: boolean | null = null;
+  private releaseLoopSamples(): boolean {
+    if (this.releaseLoopSamplesRead === null) this.releaseLoopSamplesRead = this.releaseLoopSamplesOf?.() ?? false;
+    return this.releaseLoopSamplesRead;
+  }
   /** The statechange listener on the context (taken off again by `dispose`). */
   private changed: (() => void) | null = null;
   /**
@@ -473,6 +491,8 @@ export class WebAudioOut implements AudioOut {
   dispose(): void {
     this.disposed = true;
     this.stopMusic();
+    this.stopTransient();
+    this.liveStreams.clear();
     for (const bus of this.groupBuses.values()) { bus.dry.disconnect(); bus.send.disconnect(); }
     this.groupBuses.clear(); this.groupGains.clear();
     const ctx = this.ctx;
@@ -609,7 +629,7 @@ export class WebAudioOut implements AudioOut {
    * A stream's source through its own gain (the slot's fade, 1 until a handover) and then each data channel into the
    * master's pair at `gains` (its group's level, `roundStreamGains`), started at `when` (context time).
    */
-  private stream(sound: RenderedSound, when: number, gains: StreamVoiceGains, group: number): { node: AudioBufferSourceNode; gain: GainNode; start: number } | null {
+  private stream(sound: RenderedSound, when: number, gains: StreamVoiceGains, group: number, liveGains?: () => StreamVoiceGains): { node: AudioBufferSourceNode; gain: GainNode; start: number } | null {
     const buffer = this.buffer({ ...sound, sendLeft: null, sendRight: null });
     if (!buffer) return null;
     const destination = this.groupBus(group).dry;
@@ -630,8 +650,13 @@ export class WebAudioOut implements AudioOut {
       });
     });
     merge.connect(destination);
+    if (liveGains) this.liveStreams.set(node, () => {
+      const next = liveGains(), values = [...next.left, ...next.right];
+      for (let i = 0; i < pair.length; i++) if (pair[i]!.gain.value !== values[i]) pair[i]!.gain.value = values[i]!;
+    });
     node.onended = () => {
       this.transient.delete(node);
+      this.liveStreams.delete(node);
       node.disconnect(); gain.disconnect(); split.disconnect(); merge.disconnect();
       for (const g of pair) g.disconnect();
       if (this.slot?.node === node) this.slot = null;
@@ -653,11 +678,11 @@ export class WebAudioOut implements AudioOut {
   }
 
   /** `group` absent: 2, a stream's without a group of its own (`streamGroupOf`: a stream not a .VPK). */
-  playStream(sound: RenderedSound, gains: StreamVoiceGains, group = 2): void {
-    if (this.ctx) { const voice = this.stream(sound, this.ctx.currentTime, gains, group); if (voice) this.transient.add(voice.node); }
+  playStream(sound: RenderedSound, gains: StreamVoiceGains, group = 2, liveGains?: () => StreamVoiceGains): void {
+    if (this.ctx) { const voice = this.stream(sound, this.ctx.currentTime, gains, group, liveGains); if (voice) this.transient.add(voice.node); }
   }
 
-  playMusic(sound: RenderedSound, handover: number, gains: StreamVoiceGains, group = MUSIC_GROUP): void {
+  playMusic(sound: RenderedSound, handover: number, gains: StreamVoiceGains, group = MUSIC_GROUP, liveGains?: () => StreamVoiceGains): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const now = ctx.currentTime, old = this.slot;
@@ -665,8 +690,9 @@ export class WebAudioOut implements AudioOut {
       // `FUN_00348dc0` (D:L245383-245446): a cue while one waits on the handover overwrites the pending one
       // (DAT_0048e0b0), which never sounds, and starts no second fade (`FUN_00346da0`): it takes the waiting one's start.
       this.slot = null;
+      this.liveStreams.delete(old.node);
       WebAudioOut.kill(old);
-      this.slot = this.stream(sound, old.start, gains, group);
+      this.slot = this.stream(sound, old.start, gains, group, liveGains);
       return;
     }
     if (old && handover > 0) {
@@ -678,11 +704,11 @@ export class WebAudioOut implements AudioOut {
       old.gain.gain.cancelScheduledValues(now);
       old.gain.gain.setValueCurveAtTime(curve.map((c) => c * from), now, handover);
       try { old.node.stop(now + handover); } catch { /* ended */ }
-      if (this.fading) WebAudioOut.kill(this.fading);
+      if (this.fading) { this.liveStreams.delete(this.fading.node); WebAudioOut.kill(this.fading); }
       this.fading = old;
       this.slot = null;
     } else this.stopMusic();
-    this.slot = this.stream(sound, now + (old ? handover : 0), gains, group);
+    this.slot = this.stream(sound, now + (old ? handover : 0), gains, group, liveGains);
   }
 
   /** The slot at once, and the sound still fading out of it (a map change during a handover). */
@@ -690,8 +716,8 @@ export class WebAudioOut implements AudioOut {
     const s = this.slot, f = this.fading;
     this.slot = null;
     this.fading = null;
-    if (s) WebAudioOut.kill(s);
-    if (f) WebAudioOut.kill(f);
+    if (s) { this.liveStreams.delete(s.node); WebAudioOut.kill(s); }
+    if (f) { this.liveStreams.delete(f.node); WebAudioOut.kill(f); }
   }
 
   /** Loop buffers, built a channel at a time (`warm`) and shared by every emitter of the sound. */
@@ -726,7 +752,7 @@ export class WebAudioOut implements AudioOut {
       entry.filled++;
     }
     const whole = entry.filled >= entry.buffer.numberOfChannels;
-    if (whole && this.releaseLoopSamples && !builtLoops.has(sound)) WebAudioOut.letGo(sound, entry.buffer);
+    if (whole && !builtLoops.has(sound) && this.releaseLoopSamples()) WebAudioOut.letGo(sound, entry.buffer);
     return whole;
   }
 
@@ -798,6 +824,15 @@ function hold(p: AudioParam, now: number): void {
 
 interface Loaded { bank: SoundBank; samples: SampleCache; borrowed: boolean }
 
+/** A map's banks parsed (`GameAudio.setData`'s, or staged ahead of it): one byte budget, the names, the banks that failed. */
+interface BankSet { banks: Loaded[]; budget: SampleBudget; lookup: Map<string, { loaded: Loaded; index: number }>; failed: string[] }
+
+/**
+ * SOUND_JIT_WARM_ADAPTATION: a prepared match's banks staged before its attach (`GameAudio.stageWarm`) -- built and warmed
+ * but not installed; `setData` adopts them when handed the same `data` object.
+ */
+interface StagedBanks { data: SoundData; set: BankSet | null; warmQueue: string[]; jitQueue: { loaded: Loaded; index: number }[] }
+
 /**
  * SOUND_DECODE_WARM_ADAPTATION (LATER 730; product track, a browser adaptation with no original -- the console's voices
  * read their ADPCM as they play): the sounds whose samples a map's load decodes ahead, so the first flash, grenade burst
@@ -808,6 +843,24 @@ interface Loaded { bank: SoundBank; samples: SampleCache; borrowed: boolean }
  * and MP72 (LATER 730's harness). Which sounds play, and when, is unchanged.
  */
 export const SOUND_DECODE_WARM_ADAPTATION = /_grenade$/i;
+/**
+ * SOUND_JIT_WARM_ADAPTATION (product track, a browser adaptation with no original): a sound's first render on a page
+ * runs the synth cold -- the engine compiles `renderSound` and the envelope on that render, ~16-27 ms in Node and ~90 ms
+ * in a fresh browser page against 3-7 ms once warm (the flash-lag finding, 2026-11-08). So each warm-set sound is
+ * rendered once, after its samples are decoded, with this throwaway generator's draws and a fresh grain memory, and the
+ * buffer dropped: the shared generator and RAND_PLAY / PLAY_CYCLE memory (`grainState`) are left as an unwarmed run
+ * leaves them, every play still renders in its own call, and nothing is cached. Which sounds play, when, and what they
+ * render are unchanged. A sound one of whose samples cannot be held (an out-of-range tone, or the cap refused it) is
+ * not rendered -- its render would decode, and the plays' `cold` count is theirs; a sound with no tone is.
+ * The trade, where the renders run: off the match's frames, one render a scheduled callback -- the cold first render
+ * (~90 ms in a browser) and the ~109 renders of 1-12 ms on MP2 are paid there. A match prepared in the background (the
+ * online lobby's: `./matchMount`'s `place` before its attach) stages its banks and warms them in the wait before the
+ * round (`stageWarm`), nothing installed, nothing audible; the attach's `setData` adopts them. A match mounted directly
+ * warms from its sound lines to its first world frame, behind the loading screen (`warmDuringLoad`). What either leaves
+ * at the first world frame (`endLoad`) continues under `pump`'s budget in the match's frames, one render a frame.
+ */
+export const SOUND_JIT_WARM_ADAPTATION = 0x5eed;
+
 /** The flash's ring (`./ringingEars`), warmed beside the grenades' sounds. */
 const RINGING_EARS_SOUND = '.RINGING_EARS';
 
@@ -1006,6 +1059,13 @@ export class GameAudio {
   private budget = new SampleBudget();
   /** LATER 730: the warm set's names still to decode (`soundWarmSet`), one a step of `pump`; and the counts. */
   private warmQueue: string[] = [];
+  /** SOUND_JIT_WARM_ADAPTATION: the warm set's sounds decoded and still to render once, a pump each; and the counts. */
+  private jitQueue: { loaded: Loaded; index: number }[] = [];
+  private readonly jitCounts = { jitRendered: 0, jitMaxMs: 0 };
+  /** SOUND_JIT_WARM_ADAPTATION: the load lane's generation (`warmDuringLoad`, `stageWarm`); `endLoad` and `setData` end a lane. */
+  private loadLane = 0;
+  /** SOUND_JIT_WARM_ADAPTATION: a prepare's banks staged ahead of its attach (`stageWarm`); taken or dropped by `setData`. */
+  private staged: StagedBanks | null = null;
   private readonly decodeCounts = { cold: 0, warmed: 0 };
   private readonly timing = { unlockMs: 0, pumpMaxMs: 0, reverbMs: 0 };
 
@@ -1017,29 +1077,20 @@ export class GameAudio {
     this.data = data;
     // A new map, a new elevation: the register follows at once from where the listener stands.
     this.register2 = this.listener && data?.elevation ? globalRegister2(this.listener[13]!, data.elevation) : null;
-    this.banks = [];
-    this.budget = new SampleBudget();
+    // SOUND_JIT_WARM_ADAPTATION: a prepare's staged banks are this data's when handed the same object -- taken as built
+    // and warmed (no second decode); any other data drops them.
+    const staged = this.staged;
+    this.staged = null;
+    const adopted = staged !== null && data !== null && staged.data === data ? staged : null;
+    const built = adopted ? (adopted.set ??= this.buildBanks(data)) : this.buildBanks(data);
+    this.banks = built.banks;
+    this.budget = built.budget;
     this.lookup.clear();
+    for (const [name, found] of built.lookup) this.lookup.set(name, found);
     this.restartRenders.clear();
     this.grainState.clear();
     this.map = data?.archive ?? null;
-    this.missing = [...(data?.missing ?? [])];
-    for (const { file, bytes, only } of data?.banks ?? []) {
-      try {
-        const bank = parseBankFile(bytes);
-        const loaded = { bank, samples: new SampleCache(bank.vag, this.budget), borrowed: !!only };
-        this.banks.push(loaded);
-        for (const [name, index] of bank.names) {
-          if (only && !only.includes(name) && !only.includes(name.trim())) continue;   // a borrowed bank lends only these
-          if (!this.lookup.has(name)) this.lookup.set(name, { loaded, index });
-          // A bank name can carry trailing blanks the zAnims do not (MP2_am's `.THROW_OBJECT `): found by either.
-          const bare = name.trim();
-          if (bare !== name && !this.lookup.has(bare)) this.lookup.set(bare, { loaded, index });
-        }
-      } catch (e) {
-        this.missing.push(`${file}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
+    this.missing = [...(data?.missing ?? []), ...built.failed];
     if (data && data.banks.length === 0 && !this.warned) {
       this.warned = true;
       console.warn(`audio: no sound for ${data.archive}: ${data.missing.join('; ')}`);
@@ -1066,11 +1117,35 @@ export class GameAudio {
     this.streamGroups = new Map((data?.streams ?? []).map((s) => [s.name, { group: streamGroupOf(s), channels: s.sound.voices > 1 ? 2 : 1 }]));
     this.roundCues_ = data?.roundCues ?? null;
     // LATER 730: the map's flash, grenade bursts and reports decoded ahead, a sound a step of the frames' `pump`.
-    this.warmQueue = data ? soundWarmSet(data) : [];
+    this.warmQueue = adopted ? adopted.warmQueue : data ? soundWarmSet(data) : [];
+    this.jitQueue = adopted ? adopted.jitQueue : [];
+    this.loadLane++;                                   // a lane of the last map's load (or a staged one) stops
     // The context made now, while the map comes in, so the first key press only resumes it.
     if (data && data.banks.length > 0) this.out.prepare?.();
     this.loadReverb();
     if (this.ambienceWanted) this.startAmbience();
+  }
+
+  /** `data`'s banks parsed, each sample cache on one new byte budget; a bank that does not parse is named in `failed`. */
+  private buildBanks(data: SoundData | null): BankSet {
+    const set: BankSet = { banks: [], budget: new SampleBudget(), lookup: new Map(), failed: [] };
+    for (const { file, bytes, only } of data?.banks ?? []) {
+      try {
+        const bank = parseBankFile(bytes);
+        const loaded = { bank, samples: new SampleCache(bank.vag, set.budget), borrowed: !!only };
+        set.banks.push(loaded);
+        for (const [name, index] of bank.names) {
+          if (only && !only.includes(name) && !only.includes(name.trim())) continue;   // a borrowed bank lends only these
+          if (!set.lookup.has(name)) set.lookup.set(name, { loaded, index });
+          // A bank name can carry trailing blanks the zAnims do not (MP2_am's `.THROW_OBJECT `): found by either.
+          const bare = name.trim();
+          if (bare !== name && !set.lookup.has(bare)) set.lookup.set(bare, { loaded, index });
+        }
+      } catch (e) {
+        set.failed.push(`${file}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return set;
   }
 
   /**
@@ -1082,8 +1157,16 @@ export class GameAudio {
    */
   setTuners(tuners: StreamTuners | (() => StreamTuners)): void {
     this.tuners = tuners;
+    this.out.refreshStreams?.();
     this.restartRenders.clear();
   }
+
+  /**
+   * RB-48 (the replay batch, product track; `SOUND_MODE_ADAPTATION`, a browser adaptation): SOUND MODE handed on to this
+   * audio's output, as the front end hands it to its own (`./frontEnd`) -- the test room's `gameAudio` keeps its
+   * `WebAudioOut` private, so its player settings (`./playerSettings`) reach the output here. An output with none: nothing.
+   */
+  setSoundMode(mode: number): void { this.out.setSoundMode?.(mode); }
 
   /** The front end's uiVars as the tuners' source (`tunersOfVars`, read at each play); null or none: the defaults. */
   setTunerVars(vars: () => TunerVars | null | undefined): void {
@@ -1093,12 +1176,6 @@ export class GameAudio {
   /** The four option masters' values now. */
   getTuners(): StreamTuners {
     return typeof this.tuners === 'function' ? this.tuners() : { ...this.tuners };
-  }
-
-  /** A stream's gains at the tuners now (`roundStreamGains`). */
-  private streamGainsOf(name: string): StreamVoiceGains {
-    const s = this.streamGroups.get(name)!;
-    return roundStreamGains(s.group, s.channels, this.getTuners());
   }
 
   /** A bank sound's group modifier at the tuners now: its `VolGroup`'s master (`bankGroupOf`), null past group 14. */
@@ -1158,6 +1235,7 @@ export class GameAudio {
     this.updateBedLevels();
     this.updateSlide();
     this.updateOneShots();
+    this.out.refreshStreams?.();
   }
 
   /**
@@ -1174,18 +1252,80 @@ export class GameAudio {
     }
     // LATER 730: the warm set in what the frame's budget leaves, after the reverb's and the loops' jobs.
     while (this.warmQueue.length > 0 && performance.now() - t0 < budgetMs) this.warmSound(this.warmQueue.shift()!);
+    // SOUND_JIT_WARM_ADAPTATION: one warmed sound rendered and dropped, in what the budget leaves; never two a pump.
+    if (this.jitQueue.length > 0 && performance.now() - t0 < budgetMs) this.jitWarm(this.jitQueue.shift()!);
     this.timing.pumpMaxMs = Math.max(this.timing.pumpMaxMs, performance.now() - t0);
   }
 
+  /**
+   * SOUND_JIT_WARM_ADAPTATION: the warm set decoded and rendered during the match's load, off the frames: a callback
+   * `schedule` runs decodes one warm-set name and renders at most one sound, then asks for the next, until the set is
+   * done or `endLoad` (the first match frame) or a new `setData` ends the lane. What is left continues in `pump`.
+   */
+  warmDuringLoad(schedule: (run: () => void) => void): void {
+    const lane = ++this.loadLane;
+    const step = (): void => {
+      if (lane !== this.loadLane) return;
+      if (this.warmQueue.length === 0 && this.jitQueue.length === 0) return;
+      if (this.warmQueue.length > 0) this.warmSound(this.warmQueue.shift()!);
+      if (this.jitQueue.length > 0) this.jitWarm(this.jitQueue.shift()!);
+      schedule(step);
+    };
+    schedule(step);
+  }
+
+  /**
+   * SOUND_JIT_WARM_ADAPTATION: a match prepared in the background (`./matchMount`'s `place` before its attach) -- `data`'s
+   * banks built and its warm set decoded and rendered, one name and at most one render a `schedule` callback (the banks
+   * parsed in the first), in the wait before the round, without installing them: nothing is audible before the attach.
+   * The attach's `setData(data)`, the same object, adopts them and what is left of the set; other data, a `setData(null)`
+   * (the prepare's teardown) or `endLoad` ends the lane, and a queued callback then schedules nothing.
+   */
+  stageWarm(data: SoundData, schedule: (run: () => void) => void): void {
+    const lane = ++this.loadLane;
+    const staged: StagedBanks = { data, set: null, warmQueue: soundWarmSet(data), jitQueue: [] };
+    this.staged = staged;
+    const step = (): void => {
+      if (lane !== this.loadLane || this.staged !== staged) return;
+      const set = (staged.set ??= this.buildBanks(data));
+      if (staged.warmQueue.length === 0 && staged.jitQueue.length === 0) return;
+      if (staged.warmQueue.length > 0) this.warmSound(staged.warmQueue.shift()!, set.lookup, staged.jitQueue);
+      if (staged.jitQueue.length > 0) this.jitWarm(staged.jitQueue.shift()!);
+      schedule(step);
+    };
+    schedule(step);
+  }
+
+  /** SOUND_JIT_WARM_ADAPTATION: the load is over (the first match frame); the lane stops, `pump` takes what is left. */
+  endLoad(): void { this.loadLane++; }
+
   /** LATER 730: decodes and holds for good (`SampleCache.pin`) every sample sound `name` can start; nothing plays. */
-  private warmSound(name: string): void {
-    const found = this.find(name);
+  private warmSound(name: string, lookup = this.lookup, jitQueue = this.jitQueue): void {
+    const fixed = fixSoundName(name);
+    const found = lookup.get(fixed) ?? lookup.get(fixed.trim());
     if (!found) return;
     const { samples, bank } = found.loaded;
+    let held = true;
     for (const offset of soundSampleOffsets(bank, found.index)) {
       const fresh = !samples.has(offset);
       if (samples.pin(offset) && fresh) { this.decodeCounts.warmed++; soundDecodeRecord.warmed++; }
+      held &&= samples.has(offset);
     }
+    // Only a sound whose samples are all held: the throwaway render then decodes nothing (`cold` stays the plays').
+    if (held && !jitQueue.some((q) => q.loaded === found.loaded && q.index === found.index)) jitQueue.push(found);
+  }
+
+  /**
+   * SOUND_JIT_WARM_ADAPTATION: renders `found` once and drops the buffer -- a throwaway generator and a fresh grain
+   * memory, never `random` or `grainState`; the output is not touched.
+   */
+  private jitWarm(found: { loaded: Loaded; index: number }): void {
+    let seed = SOUND_JIT_WARM_ADAPTATION;
+    const random = (): number => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
+    const t0 = performance.now();
+    renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random, state: new Map(), modifier: this.bankModifier(found) });
+    this.jitCounts.jitRendered++;
+    this.jitCounts.jitMaxMs = Math.max(this.jitCounts.jitMaxMs, performance.now() - t0);
   }
 
   /**
@@ -1308,7 +1448,10 @@ export class GameAudio {
     if (this.ambienceWanted) this.startAmbience();
   }
 
-  /** The ambience on (walking) or off: the beds and the emitters, started once the output is unlocked. */
+  /**
+   * The ambience on or off: the beds and the emitters, started once the output is unlocked. On through a match in
+   * every view (AMB-1, research 81 §10: `./walkSounds` `frame`); off for the test room's free-fly viewer only.
+   */
   setAmbience(on: boolean): void {
     this.ambienceWanted = on;
     if (on) this.startAmbience();
@@ -1719,10 +1862,12 @@ export class GameAudio {
       pan = distance > 1e-6 ? panDegrees(right, forward) : 0;
     }
     // ISO 342b20 ->342fe8 ->342240 passes the placed stream's volume and pan (research 301 s4), under its group's
-    // master at the tuners now (`groupModifier`, as `streamGainsOf`); unplaced, the round stream's own gains.
+    // master at the tuners now (`groupModifier`, as `roundStreamGains`); unplaced, the round stream's own gains.
     const group = this.streamGroups.get(name)!;
-    const gains = position ? streamVoiceGains(vol, pan, group.channels, groupModifier(group.group, this.getTuners())) : this.streamGainsOf(name);
-    if (this.out.playStream) this.out.playStream(sound, gains, group.group); else this.out.play(sound, group.group);
+    const liveGains = () => position ? streamVoiceGains(vol, pan, group.channels, groupModifier(group.group, this.getTuners()))
+      : roundStreamGains(group.group, group.channels, this.getTuners());
+    const gains = liveGains();
+    if (this.out.playStream) this.out.playStream(sound, gains, group.group, liveGains); else this.out.play(sound, group.group);
     this.lastVoice = name;
     this.heard(name, 'voice', sound);
     const recent = this.recent[this.recent.length - 1]; if (recent) { recent.vol = vol; recent.pan = pan; }
@@ -1743,7 +1888,9 @@ export class GameAudio {
     const now = this.now(), slot = this.slot;
     const handover = slot && now < slot.starts ? slot.starts - now
       : slot && now < slot.ends ? MUSIC_SLOT_HANDOVER_SECONDS : 0;
-    this.out.playMusic(sound, handover, this.streamGainsOf(name), this.streamGroups.get(name)!.group);
+    const group = this.streamGroups.get(name)!;
+    const liveGains = () => roundStreamGains(group.group, group.channels, this.getTuners());
+    this.out.playMusic(sound, handover, liveGains(), group.group, liveGains);
     this.slot = { name, starts: now + handover, ends: now + handover + sound.left.length / sound.sampleRate };
     this.heard(name, 'music', sound);
     return 'played';
@@ -1777,7 +1924,7 @@ export class GameAudio {
       unlocked: this.out.unlocked, state: this.out.state, activation: pageActivation(), resumeError: this.out.resumeError ?? null, muted: this.muted_, volume: this.volume_, map: this.map,
       banks: this.banks.map((b) => ({ name: b.bank.name, sounds: b.bank.sounds.length, ...(b.borrowed ? { borrowed: true } : {}) })),
       decoded: this.banks.reduce((n, b) => n + b.samples.size, 0),
-      decode: { ...this.decodeCounts, pending: this.warmQueue.length, bytes: this.budget.bytes, evicted: this.budget.evictions },
+      decode: { ...this.decodeCounts, pending: this.warmQueue.length + this.jitQueue.length, bytes: this.budget.bytes, evicted: this.budget.evictions, ...this.jitCounts },
       played: this.played, byName: { ...this.byName }, events: { ...this.events }, dropped: { ...this.dropped },
       unknownNames: { ...this.unknownNames },
       recent: this.recent.map((r) => ({ ...r })),

@@ -13,6 +13,13 @@ const cases: { map: string; target: string; pose: [number, number, number, numbe
   { map: 'MP61', target: 'access1/access1=access1/good_parts/di_good', pose: [674.041992,55.143054,1021.076172,180,2.490951] },
   { map: 'MP62', target: 'access1/gate_move1/access_point=access_point/good_parts/di_good', pose: [2163.953369,225.276906,1439.350952,-90,-3.035030] },
   { map: 'MP71', target: 'access1/access_fencegate=access_fencegate/good_parts/di_good', pose: [1938,154.461264,1155.200806,180,-13.585991] },
+  // DF-13: Fish Hook's access2 and access3, posed as access1 is (its eye 15.4 over the floor at 139.06, 12.25 u off
+  // access_action1, aimed at the node): 12 u south of `access_action2` (1707.307, 149.028, 824.467) on g899_79 at 130 and
+  // of `access_action3` (2280, 191.5, 840) on g899_71 at 179, facing +z, the pitch to the node; access3's eye 1 u west of
+  // its node, off the seam between the gate's two halves at x 2280 that a ray meets neither of. Each ray's first hit is
+  // the target's di_good (the hull, offline: access2 at z 823.6, access3 at z 839.5).
+  { map: 'MP71', target: 'access2/access_point=access_point/good_parts/di_good', pose: [1707.306763,145.4,812.466736,180,16.822700] },
+  { map: 'MP71', target: 'access3/access_frontgate=access_frontgate/good_parts/di_good', pose: [2279,194.4,828,180,-13.586] },
   { map: 'MP73', target: 'access2/access_point=access_point/good_parts/di_good', pose: [839.528900,70.181396,1676.239563,180,-16.690561] },
   { map: 'MP82', target: 'access1/access1=access1/good_parts/di_good', pose: [435.000015,-24.600008,465.500015,180,0.701205] },
   { map: 'MP83', target: 'access1/access_topgate=access_topgate/good_parts/di_good', pose: [1497.204895,97.400842,1581.436401,180,-18.746465] },

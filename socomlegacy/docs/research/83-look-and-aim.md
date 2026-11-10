@@ -215,7 +215,10 @@ frame later; its stair-steps are not reproduced, the per-second total is the ori
 turn at the rates x dt, the shake (§5, `decr` scaled to dt / `GAME_FRAME_DT`, a 30 Hz frame's fall at its per-second
 equivalent, R8 as above: PF-02, research 180 U4; it was dt × 60) and
 the bob (§6), and puts the two as a `setViewOffset` shift of the projection
-(a PS2 pixel is 1/448 of the frame's height; across, 4:3 of 640); the reticle stays on the frame's centre
+(a PS2 pixel is 1/448 of the frame's height; across, *since 2026-11-10 (LATER 621, research 381 §2's note)* the
+original projection's tan(hfov)/320 in tangent -- `viewOffsetPerPixelX()`, 1.0756 page pixels of the 448 at the maps'
+fov (`FUN_00294070` D:L138944-138945, `FUN_002915f0`'s 320 / tan(hfov); was 4:3 of 640, 0.933, so the shake's x moves
+1.152 x as far as before; the bob has no x)); the reticle stays on the frame's centre
 (`screenShift`). Flying is unchanged. `lookState()` (the hook's `look()`) is the API for the body: `bodyYaw` (=
 `lookYaw`), `pitch`, `turnRate` (rad/s, left positive), `axis`, `turning`, `screen`; `runningLean` and `aimTwist` are
 §3's two helpers. The hook also has `setLook`, `setZoom` and `shake(distance)`.

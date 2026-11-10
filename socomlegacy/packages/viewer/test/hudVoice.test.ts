@@ -8,10 +8,11 @@ import { noInput, type PadButton } from '../src/gamepad';
 import {
   DEFAULT_MODEL, Hud, HUD_LAYOUT, hudLayout, hudPass, OBJECTIVE_MARK_PULSE_READING, ROUND_SCREEN_HIDES, SCOREBOARD_HIDES, START_MENU_HIDES,
   type HudModel,
+  HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION,
 } from '../src/hud';
 import { HUD_LIBRARIES } from '../src/hudAssets';
 import {
-  channelIcon, HudVoiceElement, speakerText, tagDrawn, tagTalkSprites, talkMark, voiceBase, voiceCount, voiceCountText, voiceHudFrame,
+  aliveCounts, channelIcon, HUD_ALIVE_COUNTS_ADAPTATION, HudVoiceElement, speakerText, tagDrawn, tagTalkSprites, talkMark, voiceBase, voiceCount, voiceCountText, voiceHudFrame,
   VOICE_BUSY_ICON, VOICE_INDICATOR_LOOK_PLACEHOLDER, VOICE_NO_TALK_ICON, VOICE_TAG_ARROW, VOICE_TALK_ICON,
   VOICE_ICON_RAMP, VOICE_TALK_MARK_READING, voiceIconStep, type VoiceElementInput, type VoiceElementView,
 } from '../src/hudVoice';
@@ -102,7 +103,7 @@ describe('RED 2: the number beside the icon (voice+0x5c; LATER 77)', () => {
     const frame = (channel: number, members: { channel: number; members: number } | null) => voiceHudFrame(el, 0, {
       voice: { channel, holder: null, talking: false, members },
       self: { id: 2, team: 'seal' }, rows, spectators: 0, nameOf: () => null, at: () => null, own: null,
-    }).view.count;
+    }) && String(el.members);   // HUD-ALIVE (OT.R117): the original's count is kept on the element; the box draws the alive counts
     expect(frame(0, null), 'two SEALs in the rows: no estimate, the init\'s 0').toBe('0');
     expect(frame(0, { channel: 0, members: 2 })).toBe('2');
     expect(frame(2, { channel: 0, members: 2 }), 'the old channel\'s count kept').toBe('2');
@@ -123,10 +124,10 @@ describe('RED 2: the number beside the icon (voice+0x5c; LATER 77)', () => {
   it('AD-14 (C92): the old 2/2/2 -- identical rows, the room\'s word -- is distinct per channel: TEAM 2, DEFENSE 1, OFFENSE 3', () => {
     const rows: ScoreRow[] = [2, 3, 4, 6, 7, 8].map((id) => ({ id, name: `p${id}`, team: 'seal', kills: 0, deaths: 0, score: 0, alive: true, ping: 0 }));
     const word: Record<number, number> = { 0: 2, 1: 1, 2: 3 };   // the room: me and kilo on TEAM, one on DEFENSE, three on OFFENSE
-    const view = (channel: number) => voiceHudFrame(new HudVoiceElement(), 0, {
+    const view = (channel: number) => { const el = new HudVoiceElement(); voiceHudFrame(el, 0, {
       voice: { channel, holder: null, talking: false, members: { channel, members: word[channel]! } },
       self: { id: 2, team: 'seal' }, rows, spectators: 0, nameOf: () => null, at: () => null, own: null,
-    }).view.count;
+    }); return String(el.members); };   // HUD-ALIVE (OT.R117): the original's count, kept on the element
     expect([0, 1, 2].map(view)).toEqual(['2', '1', '3']);
   });
 
@@ -151,6 +152,78 @@ describe('RED 2: the number beside the icon (voice+0x5c; LATER 77)', () => {
     // The "1"'s ink on A_hold01 / B_hold01: x 587-590, y 361-370 (read by eye, 8x crops); the glyph's cell holds it.
     expect(g.x - g.w / 2).toBeLessThanOrEqual(587);
     expect(g.x + g.w / 2).toBeGreaterThanOrEqual(590);
+  });
+});
+
+// HUD-ALIVE (OT.R117; a browser adaptation, the owner's chosen deviation -- Craig, 2026-11-09, seat 99): the box's left
+// corner shows the SEALs alive and a mirrored right corner the Terrorists alive, from the page's own round state (the
+// score rows: alive, on that side; bots are rows, spectators and hostages are not). The original's number here is the
+// voice channel's member count (`FUN_00238ac0` D:L85707-85716) and it draws nothing in the right corner; the speaker's
+// right-aligned line is untouched.
+describe('HUD-ALIVE (OT.R117, a browser adaptation): SEALs alive left, Terrorists alive right', () => {
+  const row = (id: number, team: 'seal' | 'terrorist', alive: boolean, bot = false): ScoreRow =>
+    ({ id, name: `p${id}`, team, kills: 0, deaths: 0, score: 0, alive, ping: 0, ...(bot ? { bot: true as const } : {}) });
+  const ROWS = [row(2, 'seal', true), row(3, 'seal', false), row(4, 'seal', true, true), row(5, 'terrorist', true), row(6, 'terrorist', false)];
+
+  it('aliveCounts: the living of each side in the rows, bots included', () => {
+    expect(aliveCounts(ROWS)).toEqual({ seal: 2, terrorist: 1 });
+    expect(aliveCounts([])).toEqual({ seal: 0, terrorist: 0 });
+  });
+
+  it('voiceHudFrame: the left number is the SEALs alive, the right the Terrorists alive -- not the voice channel\'s count', () => {
+    const el = new HudVoiceElement();
+    const view = voiceHudFrame(el, 0, {
+      voice: { channel: 0, holder: 3, talking: false, members: { channel: 0, members: 7 } },
+      self: { id: 2, team: 'seal' }, rows: ROWS, spectators: 4, nameOf: (id) => `p${id}`, at: () => null, own: null,
+    }).view;
+    expect([view.count, view.right]).toEqual(['2', '1']);
+    expect(el.members).toBe(7);                      // the original's count still kept, not drawn
+    expect(view.name).toBe('p3');                    // the speaker's line exactly as before
+    const dead = voiceHudFrame(new HudVoiceElement(), 0, {
+      voice: { channel: 0, holder: null, talking: false }, self: null,
+      rows: ROWS.map((r) => ({ ...r, alive: false })), spectators: 0, nameOf: () => null, at: () => null, own: null,
+    }).view;
+    expect([dead.count, dead.right]).toEqual(['0', '0']);
+  });
+
+  // The review's F1: the original's no-rewrite rule while the holder is unnamed (D:L85683-85684) is the original's number's
+  // (kept on the element); the alive counts are ours and follow the rows every frame.
+  it('both counts follow the rows every frame, even while a holder no slot names holds the channel', () => {
+    const el = new HudVoiceElement();
+    const frame = (rows: ScoreRow[]) => voiceHudFrame(el, 0, {
+      voice: { channel: 0, holder: 9, talking: false, members: { channel: 0, members: 3 } },
+      self: { id: 2, team: 'seal' }, rows, spectators: 0, nameOf: (id) => (id === 9 ? null : `p${id}`), at: () => null, own: null,
+    }).view;
+    expect([frame(ROWS).count, frame(ROWS).right]).toEqual(['2', '1']);
+    const later = frame(ROWS.map((r) => (r.id === 2 || r.id === 5 ? { ...r, alive: false } : r)));
+    expect([later.count, later.right]).toEqual(['1', '0']);   // a SEAL and a Terrorist died: both move
+    expect(el.members).toBe(3);
+  });
+
+  it('the right number sits on the left box mirrored about the icon (582-598 -> 614-630 x 359-375, centred on x 623)', () => {
+    expect(HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION).toEqual({
+      count: { x: 623, y: 371, scale: 0.8, align: 'centre' }, countBox: { x: 614, y: 359, w: 16, h: 16 },
+    });
+    // Mirrored about the icon's centre x 606 (590 + 32 / 2): 2 x 606 - 598 = 614, 2 x 606 - 589 = 623.
+    const icon = HUD_LAYOUT.voice.icon, mid = icon.x + icon.w / 2;
+    expect(2 * mid - (HUD_LAYOUT.voice.countBox.x + HUD_LAYOUT.voice.countBox.w)).toBe(614);
+    expect(2 * mid - HUD_LAYOUT.voice.count.x).toBe(623);
+    const q = layout({ voice: { icon: 'action_tune_team.tif', count: '2', right: '1', name: null, talk: null } }).quads.filter((x) => x.element === 'voice');
+    const boxes = q.filter((x) => x.texture === 'white').map((b) => [b.x - b.w / 2, b.y - b.h / 2, b.w, b.h]);
+    expect(boxes).toEqual([[582, 359, 16, 16], [614, 359, 16, 16]]);
+    const glyphs = q.filter((x) => x.texture === 'font_text_01.tif' && x.rgba[0] === 1);
+    expect(glyphs).toHaveLength(2);
+    expect(glyphs[1]!.x).toBeGreaterThan(614);
+    expect(glyphs[1]!.x).toBeLessThan(630);
+    // No right number in the view, no right box (the original's element).
+    expect(layout({ voice: { icon: null, count: '1', name: null, talk: null } }).quads.filter((x) => x.element === 'voice' && x.texture === 'white')).toHaveLength(1);
+  });
+
+  it('is labelled one adaptation, carrying the owner\'s two quotes', () => {
+    expect(HUD_ALIVE_COUNTS_ADAPTATION).toBe('seals alive left, terrorists alive right');
+    const doc = src('hudVoice.ts');
+    expect(doc).toContain('The left label should be added it and tracks the number of seals alive');
+    expect(doc).toContain('alive count is a chosen feature addition deviating rom the original');
   });
 });
 

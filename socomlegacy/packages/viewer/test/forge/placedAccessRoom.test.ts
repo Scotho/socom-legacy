@@ -35,7 +35,7 @@ describe.skipIf(!ISO || !existsSync(ISO))("placed gates and barriers in Play's r
     const room = new Room(simMapOfLoaded(map), null, { now: () => now, random: () => 0.5, launchCountdownS: 0, roundSeconds: 600 });
     const frames: Uint8Array[] = [];
     room.hello(1, { send: (f: Uint8Array | string) => { if (typeof f !== 'string') frames.push(f); }, close: () => undefined },
-      { type: 'hello', version: PROTOCOL_VERSION, name: '', map: 'MP2' }, '10.0.0.1');
+      { type: 'hello', version: PROTOCOL_VERSION, name: '', map: 'MP2' }, '192.0.2.1');
     const step = (n = 1): void => { for (let i = 0; i < n; i++) { now += 1000 / TICK_HZ; room.step(); } };
     step(2);
 

@@ -1,10 +1,11 @@
 import type { MotionClip } from '@s2u/scene';
-import { groundGrid, isPushedClip, launcherBaseCommand, launcherClipName, type PickupClipName, launcherMovingLowerCommands, LAUNCHER_SET_MOVES_READING, launcherStickLowers, moverSnapshot, playedOutCommand, STEP_PROBE_LIFT_READING, reloadHold, rootY, STANCES, TICK, Walker, type ActionEnd, type GroundData, type HoldClip, type HoldPass, type LauncherUp, type MoverState, type PlaySnapshot, type PopOutcome, type PushedClip, type PushedTop, type Stance, type SwapPick, type SwapProgress, type TraversalHooks, type TraversalKept, type WalkerState, type WalkInput } from './mover';
+import { groundGrid, isPushedClip, launcherBaseCommand, launcherClipName, type PickupClipName, launcherMovingLowerCommands, LAUNCHER_SET_MOVES_READING, launcherStickLowers, moverSnapshot, playedOutCommand, probeLiftOf, reloadHold, rootY, STANCES, TICK, Walker, type ActionEnd, type GroundData, type HoldClip, type HoldPass, type LauncherUp, type MoverState, type PlaySnapshot, type PopOutcome, type PushedClip, type PushedTop, type Stance, type SwapPick, type SwapProgress, type TraversalHooks, type TraversalKept, type WalkerState, type WalkInput } from './mover';
 import type { Grid } from '@s2u/scene';
 import type { TraversalPose } from './animator';
 import { Button, COMMAND_STANCE_CODES, holdBits, STANCE_CODES, type Command } from './net/protocol';
 import { MoverSim, type LauncherClip } from './net/moverSim';
 import { aimPitchLimitsOf, LookGate, LookLog, OPEN_LOOK_CONTEXT, type LookContext } from './net/lookGate';
+import { offlineRoomLookRate } from './net/loopback';
 import { applyKnock, mountFallRefuses, mountPop, type Knock } from './net/blast';
 import { fireCapability } from './net/fireCapability';
 import type { StartBody } from './net/startLine';
@@ -15,7 +16,7 @@ import { shortTurn, wrapYaw } from './yaw';
 import type { GroundWish, Pose } from './camera';
 import { headEye, headViewNear, PlayerCamera, INIT_AIM_PITCH, viewFar, type Vec3 } from './playerCamera';
 import { proneEyeTerms, scopeEye, toWorld } from './cameraRig';
-import { newDeathCamera } from './deathCamera';
+import { deathStickOf, newDeathCamera, takeDeathControl } from './deathCamera';
 import { KEY_STANCE, popStance as popOnMover, pressInWater, PRONE_POP_ADAPTATION, StanceButton, STANCE_HOLD_S_PLACEHOLDER, type StanceMode } from './stanceButton';
 import { keyboardSite } from './keyboardTesting';
 import { fallCovers, flinchOnTop, landingPops, type StackPop } from './stillReloadLife';
@@ -115,6 +116,10 @@ interface VictoryReplay {
 export interface WalkCamera {
   /** OT.R68: the forge editor's camera (`./camera` `FlyCameraOptions.forgeKbm`): its Walk reads keys in every build. */
   readonly forgeKbm?: boolean;
+  /** OT.R114 / RB.R4 (a browser adaptation): opted in to the keyboard and the mouse (`./camera` `FlyCamera.kbm`). */
+  readonly kbm?: boolean;
+  /** OT.R114 / RB.R4: the opt-in asked now (`./camera` `FlyCamera.kbmNow`): a page's predicate answers at each event. */
+  kbmNow?(): boolean;
   pose(): Pose;
   setPose(pose: Partial<Pose>): void;
   moveTo(x: number, y: number, z: number): void;
@@ -122,8 +127,11 @@ export interface WalkCamera {
   setPitchLimits(minDegrees: number, maxDegrees: number): void;
   placeView(eye: readonly [number, number, number], target: readonly [number, number, number] | null): void;
   groundWish(): GroundWish;
-  /** The look law's state (web research 83, `./look`): its `turnRate`, rad/s left positive, is the actor's turn. */
-  lookState?(): { turnRate: number };
+  /**
+   * The look law's state (web research 83, `./look`): its `turnRate`, rad/s left positive, is the actor's turn; its
+   * `axis` the game's turn and pitch axes (dead, the death camera's stick: `./deathCamera` `deathStickOf`).
+   */
+  lookState?(): { turnRate: number; axis?: [number, number] };
   /** The projection's width/height (`FlyCamera.aspect`): the near clearance's rectangle. Absent on a stand-in: the game's frame (`GAME_ASPECT`). */
   aspect?(): number;
   /** OBF-1 (`HEAD_VIEW_NEAR_ADAPTATION`): the head view's near plane, or null for the map's (`FlyCamera.setViewNear`). */
@@ -515,6 +523,8 @@ export class WalkMode {
   /** An Action pressed after a swap or a stance this tick: it waits for the next tick (D:L453218, after the jump, before the swap). */
   private actionWaits = false;
   private binoculars_ = false;
+  /** ENEMY-RAISE ER-2: the page's own raise state, read at each command (`setRaiseSource`); none, down. */
+  private raiseSource: (() => boolean) | null = null;
   /** MULTIPLAYER: a hold the mover took since the last tick (`hold`), as its bits on the next command. */
   private pressedHold = 0;
   /**
@@ -587,7 +597,7 @@ export class WalkMode {
    * NET-LOOK (OT.R38): the room's look gate (`./net/lookGate`) run on the page's own commands, so the predicted mover
    * faces and turns as the room's does; and where the mover faced at the end of the last tick (the gate's start).
    */
-  private lookGate = new LookGate();
+  private lookGate = new LookGate(offlineRoomLookRate());   // RB-9: the page's offline room's mode, else the law
   private tickRef = { yaw: 0, pitch: 0 };
   /** NET-WIRE (research 224 §4): the gate's steps by command, for the facing's replay (`reconcileFacing`). */
   private readonly lookLog = new LookLog();
@@ -602,6 +612,17 @@ export class WalkMode {
   private deathPose: (() => TraversalPose | null) | null = null;
 
   constructor(private readonly camera: WalkCamera, private readonly onChange: (walking: boolean) => void = () => undefined) {}
+
+  /**
+   * OT.R114 / RB.R4 (a browser adaptation, the replay batch's RB-1): whether this Walk may read the keyboard and the mouse
+   * now -- its camera's opt-in as it answers at this ask (`kbmNow`), else its `kbm` or `forgeKbm` field; none, false.
+   * The key gate (`bindKey`) reads it from RB-8.
+   */
+  get kbm(): boolean {
+    const c = this.camera;
+    if (typeof c.kbmNow === 'function') return c.kbmNow();
+    return c.kbm === true || c.forgeKbm === true;
+  }
 
   /**
    * TRAVERSAL SEAM (web research 86): the traversal moves' factory, called for each new mover (a map's ground); the
@@ -1020,6 +1041,9 @@ export class WalkMode {
     this.pressed = 0;
     this.taps = sent;
     this.lookLog.clear();                                        // a new numbering: the facing's replay starts afresh
+    // RB-47 (RB-9's finding 4; RB.R6): a new numbering is a room joined or left -- the gate takes the page's offline room's
+    // mode now, so a stopped solo room's open gate never reaches the next room's first reconcile before its first tick.
+    if (this.lookGate.mode !== offlineRoomLookRate()) this.lookGate = new LookGate(offlineRoomLookRate());
     this.frameTicks = []; this.lastTick = null;                  // LATER 338 (review F3): no tick of the old numbering names a round
     this.forgetKept();
   }
@@ -1755,6 +1779,7 @@ export class WalkMode {
     const cmd: Omit<Command, 'seq'> = {
       forward: q.forward, right: q.right, yaw: this.tickLook[0], pitch: this.tickLook[1], turn: this.tickLook[2],
       buttons, stance: this.pressedStance, weapon: this.weapon_, separate: this.stanceMode_ === 'separate',   // SEP-POP: the room's rule
+      ...(this.raiseSource?.() ? { raised: true } : {}),       // ER-2: the owner's raise state (byte +0x7e, D:L161978)
     };
     this.netTap(cmd, [w.state.x, w.state.y, w.state.z], [w.state.yaw, w.state.pitch]);   // protocol 11: the gated facing, reconciled
     // PAR-37: the command kept with the mover after its tick, for a victory dance's run under it (`replayVictory`).
@@ -1781,7 +1806,7 @@ export class WalkMode {
   /**
    * A spawn from the server: a new mover (the server makes a fresh one too) stood at `at` facing `yaw`, then the
    * commands the server has not run on it replayed through the shared apply (`MoverSim`). False with no ground. `at` is
-   * the feet: the floor is picked from the feet + `STEP_PROBE_LIFT_READING`, the tick's own origin (`Walker.place`; the server's
+   * the feet: the floor is picked from the feet + `probeLiftOf('stand')`, the tick's own origin (`Walker.place`; the server's
    * spawn does the same, so the two stand on one floor).
    */
   respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = []): boolean {
@@ -1794,7 +1819,7 @@ export class WalkMode {
     // refusal: `place` over the ground grid; the original's spawn rebuild `FUN_00599b60` D:L455604 has no such branch)
     // returns false with the standing walker, its kept state and its moves as they were. Was: swapped first, the new
     // mover left at (0, 0, 0).
-    if (!w.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2])) return false;
+    if (!w.place(at[0], at[1] + probeLiftOf('stand'), at[2])) return false;
     this.deathKept = null;                                       // LATER 496 F1: a respawn that holds ends the last death
     this.walker = w;
     this.forgetKept();                                           // PAR-37: a new mover
@@ -1850,7 +1875,7 @@ export class WalkMode {
     const w = this.walker!;
     // `place` takes any clip off the mover -- a swap the page began in the gap among them (the review's F2) -- and the
     // walk's own record of a swap's undoing with it.
-    if (!w.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2])) return false;
+    if (!w.place(at[0], at[1] + probeLiftOf('stand'), at[2])) return false;
     this.swapTold = null;
     w.state.yaw = wrapYaw(yaw);
     w.stance = posture;
@@ -1952,10 +1977,12 @@ export class WalkMode {
 
   /**
    * The killer the death camera turns to (`./deathCamera` mode 3: `FUN_002980d0` 141355-141375), its origin as the page
-   * sees it now; null for a death with none but the SEAL itself (a suicide, a fall: mode 6).
+   * sees it now; null for a death with none but the SEAL itself (a suicide, a fall: mode 6). A camera the stick has
+   * already taken (state 7) keeps it: the original reads the killer at the death (`FUN_002980d0` D:L141353-141361),
+   * before any push, and nothing but the reset leaves 7 (D:L141657).
    */
   setDeathKiller(killer: (() => Vec3 | null) | null): void {
-    if (this.player?.death) this.player.death = newDeathCamera(killer);
+    if (this.player?.death && !this.player.death.manual) this.player.death = newDeathCamera(killer);
   }
 
   /** Dead, as the match server has it. */
@@ -2244,6 +2271,9 @@ export class WalkMode {
     if (!this.walker) return false;
     this.walking = true;
     this.camera.setWalking(true);
+    // DEATHCAM-MANUAL: the own body bound again after a teammate's view is the death camera at 7, the stick's orbit
+    // (`FUN_002980d0` D:L141378-141389 set 7 every frame the teammate was bound; only `FUN_00299150` writes 0, D:L141657).
+    if (this.dead && this.player?.death) takeDeathControl(this.player.death);
     this.cameraTick();
     this.onChange(true);
     return true;
@@ -2281,6 +2311,15 @@ export class WalkMode {
 
   setBinoculars(on: boolean): void {
     this.binoculars_ = on;
+  }
+
+  /**
+   * ENEMY-RAISE ER-2 (protocol 14; reading, reviewed): where each command's raise state is read (`Command.raised`):
+   * the page's own `Play` raise (`./matchFirearm` -> `Play.raisedUp`), as the original's owner packs its body's
+   * `FUN_005e0010` into byte +0x7e every frame (`FUN_002bd640` D:L161978); null, none -- down.
+   */
+  setRaiseSource(read: (() => boolean) | null): void {
+    this.raiseSource = read;
   }
 
   /** The binoculars up (`setBinoculars`): the room fires no round of the command (`fire`'s gate, a turret's too). */
@@ -2471,6 +2510,8 @@ export class WalkMode {
     if (!this.dead) this.look(w);
     const yaw = w.state.yaw;
     const look = this.camera.lookState?.();
+    // DEATHCAM-MANUAL: dead, the look's stick is the death camera's (state 7, `./deathCamera`; `FUN_00297a30` D:L141130-141142).
+    if (this.player) this.player.deathStick = this.dead ? deathStickOf(look) : null;
     if (this.dead) this.turnRate = 0;
     else if (look) this.turnRate = look.turnRate;
     else if (this.lastYaw !== null && dt > 0) {
@@ -2510,6 +2551,10 @@ export class WalkMode {
       // facing's replay steps the same looks), as the room's `onTurret` holds the command before its gate.
       const aim = this.turretAim?.(q.yaw, q.pitch) ?? q;
       const held = (this.moves?.yaw() ?? null) !== null, limits = aimPitchLimitsOf(w), look = { yaw: aim.yaw, pitch: aim.pitch, buttons: view };
+      // RB-9 (RB.R6): the gate the room's mover runs -- the page's offline room's open gate where it asked, else the law. A
+      // room made, or gone, since this mover's gate was made changes it here, a new gate as at a new mover's (`restart`).
+      const mode = offlineRoomLookRate();
+      if (this.lookGate.mode !== mode) this.lookGate = new LookGate(mode);
       if (!this.dead) this.lookLog.record(w.commandSeq, this.lookGate, look, ctx, held, limits, this.tickRef);   // PTT-8: where the step starts
       const looked = this.dead ? null : this.lookGate.step(this.tickRef, look, ctx, held, limits);
       w.state.yaw = looked?.yaw ?? q.yaw; w.state.pitch = looked?.pitch ?? q.pitch; w.turn = looked?.turn ?? q.turn;
@@ -2694,7 +2739,8 @@ export class WalkMode {
   bindKey(target: EventTarget = globalThis): void {
     this.unbindKey();
     if (import.meta.env.DEV) keyboardSite('s2u-kb-walk');            // OT.R29: the keys a development build's only,
-    if (import.meta.env.DEV || this.camera.forgeKbm === true) {      //   and the forge's Walk on its layout in every build (OT.R68)
+    // and the forge's Walk on its layout in every build (OT.R68); RB-8 (OT.R114): a `kbm` camera's Walk, asked at each key
+    if (import.meta.env.DEV || this.camera.forgeKbm === true || this.camera.kbm === true) {
       target.addEventListener('keydown', this.onKey as EventListener);
       target.addEventListener('keyup', this.onKeyUp as EventListener);
     }
@@ -2711,6 +2757,7 @@ export class WalkMode {
   }
 
   private readonly onKey = (e: KeyboardEvent): void => {
+    if (!import.meta.env.DEV && !this.kbm) return;             // RB-8 (OT.R114, RB.R4): the camera's opt-in, asked now
     if (!['KeyG', 'KeyC', 'Space'].includes(e.code) || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
     if (e.code !== 'KeyG' && !this.walking) return;          // in fly mode Space stays the camera's "up"
     if (e.code === 'KeyG' && !this.modeKey) return;           // the fly camera is not a player's in Play
@@ -2763,7 +2810,7 @@ export class WalkMode {
     w.stance = this.stance_;
     const at = this.camera.pose();
     if (w.place(at.x, at.y, at.z)) return true;
-    return this.spawn !== null && w.place(this.spawn[0], this.spawn[1] + STEP_PROBE_LIFT_READING, this.spawn[2]);   // the spawn's feet: the tick's pick
+    return this.spawn !== null && w.place(this.spawn[0], this.spawn[1] + probeLiftOf('stand'), this.spawn[2]);   // the spawn's feet: the tick's pick
   }
 
   private leave(): void {
@@ -2809,7 +2856,7 @@ export class WalkMode {
     this.lastYaw = null;
     this.turnRate = 0;
     this.look(w);
-    this.lookGate = new LookGate();                              // a new mover: its facing the gate's (OT.R38)
+    this.lookGate = new LookGate(offlineRoomLookRate());         // a new mover: its facing the gate's (OT.R38); RB-9: the room's mode
     this.frameTicks = []; this.lastTick = null;                  // LATER 338: no tick of the old body names a round
     this.lookLog.clear();
     this.stillClip?.end();                                       // PARITY-1 D02: a new body holds no clip

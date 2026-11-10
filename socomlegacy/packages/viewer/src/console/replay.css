@@ -18,22 +18,38 @@
 :root[data-console] [data-cx-viewer] .cx-replay { display: flex; flex-direction: column; gap: 1rem; height: 100%; box-sizing: border-box; padding: 1.25rem 2.75rem 1rem; outline: none; color: var(--s2u-lx-ink); }
 :root[data-console] [data-cx-viewer] .cx-replay:focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: calc(-1 * var(--s2u-focus-w)); }
 
-/* 1. the screen head */
-:root[data-console] [data-cx-viewer] .cx-replay__head { flex: none; display: flex; align-items: flex-end; gap: 1.5rem; }
-:root[data-console] [data-cx-viewer] .cx-replay__head .cx-screenhead__text { display: flex; flex-direction: column; gap: 0.375rem; min-width: 0; }
+/* 1. the screen head -- RB-32 (the replay batch, docs/plans/2026-11-08-replay-batch.md; the owner's S2 Launcher v2
+   export, RB.R3, its viewer head D:248-274): the crumb "‹ REPLAYS / REPLAY" in mono gold capitals; the map in the label
+   face at clamp(32px, 5.2vh, 48px); the mode chip and the Partial recording chip (the launcher's gold, moved here from
+   the transport; RB-45 took the transport's own pill out of transport.ts, and its hiding rule from here); the
+   facts line at 62%; at the head's end the result's label in mono over the big score, SEALs in the section blue and
+   Terrorists in the launcher's bad (the export's two side colours have no token; the nearest of the launcher's set). The
+   head enters once from -28px (opacity .4s, transform .55s on the export's curve, --s2u-ease), none under reduced
+   motion (the end of this sheet). A browser adaptation (OT.R53, product track). */
+:root[data-console] [data-cx-viewer] .cx-replay__head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; }
+:root[data-console] [data-cx-viewer] .cx-replay__head[data-enter] { animation: cx-replay-head-fade 400ms ease both, cx-replay-head-in 550ms var(--s2u-ease) both; }
+:root[data-console] [data-cx-viewer] .cx-replay__head .cx-screenhead__text { display: flex; flex-direction: column; gap: 0.4375rem; min-width: 0; }
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-crumb { display: flex; align-items: center; flex-wrap: wrap; font: 400 calc(0.75rem * var(--cx-text-scale))/1.2 var(--s2u-font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--s2u-lx-accent); }
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back { display: inline-flex; align-items: center; gap: 0.375rem; min-height: var(--s2u-hit-min); margin: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; transition: color var(--s2u-dur-fast) var(--s2u-ease); }
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back .cx-ico { width: 0.875rem; height: 0.875rem; color: inherit; }
-:root[data-console] [data-cx-viewer] .cx-replay__head .cx-back .cx-back__chevron { width: 0.75rem; height: 0.75rem; }
+:root[data-console] [data-cx-viewer] .cx-replay__head .cx-back .cx-back__chevron { width: 1rem; height: 1rem; }
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back:hover,
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back:focus-visible,
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back.is-focused { color: var(--s2u-lx-accent-hi); }
 :root[data-console] [data-cx-viewer] .cx-replay__head .cx-crumb__here { white-space: pre; }
-:root[data-console] [data-cx-viewer] .cx-replay__titleline { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; min-width: 0; }
-:root[data-console] [data-cx-viewer] .cx-replay__head .cx-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 calc(2.125rem * var(--cx-text-scale))/1.15 var(--s2u-font-body); letter-spacing: 0; text-transform: none; text-shadow: none; color: var(--s2u-lx-ink); }
-:root[data-console] [data-cx-viewer] .cx-replay__rules { flex: none; padding: 0.125rem 0.625rem; border: 1px solid color-mix(in srgb, var(--s2u-lx-ink) 24%, transparent); border-radius: var(--s2u-radius-pill); font: 400 calc(0.75rem * var(--cx-text-scale))/1.4 var(--s2u-font-mono); letter-spacing: 0.16em; text-transform: uppercase; color: color-mix(in srgb, var(--s2u-lx-ink) 75%, transparent); }
-:root[data-console] [data-cx-viewer] .cx-replay__head .cx-screenhead__desc { margin: 0; font: 400 calc(0.9375rem * var(--cx-text-scale))/1.45 var(--s2u-font-body); color: color-mix(in srgb, var(--s2u-lx-ink) 70%, transparent); }
-:root[data-console] [data-cx-viewer] .cx-replay__result { margin: 0; font: 400 calc(0.9375rem * var(--cx-text-scale))/1.45 var(--s2u-font-body); color: var(--s2u-lx-ink-hi); }
+:root[data-console] [data-cx-viewer] .cx-replay__titleline { display: flex; align-items: center; flex-wrap: wrap; gap: 0.875rem; min-width: 0; }
+:root[data-console] [data-cx-viewer] .cx-replay__head .cx-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 clamp(calc(2rem * var(--cx-text-scale)), calc(5.2vh * var(--cx-text-scale)), calc(3rem * var(--cx-text-scale)))/1 var(--s2u-font-label); letter-spacing: 0.01em; text-transform: none; text-shadow: none; color: var(--s2u-lx-ink); }
+:root[data-console] [data-cx-viewer] .cx-replay__chip-tag { flex: none; display: inline-flex; align-items: center; height: calc(1.5rem * var(--cx-text-scale)); box-sizing: border-box; padding: 0 0.6875rem; border: 1px solid color-mix(in srgb, var(--s2u-lx-ink) 30%, transparent); border-radius: var(--s2u-radius-pill); font: 400 calc(0.6875rem * var(--cx-text-scale))/1 var(--s2u-font-mono); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap; color: color-mix(in srgb, var(--s2u-lx-ink) 85%, transparent); }
+:root[data-console] [data-cx-viewer] .cx-replay__chippartial { border-color: color-mix(in srgb, var(--s2u-lx-accent) 55%, transparent); color: var(--s2u-lx-accent); }
+:root[data-console] [data-cx-viewer] .cx-replay__head .cx-screenhead__desc { margin: 0; font: 400 calc(0.875rem * var(--cx-text-scale))/1.45 var(--s2u-font-body); color: color-mix(in srgb, var(--s2u-lx-ink) 62%, transparent); }
+:root[data-console] [data-cx-viewer] .cx-replay__score { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 0.4375rem; }
+:root[data-console] [data-cx-viewer] .cx-replay__result { margin: 0; white-space: nowrap; font: 400 calc(0.6875rem * var(--cx-text-scale))/1.2 var(--s2u-font-mono); letter-spacing: 0.18em; text-transform: uppercase; color: color-mix(in srgb, var(--s2u-lx-ink) 50%, transparent); }
+:root[data-console] [data-cx-viewer] .cx-replay__tally { margin: 0; display: flex; align-items: baseline; gap: 0.75rem; white-space: nowrap; font-family: var(--s2u-font-label); color: var(--s2u-lx-ink); }
+:root[data-console] [data-cx-viewer] .cx-replay__tally-side { font-size: calc(0.875rem * var(--cx-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; }
+:root[data-console] [data-cx-viewer] .cx-replay__tally-side[data-side="seal"] { color: var(--s2u-lx-section); }
+:root[data-console] [data-cx-viewer] .cx-replay__tally-side[data-side="terrorist"] { color: var(--s2u-lx-bad); }
+:root[data-console] [data-cx-viewer] .cx-replay__tally-count { font-size: calc(2.125rem * var(--cx-text-scale)); line-height: 1; }
+:root[data-console] [data-cx-viewer] .cx-replay__tally-dash { font-size: calc(1.25rem * var(--cx-text-scale)); opacity: 0.35; }
 
 /* the body: the world and the transport's mount point beside the roster's aside */
 :root[data-console] [data-cx-viewer] .cx-replay__body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: 1rem; }
@@ -59,6 +75,44 @@
 :root[data-console] [data-cx-viewer] .cx-replay__cameras .cx-kind .cx-ico { width: 1.25rem; height: 1.25rem; }
 :root[data-console] [data-cx-viewer] .cx-replay__cameras .cx-kind:hover { color: var(--s2u-lx-ink-hi); }
 :root[data-console] [data-cx-viewer] .cx-replay__cameras .cx-kind[aria-pressed="true"] { border-bottom-color: var(--s2u-lx-accent); background: color-mix(in srgb, var(--s2u-lx-accent) 8%, transparent); color: var(--s2u-lx-ink-hi); }
+
+/* RB-34 (the replay batch, docs/plans/2026-11-08-replay-batch.md; the owner's S2 Launcher v2 export, its world HUD
+   D:284-320): the HUD over the world (src/modern/replays/hud.ts), read from the recording's events. Its box spans the
+   world and takes no pointer but the paused centre button's. The kill feed at the top left (the last four, the sides in
+   the section blue and the launcher's bad, the viewer's own tinted by the launcher's gold, the weapon in mono); the live
+   score pill at the top right, under the camera strip when the world holds it; the camera badge at the bottom left; ROUND
+   TIME at the bottom right, the gold under 30 s; the paused centre button; the seek note's toast at the bottom centre,
+   rising 8px as it shows (the export's .4s on its curve, --s2u-ease). The panels on the export's ground at 74%. No motion
+   under reduced motion (the end of this sheet). A browser adaptation (OT.R53, product track). */
+:root[data-console] [data-cx-viewer] .cx-replay-hud { position: absolute; inset: 0; z-index: 1; pointer-events: none; color: var(--s2u-lx-ink-hi); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud[hidden] { display: none; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud :is(.cx-replay-hud__score, .cx-replay-hud__camera, .cx-replay-hud__clock, .cx-replay-hud__paused) { background: color-mix(in srgb, var(--s2u-ground) 74%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s2u-lx-ink) 9%, transparent); backdrop-filter: blur(6px); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__feed { position: absolute; top: 0.875rem; left: 0.875rem; display: flex; flex-direction: column; gap: 0.25rem; max-width: 40%; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__kill { display: flex; align-items: center; gap: 0.5rem; padding: 0.3125rem 0.625rem; border-radius: var(--s2u-radius-lx-row); background: color-mix(in srgb, var(--s2u-ground) 74%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s2u-lx-ink) 6%, transparent); font: 400 calc(0.8125rem * var(--cx-text-scale))/1.2 var(--s2u-font-body); white-space: nowrap; transition: opacity 300ms ease; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__kill[data-mine] { background: color-mix(in srgb, var(--s2u-lx-accent) 28%, var(--s2u-ground)); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__name[data-side="seal"] { color: var(--s2u-lx-section); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__name[data-side="terrorist"] { color: var(--s2u-lx-bad); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__name[data-you] { color: var(--s2u-lx-accent); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__weapon { font: 400 calc(0.625rem * var(--cx-text-scale))/1 var(--s2u-font-mono); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__score { position: absolute; top: 0.875rem; right: 0.875rem; display: flex; align-items: center; gap: 0.625rem; padding: 0.375rem 0.875rem; border-radius: var(--s2u-radius-pill); font: 400 calc(0.6875rem * var(--cx-text-scale))/1 var(--s2u-font-mono); letter-spacing: 0.14em; white-space: nowrap; }
+:root[data-console] [data-cx-viewer] .cx-replay__world:has(> .cx-replay__cameras) .cx-replay-hud__score { top: 4.75rem; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__count { font-size: calc(1.0625rem * var(--cx-text-scale)); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__count[data-score="seal"] { color: var(--s2u-lx-section); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__count[data-score="terrorist"] { color: var(--s2u-lx-bad); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__round { opacity: 0.62; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__label { font: 400 calc(0.6875rem * var(--cx-text-scale))/1.2 var(--s2u-font-mono); letter-spacing: 0.18em; white-space: nowrap; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__camera { position: absolute; left: 0.875rem; bottom: 0.875rem; display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0.875rem; border-radius: var(--s2u-radius-lx-row); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__mark { display: inline-flex; color: var(--s2u-lx-accent); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__mark .cx-replay-hud__icon { width: 1.25rem; height: 1.25rem; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__clock { position: absolute; right: 0.875rem; bottom: 0.875rem; display: flex; flex-direction: column; align-items: flex-end; gap: 0.1875rem; padding: 0.5rem 0.875rem; border-radius: var(--s2u-radius-lx-row); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__clock .cx-replay-hud__label { font-size: calc(0.625rem * var(--cx-text-scale)); opacity: 0.55; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__time { font: 400 calc(1.25rem * var(--cx-text-scale))/1 var(--s2u-font-mono); color: var(--s2u-lx-ink-hi); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__clock[data-low] .cx-replay-hud__time { color: var(--s2u-lx-accent); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__paused { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; width: 4.75rem; height: 4.75rem; border-radius: 50%; pointer-events: auto; cursor: pointer; color: var(--s2u-lx-ink-hi); }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__paused .cx-replay-hud__icon { width: 2.5rem; height: 2.5rem; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud__toast { position: absolute; left: 50%; bottom: 1rem; transform: translateX(-50%); max-width: min(30rem, 40%); margin: 0; padding: 0.5rem 0.875rem; border-radius: var(--s2u-radius-lx-row); background: color-mix(in srgb, var(--s2u-ground) 88%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s2u-lx-accent) 35%, transparent); font: 400 calc(0.8125rem * var(--cx-text-scale))/1.35 var(--s2u-font-body); text-align: center; text-wrap: pretty; animation: cx-replay-hud-toast 400ms var(--s2u-ease) both; }
+:root[data-console] [data-cx-viewer] .cx-replay-hud :is(.cx-replay-hud__score, .cx-replay-hud__camera, .cx-replay-hud__clock, .cx-replay-hud__paused, .cx-replay-hud__toast)[hidden] { display: none; }
 
 /* the transport's mount point (RV2-05 draws the bar) */
 :root[data-console] [data-cx-viewer] .cx-replay__transport { flex: none; min-width: 0; }
@@ -106,12 +160,12 @@
   :root[data-console] [data-cx-viewer] .cx-replay__head { align-items: center; gap: 0.5rem; min-width: 0; }
   :root[data-console] [data-cx-viewer] .cx-replay__head .cx-screenhead__text { flex: 1 1 auto; flex-direction: row; align-items: center; gap: 0.375rem; }
   :root[data-console] [data-cx-viewer] .cx-replay__head .cx-crumb { flex: none; flex-wrap: nowrap; }
-  :root[data-console] [data-cx-viewer] .cx-replay__head :is(.cx-crumb__here, .cx-back__label, .cx-back__chevron, .cx-screenhead__desc, .cx-replay__result) { display: none; }
+  :root[data-console] [data-cx-viewer] .cx-replay__head :is(.cx-crumb__here, .cx-back__label, .cx-back__chevron, .cx-screenhead__desc, .cx-replay__score) { display: none; }
   :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back { min-width: var(--s2u-hit-min); justify-content: center; }
   :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back .cx-ico { width: 1.25rem; height: 1.25rem; }
   :root[data-console] [data-cx-viewer] .cx-replay__titleline { flex: 1 1 auto; flex-wrap: nowrap; gap: 0.5rem; }
   :root[data-console] [data-cx-viewer] .cx-replay__head .cx-title { flex: 0 1 auto; font-size: calc(1.375rem * var(--cx-text-scale)); }
-  :root[data-console] [data-cx-viewer] .cx-replay__rules { padding: 0.125rem 0.5rem; letter-spacing: 0.1em; }
+  :root[data-console] [data-cx-viewer] .cx-replay__chip-tag { padding: 0 0.5rem; letter-spacing: 0.1em; }
 
   /* the chips at the head's end; their dropups laid from the chips' right end, under them */
   :root[data-console] [data-cx-viewer] .cx-replay__chips { position: relative; flex: none; display: flex; align-items: center; gap: 0.375rem; margin-left: auto; }
@@ -132,6 +186,12 @@
   :root[data-console] [data-cx-viewer] .cx-replay__world { flex: none; width: 100%; aspect-ratio: 16 / 9; }
   :root[data-console] [data-cx-viewer] .cx-replay__lamp { left: 0.5rem; top: 0.5rem; padding: 0 0.625rem; }
   :root[data-console] [data-cx-viewer] .cx-replay__state { padding: 1rem 1.125rem; }
+  /* RB-34: the HUD nearer the world's edges, the feed and the toast wider over a smaller world */
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__feed { top: 0.5rem; left: 0.5rem; max-width: 60%; }
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__score { top: 0.5rem; right: 0.5rem; }
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__camera { left: 0.5rem; bottom: 0.5rem; padding: 0.375rem 0.625rem; }
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__clock { right: 0.5rem; bottom: 0.5rem; padding: 0.375rem 0.625rem; }
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__toast { bottom: 3.5rem; max-width: 80%; }
 }
 /* the narrowest phones: the chips say their mark and the count, the words in their names and titles */
 @media (width <= 480px) {
@@ -149,9 +209,15 @@
 :root[data-console] [data-cx-viewer] .cx-replay [hidden] { display: none; }
 
 @keyframes cx-replay-lamp { from { opacity: 1; } to { opacity: 0.35; } }
+@keyframes cx-replay-head-in { from { transform: translateX(-28px); } to { transform: none; } }
+@keyframes cx-replay-head-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cx-replay-hud-toast { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) {
   :root[data-console] [data-cx-viewer] .cx-replay__lamp-dot { animation: none; }
   :root[data-console] [data-cx-viewer] .cx-replay__head .cx-back { transition: none; }
+  :root[data-console] [data-cx-viewer] .cx-replay__head[data-enter] { animation: none; }
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__toast { animation: none; }
+  :root[data-console] [data-cx-viewer] .cx-replay-hud__kill { transition: none; }
 }
 @media (forced-colors: active) {
   :root[data-console] [data-cx-viewer] .cx-replay__cameras .cx-kind[aria-pressed="true"] { outline: 2px solid CanvasText; outline-offset: -2px; }

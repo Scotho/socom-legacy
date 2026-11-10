@@ -3,7 +3,8 @@ import { checkCreatorRecord, layoutOfRecord, onlineLayoutRefusal, parseLayout, r
 
 /**
  * The layout's placed turrets (a browser adaptation, FG.R2): each names a disc map's own turret (its archive and its
- * placed node's name) and stands it at a place facing a yaw. Kept by the file and the v3 record; refused online.
+ * placed node's name) and stands it at a place facing a yaw. Kept by the file and the v3 record; admitted online
+ * (FP-1a: the room places them, `match/src/forgeSimMap.ts`).
  */
 const layout = {
   forge: 1, base: { kind: "blank", library: "MP72" }, pieces: [], spawns: [],
@@ -34,7 +35,7 @@ describe("placed turrets", () => {
     expect(layoutOfRecord(record).turrets![0]!.name).toBe("mp62MGLturret ");
   });
 
-  it("an online lobby refuses them", () => {
-    expect(onlineLayoutRefusal(layout).map((d) => d.code)).toEqual(["record.ONLINE_TURRETS"]);
+  it("an online lobby admits them (FP-1a; refused record.ONLINE_TURRETS before)", () => {
+    expect(onlineLayoutRefusal(layout)).toEqual([]);
   });
 });

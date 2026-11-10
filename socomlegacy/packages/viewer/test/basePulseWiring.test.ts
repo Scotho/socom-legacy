@@ -83,7 +83,7 @@ describe("both pages' lines (main.ts, matchMount.ts)", () => {
   it('the front end\'s match: its buildPageWorld hooks hand the opacity to the view, and its bomb lends the world\'s pulse', () => {
     const mount = src('matchMount.ts');
     expect(mount).toMatch(/setNodeOpacity: \(path, f\) => \{ view\?\.setNodeOpacity\(path, f\); \}/);
-    expect(mount).toMatch(/pulse: worldPulse\(\(\) => world\?\.world \?\? null\)/);
+    expect(mount).toMatch(/pulse: worldPulse\(\(\) => world\?\.world \?\? null, \(\) => map\?\.forgeSiteOutlines \?\? \[\]\)/);   // the Forge's site outlines beside it
     expect(src('matchWorld.ts')).toMatch(/opacity: \(path, f\) => \{ hooks\.setNodeOpacity\?\.\(path, f\); \}/);
   });
   it('the development read basePulse() (`./hook`): declared once, and each page reads its own world\'s (`WorldState.basePulse`)', () => {

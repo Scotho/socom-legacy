@@ -144,10 +144,20 @@ export interface PageHands {
   mountTaken?(): { after: number; now: number } | null;
   /** LATER 237: the last command this page sent, null offline. */
   commandSeq?(): number | null;
+  /**
+   * TRIGGER-SWAP fold: null while it owns the trigger (mounted, or its release clip playing); else the turret rounds of a
+   * hold still held through the dismount (the kit's count, `FUN_005be9a0` D:L475514-475516), 0 with none.
+   */
+  heldPulls?(): number | null;
 }
 
 /** The throwables part's `NetPage` hooks, as `PART_DEPS.throwables` lists them. */
-export type MatchThrowNetDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['throwables'][number]>>;
+/**
+ * The throwables' NetPage deps: `PART_DEPS.throwables`, owed where the part is on, and `roundEndEffects`
+ * (ROUND_END_EFFECTS_READING), handed with them but optional in `NetPageDeps` -- a page with the part off has no effects to
+ * stop at the engine's read.
+ */
+export type MatchThrowNetDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['throwables'][number] | 'roundEndEffects'>>;
 
 export interface MatchThrowables {
   readonly grenade: GrenadeThrower;
@@ -350,6 +360,41 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
    */
   let launcherDown = false, launcherPress = false, launcherWaits = false;
   /**
+   * TRIGGER-SWAP (2026-11-09; reading, pending review): the kit pull count `kit+0x818` the hands' item raised since the
+   * trigger's last press, handed to the firearm with a trigger still held (`FirearmHands.heldPulls`). A hand throw's launch
+   * raises it (`FUN_005c1970` D:L477023-477025) and `FUN_005c0ae0`, run on every kit frame `FUN_005c1970` passes (the
+   * launch's own among them, D:L476564-476569), zeroes it at edge 0 or 3 (D:L476380-476382, D:L476399-476400); the edge
+   * `+0x118` is 2 a press, 1 held, 3 a let-go, 0 idle (D:L453543-453567). GRENADE-RETHROW folds (reviews F1, F3; reading,
+   * pending review): the port's throw is released at the let-go and launched when its hand opens (`pending` -> `letGo`).
+   * A press after the hand opened: the button was up at the launch, its 1 zeroed in that same kit frame -- 0, last grenade
+   * or not. A press while the throw is pending (before its hand opens): 0 as well, last grenade or not -- capture GR-1 (research 326
+   * §7.2; the class-0x79 path, 3/3, ±0) reads `+0x818` 0 from the launch through the pop and after: with a grenade in the
+   * slot the re-arm's remap holds the edge at 0 through the pending window (D:L453633-453660), so the launch's own kit
+   * frame zeroes the count at the edge 0 (`FUN_005c0ae0` D:L476380-476382, called at D:L476566-476569; the mechanism a
+   * reading, pending review); was: 1 until the pop, then 0 with one left and 1 on the slot's last. Or 1 when a rocket
+   * left (the launcher's class through `FUN_005be9a0`'s round branch, D:L475514-475516); else 0. The wind-up itself raises
+   * none (the throwable's class 'y' branch, D:L475490-475512).
+   */
+  let holdPulls = 0;
+  /**
+   * TRIGGER-SWAP fold (reading, pending review): when the last rocket's FireWait on the kit's one rate timer `kit+0x81c`
+   * runs out (page time, ms; 0 none) -- the launch writes it (`FUN_005be9a0` D:L475514-475517) and the firearm's round is
+   * refused while it runs (`FUN_005c0ae0` D:L476446-476448), a slot change leaving it (`FUN_005c4b10`). Handed to the
+   * firearm at the lower (`Fire.holdWait`), run down meanwhile on the page's clock as the launcher's own wait is
+   * (KIT_TIMER_TICK_READING: the original runs it down only on the kit frames `FUN_005c1970` lets through,
+   * D:L476565-476569, D:L476643-476647, unread for the lower clip).
+   */
+  let kitTimerEnd = 0;
+  /** TRIGGER-SWAP: a rocket that left raises the hold's count (`holdPulls`), while the trigger is held; the fold: and the kit's timer. */
+  const launch = (): void => {
+    const e = rocket.pull();
+    if (!e) return;
+    if (launcherDown) holdPulls = 1;
+    kitTimerEnd = performance.now() + (e.fireWait ?? 0) * 1000;
+  };
+  /** TRIGGER-SWAP fold: the firearm's held trigger suspended at a slot change (`MatchFirearm.suspendTrigger`), else let go. */
+  const suspendFirearm = (): void => { const f = firearm(); if (f.suspendTrigger) f.suspendTrigger(); else f.fire.release(); };
+  /**
    * LATER 192: the body's raise below 1 refuses the rocket -- class 0x91 is a bullet class (`FUN_003d1e20`
    * D:L324476-324483) and not 0xcd, so `FUN_005c0ae0` refuses every frame below 1 (D:L476423-476438), as the firearm's
    * `raiseRefused` (`./matchFirearm`). A play with no body (the part's tests' stand-ins): none.
@@ -378,11 +423,19 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     };
   });
   offs.push(grenade.on('equip', (on, item) => {
-    placingDown = false;                                // NU-8a B1: the slot change lets the placing's trigger go too
+    // NU-8a B1: the placing's own latch let go at the slot change -- the port's: the original's trigger state stays
+    // (`FUN_005c4b10` D:L478779-478936 leaves +0x118; TRIGGER-SWAP fold, research 211 §10); a take-up's wind-up is
+    // press-only -- the one remap that re-arms a held button is a throw's pop (D:L453484-453500; GRENADE-RETHROW,
+    // `THROW_REARM_UPDATES_READING`)
+    placingDown = false;
     // NU-8b B4 (TAKE_UP_FADE_READING): the snapshot, unless the launcher is up -- then the launcher's lower clip instead
     // (`FUN_005a64c0` with the hand word 4 -> `FUN_005a6b70`, D:L461870-461876; the review's F1)
     if (on && item !== null && item !== 'Detonator' && item !== 'C4' && !rocket.up()) takeUpFade = true;
-    firearm().fire.release(); stowRifle();              // a slot change lets a held trigger go; stowed only for the launcher (`stowRifle`)
+    // TRIGGER-SWAP fold (research 211 §10; reading, pending review): the firearm's held trigger suspended, not dropped --
+    // no round of it with an item up, but the slot change leaves the trigger and the kit's count (`FUN_005c4b10`
+    // D:L478779-478936), so the hold is the firearm's again at the put-away (`MatchFirearm.suspendTrigger`). Was: "a slot
+    // change lets a held trigger go", the misreading. Stowed only for the launcher (`stowRifle`).
+    suspendFirearm(); stowRifle();
     if (on) rocket.lower();                             // M7: one item in the hand
     if (!on) throwPose.letGo();                         // PAR-85 F1: a throw its hold carries pops at the hold's end
     // Out of the scope to first person with the rifle away [reading: the game's weapon switch, FUN_005c4b10, drops only
@@ -437,8 +490,12 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   /** M7: the firearm may fire again only once the launcher is down (`launcherLowerSeconds`, PF-21; the room holds it so too). */
   let firearmReadyAt = 0;
   offs.push(rocket.on('equip', (on, id, by) => {
-    firearm().fire.release(); stowRifle();
-    launcherDown = launcherWaits = false;               // LATER 192: a slot change lets the launcher's held trigger go too
+    suspendFirearm(); stowRifle();                      // TRIGGER-SWAP fold: suspended, as the grenade's equip above
+    // LATER 192: the launcher's own latch let go at the slot change -- the port's, not `FUN_005c4b10`'s (which leaves the
+    // trigger state; TRIGGER-SWAP fold, research 211 §10): a launcher raised over a held trigger still waits for a press
+    launcherDown = launcherWaits = false;
+    // TRIGGER-SWAP fold: a lower hands the firearm what is left of the last rocket's FireWait on the kit's timer
+    if (!on) { const left = (kitTimerEnd - performance.now()) / 1000; kitTimerEnd = 0; if (left > 0) firearm().fire.holdWait?.(left); }
     const from = firearm().item() === 'pistol' ? 1 : 0;
     if (by === 'stick') {
       // PAR-83 (research 230 section 5.2.8): the stick's lower -- the room lays it from the same command's stick
@@ -728,6 +785,9 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     trigger: (down) => {
       // OBF-31: under the round screens the trigger is not ticked -- taken, nothing done, a waiting rocket let go
       if (screens()) { launcherWaits = false; return true; }
+      // TRIGGER-SWAP (`holdPulls`): each press starts the hold's count afresh at 0 and a let-go zeroes it -- a press under a
+      // throw, pending or after its hand opened, 0 from the launch, last grenade or not (GR-1, research 326 §7.2)
+      holdPulls = 0;
       // MAP-10b: mounted, the trigger is the turret's (`./matchActions`: the room fires its rounds), never the rifle's.
       if (page.trigger?.(down)) return true;
       // The binoculars (view state 4): FUN_005be9a0 runs no class's use -- no rocket, no pin pulled, no charge placed; the
@@ -742,7 +802,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
         launcherDown = down;
         if (down) launcherPress = true;
         launcherWaits = down && (raiseRefused() || !walk.fireAllowed());
-        if (down && !launcherWaits) rocket.pull();
+        if (down && !launcherWaits) launch();
         return true;
       }
       if (down && performance.now() < firearmReadyAt) return true;   // M7: the firearm still coming back up
@@ -753,6 +813,14 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
         return true;
       }
       return false;
+    },
+    // TRIGGER-SWAP: the held trigger handed to the firearm once nothing here owns it -- no item up, the launcher neither up nor
+    // still coming down (`firearmReadyAt`), not mounted -- with the hold's count (`holdPulls`); the fold: and the turret's
+    // rounds of a hold held through the dismount (`PageHands.heldPulls`, null while the page still owns it)
+    heldPulls: () => {
+      if (screens() || page.mounted?.() || rocket.up() || grenade.equipped() || performance.now() < firearmReadyAt) return null;
+      const turret = page.heldPulls ? page.heldPulls() : 0;
+      return turret === null ? null : holdPulls + turret;
     },
     // M4 (research 94 §C4): a round mode's round flown here as a grenade is (`GrenadeThrower.launchRound`: the round's
     // gravity, arming distance, impact, blast), its launch zAnim heard (`m203he_start`). M203-FIRE-SOUND (research 94
@@ -794,6 +862,10 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   return {
     grenade, rocket, throwPose, whiteOut, inventory, hands,
     netDeps: () => ({
+      // ROUND_END_EFFECTS_READING (research 283 §9-§10): the effects playing stop at the engine's read (`NetPage`,
+      // `ENGINE_READ_S` after the `roundOver`), as the original's `FUN_002aa910` before the round screen; not the air or
+      // the scorches (the round's start's, `roundStart`, which runs this clear again as a backstop).
+      roundEndEffects: () => { grenade.clearRoundEffects(); firearm().effects?.clearRound(); },
       // The room's projectiles flown here.
       remoteGrenade: (kind, from, velocity, owner, pid, phase, ageTicks) => grenade.launchRemote(kind as GrenadeItem, from, velocity, owner, pid === undefined ? undefined : { pid, ...phase }, ageTicks),   // LATER 643: the room's age
       ownProjectiles: () => grenade.ownLive(),       // PF-28: a rejoin's envelope does not double the page's own throws
@@ -811,6 +883,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       },
       tagOwnProjectile: (kind, from, pid) => grenade.tagOwn(kind, from, pid),   // PF-36: the room's pid for the page's own
       detonateProjectile: (pid) => grenade.detonateRemote(pid),                 // PF-36: a charge shot or blasted in the room
+      sceneRound: (kind: string, at: [number, number, number]) => grenade.fireScene(kind, at),                    // research 386 §3.2: a scene FIRE_WEAPON's round
       // P2 (TB-1; research 85 s9.5): the room's gated blast's level on the page's own SEAL -- with a room the page reckons
       // none of its own (`GrenadeThrower.explode`'s `online()`), so the white-out is the room's alone.
       whiteOut: (level) => whiteOut.start(level),
@@ -830,7 +903,9 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       grenade.setShade(shade);
       grenade.setClip(clipper);
     },
-    roundStart: () => { grenade.clearAir(); grenade.clearScorches(); whiteOut.stop(); },
+    // ROUND_END_EFFECTS_READING (research 283 §9): the effects playing stop with the round -- a smoke thrown at its end
+    // does not pour on into the next (`FUN_002aa910` D:L151211-151219); the room's smoke went with its `clearAir`.
+    roundStart: () => { grenade.clearAir(); grenade.clearScorches(); grenade.clearRoundEffects(); firearm().effects?.clearRound(); whiteOut.stop(); },
     warm: async (prepare) => { await prepare(grenade.warmObjects()); },
     poseFrame: (dt) => {
       poseDt = dt;                                      // NU-8b B4: the take-up's fade, a tick run when it is drawn
@@ -853,7 +928,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       // (the raise's feed); a placing's `grenade.release` is not asked -- N3's cancel above is its let-go
       if (up && !screensWere) launcherDown = placingDown = false;
       screensWere = up;
-      if (launcherWaits && !raiseRefused() && walk.fireAllowed() && !fireRefused(firearm().zoom.state())) { launcherWaits = false; rocket.pull(); }   // LATER 199: NoFire too
+      if (launcherWaits && !raiseRefused() && walk.fireAllowed() && !fireRefused(firearm().zoom.state())) { launcherWaits = false; launch(); }   // LATER 199: NoFire too
       whiteOut.update(real);           // the flashbang's wash on the lit colours (PAR-34: its blind in real time), and its glow for this frame's render
       return whiteOut.glow();
     },

@@ -24,30 +24,6 @@ export function tipMarkup(tipId: string, text: string): string {
   return `<p class="s2u-field__note ${INFO_CLASS}__tip" id="${tipId}" role="note" hidden>${text}</p>`;
 }
 
-/**
- * The same, built as elements for a section made in code: `heading` gets a row with its info button, and `note` becomes
- * the hidden tip (its id kept, or `tipId` given). Returns the row, to stand where the heading stood.
- */
-export function foldIntoTip(doc: Document, heading: HTMLElement, note: HTMLElement, tipId: string, about: string): HTMLElement {
-  if (!note.id) note.id = tipId;
-  note.classList.add(`${INFO_CLASS}__tip`);
-  note.setAttribute('role', 'note');
-  note.hidden = true;
-  const button = doc.createElement('button');
-  button.type = 'button';
-  button.className = INFO_CLASS;
-  button.id = `${note.id}-info`;
-  button.textContent = '?';
-  button.title = note.textContent ?? '';
-  button.setAttribute('aria-label', `About ${about}`);
-  button.setAttribute('aria-expanded', 'false');
-  button.setAttribute('aria-controls', note.id);
-  const row = doc.createElement('div');
-  row.className = 'panel-info-row';
-  row.append(heading, button);
-  return row;
-}
-
 const pinned = new WeakSet<HTMLButtonElement>();
 const wired = new WeakSet<HTMLElement>();
 

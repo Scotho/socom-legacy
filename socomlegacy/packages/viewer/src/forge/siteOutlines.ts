@@ -113,8 +113,8 @@ export function withSiteOutlines(map: LoadedMap, sites: readonly BombSite[], don
     // The band's own turn on the ground taken out, so it stands square to the world and then takes the site's own yaw: a
     // site at 0 has its band square, a turned one turns it. Read off the band itself (`squareTurn`), not its node's
     // matrix: the disc's geometry can already lie turned inside an unturned node. Measured once square.
-    const own = new Matrix4().fromArray(Array.from(src.matrices.subarray(0, 16)));
-    const square = new Matrix4().makeRotationY(squareTurn(src, own)).multiply(own);
+    const placed = new Matrix4().fromArray(Array.from(src.matrices.subarray(0, 16)));
+    const square = new Matrix4().makeRotationY(squareTurn(src, placed)).multiply(placed);
     const { min, max } = boundsOf(src, square);
     const half = Math.max(max.x - min.x, max.z - min.z) / 2;
     if (!(half > 0)) return;

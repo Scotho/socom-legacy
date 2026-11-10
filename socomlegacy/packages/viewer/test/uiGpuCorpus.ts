@@ -153,7 +153,8 @@ export async function walkMenuCorpus(record: DrawRecorder, each: (e: CorpusEntry
     const state = pageNativeOptionsState(assets.disc, new CardSlots(() => null, () => {}), new ControllerConfigs());
     const target = { createImageData: (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }), putImageData: () => {} };
     const doc = {
-      createElement: () => ({ width: 300, height: 150, dataset: {}, style: { filter: '', removeProperty() {} }, isConnected: true, addEventListener() {}, remove() {},
+      createElement: () => ({ width: 300, height: 150, dataset: {}, style: { filter: '', removeProperty() {} }, isConnected: true, addEventListener() {}, removeEventListener() {},
+        ownerDocument: { defaultView: null }, remove() {},
         getContext: () => target, getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 448 }) }),
       body: { append() {} },
     } as unknown as Document;

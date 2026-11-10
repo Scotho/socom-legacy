@@ -596,8 +596,12 @@ The wire and the other console's view (any MP map; MP6 serves)
     `ONLINE_POS_INTERVAL_MS`/`LAN_POS_INTERVAL_MS` are swapped (H3 §0.2 item 1).
 17. **One hit's payload.** Record: the 8 payload bytes at `FUN_002bbda0`'s `FUN_0030cef0` call (packet type
     `DAT_00440e00`, V1 "carry forward" 4). Settles: NET_DAMAGE_CLAMP_PLACEHOLDER's use (C1 Part B).
-18. **A remote reload.** Do: A reloads by hand with a full magazine minus one. Record: B's audio. Settles:
-    REMOTE_RELOAD_SOUND_READING (C1 Part A2).
+18. **A remote reload.** Do: A reloads by hand with a full magazine minus one, once standing still, once crouched still
+    and once moving, and once with A hit (a flinch) mid-reload. Record: B's audio, and B's view of A's body through A's
+    reload (amended 2026-11-09, REMOTE-RELOAD's review F2): the frame B's copy of A starts the reload clip against A's
+    press and A's magazine take, which clip (still or the moving overlay), and whether a flinch ends it. Settles:
+    REMOTE_RELOAD_SOUND_READING (C1 Part A2) and REMOTE_RELOAD_MOTION_READING (research 91 s22.2: what the wire
+    carries and when the peer's clip starts).
 19. **Remote footsteps.** Record on B: A's `*(actor+0xc0)+8..+0x10` while A walks and while A stands; B's `+0xe0` bit 2
     on A. Settles: REMOTE_STEP_STICK_READING (C9 L5), the remotePlayers.ts:186-188 footfall gate row (C1 Part E;
     ledger-C1).

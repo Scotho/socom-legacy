@@ -59,11 +59,20 @@ test('the game page: the disc page is offered, and nothing is asked of the serve
   await expect(page.locator('#disc-state')).toHaveText('waiting for a disc image');
   await expect(page.locator('#startup-start')).toHaveCount(0);           // CX-9b: no START between the image and the game
   await page.waitForTimeout(3_000);
-  expect(await page.evaluate(() => ({
-    children: [...document.body.children].map((e) => `${e.tagName.toLowerCase()}#${e.id}`),
+  // RC-MENUFLOW-TOUCH (a spec correction, as `./menuflow.spec.ts`'s): the modern overlay's touch "Menu" button
+  // (`button.mu-touch-menu`, no id) is the page's own on a device that reports touch -- a coarse pointer or any touch
+  // point -- and absent elsewhere, so it is expected by that reading. Was: the list fixed at a host with no touch
+  // (shadow's A4500 run at d628ce86e: an extra "button#").
+  const { touch, ...seen } = await page.evaluate(() => ({
+    children: [...document.body.children]
+      .map((e) => (e.classList.contains('mu-touch-menu') ? 'button.mu-touch-menu' : `${e.tagName.toLowerCase()}#${e.id}`)),
+    touch: matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0,
     frontEnd: document.getElementById('front-end'),
     viewer: typeof (window as unknown as { __viewer?: unknown }).__viewer,
-  }))).toEqual({ children: ['main#disc-page'], frontEnd: null, viewer: 'undefined' });   // the disc page alone (CX-9b)
+  }));
+  expect(seen).toEqual({   // the disc page alone (CX-9b), with the touch Menu where the device reports touch
+    children: ['main#disc-page', ...(touch ? ['button.mu-touch-menu'] : [])], frontEnd: null, viewer: 'undefined',
+  });
   expect(maps).toEqual([]);
   expect(errors).toEqual([]);
 });

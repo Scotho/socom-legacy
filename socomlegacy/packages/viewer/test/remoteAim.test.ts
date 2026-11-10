@@ -16,9 +16,12 @@ import { DEFAULT_LIGHTING } from '../src/lighting';
  * fallback (`Room.volumesOf` null), the same `bodyVolumes` either way.
  */
 vi.mock('../src/bodyView', () => ({ buildBody: () => ({ group: new Group(), dispose: () => {} }) }));
+/** HIT-POSE: what a stand-in `Play` answers for its drawn capsules (`Play.drawnCapsules`): null (never played) by default. */
+const DRAWN = vi.hoisted(() => ({ caps: null as unknown }));
 vi.mock('../src/play', () => ({ Play: class {
   // These stand-ins never start a victory; stopping its empty state is inert (Play.stopVictory).
   stopVictory() {}
+  drawnCapsules() { return DRAWN.caps; }
   setBody() {} setFlyToggle() {} setClips() {} setAnimSet() {} setWeaponInput() {} setItem() {} setMounts() {}
   setWeapon() {} setSidearm() {} addPoseLayer() {} motionSource() { return null; } onEvent() {} frame() {}
 } }));
@@ -51,6 +54,42 @@ function rig(bodies: BodyState[]) {
 const EYE: V3 = [0, 15, 0], AHEAD: V3 = [0, 0, -1];
 
 describe('the others\' bodies under the reticle (RemotePlayers.aimDistance)', () => {
+  it("HIT-POSE (research 217 s3.6): a played copy is met on its drawn skeleton's capsules (Play.drawnCapsules), as the room meets its live pose; a hostage stays on its idle set", () => {
+    // The drawn body: one capsule 6 u to the right of the snapshot's feet (a pose the idle set does not have).
+    const drawn = [{ part: 2, a: [6, 2, -60] as V3, b: [6, 18, -60] as V3, r: 1.5 }];
+    DRAWN.caps = drawn;
+    try {
+      const { remote } = rig([state(2, [0, 0, -60])]);
+      const right: V3 = [6, 10, 0];
+      expect(remote.aimDistance(right, AHEAD, 1000)).toBeCloseTo(rayBody(right, AHEAD, 1000, drawn)!.t, 6);
+      expect(remote.aimDistance(EYE, AHEAD, 1000)).toBeNull();                  // the idle set's line: not the drawn body
+      expect(remote.aimBodies(right, AHEAD, 1000).map((h) => h.id)).toEqual([2]);
+      // A hostage (an escortee) keeps its idle set whatever its copy draws (the room's `hostageVolumes`).
+      const hostage = new RemotePlayers(new Scene()), camera = new PerspectiveCamera();
+      hostage.setMap({ body: {} } as LoadedMap, DEFAULT_LIGHTING, null);
+      hostage.setEscortee(240, 0);
+      hostage.frame(1 / 60, [state(240, [0, 0, -60])], camera);
+      expect(hostage.aimDistance(EYE, AHEAD, 1000)).toBeCloseTo(rayBody(EYE, AHEAD, 1000, bodyVolumes([0, 0, -60], 0, 'stand', null))!.t, 6);
+    } finally {
+      DRAWN.caps = null;
+    }
+  });
+
+  it('HIT-POSE: a body on a turret is met on its idle set whatever its copy draws (HIT_POSE_MOUNT_READING \'idle\', as the room meets a mounted gunner)', () => {
+    const drawn = [{ part: 2, a: [6, 2, -60] as V3, b: [6, 18, -60] as V3, r: 1.5 }];
+    DRAWN.caps = drawn;
+    try {
+      const { remote } = rig([state(2, [0, 0, -60])]);
+      remote.setMountPose((id) => (id === 2 ? { clip: 'seal_turret_hold', frame: 0, loop: true, rootY: null } : null));
+      expect(remote.aimDistance(EYE, AHEAD, 1000)).toBeCloseTo(rayBody(EYE, AHEAD, 1000, bodyVolumes([0, 0, -60], 0, 'stand', null))!.t, 6);
+      expect(remote.aimDistance([6, 10, 0], AHEAD, 1000)).toBeNull();          // the drawn pose's line: not judged on a turret
+      remote.setMountPose(null);                                                // dismounted: the drawn skeleton again
+      expect(remote.aimDistance([6, 10, 0], AHEAD, 1000)).toBeCloseTo(rayBody([6, 10, 0], AHEAD, 1000, drawn)!.t, 6);
+    } finally {
+      DRAWN.caps = null;
+    }
+  });
+
   it('meets the drawn body on the room\'s capsules, at the distance the room\'s rayBody gives', () => {
     const { remote } = rig([state(2, [0, 0, -60])]);
     const room = rayBody(EYE, AHEAD, 1000, bodyVolumes([0, 0, -60], 0, 'stand', null))!;
@@ -105,6 +144,36 @@ describe('the others\' bodies under the reticle (RemotePlayers.aimDistance)', ()
       expect(hits[0]!.distance).toBeCloseTo(remote.aimDistance(beside, AHEAD, 1000)!, 6);
       // On SEAL type 0's capsules the hostage would not be met: that was the page's offer against the room's pick.
       expect(rayBody(beside, AHEAD, 1000, bodyVolumes([0, 0, -30], 0, 'stand', spine(2)))).toBeNull();
+    } finally {
+      PAGE.bodies = { seal: [], terrorist: [], escortees: [] };
+    }
+  });
+
+  it("LEAN-HIT (issue #752): a leaning body is met on its lean set at the snapshot's peek -- aimDistance and aimBodies, as the room's rewound body", () => {
+    // The page's SEAL: one standing capsule up the spine, and its right and left lean sets 4 u to each side (body frame
+    // x right): the snapshot's peek (the held peek, `net/body.ts` quantised to -1 / 0 / 1) picks the set.
+    const at = (x: number): StanceVolumes['stand'] => [{ part: 2, a: [x, 2, 0], b: [x, 18, 0], r: 1.5 }];
+    const lean: StanceVolumes = {
+      stand: at(0), crouch: at(0), prone: at(0),
+      lean: { stand: { l: at(-4), r: at(4) }, crouch: { l: at(-4), r: at(4) }, prone: { l: at(-4), r: at(4) } },
+      leanPivot: { stand: { l: [0, 0, 0], r: [0, 0, 0] }, crouch: { l: [0, 0, 0], r: [0, 0, 0] }, prone: { l: [0, 0, 0], r: [0, 0, 0] } },
+    };
+    PAGE.bodies = { seal: [{ volumes: lean }], terrorist: [{ volumes: lean }], escortees: [] };
+    try {
+      const remote = new RemotePlayers(new Scene()), camera = new PerspectiveCamera();
+      remote.setMap({ body: {} } as LoadedMap, DEFAULT_LIGHTING, null);
+      const right: V3 = [4, 10, 0];                                              // yaw 0 faces -z: its right is +x
+      remote.frame(1 / 60, [state(2, [0, 0, -60], { peek: 1 })], camera);
+      expect(remote.aimDistance(right, AHEAD, 1000)).toBeCloseTo(rayBody(right, AHEAD, 1000, bodyVolumes([0, 0, -60], 0, 'stand', lean, null, 1))!.t, 6);
+      expect(remote.aimBodies(right, AHEAD, 1000).map((h) => h.id)).toEqual([2]);
+      expect(remote.aimDistance(EYE, AHEAD, 1000)).toBeNull();                  // the upright line: the body leaned off it
+      remote.frame(1 / 60, [state(2, [0, 0, -60], { peek: -1 })], camera);
+      expect(remote.aimDistance(right, AHEAD, 1000)).toBeNull();
+      expect(remote.aimDistance([-4, 10, 0], AHEAD, 1000)).not.toBeNull();
+      remote.frame(1 / 60, [state(2, [0, 0, -60], { peek: 0 })], camera);
+      expect(remote.aimDistance(right, AHEAD, 1000)).toBeNull();
+      expect(remote.aimBodies(right, AHEAD, 1000)).toEqual([]);
+      expect(remote.aimDistance(EYE, AHEAD, 1000)).not.toBeNull();
     } finally {
       PAGE.bodies = { seal: [], terrorist: [], escortees: [] };
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROBE_SETTLE_MS, parseProbeArgs, probeRun, serialPine, type ProbeDeps, type ProbePine } from '../eph/probe';
-import { GUEST_ADDRESSES } from '../eph/sampler';
+import { GUEST_ADDRESSES, ORIGIN_EVIDENCE } from '../eph/sampler';
 import { PCSX2_VK } from '../eph/keys';
 import type { HostPlan } from '../eph/run';
 
@@ -64,8 +64,9 @@ const host = (): HostPlan => ({ layout: { exe: 'E:/eph-runs/pcsx2/pcsx2-qt.exe',
 describe('parseProbeArgs', () => {
   it('takes the build, the slot, the trials, the cases, the out dir, and optional shots and save-after', () => {
     expect(parseProbeArgs(['--build', 'r0004', '--state', '5', '--trials', '3', '--script', 'a.txt', '--script', 'b.txt', '--out', 'E:/p'])).toEqual({
-      build: 'r0004', state: 5, trials: 3, scripts: ['a.txt', 'b.txt'], out: 'E:/p', tailMs: 2500, shots: false, saveAfter: null, wallClock: false,
+      build: 'r0004', state: 5, trials: 3, scripts: ['a.txt', 'b.txt'], out: 'E:/p', tailMs: 2500, shots: false, saveAfter: null, wallClock: false, origin: false,
     });
+    expect(parseProbeArgs(['--build', 'r0004', '--state', '5', '--script', 'a.txt', '--out', 'E:/p', '--origin'])).toMatchObject({ origin: true });
     expect(parseProbeArgs(['--build', 'r0001', '--state', '8', '--script', 'a.txt', '--out', 'E:/p', '--shots', '--save-after', '6'])).toMatchObject({ shots: true, saveAfter: 6, trials: 1 });
     expect(() => parseProbeArgs(['--build', 'r0004', '--script', 'a.txt', '--out', 'E:/p'])).toThrow(/--state/);
   });
@@ -93,6 +94,16 @@ describe('probeRun over fakes', () => {
     expect(meta).toMatchObject({ build: 'r0004', detected: 'r0004', slot: 5, trials: 2, cases: ['a', 'b'], settleMs: PROBE_SETTLE_MS });
     expect(h.kills).toBe(1);
     expect(h.saves).toEqual([]);
+  });
+
+  it("--origin records the origin columns' addresses, evidence, inferred list (none inferred) and overflow count in probe.json", async () => {
+    const { h, deps } = fakes();
+    await probeRun(parseProbeArgs(['--build', 'r0004', '--state', '5', '--script', 'a.txt', '--out', 'E:/p', '--tail-ms', '100', '--origin']), host(), deps);
+    const meta = JSON.parse(h.files.get('probe.json')!);
+    expect(meta.origin.evidence).toEqual(ORIGIN_EVIDENCE.r0004);
+    expect(meta.origin.inferred).toEqual([]);
+    expect(meta.origin.originBeyondCap).toBe(0);
+    expect(typeof meta.origin.readErrors).toBe('number');
   });
 
   it('refuses a guest of the other build, sampling nothing, PCSX2 stopped', async () => {

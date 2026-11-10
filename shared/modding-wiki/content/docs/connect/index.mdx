@@ -1,0 +1,156 @@
+---
+title: "Connect an agent"
+description: "Let an AI agent work in the Forge or the solo test room you have open: the three moments (Connect, Allow, Connected), the one connect link, the connection service's address, the permissions and what each allows, staying connected, and how to disconnect."
+status: "Forge, local only"
+source: ["socomlegacy/docs/specs/2026-11-07-forge-path-design.md", "socomlegacy/packages/viewer/src/agent/setup.ts", "socomlegacy/packages/viewer/src/agent/panel.ts", "socomlegacy/packages/viewer/src/agent/codes.ts", "socomlegacy/packages/viewer/src/agent/connection.ts", "socomlegacy/packages/viewer/src/agent/remembered.ts", "socomlegacy/packages/forge-agent/src/gateway.ts", "socomlegacy/packages/forge-agent/src/mcp.ts", "socomlegacy/packages/forge-agent/src/sessions.ts", "socomlegacy/packages/forge-agent/src/guide", "socomlegacy/packages/forge-agent/src/tools/area.ts", "socomlegacy/packages/forge-agent/src/oauth.ts", "socomlegacy/packages/forge-agent-protocol/src/index.ts", "socomlegacy/packages/forge-agent-protocol/src/limits.ts"]
+---
+
+**Status: Forge, local only.** An agent connects to the Forge or the solo test room open in your browser, and to
+nothing else: never a lobby, an online match or a replay. This guide describes the **Connect an agent** card of the
+agent connection's one-link flow, in builds that have it. The flow itself is not measured against a real client yet
+(the compatibility record has no run of it); Claude Code's and Codex's sign-in were measured on the earlier panel.
+
+Connecting an agent means letting an AI agent you run yourself (Claude Code, Codex, Claude Desktop -- listed, not yet
+measured -- or another MCP client) work in **your** open page. The agent talks to a small connection service; the
+service joins it to your page only after you press **Allow** there, and the agent may do only what you left switched
+on. It cannot join or touch a lobby match ("This screen does not take agent requests (a lobby or a server match holds
+it)."), cannot run code, a shell or a web request of its own, and reads only a folder or files you choose in the page.
+
+## The three moments
+
+The card shows one moment at a time, each with one main button:
+
+1. **Connect.** Pick your agent: Claude Code, Codex, Claude Desktop or Another MCP client. A **First time with Claude Code?**
+   box (named for the agent you picked) shows its one setup command ("Run this once where your agent runs.") and how it signs in; it starts open until
+   this browser has connected that agent once, folded after. Then press **Copy connect link**: it copies one line,
+   `Connect to my SOCOM 2 Legacy page: <service>/join/<code>`. "Paste it into Claude Code. You’ll approve here." The link
+   works once and expires in five minutes ("Link expires in 4:59"). Paste it only into your own agent and never share
+   it (a chat, a stream, a screenshot): anyone holding it can ask to connect within those five minutes, and the Allow
+   card shows the name the caller reports for itself.
+2. **Allow.** "Claude Code wants to connect" (the name your agent reports). Every permission the agent asked for is a switch, and every one starts
+   **on**; an agent asks for all six unless it narrows them. Turn off any you do not want, then press **Allow** (or
+   **Decline**). "The name is reported by the agent itself." At the foot, in small print, "Check: the code … matches
+   your agent's" -- there to compare if you want, not a step.
+3. **Connected.** The agent's name, what it can do (each permission as a chip, on or off), its recent activity, a note
+   box ("Tell your agent…"), the local files it may read, **Disconnect** and the privacy line. In the Forge, also
+   **Undo the agent’s changes** and "Your agent can see where you last clicked" (with the point, while **Read this
+   session** is on).
+
+The public page `/agent` of the game's site shows the setup commands before the Forge is open ("Open the Forge or the
+test room and press Copy connect link."). The link itself is always copied in the open page.
+
+One page per client gives its exact commands: [Claude Code](/connect/claude-code/), [Codex](/connect/codex/),
+[Claude Desktop](/connect/claude-desktop/) (listed, not yet measured), [another MCP client](/connect/other/).
+
+## Signing in, the first time
+
+Each client signs in to the connection service once. The setup box says how ("Then sign in: …"); your browser opens
+the service's guest sign-in page, "Allow Claude Code to sign in to SOCOM 2 Legacy as a guest?" (your client's name) -- "This only lets it ask
+to connect. You still press Allow on your own page before it can do anything there." Press **Approve**. That page's
+request ends in five minutes, and the client's name on it is reported by the client. No SOCOM account is needed: the
+agent is a guest.
+
+## The connection service
+
+The card's **Connection service** box (folded, near the foot of Connect, above the **Remembered agents** list) shows the **MCP endpoint** in use. In production
+it is `https://agent.socom2legacy.com/mcp`. A developer running `npm run forge:agent` uses `http://127.0.0.1:5360/mcp`.
+You may type another address there and press **Use this service** ("Saved. Reload this page to connect through it.");
+an address set by the build is shown only ("This address is set by this build."). Under **Copy connect link** the
+card says the service's health in small print: "Connection service: ready" or "Connection service: unreachable".
+
+## The permissions
+
+Every list shows all six, in this order. What the agent did not ask for is shown off and cannot be switched on ("Not
+requested · …").
+
+| permission | the card's line | it allows | it does not allow |
+|---|---|---|---|
+| **Read this session** (`inspect`) | "See the map, its pieces and what this page is showing." | Reading the layout, the asset catalogue, the map check's issues, the rules, the saves' names, where you last clicked in the Forge and your position in the test room; in the test room, the room's state. | Changing anything. |
+| **Edit the map** (`edit`) | "Place, move and remove pieces, with undo and redo." | Placing, moving, turning, locking and deleting pieces, spawns, points and objectives; the settings, the camera and its shots, saving, renaming and deleting saves in this browser, undo and redo; the test room's instruments. | Importing files or packs, loading a save, or starting Play. |
+| **Import local packs** (`import`) | "Bring in layouts, rules and the local packs you add here." | Bringing in a layout, a starter, a rules pack or a pack from the folder or files you chose, each as one undoable edit. (Loading a save also needs this permission, but no agent can ask for it today.) | Reading any file you did not choose. |
+| **Run tests** (`test`) | "Start Play, move the player and run tests on this page." | Starting the Forge's private Play, its normal inputs, a scenario; in the test room, switching map, moving to an objective, normal inputs. | Any lobby or online match, or forcing a result. |
+| **Read diagnostics** (`diagnose`) | "Check the layout and read placement diagnostics." | Running the map check, the rules check, a placement check and a ground probe. | Changing anything. |
+| **See the game canvas** (`capture`) | "Take pictures of the game view; a framed picture can move the camera, then put it back, and end a running camera shot." | A picture of the game canvas only; its preset views move the camera for the picture and put it back, ending a running camera shot first; in the test room only the canvas as it is and a named objective's view. | The rest of the page, your screen or other tabs. |
+
+**Remembered agents.** On the Allow moment, "Remember Claude Code on this browser" (with your agent's name; off until you tick it) keeps that
+agent and what you allowed. Its next connect shows "Claude Code (remembered) wants to connect" with the same switches --
+still one press of **Allow** by you, never automatic. The Connect moment lists the **Remembered agents** with
+**Forget** beside each; Disconnect does not forget them. A browser keeps at most 16.
+
+## Staying connected
+
+- **A hidden tab only pauses.** Switching to your terminal, or covering the browser, keeps the agent connected. While
+  the tab is hidden, tests, Play inputs, scenarios and camera shots are paused ("Paused while this tab is hidden: come
+  back to run tests again."); what was running is stopped, not resumed by itself. Reads and edits go on; a picture of
+  the canvas needs the tab in view. Copying a link needs the tab in view too ("Keep this page visible while connecting
+  your agent.").
+- **Leaving the page ends the connection.**
+- **A reload offers Reconnect** for two minutes: "This page reloaded. Pick up where you left off. It will be able
+  to:" with the same permissions, then **Reconnect Claude Code** (your agent's name; one click) or **Connect afresh**.
+- **A connection service restart** ends the connection. A clean restart reads "The connection was ended by your agent
+  or by the connection service." with **Copy a fresh link**; a service that stopped without closing reads "The
+  connection service did not answer. It may be down, or this page may name the wrong service." with **Try again**. When the service keeps its state file, your agent stays signed in and needs
+  no new sign-in page.
+- An idle connection ends after 30 minutes, any connection after eight hours ("The link or the session ran out of
+  time.").
+
+## When something fails
+
+An error's first line names the moment that failed ("Connect failed: …", "Approval failed: …", "Connection lost:
+…"). Under it the card says why, and its one button is the action:
+
+| what the card says why | its button |
+|---|---|
+| "The connection service did not answer. It may be down, or this page may name the wrong service." | **Try again** |
+| "The connection service does not accept this page’s address. Check that this page uses the right service." | **Check the connection service address** (opens the Connection service box) |
+| "The connection service is busy or limiting requests. Wait a moment, then try again." | **Try again** |
+| "The direct route between this page and the connection service did not open. A firewall or this network may block it." | **Try again**; **Details** lists the routes tried. If it fails again, try another network. |
+| "This page and the connection service speak different versions. Reload the page, or check which service it uses." | **Check the connection service address** |
+| "The link or the session ran out of time." | **Copy a fresh link** |
+| "The connection was ended by your agent or by the connection service." | **Copy a fresh link** |
+| "The connection failed for a reason this page could not name." | **Try again** |
+
+Each client's page lists the first lines you may see with that client.
+
+## Disconnecting
+
+Press **Disconnect** in the Connected moment at any time: the grant ends at once. Closing or leaving the page ends it
+too.
+
+**Privacy.** "Actions and requested canvas images pass through the connection service. Pack contents stay local."
+"Your files stay on this device. Only a folder or files you choose can be read."
+
+## For agents
+
+```json
+{
+  "page": "/connect/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "Pairing an MCP agent with a person's open Forge or solo test room through the socom2legacy connection service: the MCP endpoint, the one /join/ link, agent_pair's wait, the guide, the fourteen tools, the permissions and the refusals with their hint and retry.",
+  "inputs": [
+    "the MCP endpoint: the page's Connection service box -- production https://agent.socom2legacy.com/mcp, development (npm run forge:agent) http://127.0.0.1:5360/mcp; a Streamable HTTP MCP server named socom2legacy; OAuth with dynamic client registration and PKCE (S256), the one scope bootstrap, granted by the person on the guest sign-in page (bootstrap alone reveals no page)",
+    "the line the person pastes: 'Connect to my SOCOM 2 Legacy page: <gateway origin>/join/<invitation>'; the invitation works once and lasts 300000 ms (LIMITS.invitationMs) from the copy; GET on the link answers short instructions (text/plain for an agent) and never spends it",
+    "the tools (fourteen): agent_guide {topic?}; agent_status {}; agent_capabilities {area?, operation?}; agent_pair {invitation: the whole join link or the invitation (1..2048), permissions?: 1..6 distinct of inspect|edit|import|test|diagnose|capture (default all six), clientName?: up to 80 (default 'MCP client'), waitSeconds?: 0..90 (default 45)}; agent_wait {sessionId, waitSeconds?}; agent_notes {sessionId?}; agent_disconnect {sessionId?}; agent_request {version?: 1, requestId?, sessionId?, targetId?, epoch?, expectedRevision?: integer >= 0 or 'current', operation, args}; the typed area tools forge_read {operation, args}, forge_edit {operation, arguments, expectedRevision}, forge_play {operation, args, expectedRevision?}, testroom {operation, args, expectedRevision?}, capture {args: {view?: current|top|refs|named, refs?, name?, size?: small|medium}, expectedRevision?}, camera {operation, args, expectedRevision?} -- each also takes the optional requestId, sessionId, targetId and epoch",
+    "the guide: agent_guide with no topic gives the topic list and a short start; topics start, forge-build, forge-test, testroom, capture, coordinates, refusals, limits; the same text as resources socom2legacy://guide/<topic>; prompts build-a-map, playtest-my-layout, review-my-layout, camera-tour"
+  ],
+  "outputs": [
+    "the sequence: (1) call agent_guide first if you have not yet; agent_capabilities works before pairing (no argument: every operation's permission, surfaces, area and one line; {area} -- forge, forge-edit, play, testroom, camera, packs, session -- or {operation}: the full argument schemas and an example); (2) call agent_pair with the whole join link from the pasted line and your client's name; omit permissions to ask for all six (the person switches off any they do not want before Allow); the call waits up to waitSeconds for the person and answers state 'paired' (sessionId, targetId, epoch and the granted permissions -- read them: they may be fewer than you asked), 'declined', or 'pending' (tell the person the comparisonCode -- returned in `comparisonCode` and in `next` -- so they can check it against the card's small print if they want; call agent_wait {sessionId}; never repeat agent_pair, the invitation is spent; if your client timed the call out, agent_status gives the sessionId); (3) once paired, agent_request {operation: 'target.status', args: {}} -- sessionId, targetId and epoch default to your one paired session and requestId is generated; (4) use the typed tools or agent_request; a mutation carries expectedRevision (the revision you read, or 'current'); (5) agent_disconnect when done",
+    "operations worth knowing: forge.focus (Forge) and testroom.focus (test room) read where the person pointed or stands; forge.probe reads ground height, a ray's first hit or free floor (a diagnostic, never a traversability certificate); target.capture {view: current | top | refs | named} pictures the canvas, answered as an MCP image beside its JSON (the test room takes current and named only and refuses the others UNSUPPORTED; Play refuses the presets PLAYING)",
+    "notes: every result may carry `notes`, the person's own words typed in the page (at most 280 characters each); agent_status lists them and agent_notes reads and marks them delivered; follow them",
+    "refusals: every refusal carries `code`, `hint` (one sentence: what to do next) and, where it applies, `retry` ({operation, permissions, revision or surface}); agent_guide {topic: 'refusals'} lists every code. agent_pair: INVALID_INVITATION, INVALID_PAIR, INVITATION_EXPIRED (expired or used: ask for a fresh join link), TARGET_BUSY, PAGE_OFFLINE, CAPACITY, ADDRESS_CAPACITY; agent_wait, agent_notes, agent_disconnect: NOT_PAIRED, SESSION_AMBIGUOUS, INVALID_SESSION; agent_capabilities: UNKNOWN_AREA, UNKNOWN_OPERATION (with the valid names); agent_request and the area tools ({outcome: 'refused', code, hint, retry?}): NOT_PAIRED, SESSION_AMBIGUOUS, STALE_EPOCH, UNKNOWN_OPERATION, UNSUPPORTED_OPERATION (data.admitted lists what is taken -- e.g. a test room scenario step camera.set: move the camera with testroom.settings instead), SURFACE_DENIED (retry.surface; a lobby or a server match never takes requests), PERMISSION_DENIED (retry.permissions: the person did not allow it -- ask, never work around it), REVISION_CONFLICT or STALE_REVISION (retry.revision: read again, or pass 'current'), RATE_LIMITED (LIMITS.commandsPerSecond 4, LIMITS.commandBurst 8), QUEUE_FULL (LIMITS.queuedCommands 8), QUEUE_TIMEOUT, REQUEST_TIMEOUT (LIMITS.requestMs 30000), REVOKED, PAGE_HIDDEN (the tab is hidden: tests, Play inputs, scenarios and camera shots are refused, not queued; the pairing is kept and reads and edits still work; ask the person to bring the tab back into view, then send the request again), PAGE_RELOADING (the page reloaded: the pairing is held 120 s for the person's Reconnect; call agent_status until it reads paired, then retry without targetId and epoch)",
+    "the rules: the person's switches decide what you may do, whatever you asked for; nothing beyond the operation catalogue (no code, shell or HTTP through the page); local files only from the folder or files the person chose in the page (packs.list); a session ends after LIMITS.sessionIdleMs 1800000 ms idle or LIMITS.sessionAbsoluteMs 28800000 ms in all"
+  ],
+  "see_also": [
+    "/connect/claude-code/",
+    "/connect/codex/",
+    "/connect/claude-desktop/",
+    "/connect/other/",
+    "/map/",
+    "/guides/test-locally/"
+  ]
+}
+```

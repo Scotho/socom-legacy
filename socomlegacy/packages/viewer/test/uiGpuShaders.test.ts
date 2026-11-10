@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { UI_GPU_OVERSIZE_ROUTE_ADAPTATION } from '../src/uiGpuTextures';
 import * as ui from '@s2u/ui';
 import type { UiDrawItem } from '@s2u/ui';
 import * as view from '../src/uiCompositorView';
@@ -229,7 +230,7 @@ describe('GM-15a: the model source lint (model-ff-src, model-ff-add and their ve
   it('discard in T3 (outside) and T10 (al <= 0) only', () => {
     for (const [name, src] of MODELS) {
       expect((code(src).match(/\bdiscard\b/g) ?? []).length, name).toBe(2);
-      expect(code(span(src, 'T3')), name).toContain('if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0) discard;');
+      expect(code(span(src, 'T3')), name).toContain('if (!(owns(e0, by - cy, cx - bx, wind) && owns(e1, cy - ay, ax - cx, wind) && owns(e2, ay - by, bx - ax, wind))) discard;');
       expect(code(span(src, 'T10')), name).toContain('if (al <= 0.0) discard;');
     }
   });
@@ -284,12 +285,18 @@ describe('GM-15a: the model source lint (model-ff-src, model-ff-add and their ve
 
 /**
  * GM-15a: the model programs' source pins, each written from the twin's step function of its tag (`uiGpuTwin.ts`; their
- * own pins, `uiGpuShaderTwin.test.ts` PINNED): T2 `T2_weight`/`T2_third`, T4 `T4_invW`, T5 `T5_depth`, T6
+ * own pins, `uiGpuShaderTwin.test.ts` PINNED): T2 `T2_edge`/`T2_weight`/`T2_third`, T3 `T3_inside`/`T3_owns`, T4 `T4_invW`, T5 `T5_depth`, T6
  * `T6_perspective`, T7 `T7_lerp`, T8 `sampleTwin` with `T8_lerp`, T9 `S8_modulate`/`T9_modulateAlpha`.
  */
 const MODEL_PINS: Record<string, string[]> = {
   T1: ['ivec2 p = ivec2(gl_FragCoord.xy);', 'float x = float(p.x);', 'float y = float(p.y);'],
-  T2: ['float w0 = (((bx - x) * (cy - y)) - ((cx - x) * (by - y))) * inv;', 'float w1 = (((cx - x) * (ay - y)) - ((ax - x) * (cy - y))) * inv;', 'float w2 = (1.0 - w0) - w1;'],
+  // GM-15d: the three edge functions (T2_edge), the weights from the first two (T2_weight is T2_edge times inv, the same
+  // f32 operations), and T3's top-left test (T3_inside, T3_owns): the winding's sign from inv's, each edge's gradient.
+  T2: [
+    'float e0 = ((bx - x) * (cy - y)) - ((cx - x) * (by - y));', 'float e1 = ((cx - x) * (ay - y)) - ((ax - x) * (cy - y));',
+    'float e2 = ((ax - x) * (by - y)) - ((bx - x) * (ay - y));', 'float w0 = e0 * inv;', 'float w1 = e1 * inv;', 'float w2 = (1.0 - w0) - w1;',
+  ],
+  T3: ['float wind = inv < 0.0 ? -1.0 : 1.0;', 'if (!(owns(e0, by - cy, cx - bx, wind) && owns(e1, cy - ay, ax - cx, wind) && owns(e2, ay - by, bx - ax, wind))) discard;'],
   T4: ['float invW = ((w0 * t_w.x) + (w1 * t_w.y)) + (w2 * t_w.z);'],
   T5: ['gl_FragDepth = clamp(invW * u_depthScale, 0.0, 1.0);'],
   T6: ['w0 = w0 * (t_w.x / invW);', 'w1 = w1 * (t_w.y / invW);', 'w2 = w2 * (t_w.z / invW);'],
@@ -475,7 +482,7 @@ function checkSequence(f: Fake, plan: UiFramePlan, key: string): void {
 /**
  * GM-15a: the models' calls of one drawn plan -- the frame target's `DEPTH_COMPONENT32F` attachment, one clear of it to 0
  * per pass before the pass's first run (and after the run before it), and each run of triangles: one instanced draw
- * through its program, under `DEPTH_TEST` with `GREATER` and the depth mask on, the colour mask RGB only (M7), the
+ * through its program, under `DEPTH_TEST` with `GEQUAL` (GM-15d; was `GREATER`) and the depth mask on, the colour mask RGB only (M7), the
  * blender's `UI_GPU_MODEL_FF_BLEND`, the pass's `depthScale`, each instance its triangle's box and numbers.
  */
 function checkModels(f: Fake, plan: UiFramePlan, key: string): void {
@@ -506,7 +513,7 @@ function checkModels(f: Fake, plan: UiFramePlan, key: string): void {
     mine.forEach((x, j) => {
       const t = plan.triangles[s.triangles[j]!]!, what = `${key} triangle ${s.triangles[j]}`;
       expect([x.program, x.instance, x.instances], what).toEqual([name, j, s.triangles.length]);
-      expect([x.depthTest, x.depthFunc, x.depthMask, x.depthAttached], `${what}: DEPTH_TEST, GREATER, the mask on, a depth`).toEqual([true, GL.GREATER, true, true]);
+      expect([x.depthTest, x.depthFunc, x.depthMask, x.depthAttached], `${what}: DEPTH_TEST, GEQUAL, the mask on, a depth`).toEqual([true, GL.GEQUAL, true, true]);
       expect(x.mask, `${what}: the colour mask RGB only (M7)`).toEqual([true, true, true, false]);
       expect([x.blend, x.func, x.equation], what).toEqual([true, want, [GL.FUNC_ADD, GL.FUNC_ADD]]);
       expect(x.uniforms.u_depthScale, `${what}: the pass's depthScale`).toEqual([plan.passes[s.pass]!.depthScale]);
@@ -573,10 +580,11 @@ describe('GM-11a-2: the backend draws GM-03\'s cases on the fake GL, frame for f
       const models = f.draws.filter((d) => d.program.startsWith('model-'));
       expect(models.map((d) => d.program)).toEqual(['model-ff-add', 'model-ff-add', 'model-ff-add', 'model-ff-add']);
       for (const d of models) expect(d.uniforms.u_depthScale).toEqual([0.25]);
-      // The probes the case pins (uiRasterCases.ts): the shared edge drawn once at equal depth, twice where nearer.
+      // The probes the case pins (uiRasterCases.ts): the shared edge drawn once, by its top-left owner (the second
+      // triangle of each pair), at equal depth and where the later is nearer (GM-15d; inclusive edges drew it twice there).
       const px = b.readPixels(), at = (x: number, y: number) => Array.from(px.data.subarray((y * px.width + x) * 4, (y * px.width + x) * 4 + 4));
       expect(at(4, 4), blend).toEqual([70, 70, 70, 255]);
-      expect(at(24, 4), blend).toEqual([130, 130, 130, 255]);
+      expect(at(24, 4), blend).toEqual([70, 70, 70, 255]);
       // The depth the pass leaves: 1 * 0.25 under the first pair, 2 * 0.25 = 0.5 where the nearer triangle drew.
       const depth = f.framebuffers.find((fb) => !fb.deleted && fb.depth)!.depth!;
       expect(depth.data![4 * depth.w + 4]).toBe(0.25);
@@ -733,11 +741,11 @@ describe('GM-11a-2: programs, textures and the axis table on the fake GL', () =>
     expect(backendOn(fakeGl()).refusal(tplan)).toMatch(/past f32/);
   });
 
-  it('a bitmap past MAX_TEXTURE_SIZE is refused with GM-14b named, and the presenter draws that frame L1, equal to the software', () => {
+  it('a bitmap past MAX_TEXTURE_SIZE takes the GM-14b route (UI_GPU_OVERSIZE_ROUTE_ADAPTATION), and the presenter draws that frame L1, equal to the software', () => {
     const c = caseById(15), { items, textures, options } = caseRasterInputs(c, 1, 'opaque');
     const f = fakeGl({ maxTexture: 1024 }), b = backendOn(f);
     const plan = planFrame(items, textures, { scale: 1, hd: options.hd });
-    expect(b.refusal(plan)).toMatch(/MAX_TEXTURE_SIZE 1024: GM-14b/);
+    expect(b.refusal(plan)).toBe(`${UI_GPU_OVERSIZE_ROUTE_ADAPTATION.reason}: bg.tif (HD, 2048 x 2048) past MAX_TEXTURE_SIZE 1024`);
     const p = new GpuUiPresenter(b);
     p.present(items, textures, options);
     expect(p.last!.path).toBe('software');
@@ -761,5 +769,14 @@ describe('GM-11a-2: programs, textures and the axis table on the fake GL', () =>
     const plan = planOf(caseById(11), 1, 'opaque', 'exact');
     const broken: UiFramePlan = { ...plan, steps: plan.steps.filter((s) => s.kind !== 'copy') };
     expect(() => backendOn(fakeGl()).draw(broken)).toThrow(/before its copy/);
+  });
+});
+
+describe('GM-15d: the model programs\' top-left helper', () => {
+  it('owns() is T3_owns written in GLSL: the winding times the edge function, and on the edge a left edge (s gx > 0) or a top one (gx 0, s gy > 0)', () => {
+    for (const name of UI_GPU_MODEL_PROGRAMS) {
+      expect(code(UI_GPU_SHADER_SOURCES[name]), name).toContain('bool owns(float e, float gx, float gy, float s) {');
+      expect(code(UI_GPU_SHADER_SOURCES[name]), name).toContain('return s * e > 0.0 || (e == 0.0 && (s * gx > 0.0 || (gx == 0.0 && s * gy > 0.0)));');
+    }
   });
 });

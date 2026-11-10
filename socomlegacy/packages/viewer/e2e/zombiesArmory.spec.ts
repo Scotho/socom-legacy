@@ -5,6 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type {} from '../src/hook';
 import { makeZip } from '../test/zipFixture';
 import { packZip } from '../test/zombies/fixture';
+import { dropPack, modsRow, openMods, setPackOn } from './modsScreen';
 import { TEST_ROOM } from './urls';
 
 /**
@@ -14,7 +15,8 @@ import { TEST_ROOM } from './urls';
  * room down and close the ARMORY, so no loopback is ever made beside the run; F7 (`reset`) makes the room again. A
  * development build's ARMORY takes F6 itself (its key capture is dev-only), so the run starts through the page's
  * development hook, `window.__zombies.start()` -- standing in for a release build's F6, which reaches the mode. The pack
- * is the unit tests' synthetic one (a hand-made triangle and a tone), loaded through the test-room mod loader.
+ * is the unit tests' synthetic one (a hand-made triangle and a tone), kept and switched on in Home > Experiments > Mods
+ * (`./modsScreen`, B206 ML-9) and applied by the test room at the map's load.
  */
 test.use({ storageState: { cookies: [], origins: [] } });
 
@@ -51,13 +53,12 @@ test('a zombies start under the map-entry ARMORY stands the pending offline room
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
 
-  // The pack in this browser's mod loader, enabled (the loader keeps both across a reload).
-  await page.goto(`${TEST_ROOM}?map=MP72&devmode`);
-  await page.locator('#mods').waitFor({ state: 'attached' });
-  if (await page.locator('#panel').evaluate((el) => el.classList.contains('is-folded'))) await page.locator('#panel-toggle').click();
-  await page.locator('#mod-zip').setInputFiles({ name: 'zombies.zip', mimeType: 'application/zip', buffer: outer() });
-  await expect(page.locator('#mod-list li[data-mod-id="zombies-test"]')).toContainText('loaded');
-  await page.locator('#mods-enabled').check();
+  // The pack kept in this browser through Home > Experiments > Mods (B206 ML-7: the test room's own picker is gone) and
+  // switched on; the test room applies it at the map's load.
+  await openMods(page);
+  await dropPack(page, { name: 'zombies.zip', buffer: outer() });
+  await expect(modsRow(page, 'mod:zombies-test')).toContainText('Zombies test pack');
+  await setPackOn(page, 'mod:zombies-test', true);
 
   // Play on Crossroads: the map's entry opens the offline ARMORY, the room not made yet.
   await page.goto(`${TEST_ROOM}?map=MP72&mode=play&devmode`);

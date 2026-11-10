@@ -1,7 +1,7 @@
 /* RV2-05 -- the replay viewer's transport on the console (the RV2 plan, docs/plans/2026-11-02-replay-viewer-redesign.md
    §2 item 4; RV2.R4): the band with the recording's rounds end to end, the marks, the fill and the gold playhead, the
-   hover; the control row (the seven buttons, play the 48 px gold circle), the time, the round chip, the Partial pill, the
-   speed stepper in the options rows' stepper look (.cx-r__step: the gold glyph, dim until lit). The console's tokens only
+   hover; the control row (the seven buttons, play the 48 px gold circle), the time, the round chip (RB-45: the Partial pill
+   is the viewer's head's chip, replay.css), the speed stepper in the options rows' stepper look (.cx-r__step: the gold glyph, dim until lit). The console's tokens only
    (--s2u-*, --s2u-lx-*; CX.R4/R7), the one gold --s2u-lx-accent (LR.R14) for the fill, the playhead, play and the current
    round; every target at least --s2u-hit-min. Loaded by modern/replays/transport.ts. RV2-04's chrome is its own sheet;
    the phone layouts are RV2-08's (the end of this sheet). A browser adaptation: no original. */
@@ -21,20 +21,37 @@
 :root[data-console] .cx-replay-band__round[aria-current="true"] .cx-replay-band__num { color: var(--s2u-lx-accent); opacity: 1; }
 :root[data-console] .cx-replay-band__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--s2u-radius-lx-row) 0 0 var(--s2u-radius-lx-row); background: color-mix(in srgb, var(--s2u-lx-accent) 20%, transparent); pointer-events: none; }
 :root[data-console] .cx-replay-band__marks { position: absolute; inset: 0; pointer-events: none; }
-:root[data-console] .cx-replay-band__mark { position: absolute; bottom: 0; width: 3px; height: 0.625rem; margin-left: -1.5px; border-radius: 1px; background: var(--s2u-lx-ink-hi); }
 :root[data-console] .cx-replay-band__head { position: absolute; top: -0.25rem; bottom: -0.25rem; width: 2px; margin-left: -1px; background: var(--s2u-lx-accent); box-shadow: 0 0 0.5rem var(--s2u-lx-accent); pointer-events: none; }
-:root[data-console] .cx-replay-band__head::before { content: ""; position: absolute; top: -0.3125rem; left: 50%; width: 0.75rem; height: 0.75rem; border-radius: 50%; background: var(--s2u-lx-accent-hi); transform: translateX(-50%); }
+/* RB-33 -- the band as the owner's "S2 Launcher v2" draws it (D:369-387; D: its S2 Launcher v2.dc.html): the winner bar,
+   2 px under a finished round in the roster's side colours (replay.css's player dots: the SEALs --s2u-state-live, the
+   terrorists --s2u-lx-bad), its colour easing in over .4s (D:374); the kill marks 2 px wide, 5 px off the floor -- the
+   viewer's own kills gold and own deaths the terrorists' colour at 12 px, the others faint at 6 px (D:380, D:988-991);
+   the playhead's transition by the band's data-motion -- .06s linear playing, .28s eased paused, none dragged
+   (D:1045); the knob 10 px, 15 px while the band's input holds the focus or a drag runs, over .2s (D:383, D:1046). */
+:root[data-console] .cx-replay-band__win { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: transparent; transition: background 0.4s ease; }
+:root[data-console] .cx-replay-band__round[data-done][data-winner="seal"] .cx-replay-band__win { background: var(--s2u-state-live); }
+:root[data-console] .cx-replay-band__round[data-done][data-winner="terrorist"] .cx-replay-band__win { background: var(--s2u-lx-bad); }
+:root[data-console] .cx-replay-band__mark { position: absolute; bottom: 5px; width: 2px; height: 6px; margin-left: -1px; border-radius: 1px; background: color-mix(in srgb, var(--s2u-lx-ink) 20%, transparent); }
+:root[data-console] .cx-replay-band__mark[data-mark="kill"] { height: 12px; background: var(--s2u-lx-accent); }
+:root[data-console] .cx-replay-band__mark[data-mark="death"] { height: 12px; background: var(--s2u-lx-bad); }
+:root[data-console] .cx-replay-band[data-motion="play"] .cx-replay-band__head { transition: left 0.06s linear; }
+:root[data-console] .cx-replay-band[data-motion="pause"] .cx-replay-band__head { transition: left 0.28s cubic-bezier(0.2, 0.8, 0.25, 1); }
+:root[data-console] .cx-replay-band[data-motion="drag"] .cx-replay-band__head { transition: none; }
+:root[data-console] .cx-replay-band__head::before { content: ""; position: absolute; top: -0.3125rem; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--s2u-lx-accent); box-shadow: 0 0 0 3px var(--s2u-lx-ring-ground); transform: translateX(-50%); transition: width 0.2s, height 0.2s; }
+:root[data-console] .cx-replay-band:has(> .cx-replay-band__input:is(:focus, .is-focused)) .cx-replay-band__head::before, :root[data-console] .cx-replay-band[data-motion="drag"] .cx-replay-band__head::before { width: 15px; height: 15px; }
 :root[data-console] .cx-replay-band__hover { position: absolute; bottom: calc(100% + 0.625rem); padding: 0.25rem 0.5rem; transform: translateX(-50%); border-radius: var(--s2u-radius-lx-row); background: var(--s2u-lx-panel); box-shadow: inset 0 0 0 1px var(--s2u-lx-edge); color: var(--s2u-lx-ink-hi); font: 400 calc(0.75rem * var(--cx-text-scale))/1.2 var(--s2u-font-mono); white-space: nowrap; pointer-events: none; }
 /* the range input holds the focus and the slider's value; the band takes the pointer */
 :root[data-console] .cx-replay-band__input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; pointer-events: none; }
 
-/* the control row: the buttons, the time, the chip, the pill, the speed;
+/* the control row: the buttons, the time, the chip, the speed;
    RV2-08: the buttons and the readout are the bar's second and third lines (data-line), one row on a desktop;
-   RV2-07 (at RV2-08's merge): the round steps end the buttons' line */
+   RB-33: the round steps inline beside play, then a divider and the snapshot steps (the design's order, D:390-399) */
 :root[data-console] .cx-replay-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.375rem; }
 :root[data-console] .cx-replay-controls__buttons { flex: none; display: flex; align-items: center; gap: 0.25rem 0.375rem; }
 :root[data-console] .cx-replay-controls__readout { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.375rem; }
-:root[data-console] .cx-replay-btn { display: grid; place-items: center; min-width: var(--s2u-hit-min); min-height: var(--s2u-hit-min); padding: 0; border: 0; border-radius: var(--s2u-radius-lx-row); appearance: none; background: none; color: var(--s2u-lx-ink-hi); cursor: pointer; transition: background var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease); }
+:root[data-console] .cx-replay-btn { display: grid; place-items: center; min-width: var(--s2u-hit-min); min-height: var(--s2u-hit-min); padding: 0; border: 0; border-radius: var(--s2u-radius-lx-row); appearance: none; background: none; color: var(--s2u-lx-ink-hi); cursor: pointer; transition: background var(--s2u-dur-fast) var(--s2u-ease), color var(--s2u-dur-fast) var(--s2u-ease), transform 0.12s; }
+/* RB-33: a run action scales its button to .9 for 140 ms (transport.ts TRANSPORT_PRESS_MS; D:599, D:1004) */
+:root[data-console] .cx-replay-btn[data-pressed] { transform: scale(0.9); }
 :root[data-console] .cx-replay-btn:hover:enabled { background: color-mix(in srgb, var(--s2u-lx-ink) 10%, transparent); }
 :root[data-console] .cx-replay-btn:is(:focus-visible, .is-focused) { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: 1px; }
 :root[data-console] .cx-replay-btn:disabled { cursor: default; color: var(--s2u-lx-ink); opacity: 0.35; }
@@ -43,30 +60,34 @@
 :root[data-console] .cx-replay-btn--play:disabled { background: color-mix(in srgb, var(--s2u-lx-accent) 30%, transparent); color: var(--s2u-lx-on-accent); opacity: 1; }
 :root[data-console] .cx-replay__icon { width: 1.375rem; height: 1.375rem; }
 :root[data-console] .cx-replay-time { margin-left: 0.75rem; font: 400 calc(0.9375rem * var(--cx-text-scale))/1 var(--s2u-font-mono); font-variant-numeric: tabular-nums; color: var(--s2u-lx-ink-hi); white-space: nowrap; }
-:root[data-console] .cx-replay-chip { display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0.3125rem 0.625rem; border-radius: var(--s2u-radius-pill); box-shadow: inset 0 0 0 1px var(--s2u-lx-accent); font: 400 calc(0.75rem * var(--cx-text-scale))/1 var(--s2u-font-mono); letter-spacing: 0.14em; color: var(--s2u-lx-accent); white-space: nowrap; }
-:root[data-console] .cx-replay-pill { display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0.3125rem 0.625rem; border-radius: var(--s2u-radius-pill); background: color-mix(in srgb, var(--s2u-lx-ink) 10%, transparent); font: 500 calc(0.75rem * var(--cx-text-scale))/1 var(--s2u-font-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--s2u-lx-ink); white-space: nowrap; }
+/* RB-33: the round text as the design sets it (D:402): mono, tracked .16em, the ink at half, no ring */
+:root[data-console] .cx-replay-chip { display: inline-flex; align-items: center; margin-left: 0.875rem; font: 400 calc(0.75rem * var(--cx-text-scale))/1 var(--s2u-font-mono); letter-spacing: 0.16em; color: color-mix(in srgb, var(--s2u-lx-ink) 50%, transparent); white-space: nowrap; }
 :root[data-console] .cx-replay-speed { display: inline-flex; align-items: center; gap: 0.125rem; margin-left: auto; }
 :root[data-console] .cx-replay-btn--step { color: var(--s2u-lx-accent); opacity: 0.55; }
 :root[data-console] .cx-replay-btn--step:is(:hover, :focus-visible, .is-focused):enabled { opacity: 1; }
-:root[data-console] .cx-replay-rounds { display: inline-flex; align-items: center; gap: 0.125rem; margin-left: 0.5rem; }
+/* RB-33: the divider between the seven and the snapshot steps (D:395: 1 px by 22 px, the ink at 12%, 8 px each side) */
+:root[data-console] .cx-replay-controls__divider { flex: none; width: 1px; height: 22px; margin: 0 0.5rem; background: color-mix(in srgb, var(--s2u-lx-ink) 12%, transparent); }
 :root[data-console] .cx-replay-speed__value { min-width: 3.5rem; text-align: center; font: 400 calc(0.9375rem * var(--cx-text-scale))/1 var(--s2u-font-mono); font-variant-numeric: tabular-nums; color: var(--s2u-lx-ink-hi); }
 
 /* RV2-08 (the RV2 plan §2 "Phone"): at the console's phone rule and its short landscape the bar stacks to its three
-   lines -- the band; the controls (to the start, back 10 s, play, on 10 s, to the end: view.ts takes the snapshot steps
-   out, Transport.layout; then RV2-07's two round steps, wrapping under the five where the line is narrower than
-   seven targets); the time, the round chip, the pill and the speed, spread across the line and wrapping inside
+   lines -- the band; the controls (to the start, back 10 s, Previous round, play, Next round, on 10 s, to the end, in
+   RB-33's order: view.ts takes the snapshot steps and their divider out, Transport.layout; wrapping where the line is
+   narrower than seven targets); the time, the round chip and the speed, spread across the line and wrapping inside
    it rather than past the cell. Every target keeps --s2u-hit-min. */
 @media (width <= 760px), (max-height: 550px) and (orientation: landscape) {
   :root[data-console] .cx-replay-transport { min-width: 0; gap: 0.375rem; padding: 0.25rem 0; }
   :root[data-console] .cx-replay-controls { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0.375rem; }
   :root[data-console] .cx-replay-controls__buttons { flex-wrap: wrap; justify-content: center; gap: 0.25rem; }
-  :root[data-console] .cx-replay-rounds { margin-left: 0.25rem; }
-  :root[data-console] .cx-replay-controls__readout { flex: none; justify-content: space-between; gap: 0.25rem 0.5rem; }
+    :root[data-console] .cx-replay-controls__readout { flex: none; justify-content: space-between; gap: 0.25rem 0.5rem; }
   :root[data-console] .cx-replay-btn--play { margin: 0 0.125rem; }
-  :root[data-console] :is(.cx-replay-time, .cx-replay-chip, .cx-replay-pill) { margin-left: 0; }
+  :root[data-console] :is(.cx-replay-time, .cx-replay-chip) { margin-left: 0; }
   :root[data-console] .cx-replay-speed__value { min-width: 2.75rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-console] .cx-replay-btn { transition: none; }
+  :root[data-console] .cx-replay-btn[data-pressed] { transform: none; }
+  :root[data-console] .cx-replay-band__head, :root[data-console] .cx-replay-band__head::before, :root[data-console] .cx-replay-band__win { transition: none; }
+  /* RB-45 (a): as specific as the per-state rules above (the band's data-motion), so the playhead does not slide here */
+  :root[data-console] .cx-replay-band[data-motion] .cx-replay-band__head { transition: none; }
 }

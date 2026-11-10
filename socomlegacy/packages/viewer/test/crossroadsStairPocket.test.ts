@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { FsAssetSource } from '@s2u/archive/node';
 import { isWallSurface, probeGround, segmentHits, selectFloor, SEAL_TUNING, type Grid } from '@s2u/scene';
 import { loadMap } from '../src/loadMap';
-import { groundGrid, STEP_PROBE_LIFT_READING, wallProbeHeights, Walker } from '../src/mover';
+import { groundGrid, probeLiftOf, wallProbeHeights, Walker } from '../src/mover';
 
 /**
  * Issue #111 (research 217 s2.6): the pocket beside Crossroads' stair. In the lobby-launched MP72 match the
@@ -50,7 +50,7 @@ describe.skipIf(!HAVE_MP72)(`issue #111: the pocket beside Crossroads' stair (MP
     const here = probeGround(g, x, z);
     expect(here).toHaveLength(1);
     expect(here[0]!.y).toBeCloseTo(42.5, 3);
-    const pick = selectFloor(here, y + STEP_PROBE_LIFT_READING, y)!;
+    const pick = selectFloor(here, y + probeLiftOf('stand'), y)!;
     expect(pick.y).toBeCloseTo(42.5, 3);
     // Either side of the crack: the stair over the road at x 736.6 (49.87, its slope 25.7 over 38.6 along z), the
     // stringer's top at x 736.2 (53.25: 47.7 at z 850 to 71.2 at z 814).
@@ -69,7 +69,7 @@ describe.skipIf(!HAVE_MP72)(`issue #111: the pocket beside Crossroads' stair (MP
     // 7.37 over the feet -- over step_height, inside FUN_005b5d40's window of 20.
     const off = probeGround(g, FACE_X + 3.5, z);
     expect(off).toHaveLength(1);
-    const stair = selectFloor(off, y + STEP_PROBE_LIFT_READING, y)!;
+    const stair = selectFloor(off, y + probeLiftOf('stand'), y)!;
     expect(stair.y - y).toBeGreaterThan(SEAL_TUNING.stepHeight);
     expect(stair.y - y).toBeLessThan(20);
     expect(stair.y).toBeCloseTo(49.87, 1);
@@ -81,7 +81,7 @@ describe.skipIf(!HAVE_MP72)(`issue #111: the pocket beside Crossroads' stair (MP
     const end: Record<string, { moved: number; x: number; y: number; z: number; airborne: boolean }> = {};
     for (const { name, yaw } of HEADINGS) {
       const w = new Walker(g);
-      expect(w.place(POCKET[0], POCKET[1] + STEP_PROBE_LIFT_READING, POCKET[2])).toBe(true);
+      expect(w.place(POCKET[0], POCKET[1] + probeLiftOf('stand'), POCKET[2])).toBe(true);
       expect(w.state.y).toBeCloseTo(42.5, 3);
       w.state.yaw = yaw;
       for (let i = 0; i < 120; i++) w.tick({ forward: 1, right: 0, boost: false });   // 2 s at full stick

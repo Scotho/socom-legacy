@@ -122,6 +122,12 @@ character type: each side's four ARMORY types' skeletons (`simSkeletonsFromBytes
 (`Room.volumesOf`); the types' parts' boxes differ, so their capsules do (research 95 §6). Without a choice a player is
 SEAL 1 / TERRORIST 1 (research 95 R95.5, which answers `DEFAULT_CHARTYPE_PLACEHOLDER`).
 
+**The nodes as posed: the lean (LEAN-HIT, 2026-11-08; reading, pending review).** The nodes `FUN_005abbc0` meets are
+the actor's live skeleton's, so a SEAL holding a peek is hit on the lean clip `FUN_0057d810` (D:L440437-440510) holds
+on its last key, not on his stance's idle. The room's and the page's capsules now pose the held peek's lean set
+(`bodyVolumes`' `peek`, the room's rewind history carrying it); the clip's rise is judged at the held key
+(`LEAN_HIT_POSE_READING`). Research 217 §3.6.
+
 ### 1.4 Part damage bookkeeping (`FUN_005a5830` L461469-461547)
 
 | rule | citation |
@@ -572,6 +578,8 @@ holds the two lists in step).
 | `RESPAWN_OPTION_DEFAULT_PLACEHOLDER` (91a) | as above for respawn | resolved by 91b: "Respawn is disabled." (`A_49`, UIMnLOC 249-250) |
 | `RESPAWN_WAIT_CAMERA_PLACEHOLDER` (91a) | camera during the respawn wait (no call in `FUN_005979a0`) | resolved 2026-09-29: the death camera, `FUN_00297a30` (141072-141290) set up by `FUN_002980d0` (141292-141376) when the player's actor reaches state 8 (`FUN_00297410` 140900-140913). Network game: mode 3 with a killer (`actor+0xfc4`), the orbit swinging the eye to the body's far side from the killer at `1.30875 x sin` rad/s (141213-141214), the eye eased to 20 up and pushed x 2.05 while under 56 across (141282-141286), the look blending to the killer over 1 s (141051-141066); mode 6 with none (suicide, fall), the orbit turning at 0.8725 rad/s (141217); the tilt clamped to [-1, -0.2] rad for the dead (141242-141252); reset by `FUN_00299150` (141652-141662). Viewer: `packages/viewer/src/deathCamera.ts` |
 | `DEATH_ORBIT_EULER_READING` (2026-09-29) | `FUN_003083c0(m, (tilt, yaw, 0))`'s rotation order, not read | reading: the tilt about x, then the turn about y; with it the mode-3 formula's sign brings the eye to the killer's far side |
+| `DEATH_STICK_TILT_READING` (2026-11-09, DEATHCAM-MANUAL) | what drives the death camera's state-7 tilt, controller `+0x14` (`FUN_00297a30` D:L141142, D:L141221; the takeover reads it too, `FUN_002980d0` D:L141611-141613): no writer found in the controller code (D:L449000-456000 searched; `FUN_005966a0` hands the pitch to `FUN_00594600` and keeps only the raw pitch axis at `+0x138`) | reading (DEATHCAM-MANUAL's review PASS WITH FINDINGS, high, per the merge 25899c6d0): `'pitch axis'` -- the look stick's pitch axis (`LookState.axis[1]`, up positive), tilting the orbit at 2 x the axis a second within the dead's clamp [-1, -0.2]; the other candidate is never written (the dead view only turns). Settled by a full cross-reference of the writes to controller `+0x14`; or a PCSX2 capture (one online game, the default controller config, 60 fps, the pad logged): dead at state 7, the right stick full up for 1 s, then full down for 1 s -- does the view tilt, which way, at what rate, stopping at the clamp (at most 0.8 rad, -0.2 to -1); a memory trace of `DAT_00416210` and controller `+0x14` across it settles it outright (viewer `deathCamera.ts`) |
+| `DEATH_STICK_TURN_SIGN_READING` (2026-11-09, DEATHCAM-MANUAL) | the sense of the state-7 turn: `DAT_00416208 += +0x10 x 2 x dt` (D:L141220), `+0x10` the look's turn axis (`FUN_005966a0` D:L453858), the living turn `actor+0x48` (`FUN_00550ef0` D:L418340) | reading (DEATHCAM-MANUAL's review PASS WITH FINDINGS, high, per the merge 25899c6d0): `1` -- the port's left-positive look turn is `+0x10`'s sense, so a right push turns the view right as alive; full push 2 x 1.118 = 2.236 rad/s. Settled by a PCSX2 capture (as above): dead by one's own grenade, hands off (state 6 turns about 0.87 rad/s), then the right stick full right for exactly 1 s and released for 3 s -- expected about 2.24 rad (128 deg) in the stick's sense, then still, no spin resuming; record the direction; a memory trace of `DAT_00416208` and controller `+0x10` across it settles it outright (viewer `deathCamera.ts`) |
 | `DEAD_LOOK_READING` (2026-09-29) | the dead's look: the dead's controller `FUN_00592560` (L451642-451730) reads the respawn press (and the cycle bytes) and runs no move or turn | reading: the dead body keeps its facing and the page's look does not turn it (`WalkMode.frame`); the room ticks the corpse with the stick at rest |
 | `LIMB_SPILL_SCALE_PLACEHOLDER` / `LIMB_SPILL_PIERCING_PLACEHOLDER` (91a) | `DAT_006508a8` / `DAT_006508b0`, `.data`; read from `socom2_game.elf` at those addresses | resolved (section 20): 0.3 at piercing 10 |
 | `FRAGMENT_PART_TABLE_PLACEHOLDER` (91a) | `DAT_006508e0` 6 thresholds, `DAT_006508d0` 6 parts; receiver's copy `DAT_00650900`/`DAT_006508f8`; `.data` | resolved (section 20): head 30 %, body 30 %, each limb 10 % |
@@ -989,6 +997,16 @@ no old host to a release that changes the page's wire.
 
 Protocol 13 (PLANT-AIM, 2026-11-02; research 214 section 2 "The plant's pick", research 217 section 1.3): the page names its plant pick -- the tent polygon its reticle strikes -- in an additive `bombAction` 'aim' field when it changes while carrying, and the room re-picks that node along the newest command's look from the eye and holds it each tick of the hold (`PLANT_PICK_FIREPOINT_READING`: the reach is 15 u from the posed firepoint, `+0x14b0`, D:L463874-463881). An older page is refused at the hello; the replay decoders still read 12. The fold's resend rule is `PLANT_AIM_RESEND_ADAPTATION` (a browser adaptation: the pick is re-sent past 4 u and 6 ticks).
 
+Protocol 14 (ENEMY-RAISE ER-2, 2026-11-09; research 326 section 7, 321 section 7.7; reading -- ER-2's re-review PASS WITH FINDINGS (high), `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 1): the owner's
+raise state on the wire, the original's one field -- the owner packs its body's `FUN_005e0010` (`body+0xf74 & 0xef`, 1 up
+or 2 down, D:L494306-494309) into the player record's byte +0x7e every frame (`FUN_002bd640` D:L161978) and each receiver
+replays it on the copy (`FUN_002be150` D:L162310-162312). The page sends its own `WeaponRaise` state as the command's
+`raised`, bit 7 of the last byte (the weapon narrowed to bits 4-6, its codes 0 and 1); the room relays it on the body's
+`BodyFlag.Raised`, bit 16 of the u32, a bot's from its controller (`Player.raise`), never for a dead body; the copy runs
+its own envelope from it. A protocol-13 page is refused at the hello ("protocol 13, this server speaks 14"); a 13 `.s2r`
+plays on the live decoders (no 13 command set bit 7, no 13 room set bit 16), its copies on the old inference
+(`REMOTE_HAND_RAISE_READING`).
+
 The owner's rulings of 2026-10-01 add, without a new version (both additive): the launch countdown's `countdown` event (`{ seconds }`, null when called off) and the welcome's and promotion's `countdown` (the seconds left); see the table's "launch countdown" row. The same play test found that the room's shape check took a `fire`'s `viewTick` for an integer while the page sends its interpolation clock, a fraction of a tick (`NetClient.viewTick`): every page's round was dropped unread. The check is now a finite number (`room.ts` `text`), which the rewind interpolates (`past`).
 
 The `objectives` script was read again for this section from `MP51.ZDB:MZANIM.ZAR`, with `parseAnimSets` and
@@ -1223,6 +1241,43 @@ has no record of plays nothing (the shot's fallback to the side's rifle would be
 `central/test/room.test.ts` (his case: one to each peer, none to the reloader, none for a refused reload) and
 `viewer/test/netPageRound.test.ts`. `REMOTE_RELOAD_SOUND_READING` (`netPage.ts`).
 
+**The others see a reload (REMOTE-RELOAD, 2026-11-09; reading: its review PASS WITH FINDINGS, medium, the folds re-checked PASS, high, `agent-mail/evidence/mega/REVIEWS-RECORDED-IN-SESSION-99.md`).** A tester's report (Discord,
+2026-11-09 ~20:06Z: a teammate's reload not drawn after a mid-game join) led to a scope by source inspection that found
+the port drew no reload on any remote body at any time: the `reloadSound` above played only the sound. Two pieces of
+evidence say the original draws it. (1) `FUN_005c2a90` starts the reload's motion (`FUN_005a82e0`, D:L477479) and plays
+the `ReloadSound` (D:L477484) in the one step, so a console that hears a reload on its copy of an actor also starts the
+clip there. (2) The owner's observation of the original running (Craig, 2026-11-09 ~20:55Z, in the controller's seat,
+verbatim: "the original does show reloads. confirm if needed for info." -- a playtest observation, not a capture),
+which answers research 179's open question (`REMOTE_RELOAD_SOUND_READING`'s row: "a manual reload may have no sender")
+in favour of a sender existing. **How** the original carries it is still unread: the copy's record replay
+`FUN_002be150` (D:L162221-162480) calls none of the reload starters and the packed player record `FUN_002bd640`
+(D:L161854ff) holds no field identified as reload state; the two-console capture (research 206, item 18: B's audio and
+B's view of A's body through the reload, amended 2026-11-09) settles it.
+
+The port: the room's `reloadSound` for the hand's reload now also carries the take its lock was set from (`room.ts`
+`reload`: `posture`, `moving` = `reloadMoving` of the command's velocity, `family` = `reloadFamily`, `seconds` =
+`reloadLockSeconds`), additive under protocol 14 (`net/protocol.ts`: an older page ignores the fields; an event
+without them, an older room's, plays the sound alone). The page hands another body's to `RemotePlayers.reload`, which
+starts that body's reload clip through `Play.remoteReload` (`WeaponPose.startReload`): the posture's still clip, or the
+family's moving overlay (`seal_mv_reload` for the rifle) when the body moved at the take. The copy's play cuts a still
+clip on its replicated stick as the page's own (`Play.frame`'s `reloadCut`, `FUN_00550ef0` D:L418182-418185: the
+rifle's carried on as the overlay, the prone one ended), and the clip runs out on its own clock. A death on the copy
+ends any clip (the body is gone); a flinch ends only a crouched or prone still clip (`Play.stopRemoteReload`,
+`WeaponPose.stillHeld`), as the page's own: its flinch ends the still reload's hold (`fire.ts` `reloadEndOfBody`,
+family 'reload'), which `walk.ts` `holdReload` makes crouched or prone only (`mover.ts` `reloadHold`), and the room
+keeps the lock -- a standing still clip and the moving overlay play on (the review's F1, 2026-11-09; was: every flinch
+ended it, under a cite of the knock's lines). A blast's knock is what clears the moving-reload overlay and pops the
+stack (`FUN_0057e770` D:L440992-440998: `FUN_005a5da0` the overlay channel, `FUN_0058a4d0` the stack); the page's own
+reload ends there (`reloadPopped`), another body's is not wired yet (LATER 811). A reload decided after a worded
+turret take, whose clip the room cuts at the take (`mountKitLate`), is told with no take, the sound alone (the
+review's F3). The page's own
+id is unchanged (its reload drew itself). `REMOTE_RELOAD_MOTION_READING` (`netPage.ts`, 'room event at the take').
+Tests: `viewer/test/remoteReload.test.ts` (the clip on the play), `viewer/test/remotePlayers.test.ts` (the entry),
+`viewer/test/netPageRound.test.ts` (the routing), `central/test/roomRemoteReload.test.ts` (the room's fields equal
+its lock's). Not built: a reload under way at a join or a replay seek is not caught up (the event is transient,
+`replay/fold.ts`; the snapshot's still reload hold code is not read into a clip -- no catch-up built on a guess); a
+turret's reload sends no take; the bolt's and pump's after-shot clip for another body is not sent (LATER 810).
+
 ### 22.3 The others' footfalls heard
 
 The original: the footfall (`FUN_005a3570`, 460266-460378; research 81 §4) is called by the actor update
@@ -1263,6 +1318,7 @@ is not ours: C4 is a kit item here (research 94 §C5.1). `viewer/test/grenade.te
 | name | what stands in | what would settle it |
 |---|---|---|
 | `REMOTE_RELOAD_SOUND_READING` (`viewer/src/netPage.ts`) | the room sends `reloadSound` when it takes a magazine; the other pages play the item's `ReloadSound` at the drawn body; the after-shot sound is not sent | the trigger of a remote actor's reload on a peer (`FUN_005c2a90`'s and `FUN_005c32b0`'s callers for a non-local controller) |
+| `REMOTE_RELOAD_MOTION_READING` (`viewer/src/netPage.ts`; 2026-11-09, REMOTE-RELOAD) | the room's `reloadSound` at the take carries the posture, moving, family and seconds its lock was set from; the other pages start that body's reload clip (the still clip of the posture, or the moving overlay) -- that the original draws it is `FUN_005c2a90`'s one step (D:L477479, D:L477484) and the owner's observation of the original (2026-11-09, not a capture) | what the original's wire carries for another player's reload, and when the peer's clip starts: the two-console capture (research 206 item 18: B's audio and B's view of A's body) |
 | `REMOTE_STEP_STICK_READING` (`viewer/src/remotePlayers.ts`) | another player's step or stealth step by its replicated ground motion's larger axis; every drawn, living body's footfall heard | what a remote actor's controller holds for `FUN_005a39b0`'s stick floats; `FUN_005a3570`'s `+0xe0` gate |
 
 ## 23. The blood on a hit, seen by every page (INT-NET-2, 2026-10-02)

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Rgba } from '@s2u/gs';
 import { parseUiLayout, type FontFace, type FontGlyph } from '@s2u/scene';
 import type { DialogDesign, UiDrawItem } from '@s2u/ui';
@@ -228,7 +228,8 @@ describe.skipIf(!FRONT_END_PRESENT)(`GM-09: the Settings overlay's readFrame() a
     };
     const doc = {
       createElement: () => ({ width: 300, height: 150, dataset: {}, style: { filter: '', removeProperty() {} }, isConnected: true,
-        addEventListener() {}, remove() {}, getContext: () => target, getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 448 }) }),
+        addEventListener() {}, removeEventListener() {}, ownerDocument: { defaultView: null }, remove() {}, getContext: () => target,
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 448 }) }),
       body: { append() {} },
     } as unknown as Document;
     return { doc, presented };
@@ -279,31 +280,33 @@ describe('GM-09: the loading panel\'s readFrame() and undrawn()', () => {
     binding: { title: 'FROSTFIRE', description: ' ', picture: 'ld_mp2_prog.tif', library: 'ui/assetlib/ld/om02', stem: 'OM02', vars: new Map([['load_picture', 'ld_mp2_prog.tif']]) },
     strings: [], bitmaps,
   } as unknown as LoadingScreen);
-  class FakeImageData { data: Uint8ClampedArray; constructor(readonly width: number, readonly height: number) { this.data = new Uint8ClampedArray(width * height * 4); } }
-  const had = (globalThis as { ImageData?: unknown }).ImageData;
-  beforeAll(() => { (globalThis as { ImageData?: unknown }).ImageData = FakeImageData; });
-  afterAll(() => { (globalThis as { ImageData?: unknown }).ImageData = had; });
-  /** The panel's canvas first; each tint canvas after it has a 2D context only while `tint` is true. */
+  /**
+   * The panel's canvas: a 2D context (while `ctx` is true) whose `getImageData` reads the last frame put back, counting
+   * its reads. GM-22: the panel draws through `CpuUiPresenter` (no tint canvases any more), so one canvas is made.
+   */
   function fakeDoc() {
     const reads: number[][] = [];
-    const o = { tint: true };
-    let n = 0;
+    const o = { ctx: true };
+    let last: { width: number; height: number; data: Uint8ClampedArray } | null = null;
+    let made = 0;
     const make = (tag: string): unknown => {
       if (tag !== 'canvas') return { hidden: false, id: '', setAttribute() {}, append() {} };
-      const main = n++ === 0;
-      const c = { width: 300, height: 150, style: {}, append() {}, getContext: () => (main || o.tint ? ctx : null) };
+      made++;
       const ctx = {
-        globalAlpha: 1, fillStyle: '', fillRect() {}, setTransform() {}, drawImage() {}, putImageData() {},
-        getImageData: (x: number, y: number, w: number, h: number) => { reads.push([x, y, w, h]); const data = new Uint8ClampedArray(w * h * 4).fill(7); return { width: w, height: h, data }; },
+        createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+        putImageData: (img: { width: number; height: number; data: Uint8ClampedArray }) => { last = { width: img.width, height: img.height, data: img.data.slice() }; },
+        getImageData: (x: number, y: number, w: number, h: number) => { reads.push([x, y, w, h]); return { width: w, height: h, data: last!.data.slice() }; },
       };
-      return c;
+      return { width: 300, height: 150, style: {}, append() {}, getContext: () => (o.ctx ? ctx : null) };
     };
-    return { doc: { createElement: make, body: { append() {} } } as unknown as Document, reads, o };
+    return { doc: { createElement: make, body: { append() {} } } as unknown as Document, reads, o, made: () => made, last: () => last };
   }
 
   // A bitmap the screen does not hold is never a quad (`armoryQuads` places none without its size): it is the screen's
-  // `missing` or `unheld` (`stats()`). What the panel itself leaves undrawn is a quad it could not tint: no 2D context.
-  it('hidden: no frame and nothing undrawn; shown: the canvas read whole, and each quad it could not draw named once', () => {
+  // `missing` or `unheld` (`stats()`). GM-22 (re-pinned): the panel's frame is its presenter's (`CpuUiPresenter`, the
+  // menus' rasteriser), read back from the canvas; with no 2D context nothing is drawn or read (it had tint canvases
+  // whose missing context it named `no canvas <name>`; they went with the Canvas 2D path).
+  it('hidden: no frame and nothing undrawn; shown: the canvas read whole through the presenter; no 2D context: no frame', () => {
     const f = fakeDoc();
     const panel = new LoadingPanel(f.doc);
     expect(panel.readFrame()).toBeNull();
@@ -311,30 +314,37 @@ describe('GM-09: the loading panel\'s readFrame() and undrawn()', () => {
     const all: [string, Rgba][] = [['littleblack.tif', solid(8, 8)], ['ld_mp2_prog.tif', solid(64, 32)], ['loading_cd.tif', solid(32, 32)], ['font_text_01.tif', solid(256, 32)]];
     panel.show(screen(all));
     panel.redraw();
+    expect(f.made()).toBe(1);                                                // one canvas: no tint canvases
     expect(panel.undrawn()).toEqual([]);
     const frame = panel.readFrame()!;
     expect([frame.width, frame.height, frame.data.length]).toEqual([640, 448, 640 * 448 * 4]);
     expect(f.reads.at(-1)).toEqual([0, 0, 640, 448]);
-    f.o.tint = false;
-    panel.show(screen(all));
-    panel.redraw();
-    expect(panel.undrawn()).toEqual(['no canvas littleblack.tif', 'no canvas ld_mp2_prog.tif', 'no canvas loading_cd.tif']);
+    expect(sha(frame.data)).toBe(sha(f.last()!.data));
     panel.hide();
     expect(panel.readFrame()).toBeNull();
     expect(panel.undrawn()).toEqual([]);
+    const g = fakeDoc();
+    g.o.ctx = false;
+    const blind = new LoadingPanel(g.doc);
+    blind.show(screen(all));
+    blind.redraw();
+    expect([blind.readFrame(), blind.undrawn(), g.last()]).toEqual([null, [], null]);
   });
-  // GM-09 review F4: the `no bitmap` side of `missed`. The panel builds its quads' sizes and its bitmaps from the same
-  // `screen.bitmaps` (`show`), so through its API every quad's bitmap is held; the branch is a guard. Reached here by
-  // letting one bitmap go behind the panel's back (a private field), under HD, where the quad reads its original anew.
-  it('a quad whose bitmap is not held is named `no bitmap <name>` (under HD: the original of hdQuad), once a frame', () => {
-    const f = fakeDoc();
-    const panel = new LoadingPanel(f.doc, () => ({ scale: 2, hd: () => null }));
-    const all: [string, Rgba][] = [['littleblack.tif', solid(8, 8)], ['ld_mp2_prog.tif', solid(64, 32)], ['loading_cd.tif', solid(32, 32)], ['font_text_01.tif', solid(256, 32)]];
-    panel.show(screen(all));
-    panel.redraw();
-    expect(panel.undrawn()).toEqual([]);
-    (panel as unknown as { bitmaps: Map<string, Rgba> }).bitmaps.delete('loading_cd.tif');
-    panel.redraw();
-    expect(panel.undrawn()).toEqual(['no bitmap loading_cd.tif']);
+  // GM-09 review F4: the `no bitmap` side. The panel builds its quads' sizes and its bitmaps from the same
+  // `screen.bitmaps` (`show`), so through its API every quad's bitmap is held; reached here by letting one bitmap go
+  // behind the panel's back (a private field). GM-22 (re-pinned): the string is the compositor's, `<node>: no bitmap
+  // <name>`, as the front end's and the overlay's are (it was the panel's own `no bitmap <name>`).
+  it('a quad whose bitmap is not held is named `<node>: no bitmap <name>` by the compositor, at scale 1 and under HD', () => {
+    for (const hd of [undefined, () => ({ scale: 2, hd: () => null })]) {
+      const f = fakeDoc();
+      const panel = hd ? new LoadingPanel(f.doc, hd) : new LoadingPanel(f.doc);
+      const all: [string, Rgba][] = [['littleblack.tif', solid(8, 8)], ['ld_mp2_prog.tif', solid(64, 32)], ['loading_cd.tif', solid(32, 32)], ['font_text_01.tif', solid(256, 32)]];
+      panel.show(screen(all));
+      panel.redraw();
+      expect(panel.undrawn()).toEqual([]);
+      (panel as unknown as { bitmaps: Map<string, Rgba> }).bitmaps.delete('loading_cd.tif');
+      panel.redraw();
+      expect(panel.undrawn()).toEqual(['load_CD_spinning: no bitmap loading_cd.tif']);
+    }
   });
 });

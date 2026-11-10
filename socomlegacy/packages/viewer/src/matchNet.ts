@@ -1,4 +1,4 @@
-import type { Grid, Loadout, Side } from '@s2u/scene';
+import { itemClass, type Grid, type Loadout, type Side } from '@s2u/scene';
 import type { FlyCamera } from './camera';
 import type { LoadedMap } from './loadMap';
 import { kitRecords, wireLoadout, type PlayerLoadout } from './loadout';
@@ -29,8 +29,8 @@ export interface MatchNetParts {
   hud: NetPageDeps['hud'];
   /** SPECTATOR-VIEW W6: `setMagnification` and `lookOptions` (INVERT PITCH) optional for the stand-ins with no projection. */
   fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect'>>;
-  loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit' | 'held'>>;
-  firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt'>> & {
+  loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit' | 'held' | 'tables'>>;
+  firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt' | 'threatThrow'>> & {
     /** NET-REFILL: `setNetRefill` optional for the stand-ins that build no `Fire`. */
     fire: Pick<MatchFirearm['fire'], 'undoReload' | 'restoreReload' | 'refundRound'> & Partial<Pick<MatchFirearm['fire'], 'setNetRefill' | 'setPressWindow'>>;
   };
@@ -74,7 +74,7 @@ export const PART_DEPS = {
    * The room's projectiles flown on the page; its own told apart on a rejoin (PF-28); PF-36 (research 235 s4): the
    * room's pid for the page's own throw or charge (`placed`), a resting charge set off in the room (`detonate`).
    */
-  throwables: ['remoteGrenade', 'ownProjectiles', 'staleThrow', 'tagOwnProjectile', 'detonateProjectile', 'whiteOut'],   // LOW-2 (research 223 s6): a stale throw's item back; P2: the room's white-out
+  throwables: ['remoteGrenade', 'ownProjectiles', 'staleThrow', 'tagOwnProjectile', 'detonateProjectile', 'whiteOut', 'sceneRound'],   // LOW-2 (research 223 s6): a stale throw's item back; P2: the room's white-out
   /** PF-34 (research 234 s5, s6): the room's drops on the page (a welcome's set too), the page's live kit after a pickup (`kit`). */
   worldDrops: ['drops', 'kitChanged'],
   sound: ['reloadSound', 'deathVoice', 'hurtVoice', 'ring', 'roundAudio', 'objective', 'escorteeVoice'],   // HX-4a: the escortee's YES
@@ -224,5 +224,62 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
     deps.newRound = () => { clear(); newRound?.(); };
     deps.abandoned = () => { clear(); abandoned?.(); };
   }
+  // THREAT-MARKS (research 321 section 2.6): another's throw at its release lights the page's marks (GrenadeState ->
+  // FireGrenade `FUN_005bd030` D:L474178, TickExplosives `FUN_005c1970` D:L477133 -> `FUN_005c5340`'s threat block), then
+  // flies as before. Not a projectile a welcome hydrates (`phase` given: in flight already, no release here); not the
+  // Detonator's fire (a verb, no projectile); not a placed charge (`FireGrenade` places class 0x97, ids 151-170, with no
+  // release, D:L474155-474180; the charge branch of TickExplosives, `FUN_005bc730`, none either). A launched round and a
+  // death drop light as a throw (THREAT_LAUNCHER_READING, THREAT_DEATH_DROP_PLACEHOLDER); each event once
+  // (THREAT_DOUBLE_THROW_READING).
+  if (firearm.threatThrow) {
+    const thrown = deps.remoteGrenade, threatThrow = firearm.threatThrow;
+    deps.remoteGrenade = (kind, from, velocity, owner, pid, phase, ageTicks) => {
+      // Review F4: the table `threatThrow` resolves the record in -- the map's, else the live kit's (`./matchFirearm`).
+      const table = p.map()?.arsenal?.table ?? loadouts.tables?.() ?? null;
+      if (threatThrown(kind, phase, table?.arsenal.byName.get(kind)?.id ?? null)) threatThrow(kind, from, owner);
+      if (ageTicks !== undefined) thrown(kind, from, velocity, owner, pid, phase, ageTicks);
+      else thrown(kind, from, velocity, owner, pid, phase);
+    };
+  }
   return deps;
 }
+
+/**
+ * THREAT_LAUNCHER_READING (SCOPE section 2): the under-barrel round's release is read (`firepoint_203`, `FUN_005be9a0`
+ * D:L475518-475529 into the pellet loop); a standalone launcher's and a turret's rounds (MGL, M79, LAW, RPG, the MGL
+ * turret: the room's `launchRound`, `launchRocket`, `turretLaunch`) are taken to light the same way with the round's
+ * record -- `FUN_005be9a0`'s item-class branches and `FUN_005c5340`'s id switch after D:L479229 unread.
+ */
+export const THREAT_LAUNCHER_READING = 'light, with the round\'s Sound_Radius' as const;
+
+/**
+ * THREAT_DEATH_DROP_PLACEHOLDER (SCOPE section 2): the local chain death `FUN_00547af0` -> `FUN_005b8920` ->
+ * `FUN_005c5340` is read (an armed throwable dropped lights, ids 0x97-0x9a and 0x9e aside, D:L471757-471759); whether the
+ * net death path runs it for a remote body is not: the room's `deathDrop` `grenade` lights as a throw.
+ */
+export const THREAT_DEATH_DROP_PLACEHOLDER = 'light' as const;
+
+/**
+ * THREAT_DOUBLE_THROW_READING (SCOPE 1.2): whether an observing console runs TickExplosives for a remote thrower's kit
+ * beside GrenadeState -> FireGrenade, lighting one throw twice, is unread: one `grenade` event lights once.
+ */
+export const THREAT_DOUBLE_THROW_READING = 'once per grenade event' as const;
+
+/**
+ * THREAT_RELEASE_GATES_READING (SCOPE 1.2): the throw's gate `DAT_00650948` (D:L477068) and the death drop's
+ * `DAT_00650988` (D:L471803) hold 0x01 in the r0001 ELF and no code writes them directly; a write through a pointer is
+ * not excluded. Taken open.
+ */
+export const THREAT_RELEASE_GATES_READING = 'pass' as const;
+
+/**
+ * THREAT-MARKS: whether a `grenade` event is a release that lights the marks -- a live one (no `phase`), not the
+ * Detonator's, not a placed charge's (item class 0x97, `FUN_003d1a60` D:L324331-324352: `itemClass` 'explosive'); `id` the
+ * item's id by its name in the map's table, else the live kit's (`loadouts.tables()`, the same table `threatThrow` uses),
+ * or null when neither names it (its record then decides, none lighting).
+ */
+export function threatThrown(kind: string, phase: unknown, id: number | null): boolean {
+  if (phase !== undefined || kind === 'Detonator') return false;
+  return id === null || itemClass(id) !== 'explosive';
+}
+

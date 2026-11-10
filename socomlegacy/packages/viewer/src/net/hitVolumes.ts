@@ -1,4 +1,4 @@
-import { sampleClip, transformPoint, type MotionClip, type Skeleton } from '@s2u/scene';
+import { sampleClip, transformPoint, type MotionClip, type Skeleton, type SkeletonPart } from '@s2u/scene';
 import { writePose } from '../animator';
 import type { Stance } from '../mover';
 import { CROUCH_HEIGHT, HEAD_VOLUME_HEIGHT_READING, PRONE_HEIGHT, STANDING_HEIGHT } from '../stature';
@@ -27,8 +27,34 @@ export interface Capsule { part: number; a: V3; b: V3; r: number }
 /**
  * A body's capsules per posture, in the body frame (`skeletonVolumes` at each idle), and (PRONE-TILT) where each
  * posture's skeleton root stands posed, the point the root's tilt turns the body about (`rootPivot`). Absent: no tilt.
+ * LEAN-HIT (issue #752; research 217 s3.6): `lean`, each posture's capsules at its left and right lean clip's held key
+ * (`skeletonVolumes` at `leanHeldKey`), and `leanPivot`, the root posed there; absent (a hand-made set, a body read
+ * without its lean clips): a held peek is hit at the idle.
  */
-export type StanceVolumes = Readonly<Record<Stance, readonly Capsule[]>> & { readonly pivot?: Readonly<Record<Stance, V3>> };
+export type StanceVolumes = Readonly<Record<Stance, readonly Capsule[]>> & {
+  readonly pivot?: Readonly<Record<Stance, V3>>;
+  readonly lean?: Readonly<Record<Stance, { readonly l: readonly Capsule[]; readonly r: readonly Capsule[] }>>;
+  readonly leanPivot?: Readonly<Record<Stance, { readonly l: V3; readonly r: V3 }>>;
+};
+
+/**
+ * LEAN-HIT (research 217 s3.6): what the hit body poses under a held peek. 'held': the lean clip's held key for the
+ * whole peek (`leanHeldKey`), from the press. The original's round meets the live skeleton (`FUN_005abbc0`
+ * D:L464672-464803, its nodes bound in `FUN_00553ea0` D:L419606-419652) while `FUN_0057d810` (D:L440437-440510) plays
+ * the clip -- so through the clip's rise (0.4 s standing, 0.5 crouched, 0.8 / 0.65 prone; research 86 s1) it meets the
+ * clip's key at that moment, not the held one. Settles with a sample of the clip at the room's lean clock (a second
+ * commit), and a capture of a hit on a leaning target to prove the pose.
+ */
+export const LEAN_HIT_POSE_READING: 'held' | 'clip' = 'held';
+
+/**
+ * LEAN-HIT: the key a lean clip is held on -- its last key as the port draws it, `frameCount - 1` (`../clipPath`
+ * `clipShape` drops the closing key; `../traversal` `Traversal.pose` holds the lean at `shape.keys - 1`), so the room's
+ * capsules sit on the body the page draws (`test/hitVolumes.test.ts`, "A = B").
+ */
+export function leanHeldKey(clip: MotionClip): number {
+  return Math.max(0, clip.frameCount - 1);
+}
 
 /**
  * `spinelo`'s radius: its bbox is empty (it moves no vertex most), so none is measured. 2.0 sits between the hips'
@@ -104,21 +130,91 @@ export function skeletonVolumes(skeleton: Skeleton, clip: MotionClip | null, fra
   if (!byFrame) byClip.set(clip, byFrame = new Map());
   const have = byFrame.get(frame);
   if (have) return have;
-  const out = posed(skeleton, clip, frame, () => {
-    const caps: Capsule[] = [];
-    for (const d of DAMAGE_BONES) {
-      const i = skeleton.indexOf(d.bone);
-      if (i < 0) continue;
-      const to = d.to ? skeleton.indexOf(d.to) : -1;
-      const t = to >= 0 ? skeleton.local[to]! : null;
-      const [a, b, r] = fit(skeleton.parts[i]!.bbox, t ? [t[12]!, t[13]!, t[14]!] : null, d.radius);
-      const w = skeleton.world[i]!;
-      caps.push({ part: d.part, a: transformPoint(w, ...a), b: transformPoint(w, ...b), r });
-    }
-    return caps;
-  });
+  const out = posed(skeleton, clip, frame, () => posedVolumes(skeleton));
   byFrame.set(frame, out);
   return out;
+}
+
+/**
+ * HIT-POSE (research 217 s3.6): the body-frame capsules of `skeleton` as it is posed now -- its current local and world
+ * matrices, whatever posed them (`writePose` inside `skeletonVolumes`, or an `Animator`'s step: `./hitPose`) -- one per
+ * damage bone, fitted as `skeletonVolumes` fits them (each bone's bbox, its axis to the next joint's current local
+ * translation). It poses nothing and caches nothing: a new array each call.
+ */
+export function posedVolumes(skeleton: Skeleton): Capsule[] {
+  const caps: Capsule[] = [];
+  for (const d of DAMAGE_BONES) {
+    const i = skeleton.indexOf(d.bone);
+    if (i < 0) continue;
+    const to = d.to ? skeleton.indexOf(d.to) : -1;
+    const t = to >= 0 ? skeleton.local[to]! : null;
+    const [a, b, r] = fit(skeleton.parts[i]!.bbox, t ? [t[12]!, t[13]!, t[14]!] : null, d.radius);
+    const w = skeleton.world[i]!;
+    caps.push({ part: d.part, a: transformPoint(w, ...a), b: transformPoint(w, ...b), r });
+  }
+  return caps;
+}
+
+/**
+ * HIT-POSE's perf fold (research 217 s3.6a): what `posedVolumes` fits a pose's capsules from, kept as floats so the
+ * room fits them only for a body a round's ray reaches. Per damage bone (`DAMAGE_BONES`' order): its world matrix (16)
+ * and its next joint's local translation (3) -- every number `posedVolumes` reads off the skeleton but the parts' bboxes,
+ * which a skeleton never changes. The skeleton's matrices are float32, so the copy is exact and `capturedVolumes` gives
+ * `posedVolumes`' capsules to the bit (`match/test/hitPoseAnimated.test.ts`, "lazy = eager").
+ */
+const BONE_FLOATS = 19;
+/** The floats one pose takes (`capturePose`). */
+export const POSE_FLOATS = DAMAGE_BONES.length * BONE_FLOATS;
+
+/** Each damage bone's part index and its next joint's (-1: none, or the skeleton lacks it), per parts list (shared by a skeleton's instances). */
+const boneIndex = new WeakMap<readonly SkeletonPart[], Int16Array>();
+function damageIndex(skeleton: Skeleton): Int16Array {
+  let ix = boneIndex.get(skeleton.parts);
+  if (!ix) {
+    ix = new Int16Array(DAMAGE_BONES.length * 2);
+    DAMAGE_BONES.forEach((d, n) => { ix![n * 2] = skeleton.indexOf(d.bone); ix![n * 2 + 1] = d.to ? skeleton.indexOf(d.to) : -1; });
+    boneIndex.set(skeleton.parts, ix);
+  }
+  return ix;
+}
+
+/** Copies the damage bones' matrices of `skeleton`'s current pose into `out` at `at` (`POSE_FLOATS` floats). Allocates nothing. */
+export function capturePose(skeleton: Skeleton, out: Float32Array, at: number): void {
+  const ix = damageIndex(skeleton);
+  for (let n = 0; n < DAMAGE_BONES.length; n++) {
+    const i = ix[n * 2]!;
+    if (i < 0) continue;
+    const o = at + n * BONE_FLOATS;
+    out.set(skeleton.world[i]!, o);
+    const to = ix[n * 2 + 1]!;
+    if (to >= 0) {
+      const t = skeleton.local[to]!;
+      out[o + 16] = t[12]!; out[o + 17] = t[13]!; out[o + 18] = t[14]!;
+    }
+  }
+}
+
+/**
+ * The body-frame capsules of a pose `capturePose` kept in `buf` at `at`, on `skeleton`'s parts (their bboxes): fitted as
+ * `posedVolumes` fits the live skeleton, the same arithmetic in the same order (`transformPoint`'s), so the same numbers.
+ * A new array each call.
+ */
+export function capturedVolumes(skeleton: Skeleton, buf: Float32Array, at: number): Capsule[] {
+  const ix = damageIndex(skeleton);
+  const caps: Capsule[] = [];
+  for (let n = 0; n < DAMAGE_BONES.length; n++) {
+    const i = ix[n * 2]!;
+    if (i < 0) continue;
+    const d = DAMAGE_BONES[n]!, o = at + n * BONE_FLOATS, to = ix[n * 2 + 1]!;
+    const [a, b, r] = fit(skeleton.parts[i]!.bbox, to >= 0 ? [buf[o + 16]!, buf[o + 17]!, buf[o + 18]!] : null, d.radius);
+    const at3 = (p: V3): V3 => [
+      p[0] * buf[o]! + p[1] * buf[o + 4]! + p[2] * buf[o + 8]! + buf[o + 12]!,
+      p[0] * buf[o + 1]! + p[1] * buf[o + 5]! + p[2] * buf[o + 9]! + buf[o + 13]!,
+      p[0] * buf[o + 2]! + p[1] * buf[o + 6]! + p[2] * buf[o + 10]! + buf[o + 14]!,
+    ];
+    caps.push({ part: d.part, a: at3(a), b: at3(b), r });
+  }
+  return caps;
 }
 
 /** A bone's bbox middle, body frame, posed at `clip`'s key `frame`: where a part's mesh is (the test's hand). */
@@ -135,9 +231,16 @@ export function rootPivot(skeleton: Skeleton, clip: MotionClip | null, frame = 0
   return posed(skeleton, clip, frame, () => transformPoint(skeleton.world[i]!, 0, 0, 0));
 }
 
-/** Each posture's volumes: the skeleton at its idle (`SimSkeleton.idles`; the bind pose where the idle is missing). */
-export function stanceVolumes(body: { skeleton: Skeleton; idles: Readonly<Record<Stance, MotionClip | null>> }): StanceVolumes {
-  return {
+/**
+ * Each posture's volumes: the skeleton at its idle (`SimSkeleton.idles`; the bind pose where the idle is missing).
+ * LEAN-HIT: with `leans` (`SimSkeleton.leans`), each posture's lean sets at the clip's held key (`leanHeldKey`); a
+ * missing lean clip leaves that side at the idle.
+ */
+export function stanceVolumes(body: {
+  skeleton: Skeleton; idles: Readonly<Record<Stance, MotionClip | null>>;
+  leans?: Readonly<Record<Stance, { l: MotionClip | null; r: MotionClip | null }>>;
+}): StanceVolumes {
+  const out: StanceVolumes = {
     stand: skeletonVolumes(body.skeleton, body.idles.stand),
     crouch: skeletonVolumes(body.skeleton, body.idles.crouch),
     prone: skeletonVolumes(body.skeleton, body.idles.prone),
@@ -147,6 +250,16 @@ export function stanceVolumes(body: { skeleton: Skeleton; idles: Readonly<Record
       prone: rootPivot(body.skeleton, body.idles.prone),
     },
   };
+  const leans = body.leans;
+  if (!leans) return out;
+  const caps = (k: Stance, c: MotionClip | null): Capsule[] => c ? skeletonVolumes(body.skeleton, c, leanHeldKey(c)) : out[k] as Capsule[];
+  const root = (k: Stance, c: MotionClip | null): V3 => c ? rootPivot(body.skeleton, c, leanHeldKey(c)) : out.pivot![k];
+  const side = <T>(f: (k: Stance, c: MotionClip | null) => T): Record<Stance, { l: T; r: T }> => ({
+    stand: { l: f('stand', leans.stand.l), r: f('stand', leans.stand.r) },
+    crouch: { l: f('crouch', leans.crouch.l), r: f('crouch', leans.crouch.r) },
+    prone: { l: f('prone', leans.prone.l), r: f('prone', leans.prone.r) },
+  });
+  return { ...out, lean: side(caps), leanPivot: side(root) };
 }
 
 /** PRONE-TILT: a body-frame point turned by the root's tilt `q` about the root's posed `pivot` (`FUN_00548090`'s write). */
@@ -167,14 +280,28 @@ function actorToWorld(feet: readonly number[], yaw: number, v: V3): V3 {
  * PRONE-TILT (`./rootTilt`, research 217 s7): `tilt`, the skeleton root's quaternion the body's rule wrote
  * (`Walker.rootTilt`), turns the skeleton's capsules about the posed root first, as it turns the page's body
  * (`TILT_HIT_TEST_READING` 'posed'); null, absent, the placeholder's or 'level': yaw-only as before.
+ * LEAN-HIT (issue #752; research 217 s3.6): `peek`, the body's held peek (-1 left, 1 right: `TraversalHooks.peeking`,
+ * never the camera's eased `peek()`), poses the lean set (`StanceVolumes.lean`) and turns it about its own posed root;
+ * 0, absent, or volumes without a lean set: the idle's, as before. The placeholder never leans.
  */
 export function bodyVolumes(feet: readonly number[], yaw: number, posture: Stance, volumes?: StanceVolumes | null,
-  tilt?: readonly number[] | null): Capsule[] {
+  tilt?: readonly number[] | null, peek: -1 | 0 | 1 = 0): Capsule[] {
   if (!volumes) return placeholderVolumes(feet, yaw, posture);
-  const pivot = volumes.pivot?.[posture];
+  const side = peek < 0 ? 'l' : peek > 0 ? 'r' : null;
+  const caps = side && volumes.lean ? volumes.lean[posture][side] : volumes[posture];
+  const pivot = side && volumes.lean ? volumes.leanPivot?.[posture][side] : volumes.pivot?.[posture];
   const turn = tilt && pivot && TILT_HIT_TEST_READING === 'posed' && tilt[3] !== 1
     ? (p: V3): V3 => tiltBodyPoint(p, tilt, pivot) : (p: V3): V3 => p;
-  return volumes[posture].map((c) => ({ part: c.part, r: c.r, a: actorToWorld(feet, yaw, turn(c.a)), b: actorToWorld(feet, yaw, turn(c.b)) }));
+  return caps.map((c) => ({ part: c.part, r: c.r, a: actorToWorld(feet, yaw, turn(c.a)), b: actorToWorld(feet, yaw, turn(c.b)) }));
+}
+
+/**
+ * HIT-POSE (research 217 s3.6): body-frame capsules already posed -- the live skeleton's (`posedVolumes`, `./hitPose`),
+ * its root tilt and its lean in the pose -- placed at `feet` and turned by `yaw` (degrees), as `bodyVolumes` places a
+ * stance's set; nothing turned again (the animator wrote the tilt on the root and played the lean's clip).
+ */
+export function placedVolumes(feet: readonly number[], yaw: number, caps: readonly Capsule[]): Capsule[] {
+  return caps.map((c) => ({ part: c.part, r: c.r, a: actorToWorld(feet, yaw, c.a), b: actorToWorld(feet, yaw, c.b) }));
 }
 
 /** Body-frame points: x right, y up, z forward (the facing), to the world at the feet and yaw (forward is (-sin, -cos)). */

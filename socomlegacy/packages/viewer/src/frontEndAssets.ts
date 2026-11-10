@@ -1,9 +1,8 @@
-import { Zar, readZdbMember, type AssetSource } from '@s2u/archive';
-import { PaletteTable, type Rgba } from '@s2u/gs';
+import { readZdbMember, type AssetSource } from '@s2u/archive';
+import type { Rgba } from '@s2u/gs';
 import { loadLocService } from '@s2u/scene';
 import type { CaptionSource, DialogDesign } from '@s2u/ui';
-import { flipRows } from './hudAssets';
-import { decodeNamedTextures } from './hudBitmaps';
+import { uiTextureBank, type UiTextureBank, type UiTextureDecodeReply, type UiTextureDecodeRequest, type UiTextureDecoded } from './frontEndTextureBank';
 import type { UiTextures } from './uiCompositorView';
 
 /**
@@ -52,7 +51,9 @@ export const FRONT_END_TEXTURE_STEMS: readonly string[] = ['UIMP', 'UI2D', 'UIBF
  * (`MENU_03_HOOKS`, removable by OPT-09), so the bank is ready for OPT-09. A read that fails is tried again at the next
  * build that needs it. Its names other than the titlebar face's (byte-equal in every bank) are in no
  * other bank, so reading it late changes no lookup the page made before. The same timing adaptation as the eager banks'
- * (the file's header): a page's first frames may draw before its bank is in.
+ * (the file's header): a page's first frames may draw before its bank is in. GM-29: the page's prefetch
+ * (`UI_TEXTURE_PREFETCH_ADAPTATION`) reads it after the page's first frame, at idle, so OPTIONS' first frame finds it
+ * decoded; the start still does not pay it, and a page that does not prefetch reads it at the build as before.
  */
 export const FRONT_END_LAZY_TEXTURE_STEMS: readonly string[] = ['UIOP'];
 
@@ -116,22 +117,9 @@ export function dialogTextureStems(design: Pick<DialogDesign, 'libraries'>): str
 /** The map archive whose `FONT_TXR` the page reads (any map's: the copies are byte-equal). */
 export const FRONT_END_FONT_MAP = 'RUN/MP2.ZDB';
 
-interface Bank { has(name: string): boolean; decode(name: string): Rgba | null }
-
-/** One bank: its textures by lower-cased name against its own palettes, each bitmap flipped top row first. */
-function bank(txr: Uint8Array, pal: Uint8Array): Bank {
-  const t = Zar.parse(txr), palettes = PaletteTable.fromZars([Zar.parse(pal)]);
-  const keys = new Map((t.find('textures')?.children ?? []).map((k) => [k.name.toLowerCase(), k]));
-  const texdat = (n: string): Uint8Array | null => {
-    const key = keys.get(n.toLowerCase());
-    const child = key ? t.child(key, 'texdat') : undefined;
-    return child ? t.data(child) : null;
-  };
-  return {
-    has: (n) => keys.has(n.toLowerCase()),
-    decode: (n) => { const got = decodeNamedTextures(texdat, palettes, [n]).textures[n] ?? null; return got ? flipRows(got) : null; },
-  };
-}
+/** One bank's lookup: `uiTextureBank` (`./frontEndTextureBank`, moved there unchanged so the prefetch's worker decodes with it). */
+type Bank = UiTextureBank;
+const bank = uiTextureBank;
 
 export interface PageUiTextures {
   /** The lookup PLAT-14's drawer takes (`FrontEndSessionOptions.textures`): null until the name's bank is in. */
@@ -143,6 +131,81 @@ export interface PageUiTextures {
    * yet, read now; answers what of them would not read. Every other stem it names is left (loaded at the start, or listed).
    */
   need(design: Pick<DialogDesign, 'libraries'>): Promise<string[]>;
+  /**
+   * GM-29: decode every bank's textures ahead of the dialogs that draw them, off the page's main thread (`decoder`), into
+   * the lookup's cache -- the lazy banks read first (`UI_TEXTURE_PREFETCH_ADAPTATION`). The lookup never waits on it.
+   */
+  prefetch(o: UiTexturePrefetchOptions): UiTexturePrefetch;
+}
+
+/**
+ * UI_TEXTURE_PREFETCH_ADAPTATION: no original (the original has every bank in memory before a dialog's first draw, which
+ * this module's header already names as a browser timing adaptation); bounds the browser's memory for the front end's
+ * textures decoded ahead of use (GM-29, plan `docs/plans/2026-11-01-gpu-menus.md`; research 380 §6). Started by the
+ * page after its first frame (`frontEnd.ts`), the prefetch reads the lazy banks (`FRONT_END_LAZY_TEXTURE_STEMS`) as a
+ * dialog's build would, then hands each loaded bank's names not yet decoded to the page's decode worker
+ * (`./frontEndTextureWorker`, running `./frontEndTextureBank`'s decode: the same bytes) and caches each answer as the
+ * lookup would have, unless the lookup decoded that name first (its object stays). A name asked before its answer is decoded synchronously, as
+ * without the prefetch, so no dialog draws later than without it. At most `maxBytes` of decoded RGBA are prefetched
+ * (each texture's `width x height x 4` off its header): every bank the page loads is about 25 MB decoded (the disc's
+ * UIMP, UI2D, UIBF, UISK, UICG, UIOP and MP2's FONT, 26,159,104 bytes with the titlebar face counted in each bank that
+ * holds it; GM-29's dev-disc count), so the cap holds the whole set with room and stops a larger one. Changes when a
+ * bitmap is decoded, never its bytes.
+ */
+export const UI_TEXTURE_PREFETCH_ADAPTATION = Object.freeze({ maxBytes: 32 * 1024 * 1024 } as const);
+
+/** The prefetch's decode: one bank's names, its files copied, answered off the main thread (a test's in-thread one). */
+export type UiTextureDecoder = (job: Omit<UiTextureDecodeRequest, 'id'>) => Promise<UiTextureDecoded[]>;
+
+export interface UiTexturePrefetchOptions {
+  decoder: UiTextureDecoder;
+  /** Each prefetched bitmap with the decoder's `fnv1a64` of its bytes (the GPU texture cache's seed); absent, none asked. */
+  seedKey?: (image: Rgba, fnv1a64: string) => void;
+  /** Defaults to `UI_TEXTURE_PREFETCH_ADAPTATION.maxBytes`. */
+  maxBytes?: number;
+}
+
+export interface UiTexturePrefetch {
+  /** Bitmaps the prefetch put in the cache, and their decoded bytes. */
+  readonly decoded: number;
+  readonly bytes: number;
+  /** Names the lookup decoded first (their answer dropped). */
+  readonly raced: number;
+  /** The byte cap stopped it: the names after it stay the lookup's to decode. */
+  readonly capped: boolean;
+  /** Settles when it ends (done, capped, stopped or failed): the reason a decode failed, else null. */
+  readonly finished: Promise<string | null>;
+  /** Ends it: nothing more is asked or cached. */
+  stop(): void;
+}
+
+/**
+ * GM-29: the page's prefetch decoder -- one module worker (`./frontEndTextureWorker.ts`, bundled by the build), its
+ * requests answered in turn; null where there is no `Worker` (node), and then the page prefetches nothing.
+ */
+export function pageUiTextureDecoder(): { decoder: UiTextureDecoder; close(): void } | null {
+  if (typeof Worker === 'undefined') return null;
+  const w = new Worker(new URL('./frontEndTextureWorker.ts', import.meta.url), { type: 'module' });
+  const waiting = new Map<number, { ok: (d: UiTextureDecoded[]) => void; no: (e: Error) => void }>();
+  let next = 0;
+  const failAll = (why: string): void => { for (const p of waiting.values()) p.no(new Error(why)); waiting.clear(); };
+  w.onmessage = (e: MessageEvent<UiTextureDecodeReply>) => {
+    const r = e.data, p = waiting.get(r.id);
+    if (!p) return;
+    waiting.delete(r.id);
+    if (r.ok) p.ok(r.decoded); else p.no(new Error(r.error));
+  };
+  w.onerror = () => { failAll('frontEndTextureWorker: the worker failed'); };
+  w.onmessageerror = () => { failAll('frontEndTextureWorker: an answer would not read'); };
+  return {
+    decoder: (job) => new Promise<UiTextureDecoded[]>((ok, no) => {
+      const id = next++;
+      waiting.set(id, { ok, no });
+      // The bank's files are copied (structured clone), never transferred: the page's lookup keeps reading them.
+      try { w.postMessage({ id, ...job } satisfies UiTextureDecodeRequest); } catch (e) { waiting.delete(id); no(e instanceof Error ? e : new Error(String(e))); }
+    }),
+    close: () => { failAll('frontEndTextureWorker: closed'); w.terminate(); },
+  };
 }
 
 /**
@@ -163,13 +226,19 @@ export function pageUiTextures(source: AssetSource, stems: readonly string[] = F
     const s = stem.slice(0, 4).toUpperCase();
     asked.add(s);
     return Promise.all([source.read(`RUN/UI/${s}_TXR.ZED`), source.read(`RUN/UI/${s}_PAL.ZED`)])
-      .then(([t, p]) => { banks.push(bank(t, p)); cache.clear(); }, (e) => { asked.delete(s); into.push(`RUN/UI/${s}_TXR.ZED: ${why(e)}`); });
+      .then(([t, p]) => { banks.push(bank(t, p)); }, (e) => { asked.delete(s); into.push(`RUN/UI/${s}_TXR.ZED: ${why(e)}`); });
   };
   const loads: Promise<void>[] = stems.map((stem) => load(stem, missing));
   if (fontMap) {
     loads.push(Promise.all([readZdbMember(source, fontMap, 'FONT_TXR.ZED'), readZdbMember(source, fontMap, 'FONT_PAL.ZED')])
-      .then(([t, p]) => { banks.push(bank(t, p)); cache.clear(); }, (e) => { missing.push(`${fontMap}:FONT_TXR.ZED: ${why(e)}`); }));
+      .then(([t, p]) => { banks.push(bank(t, p)); }, (e) => { missing.push(`${fontMap}:FONT_TXR.ZED: ${why(e)}`); }));
   }
+  // GM-29: a bank's arrival keeps every decode made so far (no cache clear). A cached name resolves to the first bank
+  // holding it, and banks are only ever appended, so a later bank never changes a name's bank, its bytes or -- now -- its
+  // object: the GPU texture cache's content key, the HD lookup's per-bitmap answer and the quad cache stay with it, where
+  // a clear had every bitmap on the screen decoded, keyed and looked up again on the frame after (the cold OPTIONS
+  // switch's long frame on the T4, 2026-11-09: UIOP's arrival).
+  const ready = Promise.all(loads).then(() => [...missing]);
   const textures: UiTextures = (name) => {
     const k = name.toLowerCase();
     const hit = cache.get(k);
@@ -186,7 +255,122 @@ export function pageUiTextures(source: AssetSource, stems: readonly string[] = F
     const now = dialogTextureStems(design).filter((s) => lazySet.has(s) && !asked.has(s)).map((s) => load(s, out));
     return Promise.all(now).then(() => out);
   };
-  return { textures, ready: Promise.all(loads).then(() => [...missing]), need };
+  const prefetch = (o: UiTexturePrefetchOptions): UiTexturePrefetch => {
+    const max = o.maxBytes ?? UI_TEXTURE_PREFETCH_ADAPTATION.maxBytes;
+    const st = { decoded: 0, bytes: 0, raced: 0, capped: false, stopped: false };
+    const run = async (): Promise<string | null> => {
+      await ready;
+      // Review fold 2: a stop during any wait reads nothing more from this page's source and asks no decode.
+      if (st.stopped) return null;
+      // The lazy banks, read as a dialog's build reads them (`need`): a failed read is let go for the next build to try.
+      await Promise.all([...lazySet].filter((s) => !asked.has(s)).map((s) => load(s, [])));
+      if (st.stopped) return null;
+      let budget = 0;
+      for (const b of banks.slice()) {
+        if (st.stopped) return null;
+        // The names this bank answers for the lookup (the first bank holding each) that nothing decoded yet.
+        const names: string[] = [];
+        for (const n of b.names) {
+          if (cache.has(n) || banks.find((x) => x.has(n)) !== b) continue;
+          const size = b.bytesOf(n);
+          if (budget + size > max) { st.capped = true; break; }
+          budget += size;
+          names.push(n);
+        }
+        if (names.length) {
+          const got = await o.decoder({ txr: b.txr, pal: b.pal, names, hash: o.seedKey !== undefined });
+          if (st.stopped) return null;
+          for (const g of got) {
+            if (cache.has(g.name)) { st.raced++; continue; }              // the lookup decoded it first: its object stays
+            cache.set(g.name, g.rgba);
+            st.decoded++;
+            if (g.rgba) { st.bytes += g.rgba.data.length; if (g.fnv1a64 !== undefined) o.seedKey?.(g.rgba, g.fnv1a64); }
+          }
+        }
+        if (st.capped) return null;
+      }
+      return null;
+    };
+    // Review fold 1: a decode the stop cut short (the worker closed under it) is the stop, not a failure: no reason.
+    const finished = run().catch((e: unknown) => (st.stopped ? null : why(e)));
+    return {
+      get decoded() { return st.decoded; }, get bytes() { return st.bytes; }, get raced() { return st.raced; }, get capped() { return st.capped; },
+      finished, stop: () => { st.stopped = true; },
+    };
+  };
+  return { textures, ready, need, prefetch };
+}
+
+/** What the prefetch's start reads of the page's window. */
+/**
+ * GM-32: several prefetches run one after another as one -- the menus' art first (`./menuArt` `MENU_ART_PREFETCH_ADAPTATION`:
+ * the page's lookup asks it before the banks), then the banks -- on the one decoder, so `startPageUiTexturePrefetch` starts,
+ * stops and closes them together. Each keeps its own cap (`o.maxBytes` given reaches each); the counts are their sums; a
+ * stop ends the running one and starts no other; a failure ends the chain with its reason. An absent one is skipped.
+ */
+export function chainUiTexturePrefetch(...parts: readonly ({ prefetch?(o: UiTexturePrefetchOptions): UiTexturePrefetch } | null | undefined)[]): Pick<PageUiTextures, 'prefetch'> {
+  return {
+    prefetch: (o) => {
+      const done: UiTexturePrefetch[] = [];
+      let current: UiTexturePrefetch | null = null, stopped = false;
+      const sum = (k: 'decoded' | 'bytes' | 'raced'): number => done.reduce((n, p) => n + p[k], 0) + (current && !done.includes(current) ? current[k] : 0);
+      const run = async (): Promise<string | null> => {
+        for (const part of parts) {
+          if (stopped) return null;
+          if (!part?.prefetch) continue;
+          const p: UiTexturePrefetch = part.prefetch(o);
+          current = p;
+          const reason = await p.finished;
+          done.push(p);
+          if (reason !== null) return reason;
+        }
+        return null;
+      };
+      const finished = run();
+      return {
+        get decoded() { return sum('decoded'); }, get bytes() { return sum('bytes'); }, get raced() { return sum('raced'); },
+        get capped() { return done.some((p) => p.capped) || (current?.capped ?? false); },
+        finished, stop: () => { stopped = true; current?.stop(); },
+      };
+    },
+  };
+}
+
+export interface UiTexturePrefetchWindow {
+  requestAnimationFrame(f: () => void): unknown;
+  setTimeout(f: () => void, ms?: number): unknown;
+  requestIdleCallback?: (f: () => void) => unknown;
+}
+
+/**
+ * GM-29: the page's prefetch (`UI_TEXTURE_PREFETCH_ADAPTATION`), started by `frontEnd.ts` once its frame loop runs --
+ * after the next animation frame, at the page's idle (`requestIdleCallback`; a timeout where there is none), with the
+ * page's decode worker (`pageUiTextureDecoder`), which it closes when the prefetch ends. No worker, no prefetch. Answers
+ * the stop: before the start nothing starts; after it, the prefetch ends and the worker is closed. The frame loop never
+ * waits on any of it.
+ */
+export function startPageUiTexturePrefetch(win: UiTexturePrefetchWindow, page: Pick<PageUiTextures, 'prefetch'>,
+  seedKey?: (image: Rgba, fnv1a64: string) => void, decoderOf: () => { decoder: UiTextureDecoder; close(): void } | null = pageUiTextureDecoder): () => void {
+  let stopped = false, run: { prefetch: { stop(): void }; close(): void } | null = null;
+  const go = (): void => {
+    if (stopped) return;
+    const d = decoderOf();
+    if (!d) return;
+    const prefetch = page.prefetch({ decoder: d.decoder, ...(seedKey ? { seedKey } : {}) });
+    const ran = { prefetch, close: d.close };
+    run = ran;
+    void prefetch.finished.then((why) => {
+      if (why) console.warn('front end: texture prefetch', why);
+      if (run === ran) { run = null; d.close(); }
+    });
+  };
+  win.requestAnimationFrame(() => { if (win.requestIdleCallback) win.requestIdleCallback(go); else win.setTimeout(go, 0); });
+  return () => {
+    stopped = true;
+    const r = run as { prefetch: { stop(): void }; close(): void } | null;
+    run = null;
+    if (r) { r.prefetch.stop(); r.close(); }
+  };
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ESCORT_UNREAD_MAP_PLACEHOLDER, escortScriptOf } from '../../../match/src/extraction';
 import type { MapAction } from '../../src/mapActions';
 import { plantSite } from '../../src/net/objective';
-import { applyForgeObjectives, bombReady, forgeTypePlayable, forgeTypeUnplayable, blankFloorOf, withoutBaseBomb, type ObjectiveMap } from '../../src/forge/objectives';
+import { applyForgeObjectives, bombMarkerPlaysIn, bombReady, breachReady, forgeTypePlayable, forgeTypeUnplayable, blankFloorOf, withoutBaseBomb, type ObjectiveMap } from '../../src/forge/objectives';
 import type { ForgeObjectives } from '../../src/forge/layout';
 
 /**
@@ -198,5 +198,37 @@ describe('blankFloorOf', () => {
     expect([floor.gameType, floor.bombStart, floor.ai]).toEqual([undefined, undefined, undefined]);
     expect(floor.meta!.actions).toEqual([]);
     expect(forgeTypeUnplayable(4, { gameType: 4 }, floor)).not.toBeNull();   // no escortee of its own
+  });
+});
+
+describe("bombMarkerPlaysIn (a browser adaptation, FG.R2): the page's tools and the agent's bomb.place alike", () => {
+  it("Demolition plays all three; Breach the start and the SEALs' site; any other type, or none, nothing", () => {
+    const kinds = ['start', 'seal', 'terrorist'] as const;
+    expect(kinds.map((k) => bombMarkerPlaysIn(k, 2))).toEqual([true, true, true]);
+    expect(kinds.map((k) => bombMarkerPlaysIn(k, 1))).toEqual([true, true, false]);
+    for (const t of [undefined, 3, 4, 5]) expect(kinds.map((k) => bombMarkerPlaysIn(k, t))).toEqual([false, false, false]);
+  });
+});
+
+describe('breachReady (a browser adaptation, FG.R2): BREACH from the layout\'s own start and SEALs\' site', () => {
+  const start: [number, number, number] = [5, 0, 5];
+  const seal = { team: 0 as const, at: [40, 0, 0] as [number, number, number], yaw: 0, range: 15, elevation: 15 };
+  const terrorist = { ...seal, team: 1 as const };
+  it('needs a start and a SEALs\' site (team 0); the Terrorists\' site plays no part', () => {
+    expect(breachReady(undefined)).toBe(false);
+    expect(breachReady({ start, sites: [seal] })).toBe(true);
+    expect(breachReady({ start, sites: [terrorist, seal] })).toBe(true);
+    expect(breachReady({ start, sites: [terrorist] })).toBe(false);
+    expect(breachReady({ sites: [seal] } as never)).toBe(false);
+  });
+  it("with placed markers BREACH plays the layout's bomb; without, the base's own", () => {
+    const placed = applyForgeObjectives(discMap(), { gameType: 1, bomb: { start, sites: [seal] } });
+    expect(placed.gameType).toBe(1);
+    expect(placed.bombStart).toEqual(start);
+    expect(placed.meta!.actions.filter((a) => a.type === 'MPBOMB').map((a) => a.path)).toEqual(['forge/site_0']);
+    const base = applyForgeObjectives(discMap(), { gameType: 1 });
+    expect(base.gameType).toBe(1);
+    expect(base.bombStart).toEqual([9, 8, 7]);
+    expect(base.meta!.actions.filter((a) => a.type === 'MPBOMB').map((a) => a.node)).toEqual(['terrorist_tent', 'seal_tent']);
   });
 });

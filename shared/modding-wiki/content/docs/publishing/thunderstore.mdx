@@ -2,22 +2,26 @@
 title: "Thunderstore"
 description: "How a pack fits Thunderstore's package format, how our identity maps onto the store's, and what is still open."
 status: "Format only"
-source: ["socomlegacy/docs/research/370-the-thunderstore-package-format.md", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts"]
+source: ["socomlegacy/docs/research/370-the-thunderstore-package-format.md", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/viewer/src/packs/classify.ts", "socomlegacy/tools/hdPackThunderstore.ts"]
 ---
 
 **Status: Format only.** Our packs are shaped to fit Thunderstore's package format, and the pack contract can check a
-store package against that format. Nothing more than that exists today.
+store package against that format. For a v2 pack nothing more than that exists today; for the earlier formats, Home >
+Experiments > Mods reads a store zip you downloaded yourself ([below](#the-earlier-formats-in-a-store-zip)).
 
 ## Read this first
 
-- **Nothing builds a store package yet.** The pack contract has the functions an export needs
+- **Nothing builds a store package from a v2 pack yet.** The pack contract has the functions an export needs
   (`thunderstoreManifest` writes the store's `manifest.json`, `checkThunderstorePackage` checks a package's files),
-  but no command or tool calls them. To make a store package today you would assemble the zip yourself.
+  but no command or tool calls them for a v2 pack. To make a store package of a v2 pack today you would assemble the
+  zip yourself. The one tool that writes a store zip is the project's HD pack builder, for the HD texture pack
+  (`tools/hdPackThunderstore.ts`).
 - **The team name is not decided yet.** Every store package belongs to a team. Until the project names ours, the
   contract uses the stand-in `TEAM_PLACEHOLDER`. It is a valid store name, so the export's output is well formed, but it
   is not a real team and nothing should be published under it.
 - **The game loads nothing from Thunderstore.** It does not fetch from the store, list its packages or install from it,
-  and there is no store page for the project.
+  and there is no store page for the project. What it does read is a store zip you downloaded and dropped into Home >
+  Experiments > Mods.
 - **A v2 pack you install by hand is checked and stored, not applied.** See [What a pack is](/what-is-a-pack/) and
   [Pack kinds](/kinds/) for what each kind does today.
 
@@ -118,6 +122,24 @@ grammar) and `store.NAME_INVALID` (an id with no store name).
 Every `store.` code, with what it means, is on [Refusal codes](/reference/codes/); what to do about each one is on
 [Troubleshooting](/troubleshooting/).
 
+## The earlier formats in a store zip
+
+Home > Experiments > Mods takes an earlier-format pack -- a mod, a model pack, a built texture pack or the HD texture
+pack -- either bare or wrapped in a store zip (the viewer's `packs/classify.ts`, with the contract's
+`unwrapThunderstore`). A root `manifest.json` (or one in a single top folder) whose keys are the store's five is the
+store's: the store's root files are checked against the rules above and set aside, and the pack beside them is read
+as if it were bare. The earlier formats have no `s2u-pack.json`, so nothing maps an id or a version here: the store's
+manifest is only checked, never compared with the pack.
+
+A store zip with nothing beside its store files is refused ("The Thunderstore package holds only its store files: no
+pack is inside it."), and so is one whose store files break the store's rules ("The Thunderstore package does not
+keep the store's rules: …", naming the first problem).
+
+The project's HD pack builder writes the HD texture pack (HD textures by GoE Soul) this way (`tools/hdPackThunderstore.ts`): the store's
+`manifest.json`, `icon.png` and `README.md`, and the pack under `experimental-packs/hd/`. The project's owner uploads
+that zip to the store; players download it there and drop it into Mods. The store page does not exist yet, so Mods
+links to none.
+
 ## Size
 
 Our pack bound is 512 MiB for all members together (`PACK_BYTES_ADAPTATION`). Thunderstore's own limit is far higher,
@@ -128,7 +150,31 @@ still be too large for us.
 
 Named here so nobody assumes otherwise:
 
-- a command that builds a store package zip from a v2 pack;
+- a command that builds a store package zip from a v2 pack (the HD pack builder makes one for the HD texture pack
+  only);
 - the project's team on the store;
 - uploading, a store page, or any connection to Thunderstore from the game or its tools;
 - installing a pack from the store, or applying any v2 pack in the game.
+
+## For agents
+
+```json
+{
+  "page": "/publishing/thunderstore/",
+  "audience": [
+    "creators"
+  ],
+  "summary": "How a pack fits Thunderstore's package format, how our id, version and dependencies map onto the store's, the store files outside the pack's identity, and the open question of a store listing.",
+  "inputs": [
+    "a pack that passes the check"
+  ],
+  "outputs": [
+    "a store package shaped to the format; nothing uploads or installs from the store yet"
+  ],
+  "see_also": [
+    "/reference/bounds/",
+    "/reference/codes/",
+    "/kinds/earlier-formats/"
+  ]
+}
+```

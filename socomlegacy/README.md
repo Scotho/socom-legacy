@@ -66,6 +66,15 @@ every build (LR-30, LR.R24). **In the game the keyboard is for local testing onl
 keyboard and the match keep their keys; every `vite build` (the release, a demo) leaves all of it out
 (`packages/viewer/src/keyboardTesting.ts`, `test/keyboardGate.test.ts`, `test/build_keyboard.test.ts`).
 
+**Controller settings** are one page in the launcher: Settings > Launcher > Controller before a game, and the same
+page in the PS/Xbox Home overlay during a game. It includes Precision Shooter, Lefty, Scout and Sure Shot layouts;
+Recruit, Sailor, Seal and Custom aiming presets; look speed, acceleration, aiming dead zone, pitch, vibration, aim
+assist and fire-rate controls. The original OPTIONS menu keeps its CONTROLLER OPTIONS and CONTROLLER PRESETS pages
+beside it, on the owner's word (both edit the same saved settings). Mouse dragging sets the nearest percent;
+controller presses retain the two-percent aiming step. Changes apply live and save to the existing memory card; the
+page reports pending or refused saves. Browser pad calibration and remapping retain their per-controller browser profiles. See
+[the consolidation record](docs/plans/2026-11-08-unified-controller-settings.md).
+
 **Button mapping** is the launcher's (CX-14, kept by LR.R4): the Controller settings' **Button mapping** row -- the
 actions round the controller picture, the dead zone, the crouch shortcut, hold-to-bind, and a pass that teaches
 a pad the browser does not map as standard (LATER 380). The game reads those choices: the menus and the match poll the
@@ -75,8 +84,9 @@ the pad is ignored until released.
 
 **The picture.** OPTIONS' VIDEO MODE offers **Modern** (the default: the world at the window's size) and **PS2** (the
 640×448 frame on a 4:3 box), an intended divergence on the owner's ruling (OT.R79; `packages/viewer/src/picture.ts`).
-Its third choice, the HD texture pack's picture, is in the build but cannot be turned on (HD-HOLD, the owner,
-2026-11-01, `ccc46f055`: `VIDEO_PICTURE_HD_OFFERED` false, until the GPU work is done). The front end's menus are the
+Its third choice, the HD texture pack's picture (held by HD-HOLD since 2026-11-01), is removed (OT.R110, B206 ML-6):
+texture packs, the HD pack among them, are dropped and chosen in Home > Experiments > **Mods** and apply under either
+picture, in a match, the Forge and the test room. The front end's menus are the
 original's 640×448 UI frame, drawn whole and letterboxed in the window under both: the dialogs are 4:3 by design, so
 Modern does not widen them. The test room keeps its own **Picture** setting (`s2u.viewer.look`).
 
@@ -801,8 +811,8 @@ Settled on 2026-09-26 (the polish spec linked at the top):
   every graded single quad, which also turned the drop shadows.
 - **Scrolling textures scroll.** The world root's `TextureScroll_Object` names the nodes whose uvs
   the engine steps each tick (Frostfire's `ocean_1..3` and `skyhorizon`, by 0.02-0.04); those chunks
-  get a uv offset the viewer advances at the field rate (`SCROLL_TICKS_PER_SECOND`, an assumption
-  until a capture settles it).
+  get a uv offset the viewer advances by `du, dv` a second (`SKY_SCROLL_TICKS_READING` = 1 in `world.ts`:
+  the engine scales the step by the frame's dT in seconds, research 82 section 8; not yet measured running).
 - **Drop shadows are a decal pass** ("prop shadows" in `options`, on by default): every draw whose
   texture is a `shadow*.tif`, blended source-over after the world with no depth written and a polygon
   offset off its ground, whatever the draw-order mode.
@@ -1159,8 +1169,11 @@ free camera: without `?devmode` a `fly` in the address is ignored); `e2e/soloMat
 specs (`weaponExchange*.spec.ts`: the menu is a match's) play it on purpose, and every other spec opens with one of the two. The rules and their sources: [research 91](docs/research/91-the-round.md)
 section 20.
 
-**Protocol 13** (`packages/viewer/src/net/protocol.ts`, `PROTOCOL_VERSION`, since bc95941ba, 2026-11-02): a page and a
-server of another version refuse each other at the hello, and the old page is told to update. Protocol 13 (PLANT-AIM)
+**Protocol 14** (`packages/viewer/src/net/protocol.ts`, `PROTOCOL_VERSION`, 2026-11-09): a page and a server of another
+version refuse each other at the hello, and the old page is told to update. Protocol 14 (ENEMY-RAISE ER-2) carries the
+owner's raise state, the original's byte +0x7e: the command's `raised` (bit 7 of its last byte) and the body's
+`BodyFlag.Raised` (bit 16), which the others' copies replay; a `.s2r` of protocol 13 plays on the live decoders, its
+copies inferring the raise as before. Protocol 13 (PLANT-AIM, since bc95941ba, 2026-11-02)
 makes the bomb's plant need the page's own pick, which a 12 page never sends; the binary wire is 12's, so a `.s2r` of
 protocol 12 plays on the live decoders, and the `shot`'s `through` and `end` and the `grenade` event's `age` are
 additive since, the version kept. Protocol 12 (since ec51d1902; SEP-POP, OT.R93) carries the command's `separate`, bit 3 of the stance byte -- the page's stance mode, which the room's

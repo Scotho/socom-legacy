@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Group, PerspectiveCamera, type LineSegments } from 'three';
 import {
   arcPoint, THROW_ARC, buildGrid, gridCast, CLAYMORE_RULES, GAME_FRAME_DT, GameFrameAccumulator, HE, launchGrenade, M67, PLACE_CLAYMORE_ANIM, releaseSeconds,
   stepGrenade, THROW_ANIMS, throwClipSeconds, tumbleQuaternion, type Grid, type GridParams, type V3, type WorldPoly,
   CLAYMORE, maxThrowSpeed, THROW_AIM_CLAMP, throwElevation, type ThrowAnim, type ThrowableRecord,
-  CAMERA_SKIP, heldPower, stepThrowPower, segmentHits, AN_M8, SURFACE_SIDE, SURFACE_SKIP, surfaceMaterial, surfaceWord,
+  CAMERA_SKIP, heldPower, stepThrowPower, segmentHits, AN_M8, SURFACE_SIDE, SURFACE_SKIP, surfaceMaterial, surfaceWord, readKitTable,
 } from '@s2u/scene';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FsAssetSource } from '@s2u/archive/node';
@@ -375,6 +376,23 @@ describe('the smoke and the flash going off', () => {
     expect(booms).toHaveLength(2);
   });
 
+  it("research 386 §3.2 (LATER 63): fireScene -- a scene FIRE_WEAPON's round the room set off -- explodes the item's round where told on the next step, another's (no page blast); an unknown item is ignored", () => {
+    const grid = claymoreFloor();
+    const booms: { item: string; pos: number[]; detonation: string; damage: number }[] = [];
+    const { g } = thrower({ grid: () => grid, snapshot: () => snap({ feet: [100, 50, 200], yaw: 0 }), handPoint: () => [102, 62, 192] });
+    g.on('explode', (e) => booms.push({ item: e.item, pos: [...e.pos], detonation: e.detonation, damage: e.damageToPlayer }));
+    g.fireScene('no such item', [0, 0, 0]);
+    g.fireScene('C4', [120, 55, 200]);                       // no C4 record yet (the disc's kit tables): nothing
+    run(g, 0.1);
+    expect(booms).toEqual([]);
+    // C4's record as the kit table's (research 182; this file's own C4 transcription, below): placed, Timer1 6 s.
+    g.setRecords([{ ...THROWABLES.Claymore, name: 'C4', id: 151, fuse: 6, removal: 0.1, explosionDamage: 18, explosionRadius: 50, model: 'c4', icon: 'c4.tif', capacity: 4 }]);
+    g.fireScene('C4', [120, 55, 200]);
+    run(g, 0.1);
+    expect(booms.map((b) => [b.item, b.pos, b.detonation])).toEqual([['C4', [120, 55, 200], 'blast']]);
+    expect(g.stats().live.every((l) => l.state !== 'rest')).toBe(true);
+  });
+
   // The regression of sprint 30's browser gate (remoteCombat.spec.ts:422; research 235 s7): the page's half, three owners.
   it("a detonate for one pid fires only that copy; tagOwn never tags another owner's copy, even laid at the same point; another player's Detonator leaves a charge it does not own", () => {
     const grid = claymoreFloor();
@@ -738,8 +756,8 @@ describe('PF-28 fix round 3: the smokes\' pids are this round\'s, and only a hyd
 /**
  * PAR-45 (research 283; a browser adaptation for the replay's seek, `REPLAY_ADAPTATION`): `clearSmokes()` stops every
  * smoke pouring on the page -- the effects player's runs (the door now hands their handles) and the placeholder puffs'
- * sources -- and nothing else. An ordinary match never calls it; `clearAir` still stops nothing that pours (research 231
- * s2: the puffs outlast the round's gap).
+ * sources -- and nothing else. An ordinary match never calls it; `clearAir` still stops nothing that pours (a round's
+ * start stops the smokes by `clearRoundEffects`, ROUND_END_EFFECTS_READING, research 283 §9).
  */
 describe('PAR-45: clearSmokes() stops the smokes pouring, and only on its call', () => {
   const run = (g: GrenadeThrower, seconds: number): void => { for (let t = 0; t < seconds; t += 1 / 60) g.update(1 / 60); };
@@ -814,6 +832,55 @@ describe('PAR-45: clearSmokes() stops the smokes pouring, and only on its call',
     run(p.g, 2);
     expect(d.alive()).toEqual(['smoke_grenade', 'smoke_stream']);
     expect(p.g.stats().smokes).toHaveLength(1);
+  });
+});
+
+/**
+ * ROUND_END_EFFECTS_READING (research 283 §9): a round's end stops the effects playing. The original's online round end
+ * (`FUN_002a9b30`, the host D:L150668, a page on game state 4 D:L150626) runs `FUN_002aa910`, which stops every run of
+ * the `common` and `mission` zAnim sets (D:L151211-151218, `FUN_0026c2e0` -> `FUN_0026fe90`) and ages every live particle
+ * past its life (D:L151219 `FUN_00326fb0`, D:L225080-225082). The page clears its copy at the next `roundStart`
+ * (`clearRoundEffects`): the smokes pouring and the placeholder puffs already in the air -- not left to run out.
+ */
+describe('ROUND_END_EFFECTS_READING: clearRoundEffects() -- a smoke thrown at the round\'s end does not pour into the next', () => {
+  const run = (g: GrenadeThrower, seconds: number): void => { for (let t = 0; t < seconds; t += 1 / 60) g.update(1 / 60); };
+  const phase = { state: 'detonated' as const, age: 5, fuse: -2, removal: 35 };
+
+  it('the effects player\'s runs stopped, an observer\'s and a joiner\'s', () => {
+    const { g } = thrower();
+    const handles: { anim: string; stopped: boolean }[] = [];
+    g.setEffectPlayer((anim) => {
+      const h = { anim, stopped: false };
+      handles.push(h);
+      return { name: anim, place: { position: [0, 0, 0] as V3 }, alive: () => !h.stopped, get finished() { return h.stopped; }, stop: () => { h.stopped = true; } };
+    });
+    g.select('AN-M8');
+    g.throwNow(0.2);
+    run(g, 3.1);
+    g.launchRemote('AN-M8', [40, 50, 40], [0, 0, 0], 2, { pid: 9, ...phase });
+    expect(handles.filter((h) => !h.stopped).map((h) => h.anim)).toEqual(['smoke_grenade', 'smoke_stream']);
+    g.clearAir();
+    g.clearRoundEffects();
+    expect(handles.filter((h) => !h.stopped)).toEqual([]);
+  });
+
+  it('the placeholder (no program): the smokes pouring gone and the puffs already in the air gone with them', () => {
+    const { g } = thrower();
+    g.setEffectPlayer(() => null);
+    g.select('AN-M8');
+    g.throwNow(0.2);
+    run(g, 4);
+    g.launchRemote('AN-M8', [40, 50, 40], [0, 0, 0], 2, { pid: 9, ...phase });
+    run(g, 1);
+    expect(g.stats().smokes).toHaveLength(2);
+    expect(g.stats().effects).toBeGreaterThan(0);
+    g.clearAir();
+    g.clearRoundEffects();
+    expect(g.stats().smokes).toEqual([]);
+    expect(g.stats().effects).toBe(0);                 // FUN_00326fb0: every live particle, not left to run out
+    run(g, 2);
+    expect(g.stats().smokes).toEqual([]);
+    expect(g.stats().effects).toBe(0);                 // nothing pours again
   });
 });
 
@@ -899,6 +966,35 @@ describe.skipIf(!MP2_ZDB)(`PF-28 fix round 3: a joiner's smoke on the real effec
     for (const x of [a, b]) { x.g.select('AN-M8'); x.g.throwNow(0.2); x.frames(10); x.g.clearAir(); x.frames(5); }
     expect(a.fx.stats().runs).toBeGreaterThan(0);           // clearAir stopped nothing pouring
     expect([a.fx.stats().runs, a.fx.stats().emitted, a.fx.stats().particles]).toEqual([b.fx.stats().runs, b.fx.stats().emitted, b.fx.stats().particles]);
+  });
+
+  // ROUND_END_EFFECTS_READING (research 283 §9): the round's clear on the real effects player -- the smoke_grenade, the
+  // smoke_stream it called and a joiner's stream stopped, and every puff in the air gone (`FUN_002aa910` D:L151211-151219).
+  it('ROUND_END_EFFECTS_READING: a smoke pouring at the round\'s end is gone at the next roundStart -- no run, no source, no puff', async () => {
+    const data = { ...(await effectsFromDisc(new FsAssetSource(FIXTURE_ROOT), 'RUN/MP2.ZDB', 'MP2')), ambient: [] };
+    const camera = new PerspectiveCamera();
+    camera.position.set(40, 60, 140);
+    camera.updateMatrixWorld();
+    const fx = new Effects(() => 0.5, () => {});
+    fx.setData(data);
+    const { g } = thrower();
+    g.setEffectPlayer((anim, p) => fx.run(anim, { position: p.position, normal: p.normal ?? [0, 1, 0], velocity: p.velocity ?? [0, 0, 0] }));
+    const frames = (seconds: number): void => { for (let i = 0; i < seconds * 30; i++) { g.update(1 / 30); fx.update(1 / 30, camera); } };
+    g.select('AN-M8');
+    g.throwNow(0.2);
+    frames(6);
+    g.launchRemote('AN-M8', [40, 50, 40], [0, 0, 0], 2, { pid: 9, state: 'detonated', age: 5, fuse: -2, removal: 35, bounces: 1, dud: false });
+    frames(1);
+    expect(fx.stats().particles).toBeGreaterThan(0);
+    g.clearAir();
+    g.clearRoundEffects();
+    fx.clearRound();
+    expect(fx.stats().particles).toBe(0);
+    frames(1 / 30);
+    expect([fx.stats().runs, fx.stats().sources, fx.stats().particles]).toEqual([0, 0, 0]);
+    const emitted = fx.stats().emitted;
+    frames(5);
+    expect(fx.stats().emitted).toBe(emitted);               // nothing pours into the new round
   });
 });
 
@@ -2428,5 +2524,63 @@ describe('LATER 532: the wind-up handed back is stepped over the wait (GrenadeTh
     const w = wound();
     (w.g as unknown as Untakes).mountUntake(true);
     expect([w.g.phase(), w.g.stats().power]).toEqual(['holding', w.power]);
+  });
+});
+
+// Codex P2 on PR #739: a scene FIRE_WEAPON's MPBOMB round (item 154, `zweapon.rdr`; research 94, research 171 §4 and §8:
+// the Crossroads bridges' and the bases' blasts reuse MPBOMB's records as damage definitions) reaches the page as a
+// `sceneRound` (`./netPage` -> `./matchThrow` `sceneRound` -> `GrenadeThrower.fireScene`). MPBOMB is an `explosive`
+// (151-170, `@s2u/scene` `itemClass`), so its record is in `KitTable.throwables`, never `KitTable.rounds`.
+const ZWEAPON_ZAR = [resolve(dirname(fileURLToPath(import.meta.url)), '../../../public/maps/RUN/ZWEAPON.ZAR'),
+  ...(process.env.SOCOM_DISC ? [resolve(process.env.SOCOM_DISC, 'RUN/ZWEAPON.ZAR')] : [])].find((p) => existsSync(p));
+describe.skipIf(!ZWEAPON_ZAR)(`a scene round of MPBOMB on the disc's kit table${ZWEAPON_ZAR ? '' : ' (zweapon.rdr absent: set SOCOM_DISC)'}`, () => {
+  const run = (g: GrenadeThrower, seconds: number): void => { for (let t = 0; t < seconds; t += 1 / 60) g.update(1 / 60); };
+  // Codex P1 on PR #742: vitest runs a skipped suite's factory at collection, so the disc read waits for beforeAll --
+  // on a host without ZWEAPON.ZAR the suite skips instead of failing the whole file's collection (the no-data view).
+  let table!: ReturnType<typeof readKitTable>;
+  // `KitTable.throwables` is optional in its type; the disc's ZWEAPON.ZAR always yields it, asserted once in beforeAll.
+  let throwables!: NonNullable<ReturnType<typeof readKitTable>['throwables']>;
+  let mpbomb!: NonNullable<ReturnType<typeof throwables.get>>['record'];
+  beforeAll(() => {
+    table = readKitTable(new Uint8Array(readFileSync(ZWEAPON_ZAR!)));
+    expect(table.throwables).toBeDefined();
+    throwables = table.throwables!;
+    mpbomb = throwables.get(154)!.record;
+  });
+
+  it("fireScene('MPBOMB') explodes the record's own explosion (its effect, and the anim the page sounds), with the records setRecords had", () => {
+    expect(mpbomb.name).toBe('MPBOMB');
+    expect([...table.rounds.values()].some((r) => r.record.name === 'MPBOMB')).toBe(false);   // not a launched round
+    const effects: [string, number[]][] = [];
+    const booms: { item: string; pos: number[]; anim: string; byEffects: boolean }[] = [];
+    const { g } = thrower();
+    g.setEffectPlayer((anim, at) => { effects.push([anim, [...at.position]]); return true; });
+    g.on('explode', (e) => booms.push({ item: e.item, pos: [...e.pos], anim: e.anim, byEffects: e.byEffects }));
+    g.setRecords(throwables.values());                 // as `./matchThrow` `setMap` and `spawnEquipment` hand them
+    g.setRounds([...table.rounds.values()]);
+    g.fireScene('MPBOMB', [120, 55, 200]);
+    run(g, 0.2);
+    expect(effects).toEqual([[mpbomb.explosionAnim, [120, 55, 200]]]);   // the effect spawns: `satchel` (its sound inside)
+    expect(booms).toEqual([{ item: 'MPBOMB', pos: [120, 55, 200], anim: mpbomb.explosionAnim, byEffects: true }]);
+    // Without the effects' run the page's listener sounds the anim (`./matchThrow`: `audio.onAnimCallback(info.anim)`).
+    const bare = thrower().g, heard: { anim: string; byEffects: boolean }[] = [];
+    bare.on('explode', (e) => heard.push({ anim: e.anim, byEffects: e.byEffects }));
+    bare.setRecords(throwables.values());
+    bare.fireScene('MPBOMB', [0, 0, 0]);
+    run(bare, 0.2);
+    expect(heard).toEqual([{ anim: mpbomb.explosionAnim, byEffects: false }]);
+  });
+
+  it('MPBOMB stays out of every hand path: no record by kind, no slot, no select, no give-back, no remote throw', () => {
+    const { g } = thrower();
+    g.setRecords(throwables.values());
+    expect(KIT_ITEMS).not.toContain('MPBOMB');
+    expect(g.recordOf('MPBOMB')).toBeNull();
+    expect(g.giveBack('MPBOMB')).toBe(false);
+    expect(g.select('MPBOMB' as KitItem)).toBe(false);
+    g.setKit(['MPBOMB', 'M67', null]);
+    expect(g.takeable(1)).toBeNull();
+    g.launchRemote('MPBOMB', [0, 50, 0], [0, 0, -100], 3);
+    expect(g.stats().live).toEqual([]);
   });
 });

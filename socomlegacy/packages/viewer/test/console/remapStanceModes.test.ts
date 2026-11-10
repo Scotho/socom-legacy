@@ -87,7 +87,7 @@ describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => 
   it('COMBINED (the default): the Stance mode first (STANCE-TOP), the dead zone under it (DEAD-UP), the actions, Finish -- no Crouch and no Prone row', () => {
     openMapping();
     expect(controllerStanceMode()).toBe('pop');
-    expect(titles()).toEqual(['Stance mode', 'Stick dead zone', ...ACTIONS, 'Extra binds', 'Finish']);   // h59U9CLb: Extra binds
+    expect(titles()).toEqual(['Stance mode', 'Pad dead zone (this browser)', ...ACTIONS, 'Extra binds', 'Finish']);   // h59U9CLb: Extra binds
     expect(rowValue(REMAP_STANCE_ROW)).toBe('COMBINED');
   });
 
@@ -100,7 +100,7 @@ describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => 
 
   it('SEPARATE: the Stance mode first (STANCE-TOP), the dead zone under it (DEAD-UP), Crouch and Prone after the actions, then Finish', () => {
     openMapping({ mode: 'separate' });
-    expect(titles()).toEqual(['Stance mode', 'Stick dead zone', ...ACTIONS, 'Crouch', 'Prone', 'Extra binds', 'Finish']);
+    expect(titles()).toEqual(['Stance mode', 'Pad dead zone (this browser)', ...ACTIONS, 'Crouch', 'Prone', 'Extra binds', 'Finish']);
     expect(rowValue(REMAP_STANCE_ROW)).toBe('SEPARATE');
   });
 
@@ -123,7 +123,7 @@ describe('STM.R1: the Button mapping\'s rows are a function of the mode', () => 
     ctl.press('up');
     expect(ctl.S.rm.row).toBe(0);
     ctl.press('down');
-    expect(titles()[ctl.S.rm.row]).toBe('Stick dead zone');
+    expect(titles()[ctl.S.rm.row]).toBe('Pad dead zone (this browser)');
     ctl.press('down');
     expect(titles()[ctl.S.rm.row]).toBe('Cross');
     ctl.S.rm.row = REMAP_ACTION_ROW + 15;                    // Right, the last action
@@ -147,7 +147,7 @@ describe('STM.R1: stepping the Stance mode on the Button mapping', () => {
     ctl.remapFrame(t += 16);
     expect(controllerStanceMode()).toBe('separate');
     expect(localStorage.getItem(STANCE_MODE_KEY)).toBe('separate');
-    expect(titles().slice(0, 2)).toEqual(['Stance mode', 'Stick dead zone']);   // DEAD-UP
+    expect(titles().slice(0, 2)).toEqual(['Stance mode', 'Pad dead zone (this browser)']);   // DEAD-UP
     expect(titles().slice(17)).toEqual(['Right', 'Crouch', 'Prone', 'Extra binds', 'Finish']);
     expect(stored(p)).toMatchObject({ prone: TRIANGLE, crouch: 17 });
     expect(ctl.S.toast).toBe('Crouch bound to Touchpad');

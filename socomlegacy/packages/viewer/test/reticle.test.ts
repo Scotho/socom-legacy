@@ -15,11 +15,12 @@ import {
   meterLayout, meterPower, meterTint, type MeterQuad,
   reticleTargetState, targetLayout, targetName, TARGET_BAR,
   ESCORT_GAME_TYPE, Perception, PERCEPTION, perceptionLook, perceptionMagnification, PERCEPTION_QUERY_PLACEHOLDER,
-  PERCEPTION_SEEN_RATE_PLACEHOLDER, PERCEPTION_SIGHT_PLACEHOLDER, PERCEPTION_VETO_PLACEHOLDER, type PerceptionLook,
+  PERCEPTION_SEEN_RATE_PLACEHOLDER, PERCEPTION_SIGHT_READING, PERCEPTION_VETO_PLACEHOLDER, type PerceptionLook,
   PERCEPTION_RECORD_LIFE_READING,
   TARGET_NAME_LOOK_READING, TARGET_NAME_SCALE, TARGET_RANGE, TEAMMATE_NAMES_OPTION_READING, type ReticleTarget,
   EMPTY_RETICLE_COLOUR_READING, CLIMB_GREY_CLIPS, reticleClimbing, reticleGameColour,
 } from '../src/reticle';
+import { ENEMY_COUNT_FILTER_READING, enemyCount, escorteeWord, SEAT_WORD, seatWord } from '../src/reticle';
 import { TRAVERSAL_CLIP } from '../src/traversal';
 import { taggedName } from '../src/hud';
 import { FONT_TEXT_01, layoutText } from '../src/hudFont';
@@ -1283,7 +1284,82 @@ describe('AD-3: the perception that marks an other, and the special actors', () 
   it('AD-3 retired ENEMY_IDENTIFIED_PLACEHOLDER and TARGET_KIND_PLACEHOLDER; the unread parts are named apart', async () => {
     const mod: Record<string, unknown> = await import('../src/reticle');
     expect(Object.keys(mod).filter((k) => /^(ENEMY_IDENTIFIED|TARGET_KIND)_/.test(k))).toEqual([]);
-    expect(PERCEPTION_SIGHT_PLACEHOLDER).toEqual({ surfaces: 'the eye query\'s kept surfaces', from: 'the aim\'s eye', to: 'the feet raised by EYE_HEIGHT', record: 'feet to feet' });
+    // SIGHT-POINTS (LATER 793): the sight's two points are the original's posed nodes (head to neck), so the constant is a
+    // reading now; its surfaces' rule and the record's distance stay the page's stand-ins (was: PERCEPTION_SIGHT_PLACEHOLDER,
+    // from the aim's eye to the feet raised by EYE_HEIGHT).
+    expect(Object.keys(mod)).not.toContain('PERCEPTION_SIGHT_PLACEHOLDER');
+    expect(PERCEPTION_SIGHT_READING).toEqual({ surfaces: 'the eye query\'s kept surfaces', from: 'the observer\'s posed head node', to: 'the target\'s posed neck node', record: 'feet to feet' });
     expect(PERCEPTION_QUERY_PLACEHOLDER).toBe('one query a body a frame, its elapsed time the frame\'s');
+  });
+});
+
+/**
+ * ENEMY-RAISE ER-1 (SCOPE.md s3.4 tests 4 and 5; reading, pending review): the controller's `ctrl+0xc0` counts the body's
+ * records that pass four tests (`FUN_005c9b30` D:L482101-482132) -- the team words share no bit
+ * (`(body+0xc8 & target+0xc8) == 0`, D:L482112), the target active (`+0xe1` bit 4, D:L482115; the room's alive flag
+ * here), of kind 2 (every body the page perceives, D:L419419) and marked (`+0x2c` bit 0x200, D:L482131). The seat words
+ * are SEAL 0x40000001 and Terrorist 0x80000100 (`FUN_002c32c0` / `FUN_002c32e0` D:L164772-164793, exchanged under
+ * `DAT_004412d8`); the escortees' are the map records' -- a hostage 0xc0020000, a VIP 0x40020000 (research 175 s2,
+ * research 321 s4.1.1 point 4) -- bits 30 and 31 exchanged at the spawn under the swap (`FUN_002b28d0` D:L155859-155867).
+ */
+describe('ENEMY-RAISE ER-1: the marked-enemy count (FUN_005c9b30 D:L482090-482132)', () => {
+  /** Seats 7 (SEAL) and 9 (Terrorist), hostage 240, all marked by a seen query (the placeholder rate: at once). */
+  const marked = (ids: readonly number[]): Perception => {
+    const p = new Perception();
+    for (const id of ids) p.step(id, 'seen', 1 / 60);
+    return p;
+  };
+
+  it('the words as read: the seats 0x40000001 / 0x80000100, exchanged under the swap; a hostage 0xc0020000 either way; a VIP 0x40020000, 0x80020000 under the swap', () => {
+    expect(SEAT_WORD).toEqual({ seal: 0x40000001, terrorist: 0x80000100 });
+    expect([seatWord('seal'), seatWord('terrorist'), seatWord('seal', true), seatWord('terrorist', true)]).toEqual([0x40000001, 0x80000100, 0x80000100, 0x40000001]);
+    expect([escorteeWord(4), escorteeWord(4, true)]).toEqual([0xc0020000, 0xc0020000]);
+    expect([escorteeWord(ESCORT_GAME_TYPE), escorteeWord(ESCORT_GAME_TYPE, true)]).toEqual([0x40020000, 0x80020000]);
+  });
+
+  it('RED 4: a marked teammate gives 0, a marked enemy 1, a dead enemy 0, a free hostage 0 for either side, an enemy beyond the reach (never marked) 0', () => {
+    const word = (id: number): number | null => (id === 7 ? seatWord('seal') : id === 9 ? seatWord('terrorist') : id === 240 ? escorteeWord(4) : null);
+    const alive = (): boolean => true;
+    const seal = seatWord('seal'), terrorist = seatWord('terrorist');
+    expect(enemyCount(marked([7]), seal, word, alive)).toBe(0);                       // the teammate shares bit 30
+    expect(enemyCount(marked([9]), seal, word, alive)).toBe(1);
+    expect(enemyCount(marked([7, 9]), seal, word, alive)).toBe(1);
+    expect(enemyCount(marked([7, 9]), terrorist, word, alive)).toBe(1);
+    expect(enemyCount(marked([9]), seal, word, (id) => id !== 9)).toBe(0);            // dead: not active
+    expect(enemyCount(marked([240]), seal, word, alive)).toBe(0);                     // 0xc0020000 meets both seat words
+    expect(enemyCount(marked([240]), terrorist, word, alive)).toBe(0);
+    expect(enemyCount(marked([99]), seal, word, alive)).toBe(0);                      // no word known: not counted
+    // in the cone but past the reach (1000): FUN_005ca9f0 stops there, the record never marked
+    const look = perceptionLook({ alive: true, distance: 1200, apex: [0, 60, 0], forward: [0, 0, -1], target: [0, 60, -1200], magnification: 1, mid: null, speedSquared: 0, seen: true });
+    expect(look).toBe('beyond');
+    const p = new Perception();
+    p.step(9, look, 1 / 60);
+    expect([...p.marked()]).toEqual([]);
+    expect(enemyCount(p, seal, word, alive)).toBe(0);
+  });
+
+  it('RED 5: the escort VIP (0x40020000) counts for a Terrorist observer and not a SEAL; under the swap (0x80020000) for the SEAL word 0x40000001 and not 0x80000100', () => {
+    const vip = (swapped: boolean) => (id: number): number | null => (id === 241 ? escorteeWord(ESCORT_GAME_TYPE, swapped) : null);
+    const alive = (): boolean => true;
+    expect(enemyCount(marked([241]), 0x80000100, vip(false), alive)).toBe(1);
+    expect(enemyCount(marked([241]), 0x40000001, vip(false), alive)).toBe(0);
+    expect(enemyCount(marked([241]), 0x40000001, vip(true), alive)).toBe(1);
+    expect(enemyCount(marked([241]), 0x80000100, vip(true), alive)).toBe(0);
+    // by side: the page's seats and the VIP exchanged together, the VIP stays the Terrorists' enemy
+    expect(enemyCount(marked([241]), seatWord('terrorist', true), vip(true), alive)).toBe(1);
+    expect(enemyCount(marked([241]), seatWord('seal', true), vip(true), alive)).toBe(0);
+  });
+
+  it('Perception.marked lists the marked records only; the count reads no record twice', () => {
+    const p = marked([7, 9]);
+    p.step(7, 'rejected', 1 / 60);                                                  // 7's mark cleared at once
+    expect([...p.marked()]).toEqual([9]);
+  });
+
+  it('names its reading: ENEMY_COUNT_FILTER_READING', () => {
+    expect(ENEMY_COUNT_FILTER_READING).toEqual({
+      kind: 'every perceived body kind 2', active: "the room's alive flag", ledHostage: "the welcome list's word, no leader rewrite",
+      swap: "the page's seats and escortees unswapped", observer: 'a seated player only',
+    });
   });
 });

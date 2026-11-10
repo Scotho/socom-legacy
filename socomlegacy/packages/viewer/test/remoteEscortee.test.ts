@@ -255,13 +255,17 @@ describe('PAR-34 group 5: the rescued fade in real time at 5 fps (research 252 s
 /**
  * PAR-34 (review F2; research 252 s3; ACT.R8): another player's rifle is lowered `LOWER_DELAY` (5 s) of real time after
  * its trigger's last edge (`FUN_00594cf0`'s `ctrl+0x234`, the page's own in group 1): `RemotePlayers.frame` hands its
- * `real` to each body's `Play.frame`, whose raise counts it; the clips keep the clamped step.
+ * `real` to each body's `Play.frame`, whose raise counts it; the clips keep the clamped step. ENEMY-RAISE ER-2: that
+ * countdown is a copy's only on a body with no raise field -- a replay recorded before protocol 14
+ * (`RemotePlayers.setRaiseField(false)`, `REMOTE_HAND_RAISE_READING`); a live copy replays its owner's state
+ * (`BodyFlag.Raised`, the original's byte +0x7e: `FUN_002be150` D:L162310-162312) and runs no countdown of its own.
  */
 describe("PAR-34: another player's rifle lowered in real time at 5 fps (review F2; research 252 s3; ACT.R8)", () => {
-  it("a remote's trigger let go: the raise asks it down LOWER_DELAY of real time later at 5 fps (within a frame), not 10 s", () => {
+  it("a pre-14 replay's copy (no raise field): its trigger let go, the raise asks it down LOWER_DELAY of real time later at 5 fps (within a frame), not 10 s", () => {
     const request = vi.spyOn(WeaponRaise.prototype, 'request');
     const { remote } = rig();
     const camera = new PerspectiveCamera();
+    remote.setRaiseField(false);                                                         // ER-2: a recording before protocol 14
     remote.setTeam(3, 'seal');
     for (let i = 0; i < 3; i++) remote.frame(0.1, [state(3, { flags: BodyFlag.Alive | BodyFlag.Trigger })], camera, 0.2);
     remote.frame(0.1, [state(3)], camera, 0.2);                                         // the release's frame: its edge resets the countdown
@@ -274,5 +278,29 @@ describe("PAR-34: another player's rifle lowered in real time at 5 fps (review F
     }
     expect(at).toBeCloseTo(LOWER_DELAY.base, 9);                                         // the lane: 10 s
     request.mockRestore();
+  });
+
+  it('ER-2, a live copy: Raised set holds it up with no trigger; cleared, the raise asks it down on that frame and the copy is fully down 0.5 s of game time later (the envelope runs on the clamped step, not the real time)', () => {
+    const request = vi.spyOn(WeaponRaise.prototype, 'request');
+    const { remote } = rig();
+    const camera = new PerspectiveCamera();
+    remote.setTeam(3, 'seal');
+    for (let i = 0; i < 10; i++) remote.frame(0.1, [state(3, { flags: BodyFlag.Alive | BodyFlag.Raised })], camera, 0.2);
+    expect(request.mock.calls.some(([t]) => t === 1)).toBe(true);                       // up from the owner's state alone
+    expect(request.mock.calls.some(([t]) => t === 2)).toBe(false);                      // 2 s of real time, never asked down
+    const n = request.mock.calls.length;
+    const raise = vi.spyOn(WeaponRaise.prototype, 'frame');                             // its answer: the eased weight
+    remote.frame(0.1, [state(3)], camera, 0.2);                                         // the owner's state down (say, a grenade taken up)
+    expect(request.mock.calls.slice(n).some(([t]) => t === 2)).toBe(true);               // asked down on the frame that carries it
+    expect(raise.mock.results.at(-1)?.value).toBeLessThan(1);                           // falling on that frame, not held 5 s
+    let down: number | null = null, game = 0.1;
+    for (let i = 0; i < 20 && down === null; i++) {
+      if (raise.mock.results.at(-1)?.value === 0) { down = game; break; }
+      remote.frame(0.1, [state(3)], camera, 0.2);
+      game += 0.1;
+    }
+    expect(down).not.toBeNull();
+    expect(down!).toBeLessThanOrEqual(0.5 + 0.1 + 1e-9);                                 // the 0.5 s out (`FUN_005dffc0`), within a step
+    request.mockRestore(); raise.mockRestore();
   });
 });

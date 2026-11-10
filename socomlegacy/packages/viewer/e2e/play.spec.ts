@@ -89,25 +89,38 @@ test('the play mode: the SEAL at A in the game\'s clips, over its shoulder, jump
   expect(moved[1]).toBeCloseTo(100, 3);
 
   // The jump standing still (research 80): the Jump action -- seal_jump on the floor, the feet never leaving it -- and
-  // the camera's target rising with the clip's root (FUN_0029a950 reads the posed root).
+  // the camera's target rising with the clip's root (FUN_0029a950 reads the posed root). The root dips under the standing
+  // 11.48 until key 10 (10.51 .. 10.77, then 11.46, 13.09 .. 15.08 at key 12; the clip lasts 0.993 s, research 80 s3), so
+  // the look samples by the clock, the clip's whole length plus a margin (1.2 s, and at least 40 frames) -- a count of
+  // frames alone ended before the rise on a fast GPU (the root crosses the standing + 2 near key 10.3, about 0.54 s, so 40
+  // frames fail above about 75 Hz; the real-GPU red, mega 7cd782a5f, read the first sample 11.484375). The crossing's own
+  // time is bounded too (0.9 s, at 20 Hz or faster), so a camera that lags or eases the root still fails.
   await page.waitForTimeout(600);
   const rootBefore = (await page.evaluate(() => window.__viewer.camera()))!.rootY;
-  const jumped = await page.evaluate(() => {
+  const jumped = await page.evaluate((before) => {
     const v = window.__viewer;
     const ok = v.jump();
-    return new Promise<{ ok: boolean; airborne: boolean | undefined; clip: string | undefined; top: number }>((done) => {
-      let top = 0, frames = 0;
+    const t0 = performance.now();
+    return new Promise<{ ok: boolean; airborne: boolean | undefined; clip: string | undefined; top: number; ms: number; frames: number; crossMs: number | null }>((done) => {
+      let top = 0, frames = 0, airborne: boolean | undefined, clip: string | undefined, crossMs: number | null = null;
       const look = (): void => {
-        top = Math.max(top, v.camera()?.rootY ?? 0);
-        if (++frames < 40) requestAnimationFrame(look);
-        else done({ ok, airborne: v.mover()?.airborne, clip: v.stats().anim?.clip, top });
+        const r = v.camera()?.rootY ?? 0;
+        top = Math.max(top, r);
+        if (crossMs === null && r > before + 2) crossMs = performance.now() - t0;
+        if (frames === 0) { airborne = v.mover()?.airborne; clip = v.stats().anim?.clip; }
+        else if (v.mover()?.airborne) airborne = true;
+        if (++frames < 40 || performance.now() - t0 < 1200) requestAnimationFrame(look);
+        else done({ ok, airborne, clip, top, ms: performance.now() - t0, frames, crossMs });
       };
       requestAnimationFrame(look);
     });
-  });
+  }, rootBefore);
+  const hz = jumped.frames / (jumped.ms / 1000);
+  test.info().annotations.push({ type: 'jump look', description: `top ${jumped.top.toFixed(3)} over ${jumped.ms.toFixed(0)} ms, ${hz.toFixed(0)} Hz, crossed at ${jumped.crossMs === null ? 'never' : jumped.crossMs.toFixed(0) + ' ms'}` });
   expect(jumped.ok).toBe(true);
   expect(jumped.airborne).toBe(false);
   expect(jumped.top).toBeGreaterThan(rootBefore + 2);              // seal_jump's root: 10.5 to 15.1
+  if (hz >= 20) expect(jumped.crossMs!).toBeLessThan(900);         // key 10.3 at about 0.54 s, plus a frame and the blend
   await expect.poll(async () => (await stats(page)).anim?.clip ?? null).toBe('seal_stand');
 
   // The picture from the shoulder, standing again.

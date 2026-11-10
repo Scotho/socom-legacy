@@ -54,7 +54,7 @@ describe('the rooms adapter: signed out (the anonymous counts)', () => {
   it('a row per classic room with its counts; nothing to open, no bearer, no names route', async () => {
     const { f, r } = rooms(signedInRoutes());
     await flush();
-    expect(r.list().map((x) => [x.name, x.n, x.kind])).toEqual([['Game in MP2', 3, undefined], ['Game in MP51', 0, undefined]]);
+    expect(r.list().map((x) => [x.name, x.n, x.kind])).toEqual([['Game in Frostfire', 3, undefined], ['Game in Vigilance', 0, undefined]]);
     expect(f.calls.map((c) => [new URL(c.url).pathname, c.auth])).toEqual([['/rooms', null]]);
     expect(r.room('room:100').kind).toBe('gone');
     expect(r.game('game:500').kind).toBe('gone');
@@ -96,7 +96,7 @@ describe('the rooms adapter: signed in (the briefing rooms, their games, the nam
     expect([v.name, v.locked, v.full]).toEqual(['Channel 1', false, false]);
     expect(facts(v)).toEqual({ Players: '2/64', Ranks: LOBBY_WORDS.everyRank });
     expect(v.games.map((g) => [g.id, g.name, g.locked, g.inProgress])).toEqual([['game:500', 'test', false, false]]);
-    expect(v.games[0]!.sub).toBe('MP2 · 2/12 players · 0/4 spectators · Ping Fair');   // before the disc: the map's stem
+    expect(v.games[0]!.sub).toBe('Frostfire · 2/12 players · 0/4 spectators · Ping Fair');   // before the disc: the name table's (MN-1, OT.R113)
     expect(v.players).toEqual({ kind: 'names', names: ['Alpha', XSS_NAME] });
     expect(ok<LobbyRoomView>(r.room('room:101')).games).toEqual([]);
     r.dispose();
@@ -123,7 +123,7 @@ describe('the rooms adapter: signed in (the briefing rooms, their games, the nam
     expect([g.name, g.room, g.roomName, g.inProgress]).toEqual(['test', 'room:100', 'Channel 1', false]);
     expect(facts(g)).toMatchObject({ Players: '2/12', Status: LOBBY_WORDS.inLobby, Spectators: '0/4', Ping: 'Fair', Room: 'Channel 1' });
     expect(g.details.map((d) => [d.kind, d.label, d.value])).toEqual([
-      ['fact', 'Map', 'MP2'], ['fact', 'Rounds', '0'], ['fact', 'Round time', '0 min'], ['fact', 'Friendly fire', 'Off'], ['fact', 'Respawn', 'Off'],
+      ['fact', 'Map', 'Frostfire'], ['fact', 'Rounds', '0'], ['fact', 'Round time', '0 min'], ['fact', 'Friendly fire', 'Off'], ['fact', 'Respawn', 'Off'],
       ['note', LOBBY_WORDS.needsDisc, ''],
     ]);
     expect(g.players).toEqual({ kind: 'names', names: ['Alpha', XSS_NAME] });
@@ -139,7 +139,7 @@ describe('the rooms adapter: signed in (the briefing rooms, their games, the nam
       ['Map', 'Frostfire'], ['Mode', 'Suppression'], ['Rounds', '11'], ['Round time', '6 min'], ['Friendly fire', 'On'], ['Respawn', 'On'], ['Weapons', 'Pistols only'],
     ]);
     expect(ok<LobbyGameView>(r.game('game:601')).details.map((d) => [d.kind, d.label, d.value])).toEqual([
-      ['fact', 'Map', 'MP2'], ['fact', 'Status', 'Unavailable'], ['note', LOBBY_WORDS.unavailable, ''],      // the section's: its stem, as unavailable
+      ['fact', 'Map', 'Frostfire'], ['fact', 'Status', 'Unavailable'], ['note', LOBBY_WORDS.unavailable, ''],      // the section's, as unavailable; named by the name table (MN-1)
     ]);
     expect(ok<LobbyRoomView>(r.room('room:100')).games[0]!.sub).toBe('Frostfire · Suppression · 1/16 players · Ping Good');
     r.dispose();
@@ -151,7 +151,7 @@ describe('the rooms adapter: signed in (the briefing rooms, their games, the nam
     const { r } = rooms(signedInRoutes(f), { signedIn: true });
     await flush();
     const row = ok<LobbyRoomView>(r.room('room:100')).games[0]!;
-    expect([row.inProgress, row.sub]).toEqual([true, `MP2 · ${LOBBY_WORDS.inProgress} · 2/16 players · Ping Good`]);   // the section's: by the name
+    expect([row.inProgress, row.sub]).toEqual([true, `Frostfire · ${LOBBY_WORDS.inProgress} · 2/16 players · Ping Good`]);   // the section's: by the name
     expect(facts(ok<LobbyGameView>(r.game('game:500')))['Status']).toBe(LOBBY_WORDS.inProgress);
     r.dispose();
   });
@@ -365,9 +365,9 @@ describe('the review folds: a game line carries the section flags; Refresh after
     const { r } = rooms(signedInRoutes(f), { signedIn: true });
     await flush();
     expect(ok<LobbyRoomView>(r.room('room:100')).games.map((g) => g.sub)).toEqual([
-      'MP2 · 2/12 players · 0/4 spectators · Ping Fair',
-      'MP2 · 4/16 players · Clan game · Ping Good · Ranks: ENSIGN, LIEUTENANT',             // GenericField3 set; 'D'[7] bits 1 and 2
-      'MP2 · 1/14 players · 0/2 spectators · Password · Ping Good',
+      'Frostfire · 2/12 players · 0/4 spectators · Ping Fair',
+      'Frostfire · 4/16 players · Clan game · Ping Good · Ranks: ENSIGN, LIEUTENANT',             // GenericField3 set; 'D'[7] bits 1 and 2
+      'Frostfire · 1/14 players · 0/2 spectators · Password · Ping Good',
     ]);
     r.dispose();
   });
@@ -442,8 +442,8 @@ describe('the custom matches adapter (FG-46; MU_CUSTOM_MATCHES_OPTIONAL_ADAPTATI
     await flush();
     expect(c.view()).toEqual({
       kind: 'ok', empty: null, rows: [
-        { id: 'L1', name: 'Crate maze', map: 'MP72', players: 3, max: 16, inMatch: false, locked: true, href: '/forge/lobby/L1' },
-        { id: 'L2', name: XSS_NAME, map: 'Blank floor (MP2)', players: 8, max: 8, inMatch: true, locked: false, href: '/forge/lobby/L2' },
+        { id: 'L1', name: 'Crate maze', map: 'Crossroads', players: 3, max: 16, inMatch: false, locked: true, href: '/forge/lobby/L1' },
+        { id: 'L2', name: XSS_NAME, map: 'Blank floor (Frostfire)', players: 8, max: 8, inMatch: true, locked: false, href: '/forge/lobby/L2' },
       ],
     });
     c.dispose();

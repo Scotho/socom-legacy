@@ -170,6 +170,16 @@ export class ParticleSystem {
     for (const pool of this.meshes.values()) for (const { mesh } of pool) mesh.visible = false;
   }
 
+  /**
+   * ROUND_END_EFFECTS_READING (research 283 §9): every live particle gone, the sources kept -- the round's end ages each
+   * particle on the manager's live list past its life (`FUN_00326fb0` D:L225075-225083, its `+0xc` set to `+0x48` +
+   * 0.01), so the next update frees them all (`FUN_003280a0`); a source still running pours again.
+   */
+  expire(): void {
+    this.particles = [];
+    for (const pool of this.meshes.values()) for (const { mesh } of pool) mesh.visible = false;
+  }
+
   /** LATER 593: the world's alpha pass to draw the particles between, by range (`./alphaInterleave`); null, none. */
   setAlphaPass(source: AlphaPassSource | null): void {
     this.alphaPass = source;

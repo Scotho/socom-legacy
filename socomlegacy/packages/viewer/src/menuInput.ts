@@ -97,7 +97,52 @@ export function framePoint(clientX: number, clientY: number, rect: { left: numbe
 }
 
 /** The pointer events the canvas keeps from the page beneath it. */
-const POINTER_EVENTS = ['pointerdown', 'pointerup', 'pointermove', 'mousedown', 'mouseup', 'click', 'dblclick', 'wheel', 'contextmenu', 'touchstart', 'touchend', 'touchmove'] as const;
+const POINTER_EVENTS = ['pointerdown', 'pointerup', 'pointermove', 'pointercancel', 'lostpointercapture', 'mousedown', 'mouseup', 'click', 'dblclick', 'wheel', 'contextmenu', 'touchstart', 'touchend', 'touchmove'] as const;
+
+type PointerMenuInput = Pick<MenuInput, 'tap'> & Partial<Pick<MenuInput, 'pointerDown' | 'pointerMove' | 'pointerUp'>>;
+
+/** Browser adaptation shared by the home menus and the in-match overlay: click and drag native sliders. */
+export function attachMenuPointer(input: PointerMenuInput, canvas: HTMLCanvasElement): () => void {
+  let active: number | null = null;
+  const oldTouchAction = canvas.style.touchAction;
+  canvas.style.touchAction = 'none';
+  const release = () => {
+    const id = active; active = null;
+    input.pointerUp?.();
+    if (id !== null && canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture(id);
+  };
+  const pointer = (event: Event) => {
+    event.stopPropagation();
+    const p = event as PointerEvent;
+    if (event.type === 'pointerdown') {
+      if (p.button !== 0 || (active !== null && active !== (p.pointerId ?? 0))) return;
+      release();
+      const at = framePoint(p.clientX, p.clientY, canvas.getBoundingClientRect());
+      if (at) {
+        active = p.pointerId ?? 0;
+        if (input.pointerDown) input.pointerDown(at.x, at.y); else input.tap(at.x, at.y);
+        // Real pointers are captured; synthetic test events need not have a browser pointer behind them.
+        try { canvas.setPointerCapture?.(active); } catch { /* synthetic pointer */ }
+      }
+      event.preventDefault();
+    } else if (active !== null && (p.pointerId ?? 0) === active) {
+      if (event.type === 'pointermove') {
+        const r = canvas.getBoundingClientRect(), scale = Math.min(r.width / 640, r.height / 448);
+        if (scale > 0) input.pointerMove?.((p.clientX - r.left - (r.width - 640 * scale) / 2) / scale,
+          (p.clientY - r.top - (r.height - 448 * scale) / 2) / scale);
+        event.preventDefault();
+      } else if (['pointerup', 'pointercancel', 'lostpointercapture'].includes(event.type)) release();
+    }
+  };
+  for (const type of POINTER_EVENTS) canvas.addEventListener(type, pointer, { passive: false });
+  canvas.ownerDocument.defaultView?.addEventListener('blur', release);
+  return () => {
+    release();
+    for (const type of POINTER_EVENTS) canvas.removeEventListener(type, pointer);
+    canvas.ownerDocument.defaultView?.removeEventListener('blur', release);
+    canvas.style.touchAction = oldTouchAction;
+  };
+}
 
 /** The page's source for one front end: keys, the first physical pad, the menu touch pad and canvas taps. */
 export class MenuPageInput implements MenuInputSource {
@@ -132,7 +177,7 @@ export class MenuPageInput implements MenuInputSource {
    * Alt / Meta chords pass), the taps on `canvas` to `input.tap`; nothing of either reaches the map viewer beneath.
    * `win`'s blur lets every key go. Answers the detach.
    */
-  attach(input: Pick<MenuInput, 'tap'>, canvas: HTMLCanvasElement, win: Window): () => void {
+  attach(input: PointerMenuInput, canvas: HTMLCanvasElement, win: Window): () => void {
     const key = (e: KeyboardEvent): void => {
       if (e.type === 'keyup') this.keyUp(e.code);                   // always: a key let go under a chord is let go
       if (e.code === 'Escape' || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -165,19 +210,10 @@ export class MenuPageInput implements MenuInputSource {
    * GM-12b takes `#front-end-gpu` too (`MenuPageAttachment.also`), whose box is `#front-end`'s, so a tap lands on the
    * same frame point whichever canvas shows (a browser adaptation, as the rest of this file).
    */
-  attachPointer(input: Pick<MenuInput, 'tap'>, canvas: HTMLCanvasElement): () => void {
-    const pointer = (e: Event): void => {
-      e.stopPropagation();
-      if (e.type === 'pointerdown') {
-        const p = e as PointerEvent;
-        const at = framePoint(p.clientX, p.clientY, canvas.getBoundingClientRect());
-        if (at) input.tap(at.x, at.y);
-        e.preventDefault();
-      }
-    };
-    for (const t of POINTER_EVENTS) canvas.addEventListener(t, pointer, { passive: false });
-    return () => { for (const t of POINTER_EVENTS) canvas.removeEventListener(t, pointer); };
+  attachPointer(input: PointerMenuInput, canvas: HTMLCanvasElement): () => void {
+    return attachMenuPointer(input, canvas);
   }
+
 }
 
 /** The page's adapter on a front end's canvas: `connect` the session's input when there is one; `detach` at the stop. */
@@ -212,7 +248,12 @@ export function attachMenuInput(canvas: HTMLCanvasElement, win: Window, deadZone
   poll();
   const page = new MenuPageInput(poll, () => touch.read(), deadZone);
   let input: MenuInput | null = null;
-  const tap = { tap: (x: number, y: number) => input?.tap(x, y) ?? null };
+  const tap = {
+    tap: (x: number, y: number) => input?.tap(x, y) ?? null,
+    pointerDown: (x: number, y: number) => input?.pointerDown(x, y) ?? null,
+    pointerMove: (x: number, y: number) => input?.pointerMove(x, y),
+    pointerUp: () => input?.pointerUp(),
+  };
   const detach = page.attach(tap, canvas, win);
   const others: (() => void)[] = [];
   return {

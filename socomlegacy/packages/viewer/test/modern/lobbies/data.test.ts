@@ -191,13 +191,14 @@ describe('Custom matches: the data (FG-46)', () => {
     expect(MU_CUSTOM_MATCHES_OPTIONAL_ADAPTATION).toMatch(/unavailable/);
   });
 
-  it('the map: a multiplayer map by the disc\'s mission name when it is in, else its stem; a blank floor said as one', () => {
-    expect(customMatchMap('MP72', null)).toBe('MP72');
+  it('the map: a multiplayer map by the disc\'s mission name when it is in, else its display name (OT.R113), never its stem; a blank floor said as one', () => {
+    expect(customMatchMap('MP72', null)).toBe('Crossroads');                     // MN-1 (OT.R113): the name table, not the stem
     expect(customMatchMap('MP72', MISSIONS_C)).toBe('Frostfire');
-    expect(customMatchMap('blank:MP2', null)).toBe('Blank floor (MP2)');
+    expect(customMatchMap('blank:MP2', null)).toBe('Blank floor (Frostfire)');
     expect(customMatchMap('blank:MP2', MISSIONS_C)).toBe('Blank floor (Blizzard)');
     expect(customMatchMap('M51', MISSIONS_C)).toBe('M51');                          // a campaign mission: its stem
-    expect(customMatchMap('MP9', MISSIONS_C)).toBe('MP9');                          // not in the table: its stem
+    expect(customMatchMap('MP9', MISSIONS_C)).toBe('Bitter Jungle');                // not in the disc's table: the name table's (MN-1)
+    expect(customMatchMap('MP99', null)).toBe('Unknown map');                       // off every table: never the code
   });
 
   it('JOIN\'s address: the forge\'s lobby link (`/forge/lobby/<id>`); under devmode the switch and the list\'s server, nothing else', () => {

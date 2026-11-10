@@ -2,12 +2,12 @@
 title: "Changelog / format versions"
 description: "The pack formats and the contract versions, newest first, each with what it does today."
 status: "Format only"
-source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/creator-contracts/src/rules.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts:27-32", "socomlegacy/packages/viewer/src/experimentalGraphics.ts:437"]
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/creator-contracts/src/rules.ts", "socomlegacy/packages/viewer/src/console/adapters/mods.ts", "socomlegacy/packages/viewer/src/packs/pagePacks.ts", "socomlegacy/packages/viewer/src/packApplyOverlay.ts", "socomlegacy/tools/hdPackThunderstore.ts", "socomlegacy/docs/specs/2026-11-07-forge-path-design.md"]
 ---
 
 **Status: Format only.** The current format, `s2u-pack` version 2, is checked and stored but not applied in the game.
 The earlier formats below each keep their own status, given with each entry; they are the ones a player can see work
-today, in the test room.
+today, loaded in Home > Experiments > Mods.
 
 ## The current versions
 
@@ -18,7 +18,7 @@ publishes its own version, and a pack whose range does not include it is refused
 |---|---|---|
 | `PACK_FORMAT` | `s2u-pack` | The `format` every v2 manifest names. |
 | `PACK_FORMAT_VERSION` | `2` | The `formatVersion` every v2 manifest names. |
-| `ENGINE_CONTRACT_VERSION` | `0.1.1` | The engine contract this build publishes. |
+| `ENGINE_CONTRACT_VERSION` | `0.1.2` | The engine contract this build publishes. |
 | `RULES_PACK_CONTRACT_FLOOR` | `0.1.1` | The lowest engine contract a `rules` pack may admit. It stays 0.1.1 when the engine contract moves on. |
 | `RULES_VOCABULARY_VERSION` | `0` | The version of the rules vocabulary (events, conditions, actions). |
 | `PACK_TARGET_US` | `SCUS-97275` | The disc revision a pack's `target` names. |
@@ -29,16 +29,64 @@ the middle one.
 
 ## History
 
-Newest first. Dates are when the change landed in the code.
+Newest first. Dates are when the change landed in the code, except where an entry says it is dated when written.
+
+### 2026-11-09 -- the HD pack credits GoE Soul
+
+*Dated when written: this lands with the batch that carries it.*
+
+The project's HD pack is HD textures by GoE Soul, and Home > Experiments > Mods now says so wherever it names the pack:
+the temporary "Add test HD texture pack" button's line ("HD textures by GoE Soul. Temporary: …"), an installed HD
+pack's row ("HD texture pack by GoE Soul · …"), the drop zone's hint and the store link once the pack has a page.
+*Today: works -- words only; nothing a pack does changed.*
+
+### 2026-11-08 -- engine contract 0.1.1 to 0.1.2: the Forge map bundle and content map version 2
+
+*Dated when written: this lands with the 0.1.2 build (pull request #746).*
+
+**If you have a 0.1.1 pack, you do nothing.** Contract 0.1.2 changes no field of `s2u-pack.json` and refuses nothing
+it accepted before. A pack whose `contract` is `^0.1.0` or `^0.1.1` takes 0.1.2 as it took 0.1.1, because a caret
+range takes every later 0.1 version. Only a range pinned to exactly `0.1.1` (`0.1.1` or `=0.1.1`) stops matching:
+write `^0.1.1` instead.
+
+What 0.1.2 adds, both new and beside the manifest:
+
+- **The Forge map bundle**: `forge-bundle.json`, the schema `s2u.creator/forge-map-bundle` version 1 -- one zip
+  carrying a Forge layout and the v2 packs it stands on, each in its own folder, with a JSON Schema for editors
+  (`socomlegacy/packages/creator-contracts/schemas/forge-map-bundle.v1.schema.json`). Home > Experiments > Mods installs
+  one as a custom map, which the Forge and the test room open.
+- **Content map version 2** (`s2u.creator/content-map`): one new field, `visual.includesProps`, whether the map's 3D
+  model already draws its props. A version 1 map reads as before; a version 1 map that uses the new field is refused.
+- The **sample yard**, a small CC0 bundle made from scratch, as the project's test file
+  (`socomlegacy/test-fixtures/creator/sample-yard.forge.zip`).
+
+**What comes next is a proposal, not a version.** Pack format 0.2 -- several contracts accepted at once, `target` as
+a list, a pack naming the one it replaces, a licence for anything published -- is written up for the project's owner,
+who is reading it (`socomlegacy/docs/specs/2026-11-08-pack-format-0.2.md`). Nothing of it is in any build.
+*Today: Forge, local only -- a custom map is added in Mods, opened in the Forge and walked in the test room, offline,
+and never reaches an online match. See [Custom maps](/kinds/custom-maps/) and the
+[Manifest reference](/reference/manifest/).*
+
+### 2026-11-07 -- Home > Experiments > Mods, and texture packs on every page
+
+One loader for every earlier format: **Home > Experiments > Mods**. Drop a zip, a folder or loose files, or choose a
+file; each pack is listed with its kind, its size (an HD pack's decoded) and where it applies, with a switch and
+Remove; one texture pack is chosen at a time. A pack wrapped in Thunderstore's package format is unwrapped and read as
+the pack inside. Texture packs and HD texture packs now apply on every page -- the main game's matches, online ones
+included, its menus, the Forge and the test room -- under the MODERN and PS2 pictures, at once, behind an "Applying
+pack... n/N" overlay. Removed: VIDEO MODE's "HD (GoE Soul)" picture, the test room's HD switch, and its texture-pack
+chooser and "Import pack (.zip)" button; the test room's mods panel is one line and Reload map. A temporary "Add test
+HD texture pack" button downloads the project's test HD pack until the pack is on Thunderstore. The project's tool for
+the HD pack (`tools/hdPackThunderstore.ts`) can write it as a Thunderstore package.
+*Today: works -- texture packs and HD texture packs on every page; data mods and the model pack in the test room
+only. See [Testing a pack locally](/guides/test-locally/).*
 
 ### 2026-10-31 -- HD texture packs import from a zip
 
-The test room's "Import pack (.zip)" takes an HD texture pack and keeps it in this browser only, one pack at a time.
-An earlier-format pack, not a v2 one.
-*Today: Planned -- held. A pack can be imported and stored, but nothing draws it until the owner lifts the hold: the HD
-picture is offered nowhere and the test room's HD switch cannot be turned on (the ui package's
-`screens/videoPicture.ts`, `VIDEO_PICTURE_HD_OFFERED`, lines 27-32; the viewer's `experimentalGraphics.ts`, line
-437). See [The earlier formats](/kinds/earlier-formats/).*
+The test room's "Import pack (.zip)" took an HD texture pack and kept it in this browser only, one pack at a time.
+An earlier-format pack, not a v2 one. Until 2026-11-07 it was held: imported and stored, drawn nowhere.
+*Today: works -- dropped into Home > Experiments > Mods (the test room's button is gone), chosen there, drawn on every
+page. See [The earlier formats](/kinds/earlier-formats/).*
 
 ### 2026-10-27 -- Thunderstore's package format, and the rules-pack checks
 
@@ -51,8 +99,9 @@ picture is offered nowhere and the test room's HD switch cannot be turned on (th
 - A v2 pack can be imported: checked and stored. The import also reads `.md`, `.gltf`, `.ktx2`, `.ogg` and `.wav`
   members for v2 packs.
 
-*Today: format only. Nothing builds a store package, the project's store team is not decided yet, and the game loads
-nothing from the store. See [Thunderstore](/publishing/thunderstore/).*
+*Today: format only for a v2 pack. Nothing builds a store package from a v2 pack, the project's store team is not
+decided yet, and the game loads nothing from the store; Home > Experiments > Mods reads a Thunderstore zip of an
+earlier-format pack you downloaded yourself. See [Thunderstore](/publishing/thunderstore/).*
 
 ### 2026-10-27 -- the rules vocabulary, version 0; engine contract 0.1.0 to 0.1.1
 
@@ -83,22 +132,47 @@ all.
 
 A folder or zip with `models.json` and GLB files, drawing a GLB in place of one of the game's meshes. Collision stays
 the game's.
-*Today: test room only, with `modmodels` in the page's address.*
+*Today: test room only, with `modmodels` in the page's address; added and switched in Home > Experiments > Mods.*
 
 ### 2026-10-18 -- `s2u-mod` version 1
 
 A zip or folder with `mod.json`, replacing files of the game's data with your own bytes, chosen in the test room's mod
 panel. The bytes are substituted, never run.
-*Today: test room only. Refused in a lobby match and in the replay viewer.*
+*Today: test room only, added, ordered and switched in Home > Experiments > Mods. Refused in a lobby match and in the
+replay viewer.*
 
 ### 2026-10-08 -- texture packs (`s2u-local-texture-pack` version 1)
 
 Replacement images for one map's opaque textures, served from a local folder the repository never holds. They change the colour of solid texels only,
 never how anything is drawn.
-*Today: test room only, with the Experimental view.*
+*Today: works on every page, on its own map, chosen in Home > Experiments > Mods.*
 
 ## Not yet in any version
 
-- JSON Schema files for editors.
-- A command that builds a Thunderstore package.
+- JSON Schema files for the pack manifest and its members (0.1.2 publishes one for the Forge map bundle's envelope).
+- A command that builds a Thunderstore package from a v2 pack.
 - Applying a v2 pack in the game, pack code of any kind, a pack's own audio in play, and packs in online matches.
+
+## For agents
+
+```json
+{
+  "page": "/changelog/",
+  "audience": [
+    "creators",
+    "agents"
+  ],
+  "summary": "The pack formats and the contract versions, newest first, each with what it does today, and what is not yet in any version.",
+  "inputs": [
+    "a format or contract version"
+  ],
+  "outputs": [
+    "what that version holds and its status"
+  ],
+  "see_also": [
+    "/reference/manifest/",
+    "/kinds/earlier-formats/",
+    "/anatomy/"
+  ]
+}
+```

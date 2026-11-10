@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { buildGrid, polygonNormal, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
 import { simMapFromBytes } from '../src/simMap';
 import { DoorSet } from '../src/doors';
-import { groundGrid, groundPolygons, SEGMENT_BODY_READING, SEGMENT_HIT_PICK_READING, STEP_PROBE_LIFT_READING, TICK, WALL_BODY_READING, Walker } from '../src/mover';
+import { groundGrid, groundPolygons, SEGMENT_BODY_READING, SEGMENT_HIT_PICK_READING, probeLiftOf, TICK, WALL_BODY_READING, Walker } from '../src/mover';
 import { Traversal } from '../src/traversal';
 
 /**
@@ -224,11 +224,23 @@ describe('SEGMENT-BODY: a step-up during a fall (a rim at 10, its face toward -z
     for (let i = 0; i < 40 && w.airborne; i++) w.tick(STILL);
     return w;
   };
-  it('feet 6 and over at the crossing: the lines pass over the rim and the body lands on it', () => {
-    for (const feet of [6, 7, 8]) for (const z0 of [-2.9, -2.5, -2.1]) {
+  // JUMP-AIR (`AIR_SEGMENT_DIRECTION_READING` 'velocity', research 80 s7): falling at 60 with 60 across, the records slant
+  // 45 degrees down on every tick (were level on the ticks between the 30 Hz frames), so their ends reach lower and from
+  // farther back: feet 7 and over still pass over the rim and land on it; feet 6 does from 2.1 short and falls short
+  // from 2.5 and 2.9 (was: feet 6 and over from all three).
+  it('feet 7 and over at the crossing: the lines pass over the rim and the body lands on it', () => {
+    for (const feet of [7, 8]) for (const z0 of [-2.9, -2.5, -2.1]) {
       const w = drop(feet, z0);
       expect(w.state.y, `${feet} ${z0}`).toBe(10);
       expect(w.state.z, `${feet} ${z0}`).toBeGreaterThan(0);
+    }
+  });
+  it('feet 6: lands on the rim from 2.1 short; from 2.5 and 2.9 the slanted lines meet the face and it falls short', () => {
+    expect(drop(6, -2.1).state.y).toBe(10);
+    for (const z0 of [-2.5, -2.9]) {
+      const w = drop(6, z0);
+      expect(w.state.y, `${z0}`).toBe(0);
+      expect(w.state.z, `${z0}`).toBeLessThan(0);
     }
   });
   it("feet 4 from 2.9 short: the slanted line's end drops under the rim's top, crosses the face's front, and the body falls short of it", () => {
@@ -249,7 +261,7 @@ describe.each(EDGES)('SEGMENT-BODY: the sweep\'s ledge walk-off at $map ($x, $z)
   const run = (grid: ReturnType<typeof groundGrid>, polys: ReturnType<typeof groundPolygons>) => {
     const w = new Walker(grid);
     w.driver = new Traversal(grid, polys);
-    expect(w.place(e.x - e.out[0] * 6, e.top + STEP_PROBE_LIFT_READING, e.z - e.out[1] * 6)).toBe(true);
+    expect(w.place(e.x - e.out[0] * 6, e.top + probeLiftOf('stand'), e.z - e.out[1] * 6)).toBe(true);
     w.state.yaw = (Math.atan2(-e.out[0], -e.out[1]) * 180) / Math.PI;
     for (let i = 0; i < 420; i++) {
       w.tick({ forward: i < 120 ? 1 : 0, right: 0, boost: false });
@@ -309,7 +321,7 @@ describe.skipIf(!HAVE('MP5'))(`SEGMENT-BODY: a fall over a steep face is not hel
     const e = { x: 671.33, z: 1531.46, out: [0.997, 0.083], top: 153.98 };
     const w = new Walker(grid);
     w.driver = new Traversal(grid, polys);
-    expect(w.place(e.x - e.out[0]! * 6, e.top + STEP_PROBE_LIFT_READING, e.z - e.out[1]! * 6)).toBe(true);
+    expect(w.place(e.x - e.out[0]! * 6, e.top + probeLiftOf('stand'), e.z - e.out[1]! * 6)).toBe(true);
     w.state.yaw = (Math.atan2(-e.out[0]!, -e.out[1]!) * 180) / Math.PI;
     let same = 0, worst = 0, last = NaN;
     for (let i = 0; i < 420; i++) {
@@ -390,7 +402,7 @@ describe.skipIf(!HAVE('MP8'))(`SEGMENT-BODY: MP8's kerb at (965.21, 790), the si
     const grid = groundGrid(map.ground!), polys = groundPolygons(map.ground!);
     const w = new Walker(grid);
     w.driver = new Traversal(grid, polys);
-    expect(w.place(965.21 + 6, 68.75 + STEP_PROBE_LIFT_READING, 790)).toBe(true);
+    expect(w.place(965.21 + 6, 68.75 + probeLiftOf('stand'), 790)).toBe(true);
     w.stance = 'prone';
     w.state.yaw = 90;                                            // facing -x
     for (let i = 0; i < 120; i++) w.tick(FORWARD);
@@ -427,7 +439,7 @@ describe.skipIf(!HAVE('M51'))(`SEGMENT-BODY: M51's fence g15582, the captured pr
     }
     const w = new Walker(grid);
     w.driver = new Traversal(grid, polys);
-    expect(w.place(FENCE - d, FEET + STEP_PROBE_LIFT_READING, Z)).toBe(true);
+    expect(w.place(FENCE - d, FEET + probeLiftOf('stand'), Z)).toBe(true);
     w.state.yaw = 90;                                            // facing -x, away from the fence
     return w;
   };

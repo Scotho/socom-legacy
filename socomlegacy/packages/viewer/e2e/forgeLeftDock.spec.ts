@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { expectBase } from './forgeBase';
 
 /**
  * R6 (round 4's review; a browser adaptation, FG.R2 -- the game has no editor): the left dock's first row is on screen,
@@ -20,7 +21,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
   test(`the one asset list's filter row and first row are inside the open left dock at ${size.width}x${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     await page.goto('/forge?devmode');
-    await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
+    await expectBase(page);                                              // OT.R112: the base named (`./forgeBase`)
     const first = page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets > li[data-asset]').first();
     await expect(first).toBeVisible({ timeout: 120_000 });
     await expect(page.locator('.fx-left > details.fx-panel[data-forge-panel="asset-browser"]')).toHaveCount(1);
@@ -42,6 +43,8 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
     expect(row.y + row.height).toBeLessThanOrEqual(size.height);
     // The dock itself does not run past the window: the list scrolls inside it.
     expect(dock.y + dock.height).toBeLessThanOrEqual(size.height + 0.5);
-    expect(await page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+    // `scroll`, not `auto`: the Overhaul (36ddf4282) gave the list an always-drawn scrollbar with a stable gutter
+    // (`../src/forge/forge.css` `.fx-assets`: overflow-y scroll, scrollbar-gutter stable); it still scrolls in its own box.
+    expect(await page.locator('.fx-left [data-forge-panel="asset-browser"] ul.fx-assets').evaluate((el) => getComputedStyle(el).overflowY)).toBe('scroll');
   });
 }

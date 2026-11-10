@@ -405,13 +405,30 @@ export function turnStepSpeed(turnRate: number, stance: Stance): number {
  * the `Lateral` clips first, then the others, then what is left -- each pair by the engine's slerp at `wb / (wa + wb)`,
  * the survivor carrying the summed weight. A node that lacks the part gives way to one that has it.
  */
-export function mergeRotations(entries: { q: Quat | null; w: number; lateral: boolean }[]): Quat | null {
-  const live = entries.map((e) => ({ ...e, on: true }));
+type RotationEntry = { q: Quat | null; w: number; lateral: boolean };
+type MergeEntry = RotationEntry & { on: boolean };
+
+export function mergeRotations(entries: RotationEntry[]): Quat | null {
+  return mergeRotationsWithScratch(entries, []);
+}
+
+/** Same merge order and arithmetic; private scratch never owns the input or output quaternion arrays. */
+function mergeRotationsWithScratch(entries: RotationEntry[], live: MergeEntry[]): Quat | null {
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]!;
+    const slot = live[i] ?? (live[i] = { q: null, w: 0, lateral: false, on: false });
+    slot.q = e.q; slot.w = e.w; slot.lateral = e.lateral; slot.on = true;
+  }
   const pass = (pick: (e: { lateral: boolean }) => boolean): void => {
     for (let guard = 0; guard < 30; guard++) {
-      const two = live.filter((e) => e.on && pick(e)).slice(0, 2);
-      if (two.length < 2) return;
-      const [a, b] = two as [typeof live[number], typeof live[number]];
+      let a: MergeEntry | undefined, b: MergeEntry | undefined;
+      for (let i = 0; i < entries.length; i++) {
+        const e = live[i]!;
+        if (!e.on || !pick(e)) continue;
+        if (!a) a = e;
+        else { b = e; break; }
+      }
+      if (!a || !b) return;
       const total = a.w + b.w;
       const f = total > 0 ? Math.min(1, Math.max(0, b.w / total)) : 0;
       if (!a.q) a.q = b.q;
@@ -423,7 +440,8 @@ export function mergeRotations(entries: { q: Quat | null; w: number; lateral: bo
   pass((e) => e.lateral);
   pass((e) => !e.lateral);
   pass(() => true);
-  return live.find((e) => e.on)?.q ?? null;
+  for (let i = 0; i < entries.length; i++) if (live[i]!.on) return live[i]!.q;
+  return null;
 }
 
 /** Each skeleton part's bind pose as a quaternion and a translation. */
@@ -596,6 +614,12 @@ export class Animator {
   private builtMix = 1;
   /** CPS bodies (a browser adaptation): the part matrix `pose` and `aim` write, copied by `Skeleton.setLocal` at once. */
   private readonly local16 = new Float32Array(16);
+  /** Transient calculation storage only: target/shown/from and held snapshots keep their original ownership. */
+  private readonly poseAcc: { q: Quat; t: [number, number, number]; w: number }[];
+  private readonly poseRotations: RotationEntry[][];
+  private readonly poseSeen: boolean[];
+  private readonly mergeScratch: MergeEntry[] = [];
+  private readonly zeroRotation: Quat = [0, 0, 0, 0];
   /** The head look (`./headLook`): the controller's request, the rotator at `actor+0x1190`, the pose. */
   readonly look: HeadLook;
   /**
@@ -631,6 +655,9 @@ export class Animator {
     this.anims = options.anims ?? SEAL_ANIM_SET;
     this.sets = setsOf(this.anims.sets, (n) => this.motions.get(n));
     this.bind = bindLocals(skeleton);
+    this.poseAcc = this.bind.map(() => ({ q: this.zeroRotation, t: [0, 0, 0], w: 0 }));
+    this.poseRotations = this.bind.map(() => []);
+    this.poseSeen = this.bind.map(() => false);
     this.shown = this.bind.map((l) => ({ q: [...l.q], t: [...l.t] }));
     this.root = skeleton.indexOf(ROOT);
     this.clipTranslation = skeleton.parts.map((p) => SAMPLED_TRANSLATIONS.has(p.name) || !BODY_PARTS.has(p.name));
@@ -984,18 +1011,21 @@ export class Animator {
     const play = this.play!;
     const n = this.bind.length;
     this.layer = null;
-    const acc: { q: [number, number, number, number]; t: [number, number, number]; w: number }[] =
-      Array.from({ length: n }, () => ({ q: [0, 0, 0, 0], t: [0, 0, 0], w: 0 }));
-    const rotations: { q: Quat | null; w: number; lateral: boolean }[][] = Array.from({ length: n }, () => []);
+    const acc = this.poseAcc, rotations = this.poseRotations;
+    for (let i = 0; i < n; i++) {
+      const a = acc[i]!;
+      a.q = this.zeroRotation; a.t[0] = 0; a.t[1] = 0; a.t[2] = 0; a.w = 0;
+      rotations[i]!.length = 0;
+    }
     const add = (parts: readonly PartPose[], weight: number, lateral = false): void => {
-      const seen = new Array<boolean>(n).fill(false);
+      const seen = this.poseSeen; seen.fill(false);
       for (const p of parts) {
         const i = partIndex(this.skeleton, parts, p.name);
         if (i < 0) continue;
         const a = acc[i]!;
         seen[i] = true;
         rotations[i]!.push({ q: [...p.rotation], w: weight, lateral });
-        a.t = [a.t[0] + p.translation[0] * weight, a.t[1] + p.translation[1] * weight, a.t[2] + p.translation[2] * weight];
+        a.t[0] += p.translation[0] * weight; a.t[1] += p.translation[1] * weight; a.t[2] += p.translation[2] * weight;
         a.w += weight;
       }
       for (let i = 0; i < n; i++) if (!seen[i]) rotations[i]!.push({ q: null, w: weight, lateral });
@@ -1016,7 +1046,7 @@ export class Animator {
       } else add(parts, node.weight, node.motion.lateral);
     }
     for (let i = 0; i < n; i++) {
-      const q = mergeRotations(rotations[i]!);
+      const q = mergeRotationsWithScratch(rotations[i]!, this.mergeScratch);
       if (q) acc[i]!.q = q;
     }
     // PB-2b (research 77 §10, research 215 §7.3; reading, pending review): a node no node of the play tracks keeps its

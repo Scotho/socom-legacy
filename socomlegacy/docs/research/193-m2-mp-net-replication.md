@@ -285,7 +285,7 @@ The writer is `FUN_002bd640` (D:L161921-162073) and the reader `FUN_002be150` (D
 | 0x64 | 4 | heading = atan2·10430.06 (u16, 65536 per turn) -> ×9.58767e-05 into a rotation at ctrl+0x210 | PROVEN |
 | 0x68-0x72 | 5-10 | round deaths +0x59e, round kills +0x598, round score +0x5c8, match deaths +0x556, match kills +0x550, match score +0x580 -> written back raw | PROVEN (offsets equal port research 91 §8) |
 | 0x7a/7b/7c | 11-13 | controller axes +8/+0x10/+0xc ·127 (s8) -> ctrl vtable+0x20(axis 0/2/1) | STRONG (stick) |
-| 0x7e | 14 | body+0xf74 & 0xef (`FUN_005e0010`) -> `FUN_005dfe30` | BELIEVED (pose bits) |
+| 0x7e | 14 | body+0xf74 & 0xef (`FUN_005e0010`) -> `FUN_005dfe30` | BELIEVED (pose bits); re-read 2026-11-09 by ENEMY-RAISE ER-2 as the raise state (reading -- ER-2's re-review PASS WITH FINDINGS (high), `agent-mail/evidence/mega/REVIEW-ER2-AND-ER-BATCH.md` Review 1): packed at D:L161978 (`uStack_72`, 0x7e into the 0x90-byte record at `uStack_f0`) under the multiplayer flag (D:L161921), `FUN_005e0010` D:L494306-494309 (1 up or 2 down, the moving bit 0x10 removed), replayed by `FUN_002be150` when the field's id `DAT_00441050` or -1 arrives (D:L162310-162312); the port carries it as protocol 14's `Command.raised` and `BodyFlag.Raised` |
 | 0x7f/0x80 | 15-16 | body+0x374/+0x375 -> same | PROVEN (copy), meaning unread |
 | 0x81 | 17 | ctrl+0x170 bit 2 | -- |
 | 0x82-0x87 | 18-23 | 6 part health ratios ·255 -> `FUN_005a5790(part 0,3,5,4,2,1)` | PROVEN |

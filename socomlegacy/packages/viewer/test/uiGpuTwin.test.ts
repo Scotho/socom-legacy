@@ -8,7 +8,7 @@ import { UI_MODEL_DEPTH_FORMAT_READING } from '../src/uiRasterRules';
 import { executeFramePlanOnCpu } from '../src/uiFramePlanCpu';
 import {
   S10_frameAlpha, S11_additive, S11_source, S11ff_source, S12_store, S12ff_unorm, S6_horizontal, S7_vertical, S8_modulate, S9_modulateAlpha,
-  T2_third, T2_weight, T3_inside, T4_invW, T5_depthPasses, T6_perspective, T8_lerp, executeFramePlanOnTwin, twinStats, type UiGpuTwinStats,
+  T2_edge, T2_third, T2_weight, T3_inside, T4_invW, T5_depthPasses, T6_perspective, T8_lerp, executeFramePlanOnTwin, twinStats, type UiGpuTwinStats,
 } from '../src/uiGpuTwin';
 import {
   UI_RASTER_CASES, UI_RASTER_CASE_MODES, UI_RASTER_CASE_SCALES, UI_RASTER_SOFTWARE_SHA256, UI_SEAM_CLEAR, UI_SEAM_TEXEL, caseRasterInputs, caseRunKey,
@@ -246,12 +246,12 @@ describe('GM-07 review F2: the two mutations the corpus did not catch', () => {
       }
     });
   }
-  it('finding: the software\'s tie on coplanar triangles at an invW f32 cannot hold is per pixel (f64 against f32); the twin\'s never draws', () => {
+  it('GM-15d: coplanar triangles at an invW f32 cannot hold -- the second face adds at every pixel both write, on the software and the twin alike (GEQUAL, f32 against f32)', () => {
     // dlgMenu's roller draws each label's `_on` and `_off` faces on the same geometry, additive (the corpus, GM-08's
-    // Log). The software stores invW as f32 and tests the next triangle's f64 invW against it (`invW <= depth[i]`,
-    // uiCompositorView.ts:437): where f32 rounded down, the second face draws (the pixel doubles), where it rounded up,
-    // it does not. A GPU compares f32 with f32 (GREATER): the second face never draws. The models' B (M3: "B (ties)"),
-    // not an f32 defect of the twin; the reading's correction is its own task (GM.R14).
+    // Log). Before GM-15d the software tested its f64 invW against its f32 store (strictly greater) and doubled about half
+    // of the pixels, a speckle, while the twin doubled none: R1's "coplanar" class, a port artefact. Now both compare the
+    // f32 depth with the f32 store under GEQUAL (TEST_1 ZTST GEQUAL, research 185 §3.1): identical vertices give
+    // identical depths, so the second face passes everywhere it covers, as the GS would draw it (the R1 report, §1.3).
     const tri = (x: number, invW: number): UiModelTriangle => ({ node: 'n', texture: null, cull: false,
       a: { x, y: 0.3, invW, u: 0, v: 0, rgba: [60, 60, 60, 128] }, b: { x: x - 7.7, y: 29.1, invW: invW * 1.37, u: 0, v: 0, rgba: [60, 60, 60, 128] },
       c: { x: x + 23.3, y: 31.9, invW: invW * 0.71, u: 0, v: 0, rgba: [60, 60, 60, 128] } });
@@ -262,24 +262,36 @@ describe('GM-07 review F2: the two mutations the corpus did not catch', () => {
     const p = planFrame(items, textures, { blend: 'exact' });
     expect(same(executeFramePlanOnCpu(p).frame.data, want.data), 'the executor is the software').toBe(0);
     const t = executeFramePlanOnTwin(p);
-    let doubled = 0, single = 0, outside = 0;
-    for (let i = 0; i < want.data.length; i += 4) {
-      if (want.data[i] === 130) doubled++; else if (want.data[i] === 70) single++;
-      if (want.data[i] !== t.frame.data[i] && !t.models[i / 4]) outside++;
-    }
+    let doubled = 0, single = 0;
+    for (let i = 0; i < want.data.length; i += 4) { if (want.data[i] === 130) doubled++; else if (want.data[i] === 70) single++; }
     expect(doubled, 'pixels the software draws twice').toBeGreaterThan(0);
-    expect(single, 'pixels it draws once').toBeGreaterThan(0);
-    expect(t.frame.data.filter((_v, i) => i % 4 === 0 && _v === 130).length, 'the twin draws none twice').toBe(0);
-    expect(outside, 'differences outside the model boxes').toBe(0);
+    expect(single, 'pixels it draws once: none, every covered pixel takes both faces').toBe(0);
+    expect(same(t.frame.data, want.data), 'the twin is the software, every pixel').toBe(0);
   });
-  it('T5: a GREATER test on f32 depth -- an equal depth fails (the first drawn wins); case 3 shows the first triangle', () => {
-    expect(T5_depthPasses(f(0.5), f(0.5))).toBe(false);
+  it('T5: a GEQUAL test on f32 depth (GM-15d) -- an equal depth passes (the later drawn wins); case 3 shows the second triangle', () => {
+    expect(T5_depthPasses(f(0.5), f(0.5))).toBe(true);
+    expect(T5_depthPasses(f(0.5), f(0.75))).toBe(false);
     expect(T5_depthPasses(f(0.5), 0)).toBe(true);
     const c = UI_RASTER_CASES.find((x) => x.key === '3')!;
     for (const scale of UI_RASTER_CASE_SCALES) {
       const { plan: p } = plan(c, scale, 'opaque', 'exact');
       const t = executeFramePlanOnTwin(p).frame.data, o = (1 * scale * p.target.width + 1 * scale) * 4;
-      expect([...t.subarray(o, o + 4)], `3@${scale}x`).toEqual([128, 0, 0, 255]);
+      expect([...t.subarray(o, o + 4)], `3@${scale}x`).toEqual([0, 128, 0, 255]);
+    }
+  });
+  it('T3: the top-left rule (GM-15d) -- a pixel on an edge is the triangle\'s only on a left edge, or a top one, either winding', () => {
+    // The corner (0,0) (0,8) (8,0), counter-clockwise on the frame (area < 0): x = 0 left, y = 0 top, the hypotenuse
+    // x + y = 8 its right-bottom edge. The edges as `T2_edge` gives them for w0 (b c), w1 (c a), w2 (a b).
+    const owns = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number, x: number, y: number, s: number): boolean =>
+      T3_inside(T2_edge(bx, by, cx, cy, x, y), T2_edge(cx, cy, ax, ay, x, y), T2_edge(ax, ay, bx, by, x, y), ax, ay, bx, by, cx, cy, s);
+    for (const [x, y, want] of [[0, 0, true], [0, 4, true], [4, 0, true], [3, 3, true], [4, 4, false], [7, 1, false], [1, 7, false], [9, 0, false]] as const) {
+      expect(owns(0, 0, 0, 8, 8, 0, x, y, -1), `ccw ${x},${y}`).toBe(want);
+      expect(owns(0, 0, 8, 0, 0, 8, x, y, 1), `cw ${x},${y}`).toBe(want);
+    }
+    // The square's two halves share the diagonal: every point of it belongs to exactly one.
+    for (let k = 0; k <= 8; k++) {
+      const first = owns(0, 0, 0, 8, 8, 0, k, 8 - k, -1), second = owns(8, 0, 0, 8, 8, 8, k, 8 - k, -1);
+      if (k > 0 && k < 8) expect([first, second], `diagonal ${k}`).toEqual([false, true]);
     }
   });
   it('the modulate as r (c / 128) for (r c) / 128 is an identity in IEEE arithmetic: no frame can catch it (said, not tested around)', () => {
@@ -442,12 +454,11 @@ describe('GM-15b: seams and ties on the twin, pixel for pixel the software\'s; t
     }
   }, 120_000);
 
-  it('finding, B and not refused: a seam whose invW f32 rounds down (0.7) -- the software adds the texel twice on every seam pixel (f64 against its f32 store), the twin once (f32 against f32)', () => {
-    // drawModels (uiCompositorView.ts:437, :450): the first triangle stores fround(invW) = 0.699999988 under the f64
-    // 0.7, and the second's f64 invW at the seam is not <= it, so it draws again. The twin (and a GPU) compares the
-    // same f32 sums both ways round (T4 adds the edge's two terms in either order: equal), so GREATER fails. GM-08's
-    // finding on coplanar faces (above), on a shared edge; the reading's correction is its own task (GM.R14), the
-    // corpus's measure is 15c's.
+  it('GM-15d: a seam whose invW f32 rounds down (0.7) -- every seam pixel drawn once, by the software and the twin alike (top-left: one owner, no depth test reached)', () => {
+    // Before GM-15d drawModels' inclusive edges put each seam pixel in both triangles, and its f64 invW passed the f32
+    // 0.699999988 the first stored, so the software added the texel twice where the twin added it once (R1's "seam"
+    // class, a port artefact). Under the top-left rule the diagonal is the second triangle's left edge and the first's
+    // right-bottom one: one triangle covers it, in both implementations, whatever the depths.
     expect(Math.fround(0.7)).toBeLessThan(0.7);
     const { items, textures, squares } = seamSquares(Array.from({ length: 24 }, () => 0.7));
     for (const scale of [1, 2, 4]) {
@@ -455,24 +466,21 @@ describe('GM-15b: seams and ties on the twin, pixel for pixel the software\'s; t
       const p = planFrame(items, textures, { scale, blend: 'ff' });
       expect(p.verdict, `${scale}x`).toBe('gpu');
       const t = executeFramePlanOnTwin(p).frame;
-      const seam = new Set<number>();
-      let softwareTwice = 0, twinOnce = 0;
+      let seams = 0, softwareOnce = 0, twinOnce = 0;
       for (const sq of squares) for (const [x, y] of seamPixels(sq, scale)) {
         const q = y * want.width + x;
-        seam.add(q);
-        if (rgbaAt(want, q) === TWICE) softwareTwice++;
+        seams++;
+        if (rgbaAt(want, q) === ONCE) softwareOnce++;
         if (rgbaAt(t, q) === ONCE) twinOnce++;
       }
-      expect(softwareTwice, `${scale}x: the software doubles every seam pixel`).toBe(seam.size);
-      expect(twinOnce, `${scale}x: the twin draws every seam pixel once`).toBe(seam.size);
-      let elsewhere = 0;
-      for (let q = 0; q < want.width * want.height; q++) if (rgbaAt(want, q) !== rgbaAt(t, q) && !seam.has(q)) elsewhere++;
-      expect(elsewhere, `${scale}x: no other pixel differs`).toBe(0);
+      expect(softwareOnce, `${scale}x: the software draws every seam pixel once`).toBe(seams);
+      expect(twinOnce, `${scale}x: the twin draws every seam pixel once`).toBe(seams);
+      expect(same(t.data, want.data), `${scale}x: the twin is the software, every pixel`).toBe(0);
     }
   }, 120_000);
 
-  it('a tie (case 3, equal invW): the first triangle wins every pixel the two share, on the software and the twin, at 1, 2 and 4 -- strict GREATER (UI_MODEL_DEPTH_FORMAT_READING), where the original\'s GEQUAL would keep the second', () => {
-    expect(UI_MODEL_DEPTH_FORMAT_READING).toBe('float32 invW, strictly greater wins, 0 empty');
+  it('a tie (case 3, equal invW): the later triangle wins every pixel the two share, on the software and the twin, at 1, 2 and 4 -- GEQUAL on the f32 store (UI_MODEL_DEPTH_FORMAT_READING; GM-15d, the strict test kept the first)', () => {
+    expect(UI_MODEL_DEPTH_FORMAT_READING).toBe('float32 invW, GEQUAL (the later of two equal depths wins), 0 empty');
     const c = UI_RASTER_CASES.find((x) => x.key === '3')!;
     for (const scale of UI_RASTER_CASE_SCALES) for (const blend of BLENDS) {
       const { plan: p, want } = plan(c, scale, 'opaque', blend);
@@ -485,8 +493,8 @@ describe('GM-15b: seams and ties on the twin, pixel for pixel the software\'s; t
         if (s === RED) red++;
         else if (s === GREEN) green++;
       }
-      expect(red, `3@${scale}x: pixels the tie covers`).toBeGreaterThan(0);
-      expect(green, `3@${scale}x: none of the second triangle's`).toBe(0);
+      expect(green, `3@${scale}x: pixels the tie covers, the second triangle's`).toBeGreaterThan(0);
+      expect(red, `3@${scale}x: none of the first triangle's`).toBe(0);
     }
   }, 120_000);
 
@@ -499,7 +507,7 @@ describe('GM-15b: seams and ties on the twin, pixel for pixel the software\'s; t
       const aw = f(t.a.invW), bw = f(t.b.invW), cw = f(t.c.invW);
       for (let y = box.ys; y < box.ye; y++) for (let x = box.xs; x < box.xe; x++) {
         const w0 = T2_weight(bx, by, cx, cy, x, y, inv), w1 = T2_weight(cx, cy, ax, ay, x, y, inv), w2 = T2_third(w0, w1);
-        if (!T3_inside(w0, w1, w2)) continue;
+        if (!T3_inside(T2_edge(bx, by, cx, cy, x, y), T2_edge(cx, cy, ax, ay, x, y), T2_edge(ax, ay, bx, by, x, y), ax, ay, bx, by, cx, cy, inv < 0 ? -1 : 1)) continue;
         const z = f(T4_invW(w0, w1, w2, aw, bw, cw) * pass.depthScale);
         pixels++;
         if (z > max) max = z;

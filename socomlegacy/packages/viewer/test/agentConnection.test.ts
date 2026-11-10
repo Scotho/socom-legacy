@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createAgentConnection,
   connectionInstructions,
+  ROUTE_OPEN_MS,
 } from "../src/agent/connection";
+import { pairingInvitation } from "../src/agent/setup";
 import {
+  CaptureRefusal,
   encodeFrames,
   FrameReceiver,
   LIMITS,
@@ -99,8 +102,10 @@ function pairedRig(
     document?: Document;
     createPeer?: (index: number) => Peer;
     revoke?: () => void;
+    /** AX-8 (AX.R4): the target's pause hook, called when the tab becomes hidden. */
+    pause?: (reason: string) => void;
     now?: () => number;
-    capture?: () => Promise<Blob>;
+    capture?: (request?: AgentRequest) => Promise<Blob>;
     permissions?: Permission[];
     /** R3-A (5): the target observed into a store, and the connection's lines bridged into it, as `install.ts` wires them. */
     activity?: AgentActivityStore;
@@ -119,10 +124,12 @@ function pairedRig(
       })),
   );
   const revoke = vi.fn(config.revoke);
+  const pause = vi.fn(config.pause);
   const base = {
     read: () => ({ surface, revision, name: "Map", build: "test" }),
     dispatch,
     revoke,
+    pause,
     capture: config.capture,
   };
   const connection = createAgentConnection({
@@ -195,6 +202,7 @@ function pairedRig(
     peers,
     dispatch,
     revoke,
+    pause,
     pair,
     request,
     setSurface: (value: Surface | "blocked") => (surface = value),
@@ -360,9 +368,9 @@ describe("agent page connection", () => {
       await vi.waitFor(() =>
         expect(sockets[0]?.readyState).toBe(NodeSocket.OPEN),
       );
-      const invitation = JSON.parse(
-        /agent_pair with invitation ("[^"]+")/.exec(text)![1]!,
-      );
+      // AX-U (C6): the copied line's join link carries the invitation.
+      const invitation = pairingInvitation(text)!;
+      expect(text).toMatch(/^Connect to my SOCOM 2 Legacy page: http:\/\/127\.0\.0\.1:\d+\/join\/[A-Za-z0-9_.:-]+$/);
       const pair = gateway.state.pair(
         "native-page",
         invitation,
@@ -460,6 +468,21 @@ describe("agent page connection", () => {
       } finally { r.connection.dispose(); }
     },
   );
+  it("AX-16: hands the capture its request and returns a target's capture refusal with its hint", async () => {
+    const seen: unknown[] = [];
+    const r = pairedRig({ permissions: ["inspect", "edit", "capture"], capture: async (request) => {
+      seen.push(request?.args);
+      throw new CaptureRefusal("UNSUPPORTED", "In the test room take view current or named.");
+    } });
+    try {
+      const { channel } = await r.pair();
+      channel.message({ type: "request", request: { ...r.request("preset"), operation: "target.capture", args: { view: "top" } } });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(1));
+      expect(seen).toEqual([{ view: "top" }]);
+      expect(channel.results()[0]).toMatchObject({ outcome: "refused", code: "UNSUPPORTED", hint: "In the test room take view current or named." });
+      expect(r.connection.state().status).toBe("connected");
+    } finally { r.connection.dispose(); }
+  });
   it("cannot recurse if revocation synchronously refreshes a blocked target", async () => {
     let refresh = () => {};
     const r = pairedRig({ revoke: () => refresh() });
@@ -679,35 +702,116 @@ describe("agent page connection", () => {
       r.connection.dispose();
     }
   });
-  it("hidden pages abort running work and revoke instead of keeping an active channel", async () => {
+  it("AX-8 (AX.R4): a hidden tab keeps the pairing, pauses the target once and refuses test work PAGE_HIDDEN", async () => {
     const doc = Object.assign(new EventTarget(), {
       visibilityState: "visible",
       defaultView: new EventTarget(),
     });
-    let captured: AbortSignal | undefined;
+    const hide = (state: "hidden" | "visible") => {
+      doc.visibilityState = state;
+      doc.dispatchEvent(new Event("visibilitychange"));
+    };
     const r = pairedRig({
       document: doc as unknown as Document,
-      dispatch: async (request, signal) => {
-        captured = signal;
-        await new Promise<void>((resolve) =>
-          signal.addEventListener("abort", () => resolve(), { once: true }),
-        );
-        return {
-          requestId: request.requestId,
-          revision: 0,
-          outcome: "unknown",
-        };
-      },
+      permissions: ["inspect", "edit", "test"],
     });
     try {
-      const { channel, socket } = await r.pair();
-      channel.message({ type: "request", request: r.request() });
-      await vi.waitFor(() => expect(captured).toBeDefined());
+      const { channel, socket, peer } = await r.pair();
+      r.setSurface("forge-play");
+      r.connection.refresh();
+      hide("hidden");
+      // The pairing stays: no revoke to the service, the channel and the peer open, the target not revoked.
+      expect(socket.sent.map((s) => JSON.parse(s).type)).not.toContain("revoke");
+      expect(socket.readyState).toBe(1);
+      expect(peer.closed).toBe(false);
+      expect(r.revoke).not.toHaveBeenCalled();
+      expect(r.connection.state().status).toBe("connected");
+      expect(r.connection.state().hidden).toBe(true);
+      expect(r.pause).toHaveBeenCalledTimes(1);
+      expect(r.pause).toHaveBeenCalledWith("PAGE_HIDDEN");
+      // A second hidden notice (and a per-frame refresh) while still hidden is the same hide: pause is not called again.
+      hide("hidden");
+      r.connection.refresh();
+      expect(r.pause).toHaveBeenCalledTimes(1);
+      // A test-permission request is refused PAGE_HIDDEN before the target; an inspect read goes through.
+      const play = { ...r.request("t1"), operation: "forge.input", args: { operation: "input.set", arguments: {} } };
+      channel.message({ type: "request", request: play });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(1));
+      expect(channel.results()[0]).toMatchObject({ requestId: "t1", outcome: "refused", code: "PAGE_HIDDEN" });
+      expect(r.dispatch).not.toHaveBeenCalled();
+      const read = { ...r.request("i1"), operation: "target.status", args: {} };
+      delete (read as { expectedRevision?: number }).expectedRevision;
+      channel.message({ type: "request", request: read });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(2));
+      expect(channel.results()[1]).toMatchObject({ requestId: "i1", outcome: "ok" });
+      expect(r.dispatch).toHaveBeenCalledTimes(1);
+      // Visible again: tests are accepted as before, nothing resumed by itself.
+      hide("visible");
+      expect(r.connection.state().hidden).toBe(false);
+      channel.message({ type: "request", request: { ...play, requestId: "t2" } });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(3));
+      expect(channel.results()[2]).toMatchObject({ requestId: "t2", outcome: "ok" });
+      expect(r.dispatch).toHaveBeenCalledTimes(2);
+      // Each hide is one pause.
+      hide("hidden");
+      expect(r.pause).toHaveBeenCalledTimes(2);
+    } finally {
+      r.connection.dispose();
+    }
+  });
+  it("AX-8: while hidden, an edit goes through and a camera.shot is refused PAGE_HIDDEN; the stop lane is never refused", async () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible",
+      defaultView: new EventTarget(),
+    });
+    const r = pairedRig({ document: doc as unknown as Document, permissions: ["inspect", "edit", "test"] });
+    try {
+      const { channel } = await r.pair();
       doc.visibilityState = "hidden";
       doc.dispatchEvent(new Event("visibilitychange"));
-      expect(captured?.aborted).toBe(true);
+      channel.message({ type: "request", request: r.request("e1") });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(1));
+      expect(channel.results()[0]).toMatchObject({ requestId: "e1", outcome: "ok" });
+      const shot = { ...r.request("c1"), operation: "camera.shot", args: { points: [], seconds: 1 } };
+      channel.message({ type: "request", request: shot });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(2));
+      expect(channel.results()[1]).toMatchObject({ requestId: "c1", outcome: "refused", code: "PAGE_HIDDEN" });
+      const stop = { ...r.request("c2"), operation: "camera.stop", args: {} };
+      delete (stop as { expectedRevision?: number }).expectedRevision;
+      channel.message({ type: "request", request: stop });
+      await vi.waitFor(() => expect(channel.results()).toHaveLength(3));
+      expect(channel.results()[2]).toMatchObject({ requestId: "c2", outcome: "ok" });
+    } finally {
+      r.connection.dispose();
+    }
+  });
+  it("AX-8: a tab hidden mid-pairing still finishes pairing, and pagehide still ends the pairing", async () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible",
+      defaultView: new EventTarget(),
+    });
+    const r = pairedRig({ document: doc as unknown as Document });
+    try {
+      await r.connection.prepare("codex");
+      const socket = r.sockets[0]!;
+      socket.message({ type: "pending", pendingId: "p", clientName: "agent", comparisonCode: "123456", permissions: ["inspect"] });
+      r.connection.approve(["inspect"]);
+      // The player approves, then brings the terminal over the browser before the offer arrives.
+      doc.visibilityState = "hidden";
+      doc.dispatchEvent(new Event("visibilitychange"));
+      expect(r.connection.state().status).toBe("connecting");
+      socket.message({ type: "offer", sessionId: "s", targetId: "target1", epoch: "epoch1", permissions: ["inspect"], sdp: "offer" });
+      await vi.waitFor(() => expect(socket.sent.some((s) => JSON.parse(s).type === "answer")).toBe(true));
+      const channel = new Channel();
+      r.peers[0]!.channel(channel);
+      channel.open();
+      await vi.waitFor(() => expect(r.connection.state().status).toBe("connected"));
+      expect(r.connection.state().hidden).toBe(true);
+      doc.defaultView.dispatchEvent(new Event("pagehide"));
       expect(socket.readyState).toBe(3);
-      expect(r.connection.state().status).toBe("paused");
+      expect(r.peers[0]!.closed).toBe(true);
+      expect(r.revoke).toHaveBeenCalledWith("PAGE_CLOSED");
+      expect(r.connection.state().status).toBe("disconnected");
     } finally {
       r.connection.dispose();
     }
@@ -736,10 +840,9 @@ describe("agent page connection", () => {
   it("uses credential-free public setup URLs and puts the page credential only in the signal protocol header", async () => {
     const r = rig();
     const text = await r.connection.prepare("codex");
-    expect(text).toContain(
-      "codex mcp add socom2legacy --url http://127.0.0.1:5360/mcp",
-    );
-    expect(text).toContain("invitation1");
+    // AX-U (C6): the copied text is one line, the gateway's join link; the commands are the first-time disclosure's.
+    expect(text).toBe("Connect to my SOCOM 2 Legacy page: http://127.0.0.1:5360/join/invitation1");
+    expect(text).not.toContain("codex mcp add");
     expect(text).not.toContain("placeholder");
     expect(r.sockets[0]!.url).toBe("ws://127.0.0.1:5360/signal");
     expect(r.sockets[0]!.protocols).toEqual([
@@ -812,7 +915,7 @@ describe("agent page connection", () => {
       clock += LIMITS.invitationMs + 1;                // past the registration's expiresAt, inside the session's limits
       expect(LIMITS.invitationMs + 1).toBeLessThan(Math.min(LIMITS.sessionIdleMs, LIMITS.sessionAbsoluteMs));
       const text = await r.connection.prepare("codex");
-      expect(text).toContain("http://127.0.0.1:5360/mcp");
+      expect(text).toMatch(/^Connect to my SOCOM 2 Legacy page: http:\/\/127\.0\.0\.1:5360\/join\//);
       expect(r.connection.state().status).toBe("connected");
       expect(r.sockets).toHaveLength(1);              // no replacement registration
       expect(socket.readyState).toBe(1);
@@ -836,5 +939,218 @@ describe("agent page connection", () => {
       expect(r.sockets[0]!.readyState).toBe(3);
       expect(r.connection.state().status).toBe("waiting");
     } finally { r.connection.dispose(); vi.restoreAllMocks(); }
+  });
+});
+
+/** AX-U (AX.R2, C6): the whole setup as text for a terminal -- the client's commands, then the one connect line. */
+describe("AX-U: connectionInstructions", () => {
+  it("the setup commands, then the one line; never \"request only the permissions needed\"", () => {
+    const text = connectionInstructions("codex", "https://agent.example.com/mcp", "inv-1");
+    expect(text).toBe("codex mcp add socom2legacy --url https://agent.example.com/mcp\ncodex mcp login socom2legacy\n\nConnect to my SOCOM 2 Legacy page: https://agent.example.com/join/inv-1");
+    for (const client of ["claude", "codex", "desktop", "other"] as const)
+      expect(connectionInstructions(client, "https://agent.example.com", "inv-1"), client).not.toMatch(/only the permissions|request only/i);
+  });
+});
+
+/** AX-12 (a browser adaptation): the connection doctor -- each failure sorted into one class, the agent told too. */
+describe("AX-12: the connection doctor", () => {
+  const ADDRESS = /\b\d{1,3}(\.\d{1,3}){3}\b|[0-9a-f]{1,4}(:[0-9a-f]{0,4}){3,}|candidate:|a=|sdp|placeholder|invitation1/i;
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+  function doctor(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+    const sockets: Socket[] = [];
+    const connection = createAgentConnection({
+      gateway: "http://127.0.0.1:5360",
+      target: {
+        read: () => ({ surface: "forge-editor" as const, revision: 0, name: "Map", build: "test" }),
+        dispatch: async () => ({ requestId: "r", revision: 0, outcome: "ok" as const }),
+      },
+      fetch: vi.fn(fetch) as unknown as typeof globalThis.fetch,
+      socket: () => {
+        const s = new Socket();
+        sockets.push(s);
+        return s as unknown as WebSocket;
+      },
+    });
+    return { connection, sockets };
+  }
+  async function classOf(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+    const { connection } = doctor(fetch);
+    await connection.prepare("codex").catch(() => {});
+    expect(connection.state().status).toBe("error");
+    return connection.state().diagnosis?.class;
+  }
+  it("service-unreachable: the registration's fetch fails and the service cannot be reached at all", async () => {
+    expect(await classOf(async () => { throw new TypeError("ECONNREFUSED 127.0.0.1:5360"); })).toBe("service-unreachable");
+  });
+  it("service-unreachable: the registration's fetch times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = doctor((_url, init) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      }));
+      const done = connection.prepare("codex").catch(() => {});
+      await vi.advanceTimersByTimeAsync(LIMITS.requestMs + 1);
+      await done;
+      expect(connection.state().diagnosis).toEqual({ class: "service-unreachable" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("service-unreachable: a 5xx or a 404", async () => {
+    expect(await classOf(async () => new Response("down", { status: 503 }))).toBe("service-unreachable");
+    expect(await classOf(async () => new Response("Not found", { status: 404 }))).toBe("service-unreachable");
+  });
+  it("origin-refused: ORIGIN_DENIED, or a refused read from a service that does answer", async () => {
+    expect(await classOf(async () => json(403, { code: "ORIGIN_DENIED" }))).toBe("origin-refused");
+    // A browser hides a cross-origin refusal as a network error; the service still answers a no-cors probe.
+    const calls: { url: string; mode?: string }[] = [];
+    expect(
+      await classOf(async (url, init) => {
+        calls.push({ url, mode: init.mode });
+        if (init.mode === "no-cors") return new Response(null, { status: 200 });
+        throw new TypeError("Failed to fetch");
+      }),
+    ).toBe("origin-refused");
+    expect(calls.at(-1)).toEqual({ url: "http://127.0.0.1:5360/health", mode: "no-cors" });
+  });
+  it.each([
+    [403, { code: "CAPACITY" }],
+    [403, { code: "ADDRESS_CAPACITY" }],
+    [429, {}],
+    [429, { code: "RATE_LIMITED" }],
+  ])("service-busy: %i %j", async (status, body) => {
+    expect(await classOf(async () => json(status, body))).toBe("service-busy");
+  });
+  it("version: UNSUPPORTED_VERSION", async () => {
+    expect(await classOf(async () => json(400, { code: "UNSUPPORTED_VERSION" }))).toBe("version");
+  });
+  it("unknown: a refusal the page cannot name", async () => {
+    expect(await classOf(async () => json(403, {}))).toBe("unknown");
+  });
+  it.each([
+    [{ type: "expired" }, "expired"],
+    [{ type: "revoked", reason: "INVITATION_EXPIRED" }, "expired"],
+    [{ type: "revoked", reason: "SESSION_EXPIRED" }, "expired"],
+    [{ type: "revoked", reason: "UNSUPPORTED_VERSION" }, "version"],
+    [{ type: "revoked", reason: "RTC_TIMEOUT" }, "route-failed"],
+    [{ type: "revoked", reason: "AGENT_DISCONNECTED" }, "revoked"],
+    [{ type: "revoked", reason: "SOMETHING_NEW" }, "revoked"],
+  ])("the service's end %j reads %s", async (message, cls) => {
+    const { connection, sockets } = doctor(async () => json(201, registration()));
+    await connection.prepare("codex");
+    sockets.at(-1)!.message(message);
+    expect(connection.state().diagnosis?.class).toBe(cls);
+  });
+  it("expired: the invitation runs out on the page's own clock", async () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = doctor(async () => json(201, registration()));
+      await connection.prepare("codex");
+      await vi.advanceTimersByTimeAsync(LIMITS.invitationMs + 1);
+      expect(connection.state().diagnosis).toEqual({ class: "expired" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  function candidate(type: string, address: string) {
+    const line = `candidate:1 1 udp 2122260223 ${address} 54321 typ ${type}`;
+    return { type, candidate: line, toJSON: () => ({ candidate: line, sdpMid: "0" }) };
+  }
+  it("route-failed: ICE fails -- an error, the counts seen (never an address), and the agent is told before the revoke", async () => {
+    const r = pairedRig();
+    await r.connection.prepare("codex");
+    const socket = r.sockets.at(-1)!;
+    socket.message({ type: "pending", pendingId: "p", clientName: "agent", comparisonCode: "123456", permissions: ["inspect"] });
+    r.connection.approve(["inspect"]);
+    socket.message({
+      type: "offer", sessionId: "s", targetId: "target1", epoch: "epoch1", permissions: ["inspect"],
+      sdp: "v=0\r\na=candidate:1 1 udp 1 203.0.113.9 3478 typ srflx\r\na=candidate:2 1 udp 1 192.0.2.3 9 typ host\r\n",
+    });
+    await vi.waitFor(() => expect(socket.sent.some((s) => JSON.parse(s).type === "answer")).toBe(true));
+    const peer = r.peers.at(-1)!;
+    for (const c of [candidate("host", "192.0.2.5"), candidate("host", "2001:db8::1"), candidate("srflx", "198.51.100.7")])
+      peer.dispatchEvent(Object.assign(new Event("icecandidate"), { candidate: c }));
+    socket.message({ type: "ice", sessionId: "s", targetId: "target1", epoch: "epoch1", candidate: { candidate: "candidate:3 1 udp 1 198.51.100.8 3478 typ relay" } });
+    (peer as unknown as { connectionState: string }).connectionState = "failed";
+    peer.dispatchEvent(new Event("connectionstatechange"));
+    const state = r.connection.state();
+    expect(state.status).toBe("error");
+    expect(state.diagnosis).toEqual({
+      class: "route-failed",
+      local: { host: 2, srflx: 1, relay: 0 },
+      remote: { host: 1, srflx: 1, relay: 1 },
+    });
+    const sent = socket.sent.map((s) => JSON.parse(s) as { type: string });
+    const at = sent.findIndex((m) => m.type === "diagnosis");
+    expect(at).toBeGreaterThan(-1);
+    expect(sent[at]).toEqual({ type: "diagnosis", ...state.diagnosis });
+    expect(sent.findIndex((m) => m.type === "revoke")).toBeGreaterThan(at);
+    expect(socket.sent[at]).not.toMatch(ADDRESS);
+    expect(JSON.stringify(state.diagnosis)).not.toMatch(ADDRESS);
+    expect(state.error ?? "").not.toMatch(ADDRESS);
+  });
+  it("route-failed: the data channel never opens within its timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const r = pairedRig();
+      await r.connection.prepare("codex");
+      const socket = r.sockets.at(-1)!;
+      socket.message({ type: "pending", pendingId: "p", clientName: "agent", comparisonCode: "123456", permissions: ["inspect"] });
+      r.connection.approve(["inspect"]);
+      socket.message({ type: "offer", sessionId: "s", targetId: "target1", epoch: "epoch1", permissions: ["inspect"], sdp: "offer" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(r.connection.state().status).toBe("connecting");
+      await vi.advanceTimersByTimeAsync(ROUTE_OPEN_MS + 1);
+      expect(r.connection.state()).toMatchObject({ status: "error", diagnosis: { class: "route-failed" } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("an opened channel clears the route timer; the player's own disconnect is no failure, and a new Copy clears the last one", async () => {
+    vi.useFakeTimers();
+    try {
+      const r = pairedRig();
+      await r.pair();
+      await vi.advanceTimersByTimeAsync(ROUTE_OPEN_MS + 1);
+      expect(r.connection.state()).toMatchObject({ status: "connected" });
+      expect(r.connection.state().diagnosis).toBeUndefined();
+      r.connection.disconnect();
+      expect(r.connection.state().diagnosis).toBeUndefined();
+      r.sockets.length = 0;
+      await r.connection.prepare("codex");
+      r.sockets.at(-1)!.message({ type: "revoked", reason: "AGENT_DISCONNECTED" });
+      expect(r.connection.state().diagnosis).toEqual({ class: "revoked" });
+      await r.connection.prepare("codex");
+      expect(r.connection.state().diagnosis).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("health: one GET /health, ready on {ok: true}, unreachable otherwise", async () => {
+    const seen: { url: string; method?: string; credentials?: string }[] = [];
+    const ok = doctor(async (url, init) => { seen.push({ url, method: init.method, credentials: init.credentials }); return json(200, { ok: true }); });
+    expect(await ok.connection.health!()).toBe("ready");
+    expect(seen).toEqual([{ url: "http://127.0.0.1:5360/health", method: "GET", credentials: "omit" }]);
+    expect(await doctor(async () => json(200, { ok: false })).connection.health!()).toBe("unreachable");
+    expect(await doctor(async () => { throw new TypeError("Failed to fetch"); }).connection.health!()).toBe("unreachable");
+    expect(await doctor(async () => new Response("<html>", { status: 200 })).connection.health!()).toBe("unreachable");
+  });
+});
+
+describe("AX-10: the pending signal's gateway client id", () => {
+  it("keeps a bounded gatewayClientId on the pending state, and leaves it out when absent or malformed", async () => {
+    for (const [sent, kept] of [["client-a_1", "client-a_1"], [undefined, undefined], ["bad id/with space", undefined], ["x".repeat(300), undefined]] as const) {
+      const r = pairedRig();
+      try {
+        await r.connection.prepare("codex");
+        r.sockets[0]!.message({ type: "pending", pendingId: "p", clientName: "agent", comparisonCode: "123456", permissions: ["inspect"],
+          ...(sent === undefined ? {} : { gatewayClientId: sent }) });
+        expect(r.connection.state().status).toBe("approval");
+        expect(r.connection.state().pending?.gatewayClientId).toBe(kept);
+        if (kept === undefined) expect("gatewayClientId" in r.connection.state().pending!).toBe(false);
+      } finally {
+        r.connection.dispose();
+      }
+    }
   });
 });

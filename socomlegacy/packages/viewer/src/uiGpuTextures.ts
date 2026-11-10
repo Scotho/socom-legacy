@@ -8,8 +8,10 @@ import type { Rgba } from '@s2u/gs';
  * `test/uiGpuTextures.test.ts` on the fake WebGL2 (unit test); a real GPU's uploads and memory are the box's (GM-11b).
  *
  * - **Stable keys.** A bitmap is keyed by its content, `name|w x h|fnv1a64` of its bytes, memoised per image object (a
- *   `WeakMap`), so a bank read again (`frontEndAssets.ts` clears its decode cache at each bank load: new objects, the
- *   same bytes) uploads nothing again. An HD image is keyed by the pack's own key (`UiGpuHdKeys.gpuKeyOf`:
+ *   `WeakMap`), so a bitmap decoded again (new objects, the same bytes: a page's banks read anew) uploads nothing again.
+ *   GM-29: `frontEndAssets.ts` no longer clears its decode cache at a bank's arrival, and its prefetch seeds the memo
+ *   with the decode worker's hash of the same bytes (`seedUiGpuTextureKey`), so a cold dialog's first GPU frame hashes
+ *   nothing it was handed by the prefetch. An HD image is keyed by the pack's own key (`UiGpuHdKeys.gpuKeyOf`:
  *   `hd|<pack>|<sha256 of the source>`, `hdKeyOf`'s), so a 64 MiB replacement is never hashed here.
  * - **No cached image rewritten in place** (GM-12a review F4, GM-11a-2 review F4). The memo checks each image at every
  *   use against its key's probes (`UI_GPU_TEXTURE_PROBES` bytes spread over it, its first and last among them, and the
@@ -47,6 +49,56 @@ export const HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION = 32 * 1024 * 1024;
  * using it (1800: 30 s of frames drawn at 60 Hz; a still menu draws none, GM-12a's dirty check). A start value.
  */
 export const HD_UI_RESIDENCY_ADAPTATION = 1800;
+/**
+ * UI_GPU_OVERSIZE_ROUTE_ADAPTATION: no original; bounds the browser's GPU on a frame that samples an image past the
+ * device's `MAX_TEXTURE_SIZE` (GM-14b, case 15; the capability floor is 4096, `UI_GPU_MIN_MAX_TEXTURE_SIZE`, and the HD
+ * pack may name images up to `HD_LIMITS.outputEdge`, 8192 a side: a 4x replacement of a source at `HD_LIMITS.sourceEdge`
+ * is 4096 and fits, a larger ratio or a placement composite may not). Such a frame is **L1 at its fallback scale**
+ * (`plan.fallback`: 1x under HD, the original frame, GM.R9 and GM.R19; the shown scale only under dev sampling, which a
+ * plan already leaves L1): the software draws it with no HD lookup, the backend shows it `s x s`, and no texture past the
+ * limit is made or sent. It is not drawn from a downscaled copy or from the 1x bitmap on the GPU: either would put on
+ * the canvas a picture the reference at the shown scale (the software with the pack's image) does not draw -- outside the
+ * B bound, and a guard trip -- while the L1 frame is the 1x software's byte for byte, which the parity spec holds. A frame
+ * on the route is counted on the read-out (`window.__uiGpu.refusals.counts`) under `reason`, one key whatever image or
+ * limit, so a run shows how often it happens; the refusal itself is `reason` followed by `: ` and each image's detail
+ * (`uiGpuOversizeRefusal`: its name, the HD pack's key where one names it, its size, the limit), which the read-out's
+ * `refusals.last.why` keeps (GM-14b review F2), so a run that fires the route says which image did. Decides when the GPU
+ * draws, never a byte of the frame.
+ */
+export const UI_GPU_OVERSIZE_ROUTE_ADAPTATION = Object.freeze({
+  route: 'frame-fallback',
+  reason: 'an image past MAX_TEXTURE_SIZE: the frame L1 at its fallback scale (UI_GPU_OVERSIZE_ROUTE_ADAPTATION, GM-14b)',
+} as const);
+
+/** One planned texture's size and kind, as `uiGpuOversized` reads it. */
+export interface UiGpuSizedTexture { readonly name: string; readonly width: number; readonly height: number; readonly hd: boolean }
+
+/** GM-14b: the planned textures past `max` on either side, in the plan's order -- the frames `UI_GPU_OVERSIZE_ROUTE_ADAPTATION` routes. */
+export function uiGpuOversized(textures: readonly UiGpuSizedTexture[], max: number): UiGpuSizedTexture[] {
+  return textures.filter((t) => t.width > max || t.height > max).map(({ name, width, height, hd }) => ({ name, width, height, hd }));
+}
+
+/**
+ * GM-14b review F2: the route's refusal -- `UI_GPU_OVERSIZE_ROUTE_ADAPTATION.reason`, then `: ` and each oversized
+ * image's detail (`<name> (<HD key|bitmap>, <w> x <h>) past MAX_TEXTURE_SIZE <max>`, joined by `; `). `key` gives an HD
+ * image's pack key (`UiGpuHdKeys.gpuKeyOf`), or null.
+ */
+export function uiGpuOversizeRefusal(oversized: readonly UiGpuSizedTexture[], max: number, key: (i: number) => string | null = () => null): string {
+  const detail = oversized.map((t, i) => {
+    const k = key(i);
+    return `${t.name} (${t.hd ? `HD${k ? ` ${k}` : ''}` : 'bitmap'}, ${t.width} x ${t.height}) past MAX_TEXTURE_SIZE ${max}`;
+  });
+  return `${UI_GPU_OVERSIZE_ROUTE_ADAPTATION.reason}: ${detail.join('; ')}`;
+}
+
+/**
+ * GM-14b review F2: the key a refusal is counted under on the read-out (`UiGpuSwitch.refused`): the route's one reason
+ * for any refusal of the large-image route, whatever its detail; every other refusal as it stands.
+ */
+export function uiGpuRefusalKey(why: string): string {
+  return why.startsWith(`${UI_GPU_OVERSIZE_ROUTE_ADAPTATION.reason}: `) ? UI_GPU_OVERSIZE_ROUTE_ADAPTATION.reason : why;
+}
+
 /** The bytes of an image each use re-reads to tell a rewrite (spread evenly, first and last included). */
 export const UI_GPU_TEXTURE_PROBES = 256;
 
@@ -94,6 +146,18 @@ function contentHash(image: Rgba, verify: UiGpuTextureVerify): string {
   if (m) uiGpuKeyCounts.rewritten++;
   MEMO.set(image, { hash, data: image.data, width: image.width, height: image.height, probes: probesOf(image.data) });
   return hash;
+}
+
+/**
+ * GM-29: `image`'s content hash computed elsewhere -- the front end's decode worker (`./frontEndTextureBank`'s decode), the same
+ * `fnv1a64` over the same bytes -- kept as the memo, so its first key reads it without hashing on the page's main thread.
+ * The memo's checks are unchanged: its probes are taken here, from the image as it stands, and every later use checks
+ * them (`verify`) as for a hash made here. An image already memoised keeps its memo. PRODUCT TRACK, a browser
+ * adaptation (when a hash is made, never what it is).
+ */
+export function seedUiGpuTextureKey(image: Rgba, hash: string): void {
+  if (MEMO.has(image)) return;
+  MEMO.set(image, { hash, data: image.data, width: image.width, height: image.height, probes: probesOf(image.data) });
 }
 
 /** A bitmap's content key: `name|w x h|fnv1a64`. */
@@ -174,6 +238,9 @@ export class UiGpuTextureCache {
 
   /** The HD lookup whose keys name HD images (null: HD off). */
   setHd(hd: UiGpuHdKeys | null): void { this.hd = hd; }
+
+  /** GM-14b review F2: an HD image's pack key, where the HD lookup keeps it (never a content hash); null otherwise. */
+  hdKeyOf(image: Rgba): string | null { return this.hd ? this.hd.gpuKeyOf(image) : null; }
 
   /** A texture's key (the HD lookup's for a replacement it keeps, else the content key). */
   keyOf(t: UiGpuTextureRef): string {

@@ -283,5 +283,45 @@ describe.skipIf(!HAVE)('the round\'s cues on the dev disc (SOCOM_DISC; research 
     // The extraction maps' SEAL intro waits 2 s more inside its branch (MP6, MP10, MP11, MP71).
     expect(cuesOf('MP6').intro[0]).toEqual([{ wait: 5 }, { wait: 2 }, { sound: 'MUS_MP_SEAL_INTRO_5', slot: true }]);
   });
+
+  it("DF-10: Fish Hook (MP71) -- the extraction intro (the SEALs' WAIT 5, WAIT 2, MUS_MP_SEAL_INTRO_5), the objective lines and every hostage one-shot and decided line by locale id, each resolved through the map's own mp71LOC with no null (research 190 §4: MP71's script is MP6's with ids 7100-7113; HOSTAGE_CUES_READING, RESCUE_WIN_LINES_READING)", () => {
+    const c = cuesOf('MP71');
+    expect(c.intro[0]).toEqual([{ wait: 5 }, { wait: 2 }, { sound: 'MUS_MP_SEAL_INTRO_5', slot: true }]);
+    expect(c.intro[8]).toEqual([{ wait: 5 }, { sound: 'MUS_MP_TERR_INTRO_5', slot: true }]);
+    expect(c.intro[16]).toEqual([{ wait: 5 }, { sound: 'MUS_MP_SEAL_INTRO_4', slot: true }]);
+    for (const t of [0, 8, 16] as const) {
+      expect(c.elimination.seal[t]).toEqual([{ sound: '^PH_0014', slot: false }, { wait: 2 }, { sound: 'MUS_MP_SEAL_WIN_ALG', slot: true }]);
+      expect(c.elimination.terrorist[t]).toEqual([{ sound: '^PH_0002', slot: false }, { wait: 2 }, { sound: 'MUS_MP_TERR_WIN_ALG', slot: true }]);
+    }
+    const bytes = new Uint8Array(readFileSync(resolve(RUN, 'MP71.ZDB')));
+    const strings = readLocArchive(zdbMember(bytes, parseZdb(bytes), mapLocArchive('MP71').archive.split('/').pop()!), 'MP71');
+    const byId = new Map(strings.entries.map((e) => [e.id, e.text]));
+    expect([...byId.keys()].sort((a, b) => a - b)).toEqual(Array.from({ length: 14 }, (_, i) => 7100 + i));
+    const filled = withObjectiveTexts(c, (id) => byId.get(id));
+    const line = (text: string, locId: number, scale = 0.7, waitBefore = 0) => ({ text, locId, scale, waitBefore });
+    expect(filled.objective[0]).toEqual([
+      line('OBJECTIVE:', 7100, 0.9, 5), line('LOCATE AND EXTRACT THE HOSTAGES', 7101), line('MOVE AT LEAST TWO HOSTAGES TO THE EXTRACTION ZONE', 7102, 0.7, 2),
+    ]);
+    expect(filled.objective[8]).toEqual([line('OBJECTIVE:', 7100, 0.9, 5), line('PREVENT THE SEALS FROM RESCUING THE HOSTAGES', 7103)]);
+    expect(filled.hostages).toEqual({
+      lead: { sound: '^PH_0006', lines: [line('A HOSTAGE IS BEING ESCORTED', 7113)] },
+      rescued: { sound: '^PH_0013', lines: [line('A HOSTAGE HAS BEEN RESCUED', 7112)] },
+      killedByTerrorists: { sound: '^PH_0008', lines: [line('THE TERRORISTS HAVE KILLED A HOSTAGE', 7108), line('THE SEALS HAVE BEEN CREDITED WITH RESCUING THAT HOSTAGE', 7109, 0.7, 2)] },
+      killedBySeals: { sound: '^PH_0007', lines: [line('THE SEALS HAVE KILLED A HOSTAGE', 7110), line('ONE MINUTE HAS BEEN DEDUCTED FROM THE MISSION TIMER', 7111, 0.7, 2)] },
+    });
+    for (const t of [0, 8, 16] as const) {
+      expect(filled.decided!.rescue[t]).toEqual([
+        { wait: 2 }, { message: 'SEALS VICTORIOUS!', locId: 7105, scale: 0.9 }, { sound: '^PH_0014', slot: false }, { wait: 2 }, { sound: 'MUS_MP_SEAL_WIN_ALG', slot: true },
+      ]);
+      expect(filled.decided!.hostageKills[t]).toEqual([
+        { message: 'TERRORISTS WIN!', locId: 7107, scale: 0.9 }, { sound: '^PH_0002', slot: false }, { wait: 2 }, { sound: 'MUS_MP_TERR_WIN_ALG', slot: true },
+      ]);
+    }
+    // No id left unfilled anywhere the cues name one (7104 and 7106, the elimination lines, the page posts from
+    // `eliminationLines` -- the same words as mp71LOC's).
+    const named = JSON.stringify(filled);
+    expect(named).not.toMatch(/"(text|message)":null/);
+    expect(cueNames(c)).toEqual(expect.arrayContaining(['^PH_0006', '^PH_0013', '^PH_0008', '^PH_0007', '^PH_0014', '^PH_0002', 'MUS_MP_SEAL_INTRO_5', 'MUS_MP_TERR_INTRO_5']));
+  });
 });
 

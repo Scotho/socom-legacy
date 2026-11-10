@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import type {} from '../src/hook';
 import { localPort } from './ports';
+import { frontGpuCanvasFailure, type FrontGpuCanvasState } from './uiGpuGl';
 import { FRONT_END, TEST_ROOM } from './urls';
 
 /**
@@ -46,19 +47,38 @@ async function frontEndAlone(page: Page, address: string): Promise<void> {
   expect(urls.filter((u) => MAIN.test(u))).toEqual([]);
   expect(urls.filter((u) => /maps\/index\.json|\/rooms(\?|$)/.test(u))).toEqual([]);
   expect(rooms).toBe(0);
-  // GM-16b: on the Vite dev server the front end runs the GPU path in shadow (`front.hd: 'shadow'`, development builds
-  // only), which mounts `#front-end-gpu` beside `#front-end` in standby -- never shown, never presented. It is the front
-  // end's own sibling, not the viewer: listed apart, and held to standby (hidden) whenever it is there. A release build
-  // mounts none (every surface `off`), so its absence passes too.
-  expect(await page.evaluate(() => ({
+  // GM-16b, then the flip (GM.R18): every page mounts `#front-end-gpu` beside `#front-end` -- the front end's own sibling,
+  // not the viewer, so listed apart. The 4070 run's finding 3: what it shows follows the page's renderer -- on a software
+  // adapter (the gate's SwiftShader) L4, absent or in standby; on a hardware renderer present and visible
+  // (`frontGpuCanvasFailure`).
+  // RC-MENUFLOW-TOUCH (a spec correction): the modern overlay's touch "Menu" button (`../src/modern/overlay` `touchMenu`,
+  // `button.mu-touch-menu`, no id) is the page's own on a device that reports touch -- a coarse pointer or any touch point
+  // (a touch laptop, shadow's cloud VM) -- and absent elsewhere; it is expected by that reading, not filtered out.
+  // Was: the list fixed at a host with no touch (shadow's A4500 run at d628ce86e: an extra "button#").
+  const page_ = await page.evaluate(() => ({
     view: document.getElementById('view'),
     hook: typeof (window as unknown as { __viewer?: unknown }).__viewer,
-    children: [...document.body.children].filter((e) => e.id !== 'front-end-gpu').map((e) => `${e.tagName.toLowerCase()}#${e.id}`),
+    children: [...document.body.children].filter((e) => e.id !== 'front-end-gpu')
+      .map((e) => (e.classList.contains('mu-touch-menu') ? 'button.mu-touch-menu' : `${e.tagName.toLowerCase()}#${e.id}`)),
+    touch: matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0,
     black: document.body.classList.contains('ps2-look') && getComputedStyle(document.body).backgroundColor,
     size: (() => { const c = document.getElementById('front-end') as HTMLCanvasElement; return [c.width, c.height]; })(),
-  }))).toEqual({ view: null, hook: 'undefined', children: ['canvas#front-end', 'div#menu-touch'], black: 'rgb(0, 0, 0)', size: [640, 448] });
-  const twin = await page.evaluate(() => { const g = document.getElementById('front-end-gpu'); return g ? { standby: g.classList.contains('s2u-ui-gpu-standby'), visibility: getComputedStyle(g).visibility } : 'absent'; });
-  expect([JSON.stringify('absent'), JSON.stringify({ standby: true, visibility: 'hidden' })], `#front-end-gpu absent or in standby: ${JSON.stringify(twin)}`).toContain(JSON.stringify(twin));
+  }));
+  const { touch, ...seen } = page_;
+  expect(seen).toEqual({
+    view: null, hook: 'undefined', black: 'rgb(0, 0, 0)', size: [640, 448],
+    children: ['canvas#front-end', 'div#menu-touch', ...(touch ? ['button.mu-touch-menu'] : [])],
+  });
+  const renderer = await page.evaluate(() => {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return null;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const r = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return r;
+  });
+  const gpuCanvas = (): Promise<FrontGpuCanvasState> => page.evaluate(() => { const g = document.getElementById('front-end-gpu'); return g ? { standby: g.classList.contains('s2u-ui-gpu-standby'), visibility: getComputedStyle(g).visibility } : 'absent' as const; });
+  await expect.poll(async () => frontGpuCanvasFailure(renderer, await gpuCanvas()), { timeout: 30_000 }).toBeNull();
   await expect(page.locator('#menu-touch')).toBeHidden(); // a desktop without touch keeps its controller input
   expect(errors).toEqual([]);
 }

@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { UI_TICK_SECONDS } from '@s2u/ui';
 import { HOLD_TO_BIND_MS_ADAPTATION } from '../src/padLayout';
 
 /**
@@ -48,15 +49,31 @@ export async function holdToBind(page: PadPage, button: number, settled: () => P
   }
 }
 
-/** Holds `state` (everything else at rest) for two animation frames. */
+/**
+ * How long each pad state is held at least, in the page's frame time: two UI ticks (`@s2u/ui` `UI_TICK_SECONDS`, the
+ * original's 100/2997 s). Native Options over a match (`../src/nativeOptionsHost` `frame`) and the front end read the pad
+ * once per tick, from the frame the tick lands in, and nothing latches a press between ticks -- so two animation frames
+ * alone (14 ms at 144 Hz, a real-GPU headed run) could begin and end a press between two ticks and lose it (the real-GPU
+ * red of `nativeSettings.spec.ts`:254, agent/mega cb7125b1f; `../test/padStubTickHold.test.ts`). A test aid's timing only.
+ */
+export const PAD_STATE_HOLD_MS = 2 * UI_TICK_SECONDS * 1000;
+
+/** Holds `state` (everything else at rest) for two animation frames and at least `PAD_STATE_HOLD_MS` of frame time. */
 export async function holdPad(page: PadPage, state: PadState = {}): Promise<void> {
-  await page.evaluate(async ({ buttons, axes }) => {
+  await page.evaluate(async ({ buttons, axes, holdMs }) => {
     const pad = (window as unknown as { __s2uPad: { axes: number[]; timestamp: number; buttons: { pressed: boolean; touched: boolean; value: number }[] } }).__s2uPad;
     pad.axes = axes ?? [0, 0, 0, 0];
     pad.buttons.forEach((b, i) => { const on = (buttons ?? []).includes(i); b.pressed = on; b.touched = on; b.value = on ? 1 : 0; });
     pad.timestamp = performance.now();
-    await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
-  }, state);
+    await new Promise<void>((done) => {
+      let first: number | null = null, frames = 0;
+      const step = (now: number): void => {
+        first ??= now;
+        if (++frames >= 2 && now - first >= holdMs) done(); else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }, { buttons: state.buttons, axes: state.axes, holdMs: PAD_STATE_HOLD_MS });
 }
 
 /** Lets go, presses `button`, lets go: one press as every reader sees it. */

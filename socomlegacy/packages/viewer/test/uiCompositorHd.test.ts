@@ -35,8 +35,12 @@ const items: UiDrawItem[] = [
   { kind: 'movie', picture: null, x0: 600, y0: 400, x1: 640, y1: 448 },
 ];
 const sha = (f: Rgba): string => createHash('sha256').update(f.data).digest('hex');
-/** Today's frame (agent/hd-goe 3692dc5e7, before HD-3's menus), taken from the drawer as it stood. */
-const TODAY = 'cd7f4c1a389b8f1dc319a83f608ffe055df5c657bfc4735f27c608de8fafcac6';
+/**
+ * Today's frame (agent/hd-goe 3692dc5e7, before HD-3's menus), taken from the drawer as it stood. Re-taken by GM-15d
+ * (the GPU menus plan's Log, R1 resolved by (a)): the list's roller triangle now drawn by the GS's top-left edge rule
+ * (its right-bottom edge no longer the model's) -- the HD-off equality it pins is unchanged.
+ */
+const TODAY = '27cdb001e291cfadf95d7958f940393989fd144ecc1b7dcd46545e6a908f1506';
 
 describe('HD-3: the pack off draws today\'s frame, byte for byte', () => {
   it('no options, scale 1 and a lookup that replaces nothing all give today\'s 640 x 448 frame', () => {

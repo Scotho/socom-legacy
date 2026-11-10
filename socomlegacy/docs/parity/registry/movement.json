@@ -198,13 +198,14 @@
     },
     {
       "id": "movement.step.probe-origin",
-      "claim": "The ground probe's origin is the feet + 5.5 every tick, so a 6-6.5 kerb over a lower floor is stepped onto (STEP_PROBE_LIFT_READING).",
+      "claim": "The ground probe's origin is the feet + r0004's floored root every tick (11.48 standing, 5.504 crouched; PROBE_LIFT_FLOOR_R0004, LATER 785), so a 6-6.5 kerb over a lower floor is stepped onto and a faceless top up to 12.48 over the feet is taken.",
       "level": "reading",
-      "source": "FUN_005b0840 / FUN_005b5d40 D:L470163-470290; capture logs/parity/spawn_pcsx2.rdram (+5.5 at the spawn)",
-      "note": "docs/research/86-traversal.md",
+      "source": "FUN_005b0840 (r0004 0x5b6620, 0x5b67f8-0x5b6844) / FUN_005b5d40 D:L470163-470290; the r0004 origin trace (agent-mail/evidence/jump-air/ORIGIN-TRACE.md)",
+      "note": "docs/research/80-the-jump.md",
       "tests": [
         { "file": "packages/viewer/test/walk.test.ts", "name": "steps onto a 6.25-unit kerb above an overlapping lower floor (research 101 A7)", "data": "none" },
-        { "file": "packages/viewer/test/walk.test.ts", "name": "an overlapping surface 7 over the feet, above step_height, is walked under for the floor below", "data": "none" }
+        { "file": "packages/viewer/test/walk.test.ts", "name": "an overlapping surface 13 over the feet, above the standing window (12.48), is walked under for the floor below", "data": "none" },
+        { "file": "packages/viewer/test/probeOrigin.test.ts", "name": "a standing body on the ground takes a floor up to 12.48 over its feet (11.48 + the pick's 1.0), not one at 12.6", "data": "none" }
       ],
       "owed": "the origin while running and crouched or prone is not measured (W2.2c on PCSX2: a 6.25 kerb over a lower floor)"
     },

@@ -979,7 +979,9 @@ describe('LOAD-HOLD: the loading screen held until the host\'s barrier (research
     r.host.adopt(r.backs[0]!.client!);
     r.host.handOff({ mediusWorldId: 7, gameName: 'g$~Alpha', mission: 'mp2', lateJoiner: false });   // game 2's launch
     const h2 = r.handOffs[1]!;
-    expect([h2.welcome?.ghost, h2.roundStart]).toEqual([true, null]);       // the lobby's welcome is game 1's (gameLobbyHost keeps it)
+    // HOTFIX spin-spectate: the lobby keeps game 1's welcome, rewritten as the returned room would welcome the seat
+    // (`returnedWelcome`: no ghost, phase 'waiting') -- and the launch still holds for its barrier (no late join).
+    expect([h2.welcome?.ghost, h2.welcome?.phase, h2.roundStart]).toEqual([false, 'waiting', null]);
     r.match.start(h2);
     r.load(); await r.flush();
     r.step(5000);

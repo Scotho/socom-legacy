@@ -9,6 +9,12 @@ import { FlyCamera, type Pose } from '../../src/camera';
 import { FORGE_VIEW_KEY, pageSettings } from '../../src/pageStore';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb, readStoredList } from './fakeSaves';
+import { MAP_STILLS } from '../../src/forge/mapStills';
+import { emptyLayout } from '../../src/forge/layout';
+import { recordOfLayout } from '../../src/forge/record';
+import { SavesStore } from '../../src/forge/savesStore';
+import { standOf } from '../../src/matchCore';
+import { Box3, Vector3 } from 'three';
 
 /**
  * R5-B (a browser adaptation, no original): the camera shot's page half -- the driver on the page's fly camera, its
@@ -267,6 +273,22 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     expect(set.mock.calls.filter(([key]) => key === FORGE_VIEW_KEY), 'the settle does not write it again').toHaveLength(1);
   }, 90_000);
 
+  it('Walk from the Top view walks in perspective, and the view menu says Perspective (a browser adaptation, FG.R2)', async () => {
+    const api = await mounted();
+    await api.execute('layout.base', { base: { kind: 'map', archive: 'MP2' } }, api.read().revision);
+    frame();
+    const summary = document.querySelector<HTMLElement>('.fx-camera-views .fx-camera-view')!;
+    document.querySelector<HTMLButtonElement>('.fx-camera-view-option[aria-label="Top view"]')!.click();
+    expect(summary.dataset['view']).toBe('top');
+    const walk = document.querySelector<HTMLButtonElement>('button[aria-label="Walk"]')!;
+    walk.click();
+    // No frame between: the menu is told by the camera itself, not by the next frame's axis widget.
+    await vi.waitFor(() => expect(walk.classList.contains('is-on')).toBe(true));
+    expect(summary.dataset['view']).toBe('perspective');
+    expect(document.querySelector('.fx-camera-view-option[aria-label="Perspective view"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('.fx-camera-view-option[aria-label="Top view"]')!.getAttribute('aria-pressed')).toBe('false');
+  }, 90_000);
+
   it('refuses at admission: a steep look OUT_OF_RANGE, a look at itself INVALID_ARGUMENT, off the box OUT_OF_BOUNDS', async () => {
     const api = await mounted();
     await api.execute('layout.base', { base: { kind: 'map', archive: 'MP2' } }, api.read().revision);
@@ -332,5 +354,85 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     expect(api.shotRunning?.()).toBe(true);
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     expect(api.shotRunning?.()).toBe(false);
+  }, 90_000);
+
+  // FP-15 (FP.R15, the owner 2026-11-09; product track, a Forge start view): a bare disc-map base opens at Craig's still
+  // for that map (`../../src/forge/mapStills`); a map with none keeps the stand; a layout's own camera still wins.
+  const exactly = (a: Pose, b: Pose, what: string): void => {
+    for (const k of ['x', 'y', 'z', 'yaw', 'pitch'] as const) expect(Math.abs(a[k] - b[k]), `${what} ${k}: ${a[k]} vs ${b[k]}`).toBeLessThan(1e-6);
+  };
+  const serveEveryStill = (): void => {
+    archiveEntries.length = 0;
+    for (const id of Object.keys(MAP_STILLS)) archiveEntries.push({ stem: id, path: `synthetic/${id}`, label: id, campaign: false });
+    archiveEntries.push({ stem: 'MP3', path: 'synthetic/MP3', label: 'Other', campaign: false });
+  };
+
+  /** The person's own base change: New, its card's base list, Next (`chooseNewBase` -> `layoutForSelect` -> `openLayout`, bare). */
+  const applyBase = async (api: ForgeAgentApi, id: string): Promise<void> => {
+    document.querySelector<HTMLButtonElement>('button[title^="Start a new layout"]')!.click();
+    await vi.waitFor(() => expect(document.querySelector('.fx-card select[aria-label="New layout"]')).not.toBeNull());
+    const sel = document.querySelector<HTMLSelectElement>('.fx-card select[aria-label="New layout"]')!;
+    sel.value = id;
+    expect(sel.value, `${id} is in New's base list`).toBe(id);
+    sel.closest('.fx-card')!.querySelector<HTMLButtonElement>('button.fx-primary')!.click();
+    await vi.waitFor(() => expect(api.status().map).toBe(id));
+    await vi.waitFor(() => expect(api.read().ready).toBe(true));          // the open done (`busy` off)
+  };
+
+  it("FP-15: each of the 22 stills' maps opened as a base leaves the camera at its still", async () => {
+    serveEveryStill();
+    const api = await mounted();
+    const ids = Object.keys(MAP_STILLS);
+    expect(ids).toHaveLength(22);
+    for (const id of ids) {
+      await applyBase(api, id);
+      exactly(cameraOf(api), MAP_STILLS[id]!, id);
+    }
+  }, 180_000);
+
+  it('FP-15: a map with no still opens at the stand, as before; the blank floor keeps its own start', async () => {
+    serveEveryStill();
+    // MP3 has no still. Its world here has no measured spawn and no ground, so today's start is `standOf`'s look from off
+    // the world box (the page's `fly.lookFrom(stand.from, stand.to)`); the box is the world meshes' own extent.
+    const map = { ...(await syntheticArchive('MP3')), ground: null, slots: [] } as unknown as LoadedMap;
+    archiveLoad.mockImplementation(async (stem) => (stem === 'MP3' ? map : syntheticArchive(stem)));
+    const api = await mounted();
+    // The page boots on the blank floor (`?floor`): its own start, never a still.
+    const blank = new FlyCamera(document.createElement('canvas'));
+    blank.lookFrom([0, 250, 600], [0, 0, 0]);
+    await vi.waitFor(() => expect(api.read().layout).toBeTruthy());
+    exactly(cameraOf(api), blank.pose(), 'blank floor');
+    blank.dispose();
+    await applyBase(api, 'MP3');
+    const box = new Box3();
+    for (const mesh of map.world) for (let i = 0; i < mesh.positions.length; i += 3) box.expandByPoint(new Vector3(mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]));
+    const stand = standOf(map, { box } as never);
+    expect(stand.spawn).toBeUndefined();
+    const probe = new FlyCamera(document.createElement('canvas'));
+    probe.lookFrom(stand.from, stand.to);
+    exactly(cameraOf(api), probe.pose(), 'MP3 stand');
+    probe.dispose();
+  }, 90_000);
+
+  it("FP-15: the page's first bare open sits at the still; a layout with its own camera on a still's map opens at that camera", async () => {
+    serveEveryStill();
+    history.replaceState(null, '', '/forge');
+    // No autosave: the boot opens its fallback map (MP2) bare -- at MP2's still.
+    const bare = await mounted();
+    await vi.waitFor(() => expect((bare.read().layout as { base?: unknown } | null)?.base).toBe('MP2'));   // the record names a map base by its stem
+    exactly(cameraOf(bare), MAP_STILLS['MP2']!, 'boot MP2');
+    window.dispatchEvent(new PageTransitionEvent('pagehide'));
+    // An autosave on MP1 with its own camera: the layout's camera, over MP1's still.
+    freshSavesDb();
+    localStorage.clear();
+    const own = { x: 111, y: 222, z: 333, yaw: 44, pitch: -5 };
+    const store = new SavesStore(globalThis.indexedDB);
+    await store.open();
+    const at = await store.read('autosave');
+    expect(await store.write('autosave', JSON.stringify(recordOfLayout({ ...emptyLayout({ kind: 'map', archive: 'MP1' }), camera: own }, 'Autosave')), at.generation)).toBe('written');
+    store.close();
+    const api = await mounted();
+    await vi.waitFor(() => expect((api.read().layout as { base?: unknown } | null)?.base).toBe('MP1'));
+    exactly(cameraOf(api), own, 'layout camera on MP1');
   }, 90_000);
 });

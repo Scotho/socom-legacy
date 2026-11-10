@@ -274,7 +274,7 @@ describe(`Crossroads' bridge programs, on the disc's bytes (XR-01; research 213 
       // 248 parts on, then 284-332: FOR_CHILDREN (12 B) over parts, OBJECT_MAKE_WORLDCHILD (8 B), the part on, flyparts, END (8 B).
       const loop = cmds.filter((c) => c.offset >= 248 && c.offset <= 332 && c.offset !== 256 && c.offset !== 264);
       expect(loop.map((c) => [c.offset, c.cmd, c.size])).toEqual([[248, 17, 8], [284, 41, 12], [296, 6, 8], [304, 17, 8], [312, 45, 20], [332, 42, 8]]);
-      expect(loop[4]!.op).toEqual({ op: 'call', anim: 'flyparts' });
+      expect(loop[4]!.op).toEqual({ op: 'call', anim: 'flyparts', caller: 7 });   // research 386 §3.3: the loop's part (FOR_CHILDREN's variable 7) is the callee's NODE_CALLER
     }
     expect(anims.filter((a) => a.names.includes('skip_effects')).map((a) => a.name)).toEqual([]);
   });

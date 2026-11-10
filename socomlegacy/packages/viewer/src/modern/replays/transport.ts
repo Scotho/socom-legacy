@@ -1,8 +1,10 @@
+import type { ReplayRecord } from '../../../../match/src/replay/format';
+import type { Team } from '../../net/protocol';
 import type { ReplayClient, ReplaySeek } from '../../replay/replayClient';
 import { roundSpans, roundsOf, type RoundSpan } from '../../replay/rounds';
 import { icon, type IconName } from '../icons';
 import '../../console/replay-transport.css';
-import { HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE } from './transportStrings';
+import { END_OF_RECORDING, HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE, roundText } from './transportStrings';
 
 /**
  * The replay viewer's transport bar (MU-10 of `docs/plans/2026-10-09-modern-ui-parallel.md`; MU.R9; the dialogue's D2.9
@@ -47,7 +49,7 @@ import { HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE } from './tra
  * RV2.R2, RV2.R3, RV2.R4, RV2.R7). Drawn on the console's conventions -- the classes `cx-replay*`, its sheet
  * `../../console/replay-transport.css` on the `--s2u-*` / `--s2u-lx-*` tokens, the one gold `--s2u-lx-accent` for the
  * fill, the playhead, the play button and the current round -- with the data hooks the specs read (`data-seek`,
- * `data-playhead`, `data-hover`, `data-mark`, `data-round`, `data-round-chip`, `data-time`, `data-speed`, `data-partial`,
+ * `data-playhead`, `data-hover`, `data-mark`, `data-round`, `data-round-chip`, `data-time`, `data-speed`,
  * `data-status`, `data-seek-state`, `data-action`); class names are not the contract (RV2.R7).
  * - *The band* (44 px): the recording's rounds (`../../replay/rounds` `roundSpans`) laid end to end by ticks, one
  *   `[data-round]` each, its number at its left edge (`data-round` the number; empty, unnumbered and dimmed, for the
@@ -55,9 +57,10 @@ import { HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE } from './tra
  *   The hover names the round and the recording's time a press there would seek to ("Round 2 · 0:40"; the time alone
  *   over an unnumbered span) -- the recording's time, as the time readout says it; the round's own clock is still not
  *   read (research 276 §2).
- * - *The control row*: the seven buttons (play/pause the gold circle), the time, the round chip ("ROUND 2 / 5": the
- *   round under the playhead, `roundsOf` the count; hidden over an unnumbered span), the Partial pill, the speed
- *   stepper, then the round steps (RV2-07, below).
+ * - *The control row*: the seven buttons (play/pause the gold circle), the time, the round chip (the round under the
+ *   playhead, `roundsOf` the count; hidden over an unnumbered span; its words and the buttons' order RB-33's, below),
+ *   the speed stepper. (The Partial recording chip is the viewer's head's since RB-32, `./view`; RB-45 took the bar's
+ *   own pill out.)
  * - *The held state* (RV2.R2): while the client is held (`ReplayClient.held`, the world's loading screen up), the
  *   toggle, the steps and the jumps are disabled and refused from a key or `act`, and the status says so
  *   (`HELD_STATUS`); the seek bar still seeks (a seek lands under the hold), and the speed still steps. Released, all
@@ -65,8 +68,8 @@ import { HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE } from './tra
  * - *The hint row went* (§2: the console's legend names the focused control, the seek's jump and Close);
  *   `TransportOptions.circleBack` is still taken, so the mount API is unchanged, and draws nothing now.
  *
- * **RV2-07: the round steps** (the RV2 plan §2 item 4 and its RV2-07 brief), the controls line's last two buttons
- * (RV2-08's merge: after the seven, in their own group), Previous round
+ * **RV2-07: the round steps** (the RV2 plan §2 item 4 and its RV2-07 brief), inline beside play since RB-33 (below;
+ * at RV2-08's merge they ended the controls line in their own group), Previous round
  * (`round-back`, B) and Next round (`round-forward`, N) -- the keys free of the transport's own and of the console's
  * keymap (`../../console/input`: WASD, F, T, Q, E, Z, C, O; P its START); the pad reaches them as every control, the
  * walker and Cross, the legend naming the focused one by its own name. Over `roundSpans` (the band's spans,
@@ -77,12 +80,35 @@ import { HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE } from './tra
  *
  * **RV2-08: the three lines** (the RV2 plan §2 "Phone"). The bar is drawn as three lines, each a `data-line` hook: the
  * band (`band`), the controls (`controls`: the seven buttons, then RV2-07's two round steps) and the readout
- * (`readout`: the time, the round chip, the Partial pill, the speed). On a desktop the controls and the readout share
+ * (`readout`: the time, the round chip, the speed). On a desktop the controls and the readout share
  * one row, as RV2-05 drew it; at the console's phone rule and its short landscape (`../../console/replay-transport.css`)
  * they stack, and the viewer's `Transport.layout(true)` takes the snapshot steps out of the drawn row and the pad's walk
  * (`hidden`) -- their keys (`,` `.` and the arrows) still step. The round steps stay drawn on a phone (icon buttons, no
  * label to hide), the controls line wrapping them under the five if it is narrower than seven targets. A browser
  * adaptation: no original.
+ *
+ * **RB-33: the band and the control row as the owner's "S2 Launcher v2" draws them** (the replay batch plan,
+ * `docs/plans/2026-11-08-replay-batch.md`, RB.R3; the export's transport, its markup `D:369-417` and its logic
+ * `D:984-1056`; `D:` the export's `S2 Launcher v2.dc.html`). A browser adaptation, product track: no game value moves.
+ * - *The winner bar* (`D:374`, `D:986`): each numbered round's segment carries `data-winner` (the side of its `roundOver`,
+ *   none for a draw or a round cut before its end) and, once the playhead is at or past its end, `data-done`; the sheet
+ *   draws the 2 px bar under a finished round in the roster's side colours (`../../console/replay.css`'s player dots).
+ * - *The kill marks* (`D:379-381`, `D:988-991`; `killMarks`): one mark per recorded `kill` event (`../../net/protocol`),
+ *   `data-mark` its kind -- `kill` by the viewer's persona (`TransportOptions.persona`), `death` of it (a fall, a blast
+ *   or a self-kill included), `other` for the rest -- in place of the `mark` records (the playtest's observations, still
+ *   drawn by the test room's own timeline, `../../replay/timeline`). Without a persona every mark is `other`.
+ * - *The playhead* (`D:382-383`, `D:1045-1046`): the band's `data-motion` -- `play`, `pause` or `drag` -- picks the head's
+ *   transition in the sheet; the knob grows from 10 to 15 px while the band's input holds the focus or a drag runs.
+ * - *The order* (`D:390-417`, `TX` `D:785-790`): to the start, back 10 s, Previous round, play, Next round, on 10 s, to
+ *   the end; a divider; the snapshot steps (the phone takes the steps and the divider out, `layout`); the time; the round
+ *   text; the speed. The round text reads "ROUND n OF N" (`D:1056`; "ROUND n" without a count) and "END OF RECORDING" at
+ *   the recording's last tick.
+ * - *The press* (`D:599`, `D:1004`): a run action scales its button to .9 for `TRANSPORT_PRESS_MS` (`data-pressed`).
+ *
+ * **RB-34: the seek note to the viewer's HUD** (the export's `D:319`, `D:841-842`). Given `TransportOptions.onSeekNote`
+ * (the viewer gives it), the note is handed over at the moments above -- each seek the engine tells, a drag's once at
+ * its release -- and the HUD draws it as a 3.2 s toast over the world (`./hud`); the bar then draws no note of its own.
+ * Without it, the bar's own note stands as before. A browser adaptation, product track.
  */
 
 /** What the bar reads and calls: `ReplayClient`'s own members, so a test's fake implements the same slice. */
@@ -94,9 +120,9 @@ export type TransportClient = Pick<ReplayClient,
   // (`ReplayClient.held`, RV2-02), optional likewise -- a client without it is never held.
   & Partial<Pick<ReplayClient, 'refusedKind' | 'held'>>;
 
-// SEEK_NOTE, HELD_STATUS and MU_REPLAY_JUMP_SECONDS_ADAPTATION live in `./transportStrings` (dependency-free, so the e2e
+// SEEK_NOTE, HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION and (RB-33) the round text live in `./transportStrings` (dependency-free, so the e2e
 // specs can import them without this module's stylesheet; the RV2 batch review's F9) and are exported from here unchanged.
-export { HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE };
+export { END_OF_RECORDING, HELD_STATUS, MU_REPLAY_JUMP_SECONDS_ADAPTATION, SEEK_NOTE, roundText };
 
 export type TransportAction = 'toggle' | 'back' | 'forward' | 'jump-back' | 'jump-forward' | 'slower' | 'faster' | 'start' | 'end'
   | 'round-back' | 'round-forward';
@@ -188,22 +214,63 @@ const TYPED = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
  * that step wherever the focus is are advertised.
  */
 interface Control { action: TransportAction; icon: IconName; label: string; keys: readonly string[]; shortcut: string }
-const BUTTONS: readonly Control[] = [
+/**
+ * RB-33: the controls line in the design's order (`TX`, `D:785-790`): the seven with the round steps inline beside play
+ * (their icons the design's previous/next track, ours `step-back` / `step-forward`), then, after a divider, the snapshot
+ * steps (the design's chevrons).
+ */
+const MAIN: readonly Control[] = [
   { action: 'start', icon: 'skip-start', label: 'To the start', keys: ['Home'], shortcut: 'Home' },
   { action: 'jump-back', icon: 'rewind', label: `Back ${MU_REPLAY_JUMP_SECONDS_ADAPTATION} seconds`, keys: ['J'], shortcut: 'J' },
-  { action: 'back', icon: 'step-back', label: 'One snapshot back', keys: [','], shortcut: ',' },
+  { action: 'round-back', icon: 'step-back', label: 'Previous round', keys: ['B'], shortcut: 'B' },
   { action: 'toggle', icon: 'pause', label: 'Pause', keys: ['Space', 'K'], shortcut: 'Space K' },
-  { action: 'forward', icon: 'step-forward', label: 'One snapshot on', keys: ['.'], shortcut: '.' },
+  { action: 'round-forward', icon: 'step-forward', label: 'Next round', keys: ['N'], shortcut: 'N' },
   { action: 'jump-forward', icon: 'fast-forward', label: `On ${MU_REPLAY_JUMP_SECONDS_ADAPTATION} seconds`, keys: ['L'], shortcut: 'L' },
   { action: 'end', icon: 'skip-end', label: 'To the end', keys: ['End'], shortcut: 'End' },
 ];
+const STEPS: readonly Control[] = [
+  { action: 'back', icon: 'chevron-left', label: 'One snapshot back', keys: [','], shortcut: ',' },
+  { action: 'forward', icon: 'chevron-right', label: 'One snapshot on', keys: ['.'], shortcut: '.' },
+];
 const SLOWER: Control = { action: 'slower', icon: 'minus', label: 'Slower', keys: ['[', '-'], shortcut: '[ -' };
 const FASTER: Control = { action: 'faster', icon: 'plus', label: 'Faster', keys: [']', '='], shortcut: '] =' };
-/** RV2-07: the round steps, the controls line's last two (RV2-08's merge). */
-const ROUND_BUTTONS: readonly Control[] = [
-  { action: 'round-back', icon: 'chevron-left', label: 'Previous round', keys: ['B'], shortcut: 'B' },
-  { action: 'round-forward', icon: 'chevron-right', label: 'Next round', keys: ['N'], shortcut: 'N' },
-];
+
+/** RB-33: a run action's button scales to .9 for this long (the design's `pressFlash`, `D:599`). A browser adaptation. */
+export const TRANSPORT_PRESS_MS = 140;
+
+/** RB-33: a kill mark's kind -- by the viewer's persona, of it, or anyone else's. */
+export type KillMarkKind = 'kill' | 'death' | 'other';
+
+/**
+ * RB-33: the band's kill marks, one per recorded `kill` event, in the records' order. Each seat is named by the roster
+ * played at or before the kill (the last `players` record by then); a kill whose victim is `persona` is a `death` (a
+ * fall, a blast or a self-kill included), one whose killer is `persona` a `kill`, any other `other`; with no persona,
+ * every one `other`. Pure.
+ */
+export function killMarks(records: readonly ReplayRecord[], persona: string | null): { tick: number; kind: KillMarkKind }[] {
+  const out: { tick: number; kind: KillMarkKind }[] = [];
+  let names = new Map<number, string>();
+  for (const r of records) {
+    if (r.kind === 'players') names = new Map(r.players.map((p) => [p.id, p.name]));
+    if (r.kind !== 'event' || r.event.type !== 'kill') continue;
+    const e = r.event;
+    const kind: KillMarkKind = persona === null ? 'other'
+      : names.get(e.victim) === persona ? 'death'
+        : e.killer !== null && names.get(e.killer) === persona ? 'kill' : 'other';
+    out.push({ tick: r.tick, kind });
+  }
+  return out;
+}
+
+/** RB-33: the side that won `span`'s round (its `roundOver` within the span's ticks), or null (a draw, or cut before). */
+function winnerOf(records: readonly ReplayRecord[], span: RoundSpan): Team | null {
+  if (span.round === null) return null;
+  for (const r of records) {
+    if (r.kind !== 'event' || r.event.type !== 'roundOver' || r.event.round !== span.round) continue;
+    if (r.tick >= span.start && r.tick <= span.end) return r.event.winner;
+  }
+  return null;
+}
 
 export interface TransportOptions {
   /** The client's refusal as the caller kept it (the `refused` event fires once, maybe before this bar was built). */
@@ -222,6 +289,17 @@ export interface TransportOptions {
    * them (`../../console/adapters/replays`). Absent, true (the Replays section's, as before).
    */
   keys?: boolean;
+  /**
+   * RB-33: the viewer's persona (the session's player name), read at each draw: its kills and deaths are the band's
+   * tall marks (`killMarks`). Absent or null -- signed out, or a caller that does not pass it -- every mark is faint.
+   */
+  persona?: () => string | null;
+  /**
+   * RB-34: the seek note handed to the caller -- the viewer's HUD draws it as a toast over the world (`./hud`) -- with
+   * the tick the seek landed on, at the same moments the bar would raise its own (each seek the client tells; a drag's
+   * once, at its release). Given, the bar draws no note of its own (no second `data-seek-state`). Absent, its own note.
+   */
+  onSeekNote?: (landed: number) => void;
 }
 
 export interface Transport {
@@ -298,18 +376,23 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   slider.append(roundsBox, fill, marks, head, hover, input);
 
   const row = el('div', 'cx-replay-controls');
-  const buttons = BUTTONS.map((c) => button(c, c.action === 'toggle' ? 'cx-replay-btn cx-replay-btn--play' : 'cx-replay-btn'));
-  const toggle = buttons.find((b) => b.dataset['action'] === 'toggle')!;
+  const mainButtons = MAIN.map((c) => button(c, c.action === 'toggle' ? 'cx-replay-btn cx-replay-btn--play' : 'cx-replay-btn'));
+  /** RB-33: the snapshot steps after the divider, the design's chevrons. */
+  const snapshots = STEPS.map((c) => button(c));
+  const isRound = (b: HTMLButtonElement): boolean => ROUND_STEPS.has(b.dataset['action'] as TransportAction);
+  /** The seven buttons the hold refuses (RV2-05): to the start, the jumps, play, the snapshot steps, to the end. */
+  const buttons = [...mainButtons.filter((b) => !isRound(b)), ...snapshots];
+  /** RV2-07: the round steps, inline beside play since RB-33. */
+  const roundButtons = mainButtons.filter(isRound);
+  const toggle = mainButtons.find((b) => b.dataset['action'] === 'toggle')!;
+  const divider = el('span', 'cx-replay-controls__divider');
+  divider.setAttribute('aria-hidden', 'true');
   const time = el('span', 'cx-replay-time');
   time.dataset['time'] = '';
   time.title = 'Time in the recording / the recording\'s length';
   const chip = el('span', 'cx-replay-chip');
   chip.dataset['roundChip'] = '';
   chip.hidden = true;
-  const partial = el('span', 'cx-replay-pill', 'Partial recording');
-  partial.dataset['partial'] = '';
-  partial.title = 'The recording was cut before its end';
-  partial.hidden = true;
   const speed = el('div', 'cx-replay-speed');
   speed.setAttribute('role', 'group');
   speed.setAttribute('aria-label', 'Speed');
@@ -318,22 +401,18 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   const rate = el('span', 'cx-replay-speed__value');
   rate.dataset['speed'] = '';
   speed.append(slower, rate, faster);
-  const roundSteps = el('div', 'cx-replay-rounds');
-  roundSteps.setAttribute('role', 'group');
-  roundSteps.setAttribute('aria-label', 'Rounds');
-  const roundButtons = ROUND_BUTTONS.map((c) => button(c));
-  roundSteps.append(...roundButtons);
-  // RV2-08: the second and third lines -- the buttons and (RV2-07) the round steps; the time, the chip, the pill and the
-  // speed -- one row on a desktop
+  // RV2-08: the second and third lines -- the buttons (RB-33: the seven with the round steps inline, the divider, the
+  // snapshot steps); the time, the round text and the speed -- one row on a desktop
   const controls = el('div', 'cx-replay-controls__buttons');
   controls.dataset['line'] = 'controls';
-  controls.append(...buttons, roundSteps);
+  controls.append(...mainButtons, divider, ...snapshots);
   const readout = el('div', 'cx-replay-controls__readout');
   readout.dataset['line'] = 'readout';
-  readout.append(time, chip, partial, speed);
+  readout.append(time, chip, speed);
   row.append(controls, readout);
-  /** RV2-08: the snapshot steps, not drawn on a phone. */
-  const snapshots = buttons.filter((b) => b.dataset['action'] === 'back' || b.dataset['action'] === 'forward');
+  /** RB-33: each action's button, for the press scale. */
+  const byAction = new Map<TransportAction, HTMLButtonElement>(
+    [...mainButtons, ...snapshots, slower, faster].map((b) => [b.dataset['action'] as TransportAction, b]));
 
   const status = el('p', 'cx-replay-transport__status');
   status.dataset['status'] = '';
@@ -343,7 +422,9 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   note.setAttribute('role', 'status');
   note.hidden = true;
 
-  bar.append(status, note, slider, row);
+  // RB-34: the caller's toast is the note when it takes it; the bar's own is not drawn then
+  if (opts.onSeekNote) bar.append(status, slider, row);
+  else bar.append(status, note, slider, row);
   host.append(bar);
 
   let refusal: string | null = null;
@@ -361,6 +442,7 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     if (dragging) { dragMoved = true; return; }             // RV-3: the drag's note is raised once, at its release
     rebuilt = true;
     rebuiltAt = s.to;
+    opts.onSeekNote?.(s.to);                                 // RB-34: the viewer's toast
   });
 
   const open = (): boolean => client.state === 'open';
@@ -384,10 +466,22 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     return spans;
   };
 
+  /** RB-33: the press scale's pending releases, by button; cleared at dispose. */
+  const pressTimers = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+  const press = (a: TransportAction): void => {
+    const b = byAction.get(a);
+    if (!b) return;
+    const was = pressTimers.get(b);
+    if (was !== undefined) clearTimeout(was);
+    b.dataset['pressed'] = '';
+    pressTimers.set(b, setTimeout(() => { pressTimers.delete(b); delete b.dataset['pressed']; }, TRANSPORT_PRESS_MS));
+  };
+
   function act(a: TransportAction): void {
     if (!open()) return;
     if (isHeld() && HELD_REFUSES.has(a)) return;            // RV2.R2: nothing plays or steps under the hold
     if (ROUND_STEPS.has(a) && roundsNow().length < 2) return;  // RV2-07: no round to step to
+    press(a);
     const at = client.serverTick();
     switch (a) {
       case 'toggle': client.toggle(); break;
@@ -453,7 +547,11 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   const endDrag = (landed: number | null): void => {
     dragging = false;
     pendingX = null;
-    if (dragMoved) { rebuilt = true; rebuiltAt = landed ?? client.serverTick(); }
+    if (dragMoved) {
+      rebuilt = true;
+      rebuiltAt = landed ?? client.serverTick();
+      opts.onSeekNote?.(rebuiltAt);                          // RB-34: the viewer's toast, once a drag
+    }
     dragMoved = false;
   };
   const onDown = (e: Event): void => {
@@ -461,6 +559,7 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     const p = e as PointerEvent;
     dragging = true;
     dragMoved = false;
+    slider.dataset['motion'] = 'drag';                      // RB-33: the head follows the pointer with no transition
     if (typeof p.pointerId === 'number') { try { slider.setPointerCapture?.(p.pointerId); } catch { /* not captured: the drag still ends at the release */ } }
     input.focus({ preventScroll: true });
     showHover(p.clientX);
@@ -511,20 +610,31 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
   // build's keys alone, at the site -- a release drops the listener whatever its caller's `keys` says.
   if (import.meta.env.DEV && keys) host.addEventListener('keydown', onKey);
 
-  let marksDrawn = -1;
+  let marksDrawn = '';
   let roundsDrawn = '';
   let roundEls: { span: RoundSpan; el: HTMLElement }[] = [];
-  /** RV2-05: one `[data-round]` per span, laid by ticks, its number at its left edge (none for an unnumbered span). */
+  /**
+   * RV2-05: one `[data-round]` per span, laid by ticks, its number at its left edge (none for an unnumbered span).
+   * RB-33: a numbered span also holds its winner bar (`.cx-replay-band__win`) and names its winner (`data-winner`).
+   */
   const drawRounds = (all: readonly RoundSpan[], span: Span): void => {
     if (spansKey === roundsDrawn) return;
     roundsDrawn = spansKey;
     const w = span.end - span.start;
+    const records = client.segment?.records ?? [];
     roundEls = all.map((s) => {
       const seg = el('div', s.round === null ? 'cx-replay-band__round is-idle' : 'cx-replay-band__round');
       seg.dataset['round'] = s.round === null ? '' : String(s.round);
       seg.style.left = pct(fractionOf(s.start, span));
       seg.style.width = pct(w > 0 ? (s.end - s.start) / w : 1);
-      if (s.round !== null) seg.append(el('span', 'cx-replay-band__num', String(s.round)));
+      if (s.round !== null) {
+        seg.append(el('span', 'cx-replay-band__num', String(s.round)));
+        const winner = winnerOf(records, s);
+        if (winner) seg.dataset['winner'] = winner;
+        const bar = el('span', 'cx-replay-band__win');
+        bar.setAttribute('aria-hidden', 'true');
+        seg.append(bar);
+      }
       return { span: s, el: seg };
     });
     roundsBox.replaceChildren(...roundEls.map((r) => r.el));
@@ -544,7 +654,6 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     status.hidden = on && !held;
     if (rebuilt && on && client.playing() && client.serverTick() > rebuiltAt) rebuilt = false;
     note.hidden = !on || !rebuilt;
-    partial.hidden = !(on && client.partial());
     const playing = on && client.playing();
     const word = playing ? 'Pause' : 'Play';
     if (toggle.getAttribute('aria-label') !== word) {
@@ -553,6 +662,7 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
       toggle.replaceChildren(ico(playing ? 'pause' : 'play'));
     }
     toggle.setAttribute('aria-pressed', String(playing));
+    slider.dataset['motion'] = dragging ? 'drag' : playing ? 'play' : 'pause';   // RB-33: the head's transition
     rate.textContent = `${on ? client.rate() : 1}x`;
     if (!on) {
       time.textContent = ''; head.style.left = '0%'; fill.style.width = '0%'; hover.hidden = true; chip.hidden = true;
@@ -573,30 +683,37 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     fill.style.width = x;
     const all = roundsNow();
     drawRounds(all, span);
-    // the round under the playhead: its segment marked current, the chip naming it ("ROUND n / N"; N when known)
+    // the round under the playhead: its segment marked current; RB-33: a numbered segment the playhead is at or past
+    // the end of is finished (`data-done`, its winner bar drawn)
     const now = spanAt(all, tick);
     for (const r of roundEls) {
       if (r.span === now) r.el.setAttribute('aria-current', 'true');
       else r.el.removeAttribute('aria-current');
+      r.el.toggleAttribute('data-done', r.span.round !== null && tick >= r.span.end);
     }
-    if (now?.round == null) chip.hidden = true;
+    // the round text (RB-33, `D:1056`): "END OF RECORDING" at the last tick, else "ROUND n OF N" (N when known)
+    const ended = tick >= span.end;
+    if (!ended && now?.round == null) chip.hidden = true;
     else {
-      const text = roundCount === null ? `ROUND ${now.round}` : `ROUND ${now.round} / ${roundCount}`;
+      const text = ended ? END_OF_RECORDING : roundText(now!.round!, roundCount);
       if (chip.textContent !== text) {
         chip.textContent = text;
-        chip.setAttribute('aria-label', roundCount === null ? `Round ${now.round}` : `Round ${now.round} of ${roundCount}`);
+        chip.setAttribute('aria-label', ended ? 'End of the recording'
+          : roundCount === null ? `Round ${now!.round}` : `Round ${now!.round} of ${roundCount}`);
       }
       chip.hidden = false;
     }
+    // RB-33: the kill marks, redrawn when the records or the persona change
     const records = client.segment?.records ?? [];
-    if (records.length !== marksDrawn) {
-      marksDrawn = records.length;
-      marks.replaceChildren(...records.flatMap((r) => {
-        if (r.kind !== 'mark') return [];
+    const persona = opts.persona?.() ?? null;
+    const marksKey = `${records.length}|${span.start}|${span.end}|${persona ?? ''}`;
+    if (marksKey !== marksDrawn) {
+      marksDrawn = marksKey;
+      marks.replaceChildren(...killMarks(records, persona).map((k) => {
         const m = el('span', 'cx-replay-band__mark');
-        m.dataset['mark'] = '';
-        m.style.left = pct(fractionOf(r.tick, span));
-        return [m];
+        m.dataset['mark'] = k.kind;
+        m.style.left = pct(fractionOf(k.tick, span));
+        return m;
       }));
     }
   }
@@ -608,9 +725,12 @@ export function mountTransport(host: HTMLElement, client: TransportClient, opts:
     layout(phone: boolean): void {
       bar.dataset['layout'] = phone ? 'phone' : 'wide';
       for (const b of snapshots) b.hidden = phone;
+      divider.hidden = phone;
     },
     dispose(): void {
       disposed = true;
+      for (const id of pressTimers.values()) clearTimeout(id);
+      pressTimers.clear();
       off();
       offSeek();
       host.removeEventListener('keydown', onKey);

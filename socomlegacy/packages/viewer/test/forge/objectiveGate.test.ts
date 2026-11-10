@@ -32,8 +32,11 @@ function layoutLoader(): string {
 
 describe('FG-51: the page reads the room\'s rule, keeps the author\'s type, and holds a locked marker', () => {
   it('the Play gate and the type picker both ask forgeTypeUnplayable; the page keeps no rule of its own', () => {
-    // The Play gate's staging delegates to `./playObjectives`, which asks the same rule.
-    expect(body('composeForMatch')).toMatch(/playObjectives\(/);
+    // The Play gate's staging delegates to `./composeLayout` (FP-1b: the page's pure chain moved there), which runs
+    // `./playObjectives`, which asks the same rule.
+    expect(body('composeForMatch')).toMatch(/composeLayoutObjects\(/);
+    const chain = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/forge/composeLayout.ts'), 'utf8');
+    expect(chain).toMatch(/playObjectives\(/);
     const staged = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../src/forge/playObjectives.ts'), 'utf8');
     expect(staged).toMatch(/forgeTypeUnplayable\(/);
     expect(body('typeUnplayable')).toMatch(/forgeTypeUnplayable\(/);
@@ -43,14 +46,17 @@ describe('FG-51: the page reads the room\'s rule, keeps the author\'s type, and 
     expect(page).not.toMatch(/Escort and Extraction need the base/);
   });
 
-  it('L1: Map\'s own writes no game type', () => {
+  // OT.R112 (the Forge's UI is its contributor's): his type picker has no "Map's own" row -- the type shown is the one
+  // written, the base map's own (`ownTypeOf`) when none was picked; only while the disc's mission list is still read
+  // (`typePending`) is none written. No fallback 5 and no `inheritedType` still.
+  it('L1, as the contributor changed it: the type shown is written, none only while the base\'s own is still being read', () => {
     expect(page).not.toMatch(/inheritedType/);
     expect(page).not.toMatch(/authoredType \?\? [^;]*\?\? 5/);
-    expect(body('layoutNow')).toMatch(/layoutObjectivesOf\(authoredType, /);
+    expect(body('layoutNow')).toMatch(/layoutObjectivesOf\(typePending \? null : authoredType, /);
   });
 
-  it('ruling 4b: a layout opened naming a type it cannot play keeps that type', () => {
-    expect(layoutLoader()).toMatch(/authoredType = l\.objectives\?\.gameType \?\? null;/);
+  it('ruling 4b: a layout opened naming a type it cannot play keeps that type; one naming none takes its base\'s own', () => {
+    expect(layoutLoader()).toMatch(/authoredType = l\.objectives\?\.gameType \?\? ownTypeOf\(l\.base\);\s+typePending = authoredType === null;/);
     expect(layoutLoader()).not.toMatch(/authoredType = null/);
   });
 

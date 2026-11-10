@@ -8,6 +8,7 @@ import type { MenuShell } from '../screens/menuShell';
 import { INPUT_STRING } from '../screens/screenCommands';
 import type { Widget } from '../widgets/host';
 import { RadioStripWidget } from '../widgets/radioStrip';
+import { SliderWidget } from '../widgets/slider';
 import type { WidgetPad } from '../widgets/pad';
 import { menuDispatch, type MenuDispatchResult } from './dispatch';
 import { FocusRing, type RingControl } from './focusRing';
@@ -114,6 +115,7 @@ export class MenuInput {
   private flushedFor: MenuShell | null = null;
   /** A tap waiting for the next read (`MENU_TOUCH_READING`): the control's name, or null for CROSS alone. */
   private tapPending: MenuTap | undefined;
+  private pointerSlider: { name: string; screen: UiScreen } | null = null;
   private tapNow: MenuTap | undefined;
 
   constructor(private readonly o: MenuInputOptions) {}
@@ -154,7 +156,7 @@ export class MenuInput {
     this.tapNow = this.tapPending;
     this.tapPending = undefined;
     let snap = this.source.read();
-    if (this.tapNow && this.tapNow.box === undefined) snap = { ...snap, down: new Set<PadSlotName>([...snap.down, 'CROSS']) };   // a box's click presses nothing
+    if (this.tapNow && this.tapNow.box === undefined && this.tapNow.position === undefined) snap = { ...snap, down: new Set<PadSlotName>([...snap.down, 'CROSS']) };   // a box's click presses nothing
     const g = this.o.machine().menu?.shell ?? null;
     if (g !== null && g !== this.flushedFor) {
       this.flushedFor = g;
@@ -180,6 +182,11 @@ export class MenuInput {
     if (tap?.name && tap.box !== undefined && !popupShown() && !this.host?.controlParked({ dialog: shell.currentName, control: tap.name })) {
       const strip = parts.widgets.get(tap.name);
       if (strip instanceof RadioStripWidget) strip.choose(tap.box, parts.widgetHost);
+    }
+    // Pointer adaptation: a slider uses its track position, never CROSS (which sliders do not handle).
+    if (tap?.name && tap.position !== undefined && !popupShown() && !this.host?.controlParked({ dialog: shell.currentName, control: tap.name })) {
+      const slider = parts.widgets.get(tap.name);
+      if (slider instanceof SliderWidget) slider.seek(tap.position, parts.widgetHost);
     }
     this.last = menuDispatch(this.pad, this.stick, {
       popupShown,
@@ -230,7 +237,7 @@ export class MenuInput {
     const skb = this.softKeyboard?.tap(x, y) ?? 'none';                                  // SKB_TOUCH_READING: a keyboard up takes it
     if (skb !== 'none') { if (skb === 'key') this.tapPending = { name: null }; return null; }
     const parts = this.o.parts.current, shell = this.o.machine().shell();
-    let name: string | null = null, box: number | undefined;
+    let name: string | null = null, box: number | undefined, position: number | undefined;
     if (parts && shell && shell.popups.shown(shell.screen)) {
       const p = this.o.machine().queue.popupObject;
       const rects = p instanceof SlotPopup ? p.buttonRects(shell.screen) : [null, null];
@@ -241,14 +248,40 @@ export class MenuInput {
     }
     if (parts && shell) {
       const onBox = stripBoxAt(parts.dialog.design.controls, shell.screen, x, y);
-      if (onBox) ({ name, box } = onBox);
+      const onSlider = sliderAt(parts.dialog.design.controls, shell.screen, x, y);
+      // Preset checkbox bodies overlap the first controller slider; the visible slider takes its track.
+      if (onSlider) ({ name, position } = onSlider);
+      else if (onBox) ({ name, box } = onBox);
       else name = controlAt(parts.dialog.design.controls, shell.screen, x, y);
     }
     const spec = name !== null && parts ? parts.widgets.specOf(name) : undefined;
     if (spec !== undefined && !parts!.widgets.enabled(spec)) return null;               // a disabled control: lost
-    this.tapPending = box === undefined ? { name } : { name, box };
+    this.tapPending = { name, box, position };
     return name;
   }
+
+  /** Browser pointer adaptation: capture only the slider that the press hit. */
+  pointerDown(x: number, y: number): string | null {
+    this.pointerUp();
+    const name = this.tap(x, y);
+    const shell = this.tapPending?.position !== undefined ? this.o.machine().shell() : null;
+    if (name && shell) this.pointerSlider = { name, screen: shell.screen };
+    return name;
+  }
+
+  pointerMove(x: number, _y: number): void {
+    const drag = this.pointerSlider, shell = this.o.machine().shell(), parts = this.o.parts.current;
+    if (!drag || !shell || !parts) return;
+    if (shell.screen !== drag.screen || shell.popups.shown(shell.screen)) { this.pointerUp(); return; }
+    const spec = parts.widgets.specOf(drag.name);
+    const node = findNode(shell.screen.root, drag.name);
+    if (!spec || !node || !parts.widgets.enabled(spec) || !placeOf(node).shown) { this.pointerUp(); return; }
+    const record = parts.dialog.design.controls.find(r => r.name === drag.name);
+    const track = record ? sliderTrack(record, shell.screen) : null;
+    if (track) this.tapPending = { name: drag.name, position: (x - track.x) / track.width };
+  }
+
+  pointerUp(): void { this.pointerSlider = null; }
 }
 
 /**
@@ -261,7 +294,7 @@ export function focusRingRecords(design: Pick<DialogDesign, 'controls'>): Dialog
 }
 
 /** A node's place in the frame and whether every node up to the root is shown (`NODE_MATRIX_READING`'s translation). */
-function placeOf(node: UiNode): { x: number; y: number; shown: boolean } {
+function placeOf(node: UiNode): { x: number; y: number; sx: number; sy: number; shown: boolean } {
   const chain: UiNode[] = [];
   for (let n: UiNode | null = node; n; n = n.parent) chain.unshift(n);
   let a = 1, d = 1, tx = 0, ty = 0, shown = true;
@@ -270,14 +303,36 @@ function placeOf(node: UiNode): { x: number; y: number; shown: boolean } {
     tx += a * n.x; ty += d * n.y;
     a *= n.scale[0]; d *= n.scale[1];
   }
-  return { x: tx, y: ty, shown };
+  return { x: tx, y: ty, sx: a, sy: d, shown };
 }
 
 /**
  * A tap waiting for its frame: the control's name (null: CROSS alone) and, on a strip's box, that box's index; on a
  * shown popup's button, that button's slot (1 or 2).
  */
-interface MenuTap { name: string | null; box?: number; popupSlot?: 1 | 2 }
+interface MenuTap { name: string | null; box?: number; popupSlot?: 1 | 2; position?: number }
+
+/** Browser pointer adaptation: the drawn track and knob, including the node hierarchy's scale. */
+function sliderTrack(r: DialogRecord, screen: UiScreen) {
+  if (r.widget.type !== 'SLIDERBAR') return null;
+  const node = findNode(screen.root, r.name);
+  if (!node) return null;
+  const p = placeOf(node), w = r.widget;
+  if (!p.shown || p.sx <= 0 || p.sy <= 0 || w.button.size[0] <= 0) return null;
+  return { x: p.x, y: p.y, width: w.button.size[0] * p.sx,
+    knobWidth: w.knobSize[0] * p.sx, height: Math.max(w.button.size[1], w.knobSize[1]) * p.sy };
+}
+
+function sliderAt(controls: readonly DialogRecord[], screen: UiScreen, x: number, y: number): { name: string; position: number } | null {
+  let hit: { name: string; position: number } | null = null;
+  for (const r of controls) {
+    const t = sliderTrack(r, screen);
+    if (t && x >= t.x - 0.5 && x <= t.x + t.width + t.knobWidth && y >= t.y && y < t.y + t.height) {
+      hit = { name: r.name, position: (x - t.x) / t.width };
+    }
+  }
+  return hit;
+}
 
 /**
  * The strip box a frame point is on (`MENU_TOUCH_READING`, its strip rule): each `RADIOSTRIP`'s subordinates, their

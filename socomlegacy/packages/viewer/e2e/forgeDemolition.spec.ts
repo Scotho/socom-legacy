@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expectBase, newLayoutOn, placingTool } from './forgeBase';
 
 /**
  * FG-51 (a browser adaptation, no original): on the blank floor, a bomb start, two plant sites and Demolition.
@@ -70,29 +71,32 @@ test('the blank floor plays Demolition from a placed bomb start and two sites', 
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/forge?devmode');
   // The opening layout finishes before the base is changed: its load writes the select back.
-  await expect(page.locator('.fx-vp-label')).toContainText(/frostfire/i, { timeout: 120_000 });
+  await expectBase(page, /frostfire/i);                                 // OT.R112: the base named (`./forgeBase`)
   // Default Playwright window is 1280: there the whole row lies inside the window, nothing scrolled. R7-1: a laptop at
   // 1024 scrolls the row by design (LATER 226) -- every control can be scrolled to; then the rest runs at 1280.
   await page.setViewportSize({ width: 1024, height: 720 });
   await expectToolbarReachable(page);
   await page.setViewportSize({ width: 1280, height: 720 });
   await expectToolbarInside(page);
-  const base = page.locator('select.fx-select').first();
-  await base.selectOption('blank');
-  await page.getByRole('button', { name: 'Start a new layout' }).click();
-  await expect(page.locator('.fx-vp-label')).toContainText('Blank floor', { timeout: 120_000 });
+  // OT.R112: no blank floor without a type (the contributor's New: a preset); Suppression's, its type then set below.
+  await newLayoutOn(page, 'blank:5');
+  await expectBase(page, /New Empty Map/);
 
   // Settings is under the World tab; the Outliner under Object.
   await page.locator('.fx-right [data-forge-tab="world"]').click();
-  await page.getByLabel('Game type').selectOption('2');
+  // Exact: the forge menu's card stays in the DOM once `expectBase` opened it, and its Game type row's steps are named
+  // "Game type: previous" / "Game type: next" (`../src/forge/menuView.ts`, LATER 230), which a loose label matches too.
+  await page.getByLabel('Game type', { exact: true }).selectOption('2');
   await page.locator('.fx-right [data-forge-tab="object"]').click();
-  await page.getByRole('button', { name: "Place the bomb's start" }).click();
+  // OT.R112: the Demolition tools are on the placing tools' row, named by their shown labels (`./forgeBase` `placingTool`;
+  // their titles, "Place the bomb's start" and the sites', are descriptions now).
+  await placingTool(page, 'Bomb').click();
   await expect(page.getByText('BOMB', { exact: true })).toBeVisible();
   await clickFloor(page, 0.5);
-  await page.getByRole('button', { name: 'Place the site the SEALs plant at' }).click();
+  await placingTool(page, 'Site SEAL').click();
   await expect(page.getByText('SITE SEAL', { exact: true })).toBeVisible();
   await clickFloor(page, 0.32);
-  await page.getByRole('button', { name: 'Place the site the Terrorists plant at' }).click();
+  await placingTool(page, 'Site Terrorist').click();
   await expect(page.getByText('SITE TERRORIST', { exact: true })).toBeVisible();
   await clickFloor(page, 0.68);
   await expect(page.locator('.fx-outliner')).toContainText('Bomb start');
@@ -112,15 +116,14 @@ test('the blank floor plays Demolition from a placed bomb start and two sites', 
   if (!file) throw new Error('the layout file was not downloaded');
   await page.locator('.fx-modal').getByRole('button', { name: 'Close' }).click();
 
-  await page.getByRole('button', { name: 'Start a new layout' }).click();
-  await page.getByRole('button', { name: 'Start new' }).click();
+  // OT.R112: New on a disc map (the contributor's card), the work dropped unsaved; its type is the map's own.
+  await newLayoutOn(page, 'MP2');
   await expect(page.locator('.fx-outliner')).toContainText('Nothing placed yet');
-  await expect(page.getByLabel('Game type')).toHaveValue('');
   await page.locator('input[type=file][accept=".json,application/json"]').setInputFiles(file);
   await expect(page.locator('.fx-outliner')).toContainText('Bomb start');
   await expect(page.locator('.fx-outliner')).toContainText('Site · SEAL');
   await expect(page.locator('.fx-outliner')).toContainText('Site · Terrorist');
-  await expect(page.getByLabel('Game type')).toHaveValue('2');
+  await expect(page.getByLabel('Game type', { exact: true })).toHaveValue('2');
 
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect.poll(async () => page.evaluate(() => {

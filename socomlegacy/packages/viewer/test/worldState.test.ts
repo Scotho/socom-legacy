@@ -201,6 +201,7 @@ describe('XR-04: the program effects the world hands on and the ones it ignores'
       visible: (p, on) => heard.push(['visible', p, on]), changed: (r) => heard.push(['changed', r]),
       sound: (n, p) => heard.push(['sound', n, p]), particles: () => heard.push(['particles']),
       destruction: (p) => heard.push(['destruction', p]), call: (n, p) => heard.push(['call', n, p]),
+      fire: (op, p) => heard.push(['fire', op.weapon, op.ammo, p, op.f1, op.f2]),
     });
     world.applyInitial();
     heard.length = 0;
@@ -223,7 +224,10 @@ describe('XR-04: the program effects the world hands on and the ones it ignores'
     expect(room.world.busy).toBe(false);
   });
 
-  it('FIRE_WEAPON is ignored by the host: no node, valve, hook or damage (BRIDGE_FIRE_WEAPON_READING)', () => {
+  it("FIRE_WEAPON: the room's run hands each round to the fire hook at its node, after its WAIT; a page's presentation run hands none (research 386 §3.2; LATER 63)", () => {
+    // `FUN_0025ccb0` (D:L107153-107326; research 332 §1.1): the round started at the command's node (D:L107229-107244),
+    // its fuse +0x8c and second timer +0x90 the command's floats (D:L107312-107316). The room fires it (`Room.sceneRound`);
+    // a page's run of a death the room decided is presentation only (PF.R26): the room tells it the round.
     const ops: EffectOp[] = [
       { op: 'fireWeapon', weapon: 'MPBOMB', ammo: 'MPBOMB Ammo', node: 2, f1: 0.001, f2: 0.01 },
       { op: 'wait', seconds: 0.1, range: 0, frames: null },
@@ -234,13 +238,33 @@ describe('XR-04: the program effects the world hands on and the ones it ignores'
       world.skipEffects = run === 'room';
       const before = { states: world.states(), revision: world.revision };
       expect(world.executeAction('v_site', false, run === 'page')).toBe(true);
+      expect(heard, run).toEqual(run === 'room' ? [['fire', 'MPBOMB', 'MPBOMB Ammo', HEALTHY, 0.001, 0.01]] : []);
       world.step(0.2);
       expect(world.busy).toBe(false);
-      expect(heard, run).toEqual([]);
+      expect(heard, run).toEqual(run === 'room'
+        ? [['fire', 'MPBOMB', 'MPBOMB Ammo', HEALTHY, 0.001, 0.01], ['fire', 'MPBOMB', 'MPBOMB Ammo', 'worldmodel/floor', 0.001, 0.01]] : []);
       expect({ states: world.states(), revision: world.revision }, run).toEqual(before);
       expect(world.valve('v_site')).toBe(0);
       expect(world.isActive(`${HEALTHY}/wall`)).toBe(true);
     }
+  });
+
+  it("CALL_ANIMATION's caller node (flag 4, +9) is the callee's NODE_CALLER; without it the caller's own is passed on (research 386 §3.3)", () => {
+    // `FUN_0025d5c0` D:L107605-107613: a type-3 context entry of the node at +9; `FUN_0026f4e0` answers -6 from it
+    // (D:L118164-118168; research 149 R149.2). Blizzard's `outhouse1` -> `toilet_flypart1` on part1..15 is the shape.
+    const callee: EffectProgram = { name: 'fly', root: 0, flags: 0, nodes: ['NA'], sequences: [{ name: 'NA', activation: 1, ops: [
+      { op: 'wait', seconds: 1, range: 0, frames: null }, { op: 'active', node: -6, on: false },
+    ] }] };
+    const m = metaWith([{ op: 'call', anim: 'fly', caller: 2 }, { op: 'call', anim: 'fly' }]);
+    m.scene!.programs.push({ program: callee, search: [0] });
+    const { world } = hooked(m);
+    world.skipEffects = true;
+    expect(world.executeAction('v_site')).toBe(true);
+    world.step(0.5);
+    expect([world.isActive(HEALTHY), world.isActive('worldmodel/floor')]).toEqual([true, true]);
+    world.step(0.6);
+    // The first call's caller is `healthy` (node 2), the second's the action's own node (the caller passed on).
+    expect([world.isActive(HEALTHY), world.isActive('worldmodel/floor')]).toEqual([false, false]);
   });
 });
 
@@ -317,4 +341,78 @@ describe.skipIf(!DISC)(`the round's reset replays the autostarts' opening${DISC 
     for (let i = 0; i < 300; i++) world.step(0.1);
     expect(world.isActive(radio)).toBe(true);
   }, 120_000);
+});
+
+/**
+ * DF-4 (research 175 s5.1; research 239 s1.2): a door program's `CALL_ANIMATION` into the map set (`WorldState.doorCall`)
+ * runs the set's program on the world the way a scene program's call does -- one path -- so MP6's `okforhostages` /
+ * `not_okforhostages` turn the jail bars' nodes. The original's command 45 is one handler for every animation
+ * (`FUN_0025bc20` D:L106909 registers `FUN_0025d5c0`, which names the callee in the running animation and starts it,
+ * D:L107575, D:L107763-107769): a door's program, started by `FUN_00272bb0` (research 92), calls as any other does.
+ */
+describe('DF-4: a door program\'s CALL_ANIMATION into the map set', () => {
+  const okfor: EffectProgram = { name: 'okfor', root: 0, flags: 0x22, nodes: ['NA', 'healthy', 'destroyed'], sequences: [{ name: 'open', activation: 1, ops: [
+    { op: 'active', node: 1, on: false }, { op: 'active', node: 2, on: true },
+  ] }] };
+  const notok: EffectProgram = { ...okfor, name: 'notok', sequences: [{ name: 'open', activation: 1, ops: [
+    { op: 'active', node: 1, on: true }, { op: 'active', node: 2, on: false },
+  ] }] };
+  const withSet = (): MapMeta => ({ ...meta(), scene: { destructibles: [], programs: [{ program: okfor, search: [0, 3, 3] }, { program: notok, search: [0, 3, 3] }] } });
+  const DOOR = { path: 'worldmodel/floor', valve: 'cell' };
+  const live = (g: GroundData, path: string): boolean => {
+    const o = g.owners.find((x) => x.path === path)!;
+    return o.flags === undefined || (o.flags & 1) !== 0;
+  };
+
+  it('the room\'s silent world turns the called program\'s nodes, its owners and its wire follow, and the page\'s world takes the wire; the reset restores the saved', () => {
+    const ground = hull();
+    const room = new WorldState(withSet(), ground, groundGrid(ground));
+    room.skipEffects = true;                                     // ROOM_SKIP_EFFECTS_READING: still the world's state
+    room.applyInitial();
+    expect([room.isActive(HEALTHY), room.isActive(DESTROYED)]).toEqual([true, false]);
+    const rev = room.revision;
+    expect(room.doorCall(DOOR, 'okfor')).toBe(true);
+    expect([room.isActive(HEALTHY), room.isActive(DESTROYED)]).toEqual([false, true]);
+    expect([live(ground, `${HEALTHY}/wall`), live(ground, DESTROYED)]).toEqual([false, true]);
+    expect(room.revision).toBeGreaterThan(rev);
+    const wire = room.wireAll(1);
+    expect(wire.states.map((s) => [room.meta.instances[s.id]!.path, s.active])).toEqual([[HEALTHY, false], [DESTROYED, true]]);
+    const pageGround = hull();
+    const page = new WorldState(withSet(), pageGround, groundGrid(pageGround));
+    page.applyInitial();
+    page.applyWire(wire, false);
+    expect([live(pageGround, `${HEALTHY}/wall`), live(pageGround, DESTROYED)]).toEqual([false, true]);
+    expect(room.doorCall(DOOR, 'notok')).toBe(true);
+    expect([room.isActive(HEALTHY), room.isActive(DESTROYED)]).toEqual([true, false]);
+    room.doorCall(DOOR, 'okfor');
+    room.reset();                                                // FUN_002ac0e0: the saved references back
+    expect([room.isActive(HEALTHY), room.isActive(DESTROYED)]).toEqual([true, false]);
+  });
+
+  it("the callee takes no context (flags 0: FUN_0025d5c0 adds no entry, FUN_002734b0(anim, 0) D:L107763-107765): its NODE_CALLER and its context VALVE act on nothing", () => {
+    const reader: EffectProgram = { name: 'reader', root: 0, flags: 0x22, nodes: ['NA'], sequences: [{ name: 'open', activation: 1, ops: [
+      { op: 'active', node: -6, on: false }, { op: 'valve', valve: 'NA', operation: 0x0b, operand: 7, context: true },
+    ] }] };
+    const m = withSet();
+    m.scene!.programs.push({ program: reader, search: [0] });
+    const ground = hull();
+    const world = new WorldState(m, ground, groundGrid(ground));
+    world.skipEffects = true;
+    world.applyInitial();
+    const before = world.states();
+    // The door's own node and valve: neither reaches the callee.
+    expect(world.doorCall({ path: HEALTHY, valve: 'cell' }, 'reader')).toBe(true);
+    expect(world.isActive(HEALTHY)).toBe(true);
+    expect(world.valve('cell')).toBe(0);
+    expect(world.states()).toEqual(before);
+  });
+
+  it('a name the set lacks runs nothing: false, the world as it was', () => {
+    const ground = hull();
+    const world = new WorldState(withSet(), ground, groundGrid(ground));
+    world.applyInitial();
+    const before = world.states();
+    expect(world.doorCall(DOOR, 'no_such_anim')).toBe(false);
+    expect(world.states()).toEqual(before);
+  });
 });

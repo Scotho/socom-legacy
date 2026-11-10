@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AT_REST, DEFAULT_MODEL, hudPass, OWN_BODY_HIDES, SCOREBOARD_HIDES, SPECTATOR_FOLLOWED_HEALTH_READING,
-  SPECTATOR_HIDES, SPECTATOR_INFO_NUMBER_PLACEHOLDER, SPECTATOR_OWN_INFO_PLACEHOLDER, spectatorHudView, TEAMMATE_HIDES, type HudModel, type HudSpectatorView,
+  SPECTATOR_HIDES, SPECTATOR_OWN_INFO_PLACEHOLDER, spectatorHudView, TEAMMATE_HIDES, type HudModel, type HudSpectatorView,
   type HudTiming, type SpectatorHudSource,
 } from '../src/hud';
 import {
@@ -80,15 +80,14 @@ const STEPS = Object.keys(READS) as SpectatorHudStep[];
 
 describe('PAR-48c: the spectator HUD check the rendered specs share (e2e/spectatorHudSet.ts)', () => {
   it("its lists are the HUD's own: the hide-all's set (SPECTATOR_HIDES), the board's (SCOREBOARD_HIDES), a dead body's (OWN_BODY_HIDES), the placeholders still standing", () => {
-    expect(new Set([...SPECTATOR_HIDDEN, ...(PORT_GAPS.number ? [] : ['range'])])).toEqual(new Set(SPECTATOR_HIDES));
+    expect(new Set(SPECTATOR_HIDDEN)).toEqual(new Set(SPECTATOR_HIDES));   // the review's F3: the number drawn (research 282 §6)
     expect(new Set(SCOREBOARD_HIDDEN)).toEqual(new Set(SCOREBOARD_HIDES));
     expect(new Set(COMPASS)).toEqual(new Set(OWN_BODY_HIDES));
     // LATER 117: a dead player watching a teammate keeps the box's panel and icon (FUN_00237e50 D:L85358, D:L85367-85371).
-    expect(new Set([...SPECTATOR_HIDDEN.filter((e) => !TEAMMATE_BOX.includes(e)), ...(PORT_GAPS.number ? [] : ['range'])])).toEqual(new Set(TEAMMATE_HIDES));
+    expect(new Set(SPECTATOR_HIDDEN.filter((e) => !TEAMMATE_BOX.includes(e)))).toEqual(new Set(TEAMMATE_HIDES));
     expect(PORT_GAPS).toEqual({
       followedBar: SPECTATOR_FOLLOWED_HEALTH_READING.length > 0, ownInfo:   // LATER 119: drawn, from the room's bytes
       SPECTATOR_OWN_INFO_PLACEHOLDER !== null,
-      number: SPECTATOR_INFO_NUMBER_PLACEHOLDER,
     });
   });
 
@@ -129,7 +128,7 @@ describe('PAR-48c: the spectator HUD check the rendered specs share (e2e/spectat
 
   const shown: [SpectatorHudStep, string][] = [
     ['free', 'compass'], ['free', 'marks'], ['free', 'panel'], ['free', 'rounds'], ['free', 'action'], ['free', 'holdBar'],
-    ['free', 'name'], ['free', 'bar'], ['free', 'range'], ['free', 'scoreboard'], ['scenic', 'compass'], ['follow', 'icon'],
+    ['free', 'name'], ['free', 'bar'], ['scoreboard', 'range'], ['free', 'scoreboard'], ['scenic', 'compass'], ['follow', 'icon'],   // F3: the number drawn, but hidden under the board
     ['scoreboard', 'spectatorInfo'], ['scoreboard', 'help'], ['scoreboard', 'timer'], ['scoreboard', 'box'],
     ['scoreboard', 'name'], ['scoreboard', 'compass'], ['teammate', 'compass'], ['teammate', 'spectatorInfo'],
     // LATER 117: the box's group `+0x270` hidden on a teammate (D:L85367-85371) -- was ['teammate', 'panel'].

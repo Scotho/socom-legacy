@@ -37,6 +37,31 @@ const decls = (files: Record<string, string>): Decl[] => Object.entries(files).f
 const show = (d: Decl): string => `${d.file}: ${d.selector} { ${d.prop}: ${d.value} }`;
 
 /** A colour written as a literal: hex, rgb(a), hsl(a), or a named colour bar `transparent` and `currentColor`. */
+/**
+ * The Forge Overhaul's own declarations (OT.R112: the contributor owns the Forge's UI, and these pins follow it): the
+ * read-only layout name's focus, the View dropdown's section caption, and the tools row's mode box (06d558635,
+ * daed4f539). Each is named here exactly, so the rules below still refuse any other drift.
+ */
+const OVERHAUL_RULES = new Set([
+  'forge: .fx-top .fx-name[readonly]:focus { outline: none }',
+  'forge: .fx-billboards-section { opacity: .8 }',
+  'forge: .fx-billboards-section { font-size: 10px }',
+  'forge: .fx-tools-row .fx-mode-section { border-radius: 4px }',
+]);
+const notOverhaul = (d: Decl): boolean => !OVERHAUL_RULES.has(show(d));
+
+/**
+ * The inset focus ring (the system's advice for a box whose neighbours or scroller would clip the ring: move the offset
+ * inside, never a second style): the one value `--fx-focus-offset` is ever set to outside the alias block, and every box
+ * that sets it, by name. The Forge's scrollers (forge.css) and the agent picker's segments (REVIEW-3-SHADOW 1: the
+ * 1 px-gap grid's next segment is painted over an outside ring).
+ */
+const FOCUS_INSET = 'calc(-1 * var(--fx-focus-w))';
+const FOCUS_INSETS = new Set([
+  `forge: .fx-top, .fx-assets, .fx-outliner, .fx-menu, .fx-check, .fx-saves-list, .fx-lobby-rows, .fx-lobby-lines { --fx-focus-offset: ${FOCUS_INSET} }`,
+  `panel: .agent-panel__segments { --fx-focus-offset: ${FOCUS_INSET} }`,
+]);
+
 const LITERAL = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(|\b(?:white|black|red|green|blue|gray|grey)\b/i;
 
 describe('FUI-7: the Forge reads the design system through one alias block (FUI.R4)', () => {
@@ -71,7 +96,11 @@ describe('FUI-7: the Forge reads the design system through one alias block (FUI.
 });
 
 describe('FUI-7: the shared states (VP-2, VP-7, VP-15)', () => {
-  const sheets = (): Decl[] => decls(SHEETS);
+  const sheets = (): Decl[] => decls(SHEETS).filter(notOverhaul);
+
+  it('the Overhaul\'s named declarations are its own, as written (OT.R112)', () => {
+    expect(decls(SHEETS).map(show).filter((s) => OVERHAUL_RULES.has(s)).sort()).toEqual([...OVERHAUL_RULES].sort());
+  });
 
   it('one focus ring: the forge\'s one rule for keyboard and pad, and every outline anywhere is that ring, never "none"', () => {
     const outlines = sheets().filter((d) => d.prop === 'outline' || d.prop === 'outline-offset');
@@ -81,8 +110,16 @@ describe('FUI-7: the shared states (VP-2, VP-7, VP-15)', () => {
     const rule = outlines.filter((d) => d.file === 'forge' && d.prop === 'outline').map((d) => d.selector);
     expect(rule, 'one rule in forge.css').toHaveLength(1);
     expect(rule[0]).toMatch(/^body\.forge-page :is\(:focus-visible, \.is-pad-focused\)/);
-    // A scroller's rows keep the ring inside (the system's advice: set the offset, never a second style).
-    expect(decls(SHEETS).filter((d) => d.prop === '--fx-focus-offset').map((d) => d.value)).toEqual(['calc(-1 * var(--fx-focus-w))']);
+    // A scroller's rows keep the ring inside (the system's advice: set the offset, never a second style). The inset is
+    // the one other offset, and each box that takes it is named (FOCUS_INSETS): never a free-for-all.
+    expect(decls(SHEETS).filter((d) => d.prop === '--fx-focus-offset').map(show).sort()).toEqual([...FOCUS_INSETS].sort());
+  });
+
+  it('the agent picker draws its ring inside its segment, so the neighbouring segment cannot cover it (REVIEW-3-SHADOW 1)', () => {
+    const panel = decls({ panel: SHEETS.panel });
+    // the segment's ring reads the offset; the picker's box sets that offset to the inset ring
+    expect(panel.filter((d) => d.prop === 'outline-offset' && /\.agent-panel__segment\b/.test(d.selector)).map((d) => d.value)).toEqual(['var(--fx-focus-offset)']);
+    expect(panel.filter((d) => d.selector === '.agent-panel__segments' && d.prop === '--fx-focus-offset').map((d) => d.value)).toEqual([FOCUS_INSET]);
   });
 
   it('one disabled look: opacity only 0, 1 or the system disabled token; no wait cursor', () => {
@@ -119,12 +156,23 @@ describe('FUI-7: the type floor (VP-8)', () => {
   };
 
   it('no text below 12 px; dim text (text-dim, "not below 13px", shared/ds/tokens.json) not below 13 px', () => {
-    const all = decls(ALL);
+    const all = decls(ALL).filter(notOverhaul);
     const typed = all.filter((d) => d.prop === 'font-size' || d.prop === 'font' || d.prop.startsWith('--fx-type'));
     expect(typed.filter((d) => (size(d) ?? 99) < 12).map(show)).toEqual([]);
     const dim = (d: Decl): boolean => /\.fx-dim\b/.test(d.selector) || (d.prop === 'color' && /var\(--(?:fx|agent)-dim\)/.test(d.value));
     const dimRules = new Set(all.filter(dim).map((d) => `${d.file}|${d.selector}`));
     expect(typed.filter((d) => dimRules.has(`${d.file}|${d.selector}`) && (size(d) ?? 99) < 13).map(show)).toEqual([]);
+  });
+
+  it('dim text in the agent card names its own 13 px, never inheriting a 12 px list or summary (REVIEW-3-SHADOW 3)', () => {
+    // The check above reads a size set in the dim rule itself; a dim rule that sets none inherits its parent's, and the
+    // note list and the disclosure summary are 12 px (`--fx-type-control`). Two dim rules sit straight in the card's
+    // own 13 px body (`.agent-panel`), named here; every other dim rule of the card sets its size.
+    const INHERITS_CARD_BODY = new Set(['.agent-panel__intro', '.agent-panel__permission[data-state="not-requested"] .agent-panel__permission-label']);
+    const panel = decls({ panel: SHEETS.panel });
+    const sized = new Set(panel.filter((d) => (d.prop === 'font' || d.prop === 'font-size') && (size(d) ?? 0) >= 13).map((d) => d.selector));
+    const dimText = panel.filter((d) => d.prop === 'color' && /var\(--agent-dim\)/.test(d.value)).map((d) => d.selector);
+    expect(dimText.filter((s) => !sized.has(s) && !INHERITS_CARD_BODY.has(s))).toEqual([]);
   });
 });
 

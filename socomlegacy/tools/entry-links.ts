@@ -71,7 +71,8 @@ async function run(browser: Browser, map: string, look: 'modern' | 'ps2', backen
   try {
     if (backend === 'webgl2') await p.addInitScript(HIDE_GPU);
     await p.addInitScript(INIT);
-    // WEBGL2-DEFAULT (LATER 708): the page's Automatic is WebGL2, so the webgpu leg asks with &renderer=webgpu.
+    // WG-7 (LATER 708): the page's Automatic asks WebGPU first; the webgpu leg asks with &renderer=webgpu and the webgl2 leg
+    // hides the adapter (HIDE_GPU), so each leg draws the backend it names.
     await p.goto(`${testRoomUrl(BASE)}?map=${map}&mode=play&fly&devmode${backend === 'webgpu' ? '&renderer=webgpu' : ''}`);
     await p.waitForFunction(() => document.getElementById('loading')?.hidden === true && (window.__viewer?.stats().triangles ?? 0) > 0, undefined, { timeout: 180_000 });
     const drew = await p.evaluate(() => window.__viewer.stats().backend);

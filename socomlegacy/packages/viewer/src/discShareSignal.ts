@@ -1,7 +1,8 @@
 import {
-  DISCSHARE_CLAIM_ROUTE, DISCSHARE_ICE_ROUTE, DISCSHARE_NEARBY_ROUTE, DISCSHARE_POLL_HOLD_MS, DISCSHARE_REQUEST_ROUTE, DISCSHARE_SECRET_HEADER,
-  DISCSHARE_SIGNAL_ROUTE, normaliseDiscShareCode, readIceServers, type DiscShareClaimAnswer, type DiscShareIceServer, type DiscShareMsg,
-  type DiscShareNearbyRequest, type DiscShareQueued, type DiscShareRequestAnswer, type DiscSharePageType,
+  DISCSHARE_APPROVE_ROUTE, DISCSHARE_CLAIM_ROUTE, DISCSHARE_DECLINE_ROUTE, DISCSHARE_HOST_ROUTE, DISCSHARE_ICE_ROUTE, DISCSHARE_NEARBY_ROUTE,
+  DISCSHARE_POLL_HOLD_MS, DISCSHARE_REQUEST_ROUTE, DISCSHARE_SECRET_HEADER, DISCSHARE_SIGNAL_ROUTE, normaliseDiscShareCode, readIceServers,
+  type DiscShareClaimAnswer, type DiscShareHostAnswer, type DiscShareIceServer, type DiscShareMsg, type DiscShareNearbyRequest,
+  type DiscShareQueued, type DiscShareRequestAnswer, type DiscSharePageType,
 } from './discShareWire';
 
 /**
@@ -44,8 +45,11 @@ export interface DiscShareSignalOptions {
 }
 
 export interface DiscShareSignal {
-  /** The receiver's request: its id, the code it shows, its secret, its expiry (epoch ms). */
-  request(signal?: AbortSignal): Promise<DiscShareRequestAnswer>;
+  /**
+   * The receiver's request: its id, the code it shows, its secret, its expiry (epoch ms). RB-26: `host`, a host's link
+   * token -- the request bound to that host (RB-25's `{ host: token }`), its code kept for the host to match.
+   */
+  request(signal?: AbortSignal, host?: string): Promise<DiscShareRequestAnswer>;
   /** The open requests from this device's network (DSH.R9); polled only while the sender's screen is open. */
   nearby(signal?: AbortSignal): Promise<DiscShareNearbyRequest[]>;
   /** The sender's claim of a typed or listed code; a code the grammar refuses is a 400 without a request. */
@@ -59,6 +63,15 @@ export interface DiscShareSignal {
    * Optional: a client without it (a test's fake) leaves the connection to its default, Cloudflare's STUN.
    */
   ice?(id: string, secret: string, signal?: AbortSignal): Promise<DiscShareIceServer[]>;
+  /**
+   * RB-26 over RB-25's routes (optional: a test's fake without them has no host mode): a hosted share opened -- its id
+   * and secret the host's own (it polls the signal route by them), its token the link's.
+   */
+  host?(signal?: AbortSignal): Promise<DiscShareHostAnswer>;
+  /** RB-26: the host's Yes to request `id` bound to it: the sender's side of the pair, as a claim answers. */
+  approve?(hostId: string, secret: string, id: string, signal?: AbortSignal): Promise<DiscShareClaimAnswer>;
+  /** RB-26: the host's No to request `id` bound to it (its receiver told `declined`). */
+  decline?(hostId: string, secret: string, id: string, signal?: AbortSignal): Promise<void>;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -106,8 +119,8 @@ export function discShareSignal(base: string, fetchFn: typeof fetch = (...a) => 
   const malformed = (): DiscShareError => new DiscShareError(200, 'malformed answer');
 
   return {
-    async request(signal) {
-      const b = await post(DISCSHARE_REQUEST_ROUTE, {}, signal);
+    async request(signal, host) {
+      const b = await post(DISCSHARE_REQUEST_ROUTE, host === undefined ? {} : { host }, signal);
       if (!isObj(b) || typeof b['id'] !== 'string' || typeof b['code'] !== 'string' || typeof b['secret'] !== 'string' || typeof b['expiresAt'] !== 'number') throw malformed();
       return { id: b['id'], code: b['code'], secret: b['secret'], expiresAt: b['expiresAt'] };
     },
@@ -134,6 +147,19 @@ export function discShareSignal(base: string, fetchFn: typeof fetch = (...a) => 
       if (!isObj(b) || !Array.isArray(b['messages'])) throw malformed();
       return b['messages'].flatMap((m: unknown) => (isObj(m) && typeof m['seq'] === 'number' && isObj(m['msg']) && typeof m['msg']['type'] === 'string'
         ? [{ seq: m['seq'], msg: m['msg'] as DiscShareMsg }] : []));
+    },
+    async host(signal) {
+      const b = await post(DISCSHARE_HOST_ROUTE, {}, signal);
+      if (!isObj(b) || typeof b['hostId'] !== 'string' || typeof b['token'] !== 'string' || typeof b['secret'] !== 'string' || typeof b['expiresAt'] !== 'number') throw malformed();
+      return { hostId: b['hostId'], token: b['token'], secret: b['secret'], expiresAt: b['expiresAt'] };
+    },
+    async approve(hostId, secret, id, signal) {
+      const b = await post(DISCSHARE_APPROVE_ROUTE, { host: hostId, secret, id }, signal);
+      if (!isObj(b) || typeof b['id'] !== 'string' || typeof b['secret'] !== 'string') throw malformed();
+      return { id: b['id'], secret: b['secret'] };
+    },
+    async decline(hostId, secret, id, signal) {
+      await post(DISCSHARE_DECLINE_ROUTE, { host: hostId, secret, id }, signal);
     },
     async ice(id, secret, signal) {
       const b = await call(`${DISCSHARE_ICE_ROUTE}?id=${form(id)}`, { method: 'GET', headers: { [DISCSHARE_SECRET_HEADER]: secret } }, callMs, signal);

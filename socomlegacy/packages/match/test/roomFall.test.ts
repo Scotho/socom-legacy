@@ -6,7 +6,7 @@ import { FsAssetSource } from '@s2u/archive/node';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
   encodeCommands, fallDamageFraction, groundGrid, KNOCK_LANDING_SPEED_FACTOR, loadSimMap, MP_ARMOUR, MP_HEALTH, packGround, PROTOCOL_VERSION,
-  STEP_PROBE_LIFT_READING, type ServerEvent, type SimMap,
+  probeLiftOf, type ServerEvent, type SimMap,
 } from '../../viewer/src/sim';
 import { PART } from '../../viewer/src/net/damage';
 import { Room, type Conn } from '../src/room';
@@ -235,7 +235,7 @@ describe('a fall on Frostfire (the MP2 fixture; research 151 §4)', () => {
     const { room, a, b, settle } = setup({}, m);
     const p = room.player(1)!;
     const w = p.sim.walker;
-    expect(w.place(531, 202 + STEP_PROBE_LIFT_READING, 905)).toBe(true);
+    expect(w.place(531, 202 + probeLiftOf('stand'), 905)).toBe(true);
     expect(w.state.y).toBe(202);
     w.state.yaw = 90;                                    // `Pose.yaw` faces (-sin yaw, -cos yaw): 90 degrees is -x, west
     settle(120, 1);

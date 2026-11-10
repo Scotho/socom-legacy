@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConsoleController, type Host } from '../../src/console/grammar';
+import { ConsoleController, NEW_TAB_POINTER_WORDS, type Host } from '../../src/console/grammar';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { createState, CATS, homeItems } from '../../src/console/state';
 
@@ -28,16 +28,48 @@ describe('FORGE: the Experiments section', () => {
     expect(CATS.at(-1)!.id).toBe('experiments');
   });
 
-  it('lists Forge and the test room, each opening its own page', () => {
+  // B206 ML-2 (ML.R6): a third row, Mods, pushes the MODS screen (`modsScreen.test.ts`); it opens no page.
+  it('lists Forge and the test room, each opening its own page, then Mods', () => {
     const { A, S, c, opened } = setup();
     const items = homeItems('experiments', S, A);
-    expect(items.map((i) => i.title)).toEqual(['Forge', 'Test room']);
+    expect(items.map((i) => i.title)).toEqual(['Forge', 'Test room', 'Mods']);
     S.cat = CATS.findIndex((x) => x.id === 'experiments');
     S.item[S.cat] = 0;
     c.press('cross');
     S.item[S.cat] = 1;
     c.press('cross');
     expect(opened).toEqual(['Forge', 'Testroom']);
+    S.item[S.cat] = 2;
+    c.press('cross');
+    expect(opened).toEqual(['Forge', 'Testroom']);
+    expect(S.screen).toBe('mods');
+  });
+
+  // RB-5 (product track): a browser opens a new tab only for a click, a tap or a key, never for a pad's press -- so a pad's
+  // Cross on Forge or the test room says how on the legend's line, and no toast claims a tab opened.
+  it('a pad Cross on Forge opens nothing and shows the line; a click (the pointer) opens it with its toast', () => {
+    const { S, c, opened } = setup();
+    S.cat = CATS.findIndex((x) => x.id === 'experiments');
+    S.item[S.cat] = 0;
+    c.padPress('cross');
+    expect(opened).toEqual([]);
+    expect(S.legendError).toBe(NEW_TAB_POINTER_WORDS);
+    expect(S.toast).toBe('');
+    S.input = 'pointer';
+    c.press('cross');
+    expect(opened).toEqual(['Forge']);
+    expect(S.toast).toBe('Opens the Forge page in a new tab');
+  });
+
+  it('a key is a user activation: a key press of Cross on the test room opens it', () => {
+    const { S, c, opened } = setup();
+    S.cat = CATS.findIndex((x) => x.id === 'experiments');
+    S.item[S.cat] = 1;
+    S.input = 'pad';
+    c.keyGesture = true;
+    c.press('cross');
+    c.keyGesture = false;
+    expect(opened).toEqual(['Testroom']);
   });
 
   // LR-23 / LR-39 (LR.R22, LR.R32): the section's readout is drawn nowhere and `readoutHtml` is removed; the Forge row's

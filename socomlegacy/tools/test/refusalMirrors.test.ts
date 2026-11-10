@@ -315,6 +315,7 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'door: shape': { room: { 'room.ts:text': 'doorPage.ts:action', 'room.ts:useDoor': 'doorPage.ts:target' }, how: 'wire', note: 'useDoor: a door index the map has; the page sends `pickDoor`\'s' },
   'door: dead': { room: { 'room.ts:useDoor': 'actionWiring.ts:canAct' }, how: 'refuses', note: 'no context fires for the dead' },
   'door: reach': { room: { 'room.ts:useDoor': 'doorPage.ts:target' }, how: 'refuses', note: 'pickDoor within the door\'s reach of the page\'s feet' },
+  'door: inactive': { room: { 'room.ts:useDoor': 'doors.ts:pickDoor' }, how: 'refuses', note: 'V13-3b (research 386 s4): pickDoor\'s segmentHits passes no owner whose node is off (modelGate)' },
   'door: {why}': {
     room: { 'room.ts:useDoor': 'doorPage.ts:action' }, how: 'refuses', todo: 'new',
     note: 'DoorSet.use\'s noprogram / busy / locked: online the page sends the press whatever the door\'s state (its own use, offline, refuses the same three); log-only, nothing predicted on it',

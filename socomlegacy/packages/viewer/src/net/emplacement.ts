@@ -1,6 +1,6 @@
 import { GAME_FRAME_DT, probeGround, selectFloor, TURRET_VERTICAL_READING, type Grid, type MotionClip, type TurretPlacement, type WeaponStanceName } from '@s2u/scene';
 import { oneShotSeconds } from '../locomotion';
-import { STEP_PROBE_LIFT_READING } from '../mover';
+import { probeLiftOf } from '../mover';
 import type { MotionTable } from '../motionTable';
 import type { Mount } from '../heldItem';
 import { shortTurn, wrapYaw } from '../yaw';
@@ -544,11 +544,11 @@ export const MOUNT_WORD_BOUND_TICKS = Math.round(MOUNT_WORD_BOUND_ADAPTATION * T
 /**
  * T81-4: the steer's move laid on the mover's place, with no collision (`TURRET_STEER_WALLS_READING`), its height the floor's
  * there as `holdStep` takes it (`FUN_0059afd0`, D:L413943-413946; the ground step's floor pick from the feet +
- * `STEP_PROBE_LIFT_READING`). With no floor there, nothing moves (false).
+ * `probeLiftOf('stand')`, the mounted body taken standing, LATER 785). With no floor there, nothing moves (false).
  */
 function steerMove(w: SeatMover & { grid: Grid }, dx: number, dz: number): boolean {
   const s = w.state, x = s.x + dx, z = s.z + dz;
-  const floor = selectFloor(probeGround(w.grid, x, z), s.y + STEP_PROBE_LIFT_READING, s.y);
+  const floor = selectFloor(probeGround(w.grid, x, z), s.y + probeLiftOf('stand'), s.y);
   if (!floor) return false;
   s.x = x; s.z = z; s.y = floor.y;
   if (w.airborne) w.setAirborne?.(false);
@@ -832,7 +832,7 @@ export interface HoldMover {
  * One tick of the hold on a mounted mover past the mount's steer (research 215 s7.5), after the tick's own move: the
  * mover's place written as `FUN_00585cd0` writes `+0xf54` -- the hold's place at its own yaw, the aim the command laid --
  * and its height taken from the floor there as `FUN_005483d0` takes it (`FUN_0059afd0`, D:L413943-413947; the port's floor
- * pick is the ground step's, `selectFloor` from the feet + `STEP_PROBE_LIFT_READING`); its velocity zeroed. No wall test:
+ * pick is the ground step's, `selectFloor` from the feet + `probeLiftOf('stand')`); its velocity zeroed. No wall test:
  * the game's mover skips its own move in the hold (D:L413914-413919), so the walls' resolution, which acts on that move's
  * velocity, does not stop it, and the push it does run is unread (`TURRET_HOLD_PUSH_READING`). On Crossroads' turret 1 a
  * wall 1.07 behind the place lies inside the body's 3.5: a move through the walk's collision (`Walker.glide`) stops 2.43
@@ -843,7 +843,7 @@ export interface HoldMover {
 export function holdStep(t: Pick<TurretPlacement, 'origin'>, w: HoldMover): boolean {
   const s = w.state, at = holdPlace(t, s.yaw);
   s.vx = 0; s.vz = 0;
-  const floor = selectFloor(probeGround(w.grid, at[0], at[2]), s.y + STEP_PROBE_LIFT_READING, s.y);
+  const floor = selectFloor(probeGround(w.grid, at[0], at[2]), s.y + probeLiftOf('stand'), s.y);
   if (!floor) return false;
   s.x = at[0]; s.z = at[2]; s.y = floor.y;
   if (w.airborne) w.setAirborne?.(false);

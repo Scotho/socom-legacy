@@ -20,20 +20,20 @@ const viewer = resolve(here, '..');
 afterEach(() => { document.body.replaceChildren(); });
 
 const down = () => Promise.resolve({ state: 'down' as const });
-const PAGES: readonly [PageId, () => HTMLElement][] = [
+const PAGES: readonly [Exclude<PageId, 'agent'>, () => HTMLElement][] = [
   ['news', () => newsPage()], ['roadmap', () => roadmapPage()], ['journey', () => journeyPage()],
   ['archive', () => archivePage()], ['server', () => serverPage(undefined, down)],
 ];
 
 describe('the nav: s2u-navlinks, icon + word', () => {
-  it('on every page: six links, each an aria-hidden icon and its word, current marked, then Play kept', () => {
+  it('on every page: seven links (LCM-16: Leaderboard after Server), each an aria-hidden icon and its word, current marked, then Play kept', () => {
     for (const [id, make] of PAGES) {
       const page = make();
       const nav = page.querySelector('nav.s2u-navlinks')!;
       expect(nav).not.toBeNull();
       expect(nav.getAttribute('aria-label')).toBe('Project');
       const links = [...nav.querySelectorAll<HTMLAnchorElement>('a.s2u-navlinks__link')];
-      expect(links.map((a) => a.textContent)).toEqual(['News', 'Roadmap', 'Journey', 'Archive', 'Server', 'Status']);
+      expect(links.map((a) => a.textContent)).toEqual(['News', 'Roadmap', 'Journey', 'Archive', 'Server', 'Leaderboard', 'Status']);
       for (const a of links) {
         const svgs = a.querySelectorAll('svg');
         expect(svgs).toHaveLength(1);
@@ -51,7 +51,7 @@ describe('the nav: s2u-navlinks, icon + word', () => {
   it('the server link carries the ds server mark, not another page’s', () => {
     const page = newsPage();
     const icons = [...page.querySelectorAll('.s2u-navlinks__link svg')].map((s) => s.innerHTML);
-    expect(new Set(icons).size).toBe(6);
+    expect(new Set(icons).size).toBe(7);
   });
   it('the phone header: two rows at <= 640px (brand + Play over the nav), the pad ring from the ds link rule', () => {
     const css = readFileSync(resolve(viewer, 'src/projectSite/site.css'), 'utf8');
@@ -61,6 +61,26 @@ describe('the nav: s2u-navlinks, icon + word', () => {
     expect(phone).not.toMatch(/\.project-nav\s*\{[^}]*overflow-x/);
     const ds = readFileSync(resolve(viewer, '../../../shared/ds/components.css'), 'utf8');
     expect(ds).toMatch(/\.s2u-navlinks__link:focus-visible[^{]*\{[^}]*outline/);
+  });
+  it('the two-tier header at every width (LCM-16 fold 2): the nav its own row, left-aligned, wrapping on ds gaps, scoped to the shell', () => {
+    const css = readFileSync(resolve(viewer, 'src/projectSite/site.css'), 'utf8');
+    const wide = css.slice(0, css.indexOf('@media'));
+    const rule = /\.project-nav\s*\{([^}]*)\}/.exec(wide)?.[1] ?? '';
+    expect(rule).toMatch(/flex: 1 0 100%/);
+    expect(rule).toMatch(/order: 3/);
+    // seven links at 18px Oswald are about 914 px against a column of min(1040, 92vw): they must wrap below ~994 px
+    expect(rule).toMatch(/flex-wrap: wrap/);
+    expect(rule).toMatch(/justify-content: flex-start/);
+    expect(rule).toMatch(/gap: 0 var\(--s2u-space-4\)/);
+    expect(rule).not.toMatch(/overflow|white-space|nowrap/);
+    // the arithmetic is written beside the rule
+    expect(wide).toMatch(/914/);
+    // the override is the shell's: no rule in site.css restyles the ds's .s2u-navlinks itself (the launcher keeps its own)
+    expect(css).not.toMatch(/(^|[},]\s*)\.s2u-navlinks\b/m);
+    // the phone rule keeps the wrap and the 44px links (the ds's min-height: --s2u-hit-min is never undone here)
+    const phone = css.slice(css.indexOf('@media (max-width: 640px)'));
+    expect(phone).toMatch(/\.project-nav\s*\{[^}]*flex-wrap: wrap[^}]*justify-content: flex-start/);
+    expect(css).not.toMatch(/\.project-nav[^{]*\{[^}]*min-height: (?!var\(--s2u-hit-min\))/);
   });
 });
 

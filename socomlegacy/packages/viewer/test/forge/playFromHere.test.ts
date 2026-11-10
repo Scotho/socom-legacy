@@ -6,7 +6,7 @@ import { groundGrid } from '../../src/mover';
 import type { SimMap } from '../../src/simMap';
 import { floorGround } from '../../src/forge/ground';
 import { slotsOfSpawns } from '../../src/forge/matchMap';
-import { floorUnder, openingStand, randomStand, standFromHere, withPlayerHere, type ViewStand } from '../../src/forge/playFromHere';
+import { floorUnder, openingStand, randomStand, standFromHere, walkFeet, withPlayerHere, type ViewStand } from '../../src/forge/playFromHere';
 
 /**
  * FG-50 (a browser adaptation, no original): Play from here stands the local player on the floor under the camera,
@@ -35,6 +35,33 @@ describe('FG-50: the floor under the view', () => {
     expect(floorUnder(grid, floor, [[500, 500]], 40)).toBeNull();
     expect(standFromHere(grid, floor, view({ camera: [500, 40, 500], cursor: [800, 800] }))).toBeNull();
     expect(standFromHere(grid, floor, view({ camera: [0, -10, 0] }))).toBeNull();   // the floor is above the camera
+  });
+});
+
+/**
+ * LATER 803 (a browser adaptation, product track): FP.R15 opens a disc map at a still camera that often has no floor
+ * under it, and a bare map has no layout spawn, so Walk falls back to the map's own computed stand (`../matchCore`
+ * `standOf`: spawn A's feet, looked at from its eye) -- after the floor under the view and the layout's marker.
+ */
+describe('LATER 803: Walk stands on the map\'s own spawn when nothing else holds', () => {
+  const nowhere = view({ camera: [500, 40, 500], cursor: null });
+  const mapStand = { feet: [30, 0, -20] as [number, number, number], from: [30, 64, -20] as [number, number, number] };
+  it('no floor under the view, no marker: the map stand\'s feet', () => {
+    expect(walkFeet(grid, floor, nowhere, null, mapStand)).toEqual([30, 0, -20]);
+  });
+  it('a floor under the view wins over the map stand', () => {
+    expect(walkFeet(grid, floor, view({ camera: [5, 40, 6] }), null, mapStand)).toEqual([5, 0, 6]);
+  });
+  it('a layout marker wins over the map stand', () => {
+    expect(walkFeet(grid, floor, nowhere, [7, 0, 8], mapStand)).toEqual([7, 0, 8]);
+  });
+  it('a map stand with no floor under it is nowhere (the refusal)', () => {
+    expect(walkFeet(grid, floor, nowhere, null, { feet: [800, 0, 800], from: [800, 64, 800] })).toBeNull();
+    expect(walkFeet(grid, floor, nowhere, null, { feet: [10, -50, 10], from: [10, -10, 10] })).toBeNull();   // the floor is above its eye
+    expect(walkFeet(grid, floor, nowhere, null, { feet: null, from: [0, 400, 600] })).toBeNull();          // no measured spawn
+  });
+  it('a base that is not a disc map (no map stand) keeps today\'s refusal', () => {
+    expect(walkFeet(grid, floor, nowhere, null, null)).toBeNull();
   });
 });
 

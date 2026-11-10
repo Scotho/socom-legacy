@@ -2,7 +2,7 @@ import { replayDiscRequest } from '../../discPrompt';
 import type { HandedDiscRequest } from '../../discSource';
 import type { ServerEvent } from '../../net/protocol';
 import type { LoadedSegment, ReplayClient, ReplaySeek } from '../../replay/replayClient';
-import { loadKindOf, type ReplayLoadKind } from '../../replay/refusalKind';
+import { loadKindOf, replayMapRefusal, type ReplayLoadKind } from '../../replay/refusalKind';
 import { keepCameraChoice, readCameraChoice, type CameraChoiceStore } from './cameraChoice';
 import { askReplayGrant, replayAddress, type ReplayEntry } from './data';
 import type { ReplayStage, ReplayStageContext, SpectatorControls, SpectatorMode } from './stage';
@@ -367,7 +367,7 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
               ...(hooks?.hull ? { hull: () => hooks.hull!() } : {}),
               // `../../replay/mount`'s map rule, without its reload: the frame was opened on the header's map, so a page
               // showing another could not open it (`replayMapAddress`'s sentence).
-              check: (s) => (s.header.map.toUpperCase() === shown ? null : `This recording is of map ${s.header.map.toUpperCase()}, which the page could not open.`),
+              check: (s) => (s.header.map.toUpperCase() === shown ? null : replayMapRefusal(s.header.map)),   // MN-1 (OT.R113): the map named
             });
             client.take(c);
             current = c;

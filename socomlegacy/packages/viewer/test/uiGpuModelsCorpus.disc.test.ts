@@ -20,12 +20,14 @@ import { seamDoubleAdds } from './uiGpuSeamCount';
  * 1. **Through the plan.** Every distinct model frame planned at 1, 2, 4 under both blend tables: its `pass` and
  *    `triangles` steps and the triangles they draw counted; the software verdicts counted by reason, with GM-15b's two
  *    refusals apart (`UI_GPU_MODEL_DEPTH_FLOOR`, `UI_GPU_MODEL_TEXEL_RANGE`; GM-15b reported 0 on GM-07's corpus).
- * 2. **The seam double-add count (R1).** Over every distinct model frame at every scale: the pixels the software adds a
- *    second time because its f64 `invW` passes a stored f32 depth its own f32 equals (`uiGpuSeamCount.ts`), by class --
- *    `seam` (a shared edge, GM-15b's pinned case), `coplanar` (the same face again, GM-08's roller finding), `other`.
- *    Printed per frame where not 0, and per entry. **Not "fixed" on either side**: the controller ruled (R1, b6
- *    2026-11-06) to pin the counts (`GM15C_DOUBLE_ADDS`) and defer the choice -- match the double add on the GPU, or
- *    refuse those frames to L1 -- to GM-17's gate, with GM-27's real-GPU reading.
+ * 2. **R1: the ties the software and the twin decide differently** (`uiGpuSeamCount.ts`, redefined by GM-15d). Over
+ *    every distinct model frame at every scale: the pixels where a tie is met -- an edge function exactly 0 (the
+ *    top-left fill rule decides it) or a write at an equal stored depth (GEQUAL decides it) -- and the two decide
+ *    differently, by class -- `seam` (a shared edge), `coplanar` (the same face again), `other`. Printed per frame where
+ *    not 0, and per entry, beside the tie counts. GM-15c pinned the software's double adds here (seam 3,622 / coplanar
+ *    88,465 / other 814), the port's artefact of an f64 `invW` against its f32 store under inclusive edges; GM-15d put
+ *    the GS's rules in the reference (the plan's Log, R1 resolved by (a)) and GM-17's precondition became "software and
+ *    twin agree on every tie": 0 in every class, per entry (`GM15D_TIE_DISAGREEMENTS`).
  * 3. **On the fake GL, the twin.** A sample of the model frames (each model entry's first and last distinct frame and
  *    every `GL_STRIDE`-th, at each scale, `ff`): drawn by the WebGL2 backend on the fake context, its frame the twin's
  *    byte for byte, its model draws counted.
@@ -80,22 +82,26 @@ const listKey = (items: readonly UiDrawItem[]): string => JSON.stringify(items, 
 const hasModels = (items: readonly UiDrawItem[]): boolean => items.some((it) => it.kind === 'models' && (it.triangles?.length ?? 0) > 0);
 
 /**
- * R1's pin (the controller's ruling, b6 2026-11-06): the seam double adds per model entry of the corpus, summed over
- * its distinct model frames at 1, 2 and 4 -- measured 2026-11-06 on the owner's host at `01a96331d` (the GM-15c run's
- * log). The hit frames: dlgMenu's frame 2 (both entries); the seal ARMORY's frames 90-101; the terrorist ARMORY's
- * frames 72-80, 95-101, 123-132 and 248-250. A reading of the port's own output, not the original's.
+ * R1's pin, GM-15d (the plan's Log: R1 resolved by (a), the GS's top-left rule and GEQUAL on the f32 store in the
+ * reference; GM-17's precondition "software and twin agree on every tie"): no tie decided differently, in any class, per
+ * model entry of the corpus, summed over its distinct model frames at 1, 2 and 4. Measured on the owner's host: at
+ * `4d62d9c02` seam 1,479 / coplanar 53 / other 410 on the ARMORY (the software's f64 edges and depth against the twin's
+ * f32), 0 / 0 / 0 everywhere after the disc fold at `4d014b66a`. A consistency check of the two transcriptions
+ * (`uiGpuSeamCount.ts`, "What its 0 means"); the real paths' byte compares are `uiFramePlan.disc` and `uiGpuTwin.disc`.
+ * GM-15c's pin before it (2026-11-06, `01a96331d`; the software's double adds, the port's artefact): dlgMenu 0 / 43,823 /
+ * 0 (both entries, frame 2), the seal ARMORY 0 / 0 / 81, the terrorist ARMORY 3,622 / 819 / 733.
  */
-const GM15C_DOUBLE_ADDS = {
-  'dlgMenu.rdr': { seam: 0, coplanar: 43823, other: 0 },
-  'dlgMenu + MENULOOP (300 frames)': { seam: 0, coplanar: 43823, other: 0 },
-  'ARMORY (MP51, seal)': { seam: 0, coplanar: 0, other: 81 },
-  'ARMORY (MP51, terrorist)': { seam: 3622, coplanar: 819, other: 733 },
+const GM15D_TIE_DISAGREEMENTS = {
+  'dlgMenu.rdr': { seam: 0, coplanar: 0, other: 0 },
+  'dlgMenu + MENULOOP (300 frames)': { seam: 0, coplanar: 0, other: 0 },
+  'ARMORY (MP51, seal)': { seam: 0, coplanar: 0, other: 0 },
+  'ARMORY (MP51, terrorist)': { seam: 0, coplanar: 0, other: 0 },
 };
 
 /** GM-15b's two refusals, by the constant each reason names (`uiFramePlan.ts`, `planFrame`'s `say`). */
 const FLOOR_WHY = 'UI_GPU_MODEL_DEPTH_FLOOR', RANGE_WHY = 'UI_GPU_MODEL_TEXEL_RANGE';
 
-interface EntryCount { frames: number; modelFrames: number; distinct: number; plans: number; passes: number; triangles: number; seam: number; coplanar: number; other: number; writes: number }
+interface EntryCount { frames: number; modelFrames: number; distinct: number; plans: number; passes: number; triangles: number; seam: number; coplanar: number; other: number; writes: number; edgeTies: number; depthTies: number }
 interface Tally {
   entries: number;
   perEntry: Map<string, EntryCount>;
@@ -103,7 +109,7 @@ interface Tally {
   triangles: Record<number, number>; passes: Record<number, number>;
   software: Map<string, Set<string>>;
   floor: number; range: number;
-  /** Frames whose seam double-add count is not 0: entry, frame, scale and the three classes. */
+  /** Frames with a tie the software and the twin decide differently: entry, frame, scale and the three classes. */
   hits: string[];
   /** Frames counted (distinct model frames x scales). */
   counted: number;
@@ -126,7 +132,7 @@ function countEntry(e: CorpusEntry, t: Tally): void {
     if (!seen.has(key)) { seen.add(key); distinct.push({ items, frame }); }
   });
   if (!distinct.length) return;
-  const c: EntryCount = { frames: e.frames.length, modelFrames, distinct: distinct.length, plans: 0, passes: 0, triangles: 0, seam: 0, coplanar: 0, other: 0, writes: 0 };
+  const c: EntryCount = { frames: e.frames.length, modelFrames, distinct: distinct.length, plans: 0, passes: 0, triangles: 0, seam: 0, coplanar: 0, other: 0, writes: 0, edgeTies: 0, depthTies: 0 };
   t.perEntry.set(e.name, c);
   const t0 = performance.now();
   for (const scale of SCALES) {
@@ -152,12 +158,12 @@ function countEntry(e: CorpusEntry, t: Tally): void {
       t.triangles[scale] = (t.triangles[scale] ?? 0) + triSteps;
       const s = seamDoubleAdds(plan);
       t.counted++;
-      c.seam += s.seam; c.coplanar += s.coplanar; c.other += s.other; c.writes += s.writes;
-      if (s.seam || s.coplanar || s.other) t.hits.push(`${e.name} frame ${frame} ${scale}x: seam ${s.seam}, coplanar ${s.coplanar}, other ${s.other} (of ${s.writes} writes)`);
+      c.seam += s.seam; c.coplanar += s.coplanar; c.other += s.other; c.writes += s.writes; c.edgeTies += s.edgeTies; c.depthTies += s.depthTies;
+      if (s.seam || s.coplanar || s.other) t.hits.push(`${e.name} frame ${frame} ${scale}x: seam ${s.seam}, coplanar ${s.coplanar}, other ${s.other} (of ${s.writes} writes; edge ties ${s.edgeTies}, depth ties ${s.depthTies})`);
       if (k === 0 || k === distinct.length - 1 || k % GL_STRIDE === 0) onFakeGl(e, plan, frame, scale, t);
     });
   }
-  process.stderr.write(`GM-15c ${e.name}: ${e.frames.length} frames, ${modelFrames} with models, ${distinct.length} distinct; seam ${c.seam}, coplanar ${c.coplanar}, other ${c.other}; ${((performance.now() - t0) / 1000).toFixed(1)} s\n`);
+  process.stderr.write(`GM-15c ${e.name}: ${e.frames.length} frames, ${modelFrames} with models, ${distinct.length} distinct; tie disagreements seam ${c.seam}, coplanar ${c.coplanar}, other ${c.other}; edge ties ${c.edgeTies}, depth ties ${c.depthTies}; ${((performance.now() - t0) / 1000).toFixed(1)} s\n`);
 }
 
 function onFakeGl(e: CorpusEntry, plan: UiFramePlan, frame: number, scale: number, t: Tally): void {
@@ -211,8 +217,8 @@ function menuloop(e: CorpusEntry, t: Tally): void {
   t.menuloops.set(e.name, m);
 }
 
-describe.skipIf(!HAVE_CORPUS_DISC)(`GM-15c: the roller and the ARMORY on the models pass, the seam double-add count, MENULOOP (dev disc)${CORPUS_SKIP}`, () => {
-  it('every distinct model frame at 1, 2 and 4 through the plan; the seam double adds counted; a sample on the fake GL equal to the twin; MENULOOP one picture a tick', async () => {
+describe.skipIf(!HAVE_CORPUS_DISC)(`GM-15c: the roller and the ARMORY on the models pass, R1's tie disagreements, MENULOOP (dev disc)${CORPUS_SKIP}`, () => {
+  it('every distinct model frame at 1, 2 and 4 through the plan; R1\'s tie disagreements counted; a sample on the fake GL equal to the twin; MENULOOP one picture a tick', async () => {
     const t: Tally = { entries: 0, perEntry: new Map(), triangles: {}, passes: {}, software: new Map(), floor: 0, range: 0, hits: [], counted: 0, gl: { frames: 0, differing: [], modelDraws: 0, l1: 0 }, menuloops: new Map() };
     await walkMenuCorpus(recorder, (e) => countEntry(e, t));
     const software = [...t.software].map(([why, names]) => `${why}: ${[...names].join(', ')}`);
@@ -220,11 +226,11 @@ describe.skipIf(!HAVE_CORPUS_DISC)(`GM-15c: the roller and the ARMORY on the mod
     // eslint-disable-next-line no-console
     console.log([
       `GM-15c models corpus${ONLY ? ` FILTERED to /${ONLY.source}/` : ''}: ${t.entries} entries walked, ${t.perEntry.size} with model frames; ${t.counted} frames counted (distinct model frames x scales 1, 2, 4)`,
-      ...[...t.perEntry].map(([n, c]) => `  ${n}: ${c.frames} frames, ${c.modelFrames} with models, ${c.distinct} distinct; plans ${c.plans}; ff passes ${c.passes}, triangles ${c.triangles}; model writes ${c.writes}; double adds seam ${c.seam}, coplanar ${c.coplanar}, other ${c.other}`),
+      ...[...t.perEntry].map(([n, c]) => `  ${n}: ${c.frames} frames, ${c.modelFrames} with models, ${c.distinct} distinct; plans ${c.plans}; ff passes ${c.passes}, triangles ${c.triangles}; model writes ${c.writes}; tie disagreements seam ${c.seam}, coplanar ${c.coplanar}, other ${c.other}; edge ties ${c.edgeTies}, depth ties ${c.depthTies}`),
       `ff plans per scale: ${SCALES.map((s) => `${s}x passes ${t.passes[s] ?? 0}, triangles ${t.triangles[s] ?? 0}`).join('; ')}`,
       `software verdicts: ${software.length ? software.join(' | ') : 'none'}`,
       `GM-15b's refusals (plans): depth floor ${t.floor}, texel range ${t.range}`,
-      `seam double adds over the corpus: seam ${total.seam}, coplanar ${total.coplanar}, other ${total.other}; frames with any: ${t.hits.length} of ${t.counted}`,
+      `tie disagreements over the corpus: seam ${total.seam}, coplanar ${total.coplanar}, other ${total.other}; frames with any: ${t.hits.length} of ${t.counted}`,
       ...t.hits.slice(0, 400).map((h) => `  ${h}`),
       ...(t.hits.length > 400 ? [`  ... ${t.hits.length - 400} more`] : []),
       `fake GL: ${t.gl.frames} frames drawn (${t.gl.l1} refused), model draws ${t.gl.modelDraws}, differing from the twin ${t.gl.differing.length}`,
@@ -262,15 +268,16 @@ describe.skipIf(!HAVE_CORPUS_DISC)(`GM-15c: the roller and the ARMORY on the mod
       expect(m.planned, `${n}: plans made (every frame at every scale)`).toBe(m.frames * SCALES.length);
       if (n.includes('MENULOOP')) expect(m.withPicture, `${n}: frames with a MENULOOP picture`).toBeGreaterThan(0);
     }
-    // R1, the controller's ruling (b6, 2026-11-06; the plan's Log): pinned and deferred. These counts are the known
-    // software-vs-f32 difference -- readings of the port's own output, not the original's -- and are re-pinned on any
-    // change with the reason in the commit. "Hits = 0" stays an open precondition of GM-17's gate, where the choice
-    // between matching the double add on the GPU and L1 is made with GM-27's real-GPU reading. No refusal is added here.
+    // R1, GM-15d (the plan's Log: resolved by (a), the lane holder's ruling): the GS's top-left rule and GEQUAL on the
+    // f32 store are in the software, the twin and the GPU, so GM-17's precondition is "software and twin agree on every
+    // tie" -- 0 in every class and no frame with a disagreement. GM-15c's counts (85 frames x scales hit; seam 3,622 /
+    // coplanar 88,465 / other 814) were the port's artefact. Not yet run on the disc (GM-15d's report): a non-zero count
+    // on the first run is a finding for GM-17's precondition, named with its frames, not a number to pin over.
     if (!ONLY) {
       const perEntry = Object.fromEntries([...t.perEntry].map(([n, c]) => [n, { seam: c.seam, coplanar: c.coplanar, other: c.other }]));
-      expect(perEntry, 'seam double adds per entry (R1, pinned)').toEqual(GM15C_DOUBLE_ADDS);
-      expect(total, 'seam double adds on the corpus (R1, pinned)').toEqual({ seam: 3622, coplanar: 88465, other: 814 });
-      expect(t.hits.length, 'frames (x scales) with a double add (R1, pinned)').toBe(85);
+      expect(perEntry, 'tie disagreements per entry (R1, GM-15d: GM-17\'s precondition)').toEqual(GM15D_TIE_DISAGREEMENTS);
+      expect(total, 'tie disagreements on the corpus (R1, GM-15d)').toEqual({ seam: 0, coplanar: 0, other: 0 });
+      expect(t.hits, 'frames (x scales) with a tie decided differently (R1, GM-15d)').toEqual([]);
     }
   }, 7_200_000);
 });

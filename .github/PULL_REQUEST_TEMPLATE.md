@@ -18,12 +18,13 @@
 ## Tests
 
 - [ ] A test that failed before this change, and passes now (paste both runs)
-- [ ] `npm run typecheck` and `npm test` green; tests that skipped (no disc) listed as skipped
-- [ ] `npm run build` for a change the page draws
+- [ ] On the final commit of this pull request: `npm run typecheck` clean; `npm test`, `npm run build` and the browser
+      specs (`npm run e2e -w @s2u/socomlegacy`) green; tests that skipped (no disc) listed as skipped
 
 ## Notes
 
 <!-- Anything you couldn't check, or a choice you'd like a second opinion on. -->
 
 By opening this pull request you agree to license your contribution under GPL-3.0. It's reviewed against the
-original and applied in the project's working repository with you credited; it then returns here with the next release.
+original, merged once accepted, and imported into the project's working repository with you credited; its final form
+returns here with the next release (see CONTRIBUTING.md, "How a pull request lands").

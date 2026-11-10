@@ -258,6 +258,8 @@ export interface LoadedMap {
    * or over A's recorded y where the probe finds none. Absent when the map has no measured spawns.
    */
   stand?: Stand;
+  /** PRE-SPAWN-SIDE (research 222 s12, `PRE_SPAWN_STAND_SIDE_READING`): the same stand at spawn B, a Terrorist seat's. */
+  standB?: Stand;
   /**
    * The player's body (W2.1, `./body`): the map's player character out of `CLIB_MDL`/`CLIB_GEO`, in the gear
    * `READERC.ZAR/character.rdr` hangs on it out of `FLIB_MDL`, in its bind pose at slot A (socomlegacy/docs/research/78).
@@ -752,7 +754,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
     doors: placement.doors ?? [],
     gates: placement.gates ?? [],
     cranes: placement.cranes ?? [],
-    ...(measured ? { stand: openingStand(measured.a, probe) } : {}),
+    ...(measured ? { stand: openingStand(measured.a, probe), standB: openingStand(measured.b, probe) } : {}),
     ...(weapons ? { weapons } : {}),
     ...(arsenal ? { arsenal } : {}),
     ...(gameType !== undefined ? { gameType } : {}),

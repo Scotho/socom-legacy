@@ -1,5 +1,5 @@
 import { Libmc, MC_RESULT, PersonaCard, UI_VAR_MODULE, type CardSlots } from '@s2u/card';
-import { TUNER_RANGE, VALVE_TYPE, ValveStore, type ValveEntry } from '@s2u/ui';
+import { stickTunersOfPreset, optionsTunerDefault, TUNER_RANGE, VALVE_TYPE, ValveStore, type ValveEntry } from '@s2u/ui';
 import { bootValves, restoreValveModule, valveModule, VALVE_MODULE } from '../../originalOptions';
 import { pageCard } from '../../pageStore';
 import { saveWithinCard } from '../cardSave';
@@ -51,6 +51,10 @@ export interface OptionStore {
   tuner(name: string): number | undefined;
   /** Writes one valve; false when nothing was written. */
   setValve(name: string, value: number): boolean;
+  /** Original layout selection and ChosePresetOnce saved in one card transaction. */
+  setControllerLayout?(value: number): boolean;
+  /** Original aiming preset and its three tuners saved atomically. */
+  setStickPreset?(value: number): boolean;
   /** Writes one tuner; false when nothing was written. */
   setTuner(name: string, value: number): boolean;
   /** Reads the card again (the next reads see what another writer saved). Optional: a fake has nothing to re-read. */
@@ -65,7 +69,26 @@ export interface OptionStore {
   slot?(): 1 | 2 | null;
   /** Why the last write was refused (`../cardSave` `CARD_SAVE_REFUSED`), '' when it saved or was not tried. Optional. */
   refusal?(): string;
+  /**
+   * SS-1's D5 (a browser adaptation, product track): one tuner's value held and published to the live managers at once,
+   * its card write made once the row settles -- `TUNER_SAVE_SETTLE_MS_ADAPTATION` after the last step -- or sooner, when
+   * another tuner is staged or written, or on `flush`. Reads see it at once. False when the card cannot be written.
+   * A refused deferred write restores the persisted field and reports its reason.
+   * Optional: absent, a step writes the card (`setTuner`).
+   */
+  stageTuner?(name: string, value: number): boolean;
+  /** The staged tuner's card write made now (a launcher closing). Optional. */
+  flush?(): void;
+  pending?(): boolean;
+  observeSaves?(listener: () => void): () => void;
 }
+
+/**
+ * How long a tuner row rests after its last step before its card write (SS-1's D5): the launcher's slider steps 2 % a
+ * press with the held repeat, and each press used to save the whole card file. A browser adaptation: the original's
+ * page saves only on SAVE AND LEAVE, and this changes nothing the game does.
+ */
+export const TUNER_SAVE_SETTLE_MS_ADAPTATION = 400;
 
 interface Opened { card: PersonaCard; malformed: boolean; port: 0 | 1; mc: Libmc }
 
@@ -88,7 +111,12 @@ export function cardOptionStore(slots: CardSlots = pageCard): OptionStore {
   let snap: Opened | null | undefined;
   let table: readonly ValveEntry[] | null = null;
   let refused = '';
+  const saveListeners = new Set<() => void>();
+  const dirtyTuners = new Set<string>();
+  let staged: { name: string; value: number } | null = null;
+  let settle: ReturnType<typeof setTimeout> | null = null;
   const view = (): Opened | null => (snap === undefined ? (snap = open(slots)) : snap);
+  const sameName = (a: string, b: string): boolean => a.toUpperCase() === b.toUpperCase();
 
   const valves = (card: PersonaCard): ValveStore | null => {
     const store = table ? bootValves(table) : new ValveStore();
@@ -104,10 +132,56 @@ export function cardOptionStore(slots: CardSlots = pageCard): OptionStore {
         const card = fresh.card;
         return { mc: fresh.mc, port: fresh.port, size: card.contents().size, commit: () => card.save() };
       });
-      if (out === null) return false;
+      if (out === null) { refused = 'Your memory card could not be saved.'; return false; }
       if (!out.ok) refused = out.message;
       return out.ok;
-    } catch { return false; }
+    } catch { refused = 'Your memory card could not be saved.'; return false; }
+    finally { queueMicrotask(() => { for (const listener of saveListeners) listener(); }); }
+  };
+
+  const savedTuner = (name: string): number | undefined => {
+      const v = view();
+      if (!v || v.malformed) return undefined;
+      const part = v.card.part(UI_VAR_MODULE);
+      if (typeof part !== 'object' || part === null || Array.isArray(part)) return undefined;
+      const hit = Object.entries(part as Record<string, unknown>).find(([k]) => k.toUpperCase() === name.toUpperCase())?.[1] as { type?: unknown; value?: unknown } | undefined;
+      if (!hit || hit.type !== 'real' || typeof hit.value !== 'number' || !Number.isFinite(hit.value)) return undefined;
+      return Math.min(TUNER_RANGE[1], Math.max(TUNER_RANGE[0], hit.value));
+  };
+
+  const writeTuner = (name: string, value: number): boolean => {
+    let committed: number | undefined;
+    const saved = write((card) => {
+      const held = card.part(UI_VAR_MODULE);
+      if (held !== undefined && (typeof held !== 'object' || held === null || Array.isArray(held))) return false;
+      const clamped = Math.min(TUNER_RANGE[1], Math.max(TUNER_RANGE[0], value));
+      committed = clamped;
+      const key = Object.keys((held ?? {}) as object).find((k) => k.toUpperCase() === name.toUpperCase()) ?? name;
+      card.setPart(UI_VAR_MODULE, { ...(held as Record<string, unknown> | undefined), [key]: { type: 'real', value: clamped } });
+      return true;
+    });
+    if (saved && committed !== undefined) {
+      dirtyTuners.delete(name.toUpperCase());
+      optionCommitted(slots, 'tuner', name, committed);
+    } else if (dirtyTuners.delete(name.toUpperCase())) {
+      // A refused staged value must not survive as apparently saved live state after an unrelated
+      // successful edit or closing/reopening this editor. Restore the latest persisted field only.
+      const previous = savedTuner(name) ?? optionsTunerDefault(name);
+      if (previous !== null) optionCommitted(slots, 'tuner', name, previous);
+    }
+    return saved;
+  };
+  /** The staged tuner written now, if any (its timer cleared); `drop` names a tuner whose staged value a write supersedes. */
+  // REVIEW-1 F2: a tab closed or sent away mid-settle runs no dispose, so `pagehide` writes what is staged (localStorage is
+  // synchronous, so the write lands before the page goes). Listened to only while a value is staged.
+  const win = typeof globalThis.window === 'undefined' ? null : globalThis.window;
+  const onPageHide = (): void => { flushStaged(); };
+  const flushStaged = (drop?: string): void => {
+    if (settle !== null) { clearTimeout(settle); settle = null; }
+    win?.removeEventListener('pagehide', onPageHide);
+    const s = staged;
+    staged = null;
+    if (s && !(drop !== undefined && sameName(drop, s.name))) writeTuner(s.name, s.value);
   };
 
   return {
@@ -119,15 +193,10 @@ export function cardOptionStore(slots: CardSlots = pageCard): OptionStore {
       return v && !v.malformed ? valves(v.card)?.find(name)?.value : undefined;
     },
     tuner(name: string): number | undefined {
+      if (staged && sameName(staged.name, name)) return staged.value;
       const live = liveOptionValue(slots, 'tuner', name);
       if (live !== undefined) return live;
-      const v = view();
-      if (!v || v.malformed) return undefined;
-      const part = v.card.part(UI_VAR_MODULE);
-      if (typeof part !== 'object' || part === null || Array.isArray(part)) return undefined;
-      const hit = Object.entries(part as Record<string, unknown>).find(([k]) => k.toUpperCase() === name.toUpperCase())?.[1] as { type?: unknown; value?: unknown } | undefined;
-      if (!hit || hit.type !== 'real' || typeof hit.value !== 'number' || !Number.isFinite(hit.value)) return undefined;
-      return Math.min(TUNER_RANGE[1], Math.max(TUNER_RANGE[0], hit.value));
+      return savedTuner(name);
     },
     setValve(name: string, value: number): boolean {
       let committed: number | undefined;
@@ -143,20 +212,73 @@ export function cardOptionStore(slots: CardSlots = pageCard): OptionStore {
       if (saved && committed !== undefined) optionCommitted(slots, 'valve', name, committed);
       return saved;
     },
-    setTuner(name: string, value: number): boolean {
-      let committed: number | undefined;
-      const saved = write((card) => {
-        const held = card.part(UI_VAR_MODULE);
-        if (held !== undefined && (typeof held !== 'object' || held === null || Array.isArray(held))) return false;
-        const clamped = Math.min(TUNER_RANGE[1], Math.max(TUNER_RANGE[0], value));
-        committed = clamped;
-        const key = Object.keys((held ?? {}) as object).find((k) => k.toUpperCase() === name.toUpperCase()) ?? name;
-        card.setPart(UI_VAR_MODULE, { ...(held as Record<string, unknown> | undefined), [key]: { type: 'real', value: clamped } });
+    setStickPreset(value: number): boolean {
+      if (!Number.isInteger(value) || value < 0 || value > 3) return false;
+      flushStaged();
+      // Review F1: a missing Custom slider takes the STORED preset's value -- the boot's UIStoreOptions laid its three
+      // (FUN_0027b960 D:L125202-125230) and SetStickPreset under CUSTOM writes nothing (FUN_0027b790 D:L125077-125078);
+      // RECRUIT's only where the stored preset is RECRUIT or CUSTOM itself.
+      const stored = this.valve('stick_preset') ?? 0;
+      const preset = stickTunersOfPreset(value < 3 ? value : stored > 0 && stored < 3 ? stored : 0);
+      const defaults: readonly (readonly [string, number])[] = [['STICK_SENSITIVITY', preset.sensitivity], ['STICK_INERTIA', preset.inertia], ['STICK_DEADZONE', preset.deadZone]];
+      const tuners = defaults.map(([name, fallback]) => [name, value === 3 ? this.tuner(name) ?? fallback : fallback] as const);
+      const saved = write(card => {
+        const store = valves(card), held = card.part(UI_VAR_MODULE);
+        if (!store || held !== undefined && (typeof held !== 'object' || held === null || Array.isArray(held))) return false;
+        const next = { ...(held as Record<string, unknown> | undefined) };
+        for (const [name, tuner] of tuners) {
+          const key = Object.keys(next).find(k => sameName(k, name)) ?? name;
+          next[key] = { type: 'real', value: tuner };
+        }
+        store.set('stick_preset', value, VALVE_TYPE.PERSIST);
+        card.setPart(VALVE_MODULE, valveModule(store, card.part(VALVE_MODULE)));
+        card.setPart(UI_VAR_MODULE, next);
         return true;
       });
-      if (saved && committed !== undefined) optionCommitted(slots, 'tuner', name, committed);
+      if (saved) {
+        for (const [name, tuner] of tuners) optionCommitted(slots, 'tuner', name, tuner);
+        optionCommitted(slots, 'valve', 'stick_preset', value);
+      }
       return saved;
     },
+    setControllerLayout(value: number): boolean {
+      if (!Number.isInteger(value) || value < 1 || value > 4) return false;
+      const saved = write(card => {
+        const held = card.part(VALVE_MODULE), store = valves(card);
+        if (!store) return false;
+        store.set('SelectedControllerConfig', value, VALVE_TYPE.PERSIST);
+        store.set('ChosePresetOnce', 1, VALVE_TYPE.PERSIST);
+        card.setPart(VALVE_MODULE, valveModule(store, held));
+        return true;
+      });
+      if (saved) {
+        optionCommitted(slots, 'valve', 'ChosePresetOnce', 1);
+        optionCommitted(slots, 'valve', 'SelectedControllerConfig', value);
+      }
+      return saved;
+    },
+    setTuner(name: string, value: number): boolean {
+      flushStaged(name);                                       // another row's staged value first; this row's is superseded
+      return writeTuner(name, value);
+    },
+    // SS-1's D5: the live managers hear each step at once (as the in-game page's draft does, before its store); the card is
+    // written once the row settles. A refused write restores its saved field, with `refusal()` saying why.
+    stageTuner(name: string, value: number): boolean {
+      const v = view();
+      if (!v || v.malformed) return false;
+      if (staged && !sameName(staged.name, name)) flushStaged();
+      const clamped = Math.min(TUNER_RANGE[1], Math.max(TUNER_RANGE[0], value));
+      staged = { name, value: clamped };
+      dirtyTuners.add(name.toUpperCase());
+      optionCommitted(slots, 'tuner', name, clamped);
+      if (settle !== null) clearTimeout(settle);
+      settle = setTimeout(() => { settle = null; flushStaged(); }, TUNER_SAVE_SETTLE_MS_ADAPTATION);
+      win?.addEventListener('pagehide', onPageHide);
+      return true;
+    },
+    flush(): void { flushStaged(); },
+    pending: () => staged !== null,
+    observeSaves(listener) { saveListeners.add(listener); return () => { saveListeners.delete(listener); }; },
     reload(): void { snap = undefined; },
     slot(): 1 | 2 | null { const v = view(); return v ? (v.port === 0 ? 1 : 2) : null; },
     seed(rows: readonly ValveEntry[] | null): void { table = rows; },

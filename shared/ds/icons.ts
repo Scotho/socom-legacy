@@ -1,7 +1,7 @@
 /**
  * The authored marks of the public site's design guide (adopted at 1.2.0; MU.R21), drawn by the project (the teaser's
  * own, teaser@185764c3:socomlegacy/packages/viewer/src/teaser/icons.ts; licence: the repository's own GPL-3.0, no third
- * party), and 1.3.0's authored `server` mark. Ten marks on a 24-unit grid, inline so they take the text's colour (`currentColor`) and need no request.
+ * party), 1.3.0's authored `server` mark and the `leaderboard` mark (LCM-16). Eleven marks on a 24-unit grid, inline so they take the text's colour (`currentColor`) and need no request.
  * Each is decorative (`aria-hidden`, not focusable): the control's own words name it (the guide's rule, and the ds's).
  * The status mark is the public status page's nav (PST-1): a pulse line and a lamp, still `currentColor`.
  * The size is the ds scale (16, 20, 24, 40) through the existing `s2u-icon` classes, never a width attribute.
@@ -26,6 +26,9 @@ export const ICONS = {
      live site has no mark for -- two rack units, each with its lamp and a vent, in the guide marks' 1.5 stroke */
   server: `<g ${G}><rect x="4" y="4" width="16" height="7" rx="1"/><rect x="4" y="13" width="16" height="7" rx="1"/><path d="M8 7.5h.01M8 16.5h.01M12 7.5h4M12 16.5h4"/></g>`,
   status: `<g ${G}><path d="M3 12h3l2-5 4 10 2-5h3"/><circle cx="19" cy="7" r="2"/></g>`,
+  /* LCM-16 (redotcom's LIVE cards plan, LCM.R18 (e); additive): authored for the project nav's Leaderboard, which the
+     guide has no mark for -- a three-step podium under a medal, in the guide marks' 1.5 stroke, as the server mark */
+  leaderboard: `<g ${G}><path d="M4 20h16M6 20v-5h4v5M10 20V10h4v10M14 20v-7h4v7"/><circle cx="12" cy="5.5" r="2"/></g>`,
 } as const;
 
 export type IconName = keyof typeof ICONS;

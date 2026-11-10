@@ -24,7 +24,7 @@
  * - the camera's geometry (`./cameraRig`) and the server's accuracy cone over it (`./net/shotCone`, OWNER-3): the room
  *   refuses a round whose eye or aim the page's camera and cone could not have made;
  * - the fire modes' wait (`fireInterval`, `FUN_005c09f0`) the room rates rounds by, and the probe's lift
- *   (`STEP_PROBE_LIFT_READING` in `./mover`, the tick's floor pick from the feet + 5.5) a spawn is placed from.
+ *   (`probeLiftOf('stand')` in `./mover`, the tick's floor pick from the feet + 11.48, LATER 785) a spawn is placed from.
  */
 export * from './mover';
 export { Traversal } from './traversal';

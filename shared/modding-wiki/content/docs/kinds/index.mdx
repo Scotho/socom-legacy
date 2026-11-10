@@ -2,7 +2,7 @@
 title: "Pack kinds"
 description: "The content, rules and system kinds of a v2 pack, each with its status."
 status: "Format only"
-source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/handlers.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535", "socomlegacy/packages/viewer/src/pageEntry.ts:117", "socomlegacy/packages/viewer/src/forge/page.ts:1553", "socomlegacy/packages/viewer/src/forge/page.ts:955-965", "socomlegacy/packages/viewer/src/forge/matchRules.ts"]
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/handlers.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/pageEntry.ts:117", "socomlegacy/packages/viewer/src/forge/page.ts:1577", "socomlegacy/packages/viewer/src/forge/page.ts:961-971", "socomlegacy/packages/viewer/src/forge/matchRules.ts"]
 ---
 
 **Status: Format only.** Every kind is checked and a pack that passes is stored; the game's import applies none of
@@ -20,11 +20,13 @@ changes ([Pack anatomy](/anatomy/)).
 
 The earlier formats (data mods, texture packs, the model pack, HD texture packs) are not v2 kinds; they have
 [their own page](/kinds/earlier-formats/).
+A custom map is not a kind either: it is a Forge map bundle, one zip carrying a map and the v2 packs it stands on
+([Custom maps](/kinds/custom-maps/)).
 
 ## `content`
 
 Status: **Format only** (the pack-framework spec, "Content"; the viewer's `pageEntry.ts`, line 117, and the Forge's
-`page.ts`, line 1553).
+`page.ts`, line 1577).
 
 A content pack carries things to draw, hear or stand on: `mesh`, `texture`, `audio`, `collision` and `data` members,
 and a complete authored map as the member `maps/<mapId>.json` (the contract's `maps.ts`). The check has no rule of its
@@ -66,7 +68,7 @@ built on the published vocabulary only. What the rules may and may not do is on 
 
 ## `system`
 
-Status: **Planned** (the contract's `handlers.ts`; the Forge's `page.ts`, lines 955-965).
+Status: **Planned** (the contract's `handlers.ts`; the Forge's `page.ts`, lines 961-971).
 
 A system pack changes an engine system through a **handler claim**: it names a slot the engine owns and a handler
 the engine has for it, with options, and the engine runs its own code ([Pack anatomy](/anatomy/), "Handler claims").
@@ -95,3 +97,27 @@ members' capabilities.
 
 `kinds` may list more than one: a mode with its own props would be `["content", "rules"]`. The check applies each
 kind's rules to the pack, and each part of the pack is only as far along as its kind's status above.
+
+## For agents
+
+```json
+{
+  "page": "/kinds/",
+  "audience": [
+    "creators",
+    "agents"
+  ],
+  "summary": "The three kinds a v2 pack declares (content, rules, system), what each holds, and each one's status: only rules runs, in the Forge's local Play.",
+  "inputs": [
+    "what the pack should change"
+  ],
+  "outputs": [
+    "the kinds to list in the manifest"
+  ],
+  "see_also": [
+    "/anatomy/",
+    "/rules-and-limits/",
+    "/kinds/earlier-formats/"
+  ]
+}
+```

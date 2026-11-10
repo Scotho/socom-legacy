@@ -47,7 +47,7 @@ The whole HUD is off while `CHUD+0x1a6f5` bit 0 is clear (`HUD_ON`/`HUD_OFF`). E
 | 1.9 | info box: the name on the bar | the player's name, scale 0.9 | centred on the bar, baseline 411 [measured on the Vigilance frames: ink x 535-575, y 402-411] | text colour | the profile | drawn when set (`setPlayerName`); empty by default |
 | 1.10 | info box: timer line's box | `newweapnbkrnd.tif` mirrored [measured: x 488-622, y 418-438, its stripe on the left] | -- | alpha 0.6 | -- | drawn |
 | 1.11 | round timer | `"%02d:%02d"` | pen (500, 433), scale 0.9 | text colour | the round clock | drawn **static** at 06:00 (`setTimer`) |
-| 1.12 | range | `"%dm"` | pen (587, 433), scale 0.9 | text colour | the distance to what the reticle is on | drawn: the shot's own segment's hit, metres (`RangeFinder`, 5 Hz) [the game's source for the number not traced] |
+| 1.12 | the info box's number (`CHUD+0x19cc0`) | `"%d"` (0x3e3080), or `"%dm"` (0x3e3078) on the session master `DAT_0045a0c0` -- the "m" means "this console hosts", not metres; set up online only, hidden offline (`FUN_001fa360` D:L57455-57471) and rewritten each frame (`FUN_001f7ff0` D:L56605-56613) | pen (587, 433) (`DAT_003dc3a8/b0`), scale 0.9 (0x3f666666); its hides and shows below the table | text colour | the connected consoles: `FUN_0030d510(0x45a0c0)` = `zNetGetValidGameClientCount` (research 193 §M2), the network table's entries of status 1 (`FUN_00623090` D:L532383-532408, `FUN_00615160` D:L523200-523233); the archived frames show "2m" on the host, "2" on the client of a 1v1 | drawn (HUD-ALIVE, 2026-11-09; reading: HUD-ALIVE's review PASS WITH FINDINGS, its fold re-reviewed PASS WITH FINDINGS, per the merge cb57fe15c): `infoNumberText` of the room's human seats plus its spectators (`validClientCount`, `INFO_CLIENT_COUNT_READING`), "m" on the seat wearing the game lobby's host star (`INFO_SESSION_MASTER_READING`); none with no room. (Was: "range, `"%dm"`, the distance to what the reticle is on, the shot's own segment's hit (`RangeFinder`, 5 Hz) [the game's source for the number not traced]" -- the port's invention; the range readout is now a browser setting, off by default, that takes this spot when on, OT.R117.) |
 | 1.13 | stance word | `STAND`, `CROUCH`, `PRONE` (`PoseBitmap`, `CHUD+0x11ca0`; it also loads `stance_*.tif`, never drawn) | right-aligned to x 480, baseline 431, scale 0.765 in multiplayer; (545, 380) in single player (`FUN_00222010` L75149) | alpha 127 at a stance taken (`FUN_00221d90`, D:L75090), down 64 a second (`FUN_00221c40`, D:L75042-75048): gone in 2 s | the stance taken: `actor+0x105f` bit 0, raised when the stance is taken (`FUN_00552d60` once `FUN_00552ec0` accepts the request, D:L418879, D:L418899, D:L418904; seven setters besides: `FUN_00553ea0` D:L419779, `FUN_00581660`'s else D:L442472, `FUN_00581990`'s else D:L442580, `FUN_00584c60` D:L444287, and the forced-stance writers D:L438417, D:L443490, D:L443869, D:L444087), read and cleared by `FUN_00582500` (D:L442890-442900) in `FUN_00221c40` (D:L75029-75037); the word is `actor+0x374` (the stance then). LATER 403, reading, pending review | drawn when the stance is taken (`walk.stance()`; was `walk.posture()`, the body, which a crouch run stands -- and, in LATER 403's first fix, `walk.stanceIntent()`, the press, which a pending request shows too early) |
 | 1.14 | action prompt | an `action_*.tif` (HUD, 64x64) by flag (§5) | 50x50 centred on x 306, y 365..415 (`DAT_003dc628/630/640`); up to two more at x 306 -/+ 62n | base + pulse x delta (§5); pulse 0-1-0 at 5/s (`DAT_0040d750`) | the player's action flags | drawn; the climb from the traversal's `climbPrompt()` |
 | 1.15 | reticle | `ret_rifle_01/02.tif` | the frame's centre | (204, 204, 31) arms | the aim | `./reticle` (W2.4), not this pass |
@@ -56,6 +56,26 @@ The whole HUD is off while `CHUD+0x1a6f5` bit 0 is clear (`HUD_ON`/`HUD_OFF`). E
 | 1.18 | help lines | six lines of spectator/death help | x 324, baseline 380 + 18i | text colour | death, spectating | **not drawn** (no death); no "killed" format string exists in the ELF: there is no kill feed |
 | 1.19 | team list (single player) | names right-aligned at x 510 (scale 0.855; BLUDSHOT shrunk to 0.74), orders at x 545 (`FOLLOWING`, `HOLDING`, `COVERING`, ... at `0x65caa0`), a 65x14 health bar at x 450, `hud_satchel.tif` at (522, row - 11) when carrying item `0x98`; rows' baselines 379, 394, 418, 433; two mirrored `newweapnbkrnd` halves 435-640 x 364-397 and 405-438 (`CTeamNames` `FUN_00221070` L74747) | -- | alpha 80 / 0.6 x fade | the fire team | **not drawn**: single player only (the console frame's SPECTER/JESTER, WARDOG/VANDAL) |
 | 1.20 | tactical map (single player) | `CZNewHudMap`/`CZLineMap` over `AIMAPS.MPS` (§9); its 486-614 x 2-130 rect at zoom 1300 is the closed state, never drawn (corrected 2026-09-28: this row called it a radar) | 232-628 x 62-365 | -- | SELECT | drawn on `M` (§9) |
+
+**1.12's number, its every hide and show (HUD-ALIVE's review fold, F2, 2026-11-09; reading: the fold re-reviewed PASS WITH FINDINGS, per the merge cb57fe15c).** The
+number is `CHUD+0x19cc0`, its hide `+0x18` and show `+0x1c` through `+0x19ccc`:
+- *offline*: never set up -- `CHUD`'s init hides it (`FUN_001fa360` D:L57455-57456), and the hide-all hides it with the
+  timer and its box (`FUN_001f77c0` D:L56320-56324, offline only); the port draws none with no room (`infoNumber` null).
+- *online, set up*: the init writes the count and shows it (D:L57459-57474: the text at D:L57473, `FUN_001f6e10` at D:L57474), and the HUD's tick rewrites the text every
+  frame, "%d" or "%dm", with no test of the seat (`FUN_001f7ff0` D:L56605-56613).
+- *the walker's own live view*: shown, online (`FUN_001f7a90`: the online check at D:L56380, the show at D:L56381).
+- *online, the viewed controller's HUD mode (`+0x221`, `bVar1` at the top of `FUN_001f7ff0`) not 2 and the HUD's shown
+  flag `CHUD+0x1a6f4` clear*: hidden with the timer and the name tags' part (D:L56626-56630) -- no death test; the same
+  frame's SPECTATOR HUD show (D:L56803-56806) overrides it when the option is on, and with the option off D:L56826 hides
+  the number anyway, so the flag never decides the final state (why the port models it not). The flag is cleared by `FUN_001f7360` (D:L56211) and set by its pair (D:L56266) and at the init
+  (D:L57248). The port draws the number exactly where it draws the timer, and models no separate shown flag.
+- *the SPECTATOR HUD option on* (`DAT_003dc3e0`): shown each frame with the info box and the timer (D:L56803-56806) --
+  every seat, a spectator's and a dead player's watching too (research 282 §6, `SPECTATOR_INFO_NUMBER_PLACEHOLDER`
+  retired).
+- *the scoreboard up, or the option off*: hidden (D:L56808-56826, the number at D:L56826) -- the port's
+  `SCOREBOARD_HIDES` holds 'range'.
+- The range readout (OT.R117, a browser adaptation) takes the spot only for the walker; a seat viewing another keeps the
+  count.
 
 **1.13's word, case by case (LATER 414, 2026-10-24; reading, pending review).** The word is drawn only when the shown
 actor's one-time bit `+0x105f` bit 0 is set, read and cleared by `FUN_00582500` in `FUN_00221c40` (D:L75029-75037;
@@ -194,7 +214,7 @@ The draw (`FUN_003639c0` -> `FUN_003635c0` L261085 -> one sprite a glyph, `FUN_0
 
 The viewer's walk is one SEAL on a multiplayer map with no round, no team and no objectives. It shows 1.1-1.6 (the ammo
 box and the compass exactly as in a round, the compass with the map's nav points, §10), 1.8-1.12 (the info box: a full bar, the name empty unless set, the timer
-**static** at a round's 06:00, the range live), 1.13 on a stance change, 1.14 when the traversal or a caller feeds a
+**static** at a round's 06:00, the number at (587, 433) only in a room -- the consoles' count since HUD-ALIVE, 2026-11-09, §1.12; was "the range live"), 1.13 on a stance change, 1.14 when the traversal or a caller feeds a
 prompt, 1.17 on `flashMessage`. It leaves out the compass marks, the radio icon, the help lines, and the two
 single-player elements (the team list, the radar). The HUD is drawn **only in walk mode** (`hud.setVisible(walking)`)
 and fades in over 1.5 s after entering it, as after a spawn.
@@ -595,7 +615,9 @@ first -- recorded here, not changed by this task.
 - The text's vertical factor (25 x S x 448/480), its foot row offset (+0.3) and `PEN_NUDGE` (-0.6) are fitted (§3);
   the `CROUCH` word at scale 0.765 sits 0.7 high of the console's, which says the vertical model is not the code's.
 - The name's place on the bar, the timer box's rectangle and the banner are measured, not read.
-- The range readout's source in the code was not traced; the viewer uses the rifle's shot segment.
+- The range readout's source in the code was not traced; the viewer uses the rifle's shot segment. *(Resolved
+  2026-11-09, HUD-ALIVE: the info box's number is no range -- it is the connected consoles' count, §1.12; the scope's
+  `RANGE(m)` line, §13, keeps the range finder.)*
 - The fire-mode count at rest is the console frame's three (mode 2); the viewer's rifle fires fully automatic (W2.5
   reads `MaxFireMode 3` as automatic, which the HUD would show as four rounds). `setFireMode` is the switch.
 - The stance word's shadow is assumed like the other strings'. (The prompt's vertex alpha was too, at 1; read since,
@@ -612,8 +634,13 @@ holds its row too (its LATER-414 group). LATER 492's review (2026-10-26) adds `S
 `MESSAGE_TEXT_SCALE_READING` (`packages/viewer/src/hudMessagePanel.ts`). BOMB-MARKS (2026-11-06, §12 "The satchel,
 built"; reading, pending review) adds `SCOREBOARD_SATCHEL_RGBA_READING` (`packages/viewer/src/scoreboard.ts`).
 
+HUD-ALIVE (2026-11-09, §1.12; reading: HUD-ALIVE's review PASS WITH FINDINGS, its fold re-reviewed PASS WITH FINDINGS, per the merge cb57fe15c) adds `INFO_CLIENT_COUNT_READING` and
+`INFO_SESSION_MASTER_READING` (`packages/viewer/src/hud.ts`); research 101 §6 lists them too.
+
 | name | stands for | value in the code | the evidence that settles it |
 |---|---|---|---|
+| `INFO_CLIENT_COUNT_READING` | who the info box's number counts (§1.12): the original's valid game clients, the network table's entries of status 1 (`FUN_00623090` D:L532383-532408, `FUN_00615160` D:L523200-523233), every connected console, players and spectators | `'the human seats among the score rows plus the spectators'` (`hud.ts` `validClientCount`; bots are no consoles) | whether a parked or reconnecting seat (OT.R59, NET-RES.R6) and a console mid-join count, traced through `FUN_00615160`'s status writers; or a capture of a 2v2 with a spectator joining (the scope's capture plan, frame 5) |
+| `INFO_SESSION_MASTER_READING` | which console draws the "m" (§1.12): the session master `DAT_0045a0c0` (`FUN_001f7ff0` D:L56607-56611); the match server is the host here (`@s2u/match` `gameLobby.ts`'s header) | `"the seat wearing the game lobby's host star; none in a room without a game lobby"` (`hud.ts`; `NetClient.sessionMaster`) | a capture after a host handover, the new host's frame; the archived frames ("2m" host, "2" client) agree on the plain case |
 | `MAP_ACTION_CAPTION_READING` | LkPaioX5 part 2 (b), §5 "The action list": an allowed map action's caption -- its `actions.rdr` `descriptor`, else `FUN_002b48e0`'s type text (OPEN DOOR / CLOSE DOOR by the valve, FLIP SWITCH, ...), else UNKNOWN (`FUN_002209c0` D:L74567-74582); a `tcm` action's text (D:L74405-74416). Reading, pending review | `'not drawn: ...'` (`hud.ts`): the port reads neither key | the `descriptor` and `tcm` keys read into `mapActions.ts`'s records and the door's valve state at the rebuild; a capture of a door's and a switch's captions |
 | `ACTION_CAPTION_EMPTY_READING` | LkPaioX5 part 2 (b): the label once the list is empty (`FUN_0021f210` returns at D:L73904-73905 before `FUN_00220350`) or a pick-up without a weapon (D:L74470): nothing found hides or clears it. Reading, pending review | `'none: ...'` (`hud.ts`) | the label's hide traced (the HUD's frame), or a capture of a prompt going away |
 | `ACTION_ICON_FADE_OUT_READING` | LkPaioX5 part 2 (a), §5 "The action list": a record that leaves the action list keeps its last place and colour and fades at 400 a second (`FUN_002200c0` D:L74312-74382, after the draw at D:L73399); only list[3] on are hidden (D:L74028). Reading, pending review | `'hidden at once: ...'` (`hud.ts`): the fade-out is not drawn | a capture of a prompt leaving (a door walked away from), frame by frame |

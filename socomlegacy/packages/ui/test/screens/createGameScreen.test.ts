@@ -35,13 +35,15 @@ async function named(r: Rig, name: string): Promise<void> {
   await r.settle(10);
 }
 /** The PLAY LIST's rows as `GetAvailableMPMissions` lists them for the first release (OT.R16): `missionlist.rdr`'s order. */
-const VIGILANCE = 0, CROSSROADS = 1, FROSTFIRE = 2, NIGHT_STALKER = 3;
+// V13-2, V13-3, DF-14: eight rows in missionlist.rdr's order -- FISH HOOK (MP71, its 7th record), BLIZZARD (MP1, its 13th),
+// DESERT GLORY (MP6, its 16th) and THE RUINS (MP12, its 22nd) among them; every row after VIGILANCE shifted by DF-14.
+const VIGILANCE = 0, FISH_HOOK = 1, CROSSROADS = 2, BLIZZARD = 3, FROSTFIRE = 4, DESERT_GLORY = 5, NIGHT_STALKER = 6, THE_RUINS = 7;
 /** AVAILABLE MAPS' focus moved to row `i` (LEFT first when the selected list holds it), each step one press. */
 function at(r: Rig, i: number): void {
   if (r.focused() !== 'AVAILABLE_MISSIONS') r.press('LEFT', 8);
   expect(r.focused()).toBe('AVAILABLE_MISSIONS');
-  for (let k = 0; k < 4 && r.list('AVAILABLE_MISSIONS').focus < i; k++) r.press('DOWN', 3);
-  for (let k = 0; k < 4 && r.list('AVAILABLE_MISSIONS').focus > i; k++) r.press('UP', 3);
+  for (let k = 0; k < 8 && r.list('AVAILABLE_MISSIONS').focus < i; k++) r.press('DOWN', 3);
+  for (let k = 0; k < 8 && r.list('AVAILABLE_MISSIONS').focus > i; k++) r.press('UP', 3);
   expect(r.list('AVAILABLE_MISSIONS').focus).toBe(i);
 }
 /** The play list made: SelectGames' CROSS, then CROSS on each row index given, then SQUARE (accept_play_list). */
@@ -139,13 +141,13 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
     expect([r.valve('PasswordValve'), r.str('PlayerGamePassword'), r.text('passwd_toggle_val')]).toEqual([0, '', 'NO']);
   });
 
-  it('the PLAY LIST popup lists only Vigilance, Crossroads, Frostfire and Night Stalker, in missionlist.rdr order, every row taken; no Medley, no Random (OT.R16, OT.R45, R164.3)', async () => {
+  it('the PLAY LIST popup lists only Vigilance, Fish Hook, Crossroads, Blizzard, Frostfire, Desert Glory, Night Stalker and The Ruins, in missionlist.rdr order, every row taken; no Medley, no Random (OT.R16, OT.R45, R164.3, V13-2, V13-3, DF-14)', async () => {
     const r = await screen();
     r.go('SelectGames');
     r.press('CROSS', 10);
     expect(r.node('pop_missionBack')!.visible).toBe(true);
     expect(r.focused()).toBe('AVAILABLE_MISSIONS');
-    expect(rows(r, 'AVAILABLE_MISSIONS')).toEqual(['51 VIGILANCE', '72 CROSSROADS', '2 FROSTFIRE', '7 NIGHT STALKER']);
+    expect(rows(r, 'AVAILABLE_MISSIONS')).toEqual(['51 VIGILANCE', '71 FISH HOOK', '72 CROSSROADS', '1 BLIZZARD', '2 FROSTFIRE', '6 DESERT GLORY', '7 NIGHT STALKER', '12 THE RUINS']);
     const items = r.list('AVAILABLE_MISSIONS').items;
     expect(items.map((it) => Number(it.captions[0])).sort((a, b) => a - b)).toEqual([...FIRST_RELEASE_MAPS].sort((a, b) => a - b));
     expect(items.every((it) => it.selectable && it.colors[1] === null)).toBe(true);     // plain rows: no keyed cell, no colour of their own
@@ -159,7 +161,10 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
     r.press('CROSS', 10);
     const pictures = (): string[] => [...r.node('CGBack')!.parent!.children].filter((n) => /^CG(Back|Pic\d+|SS\d+)$/.test(n.name) && n.visible).map((n) => n.name);
     const file = (name: string): string | null => { const c = r.node(name)?.content; return c?.kind === 'sprite' ? c.sprite.texture : null; };
-    for (const [index, n] of [[VIGILANCE, 51], [CROSSROADS, 72], [FROSTFIRE, 2], [NIGHT_STALKER, 7], [FROSTFIRE, 2], [CROSSROADS, 72], [VIGILANCE, 51]] as const) {
+    for (const [index, n] of [
+      [VIGILANCE, 51], [FISH_HOOK, 71], [CROSSROADS, 72], [BLIZZARD, 1], [FROSTFIRE, 2], [DESERT_GLORY, 6], [NIGHT_STALKER, 7], [THE_RUINS, 12],
+      [NIGHT_STALKER, 7], [DESERT_GLORY, 6], [FROSTFIRE, 2], [BLIZZARD, 1], [CROSSROADS, 72], [FISH_HOOK, 71], [VIGILANCE, 51],
+    ] as const) {
       at(r, index);
       expect(r.list('AVAILABLE_MISSIONS').items[index]!.captions[0]).toBe(String(n));
       expect(pictures().sort()).toEqual(['CGBack', `CGPic${n}`]);
@@ -168,7 +173,7 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
   });
 
   it('SQUARE accepts the play list on one press from any row (accept_play_list): the popup closed, PLAY LIST showing it', async () => {
-    for (const row of [VIGILANCE, CROSSROADS, FROSTFIRE, NIGHT_STALKER]) {
+    for (const row of [VIGILANCE, FISH_HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT_GLORY, NIGHT_STALKER, THE_RUINS]) {
       const r = await screen();
       r.go('SelectGames');
       r.press('CROSS', 10);
@@ -182,7 +187,7 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
   });
 
   it('TRIANGLE and RIGHT answer on every row: RIGHT moves to the selected list (missiondel_activate), TRIANGLE asks #811 (Back_out_from_play_list)', async () => {
-    for (const row of [VIGILANCE, CROSSROADS, FROSTFIRE, NIGHT_STALKER]) {
+    for (const row of [VIGILANCE, FISH_HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT_GLORY, NIGHT_STALKER, THE_RUINS]) {
       const r = await screen();
       r.go('SelectGames');
       r.press('CROSS', 10);
@@ -198,13 +203,16 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
     }
   });
 
-  it('Crossroads, Vigilance, Frostfire and Night Stalker are added in any order (add_a_mission): row 0 is a map, not Medley, and adds beside the rest', async () => {
+  it('Crossroads, Vigilance, Fish Hook, Blizzard, Frostfire, Desert Glory, Night Stalker and The Ruins are added in any order (add_a_mission): row 0 is a map, not Medley, and adds beside the rest', async () => {
     const orders = [
       [CROSSROADS, VIGILANCE, FROSTFIRE], [VIGILANCE, CROSSROADS, FROSTFIRE], [FROSTFIRE, CROSSROADS, VIGILANCE],
       [VIGILANCE, FROSTFIRE, CROSSROADS], [CROSSROADS, FROSTFIRE, VIGILANCE], [FROSTFIRE, VIGILANCE, CROSSROADS],
       [NIGHT_STALKER, VIGILANCE, FROSTFIRE, CROSSROADS], [CROSSROADS, NIGHT_STALKER, FROSTFIRE, VIGILANCE],
+      [THE_RUINS, BLIZZARD, VIGILANCE], [BLIZZARD, THE_RUINS, NIGHT_STALKER, CROSSROADS],                    // V13-2, V13-3
+      [DESERT_GLORY, FISH_HOOK, VIGILANCE], [FISH_HOOK, DESERT_GLORY, THE_RUINS, CROSSROADS],                // DF-14
     ];
-    const NAME = ['51 VIGILANCE', '72 CROSSROADS', '2 FROSTFIRE', '7 NIGHT STALKER'], NUMBER = [51, 72, 2, 7];
+    const NAME = ['51 VIGILANCE', '71 FISH HOOK', '72 CROSSROADS', '1 BLIZZARD', '2 FROSTFIRE', '6 DESERT GLORY', '7 NIGHT STALKER', '12 THE RUINS'];
+    const NUMBER = [51, 71, 72, 1, 2, 6, 7, 12];
     for (const order of orders) {
       const r = await screen();
       r.go('SelectGames');
@@ -221,7 +229,7 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
       const v = r.uiVars.find('PLAYLISTVAR')!.value;
       expect(v.type === 'array' ? v.value.map((e) => (e.type === 'array' && e.value[0]!.type === 'int' ? e.value[0]!.value : -1)) : []).toEqual(order.map((i) => NUMBER[i]));
     }
-  });
+  }, 30_000); // twelve orders over eight-row walks: ~3.4 s alone, past vitest's 5 s default beside other files (REVIEW-DF-14-1 F1)
 
   it('CROSS on Vigilance and Frostfire adds them, a repeat too; SQUARE writes PLAYLISTVAR as [number, name] rows and PLAY LIST shows it', async () => {
     const r = await screen();

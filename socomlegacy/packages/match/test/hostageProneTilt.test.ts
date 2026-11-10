@@ -4,7 +4,7 @@ import { groundGrid, packGround, PROTOCOL_VERSION, type SimMap } from '../../vie
 import { HOSTAGE_PRONE_TILT_READING, remoteTiltStep } from '../../viewer/src/remotePlayers';
 import type { V3 } from '../../viewer/src/net/hitVolumes';
 import { Room, type Conn } from '../src/room';
-import { ACTION_CLIPS, ACTION_SECONDS, STEP_PROBE_LIFT_READING, TICK } from '../../viewer/src/mover';
+import { ACTION_CLIPS, ACTION_SECONDS, probeLiftOf, TICK } from '../../viewer/src/mover';
 import { rootTiltStart, rotateByQuat, stepRootTilt, tiltTopOfSnapshot, tiltWindowOf } from '../../viewer/src/rootTilt';
 import { HostageFollow, type FollowPlanner } from '../src/hostageFollow';
 
@@ -43,7 +43,7 @@ describe('a knocked hostage on a slope (LATER 354 with FUN_00548090)', () => {
       const top = tiltTopOfSnapshot({ stance: 'stand', action: follow.action, hold: null, traversal: null }, frames, seconds);
       for (let f = clock.advance(TICK); f > 0; f--) copy = stepRootTilt(copy, {
         normal: () => {                                               // the page's pick (`remoteTilt`) under the feet
-          const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + STEP_PROBE_LIFT_READING, feet[1]);
+          const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + probeLiftOf('stand'), feet[1]);
           if (f) normal = [f.normal[0], f.normal[1], f.normal[2]];
           return normal;
         }, yaw: follow.yaw, span: tiltWindowOf(top.clip), phase: top.phase,
@@ -85,7 +85,7 @@ describe('PRONE-TILT-2 review F1: a prone (get-down) hostage caught by a blast o
       const feet = follow.feet;
       const snap = { stance: 'prone' as const, action: follow.action, hold: null, traversal: null, yaw: follow.yaw, airborne: follow.airborne };
       for (let f = clock.advance(TICK); f > 0; f--) copy = remoteTiltStep(copy, snap, () => {
-        const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + STEP_PROBE_LIFT_READING, feet[1]);
+        const f = selectFloor(probeGround(grid, feet[0], feet[2]), feet[1] + probeLiftOf(snap.stance), feet[1]);   // `remoteTilt`'s lift: the stance word, prone (no stanceState), LATER 785
         return f ? f.normal : [0, 1, 0];
       }, true);
       expect(copy.q).toEqual(follow.rootTilt);

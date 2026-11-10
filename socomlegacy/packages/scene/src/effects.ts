@@ -37,8 +37,9 @@ export const ZANIM_COMMAND_NAMES: readonly string[] = [
 export const ZCMD = {
   QUAD_ALIGN: 1, IF: 2, ELSEIF: 3, ELSE: 4, ENDIF: 5, RANGE_TEST: 9, RANDOM_WEIGHT: 10, FAIL: 11, LOOP: 14, WAIT: 15,
   OBJECT_ACTIVE_STATE: 17, OBJECT_TRANSLATE_STATE: 18, OBJECT_ROTATE_STATE: 19, OBJECT_MOTION: 21,
-  OBJECT_MOTION_FROM_TO: 22, OBJECT_OPACITY_FROM_TO: 25, PARTICLE_SOURCE: 27, SOUND: 30, LIGHT: 32, EXPRESSION: 43, CALL_ANIMATION: 45,
+  OBJECT_MOTION_FROM_TO: 22, SCROLL_MOTION: 24, OBJECT_OPACITY_FROM_TO: 25, PARTICLE_SOURCE: 27, SOUND: 30, LIGHT: 32, EXPRESSION: 43, CALL_ANIMATION: 45,
   STOP_SEQUENCE: 51, VALVE: 61, WHILE: 39, END_WHILE: 40, CALL_SEQUENCE: 50, STOP_ANIMATION: 46, PAUSE_ANIMATION: 47,
+  INVALIDATE_ANIMATION: 49,
   MESSAGE: 55, DESTRUCTION_SOURCE: 29, FIRE_WEAPON: 57, OBJECT_MAKE_WORLDCHILD: 6, FOR_CHILDREN: 41, END_FOR_CHILDREN: 42,
   /**
    * `EXECUTE_ACTION` (MAP-06; research 174 s3, 209 s13): registered by the action module after `VALVE`, numbered on in
@@ -217,11 +218,38 @@ export type EffectOp =
    * sits there, and reading them as the motion is what made the hooks decode as a zero scale (research 176 §9.2). The
    * viewer's general `fromTo` host still applies that scale; `viewer/src/cranes.ts` and `viewer/src/gates.ts` (MAP-07)
    * are what consume `translation`.
+   *
+   * The speed profile (DF-9, research 387 §12; flags 0x800 or 0x1000): the begin takes the block at the u16 +0x0e
+   * (`FUN_0025fe70` D:L109097-109098), starts its phase at the first of its three times above 0 and its speed at the
+   * start speed, and keeps the unit direction from the start to the target (D:L109263-109289); the tick then moves the
+   * node by `FUN_002606f0` (D:L108997, D:L109348-109434) in place of the rate -- phase 1 adds `accel` x dt to the
+   * speed for `times[0]`, phase 2 holds the cruise speed for `times[1]`, phase 3 adds `decel` x dt until the command's
+   * time is up, the node moved by the speed along the direction -- and sets the target at the end unless flag 0x2000
+   * (D:L108958-108972). The begin recomputes the times from the distance (`FUN_00260910` D:L109438-109505, called at D:L109259) only when it
+   * also took the start or the target from a node; MP71's washups take neither (flag 2, P+0's bits clear), so the disc's
+   * times stand. Nothing runs it yet (`WASHUP_MOTION_PLACEHOLDER`, viewer `worldState.ts`).
    */
   | {
     op: 'fromTo'; node: number; flags: number; seconds: number; from: Vec3; to: Vec3;
     rotation?: { from: Quat4; to: Quat4 };
     translation?: { from: Vec3 | null; to: Vec3; rate: Vec3 };
+    profile?: { speeds: Vec3; accel: number; decel: number; times: Vec3 };
+  }
+  /**
+   * `SCROLL_MOTION` (24; DF-9, research 387 §12; `FUN_0025bc20`'s 24th registration, D:L106888): begin `FUN_00260fb0`
+   * (D:L109681-109703) keeps the world place of the node at +7 (`mover`) and registers every visual at and under the
+   * node at +6 (`node`) in the texture-scroll table (`FUN_003134c0` D:L213767ff, 0x4b50d0), its offset 0; the tick
+   * `FUN_00260b40` (D:L109507-109676) measures how far `mover` travelled since the last tick -- signed by the axis at
+   * +0x14 carried through `mover`'s matrix (its x and z, D:L109635-109655) -- and moves those visuals' texture
+   * coordinates by `uv` times it (`FUN_003c0280` -> `FUN_003bfee0` D:L313770ff: each vertex's u and v, in 1/4096ths).
+   * Flag 8 measures the travel projected through `node`'s matrix instead (`projected`: the point at +0x20, the axis at
+   * +0x2c with flag 0x10, else up; D:L109576-109631); flags 2 and 4 pick the scroll table's walk (`FUN_003bfee0`'s
+   * last two arguments, D:L109627-109629, unread); flag 1 ends it after `seconds` (+0x44, D:L109663-109674), else it runs until its
+   * animation stops. Was decoded as `other`. Nothing runs it yet (`SCROLL_MOTION_PLACEHOLDER`, viewer `worldState.ts`).
+   */
+  | {
+    op: 'scroll'; node: number; mover: number; flags: number; axis: Vec3; uv: [number, number]; seconds: number | null;
+    projected?: { point: Vec3; axis: Vec3 };
   }
   | { op: 'motion'; motion: ObjectMotion }
   /**
@@ -247,8 +275,13 @@ export type EffectOp =
   | { op: 'sound'; sound: string; node: number; volume: number; flags?: number; newPlay?: boolean }
   /** `LIGHT` (32): a dynamic light (`ZAnimLight`). */
   | { op: 'light'; light: ZAnimLight }
-  /** `CALL_ANIMATION` (45; begin `FUN_0025d5c0`): the animation named at +7, run at this one's place. */
-  | { op: 'call'; anim: string }
+  /**
+   * `CALL_ANIMATION` (45; begin `FUN_0025d5c0`): the animation named at +7, run at this one's place. Flag 4 (the u16 at
+   * +4): `caller`, the node at +9, handed to the callee as a type-3 context entry -- its `NODE_CALLER` (D:L107605-107613;
+   * `FUN_0026f4e0` D:L118164-118168); flag 8: `place`, the node at +10, whose world position the call takes
+   * (`FUN_00310980`, D:L107620-107629). Research 386 §3.3: the death debris' `*_flypart*` calls, one per part.
+   */
+  | { op: 'call'; anim: string; caller?: number; place?: number }
   /** `STOP_SEQUENCE` (51): this animation's sequence named at +4 (a name index). */
   | { op: 'stopSequence'; sequence: string }
   /** `FAIL` (11): the animation stops. */
@@ -275,6 +308,15 @@ export type EffectOp =
    * keeps them (and their particle sources) alive with nothing left to run.
    */
   | { op: 'pauseAnimation'; anim: string }
+  /**
+   * `INVALIDATE_ANIMATION` (49; tick `FUN_0025d2b0` D:L107355-107373, the 49th registration of `FUN_0025bc20`,
+   * D:L106913): the animation the name byte +4 names -- found as `STOP_ANIMATION` finds its own (`FUN_0026e4c0`
+   * D:L117534ff: the call slot of that name, made on first use with the definition looked up by `set::name`) -- or, for
+   * 0, the running one (`anim` null), has its instance's `+0x34` bit 0 set: every later start of it is refused
+   * (`FUN_00270ef0` D:L119142) until its set starts again (`FUN_0026c600` D:L116340-116344). Done at once; what runs
+   * goes on. Desert Glory's ten (research 175 §5.1.1) each name their own animation.
+   */
+  | { op: 'invalidate'; anim: string | null }
   | { op: 'endWhile' }
   /** `VALVE` (61; `FUN_00353fd0`, decomp 252128): the valve (a name index when flag 2) and an operation on it: 0x0b set, 0x0c add, 0x0d subtract; 1-6 the tests. */
   | { op: 'valve'; valve: string; operation: number; operand: number; context?: true }
@@ -459,11 +501,23 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
       // The flashes' form (flags 0x300): +0x34 the time, +0x38 from, +0x44 to, +0x50 the rate -- which is (to - from) /
       // time on every one of them (research 89 §4), the check that the reading is right. Those two vectors stay the
       // scale reading. A position block (u16 +0x0c, research 174 §5 / 176 §9.2, `uiZanim` `move`) is separate.
-      const flags = c.u16(4), p = c.u16(0x0c);
+      const flags = c.u16(4), p = c.u16(0x0c), q = c.u16(0x0e);
       return {
         op: 'fromTo', node: c.i8(6), flags, seconds: c.f32(0x34), from: c.vec3(0x38), to: c.vec3(0x44),
         ...((flags & 0x40) !== 0 ? { rotation: { from: c.quat(0x10), to: c.quat(0x20) } } : {}),
         ...(p !== 0 ? { translation: { from: (flags & 2) !== 0 ? c.vec3(p + 4) : null, to: c.vec3(p + 0x10), rate: c.vec3(p + 0x1c) } } : {}),
+        // DF-9: the speed profile's block (`FUN_0025fe70` D:L109097-109098; `FUN_002606f0`'s +0x00..+0x1c).
+        // Taken at param_1 + u16(+0x0e) unconditionally under either flag, as the original does.
+        ...((flags & 0x1800) !== 0
+          ? { profile: { speeds: c.vec3(q), accel: c.f32(q + 0xc), decel: c.f32(q + 0x10), times: c.vec3(q + 0x14) } } : {}),
+      };
+    }
+    case ZCMD.SCROLL_MOTION: {
+      const flags = c.u8(4);
+      return {
+        op: 'scroll', node: c.i8(6), mover: c.i8(7), flags, axis: c.vec3(0x14), uv: [c.f32(0x38), c.f32(0x3c)],
+        seconds: (flags & 1) !== 0 ? c.f32(0x44) : null,
+        ...((flags & 8) !== 0 ? { projected: { point: c.vec3(0x20), axis: (flags & 0x10) !== 0 ? c.vec3(0x2c) : [0, 1, 0] as Vec3 } } : {}),
       };
     }
     case ZCMD.OBJECT_OPACITY_FROM_TO:
@@ -475,7 +529,10 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
       return { op: 'sound', sound: NAME(names, c.u16(6)), node: c.i8(16), volume: (flags & SOUND_VOLUME) !== 0 ? c.f32(8) : 1, flags, newPlay: SOUND_NEW_PLAY(flags) };
     }
     case ZCMD.LIGHT: return { op: 'light', light: decodeLight(c) };
-    case ZCMD.CALL_ANIMATION: return { op: 'call', anim: NAME(names, c.u8(7)) };
+    case ZCMD.CALL_ANIMATION: {
+      const flags = c.u16(4);
+      return { op: 'call', anim: NAME(names, c.u8(7)), ...(flags & 4 ? { caller: c.i8(9) } : {}), ...(flags & 8 ? { place: c.i8(10) } : {}) };
+    }
     case ZCMD.STOP_SEQUENCE: return { op: 'stopSequence', sequence: NAME(names, c.u16(4)) };
     case ZCMD.WHILE: {
       const forever = (c.u8(4) & 1) !== 0, list = forever ? [] : conditions(c, names);
@@ -488,6 +545,8 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.CALL_SEQUENCE: return { op: 'callSequence', sequence: NAME(names, c.u16(4)) };
     case ZCMD.STOP_ANIMATION: return { op: 'stopAnimation', anim: NAME(names, c.u16(4)) };
     case ZCMD.PAUSE_ANIMATION: return { op: 'pauseAnimation', anim: NAME(names, c.u16(4)) };
+    // `FUN_0025d2b0` tests the byte +4 alone (D:L107363); a name index otherwise (`FUN_0026e4c0`'s `param_2`).
+    case ZCMD.INVALIDATE_ANIMATION: return { op: 'invalidate', anim: c.u8(4) === 0 ? null : NAME(names, c.u8(4)) };
     case ZCMD.END_WHILE: return { op: 'endWhile' };
     case ZCMD.FAIL: return { op: 'fail' };
     case ZCMD.VALVE: return { op: 'valve', ...valveOf(c, names) };

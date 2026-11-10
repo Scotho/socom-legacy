@@ -377,15 +377,27 @@ describe('the mounted Forge: its cards on the stack (FUI-2)', () => {
     press(START);
   }, 90_000);
 
-  it('a destructive confirm (START > Base, Cross, Cross) starts on Cancel: the second Cross does not drop the layout', async () => {
+  // OT.R112 (the Forge's UI is its contributor's): the menu's base row is "New layout", which opens New's card (a base
+  // list, Cancel, Next); over an edited layout Next asks "Save this layout first?" (Cancel, Don't save, Save first), its
+  // focus on Save first (daed4f539, `askSaveFirst`). No Cross from there drops the layout: the second opens the name card.
+  it('New over an edited layout (START > New layout, Cross, Next) asks to save first: the next Cross does not drop the layout', async () => {
     const api = await mounted();
     expect(await api.execute('spawn.place', { team: 'A', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
-    menuTo('Base');
+    menuTo('New layout');
     press(CROSS);
-    expect(topHeading()).toBe('Start a new layout?');
-    expect(document.activeElement?.textContent).toBe('Cancel');
-    expect(topCard()!.querySelector('.is-pad-focused')?.textContent).toBe('Cancel');
+    expect(topHeading()).toBe('New layout');
+    topCard()!.querySelector<HTMLButtonElement>('button.fx-primary')!.click();       // Next, the base as it is
+    await vi.waitFor(() => expect(topHeading()).toBe('Save this layout first?'));
+    const ask = topCard()!;
+    expect([...ask.querySelectorAll('footer button')].map((b) => b.textContent)).toEqual(['Cancel', 'Don’t save', 'Save first']);
+    expect(document.activeElement?.textContent).toBe('Save first');
+    expect(ask.querySelector('.is-pad-focused')?.textContent).toBe('Save first');
     press(CROSS);
+    await flush();
+    await flush();
+    expect(topHeading()).toBe('Save this layout');                                    // the name card: nothing dropped yet
+    expect(api.read().layout!.spawns).toHaveLength(1);
+    press(CIRCLE);
     await flush();
     await flush();
     expect(topCard()).toBeNull();

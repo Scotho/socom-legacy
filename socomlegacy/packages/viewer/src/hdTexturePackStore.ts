@@ -17,6 +17,8 @@ export interface HdStore {
   file(name:string):Promise<Uint8Array|null>;
   /** Replaces the kept pack with `meta` and the files `read` yields, in order; the old pack is gone only once the new one is whole. */
   replace(meta:HdStoredMeta,names:string[],read:(name:string)=>Promise<Uint8Array>):Promise<void>;
+  /** B206 ML-1 (ML.R7): drops the kept pack, its pointer first, then its files (MODS' Remove). Optional: a fake may omit it. */
+  remove?():Promise<void>;
 }
 export const HD_STORE_DB='s2u.hdTexturePack';
 const FILES='files',META='meta';
@@ -28,6 +30,7 @@ export function memoryHdStore():HdStore{
     current:async()=>meta,
     file:async(name)=>meta?files.get(`${meta.id}/${name}`)??null:null,
     async replace(m,names,read){const next=new Map<string,Uint8Array>();for(const n of names)next.set(`${m.id}/${n}`,await read(n));files=next;meta=m;},
+    async remove(){meta=null;files=new Map();},
   };
 }
 
@@ -62,7 +65,17 @@ export function idbHdStore(factory:()=>IDBFactory|null|undefined=pageIndexedDb,K
     current:()=>get<HdStoredMeta>(META,'current'),
     async file(name){const m=await get<HdStoredMeta>(META,'current');return m?get<Uint8Array>(FILES,`${m.id}/${name}`):null;},
     replace(m,names,read){return locks?locks.request(HD_STORE_LOCK,()=>replaceNow(m,names,read,true)):replaceNow(m,names,read,false);},
+    // B206 ML-1: the pointer goes first (the pack is gone for every reader at once), then every file, under the same
+    // lock a replacement holds, so a removal never takes another tab's import in progress.
+    remove(){return locks?locks.request(HD_STORE_LOCK,()=>removeNow(true)):removeNow(false);},
   };
+  async function removeNow(alone:boolean):Promise<void>{
+    const d=await db(),old=await get<HdStoredMeta>(META,'current');
+    const t=d.transaction(META,'readwrite');t.objectStore(META).delete('current');await done(t);
+    const c=d.transaction(FILES,'readwrite');
+    if(alone)c.objectStore(FILES).clear();else if(old)c.objectStore(FILES).delete(Keys.bound(`${old.id}/`,`${old.id}/\uffff`));
+    await done(c);
+  }
   async function replaceNow(m:HdStoredMeta,names:string[],read:(name:string)=>Promise<Uint8Array>,alone:boolean):Promise<void>{
       const d=await db(),old=await get<HdStoredMeta>(META,'current');
       const range=(id:string)=>Keys.bound(`${id}/`,`${id}/\uffff`);
@@ -92,8 +105,10 @@ export function idbHdStore(factory:()=>IDBFactory|null|undefined=pageIndexedDb,K
  * per-map import reads it instead; a refusal (`HdRefusal`) with the reason when it is one that does not check out --
  * the kept pack is then untouched.
  */
-export async function importHdZip(file:Blob,store:HdStore):Promise<{name:string;textures:number;bytes:number}|null>{
-  const zip=await openZip(blobSource(file));
+export async function importHdZip(file:Pick<Blob,'size'|'slice'>,store:HdStore,
+  /** B206 ML-1: the import's progress, files and bytes read into the store (MODS' one progress stream). */
+  onProgress?:(files:number,bytes:number)=>void):Promise<{name:string;textures:number;bytes:number}|null>{
+  const zip=await openZip(blobSource(file as Blob));
   const pointer=zip.members.find(m=>/(^|\/)experimental-packs\/hd\/current\.json$/.test(m.name));
   if(!pointer)return null;
   if(pointer.size>1024)throw new HdRefusal('current.json is over 1 KiB');
@@ -114,6 +129,63 @@ export async function importHdZip(file:Blob,store:HdStore):Promise<{name:string;
   }
   const names=['manifest.json',...sizes.keys()];
   const meta:HdStoredMeta={id:p.packId,name:manifest.name,textures:manifest.entries.length,bytes:manifest.totalBytes,importedAt:new Date().toISOString()};
-  await store.replace(meta,names,async n=>n==='manifest.json'?mb:zip.read(byName.get(`${root}${p.packId}/${n}`)!));
+  let files=0,bytes=0;
+  await store.replace(meta,names,async n=>{
+    const b=n==='manifest.json'?mb:await zip.read(byName.get(`${root}${p.packId}/${n}`)!);
+    files++;bytes+=b.length;onProgress?.(files,bytes);return b;
+  });
   return {name:manifest.name,textures:manifest.entries.length,bytes:manifest.totalBytes};
+}
+
+/**
+ * B206 ML-12 (plan 2026-11-06-mods-loader, ML.R16; `TEST_HD_PACK_BUTTON_ADAPTATION`, removed with it by ML-13): an HD pack
+ * read from a source that is not a zip -- the served layout fetched (`./hdTexturePackServed` `servedHdSource`) -- for the
+ * MODS screen's temporary "Add test HD texture pack". `pointer` is `current.json`; `manifest` the pack's manifest by its
+ * id; `payload` one entry's file, bounded by the source.
+ */
+export interface HdPackSource {
+  pointer():Promise<Uint8Array>;
+  manifest(packId:string):Promise<Uint8Array>;
+  payload(packId:string,entry:{file:string;bytes:number}):Promise<Uint8Array>;
+}
+/**
+ * ML-12: the pack is not served here -- `current.json` is missing (a 404, or the static host's HTML).
+ * `TEST_HD_PACK_BUTTON_ADAPTATION` says it in words ("The test HD pack is not available yet").
+ */
+export class HdNotServed extends HdRefusal {constructor(){super('the HD pack is not served here');this.name='HdNotServed';}}
+/**
+ * The source's pack checked as `importHdZip` checks a zip's -- the pointer under 1 KiB naming a pack, the manifest its id
+ * and valid, each payload present and within its entry's size -- and kept whole in `store` (a failure part-way keeps
+ * the pack in use, `HdStore.replace`'s rule); each payload's decoded hash is checked by the runtime as it applies it, as
+ * for an imported zip. A pack already kept under the same id is not fetched again (`fetched` false). `onProgress`: the
+ * files and bytes kept, the manifest's `totalBytes` (the decoded size, not the download's) and the files to fetch
+ * (`ofFiles`, the manifest and each payload: ML-9's F3, the count a download's words reach the end of); `ofBytes`
+ * (LATER 742) the bytes to fetch -- the manifest's and its `packedBytes` -- or null for a pack that names none.
+ */
+export async function installHdFromSource(source:HdPackSource,store:HdStore,onProgress?:(files:number,bytes:number,total:number,ofFiles:number,ofBytes:number|null)=>void)
+  :Promise<{id:string;name:string;textures:number;bytes:number;fetched:boolean}>{
+  const raw=await source.pointer();
+  if(raw.length>1024)throw new HdRefusal('current.json is over 1 KiB');
+  const p=JSON.parse(new TextDecoder().decode(raw)) as {version?:unknown;packId?:unknown};
+  if(p?.version!==1||!hashString(p.packId))throw new HdRefusal('current.json does not name a pack');
+  const packId=p.packId;
+  const kept=await store.current().catch(()=>null);
+  if(kept?.id===packId)return {id:packId,name:kept.name,textures:kept.textures,bytes:kept.bytes,fetched:false};
+  const mb=await source.manifest(packId);
+  if(mb.length>HD_LIMITS.manifestBytes)throw new HdRefusal('the manifest is over its bound');
+  if(await sha256(mb)!==packId)throw new HdRefusal('the manifest does not match its id');
+  const manifest=validateHdManifest(JSON.parse(new TextDecoder().decode(mb)));
+  const sizes=new Map(manifest.entries.map(e=>[e.file,e.bytes]));
+  const names=['manifest.json',...sizes.keys()],ofBytes=manifest.packedBytes===undefined?null:mb.length+manifest.packedBytes;
+  const meta:HdStoredMeta={id:packId,name:manifest.name,textures:manifest.entries.length,bytes:manifest.totalBytes,importedAt:new Date().toISOString()};
+  let files=0,bytes=0;
+  await store.replace(meta,names,async n=>{
+    let b=mb;
+    if(n!=='manifest.json'){
+      const size=sizes.get(n)!;b=await source.payload(packId,{file:n,bytes:size});
+      if(b.length>size+1024)throw new HdRefusal(`${n} is over its entry's size`);
+    }
+    files++;bytes+=b.length;onProgress?.(files,bytes,manifest.totalBytes,names.length,ofBytes);return b;
+  });
+  return {id:packId,name:manifest.name,textures:manifest.entries.length,bytes:manifest.totalBytes,fetched:true};
 }

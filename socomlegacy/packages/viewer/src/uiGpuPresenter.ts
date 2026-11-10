@@ -1,7 +1,7 @@
 import type { Rgba } from '@s2u/gs';
 import type { MoviePicture, UiDrawItem } from '@s2u/ui';
 import { rasterizeUiDrawList, type RasterOptions, type UiBitmap, type UiTextures } from './uiCompositorView';
-import { planFrame, type UiFramePlan, type UiPlanBlendMode, type UiPlanStep } from './uiFramePlan';
+import { planFrame, releaseUiFramePlanMemo, type UiFramePlan, type UiPlanBlendMode, type UiPlanStep } from './uiFramePlan';
 import {
   UI_GPU_GUARD_SAMPLE_ADAPTATION, UI_GPU_GUARD_TRIP_ADAPTATION, UiGpuGuard, uiGpuExactMask, uiGpuIdle, type UiGpuGuardBound, type UiGpuGuardRecord,
   type UiGpuGuardReference, type UiGpuIdle,
@@ -12,7 +12,7 @@ import {
   UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION, UI_GPU_DRAWN_STEPS, UI_GPU_GL, UiGpuBackend, readUiGpuCaps, type UiGpuCanvas, type UiGpuReadback,
 } from './uiGpuWebgl2';
 import {
-  uiGpuCapability, type UiGpuCapabilityReason, type UiGpuCaps, type UiGpuKillReason, type UiGpuLevel, type UiGpuMode, type UiGpuSurface,
+  uiGpuCapability, uiGpuLossFallbackOptions, type UiGpuCapabilityReason, type UiGpuCaps, type UiGpuKillReason, type UiGpuLevel, type UiGpuMode, type UiGpuSurface,
 } from './uiGpuSwitch';
 
 /**
@@ -246,14 +246,9 @@ export function divideTransparentFrame(data: Uint8ClampedArray): void {
 
 // ---- GM-12a: the surface's lifecycle and loss ------------------------------------------------------------------------
 
-/**
- * UI_GPU_LOSS_FALLBACK_ADAPTATION: no original; bounds the browser's software frame while the GPU is lost (fallback L2,
- * L3; the plan's ladder, GM.R9, GM.R12): the software draws the frame at scale 1 -- the original frame, byte for byte
- * -- with no HD lookup and no quad cache (both belong to the HD scale), so a lost GPU never puts the 65-87 ms 4x
- * software path (a Node microbench, GM.R9) on the player's frame. The canvas's CSS box shows it at the same size. The
- * owner's question O2 (H375) asks whether the HD menus may drop to 1x so; the default meanwhile is yes.
- */
-export const UI_GPU_LOSS_FALLBACK_ADAPTATION = Object.freeze({ scale: 1 } as const);
+// UI_GPU_LOSS_FALLBACK_ADAPTATION and `uiGpuLossFallbackOptions` (GM-12a; GM-28: every state that does not present, GM.R19)
+// live in `./uiGpuSwitch`, which the page's frame loop imports statically, and are re-exported here.
+export { UI_GPU_LOSS_FALLBACK_ADAPTATION, uiGpuLossFallbackOptions } from './uiGpuSwitch';
 
 /**
  * UI_GPU_LOSS_LIMIT_ADAPTATION: no original; bounds the browser's retries of a failing GPU context (fallback L3, the
@@ -271,14 +266,6 @@ export const UI_GPU_LOSS_LIMIT_ADAPTATION = Object.freeze({ losses: 3, windowMs:
  * choice with no measurement behind it yet: `e2e/uiGpuLoss.spec.ts` records real restore times (GM-11b's box).
  */
 export const UI_GPU_RESTORE_WAIT_MS_ADAPTATION = 5000;
-
-/** The options of a software frame drawn while the GPU is lost: `UI_GPU_LOSS_FALLBACK_ADAPTATION` over the frame's own. */
-export function uiGpuLossFallbackOptions(options: RasterOptions): RasterOptions {
-  const rest: RasterOptions = { ...options };
-  delete rest.hd;
-  delete rest.quadCache;
-  return { ...rest, scale: UI_GPU_LOSS_FALLBACK_ADAPTATION.scale };
-}
 
 /** The canvas a GPU surface draws onto: a WebGL2 canvas that dispatches the context events. */
 export interface UiGpuSurfaceCanvas extends UiGpuCanvas {
@@ -427,7 +414,7 @@ function tapFrameInputs(textures: UiTextures, options: RasterOptions) {
  * The lifecycle's states: `unmade` (no context asked yet), `compiling` (a context, its programs linking), `ready` (every
  * program linked: frames on the GPU), `lost` (the context lost, the restore awaited), `released` (let go at the match's
  * `leave`), `dead` (the loss limit or the restore wait: the software for the session, L3), `unavailable` (no WebGL2 or
- * a capability missing: today's path, L4), `disposed` (the page stopped).
+ * a capability missing: the software at 1x, L4), `disposed` (the page stopped).
  */
 export type UiGpuSurfaceState = 'unmade' | 'compiling' | 'ready' | 'lost' | 'released' | 'dead' | 'unavailable' | 'disposed';
 
@@ -435,9 +422,10 @@ export type UiGpuSurfaceState = 'unmade' | 'compiling' | 'ready' | 'lost' | 'rel
 export interface UiGpuSurfaceStats {
   /**
    * Frames by what drew them: L0 the GPU, L1 the software uploaded (a plan the GPU refuses), L2 the software after a
-   * loss, L3 the software after the session kill, L4 today's path (no GPU); `waiting` today's path while a link runs
+   * loss, L3 the software after the session kill, L4 the software (no GPU); `waiting` the software while a link runs
    * that follows no loss (the first, or the re-create after `returned`) or while released; `unchanged` the L0 frames the
    * dirty check kept; GM-16: `shadow` the frames shown by the software in shadow mode (the GPU's drawn offscreen beside).
+   * GM-28 (GM.R19): every software frame but shadow's is the 1x frame (`uiGpuLossFallbackOptions`).
    */
   frames: Record<UiGpuLevel | 'waiting' | 'unchanged' | 'shadow', number>;
   /** Losses counted (context losses and GL errors). */
@@ -456,10 +444,10 @@ type LoseExt = { loseContext(): void; restoreContext(): void };
  * byte of it (the GPU frame is `GpuUiPresenter`'s, the software frame `software`'s, both held to the original elsewhere).
  * - **Synchronous create** (`create`, or the first `present`): the WebGL2 context asked in the call; the capability
  *   checks (`uiGpuCapability`: WebGL2, not a software adapter by `UNMASKED_RENDERER_WEBGL` -- `readUiGpuCaps` --,
- *   `MAX_TEXTURE_SIZE`) at once; a failure is **L4**, the context let go (`WEBGL_lose_context`), today's path.
+ *   `MAX_TEXTURE_SIZE`) at once; a failure is **L4**, the context let go (`WEBGL_lose_context`), the software at 1x (GM-28).
  * - **`KHR_parallel_shader_compile`**: every program's link begun at create and asked about only once the extension says
  *   it completed (no stall); without it the link status is read at the first poll. **`ready` only when every program
- *   linked**; until then frames are today's path at the shown scale (`waiting`). A link that fails is L4 (`program-link`).
+ *   linked**; until then frames are the software at 1x (`waiting`; GM-28, GM.R19). A link that fails is L4 (`program-link`).
  * - **Loss** (`webglcontextlost`, its default prevented so the browser may restore it; or `isContextLost()` seen by a
  *   present first): the GPU objects let go without a GL call, frames **L2**: the software at 1x
  *   (`UI_GPU_LOSS_FALLBACK_ADAPTATION`), never black. **Restore in place** (`webglcontextrestored`): a new backend on the
@@ -526,8 +514,12 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     return { frames: { ...this.counts }, losses: this.losses, restores: this.restores.map((r) => ({ ...r })), caps: this.caps, unavailable: this.refusedBy };
   }
 
-  /** The context made now, in this call, and checked; `{ ok: false }` with the gate's reason is L4. Idempotent. */
-  create(): { ok: true } | { ok: false; reason: UiGpuCapabilityReason } {
+  /**
+   * The context made now, in this call, and checked; `{ ok: false }` with the gate's reason is L4. Idempotent. Review fold
+   * 4 (`requireParallelLink`, `prepare`'s): a context without `KHR_parallel_shader_compile` is let go before any shader is
+   * compiled (`no-parallel-link`), so a caller that must not stall issues no compile it could only wait on.
+   */
+  create(requireParallelLink = false): { ok: true } | { ok: false; reason: UiGpuCapabilityReason } {
     if (this.st !== 'unmade') return this.refusedBy ? { ok: false, reason: this.refusedBy } : { ok: true };
     const gl = this.o.canvas.getContext('webgl2', UI_GPU_CONTEXT_ATTRIBUTES_ADAPTATION(this.o.transparent)) as WebGL2RenderingContext | null;
     if (!gl) return this.unavailable('no-webgl2');
@@ -541,10 +533,32 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     const gate = uiGpuCapability(this.caps, this.o.allowSoftwareAdapter === true);
     if (!gate.ok) return this.unavailable(gate.reason);
     const khr = gl.getExtension(UI_GPU_GL.KHR_PARALLEL) as { COMPLETION_STATUS_KHR: number } | null;
+    if (requireParallelLink && !khr) return this.unavailable('no-parallel-link');
     this.completion = khr ? khr.COMPLETION_STATUS_KHR : null;
     this.build();
     return { ok: true };
   }
+
+  /**
+   * GM-23 (the loading screen, which draws while a match loads): the context made and its programs' links begun ahead of
+   * the frames that need them, without a stall -- `create` when none was asked yet, the context asked back after
+   * `returned`, the links polled only where the poll cannot wait (`KHR_parallel_shader_compile`: `poll` asks only the
+   * completion status); a context found lost is a loss, as a present finds it. True once every program has linked
+   * (`ready`): the caller then hands its frames to `present`, and draws its own software until then.
+   */
+  prepare(): boolean {
+    if (this.st === 'unmade') this.create(true);             // review fold 4: no compile without KHR_parallel_shader_compile
+    if (this.st === 'released' && this.wantBack) this.reacquire();
+    if (this.st === 'compiling' && this.completion !== null) this.poll();
+    if (this.st === 'ready' && this.gl?.isContextLost()) this.lose('context', 'the context was lost before a frame');
+    return this.st === 'ready';
+  }
+
+  /**
+   * GM-23: the programs are linking and their status can only be asked by a call that may wait on the driver (no
+   * `KHR_parallel_shader_compile`): a caller that must not stall (the loading screen) keeps its software instead.
+   */
+  get linkWaits(): boolean { return this.refusedBy === 'no-parallel-link' || (this.st === 'compiling' && this.completion === null); }
 
   /** Settle the links (`ready` once all are linked); a page may call it between frames. Each present calls it. */
   poll(): void {
@@ -572,7 +586,8 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     if (this.st === 'released' && this.wantBack) this.reacquire();
     this.poll();
     if (this.st === 'ready' && this.gl?.isContextLost()) this.lose('context', 'the context was lost before a frame');
-    if (this.o.host?.resolve?.(this.o.surface, options.scale ?? 1).mode === 'shadow') return this.shadow(items, textures, options, probe);
+    // GM-28 (GM.R19): shadow only while the surface may draw; an L4 surface in shadow is the 1x software below.
+    if (this.st !== 'unavailable' && this.o.host?.resolve?.(this.o.surface, options.scale ?? 1).mode === 'shadow') return this.shadow(items, textures, options, probe);
     if (this.st === 'ready' && this.gpu) {
       const wasAfterLoss = this.afterLoss;
       try {
@@ -619,6 +634,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
    * `returned` and the re-made context's links. Without `WEBGL_lose_context` the context is kept (and stays counted).
    */
   release(): void {
+    releaseUiFramePlanMemo();                                 // GM-32 review F2: the planner's kept axis runs let go for the match
     if (this.st !== 'compiling' && this.st !== 'ready' && this.st !== 'lost') return;
     this.clearWait();
     this.dropBackend(this.gl?.isContextLost() !== true);
@@ -639,6 +655,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
 
   /** The page's `stop()` / the session's `close()`: everything let go, for good; later frames are the software's. */
   dispose(): void {
+    releaseUiFramePlanMemo();                                 // GM-32 review F2: and at the page's stop
     if (this.st === 'disposed') return;
     this.clearWait();
     if (this.backend) this.dropBackend(this.gl?.isContextLost() !== true);
@@ -933,7 +950,10 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     this.gpu?.invalidate();
   }
 
-  /** A frame by the software: at 1x after a loss (L2, L3), today's path at the shown scale otherwise (L4, waiting, released). */
+  /**
+   * A frame by the software: the original 1x frame in every state (GM-28, GM.R19: `uiGpuLossFallbackOptions`) -- after a
+   * loss (L2, L3), and L4, waiting for the links and released alike, which drew at the shown scale before GM-28.
+   */
   private software(items: readonly UiDrawItem[], textures: UiTextures, options: RasterOptions, probe?: UiPresentProbe | null): UiPresented {
     const loss = this.st === 'lost' || this.st === 'dead' || (this.st === 'compiling' && this.afterLoss);
     if (this.st === 'dead') this.frameAt('L3');
@@ -942,7 +962,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     else this.counts.waiting++;
     this.lastWas = 'software';
     this.show('software');
-    return this.o.software.present(items, textures, loss ? uiGpuLossFallbackOptions(options) : options, probe);
+    return this.o.software.present(items, textures, uiGpuLossFallbackOptions(options), probe);
   }
 }
 

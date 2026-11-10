@@ -42,7 +42,7 @@ function parts(caps: MatchCapabilities = TESTROOM_CAPABILITIES) {
   };
   return { p, calls, records };
 }
-const throwables = { remoteGrenade: () => {}, ownProjectiles: () => true, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {} };
+const throwables = { remoteGrenade: () => {}, ownProjectiles: () => true, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {}, sceneRound: () => {} };
 /** PF-34 (research 234 s6): the world drops' deps -- the drops on the page, the live kit after a pickup. */
 const worldDrops = { drops: { place: () => {}, remove: () => {}, replaceAll: () => {} }, kitChanged: () => {} };
 /** Every part-owned dep `/testroom` hands (its switch has every part on): each owed. */
@@ -188,7 +188,7 @@ describe('the capabilities decide the parts\' hooks (the front end\'s asymmetrie
     expect(d.staleThrow).toBe(throwables.staleThrow);
   });
   it("sprint 30 wave 4: PF-36's tagOwnProjectile and detonateProjectile are the throwables' (owed by both pages since MATCH-THROW), PF-34's drops and kitChanged the world drops' -- owed by /testroom and, since PAR-4, by the front end", () => {
-    expect(PART_DEPS.throwables).toEqual(['remoteGrenade', 'ownProjectiles', 'staleThrow', 'tagOwnProjectile', 'detonateProjectile', 'whiteOut']);   // P2: the room's white-out
+    expect(PART_DEPS.throwables).toEqual(['remoteGrenade', 'ownProjectiles', 'staleThrow', 'tagOwnProjectile', 'detonateProjectile', 'whiteOut', 'sceneRound']);   // P2: the room's white-out; research 386 §3.2: a scene FIRE_WEAPON's round
     expect(PART_DEPS.worldDrops).toEqual(['drops', 'kitChanged']);
     for (const caps of [TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES]) {
       const d = matchNetDeps(parts(caps).p, { ...everyHook }, caps === TESTROOM_CAPABILITIES ? { ...everyPart } : { ...soundPart, ...throwables, ...tauntsPart, ...voicePart, ...hostagesPart, ...worldDrops, ...armoryDeps });
@@ -423,5 +423,68 @@ describe('WALL-CAM: both pages share the spectator obstruction rig', () => {
     // A spectator's follow of the same body (no ease) stands where the body puts it.
     follow({ ...moved, feet: [80, 0, -50] }, 1 / 60); rigid.tick([80, 0, -50], 0, 0, STANCE.stand.rootY, 1 / 60);
     expect(pose!.x).toBeCloseTo(rigid.view(1).eye[0], 8);
+  });
+});
+
+describe('THREAT-MARKS: another\'s throw at its release lights the page\'s marks (research 321 s2.6; FireGrenade D:L474155-474180)', () => {
+  /** The firearm's `threatThrow` recorded; the map's table naming the M67 (121), the C4 (151) and the M203 HE (171). */
+  function threatRig() {
+    const { p } = parts();
+    const lit: unknown[][] = [], flown: unknown[][] = [];
+    const byName = new Map([['M67', { id: 121 }], ['C4', { id: 151 }], ['M203 HE', { id: 171 }], ['Detonator', { id: 193 }]]);
+    p.map = () => ({ scenicViews: [], arsenal: { table: { arsenal: { byName } } } } as never);
+    const d = matchNetDeps(
+      { ...p, firearm: { ...p.firearm, threatThrow: (...a: unknown[]) => { lit.push(a); } } },
+      { ...everyHook },
+      { ...everyPart, remoteGrenade: (...a: unknown[]) => { flown.push(a); } },
+    );
+    return { d, lit, flown };
+  }
+
+  it('a fresh throw lights once and still flies, its age passed on', () => {
+    const { d, lit, flown } = threatRig();
+    d.remoteGrenade('M67', [1, 2, 3], [0, 0, -5], 7, 40);
+    d.remoteGrenade('M67', [1, 2, 3], [0, 0, -5], 7, 41, undefined, 12);
+    expect(lit).toEqual([['M67', [1, 2, 3], 7], ['M67', [1, 2, 3], 7]]);
+    expect(flown).toEqual([['M67', [1, 2, 3], [0, 0, -5], 7, 40, undefined], ['M67', [1, 2, 3], [0, 0, -5], 7, 41, undefined, 12]]);
+  });
+
+  it('an under-barrel launchRound lights (its round\'s record decides the reach, the firearm\'s threatThrow)', () => {
+    const { d, lit } = threatRig();
+    d.remoteGrenade('M203 HE', [0, 1, 0], [0, 0, -60], 3, 9);
+    expect(lit).toEqual([['M203 HE', [0, 1, 0], 3]]);
+  });
+
+  it('the Detonator, a welcome-hydrated projectile and a class-0x97 placement (the C4) light nothing, and all still fly', () => {
+    const { d, lit, flown } = threatRig();
+    d.remoteGrenade('Detonator', [0, 0, 0], [0, 0, 0], 3);
+    d.remoteGrenade('M67', [0, 0, 0], [0, 0, 0], 3, 5, { state: 0, age: 1, fuse: 3, removal: 3.1, bounces: 0, dud: false } as never);
+    d.remoteGrenade('C4', [0, 0, 0], [0, 0, 0], 3, 6);
+    expect(lit).toEqual([]);
+    expect(flown).toHaveLength(3);
+  });
+
+  it('review F4: with no map arsenal the class test takes the live kit\'s table, as threatThrow does: a C4 placement lights nothing', () => {
+    const { p } = parts();
+    const lit: unknown[][] = [];
+    const byName = new Map([['M67', { id: 121 }], ['C4', { id: 151 }]]);
+    p.map = () => ({ scenicViews: [], arsenal: null } as never);
+    const loadouts = { ...p.loadouts, tables: () => ({ arsenal: { byName } }) as never };
+    const d = matchNetDeps(
+      { ...p, loadouts, firearm: { ...p.firearm, threatThrow: (...a: unknown[]) => { lit.push(a); } } },
+      { ...everyHook },
+      { ...everyPart, remoteGrenade: () => {} },
+    );
+    d.remoteGrenade('C4', [0, 0, 0], [0, 0, 0], 3, 6);
+    d.remoteGrenade('M67', [1, 0, 0], [0, 0, -5], 3, 7);
+    expect(lit).toEqual([['M67', [1, 0, 0], 3]]);
+  });
+
+  it('a firearm with no threatThrow (a stand-in) leaves remoteGrenade as the page gave it', () => {
+    const { p } = parts();
+    const flown: unknown[][] = [];
+    const remoteGrenade = (...a: unknown[]) => { flown.push(a); };
+    const d = matchNetDeps(p, { ...everyHook }, { ...everyPart, remoteGrenade });
+    expect(d.remoteGrenade).toBe(remoteGrenade);
   });
 });

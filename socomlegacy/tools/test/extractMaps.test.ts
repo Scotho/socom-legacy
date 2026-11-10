@@ -79,8 +79,9 @@ describe('extractMaps: the disc tree to the served maps tree (PK-1)', () => {
     expect(result.missing.filter((p) => CAMPAIGN_ARCHIVES.includes(p))).toEqual([]);
   });
 
-  it('touches no fixture path with fixtures: null, and refreshes the three maps and the common archives with a root', async () => {
+  it('touches no fixture path with fixtures: null, and refreshes the four maps and the common archives with a root', async () => {
     const disc = discTree();
+    writeFileSync(join(disc, 'RUN', 'MP71.ZDB'), new Uint8Array([71]));   // the fourth fixture map (DF.R5)
     const maps = join(temp(), 'maps');
     const fixtures = join(temp(), 'test-fixtures');
     const seen: string[] = [];
@@ -93,7 +94,7 @@ describe('extractMaps: the disc tree to the served maps tree (PK-1)', () => {
     await extractMaps({ disc, maps, fixtures, fs: { names, copy } });
     const inFixtures = seen.filter((to) => !relative(fixtures, to).startsWith('..'))
       .map((to) => relative(fixtures, to).replace(/\\/g, '/'));
-    expect(inFixtures).toEqual(['RUN/MP2.ZDB', 'RUN/MP6.ZDB', 'RUN/MP72.ZDB', ...COMMON_ARCHIVES]);
+    expect(inFixtures).toEqual(['RUN/MP2.ZDB', 'RUN/MP6.ZDB', 'RUN/MP71.ZDB', 'RUN/MP72.ZDB', ...COMMON_ARCHIVES]);
   });
 
   it('refuses a disc tree that lacks a common archive before it writes anything', async () => {

@@ -54,6 +54,15 @@ export function breachReady(bomb: BombObjectives | undefined): boolean {
   return !!bomb?.start && bomb.sites.some((s) => s.team === 0);
 }
 
+/**
+ * Whether a bomb marker of `kind` plays under `gameType` (the owner, 2026-11-05/06; a browser adaptation, FG.R2): all
+ * three in Demolition (2); in Breach (1) the start and the SEALs' site (`breachReady`), never the Terrorists' site; under
+ * any other type, or none, nothing. One predicate for the page's bomb tools and the agent's `bomb.place`.
+ */
+export function bombMarkerPlaysIn(kind: 'start' | 'seal' | 'terrorist', gameType: number | null | undefined): boolean {
+  return gameType === 2 || (gameType === 1 && kind !== 'terrorist');
+}
+
 export function bombReady(bomb: BombObjectives | undefined): boolean {
   if (!bomb?.start) return false;
   let seal = false;
@@ -92,7 +101,9 @@ export function forgeTypeUnplayable(gameType: number, objectives: ForgeObjective
       if (escortScriptOf(stem) !== ESCORT_UNREAD_MAP_PLACEHOLDER) return null;
       // The owner (2026-11-06; a browser adaptation): a layout placing its own escort zones plays the room's placeholder
       // script (`ESCORT_UNREAD_MAP_PLACEHOLDER`: the 30 s wait, Safety and Safety2 by name) -- with three VIPs, as
-      // SEALcheck counts (`sealCheck`), and a Safety to stage in. A base alone, none of its own: M2's refusal.
+      // SEALcheck counts (`sealCheck`), and a Safety to stage in. A base alone, none of its own: M2's refusal. H424 (c):
+      // the owner's to answer; the default meanwhile (FP.R6) -- only where the layout places its own zones, so a Forge
+      // layout's own Play, never a disc map played unchanged.
       if (!map.forgeEscortZones?.length) return 'Escort plays only on an escort map';
       if (map.escortees.length !== 3) return `Escort needs three hostages (the VIPs): it has ${map.escortees.length}`;
       return map.forgeEscortZones.some((n) => n.toLowerCase() === 'safety') ? null : 'Escort needs a zone named Safety';

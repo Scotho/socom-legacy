@@ -8,7 +8,7 @@ import {
   hostContext, hostDeps, hostPlan, parseRunArgs, pcsx2Argv,
 } from './run';
 import { PCSX2_WINDOW_TITLE } from './keys';
-import { Sampler, detectRevision, describeReadings, f32, GUEST_ADDRESSES, PAD_PROBE_ADDRESSES } from './sampler';
+import { Sampler, detectRevision, describeReadings, f32, GUEST_ADDRESSES, ORIGIN_ADDRESSES, ORIGIN_EVIDENCE, ORIGIN_INFERRED, PAD_PROBE_ADDRESSES } from './sampler';
 import { parseBuild, type Build } from './build';
 import { parseScript, type ScriptEvent } from './script';
 import { runTimeline } from './timeline';
@@ -23,7 +23,11 @@ import { runTimeline } from './timeline';
  * never changing the game.
  *
  *   node --import tsx tools/eph/probe.ts --build r0004 --state 5 --trials 3 --script a.txt [--script b.txt ...] --out <dir>
- *     [--tail-ms 2500] [--shots] [--save-after <slot>]
+ *     [--tail-ms 2500] [--shots] [--save-after <slot>] [--origin]
+ *
+ * `--origin` adds the floor probe's origin columns (./sampler ORIGIN_ADDRESSES: the record FUN_005b0840 queues, its
+ * origin over the feet; probeOriginStale when the queue skipped the player this frame), for the jump-air trace of
+ * 2026-11-08. probe.json's `origin` holds their addresses, evidence, inferred list and overflow count (originBeyondCap).
  */
 
 /** Guest ms the state runs after its load before a case starts (an adaptation: the load settles). */
@@ -47,12 +51,15 @@ export interface ProbeArgs {
    * live probe of 2026-11-01), so a menu script (probe-help-off.txt) cannot run on it.
    */
   readonly wallClock: boolean;
+  /** The floor probe's origin columns (./sampler ORIGIN_ADDRESSES). */
+  readonly origin: boolean;
 }
 
 export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
   let build: Build | null = null, state: number | null = null, trials = 1, out: string | null = null, tailMs = 2500, shots = false;
   let saveAfter: number | null = null;
   let wallClock = false;
+  let origin = false;
   const scripts: string[] = [];
   const int = (n: string, v: string | undefined, min: number): number => {
     const x = Number(v);
@@ -70,6 +77,7 @@ export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
       case '--tail-ms': tailMs = int(a, v, 0); i++; break;
       case '--shots': shots = true; break;
       case '--wall-clock': wallClock = true; break;
+      case '--origin': origin = true; break;
       case '--save-after': saveAfter = int(a, v, 0); i++; break;
       default: throw new RunArgsError(`EPH probe: unknown switch ${a}`);
     }
@@ -78,7 +86,7 @@ export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
   if (state === null) throw new RunArgsError('EPH probe: --state <slot> is required');
   if (scripts.length === 0) throw new RunArgsError('EPH probe: at least one --script');
   if (out === null) throw new RunArgsError('EPH probe: --out <dir> is required');
-  return { build, state, trials, scripts, out, tailMs, shots, saveAfter, wallClock };
+  return { build, state, trials, scripts, out, tailMs, shots, saveAfter, wallClock, origin };
 }
 
 /** A PINE client that can also load a state (./pine PineClient fits). */
@@ -140,7 +148,7 @@ export async function probeRun(a: ProbeArgs, host: HostPlan, d: ProbeDeps): Prom
     if (det.revision !== a.build) throw new Error(`EPH probe: --build ${a.build} asked, but PCSX2 runs ${det.revision} (${describeReadings(det.readings)})`);
     d.log(`PCSX2 runs ${det.revision}`);
     const p = pine;
-    const sampler = new Sampler(p, det.revision, { padProbe: true, extra: true, nearRadius: 30, nearRefreshRows: 1_000_000 });
+    const sampler = new Sampler(p, det.revision, { padProbe: true, extra: true, nearRadius: 30, nearRefreshRows: 1_000_000, origin: a.origin });
     const clock = async (): Promise<number> => f32(await p.read32(GUEST_ADDRESSES[det.revision].guestClock)) * 1000;
     const rows: Record<string, unknown>[] = [];
     for (let trial = 1; trial <= a.trials; trial++) {
@@ -196,6 +204,7 @@ export async function probeRun(a: ProbeArgs, host: HostPlan, d: ProbeDeps): Prom
       build: a.build, detected: det.revision, readings: det.readings, slot: a.state, trials: a.trials, cases: cases.map((c) => c.name),
       scripts: a.scripts, tailMs: a.tailMs, settleMs: PROBE_SETTLE_MS, padProbe: PAD_PROBE_ADDRESSES[det.revision],
       torn: sampler.torn, nullActor: sampler.nullActor, readErrors: sampler.tiltErrors + sampler.extraErrors, savedTo: a.saveAfter,
+      origin: a.origin ? { addresses: ORIGIN_ADDRESSES[det.revision], evidence: ORIGIN_EVIDENCE[det.revision], inferred: ORIGIN_INFERRED[det.revision], readErrors: sampler.originErrors, originBeyondCap: sampler.originBeyondCap } : null,
     }, null, 2));
   } finally {
     try { injector?.close(); } catch { /* gone */ }

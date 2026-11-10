@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MOVIE_AUDIO_GAIN_PLACEHOLDER, MOVIE_AUDIO_START_LATENCY_READING, MOVIE_PCM_MOVE_GRANULE, MOVIE_PCM_RING_BYTES,
+  MOVIE_AUDIO_GAIN_READING, MOVIE_AUDIO_START_LATENCY_READING, MOVIE_PCM_MOVE_GRANULE, MOVIE_PCM_RING_BYTES,
   MOVIE_PCM_STAGING_BYTES, MOVIE_PCM_STREAM_VOLUME, MOVIE_VIDEO_RING_BYTES, MovieAudioFeed,
   movieAudioFrameAt, movieAudioTimeline, primeMovieAudio,
 } from '../src/movieAudio';
@@ -21,7 +21,7 @@ describe('the constants, as read (research 137 §3)', () => {
     expect(MOVIE_VIDEO_RING_BYTES).toBe(0x30000);     // DAT_00451cd4, D:L207962
     expect(MOVIE_PCM_MOVE_GRANULE).toBe(0x400);       // FUN_0030a3b0 0x30a498-0x30a4f8, FUN_0030a2d0
     expect(MOVIE_PCM_STREAM_VOLUME).toBe(0x366);      // FUN_0030a7c0, D:L208361
-    expect(MOVIE_AUDIO_GAIN_PLACEHOLDER).toBe(1);
+    expect(MOVIE_AUDIO_GAIN_READING).toBe(23258 / (2 * 32766));
     expect(MOVIE_AUDIO_START_LATENCY_READING).toBe(0);
   });
 });

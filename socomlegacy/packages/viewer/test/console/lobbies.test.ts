@@ -255,7 +255,7 @@ describe('Browse rooms, signed in: the briefing rooms (CX-LOBBIES)', () => {
     online(ctl, 'Browse rooms');
     ctl.press('cross');
     await flush();
-    expect(roomRows()).toEqual(['Game in MP2', 'Game in MP51']);
+    expect(roomRows()).toEqual(['Game in Frostfire', 'Game in Vigilance']);
     expect(cross(ctl)).toBe('Sign in');
     ctl.press('cross');
     expect([ctl.S.screen, ctl.S.overlay]).toEqual(['rooms', 'signin']);
@@ -448,7 +448,7 @@ describe('the review folds on the screens', () => {
     expect(stray.getAttribute('aria-label')).toContain('0 of 2 spectators, clan game');
     ctl.press('down');
     ctl.press('cross');                                                          // Channel 1
-    expect(subs().slice(0, 2)).toEqual(['MP2 · 2/12 players · 0/4 spectators · Ping Fair', 'MP2 · 4/16 players · Clan game · Ping Good · Ranks: ENSIGN, LIEUTENANT']);
+    expect(subs().slice(0, 2)).toEqual(['Frostfire · 2/12 players · 0/4 spectators · Ping Fair', 'Frostfire · 4/16 players · Clan game · Ping Good · Ranks: ENSIGN, LIEUTENANT']);
   });
 
   it('F2: after a lost session, Square answers in words and the legend offers no Refresh; a new session brings it back', async () => {

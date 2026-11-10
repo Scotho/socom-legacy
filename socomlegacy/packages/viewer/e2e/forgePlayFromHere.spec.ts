@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { expectBase, newLayoutOn } from './forgeBase';
 
 /**
  * FG-50 (a browser adaptation, no original): on a blank floor, Play from here stands the local player under the
@@ -21,14 +22,11 @@ test('Play from here on a blank floor stands under the camera and returns to the
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/forge?devmode');
-  const base = page.locator('select.fx-select').filter({ has: page.locator('option[value="blank"]') });
-  await expect(base.locator('option[value="blank"]')).toHaveCount(1, { timeout: 120_000 });
-  await expect(page.locator('.fx-vp-label')).toContainText('·', { timeout: 120_000 });
+  await expectBase(page);                                              // OT.R112: the base named (`./forgeBase`)
 
-  await base.selectOption('blank');
-  // Under 1440px the tool's label is hidden, so its name is the title.
-  await page.locator('button[title="Start a new layout on this base"]').click();
-  await expect(page.locator('.fx-vp-label')).toHaveText('Perspective · Blank floor', { timeout: 120_000 });
+  // OT.R112: the contributor's New asks for the base on a card; no blank floor without a type -- Suppression's preset.
+  await newLayoutOn(page, 'blank:5');
+  await expectBase(page, /New Empty Map/);
   const asset = page.locator('.fx-assets .fx-asset-name').first();
   await expect(asset).toBeVisible({ timeout: 120_000 });
   await asset.click();
@@ -47,9 +45,19 @@ test('Play from here on a blank floor stands under the camera and returns to the
   const strafe = async (): Promise<void> => {
     // A focused field eats the key (the fly camera ignores a key whose target is an input), and a click would place.
     await page.evaluate(() => { const a = document.activeElement; if (a instanceof HTMLElement) a.blur(); });
-    await page.keyboard.down('KeyD');
-    await page.waitForTimeout(600);
-    await page.keyboard.up('KeyD');
+    // OT.R112: the editor's camera flies on its keys only while the right button is held over the viewport
+    // (`../src/camera.ts` `update`'s `keyboardMove`; `./forgeEditor.spec.ts` `flyForward`); the right button places nothing.
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: 'right' });
+    try {
+      await page.keyboard.down('KeyD');
+      await page.waitForTimeout(600);
+      await page.keyboard.up('KeyD');
+    } finally {
+      await page.mouse.up({ button: 'right' });
+      // The right button also captures the mouse for the look (`lockMouse`, OT.R68): let go, so Play's button takes the click.
+      await page.evaluate(() => { if (document.pointerLockElement) document.exitPointerLock(); });
+    }
   };
   await strafe();
   const settled = async (): Promise<string> => {
@@ -75,6 +83,12 @@ test('Play from here on a blank floor stands under the camera and returns to the
   const [, cx, , cz] = at!;
 
   await page.locator('button.fx-play').click();
+  // The Suppression preset stands a spawn each side of the centre (`../src/forge/blankPresets.ts` `presetLayout`,
+  // daed4f539) and the piece placed at the viewport's centre sits between them, so the check finds "A straight walk from
+  // team A did not reach team B" and Play asks first (the run's card): played anyway, as `./forgeMenuPointer.spec.ts` does.
+  const card = page.locator('.fx-check-card');
+  await expect.poll(async () => (await page.locator('body').evaluate((b) => b.classList.contains('is-matching'))) ? 'match' : (await card.isVisible()) ? 'card' : '', { timeout: 30_000 }).not.toBe('');
+  if (await card.isVisible()) await page.getByRole('button', { name: 'Play anyway' }).click();
   await expect.poll(async () => page.evaluate(() => {
     const match = (globalThis as { __forgeMatch?: { seats?: () => { feet?: number[] }[] } }).__forgeMatch;
     const feet = match?.seats?.()[0]?.feet;

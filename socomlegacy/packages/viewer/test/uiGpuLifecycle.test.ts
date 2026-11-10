@@ -116,13 +116,13 @@ describe('GM-12a: synchronous create and the capability checks', () => {
     expect(r.s.lastPath).toBe('gpu');
   });
 
-  it('no WebGL2: L4, today\'s path at the shown scale, no context counted', () => {
+  it('no WebGL2: L4, the software at 1x (GM-28, GM.R19; it was the shown scale), no context counted', () => {
     const r = rig({ noContext: true });
     expect(r.s.create()).toEqual({ ok: false, reason: 'no-webgl2' });
     expect(r.s.state).toBe('unavailable');
     frame(r);
     expect(r.sw.seen).toHaveLength(1);
-    expect(r.sw.seen[0]!.scale).toBe(2);
+    expect(r.sw.seen[0]!.scale).toBe(1);
     expect(r.s.stats.frames.L4).toBe(1);
     expect(r.swi.readout().levels.L4).toBe(1);
     expect(r.swi.readout().contexts).toBe(0);
@@ -190,7 +190,7 @@ describe('GM-12a: KHR_parallel_shader_compile and ready only when linked', () =>
     expect(r.s.ready).toBe(false);
     expect(r.s.state).toBe('compiling');
     expect(r.sw.seen).toHaveLength(2);
-    expect(r.sw.seen[0]!.scale).toBe(2);                // not a loss: today's path at the shown scale
+    expect(r.sw.seen[0]!.scale).toBe(1);                // not a loss, still the 1x frame (GM-28, GM.R19)
     expect(r.f.compile.blockingQueries).toBe(0);
     expect(r.f.names()).not.toContain('blitFramebuffer');
     expect(r.s.stats.frames.waiting).toBe(2);
@@ -472,10 +472,10 @@ describe('GM-12a: leave releases, returned re-creates lazily', () => {
     expect(r.s.state).toBe('released');
     expect(r.swi.readout().contexts).toBe(0);
     expect(r.shown.at(-1)).toBe('software');
-    // A frame while released (the menus' raster under a match): today's path at the shown scale, nothing asked of the GPU.
+    // A frame while released (the menus' raster under a match): the software at 1x (GM-28), nothing asked of the GPU.
     const lostCalls = r.f.loss.whileLost.length;
     frame(r);
-    expect(r.sw.seen.at(-1)!.scale).toBe(2);
+    expect(r.sw.seen.at(-1)!.scale).toBe(1);
     expect(r.f.loss.whileLost.length).toBe(lostCalls);
     expect(r.f.names()).not.toContain('restoreContext');
   });
@@ -487,7 +487,7 @@ describe('GM-12a: leave releases, returned re-creates lazily', () => {
     expect(r.f.names()).not.toContain('restoreContext');   // lazily: not at the call
     frame(r);
     expect(r.f.names()).toContain('restoreContext');
-    expect(r.sw.seen.at(-1)!.scale).toBe(2);
+    expect(r.sw.seen.at(-1)!.scale).toBe(1);
     r.f.events.flush();
     expect(r.s.state).toBe('compiling');
     frame(r);
@@ -658,7 +658,7 @@ describe('GM-12a: dispose on stop()/close()', () => {
     expect(r.f.names()).toContain('loseContext');
     r.s.dispose();                                           // idempotent
     frame(r);
-    expect(r.sw.seen.at(-1)!.scale).toBe(2);
+    expect(r.sw.seen.at(-1)!.scale).toBe(1);
   });
 
   it('dispose while lost clears the restore wait (no kill after)', () => {

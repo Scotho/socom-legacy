@@ -73,7 +73,7 @@ function triangles(group: Object3D, keep: (path: string | null, world: boolean) 
       return;
     }
     const path = (o.userData.nodePath ?? o.userData.switchPath ?? null) as string | null;
-    const world = path === null && o.frustumCulled === false;
+    const world = path === null && (o.userData.worldDraw === true || o.frustumCulled === false);   // `./markClip` `entryOf`'s test
     if (keep(path, world)) add(o, o.matrixWorld, path);
   });
   return out;

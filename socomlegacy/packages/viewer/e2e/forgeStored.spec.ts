@@ -49,7 +49,8 @@ test('the forge lists the campaign maps and opens one from storage, with no disc
   let chooser = false;
   page.on('filechooser', () => { chooser = true; });
   await page.goto('/forge?disc');
-  const palette = page.locator('select.fx-select').filter({ hasNot: page.locator('option[value="blank"]') }).first();
+  // OT.R112: no base list on the toolbar now (the contributor's New asks for it), so the palette is found by its own title.
+  const palette = page.locator('select.fx-select[title="The archive whose props fill the list"]');
   await expect(palette.locator('optgroup[label="Campaign"] option')).toHaveCount(12, { timeout: 120_000 });
   // The forge's first map opened (its `setBase` sets the palette to it at the end): a pick before then is undone
   // (DX-4's review F1).

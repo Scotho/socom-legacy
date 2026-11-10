@@ -1,6 +1,7 @@
 import { parseRdr, readZarMembers, type AssetSource, type RdrNode } from '@s2u/archive';
 import { OPTION_VALVES, VALVE_TYPE, ValveStore, type OptionGlobals, type ValveEntry } from '@s2u/ui';
 import { lookStickOf, type StickConfig, type StickTunerVars } from './look';
+import { migrateTeamNames } from './nameTags';
 
 /**
  * The main menu's OPTIONS on the page (OPT-09..OPT-14, web research 302 §4; Chris's settings, 2026-10-07): the option
@@ -91,7 +92,9 @@ function moduleEntries(part: unknown): [string, number][] | null {
 export function restoreValveModule(valves: ValveStore, part: unknown): boolean {
   const entries = moduleEntries(part);
   if (!entries) return false;
-  valves.restorePersistent(entries.map(([name, value]) => ({ name, value })));
+  // SS-2 (H422 answered (a); a browser adaptation): a card holding TEAMMATE NAMES 2 (LATER 671's former launcher-only
+  // "Original") is read as 1, the look moved to this browser (`./nameTags` `migrateTeamNames`); nothing else is touched.
+  valves.restorePersistent(migrateTeamNames(entries).map(([name, value]) => ({ name, value })));
   return true;
 }
 

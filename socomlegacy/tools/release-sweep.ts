@@ -44,7 +44,7 @@ const OUT = opt('--out') ?? fileURLToPath(new URL('../test-fixtures/screens/rele
 const index = JSON.parse(readFileSync(fileURLToPath(new URL('../public/maps/index.json', import.meta.url)), 'utf8')) as { maps: { archive: string; name: string }[] };
 const MAPS = opt('--maps')?.split(',') ?? index.maps.map((m) => m.archive);
 const LOOKS = (opt('--looks') ?? 'modern,ps2').split(',') as ('modern' | 'ps2')[];
-// WEBGL2-DEFAULT (LATER 708): the page's Automatic is WebGL2, so a webgpu leg asks with &renderer=webgpu (`run`).
+// WG-7 (LATER 708): the page's Automatic asks WebGPU first; a webgpu leg still asks with &renderer=webgpu (`run`).
 const BACKENDS = (opt('--backends') ?? 'webgpu,webgl2').split(',') as ('webgpu' | 'webgl2')[];
 /**
  * The browser: the installed Chrome by default. Playwright's bundled headless shell offers a WebGPU adapter but fails its

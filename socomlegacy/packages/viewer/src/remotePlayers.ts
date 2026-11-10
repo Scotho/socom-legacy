@@ -9,7 +9,7 @@ import { BinocularPose } from './binocularPose';
 import { ThrowPose } from './throwPose';
 import { corpseShownS, flinchRefused, pushPopped, type FlinchGateBody } from './net/deaths';
 import type { AnimStats, TraversalPose } from './animator';
-import { ACTION_CLIPS, ACTION_FAMILY, ACTION_SECONDS, groundGrid, STEP_PROBE_LIFT_READING, type PlaySnapshot, type SwapProgress } from './mover';
+import { ACTION_CLIPS, ACTION_FAMILY, ACTION_SECONDS, groundGrid, probeLiftOf, type PlaySnapshot, type SwapProgress } from './mover';
 import { GAME_FRAME_DT, probeGround, probeWater, selectFloor, type Grid } from '@s2u/scene';
 import { rippleOf } from './traversal';
 import { FALL_IN_WATER, RippleKeeper, type TraversalEffects } from './traversalPage';
@@ -19,9 +19,11 @@ import { fadeStep } from './net/escortee';
 import { BodyFlag, TICK_HZ, type BodyState, type Rules, type Team } from './net/protocol';
 import { FLINCH_CUT_COMMANDS, noInterruptCommands } from './net/flinchReload';
 import { Play, reloadCut, type PlayClips, type PlayEvent } from './play';
+import type { ReloadItem, ReloadStance } from './reloadClip';
 import { cloneHeld } from './sights';
 import { bodyForTeam, escorteeBody, hitBodiesOfPage, type HitBodyOfPage } from './teamBody';
-import { bodyVolumes, rayBody, stanceVolumes, type StanceVolumes, type V3 as Vec3 } from './net/hitVolumes';
+import { bodyVolumes, rayBody, stanceVolumes, type Capsule, type StanceVolumes, type V3 as Vec3 } from './net/hitVolumes';
+import { HIT_POSE_MOUNT_READING } from './net/hitPose';
 import { launcherCarryMatrix, type Mount } from './heldItem';
 import { handedAt, handOffOf, type Firearm } from './kit';
 
@@ -188,6 +190,14 @@ interface DrawnLauncher { id: number; object: Object3D | null; place: 'carry' | 
  * L455079 and L455445) is not traced (research 94 §A6)" -- the same value, `'spawn'`.
  */
 export const REMOTE_KIT_APPLY_READING = 'spawn' as const;
+/**
+ * PROBE-ORIGIN (LATER 785; research 80 s7): the stance a remote body's tilt pick keys the floor probe's lift on
+ * (`'drawn'`) [reading]: the snapshot's drawn stance, since the stance word (`actor+0x174`, the mover's `stanceState`)
+ * does not reach a remote body (`snapshotOf`, `./net/body` `bodyOf` carry the drawn stance and the Crouched flag only). So
+ * a remote crouch-runner lifts by 11.48 where the local mover takes 10.02 (`CROUCH_RUN_PROBE_ROOT_READING`); it moves only
+ * the drawn tilt's floor normal. Settled by carrying the stance word on the wire.
+ */
+export const REMOTE_PROBE_STANCE_READING = 'drawn' as 'drawn';
 
 /**
  * REMOTE_RESPAWN_REBUILD_READING (NU-12 B2; research 328 §1.1, §6): another console rebuilds a copy at its owner's
@@ -276,6 +286,9 @@ interface Remote {
   /** CPS bodies: the tree's first node named `head` (`headAt`), or null for none, as of the tree's version `headTree`. */
   headNode?: Object3D | null;
   headTree?: number;
+  /** SIGHT-POINTS: the tree's first node named `neck` (`neckAt`), or null for none, as of the tree's version `neckTree`. */
+  neckNode?: Object3D | null;
+  neckTree?: number;
   /** CPS bodies: the walk its play reads each frame (`remoteWalk`), made once (was: a new one a body a frame). */
   walk?: RemoteWalk;
 }
@@ -656,6 +669,9 @@ export const REMOTE_WAKE_PACE_READING = "the snapshot's velocity" as const;
  */
 export const REMOTE_WAKE_HOSTAGE_READING = 'none' as const;
 
+/** REMOTE-RELOAD: the clip families a `reloadSound` may name (`./reloadClip` `ReloadItem`). */
+const RELOAD_FAMILIES: ReadonlySet<string> = new Set<ReloadItem>(['rifle', 'pistol', 'shotgun', 'pump', 'm203']);
+
 export class RemotePlayers {
   /** WALL-CAM: FUN_0029a950 reads the followed actor's posed skeleton root (research 382 §2). */
   cameraRoot(id: number): number | null {
@@ -740,6 +756,29 @@ export class RemotePlayers {
   setEffects(effects: TraversalEffects | null): void {
     this.clearWakes();
     this.effects = effects;
+  }
+
+  /**
+   * FLASH-GLOW-BODIES, the per-body warm (product track, a renderer warm-up; no pixel and no game timing changed): what
+   * compiles a body's draws ahead of the frame that needs them -- the page's `ViewerRenderer.prepare` on the scene and
+   * camera the bodies are drawn with. Each body `add` builds is its own node build and, skinned on WebGL2, its own
+   * program in every render context three keys (the canvas's and the flash glow's target; evidence
+   * `flash-lag-2026-11-08/PER-BODY-PROGRAM-CAUSE.md`), and nothing prepared the others' bodies: a full lobby's first
+   * flashbang built and linked one program per body in view inside one frame. So each body is handed over when it is
+   * built -- a joiner, a respawn on a new appearance or side, an escortee -- and again when a drawn body's kit hangs new
+   * models; `stale` turns true once that body is no longer the one drawn for its id. Null: none (the default).
+   * The cost moves, it does not vanish: a mid-match joiner links one program per render context in its spawn's frames
+   * (~5-10 ms on the T4, ~100 ms on a weak GPU), off the draw. And the queue is `prepare`'s two lanes with the glow jobs
+   * on its tail behind every canvas job, so on a weak GPU a flash within ~1.5-2 s of a 15-body spawn wave can still
+   * find some bodies' glow builds not yet run -- those build in the flash's frame, as before.
+   */
+  setPrepare(prepare: ((objects: Object3D[], stale: () => boolean) => void) | null): void {
+    this.prepare = prepare;
+  }
+  private prepare: ((objects: Object3D[], stale: () => boolean) => void) | null = null;
+  /** `r`'s whole group to `prepare`, stale once `r` is not the body drawn for its id. */
+  private prepareBody(r: Remote): void {
+    this.prepare?.([r.view.group], () => this.remotes.get(r.id) !== r);
   }
 
   /**
@@ -855,7 +894,8 @@ export class RemotePlayers {
       const pick = (): Vec3 => {                                    // only on a tick the rule writes (`TiltInput.normal`)
         if (this.tiltGrid === undefined) this.tiltGrid = this.map?.ground ? groundGrid(this.map.ground) : null;
         const grid = this.tiltGrid, [x, y, z] = snap.feet;
-        const floor = grid ? selectFloor(probeGround(grid, x, z), y + STEP_PROBE_LIFT_READING, y) : null;
+        // LATER 785: the drawn stance keys the lift (`REMOTE_PROBE_STANCE_READING`: the stance word is not on the wire).
+        const floor = grid ? selectFloor(probeGround(grid, x, z), y + probeLiftOf(snap.stance), y) : null;
         if (floor) t.normal = [floor.normal[0], floor.normal[1], floor.normal[2]];
         return t.normal;
       };
@@ -879,11 +919,27 @@ export class RemotePlayers {
     for (const r of this.remotes.values()) {
       const s = r.snap;
       if (!s?.alive || !r.view.group.visible) continue;
-      const volumes = typeof r.escortee === 'number' ? this.escorteeVolumesOf(r.escortee) : this.volumesOf(r.team, r.type);
-      const hit = rayBody(eye, dir, reach, bodyVolumes(s.feet, s.yaw, s.stance, volumes, s.rootTilt));   // PRONE-TILT: as the room's
+      const hit = rayBody(eye, dir, reach, this.aimCapsules(r, s));
       if (hit && (best === null || hit.t < best)) best = hit.t;
     }
     return best;
+  }
+
+  /**
+   * The capsules `aimDistance` and `aimBodies` cast a body on. HIT-POSE (research 217 s3.6): a player's drawn skeleton's
+   * (`Play.drawnCapsules`: the copy's animator pose, as the room hits its own live pose of the body, `../../match`
+   * `Room.hitPose`), so the aim point converges on the body drawn; a hostage's (it stays on its idle sets, as the room's
+   * `hostageVolumes`), a body on a turret (`./net/hitPose` `HIT_POSE_MOUNT_READING` 'idle': the room meets a mounted
+   * gunner on its idle set, its poser not fed the turret's clip), a copy not yet played, or a stand-in without it: the
+   * type's stance volumes at the snapshot's feet, yaw and posture -- PRONE-TILT; LEAN-HIT (issue #752): the snapshot's held
+   * peek (the wire's -1 / 0 / 1) posing the lean set, as the room's idle path does.
+   */
+  private aimCapsules(r: Remote, s: NonNullable<Remote['snap']>): Capsule[] {
+    const mounted = HIT_POSE_MOUNT_READING === 'idle' && (this.mountPose?.(r.id) ?? null) !== null;
+    const drawn = typeof r.escortee === 'number' || mounted ? null : r.play.drawnCapsules?.() ?? null;
+    if (drawn) return drawn;
+    const volumes = typeof r.escortee === 'number' ? this.escorteeVolumesOf(r.escortee) : this.volumesOf(r.team, r.type);
+    return bodyVolumes(s.feet, s.yaw, s.stance, volumes, s.rootTilt, s.peek ?? 0);
   }
 
   /**
@@ -898,8 +954,8 @@ export class RemotePlayers {
     for (const [id, r] of this.remotes) {
       const s = r.snap;
       if (!s?.alive || !r.view.group.visible) continue;
-      const volumes = typeof r.escortee === 'number' ? this.escorteeVolumesOf(r.escortee) : this.volumesOf(r.team, r.type);
-      const hit = rayBody(eye, dir, reach, bodyVolumes(s.feet, s.yaw, s.stance, volumes, s.rootTilt));   // PRONE-TILT: as the room's
+      // HIT-POSE; PRONE-TILT; LEAN-HIT: as `aimDistance` (a hostage's snapshot carries no peek: `escorteeSnapshot`)
+      const hit = rayBody(eye, dir, reach, this.aimCapsules(r, s));
       if (hit) out.push({ id, distance: hit.t });
     }
     return out;
@@ -1027,6 +1083,19 @@ export class RemotePlayers {
   /** A player's character type as the page knows it (0, SEAL 1 / TERRORIST 1, until named). */
   playerType(id: number): number {
     return this.types.get(id) ?? 0;
+  }
+
+  /** ER-2: the bodies carry their owners' raise state (`BodyFlag.Raised`, protocol 14); false, a pre-14 replay's. */
+  private raiseField = true;
+
+  /**
+   * ENEMY-RAISE ER-2 (protocol 14; reading, pending review): whether the bodies carry their owners' raise state -- the
+   * welcome's protocol (`../netPage`: a live room's is this build's, a replay's its recording's). With it each copy's raise
+   * replays its owner's state (`BodyFlag.Raised` -> `WeaponInput.raised`: `FUN_002be150` D:L162310-162312); without it (a
+   * recording before 14) the copy infers from the trigger and aim (`./weaponRaise` `REMOTE_HAND_RAISE_READING`).
+   */
+  setRaiseField(on: boolean): void {
+    this.raiseField = on;
   }
 
   /**
@@ -1207,7 +1276,27 @@ export class RemotePlayers {
    */
   flinch(id: number, clip: string): void {
     const r = this.remotes.get(id);
-    if (r && r.snap?.alive !== false) { r.flinch = { clip, t: 0 }; r.under = null; }   // LATER 512: `FUN_0058a4d0` pops to the base first
+    if (r && r.snap?.alive !== false) {
+      r.flinch = { clip, t: 0 }; r.under = null;                 // LATER 512: `FUN_0058a4d0` pops to the base first
+      r.play.stopRemoteReload?.('flinch');                       // REMOTE-RELOAD F1: a crouched or prone still clip only (`Play.stopRemoteReload`)
+    }
+  }
+
+  /**
+   * REMOTE-RELOAD (`./netPage` REMOTE_RELOAD_MOTION_READING; research 91 section 22.2): another body's reload, heard from
+   * the room's `reloadSound` at the take, starts that body's reload clip (`Play.remoteReload`) -- the room's posture, the
+   * clip's `seconds`, its `family` and whether it moved (the still clip of the posture, or the family's moving overlay).
+   * An event without the room's seconds (an older room) or a body not drawn starts none: the sound alone, as before. A
+   * flinch ends a crouched or prone still clip, a death any (`Play.stopRemoteReload`); a knock is not wired (LATER 811).
+   */
+  reload(id: number, take: { posture?: ReloadStance | null; seconds?: number; family?: ReloadItem | null; moving?: boolean }): void {
+    const r = this.remotes.get(id);
+    const seconds = take.seconds;
+    if (!r || r.snap?.alive === false || typeof seconds !== 'number' || !(seconds > 0)) return;
+    // A malformed posture or family off the wire is none (the play's own stance, the item's family): the network's bookkeeping.
+    const posture = take.posture === 'stand' || take.posture === 'crouch' || take.posture === 'prone' ? take.posture : null;
+    const family = take.family && RELOAD_FAMILIES.has(take.family) ? take.family : null;
+    r.play.remoteReload?.(posture, seconds, family, take.moving === true);
   }
 
   /**
@@ -1229,7 +1318,10 @@ export class RemotePlayers {
     this.ghosts.delete(id);
     this.deathsHeard.add(id);                                    // NU-11b H1: a death heard, so never a ghost at first sight
     const r = this.remotes.get(id);
-    if (r) { r.deathClip = clip; r.deadFor = 0; r.fadeAge = 0; r.flinch = null; r.under = null; } else if (clip) this.pendingDeaths.set(id, clip);
+    if (r) {
+      r.deathClip = clip; r.deadFor = 0; r.fadeAge = 0; r.flinch = null; r.under = null;
+      r.play.stopRemoteReload?.('death');                        // REMOTE-RELOAD: the body is gone, and its reload clip
+    } else if (clip) this.pendingDeaths.set(id, clip);
   }
   private readonly pendingDeaths = new Map<number, string>();
   /** PF-28: a joiner's corpse's age (seconds), for a body not drawn yet (its first snapshot follows the welcome). */
@@ -1340,6 +1432,29 @@ export class RemotePlayers {
   }
 
   /**
+   * SIGHT-POINTS (LATER 793; research 321 s4.1.1 point 8, s7.5; reading, pending review): a drawn body's `neck` bone in
+   * world space -- the perception sight query's end and the cone's test point, the target's slot +0x38 (`FUN_005a3160`,
+   * D:L460155-460161): its node `neck` (body+0x30c; 0x65c508, `FUN_00553ea0` D:L419620-419623) carried up its parent
+   * chain (`FUN_002869d0` D:L130737-130766) and put in the world by the body's matrix with its translation
+   * (`FUN_00308640(body+0x28, p, 1)`). The bones carry their parts' names, posed as drawn (`./bodyView` `buildBody`),
+   * as `headAt`'s. Null for no body or one not drawn (`group.visible` false: a ghost, a corpse past its rule, a rescued
+   * hostage at 0) -- the page tests no point it does not hold.
+   */
+  neckAt(id: number): [number, number, number] | null {
+    const r = this.remotes.get(id);
+    if (!r || !r.view.group.visible) return null;
+    const tree = (r.watch ??= new TreeWatch(r.view.group)).version();
+    if (r.neckTree !== tree) {
+      r.neckNode = r.view.group.getObjectByName('neck') ?? null;
+      r.neckTree = tree;
+    }
+    const neck = r.neckNode;
+    if (!neck) return null;
+    const p = neck.getWorldPosition(_headAt);
+    return [p.x, p.y, p.z];
+  }
+
+  /**
    * NU-9 (c) T1's fade clock (research 329 §1.5): the real seconds since the body was drawn dead (PAR-34's `fadeAge`; a
    * joiner's corpse from its age, `hydrateCorpse`), as `FUN_00548050` (D:L413162-413174) gives the game clock less the
    * death's stamp; null while it is drawn alive, or with no body.
@@ -1411,7 +1526,10 @@ export class RemotePlayers {
     this.hang(r, this.kits.get(id) ?? null);
     this.pendingDeaths.delete(id);
     this.pendingAges.delete(id);
-    play.setWeaponInput(() => ({ trigger: r.snap?.trigger ?? false, aiming: r.snap?.aiming ?? false }));
+    play.setWeaponInput(() => ({
+      trigger: r.snap?.trigger ?? false, aiming: r.snap?.aiming ?? false,
+      ...(this.raiseField ? { raised: r.snap?.raised ?? false } : {}),   // ER-2: the owner's state (byte +0x7e)
+    }));
     const steps = this.steps;
     if (steps) {
       play.onEvent((e) => {
@@ -1421,6 +1539,7 @@ export class RemotePlayers {
       });
     }
     this.remotes.set(id, r);
+    this.prepareBody(r);                                          // FLASH-GLOW-BODIES: compiled at its spawn (`setPrepare`)
     return r;
   }
 
@@ -1450,6 +1569,7 @@ export class RemotePlayers {
     this.pendingDeaths.delete(id);
     this.pendingAges.delete(id);
     this.remotes.set(id, r);
+    this.prepareBody(r);                                          // FLASH-GLOW-BODIES: compiled at its spawn (`setPrepare`)
     return r;
   }
 
@@ -1467,6 +1587,7 @@ export class RemotePlayers {
     // NU-6 P2: the kit's rocket launcher on its node, hung again from the new kit (`taken.kit`, a `spawn`, the welcome).
     this.dropLauncher(r);
     this.placeLauncher(r, null);
+    if (this.remotes.get(r.id) === r) this.prepareBody(r);       // FLASH-GLOW-BODIES: a drawn body's new models (`add`'s own prepares at its end)
   }
 
   /**

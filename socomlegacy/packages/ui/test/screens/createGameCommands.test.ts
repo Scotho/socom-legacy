@@ -50,7 +50,37 @@ describe('missionlist.rdr and the PLAY LIST\'s rows (FUN_002c9540, FUN_00274940)
       { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 52, name: 'THE MIXER', type: 3, multiplayer: true },
       { number: 53, name: 'FOXHUNT', type: 3, multiplayer: true },
     ]);
-    expect(m.filter((x) => (FIRST_RELEASE_MAPS as readonly number[]).includes(x.number)).map((x) => x.name)).toEqual(['VIGILANCE', 'CROSSROADS', 'FROSTFIRE', 'NIGHT STALKER']);
+    expect(m.filter((x) => (FIRST_RELEASE_MAPS as readonly number[]).includes(x.number)).map((x) => x.name)).toEqual([
+      'VIGILANCE', 'FISH HOOK', 'CROSSROADS', 'BLIZZARD', 'FROSTFIRE', 'DESERT GLORY', 'NIGHT STALKER', 'THE RUINS',
+    ]);
+  });
+
+  // DF-14 (DF.R1, DF.R2; OT.R58 amended a second time 2026-11-08): FISH HOOK (MP71) and DESERT GLORY (MP6) offered,
+  // EXTRACTION both -- missionlist.rdr's TYPE 4 off the disc (`FUN_002c9540` D:L168877-168906; research 192 G2: EXT 6,
+  // 10, 11, 71), the 7th and the 16th of its 22 multiplayer records (research 164 §7's order).
+  it.skipIf(!HAVE)('DF-14: MP71 FISH HOOK and MP6 DESERT GLORY are the disc\'s 7th and 16th multiplayer missions, each TYPE 4 (EXTRACTION)', () => {
+    const m = discMissions();
+    expect(m.findIndex((x) => x.number === 71)).toBe(6);
+    expect(m.findIndex((x) => x.number === 6)).toBe(15);
+    expect(m.filter((x) => x.number === 6 || x.number === 71)).toEqual([
+      { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true }, { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true },
+    ]);
+  });
+
+  // V13-2, V13-3 (V13.R1, V13.R2; OT.R58 amended 2026-11-07): BLIZZARD (MP1) and THE RUINS (MP12) offered, DEMOLITION both --
+  // missionlist.rdr's TYPE 2 off the disc (`FUN_002c9540`; `viewer/test/rules.test.ts` reads DEMOLITION as 1 7 9 12 72 83),
+  // the 13th and the 22nd of its 22 multiplayer records (research 192 G16's order).
+  it.skipIf(!HAVE)('V13-2: MP1 BLIZZARD and MP12 THE RUINS are the disc\'s 13th and 22nd multiplayer missions, each TYPE 2 (DEMOLITION)', () => {
+    const m = discMissions();
+    expect(m.findIndex((x) => x.number === 1)).toBe(12);
+    expect(m.findIndex((x) => x.number === 12)).toBe(21);
+    expect(m.filter((x) => x.number === 1 || x.number === 12)).toEqual([
+      { number: 1, name: 'BLIZZARD', type: 2, multiplayer: true }, { number: 12, name: 'THE RUINS', type: 2, multiplayer: true },
+    ]);
+  });
+
+  it.skipIf(!HAVE)('V13-2, DF-14 (DF.R2): with RESPAWN on the disc\'s list is SUPPRESSION\'s alone -- BLIZZARD and THE RUINS (DEMOLITION), DESERT GLORY and FISH HOOK (EXTRACTION) left out at the source, as CROSSROADS and NIGHT STALKER (FUN_00274940 D:L121528-121530)', () => {
+    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: true }) })).toEqual([51, 2]);
   });
 
   it('a record with no NUMBER or no NAME is not a mission; TYPE outside the five is 0; MULTIPLAYER by its key', () => {
@@ -60,22 +90,27 @@ describe('missionlist.rdr and the PLAY LIST\'s rows (FUN_002c9540, FUN_00274940)
 
   const missions = [
     { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 52, name: 'THE MIXER', type: 3, multiplayer: true },
-    { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true },
+    { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true }, { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 1, name: 'BLIZZARD', type: 2, multiplayer: true },
+    { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true },
     { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true }, { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true },
+    { number: 12, name: 'THE RUINS', type: 2, multiplayer: true },
     { number: 99, name: 'SINGLE', type: 0, multiplayer: false },
   ];
 
-  it('respawn off: only the offered maps, plain [number, name] rows in missionlist.rdr order; no Medley, no Random (OT.R16, OT.R45: the owner\'s four-map list)', () => {
+  it('respawn off: only the offered maps, plain [number, name] rows in missionlist.rdr order; no Medley, no Random (OT.R16, OT.R45, OT.R58 amended: the owner\'s eight-map list)', () => {
     const plain = (n: number, name: string) => ({ type: 'array', value: [{ type: 'int', value: n }, S(name)] });
-    expect(availableMissionRows(missions, { respawn: false })).toEqual([plain(51, 'VIGILANCE'), plain(72, 'CROSSROADS'), plain(2, 'FROSTFIRE'), plain(7, 'NIGHT STALKER')]);
+    expect(availableMissionRows(missions, { respawn: false })).toEqual([
+      plain(51, 'VIGILANCE'), plain(71, 'FISH HOOK'), plain(72, 'CROSSROADS'), plain(1, 'BLIZZARD'), plain(2, 'FROSTFIRE'),
+      plain(6, 'DESERT GLORY'), plain(7, 'NIGHT STALKER'), plain(12, 'THE RUINS'),
+    ]);
   });
 
-  it.skipIf(!HAVE)('the disc\'s list: VIGILANCE, CROSSROADS, FROSTFIRE, NIGHT STALKER -- the 22 multiplayer missions left out at the source but the four (OT.R45)', () => {
-    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: false }) })).toEqual([51, 72, 2, 7]);
+  it.skipIf(!HAVE)('the disc\'s list: VIGILANCE, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT GLORY, NIGHT STALKER, THE RUINS -- the 22 multiplayer missions left out at the source but the eight (OT.R45; V13-2, V13-3, DF-14)', () => {
+    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: false }) })).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
   });
 
   it('every map offered (the owner opening the rest): Medley and Random first, then every multiplayer mission, as FUN_00274940 lists them', () => {
-    expect(playListNumbers({ type: 'array', value: availableMissionRows(missions, { respawn: false, offered: () => true }) })).toEqual([254, 255, 51, 52, 72, 2, 6, 7]);
+    expect(playListNumbers({ type: 'array', value: availableMissionRows(missions, { respawn: false, offered: () => true }) })).toEqual([254, 255, 51, 52, 71, 72, 1, 2, 6, 7, 12]);
   });
 
   it('respawn on: no Medley or Random, SUPPRESSION missions only (the default path keeps RESPAWN unselectable)', () => {
@@ -83,7 +118,7 @@ describe('missionlist.rdr and the PLAY LIST\'s rows (FUN_002c9540, FUN_00274940)
   });
 
   it('a mission whose archive is not present is not listed (FUN_002c94f0)', () => {
-    expect(playListNumbers({ type: 'array', value: availableMissionRows(missions, { respawn: false, present: (n) => n !== 72 }) })).toEqual([51, 2, 7]);
+    expect(playListNumbers({ type: 'array', value: availableMissionRows(missions, { respawn: false, present: (n) => n !== 72 }) })).toEqual([51, 71, 1, 2, 6, 7, 12]);
   });
 });
 

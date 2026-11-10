@@ -1,5 +1,6 @@
 import { GAME_FRAME_DT, SEAL_TUNING } from '@s2u/scene';
 import { STICK_PRESET_CUSTOM, stickTunersOfPreset, stickWordsOfSliders, type StickSliders } from '@s2u/ui';
+import { MAP_FOV, type Fov } from './accuracy';
 
 /**
  * The look law (web research 83): how SOCOM II turns a right stick into a turn and a pitch, and the view's two screen
@@ -562,15 +563,31 @@ export class ViewBob {
 
 /**
  * A PS2 screen offset as a three.js view offset (`PerspectiveCamera.setViewOffset`) on a frame of `aspect`: the
- * console added it to the projection's centre on a 640 x 448 frame shown at 4:3, so a pixel across is 4/3 x 448 / 640
- * of a pixel down; both are kept at the console's size relative to the frame's height (as `reticle.ts` does). Returns
+ * console adds it to the projection's centre (`FUN_00294070` D:L138944-138945, `cam+0x478 + cam+0x480`), whose scale
+ * across is `cam+0x290` = 320 / tan(hfov) (`FUN_002915f0`), so a PS2 pixel across moves the picture tan(hfov) / 320 in
+ * tangent. The page's camera spans its height at tan(vfov) (the map's vfov, `matchFirearm.ts` `baseFov`; `Zoom.fov`
+ * keeps the tangents exact), a page pixel of a frame 448 high being tan(vfov) / 224: a PS2 pixel across is
+ * `viewOffsetPerPixelX()` page pixels (1.076 at the maps' fov; LATER 621, research 381 section 2's 2026-11-10 note --
+ * was a fixed 4/3 x 448 / 640 = 0.933, a 4:3 frame's). A pixel down is one page pixel of the 448 (as before). Returns
  * the view offset in a frame 448 high: `[x, y]` to pass with full width `aspect x 448` -- content moves right and down.
+ * The reticle's and the HUD's pixel (`reticle.ts`) are not this.
  */
 export function viewOffset(offsetX: number, offsetY: number): [number, number] {
   const x = Math.max(-SCREEN_OFFSET_LIMIT, Math.min(SCREEN_OFFSET_LIMIT, offsetX));
   const y = Math.max(-SCREEN_OFFSET_LIMIT, Math.min(SCREEN_OFFSET_LIMIT, offsetY));
-  return [-x * ((4 / 3) * SCREEN.height / SCREEN.width), -y];
+  return [-x * VIEW_OFFSET_PER_PIXEL_X, -y];
 }
+
+/**
+ * Page pixels (of a frame 448 high) per PS2 pixel of screen offset across: (tan(hfov) / 320) / (tan(vfov) / 224), the
+ * original's projection's tangent per pixel across over the page camera's per page pixel. `fov` is the map camera's,
+ * `accuracy.ts` `MAP_FOV` (every map's `cameras/camera fov (0.6109 0.4276)`, research 72), the one the round's
+ * `tangentPerPixel` and the page's `baseFov` read.
+ */
+export function viewOffsetPerPixelX(fov: Fov = MAP_FOV): number {
+  return (Math.tan(fov.hfov) / (SCREEN.width / 2)) / (Math.tan(fov.vfov) / (SCREEN.height / 2));
+}
+const VIEW_OFFSET_PER_PIXEL_X = viewOffsetPerPixelX();
 
 // ---- The body and the look (research 83 section 3) -----------------------------------------------------------------
 

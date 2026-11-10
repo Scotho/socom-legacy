@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="284" viewBox="0 0 760 284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Game · match: 76% toward r0001 multiplayer compatibility">
-<title>Game · match: 50 done, 38 partial, 3 to do</title>
+<title>Game · match: 51 done, 39 partial, 3 to do</title>
 <rect x="0.5" y="0.5" width="759" height="283" rx="10" fill="#1a1a19" stroke="#33332f"/>
 <text x="24" y="46" font-size="20" font-weight="700" fill="#f2f2ee">Game · match</text>
 <text x="736" y="46" font-size="20" font-weight="700" fill="#f2f2ee" text-anchor="end">76%</text>
@@ -7,28 +7,28 @@
 <line x1="24" y1="80" x2="736" y2="80" stroke="#33332f"/>
 <text x="24" y="106" font-size="13" fill="#f2f2ee">Maps</text>
 <text x="736" y="106" font-size="12" fill="#a3a39c" text-anchor="end">12.5/25 · 50%</text>
-<circle cx="259" cy="102" r="5" fill="#0ca30c"><title>MP2 Frostfire (Suppression) — done</title></circle>
-<circle cx="274" cy="102" r="5" fill="#0ca30c"><title>MP51 Vigilance (Suppression) — done</title></circle>
-<circle cx="289" cy="102" r="5" fill="#0ca30c"><title>MP72 Crossroads (Demolition) — done</title></circle>
-<g><title>MP5 Abandoned (Suppression) — partial</title><circle cx="304" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M304,97 A5,5 0 0 0 304,107 Z" fill="#fab219"/></g>
-<g><title>MP8 Rat's Nest (Suppression) — partial</title><circle cx="319" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M319,97 A5,5 0 0 0 319,107 Z" fill="#fab219"/></g>
-<g><title>MP64 Shadow Falls (Suppression) — partial</title><circle cx="334" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M334,97 A5,5 0 0 0 334,107 Z" fill="#fab219"/></g>
-<g><title>MP81 Chain Reaction (Suppression) — partial</title><circle cx="349" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M349,97 A5,5 0 0 0 349,107 Z" fill="#fab219"/></g>
-<g><title>MP1 Blizzard (Demolition) — partial</title><circle cx="364" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M364,97 A5,5 0 0 0 364,107 Z" fill="#fab219"/></g>
-<g><title>MP7 Night Stalker (Demolition) — partial</title><circle cx="379" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M379,97 A5,5 0 0 0 379,107 Z" fill="#fab219"/></g>
-<g><title>MP9 Bitter Jungle (Demolition) — partial</title><circle cx="394" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M394,97 A5,5 0 0 0 394,107 Z" fill="#fab219"/></g>
-<g><title>MP12 The Ruins (Demolition) — partial</title><circle cx="409" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M409,97 A5,5 0 0 0 409,107 Z" fill="#fab219"/></g>
-<g><title>MP83 Requiem (Demolition) — partial</title><circle cx="424" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M424,97 A5,5 0 0 0 424,107 Z" fill="#fab219"/></g>
-<g><title>MP6 Desert Glory (Extraction) — partial</title><circle cx="439" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M439,97 A5,5 0 0 0 439,107 Z" fill="#fab219"/></g>
-<g><title>MP10 Blood Lake (Extraction) — partial</title><circle cx="454" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M454,97 A5,5 0 0 0 454,107 Z" fill="#fab219"/></g>
-<g><title>MP11 Death Trap (Extraction) — partial</title><circle cx="469" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M469,97 A5,5 0 0 0 469,107 Z" fill="#fab219"/></g>
-<g><title>MP71 Fish Hook (Extraction) — partial</title><circle cx="484" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M484,97 A5,5 0 0 0 484,107 Z" fill="#fab219"/></g>
-<g><title>MP52 The Mixer (Escort) — partial</title><circle cx="499" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M499,97 A5,5 0 0 0 499,107 Z" fill="#fab219"/></g>
-<g><title>MP53 Foxhunt (Escort) — partial</title><circle cx="514" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M514,97 A5,5 0 0 0 514,107 Z" fill="#fab219"/></g>
-<g><title>MP82 Guidance (Escort) — partial</title><circle cx="529" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M529,97 A5,5 0 0 0 529,107 Z" fill="#fab219"/></g>
-<g><title>MP61 Sujo (Breach) — partial</title><circle cx="544" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M544,97 A5,5 0 0 0 544,107 Z" fill="#fab219"/></g>
-<g><title>MP62 Enowapi (Breach) — partial</title><circle cx="559" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M559,97 A5,5 0 0 0 559,107 Z" fill="#fab219"/></g>
-<g><title>MP73 Sandstorm (Breach) — partial</title><circle cx="574" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M574,97 A5,5 0 0 0 574,107 Z" fill="#fab219"/></g>
+<circle cx="259" cy="102" r="5" fill="#0ca30c"><title>Frostfire (Suppression) — done</title></circle>
+<circle cx="274" cy="102" r="5" fill="#0ca30c"><title>Vigilance (Suppression) — done</title></circle>
+<circle cx="289" cy="102" r="5" fill="#0ca30c"><title>Crossroads (Demolition) — done</title></circle>
+<g><title>Abandoned (Suppression) — partial</title><circle cx="304" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M304,97 A5,5 0 0 0 304,107 Z" fill="#fab219"/></g>
+<g><title>Rat's Nest (Suppression) — partial</title><circle cx="319" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M319,97 A5,5 0 0 0 319,107 Z" fill="#fab219"/></g>
+<g><title>Shadow Falls (Suppression) — partial</title><circle cx="334" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M334,97 A5,5 0 0 0 334,107 Z" fill="#fab219"/></g>
+<g><title>Chain Reaction (Suppression) — partial</title><circle cx="349" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M349,97 A5,5 0 0 0 349,107 Z" fill="#fab219"/></g>
+<g><title>Blizzard (Demolition) — partial</title><circle cx="364" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M364,97 A5,5 0 0 0 364,107 Z" fill="#fab219"/></g>
+<g><title>Night Stalker (Demolition) — partial</title><circle cx="379" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M379,97 A5,5 0 0 0 379,107 Z" fill="#fab219"/></g>
+<g><title>Bitter Jungle (Demolition) — partial</title><circle cx="394" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M394,97 A5,5 0 0 0 394,107 Z" fill="#fab219"/></g>
+<g><title>The Ruins (Demolition) — partial</title><circle cx="409" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M409,97 A5,5 0 0 0 409,107 Z" fill="#fab219"/></g>
+<g><title>Requiem (Demolition) — partial</title><circle cx="424" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M424,97 A5,5 0 0 0 424,107 Z" fill="#fab219"/></g>
+<g><title>Desert Glory (Extraction) — partial</title><circle cx="439" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M439,97 A5,5 0 0 0 439,107 Z" fill="#fab219"/></g>
+<g><title>Blood Lake (Extraction) — partial</title><circle cx="454" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M454,97 A5,5 0 0 0 454,107 Z" fill="#fab219"/></g>
+<g><title>Death Trap (Extraction) — partial</title><circle cx="469" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M469,97 A5,5 0 0 0 469,107 Z" fill="#fab219"/></g>
+<g><title>Fish Hook (Extraction) — partial</title><circle cx="484" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M484,97 A5,5 0 0 0 484,107 Z" fill="#fab219"/></g>
+<g><title>The Mixer (Escort) — partial</title><circle cx="499" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M499,97 A5,5 0 0 0 499,107 Z" fill="#fab219"/></g>
+<g><title>Foxhunt (Escort) — partial</title><circle cx="514" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M514,97 A5,5 0 0 0 514,107 Z" fill="#fab219"/></g>
+<g><title>Guidance (Escort) — partial</title><circle cx="529" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M529,97 A5,5 0 0 0 529,107 Z" fill="#fab219"/></g>
+<g><title>Sujo (Breach) — partial</title><circle cx="544" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M544,97 A5,5 0 0 0 544,107 Z" fill="#fab219"/></g>
+<g><title>Enowapi (Breach) — partial</title><circle cx="559" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M559,97 A5,5 0 0 0 559,107 Z" fill="#fab219"/></g>
+<g><title>Sandstorm (Breach) — partial</title><circle cx="574" cy="102" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M574,97 A5,5 0 0 0 574,107 Z" fill="#fab219"/></g>
 <circle cx="589" cy="102" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>After Hours (HDD) — todo</title></circle>
 <circle cx="604" cy="102" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>Liberation (HDD) — todo</title></circle>
 <circle cx="619" cy="102" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>Last Bastion (HDD) — todo</title></circle>
@@ -45,7 +45,7 @@
 <g><title>Respawn games — partial</title><circle cx="379" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M379,114 A5,5 0 0 0 379,124 Z" fill="#fab219"/></g>
 <g><title>The mutable world: scene health, doors, panes, barriers — partial</title><circle cx="394" cy="119" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M394,114 A5,5 0 0 0 394,124 Z" fill="#fab219"/></g>
 <text x="24" y="140" font-size="13" fill="#f2f2ee">Movement &amp; camera</text>
-<text x="736" y="140" font-size="12" fill="#a3a39c" text-anchor="end">9.5/12 · 79%</text>
+<text x="736" y="140" font-size="12" fill="#a3a39c" text-anchor="end">10/13 · 77%</text>
 <circle cx="259" cy="136" r="5" fill="#0ca30c"><title>Walk, run and the look ramps at 30 Hz — done</title></circle>
 <circle cx="274" cy="136" r="5" fill="#0ca30c"><title>Stances and their gates — done</title></circle>
 <circle cx="289" cy="136" r="5" fill="#0ca30c"><title>Jump and fall damage — done</title></circle>
@@ -58,6 +58,7 @@
 <g><title>The action stack, root motion, animation ends — partial</title><circle cx="394" cy="136" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M394,131 A5,5 0 0 0 394,141 Z" fill="#fab219"/></g>
 <g><title>Steep-ground slide — partial</title><circle cx="409" cy="136" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M409,131 A5,5 0 0 0 409,141 Z" fill="#fab219"/></g>
 <g><title>The quirks: the quick-2 grenade launch (ninja jump, wall slide) — partial</title><circle cx="424" cy="136" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M424,131 A5,5 0 0 0 424,141 Z" fill="#fab219"/></g>
+<g><title>The stance button's pressure: a light or full press The stance button's pressure: a light or full press — partial</title><circle cx="439" cy="136" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M439,131 A5,5 0 0 0 439,141 Z" fill="#fab219"/></g>
 <text x="24" y="157" font-size="13" fill="#f2f2ee">Weapons &amp; equipment</text>
 <text x="736" y="157" font-size="12" fill="#a3a39c" text-anchor="end">16/18 · 89%</text>
 <circle cx="259" cy="153" r="5" fill="#0ca30c"><title>Pistols (10) — done</title></circle>
@@ -88,7 +89,7 @@
 <g><title>Dead players' spectating: follow cycle, pad, HUD — partial</title><circle cx="334" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M334,165 A5,5 0 0 0 334,175 Z" fill="#fab219"/></g>
 <g><title>Effects: tracers, destructible particles, blasts — partial</title><circle cx="349" cy="170" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M349,165 A5,5 0 0 0 349,175 Z" fill="#fab219"/></g>
 <text x="24" y="191" font-size="13" fill="#f2f2ee">HUD &amp; in-round menus</text>
-<text x="736" y="191" font-size="12" fill="#a3a39c" text-anchor="end">8/8 · 100%</text>
+<text x="736" y="191" font-size="12" fill="#a3a39c" text-anchor="end">9/9 · 100%</text>
 <circle cx="259" cy="187" r="5" fill="#0ca30c"><title>Reticle and accuracy pip — done</title></circle>
 <circle cx="274" cy="187" r="5" fill="#0ca30c"><title>Weapon box, ammo, compass marks, messages, banner — done</title></circle>
 <circle cx="289" cy="187" r="5" fill="#0ca30c"><title>The scoreboard — done</title></circle>
@@ -97,6 +98,7 @@
 <circle cx="334" cy="187" r="5" fill="#0ca30c"><title>The command menu: taunts, orders, RADIO, MUTE — done</title></circle>
 <circle cx="349" cy="187" r="5" fill="#0ca30c"><title>Taunts and victory dances — done</title></circle>
 <circle cx="364" cy="187" r="5" fill="#0ca30c"><title>MATCH-06 Names and health bars: the own name, a teammate's tag and bar under the reticle, name tags over heads — done</title></circle>
+<circle cx="379" cy="187" r="5" fill="#0ca30c"><title>The action prompt: icon, caption, colour, side icons The action prompt: icon, caption, colour, side icons — done</title></circle>
 <text x="24" y="208" font-size="13" fill="#f2f2ee">Sound &amp; voice</text>
 <text x="736" y="208" font-size="12" fill="#a3a39c" text-anchor="end">4/5 · 80%</text>
 <circle cx="259" cy="204" r="5" fill="#0ca30c"><title>Weapons, impacts, footsteps, range and fades, round cues, music — done</title></circle>
@@ -113,11 +115,11 @@
 <circle cx="319" cy="221" r="5" fill="#0ca30c"><title>MATCH-07 A quick reconnect keeps the body alive (an adaptation) — done</title></circle>
 <g><title>The netcode's open placeholders — partial</title><circle cx="334" cy="221" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M334,216 A5,5 0 0 0 334,226 Z" fill="#fab219"/></g>
 <line x1="24" y1="246" x2="736" y2="246" stroke="#33332f"/>
-<circle cx="29" cy="262" r="5" fill="#0ca30c"><title>done 50</title></circle>
-<text x="39" y="266" font-size="12" fill="#a3a39c">done 50</text>
-<g><title>partial 38</title><circle cx="108" cy="262" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,257 A5,5 0 0 0 108,267 Z" fill="#fab219"/></g>
-<text x="118" y="266" font-size="12" fill="#a3a39c">partial 38</text>
+<circle cx="29" cy="262" r="5" fill="#0ca30c"><title>done 51</title></circle>
+<text x="39" y="266" font-size="12" fill="#a3a39c">done 51</text>
+<g><title>partial 39</title><circle cx="108" cy="262" r="4.25" fill="none" stroke="#fab219" stroke-width="1.5"/><path d="M108,257 A5,5 0 0 0 108,267 Z" fill="#fab219"/></g>
+<text x="118" y="266" font-size="12" fill="#a3a39c">partial 39</text>
 <circle cx="208" cy="262" r="4.25" fill="none" stroke="#6b6b64" stroke-width="1.5"><title>to do 3</title></circle>
 <text x="218" y="266" font-size="12" fill="#a3a39c">to do 3</text>
-<text x="736" y="266" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-10-24</text>
+<text x="736" y="266" font-size="12" fill="#a3a39c" text-anchor="end">toward r0001 multiplayer · 2026-11-09</text>
 </svg>

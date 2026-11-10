@@ -2244,7 +2244,11 @@ kept (RED before: none fired). Kept: a turret claim on an earlier hold's last co
 controller's word): `roomTurrets.test.ts` "TURRET-CONE re-review R1, restated by LATER 107 ..." and "TURRET-CONE re-review
 R1 (pin), restated by LATER 107 ..." -- a turret-shaped claim (from the gun's muzzle) dated before the mount is the hand's
 now and is refused by the hand's muzzle check, 'fire: muzzle walled' (measured, both scope cases and the second player),
-nothing of the turret or the rifle spent and no turret tell owed. *Was (R1's two tests):* "is refused 'before the
+nothing of the turret or the rifle spent and no turret tell owed. Restated again by LEAN-WALLED (issue #752 defect 2,
+research 390; 2026-11-09): the hand's start line meets only what the round's flight meets, and the one face between the
+head and the gun's muzzle is the turret's own model (`worldmodel/mp72_turret01/RMG_turret`, material 3, PENETRATION 1),
+so the start is no longer walled and the claim's forged eye is refused by the cone, 'fire: cone: eye' (measured, both
+scope cases and the second player); nothing spent or bloomed either way, only the reason moved. *Was (R1's two tests):* "is refused 'before the
 mount', nothing spent, the occupant told its magazines"; "its claim dated before its own mount refused". Left as rows:
 LATER 172 (the other P4 events judged by the present `mounted`), 173 (the round trip: rifle claims named after S, sent
 before the page heard the mount), 174 (the dismount's mirror), 175 (the kit's reload timer across `FUN_005463c0`).
@@ -2397,7 +2401,8 @@ lower D:L494255; the raise D:L494264-494265, only with `actor+0x258 & 1`, D:L494
 `FUN_00551ec0` D:L418629-418643 and `FUN_00543f70` D:L410501-410517 (their conditions unread); `FUN_005dfe30` has some
 fifteen other callers (among them `FUN_005966a0` D:L453884, the throw's lower D:L453488, `FUN_0054a3d0` D:L414382,
 `FUN_0055d120` D:L424606/424611), not read here. The controller asks for them in `FUN_00594cf0` (the raise at the press
-D:L453634, the idle countdown's lower D:L453600 -- 5.0 s, `FUN_00598280` D:L454808) in the block that writes
+D:L453634, the idle countdown's lower D:L453600 -- 5.0 s, `FUN_00598280` D:L454808; the idle UP while the body's
+perception has an enemy marked, `ctrl+0xc0` > 0, D:L453088-453092: ENEMY-RAISE ER-1, research 321 s4.1.1 point 7) in the block that writes
 `ctrl+0x118` from the fire button (D:L453543-453567), which runs mounted (the function reads `+0xeb8` only at D:L453073,
 s8). **Mounted on a PKM or LMG TURRET** the zero times mean the first lower ends at once (`+0x116c` the linear times 0,
 D:L494255; `FUN_005dfc80` zeroes the envelope, D:L494206-494210), and a raise restarts a zero envelope that

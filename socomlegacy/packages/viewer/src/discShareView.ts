@@ -9,9 +9,30 @@ import { SHARE_NOT_BUILT } from './discShareWords';
  * the network here. A browser adaptation: nothing of the game.
  */
 
-export type ReceiverPhase = 'idle' | 'requesting' | 'waiting' | 'paired' | 'copying' | 'done' | 'failed';
-/** DSH.R15: `via`, once the devices are connected -- directly, or through Cloudflare's relay (`./discShareRtc`). */
-export interface ReceiverView { phase: ReceiverPhase; code?: string; link?: string; expiresAt?: number; bytes?: number; total?: number; reason?: string; via?: 'direct' | 'relay' }
+/** RB-26: `declined`, a hosted share's No (a request made against a host's link). */
+export type ReceiverPhase = 'idle' | 'requesting' | 'waiting' | 'paired' | 'copying' | 'done' | 'failed' | 'declined';
+/**
+ * DSH.R15: `via`, once the devices are connected -- directly, or through Cloudflare's relay (`./discShareRtc`). RB-26:
+ * `hosted`, a request made against a host's link (`?discshare-host=<token>`): its code is shown for the host to match,
+ * with no link of its own and no 10-minute expiry (it lives while both pages poll, RB-25).
+ */
+export interface ReceiverView {
+  phase: ReceiverPhase; code?: string; link?: string; expiresAt?: number; bytes?: number; total?: number; reason?: string; via?: 'direct' | 'relay'; hosted?: boolean;
+}
+/**
+ * RB-26 (the replay batch plan; DSH.R16 with its Q9-Q11 defaults): the host mode -- the page with the disc holds a share
+ * open (`open`; `needs-extract` without a complete extraction, DSH.R7: nothing opened at central), its `link` asked by
+ * other pages. `pending` lists the requests in the order they arrived -- those bound to the host and the receiver-made
+ * codes found on this network alike -- each `asked`, or `queued` once said Yes while another copies (`place`: its turn,
+ * from 1). `active` is the one copy under way; `last` how the latest one ended. A browser adaptation, product track.
+ */
+export type HostPhase = 'idle' | 'opening' | 'open' | 'needs-extract' | 'failed';
+export interface HostRequest { id: string; code: string; since: number; state: 'asked' | 'queued'; place?: number }
+export interface HostActive { id: string; code: string; bytes: number; total: number; via?: 'direct' | 'relay' }
+export interface HostView {
+  phase: HostPhase; link?: string; reason?: string; pending: readonly HostRequest[]; active?: HostActive;
+  last?: { code: string; outcome: 'done' | 'failed' | 'stopped'; reason?: string };
+}
 /**
  * DSH-4: `enter`, the sender's code entry (Settings' "Send game files to another device", DSH.R12 leaves the entry without
  * the QR to us): `code` is '' and `nearby` lists the codes of the requests found on this network (DSH.R9), polled only
@@ -38,6 +59,23 @@ export interface DiscShareAdapter {
   choose(code: string): boolean;
   /** Calls `fn` on every change; answers the unsubscribe. */
   onChange(fn: () => void): () => void;
+  /** RB-26: the host mode's state (optional: the stub and the screens' fakes have none). */
+  host?(): HostView;
+  /** RB-26: opens a hosted share (only with a complete extraction, DSH.R7). */
+  openHost?(): void;
+  /** RB-26 (Q10): ends the share -- the copy under way stopped, every request withdrawn. */
+  closeHost?(): void;
+  /** RB-26: the host's Yes to request `id` (gated on a complete extraction): it copies now, or queues behind the one copying. */
+  approveReq?(id: string): void;
+  /** RB-26: the host's No to request `id` (a receiver-made code from the network is only hidden here). */
+  declineReq?(id: string): void;
+  /** RB-26: stops the copy under way; the next queued request goes. */
+  stopActive?(): void;
+  /**
+   * RB-26: whether a host's link opened this page (`?discshare-host=<token>`): its request is made against that host,
+   * and the launcher opens Play's share area on it once (optional: absent, no).
+   */
+  hostLinked?(): boolean;
 }
 
 /** The address parameter the pairing link carries (DSH.R9: the code filled in). */
@@ -70,6 +108,20 @@ export function readShareCode(search: string): string | null {
 
 /** The pairing link (DSH.R10: this site's origin, so both devices use the same one). */
 export const shareLink = (origin: string, code: string): string => `${origin}/?${DISC_SHARE_PARAM}=${code}`;
+/** RB-26: the address parameter of a host's link (RB-25's token). */
+export const DISC_SHARE_HOST_PARAM = 'discshare-host';
+/** RB-26: a host's link (DSH.R10: this site's origin). The token is base64url, so it needs no escaping. */
+export const shareHostLink = (origin: string, token: string): string => `${origin}/?${DISC_SHARE_HOST_PARAM}=${encodeURIComponent(token)}`;
+/**
+ * RB-26: a host link's token as a page reads it -- base64url (central's is 18 random bytes, 24 characters,
+ * `packages/central/src/discShareHttp.ts`), 16 to 64 of them -- else null: none, or not a token. A browser adaptation.
+ */
+export const DISC_SHARE_HOST_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
+/** RB-26: the host's token an address carries (`?discshare-host=<token>`), or null when it carries none or a malformed one. */
+export function readShareHostToken(search: string): string | null {
+  const raw = new URLSearchParams(search).get(DISC_SHARE_HOST_PARAM);
+  return raw !== null && DISC_SHARE_HOST_TOKEN.test(raw) ? raw : null;
+}
 
 export interface StubDeps {
   /** This page's address query (the sender's code, when the link opened it). */

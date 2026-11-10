@@ -7,7 +7,7 @@ import { bootPage, PAGE_LOADERS, type PageLoaders } from '../src/pageEntry';
 import type { FrontEndMount } from '../src/frontEnd';
 import type { LaunchSheetMount } from '../src/launchSettings/sheet';
 import { bootLauncher } from '../src/console/launcherEntry';
-import { FORGE_MATCH_CLASS, overlayEnabled, overlayPageReads, OVERLAY_PAGE_KINDS, type OverlayPage } from '../src/modern/overlay/page';
+import { FORGE_MATCH_CLASS, overlayEnabled, overlayPageReads, OVERLAY_PAGE_KINDS, videoPictureFollows, type OverlayPage } from '../src/modern/overlay/page';
 import { FORGE_MATCHING_CLASS } from '../src/forge/matchState';
 
 /**
@@ -104,6 +104,12 @@ describe('MU2-10: the seam in pageEntry.ts mounts the overlay over every page it
     expect(line).toBeDefined();
     expect(line).not.toContain('import.meta.env.DEV');
     expect(text.split('\n').filter((l) => /mountPageOverlay\(/.test(l) && !l.trim().startsWith('*') && !l.trim().startsWith('//')).length).toBe(1);   // one seam
+  });
+});
+
+describe("RB-16 (PS-4): the overlay's Options > Display \"Video\" row on the test room", () => {
+  it("offered where a match follows the page's picture: Home, the front end, the disc page and now the test room; not the forge nor the sheet", () => {
+    expect(OVERLAY_PAGE_KINDS.filter(videoPictureFollows)).toEqual(['console', 'front-end', 'disc', 'viewer']);
   });
 });
 

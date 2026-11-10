@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { CollisionOwner, GridParams, SpawnSlot, WorldPoly } from '@s2u/scene';
 import {
-  Button, cameraLook, centreClaim, faceToward, groundGrid, holdBits, MoverSim, moverSnapshot, packGround, PROTOCOL_VERSION, STEP_PROBE_LIFT_READING,
+  Button, cameraLook, centreClaim, faceToward, groundGrid, holdBits, MoverSim, moverSnapshot, packGround, PROTOCOL_VERSION, probeLiftOf,
   quantiseCommand, Walker, wrapYaw,
   type Command, type SimMap,
 } from '../../viewer/src/sim';
@@ -52,7 +52,7 @@ class PageWalk implements NetWalk {
   setLocked(on: boolean): void { this.locked = on; }
   respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = []): boolean {
     this.sim = new MoverSim(new Walker(this.grid), null);
-    this.sim.walker.place(at[0], at[1] + STEP_PROBE_LIFT_READING, at[2]);   // `walk.ts` respawn: the tick's pick (PL-2)
+    this.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);   // `walk.ts` respawn: the tick's pick (PL-2)
     this.sim.walker.state.yaw = yaw;
     for (const c of replay) this.sim.apply(c);
     this.snapTo = yaw;

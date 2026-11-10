@@ -4,7 +4,7 @@
  *
  * The pick is the game's: `FUN_005b5d40` (decomp 470163-470290) takes the highest candidate at or under the probe's
  * origin + 1, else the lowest, refused over 20 above the feet -- the page's `selectFloor(probeGround(x, z), from +
- * STEP_PROBE_LIFT_READING, y)` (`main.ts` `floorUnder`; `@s2u/scene` probe.ts; research 86 sections 6.3 and 6.5), with
+ * probeLiftOf('stand'), y)` (`main.ts` `floorUnder`; `@s2u/scene` probe.ts; research 86 sections 6.3 and 6.5), with
  * `from` the feet as they were in the air and the
  * feet themselves on the ground (`mover.ts` `fall` / `probeFloor`). `FUN_0059ad30` (456313-456322) puts the feet on that
  * floor whenever they are under it, rising or falling; only the running jump's wind-up (`actor+0x1360` > 0) lets them

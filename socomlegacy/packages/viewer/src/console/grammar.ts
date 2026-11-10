@@ -7,11 +7,11 @@ import { STANCE_MODE_WORDS, controllerStanceMode, defaultController, setControll
 import { extractPress } from './render/extract';
 import { senderButtons } from './render/discShare';
 import { SENDER_TITLE, SHARE_CODE_BAD, SHARE_TITLE } from '../discShareWords';
-import { DEAD_VALUES, REMAP_ACTION_ROW, REMAP_FINISH_TOAST, REMAP_DEAD_ROW, REMAP_STANCE_ROW, extraAddedWords, remapActionOfRow, remapBindOfRow, remapExtraAt, remapLock, remapRowCount, rowOfPhysical, secondsLeft } from './render/remap';
+import { DEAD_VALUES, PAD_DEAD_ZONE_LABEL, REMAP_ACTION_ROW, REMAP_FINISH_TOAST, REMAP_DEAD_ROW, REMAP_STANCE_ROW, extraAddedWords, remapActionOfRow, remapBindOfRow, remapExtraAt, remapLock, remapRowCount, rowOfPhysical, secondsLeft } from './render/remap';
 import { PAD_EXTRA_ACTIONS } from '../padExtras';
 import {
-  CATS, DISC_SOURCES, INSTALL_APP_ROW, KEPT_DISC_ROW, SHARE_SEND_ROW, LOADOUT_SAVE_ROW, OVERLAY_LOCK_WORDS, PERSONA_DELETE_ROW, PERSONA_EDIT_ROWS, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW,
-  PERSONA_NEW_GENDER_ROW, PERSONA_NEW_ROWS, PERSONA_PHRASE_ROW, PERSONA_TOWN_ROW, REMAP_ROW, canChangeRow, canResetRow, cardNames, deployChecks, discSource, homeItems, isToggleRow, loadoutRows, optRowsNow, THEME_PANEL_ROW, themePicks, loadoutSideItems, serverItems,
+  CATS, DISC_SOURCES, HOME_CATEGORY, INSTALL_APP_ROW, KEPT_DISC_ROW, SHARE_SEND_ROW, LOADOUT_SAVE_ROW, OVERLAY_LOCK_WORDS, PERSONA_DELETE_ROW, PERSONA_EDIT_ROWS, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW,
+  MODS_DROP_ROW, MODS_FIRST_PACK_ROW, MODS_TEXTURE_ROW, modsRowCount, modsTestHdRow, PERSONA_NEW_GENDER_ROW, PERSONA_NEW_ROWS, PERSONA_PHRASE_ROW, PERSONA_TOWN_ROW, REMAP_ROW, canChangeRow, canResetRow, cardNames, deployChecks, discSource, homeItems, isToggleRow, loadoutRows, optRowsNow, THEME_PANEL_ROW, themePicks, loadoutSideItems, serverItems,
   optCategories, optTabs, overGame, personaEditLock, replayRows, replayStatus, roomFull, normalize, playNeed, roundRunning, selectedRoom, sessionLock, signInFresh, startReady, visibleRooms, browseRows, BROWSE_KINDS, BROWSE_CLASSIC, BROWSE_CUSTOM, customShown,
   inputReady, launchCheckRows, launchCheckStart, launchCheckTitle, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW,
   type Adapters, type Button, type ConsoleState, type FieldTarget, type LoadoutLocked, type LoadoutOutcome, type LoadoutSide, type PersonaOutcome,
@@ -26,12 +26,29 @@ import { customItems, forgetFocus, lobbyGameItems, lobbyRoomItems, normalizeLobb
 import type { LauncherNav, LauncherSnap } from './history';
 import { settleLoadoutDeepLink } from './routes';
 import { openDiscord } from './discord';
+import { copyLauncherAddress, installCopyOffered } from '../pwa/install';
 
 /**
  * LR-25 (the LR-24 review's F1): a gamepad press is no user gesture, so a browser refuses the disc's chooser then; the line
  * that says how to open it (the source menu's pad press, and since the LR-36 fold the launch check's disc row).
  */
 const POINTER_CHOOSER_WORDS = 'Choose your disc with the pointer: a browser opens its chooser only for a click or a tap';
+/**
+ * RB-5 (product track; a browser adaptation, OT.R28): a gamepad press is no user activation, so a browser opens neither a
+ * new tab (`window.open`: Experiments' Forge and Test room) nor a file chooser (the MODS drop row) for one. A pad's
+ * Cross there says how on the legend's line, and no toast claims what did not happen; a click, a tap and a key do it
+ * (`keyGesture`, `S.input`).
+ */
+export const NEW_TAB_POINTER_WORDS = 'Open it with the pointer or a key: a browser opens a new tab only for a click, a tap or a key';
+/**
+ * RB-45 (b), wave 1's review (product track; a browser adaptation, OT.R28): the Install app dialog where the page can
+ * install (Chromium's held prompt) -- `prompt()` runs only from a trusted click (`../pwa/install`), so a pad's Cross there
+ * says how on the legend's line. Where it cannot, Cross is the Copy launcher address (`copyLauncherAddress`).
+ */
+export const INSTALL_POINTER_WORDS = 'Install with the pointer: a browser installs an app only for a click or a tap';
+export const MODS_CHOOSER_POINTER_WORDS = 'Choose a pack with the pointer, or drop it on this screen: a browser opens its chooser only for a click, a tap or a key';
+/** RB-5: the toast Square's first press on a MODS pack says; the second removes it (the legend's Square is "Remove"). */
+export const modsRemoveAsk = (name: string): string => `Remove ${name}? Press Remove again to remove it.`;
 
 /**
  * The console launcher's grammar: one press handler per context (the S2U Briefing design system's "Console launcher"
@@ -78,7 +95,8 @@ export interface PagedList { at: number; count: number; set(i: number): void }
  * filter roller), Options' tabs, the Disc source dropdown open, a binding listened for, a screen with no list drawn. The
  * lists: Home's category actions, the replays, Options' rows, the button mapping's rows, the loadouts' list and editor,
  * the persona list, its editor and the new persona's form, the Service record, a room's games and players, a game's
- * lines, Custom matches. A browser adaptation with no original (OT.R28).
+ * lines, Custom matches, and (RB-5) the Server screen's and the MODS screen's rows. A browser adaptation with no original
+ * (OT.R28).
  */
 export function pageList(S: ConsoleState, A: Adapters): PagedList | null {
   if (S.overlay) return null;
@@ -105,6 +123,8 @@ export function pageList(S: ConsoleState, A: Adapters): PagedList | null {
     case 'room': return list(S.lb.row, lobbyRoomItems(A, S.lb.room).length, (i) => { S.lb.row = i; });
     case 'game': return list(S.lb.grow, lobbyGameItems(A, S.lb.game).length, (i) => { S.lb.grow = i; });
     case 'custom': return A.custom ? list(S.lb.crow, customItems(S, A).length, (i) => { S.lb.crow = i; }) : null;
+    case 'server': return list(S.sv.row, serverItems(A).length, (i) => { S.sv.row = i; });            // RB-5
+    case 'mods': return list(S.md.row, modsRowCount(A), (i) => { S.md.row = i; });                     // RB-5
     default: return null;                                             // Browse rooms: L2 / R2 its filter roller
   }
 }
@@ -156,6 +176,8 @@ export class ConsoleController {
   private nav: LauncherNav | null = null;
   /** Browser Back left the extraction popover. Its view stays until the run closes; don't draw it back on top. */
   private holdExtract = false;
+  /** RB-26: the host's link has opened Play's share area (once a page: `syncHostLink`). */
+  private hostLinkOpened = false;
   /** The page where the ephemeral account disclosure was opened. */
   private accountPlace = '';
 
@@ -168,7 +190,7 @@ export class ConsoleController {
   }
 
   render(): void {
-    this.syncViewer(); this.syncExtract(); this.syncShare(); this.sayReplaysFailure();
+    this.syncViewer(); this.syncExtract(); this.syncShare(); this.syncHostLink(); this.sayReplaysFailure();
     // PERSONA-PERSIST (a), fold B: the quick sign-in's held answer, at the first draw with no dialog open.
     if (this.pendingQuick && this.S.overlay === null) { const r = this.pendingQuick; this.pendingQuick = null; this.applyQuick(r); }
     // CX-LOADOUTS: the round compared at each draw (its beginning drops the reads in flight, its end asks again), and the
@@ -214,6 +236,7 @@ export class ConsoleController {
     S.rooms = { ...snap.rooms, kind: snap.rooms.kind ?? 0 };   // LR-37 (9): an entry from before the filter reads ALL
     S.rp = { ...snap.rp };
     S.sv = { ...snap.sv };
+    S.md = { row: snap.md?.row ?? 0 };
     S.rm = { ...snap.rm };
     S.lo = { ...snap.lo };
     S.pf = { ...snap.pf, nw: { ...snap.pf.nw } };
@@ -262,6 +285,26 @@ export class ConsoleController {
     const live = v !== null && v.phase !== 'declined' && S.mode !== 'overlay' && !S.snd.shut;
     if (S.overlay === 'share' && !live) S.overlay = null;
     else if (live && S.overlay === null) { S.overlay = 'share'; S.snd.row = 0; S.chk.open = false; }
+  }
+
+  /**
+   * RB-26 (the replay batch plan; DSH.R16): a page a host's link opened (`?discshare-host=<token>`, the adapter's
+   * `hostLinked`) opens Play's "Before you deploy" panel on the share's area once, as soon as the launcher page's Home has
+   * nothing over it (a sign-in, the agreement, the sender's dialog first), and makes its request against the host. The
+   * cursor's one move to Deploy counted as made (`auto`), so a pad waking does not take the area away. Not an Xbox
+   * choice (no `selectXboxGraphics`): the link says nothing of the device. Circle then backs out as from the row.
+   */
+  private syncHostLink(): void {
+    const S = this.S;
+    const share = this.A.discShare;
+    if (this.hostLinkOpened || !share?.hostLinked?.() || S.mode === 'overlay' || S.screen !== 'home' || S.overlay !== null) return;
+    this.hostLinkOpened = true;
+    S.cat = HOME_CATEGORY;
+    S.src.open = false;
+    S.thm.open = false;
+    S.chk = { open: true, row: LAUNCH_SHARE_ROW, auto: true, share: true };
+    if (share.receiver().phase === 'idle') share.request();
+    this.host.announce(SHARE_TITLE);
   }
 
   /** DSH-5: the sender's dialog -- Up / Down / Left / Right its buttons, Cross the focused one, Circle its No (or Close, Stop). */
@@ -585,13 +628,22 @@ export class ConsoleController {
     else if (k === 'record') this.openRecord();
     else if (k === 'custom') this.openCustom();                                                  // CX-LOBBIES
     else if (k === 'server') { S.screen = 'server'; S.sv.row = 0; A.server.loadNews?.(); }       // CX-28
+    else if (k === 'mods') { S.screen = 'mods'; S.md.row = 0; this.removeAsk = null; A.mods?.open(); }   // B206 ML-2
     else if (k === 'signin') this.openSignIn();
     else if (k === 'signout') { if (!this.signOutLocked()) { S.overlay = 'confirm'; S.confirmRow = 0; S.confirmKind = 'signout'; } }
     else if (k === 'cat') S.cat = Math.max(0, CATS.findIndex((c) => c.id === arg));
     else if (k === 'opt') { S.screen = 'options'; S.opt = { cat: Math.max(0, optCategories(S, A).findIndex((c) => c.id === arg)), row: 0, zone: 'rows' }; }
-    else if (k === 'page') { A.server.openPage(arg); this.toast(`Opens the ${arg} page in a new tab`); }
-    // LATER 291: the pad's Cross. A click on the link follows the href and does not come through here.
-    else if (k === 'discord') openDiscord();
+    // RB-5: a new tab only for a user activation; a pad's press says how (`NEW_TAB_POINTER_WORDS`), never a false toast.
+    else if (k === 'page') {
+      if (!this.gesture()) this.legendError(NEW_TAB_POINTER_WORDS);
+      else { A.server.openPage(arg); this.toast(`Opens the ${arg} page in a new tab`); }
+    }
+    // LATER 291: the pad's Cross. A click on the link follows the href and does not come through here. RB-45 (c): a new
+    // tab only for a user activation (a key's press); a pad's says how, as `page` above.
+    else if (k === 'discord') {
+      if (!this.gesture()) this.legendError(NEW_TAB_POINTER_WORDS);
+      else openDiscord();
+    }
     else if (k === 'news') { S.overlay = 'news'; A.server.loadNews?.(); }
     else if (k === 'report') A.report?.open();                          // OVERLAY-CONSOLE: FB-1's Report, the overlay's
     // OVERLAY-CONSOLE (OT.R60 (c)): a gap with no console screen yet shows "Coming" (`./state` `homeItems`) and does
@@ -695,10 +747,12 @@ export class ConsoleController {
   /** LR-36: the panel holds the pad -- Up / Down walk its rows (the ends kept), Cross does the row, Circle shuts it; nothing behind it moves. */
   private pressCheck(b: Button): void {
     const c = this.S.chk;
-    // DSH-5: the share's area holds the pad -- Cross its Try again after a failure, Circle back to the rows.
+    // DSH-5: the share's area holds the pad -- Cross its Try again after a failure (RB-26: Ask again after a host's No),
+    // Circle back to the rows.
     if (c.share) {
+      const phase = this.A.discShare?.receiver().phase;
       if (b === 'circle') this.closeShare();
-      else if (b === 'cross' && this.A.discShare?.receiver().phase === 'failed') this.A.discShare.request();
+      else if (b === 'cross' && (phase === 'failed' || phase === 'declined')) { this.A.discShare!.request(); this.cue('confirm'); }
       return;
     }
     if (b === 'up') c.row = Math.max(0, c.row - 1);
@@ -842,6 +896,12 @@ export class ConsoleController {
   /** LR-25 (LR.R23 (e)): true while a keyboard key's press runs (`./input`) -- a key is a user gesture, a gamepad button is not. */
   keyGesture = false;
 
+  /** RB-5: whether the press now is a user activation -- the pointer's (a click, a tap) or a key's -- as LR-25's Cross asks. */
+  private gesture(): boolean { return this.S.input === 'pointer' || this.keyGesture; }
+
+  /** RB-5: the MODS pack Square asked to remove (its first press); the next press on the screen removes it or forgets it. */
+  private removeAsk: string | null = null;
+
   /**
    * LR-25 (LR.R23 (e); the mockup's `openCheck()` and `jumpTo('set', 'game', 'sys-voice')`, S2 Launcher v2.dc.html lines
    * 1066-1068): Settings on a category and, where one is named, a row. The first of `rowIds` found in a category, else the
@@ -913,12 +973,12 @@ export class ConsoleController {
     return (!!row.needsSignIn && !this.A.session.signedIn()) || !!row.locked;
   }
 
-  optStep(d: number): void {
+  optStep(d: number, exact = false): void {
     const row = this.optRow();
     if (!canChangeRow(row, this.A.session.signedIn())) return;
     const n = row.values.length;
     const had = this.A.options.value(row.id);
-    if (this.A.options.step && (d === -1 || d === 1)) this.A.options.step(row.id, d < 0 ? -1 : 1);   // CX-23: the adapter steps from what it holds
+    if (!exact && this.A.options.step && (d === -1 || d === 1)) this.A.options.step(row.id, d < 0 ? -1 : 1);   // CX-23: the adapter steps from what it holds
     else this.A.options.set(row.id, Math.max(0, Math.min(n - 1, this.A.options.value(row.id) + d)));
     if (this.A.options.value(row.id) !== had) {
       this.toggled();
@@ -932,7 +992,7 @@ export class ConsoleController {
   /**
    * LR-38 (5) (the owner, 2026-10-29: "Sliders should work with tap"; the mockup's slider sets the value at the point of its
    * track, its `onTrack`): a tap or a drag on a Settings slider's track (`./input`) at `frac` (0 its left end, 1 its right)
-   * focuses the row and sets the nearest value, through `optStep` -- cued and saved as a pad step is; nothing changes on a row
+   * focuses the row and sets the nearest absolute value -- cued and saved as a pad step is; nothing changes on a row
    * that cannot change (signed out, locked) or at the value it holds. Answers whether it was a slider screen's row. A browser
    * adaptation: the launcher's pointer and touch, nothing of the game.
    */
@@ -945,7 +1005,7 @@ export class ConsoleController {
     if (row && canChangeRow(row, this.A.session.signedIn()) && row.values.length > 1) {
       const to = Math.round(Math.max(0, Math.min(1, frac)) * (row.values.length - 1));
       const d = to - this.A.options.value(row.id);
-      if (d !== 0) this.optStep(d);
+      if (d !== 0) this.optStep(d, true); // pointer coordinates are absolute, never the controller's larger step
     }
     this.render();
     return true;
@@ -1395,7 +1455,7 @@ export class ConsoleController {
     } else if (b === 'square' && !lock) {
       const def = defaultController();
       const bind = remapBindOfRow(S.rm.row);                     // STM.R1: SEPARATE's rows only
-      if (S.rm.row === REMAP_DEAD_ROW) { m.setDeadZone(def.deadZone); this.toast(`Stick dead zone reset to ${Math.round(def.deadZone * 100)}%`); }
+      if (S.rm.row === REMAP_DEAD_ROW) { m.setDeadZone(def.deadZone); this.toast(`${PAD_DEAD_ZONE_LABEL} reset to ${Math.round(def.deadZone * 100)}%`); }
       else if (bind !== undefined) {
         if (bind === CROUCH_BIND) m.setCrouch(def.crouch); else m.setProne(def.prone);
         this.toast(`${m.bindName(bind)} unbound`);
@@ -1901,7 +1961,7 @@ export class ConsoleController {
    */
   private focusKey(source = true): string {
     const S = this.S;
-    return [S.screen, S.cat, S.item[S.cat] ?? 0, S.thm.open ? `t${S.thm.row}` : '-', S.chk.open ? `c${S.chk.row}` : '-', S.opt.panel ?? '-', source && S.src.open ? S.src.row : '-', S.rooms.row, S.rooms.kind, S.rp.row, S.opt.cat, S.opt.zone, S.opt.row, S.rm.row, S.lo.row, S.lo.edit, S.pf.row, S.pf.edit, S.pf.nw.row, S.pf.rec, S.lb.row, S.lb.grow, S.lb.crow].join('|');
+    return [S.screen, S.cat, S.item[S.cat] ?? 0, S.thm.open ? `t${S.thm.row}` : '-', S.chk.open ? `c${S.chk.row}` : '-', S.opt.panel ?? '-', source && S.src.open ? S.src.row : '-', S.rooms.row, S.rooms.kind, S.rp.row, S.opt.cat, S.opt.zone, S.opt.row, S.rm.row, S.lo.row, S.lo.edit, S.pf.row, S.pf.edit, S.pf.nw.row, S.pf.rec, S.lb.row, S.lb.grow, S.lb.crow, S.sv.row, S.md.row].join('|');   // RB-5: Server's and Mods' rows
   }
 
   /**
@@ -2031,9 +2091,16 @@ export class ConsoleController {
     if (S.overlay === 'field') { this.pressField(b); this.render(); return; }     // CX-PERSONA: the Profile's field
     if (S.overlay === 'share') { this.pressShare(b); this.render(); return; }   // DSH-5: the sender's dialog
     if (S.overlay === 'install') {
-      // Circle closes. Cross does not install: a pad press is not a user activation, so prompt() would fail.
+      // Circle closes. Cross does not install: a pad press is not a user activation, so prompt() would fail. RB-45 (b):
+      // where the dialog offers Copy launcher address, Cross is that copy (the clipboard decides; a refusal shows the
+      // note with the address); where it installs, Cross says how on the legend's line.
       if (b === 'circle') S.overlay = null;
       else if (b === 'up' || b === 'down') this.host.scrollDialog?.(b === 'up' ? -1 : 1);
+      else if (b === 'cross') {
+        const surface = A.options.installSurface?.() ?? 'other';
+        if (installCopyOffered(surface)) void copyLauncherAddress();
+        else if (surface === 'chromium') this.legendError(INSTALL_POINTER_WORDS);
+      }
       this.render();
       return;
     }
@@ -2073,6 +2140,8 @@ export class ConsoleController {
     if ((S.screen === 'room' || S.screen === 'game' || S.screen === 'custom') && b !== 'options') { this.pressLobbies(b); this.render(); return; }
     // CX-28: the Server screen (OPTIONS stays START there).
     if (S.screen === 'server' && b !== 'options') { this.pressServer(b); this.render(); return; }
+    // B206 ML-2: the MODS screen (OPTIONS stays START there).
+    if (S.screen === 'mods' && b !== 'options') { this.pressMods(b); this.render(); return; }
     if (b === 'options') { this.start(); return; }
     // OVERLAY-CONSOLE: Circle at the top of the overlay's console (Home, nothing open over it) is the way back to the game.
     if (b === 'circle' && S.screen === 'home' && S.mode === 'overlay' && !S.src.open && !S.thm.open) { this.host.close?.(); return; }
@@ -2226,6 +2295,58 @@ export class ConsoleController {
     else if (b === 'triangle') this.account();
   }
 
+  /**
+   * B206 ML-2 (ML.R6): the MODS screen. Up / Down walk its rows; on the drop zone Cross opens the file picker (a pad
+   * cannot drop; RB-5: a pad's press is no user activation, so it says how on the legend's line); on the texture selector
+   * Left / Right (and Cross) step Original and the installed texture packs; on a pack Cross switches it, Square asks and
+   * a second Square removes it (RB-5), Left / Right move a data mod up or down the order; Circle returns to Experiments on
+   * the Mods row.
+   */
+  private pressMods(b: Button): void {
+    const S = this.S;
+    const m = this.A.mods;
+    const n = modsRowCount(this.A);
+    const asked = this.removeAsk;
+    this.removeAsk = null;                                            // RB-5: any other press forgets the ask
+    if (b === 'up') { S.md.row = Math.max(0, S.md.row - 1); return; }
+    if (b === 'down') { S.md.row = Math.max(0, Math.min(n - 1, S.md.row + 1)); return; }
+    if (b === 'circle') { this.closeMods(); return; }
+    if (b === 'triangle') { this.account(); return; }
+    if (!m) return;
+    const v = m.view();
+    if (S.md.row === MODS_DROP_ROW) {
+      if (b === 'cross') { if (this.gesture()) m.choose(); else this.legendError(MODS_CHOOSER_POINTER_WORDS); }   // RB-5
+      return;
+    }
+    if (S.md.row === MODS_TEXTURE_ROW) {
+      if (b !== 'left' && b !== 'right' && b !== 'cross') return;
+      const at = Math.max(0, v.textures.findIndex((t) => t.id === v.texture));
+      const next = v.textures[(at + (b === 'left' ? -1 : 1) + v.textures.length) % Math.max(1, v.textures.length)];
+      if (next && next.id !== v.texture) m.setTexture(next.id);
+      return;
+    }
+    if (S.md.row === modsTestHdRow(v)) { if (b === 'cross') m.addTestHdPack?.(); return; }   // TEST_HD_PACK_BUTTON_ADAPTATION (ML-12)
+    const row = v.rows[S.md.row - MODS_FIRST_PACK_ROW];
+    if (!row) return;
+    if (b === 'cross' && row.on !== null) m.toggle(row.id);
+    else if (b === 'square') {
+      // RB-5: Square asks first (the toast); the next Square on the same pack removes it.
+      if (asked === row.id) m.remove(row.id);
+      else { this.removeAsk = row.id; this.toast(modsRemoveAsk(row.name)); }
+    }
+    else if ((b === 'left' && row.up) || (b === 'right' && row.down)) m.move(row.id, b === 'left' ? -1 : 1);
+  }
+
+  /** Circle on the MODS screen: Experiments, on the Mods row. */
+  private closeMods(): void {
+    const S = this.S;
+    const at = Math.max(0, CATS.findIndex((c) => c.id === 'experiments'));
+    const i = homeItems('experiments', S, this.A).findIndex((x) => x.act === 'mods');
+    S.screen = 'home';
+    S.cat = at;
+    if (i >= 0) S.item[at] = i;
+  }
+
   /** Circle on the Server screen: Play online, on the Server row -- or (LR-13) Home, on Server status, when opened from there. */
   private closeServer(): void {
     const S = this.S;
@@ -2337,6 +2458,9 @@ export class ConsoleController {
       else if (act === 'press') this.press(d.b as Button);
       return false;
     }
+    // RB-45 (b): the Install dialog's Copy button is a Cross press whose click `onInstallClick` (`./input`, in capture)
+    // has already copied; the press would copy a second time.
+    if (S.overlay === 'install' && act === 'press' && d.pwaCopy !== undefined) { this.render(); return false; }
     // DSH-5: under the sender's dialog, its buttons (`sharesend`, by index) and the prompts; nothing behind it.
     if (S.overlay === 'share') {
       if (act === 'sharesend') { S.snd.row = i; this.shareSendAct(i, true); this.render(); }
@@ -2370,7 +2494,7 @@ export class ConsoleController {
     else if (act === 'chksrc') { if (S.screen !== 'home' || S.overlay || !S.chk.open || S.chk.share || !(i >= 0 && i < DISC_SOURCES.length)) return false; S.chk.row = LAUNCH_DISC_ROW; this.pickSource(i); }
     else if (act === 'chkrow') { if (S.screen !== 'home' || S.overlay || !S.chk.open || S.chk.share || !(i >= 0 && i < launchCheckRows(A))) return false; S.chk.row = i; this.checkAct(i, true); }
     // DSH-5: the share area's Try again (its failed phase).
-    else if (act === 'sharerx') { if (S.screen !== 'home' || S.overlay || !S.chk.share || A.discShare?.receiver().phase !== 'failed') return false; A.discShare.request(); }
+    else if (act === 'sharerx') { const ph = A.discShare?.receiver().phase; if (S.screen !== 'home' || S.overlay || !S.chk.share || (ph !== 'failed' && ph !== 'declined')) return false; A.discShare!.request(); }
     // LATER 291: the phone row is an anchor. Move the focus and let the click follow the href — do not also open it.
     else if (act === 'discord') {
       if (S.screen !== 'home' || S.overlay) return false;
@@ -2443,6 +2567,10 @@ export class ConsoleController {
     else if (act === 'lbgame') { if (S.screen !== 'game' || S.overlay) return false; S.lb.grow = i; }
     else if (act === 'lbcustom') { if (S.screen !== 'custom' || S.overlay) return false; S.lb.crow = i; this.press('cross'); return false; }
     else if (act === 'svrow') { if (S.screen !== 'server' || S.overlay) return false; S.sv.row = i; this.press('cross'); return false; }
+    // B206 ML-2 (CX.R6): a MODS row's click is its Cross; the selector's step marks step it; a pack's Remove removes it.
+    else if (act === 'mdrow') { if (S.screen !== 'mods' || S.overlay) return false; S.md.row = i; this.press('cross'); return false; }
+    else if (act === 'mdstep') { if (S.screen !== 'mods' || S.overlay) return false; S.md.row = i; this.press(Number(d.d) < 0 ? 'left' : 'right'); return true; }
+    else if (act === 'mdremove') { if (S.screen !== 'mods' || S.overlay) return false; S.md.row = i; this.press('square'); return false; }
     else if (act === 'fkey') { if (S.overlay !== 'field') return false; S.fd.kr = Number(d.r); S.fd.kc = Number(d.c); this.fKey(S.fd.kr, S.fd.kc); }
     else if (act === 'press') {
       // LATER 380 (#491's re-read, 1): during the pass Circle is Skip, so the screen's Back and the overlay's close are
@@ -2525,6 +2653,7 @@ export class ConsoleController {
     else if (act === 'lbgame' && S.screen === 'game' && S.lb.grow !== i) { S.lb.grow = i; this.render(); }
     else if (act === 'lbcustom' && S.screen === 'custom' && S.lb.crow !== i) { S.lb.crow = i; this.render(); }
     else if (act === 'svrow' && S.screen === 'server' && S.sv.row !== i) { S.sv.row = i; this.render(); }
+    else if (act === 'mdrow' && S.screen === 'mods' && S.md.row !== i) { S.md.row = i; this.render(); }   // B206 ML-2
   }
 
   /** The current home item (for the legend). */

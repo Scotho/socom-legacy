@@ -1,0 +1,1606 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ext-resource-dependency" content="assets/crossroads.jpg" data-resource-id="crossroads">
+<meta name="ext-resource-dependency" content="assets/legacy-wallpaper.png" data-resource-id="legacy">
+<link rel="icon" type="image/png" href="assets/sl-icon-64.png">
+<link rel="apple-touch-icon" href="assets/sl-icon-192.png">
+<script src="./support.js"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" data-bg-color="#03080e"><rect width="100" height="100" fill="#03080e"/><text x="50" y="62" text-anchor="middle" font-family="Impact,Arial Black,sans-serif" font-size="34" font-weight="900"><tspan fill="#1a78b4" stroke="#dcb85c" stroke-width="1.5">S</tspan><tspan fill="#dcb85c">L</tspan></text></svg></template>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=account_circle,add,album,auto_awesome,badge,build,check,checklist,chevron_left,chevron_right,deployed_code,dns,error,fast_forward,fast_rewind,first_page,gamepad,group,headset_mic,hive,home,install_desktop,inventory_2,joystick,labs,lan,language,last_page,layers,lock,logout,mic,military_tech,monitor,monitoring,my_location,palette,pause,person,play_arrow,priority_high,radar,remove,replay,sd_card,settings,settings_applications,settings_suggest,shield,shield_person,skip_next,skip_previous,sports_esports,stadia_controller,switch_account,tune,videocam,videogame_asset,view_list,visibility&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Saira:wght@300;400;500;600&family=Chakra+Petch:wght@300;400;500;600&family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet">
+<style>@font-face{font-family:'S2 Display';src:url(assets/fonts/saira-italic-800-latin.woff2) format('woff2');font-weight:800;font-style:italic;font-display:swap}@font-face{font-family:'S2 Label';src:url(assets/fonts/oswald-normal-variable-latin.woff2) format('woff2');font-weight:200 700;font-style:normal;font-display:swap}html,body{margin:0;background:#000;overflow:hidden}a{color:#f2b43a}a:hover{color:#ffd27a}*{box-sizing:border-box}::-webkit-scrollbar{width:0;height:0}</style>
+</helmet>
+<div data-s2root="1" onDragOver="{{ onDragOver }}" onDrop="{{ onDrop }}" style="position:relative;width:100%;height:100vh;min-height:560px;overflow:hidden;background:#000;color:#eef2f5;font-family:'Barlow',sans-serif;user-select:none;">
+  <canvas ref="{{ canvasRef }}" style="position:absolute;inset:0;width:100%;height:100%;display:block;"></canvas>
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 60%,rgba(2,10,18,.55),rgba(0,2,5,.88));opacity:{{ rpDim }};transition:opacity .45s ease;pointer-events:none;"></div>
+  <input type="file" accept=".iso,.bin,.img" ref="{{ fileRef }}" onChange="{{ onFile }}" style="display:none;">
+
+  <div style="position:absolute;top:30px;left:40px;right:40px;display:flex;justify-content:space-between;align-items:center;gap:24px;">
+    <img src="assets/socom-legacy-logo.png" alt="SOCOM Legacy" style="height:38px;width:auto;display:block;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));">
+    <div style="display:flex;align-items:center;gap:22px;">
+      <div style="display:flex;align-items:baseline;gap:10px;">
+        <span style="font-size:14px;opacity:.6;">{{ dateText }}</span>
+        <span style="font-size:22px;font-weight:300;letter-spacing:.02em;display:flex;"><span>{{ timeH }}</span><span ref="{{ colonRef }}" style="transition:opacity .4s;">:</span><span>{{ timeM }}</span></span>
+      </div>
+      <a href="https://discord.gg/vUUewwvtcy" target="_blank" rel="noopener noreferrer" aria-label="Discord (opens in a new tab)" style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;opacity:.7;transition:opacity .2s, background .2s;" style-hover="opacity:1;background:rgba(255,255,255,.08);"><img src="assets/discord-mark.svg" alt="" style="width:24px;height:18px;display:block;"></a>
+      <div onClick="{{ onSignOut }}" title="Sign out" style="flex:none;height:36px;padding:0 14px 0 6px;border-radius:18px;border:1px solid rgba(238,242,245,.24);display:flex;align-items:center;gap:8px;cursor:pointer;color:rgba(238,242,245,.82);transition:border-color .2s, color .2s, background .2s;" style-hover="border-color:#f2b43a;color:#ffffff;background:rgba(242,180,58,.08);">
+        <div style="position:relative;width:26px;height:26px;display:flex;align-items:center;justify-content:center;">
+          <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:24px;font-variation-settings:'FILL' 0,'wght' 250,'GRAD' 0,'opsz' 24;">account_circle</span>
+          <div style="position:absolute;right:1px;bottom:2px;width:7px;height:7px;border-radius:50%;background:#8fd3a0;box-shadow:0 0 0 2px #03080e;"></div>
+        </div>
+        <span style="font-size:13px;letter-spacing:.06em;white-space:nowrap;">Sign out</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;inset:0;transition:opacity .35s ease, transform .45s cubic-bezier(.2,.7,.2,1);opacity:{{ xmbOpacity }};transform:{{ xmbShift }};">
+    <div ref="{{ haloRef }}" style="position:absolute;top:calc(26% + 42px);left:36%;width:180px;height:180px;margin:-90px 0 0 -90px;border-radius:50%;display:none;pointer-events:none;"></div>
+    <div style="position:absolute;top:26%;left:36%;display:flex;transition:transform .45s cubic-bezier(.2,.7,.2,1);transform:{{ catShift }};">
+      <sc-for list="{{ cats }}" as="c" hint-placeholder-count="5">
+        <div onClick="{{ c.onClick }}" style="width:160px;display:flex;flex-direction:column;align-items:center;gap:{{ spG1 }};cursor:pointer;opacity:{{ c.opacity }};transition:opacity .3s;">
+          <div style="width:84px;height:{{ spBox }};display:flex;align-items:center;justify-content:center;">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:{{ c.size }};color:{{ c.ink }};font-variation-settings:{{ c.fvs }};text-shadow:{{ c.glow }};transition:font-size .35s cubic-bezier(.2,.7,.2,1), color .3s, text-shadow .3s;">{{ c.icon }}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:{{ spG2 }};opacity:{{ c.labelOp }};transform:{{ c.labelY }};transition:opacity .35s ease .08s, transform .35s ease .08s;"><div style="font-size:16px;letter-spacing:.04em;font-weight:500;">{{ c.label }}</div><div style="height:2px;width:{{ c.barW }};background:#f2b43a;transition:width .45s cubic-bezier(.2,.7,.2,1) .1s;"></div></div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="position:absolute;top:calc(26% + {{ spTop }});left:calc(36% - {{ spHalf }});transform:{{ itemShift }};transition:{{ listTrans }};display:flex;flex-direction:column;gap:4px;width:min(560px,calc(64vw - 40px));">
+      <sc-for list="{{ items }}" as="it" hint-placeholder-count="5">
+        <div onClick="{{ it.onClick }}" style="display:flex;align-items:center;gap:{{ spTGap }};padding:{{ spRow }} 0;cursor:pointer;opacity:{{ it.opacity }};transform:{{ it.inY }};transition:{{ it.trans }};">
+          <div style="width:{{ spIW }};height:{{ spIH }};flex:none;display:flex;align-items:center;justify-content:center;"><span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:{{ it.size }};color:{{ it.ink }};font-variation-settings:{{ it.fvs }};text-shadow:{{ it.glow }};transform:{{ it.iconScale }};transition:transform .38s cubic-bezier(.2,.9,.25,1.08), color .25s;">{{ it.icon }}</span></div>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0;">
+            <div style="font-size:24px;font-weight:400;transform-origin:left center;transform:{{ it.titleScale }};transition:transform .38s cubic-bezier(.2,.9,.25,1.08);white-space:nowrap;">{{ it.title }}</div>
+            <div style="font-size:14px;color:{{ it.subColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:{{ it.subOp }};transform:{{ it.subX }};transition:opacity .3s ease, transform .38s cubic-bezier(.2,.9,.25,1);">{{ it.sub }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div onClick="{{ closePanel }}" style="position:absolute;inset:0;pointer-events:{{ panelPE }};"></div>
+  <div style="position:absolute;top:0;right:0;bottom:0;width:min(660px,64%);transform:{{ panelX }};opacity:{{ panelOp }};pointer-events:{{ panelPE }};transition:transform .45s cubic-bezier(.2,.7,.2,1), opacity .3s ease;background:linear-gradient(90deg,rgba(2,8,14,.45),rgba(2,6,10,.92) 30%);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-left:1px solid rgba(60,160,220,.14);display:flex;flex-direction:column;padding:96px 0 84px;">
+      <div style="padding:0 44px 22px;display:flex;flex-direction:column;gap:8px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.16em;color:#f2b43a;">{{ crumb }}</div>
+        <div style="font-size:34px;font-weight:400;">{{ panelTitle }}</div>
+        <div style="font-size:15px;line-height:1.45;opacity:.7;max-width:48ch;text-wrap:pretty;">{{ panelDesc }}</div>
+      </div>
+      <div ref="{{ rowsRef }}" style="position:relative;flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;padding:0 20px 20px;display:flex;flex-direction:column;gap:2px;">
+        <div style="position:absolute;left:20px;right:20px;top:0;height:{{ hlH }};transform:{{ hlY }};opacity:{{ hlOp }};border-radius:4px;background:{{ hlBg }};box-shadow:inset 0 0 0 1px rgba(238,242,245,.22);transition:transform .24s cubic-bezier(.3,.8,.3,1), height .2s ease, opacity .25s, background .14s;pointer-events:none;"></div>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+          <div data-row="{{ r.fi }}" onClick="{{ r.onClick }}" style="position:relative;flex:none;opacity:{{ r.inOp }};transform:{{ r.inX }};transition:{{ r.trans }};display:flex;align-items:center;gap:16px;min-height:{{ r.minH }};padding:{{ r.pad }};border-radius:4px;cursor:{{ r.cursor }};">
+            <sc-if value="{{ r.isHeader }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#6fb6e0;">{{ r.label }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isDrop }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;height:136px;border:1px dashed {{ r.dropBorder }};border-radius:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0 24px;">
+                <div style="font-size:19px;text-align:center;">{{ r.label }}</div>
+                <div style="font-size:13px;opacity:.6;font-family:'JetBrains Mono',monospace;text-align:center;">{{ r.hint }}</div>
+                <sc-if value="{{ r.busy }}" hint-placeholder-val="{{ false }}">
+                  <div style="width:220px;height:3px;background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden;"><div style="height:100%;width:{{ r.pct }};background:#f2b43a;"></div></div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isMeter }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;justify-content:space-between;font-size:14px;"><span style="opacity:.7;">{{ r.label }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:12px;opacity:.7;">{{ r.hint }}</span></div>
+                <div style="display:flex;gap:4px;">
+                  <sc-for list="{{ meterBars }}" as="b" hint-placeholder-count="24">
+                    <div style="flex:1;height:20px;border-radius:2px;background:{{ b.bg }};"></div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isCheck }}" hint-placeholder-val="{{ false }}">
+              <div style="position:relative;width:56px;height:56px;flex:none;border-radius:50%;background:conic-gradient({{ r.ringColor }} {{ r.ringPct }}, rgba(255,255,255,.1) 0);display:flex;align-items:center;justify-content:center;transition:background .3s;">
+                <div style="width:52px;height:52px;border-radius:50%;background:#03080d;display:flex;align-items:center;justify-content:center;">
+                  <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:28px;color:#f4f7f9;font-variation-settings:'FILL' 0,'wght' 200,'GRAD' 0,'opsz' 24;">{{ r.checkIcon }}</span>
+                </div>
+                <div style="position:absolute;right:-2px;bottom:-2px;width:18px;height:18px;border-radius:50%;background:{{ r.ringColor }};box-shadow:0 0 0 2px #03080d;display:flex;align-items:center;justify-content:center;"><span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;-webkit-font-smoothing:antialiased;font-size:13px;color:#03080d;font-variation-settings:'FILL' 0,'wght' 600,'GRAD' 0,'opsz' 20;">{{ r.badge }}</span></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.icon }}" hint-placeholder-val="{{ false }}">
+              <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:26px;color:{{ r.iconInk }};font-variation-settings:'FILL' 0,'wght' 200,'GRAD' 0,'opsz' 24;width:28px;">{{ r.icon }}</span>
+            </sc-if>
+            <sc-if value="{{ r.isLabeled }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">
+                <div style="font-size:17px;color:{{ r.labelColor }};">{{ r.label }}</div>
+                <sc-if value="{{ r.hint }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:13px;opacity:.58;line-height:1.35;">{{ r.hint }}</div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isInfo }}" hint-placeholder-val="{{ false }}">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:{{ r.valueColor }};text-align:right;">{{ r.valueText }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isToggle }}" hint-placeholder-val="{{ false }}">
+              <div style="position:relative;width:46px;height:26px;border-radius:13px;background:{{ r.pillBg }};transition:background .2s;flex:none;"><div style="position:absolute;top:4px;left:{{ r.knobLeft }};width:18px;height:18px;border-radius:50%;background:{{ r.knobBg }};transition:left .2s;"></div></div>
+            </sc-if>
+            <sc-if value="{{ r.isSlider }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:14px;flex:none;">
+                <div onClick="{{ r.onTrack }}" style="width:170px;height:20px;display:flex;align-items:center;cursor:pointer;"><div style="width:100%;height:3px;border-radius:2px;background:rgba(255,255,255,.16);position:relative;"><div style="position:absolute;left:0;top:0;bottom:0;width:{{ r.pct }};background:#f2b43a;border-radius:2px;"></div><div style="position:absolute;top:-5px;left:{{ r.pct }};width:13px;height:13px;margin-left:-6px;border-radius:50%;background:#ffd27a;"></div></div></div>
+                <div style="width:56px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px;">{{ r.valueText }}</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isSelect }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px;flex:none;">
+                <div onClick="{{ r.onPrev }}" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#f2b43a;opacity:{{ r.arrowOp }};cursor:pointer;">‹</div>
+                <div style="min-width:150px;text-align:center;font-size:15px;">{{ r.valueText }}</div>
+                <div onClick="{{ r.onNext }}" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#f2b43a;opacity:{{ r.arrowOp }};cursor:pointer;">›</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isCheck }}" hint-placeholder-val="{{ false }}">
+              <div style="height:30px;padding:0 14px;border-radius:15px;border:1px solid {{ r.chipBorder }};color:{{ r.chipInk }};background:{{ r.chipBg }};display:flex;align-items:center;font-size:13px;letter-spacing:.06em;flex:none;transition:all .2s;">{{ r.valueText }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isBind }}" hint-placeholder-val="{{ false }}">
+              <div style="min-width:96px;height:32px;padding:0 12px;border-radius:5px;border:1px solid {{ r.capBorder }};background:{{ r.capBg }};display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:13px;color:{{ r.capColor }};">{{ r.valueText }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isSide }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:14px;flex:none;">
+                <sc-if value="{{ r.hasSw }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;">
+                    <div style="width:18px;height:18px;border-radius:50%;background:{{ r.sw1 }};box-shadow:0 0 0 1px rgba(255,255,255,.25);"></div>
+                    <div style="width:18px;height:18px;border-radius:50%;background:{{ r.sw2 }};margin-left:-6px;box-shadow:0 0 0 2px #03080d;"></div>
+                    <div style="width:18px;height:18px;border-radius:50%;background:{{ r.sw3 }};margin-left:-6px;box-shadow:0 0 0 2px #03080d;"></div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.thumb }}" hint-placeholder-val="{{ false }}">
+                  <div style="width:72px;height:40px;border-radius:4px;background:{{ r.thumb }};background-size:cover;background-position:center;box-shadow:0 0 0 1px rgba(255,255,255,.2);"></div>
+                </sc-if>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:12px;opacity:.75;text-align:right;">{{ r.valueText }}</div>
+                <sc-if value="{{ r.isPick }}" hint-placeholder-val="{{ false }}">
+                  <div style="width:18px;height:18px;border-radius:50%;border:1px solid {{ r.markBorder }};display:flex;align-items:center;justify-content:center;"><div style="width:8px;height:8px;border-radius:50%;background:{{ r.markBg }};"></div></div>
+                </sc-if>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isAction }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:18px;color:#f2b43a;opacity:{{ r.arrowOp }};">{{ r.arrow }}</div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+  <div style="position:absolute;bottom:22px;left:36px;display:flex;align-items:center;gap:14px;opacity:{{ chromeOp }};transition:opacity .3s;">
+    <sc-for list="{{ status }}" as="st" hint-placeholder-count="3">
+      <div onClick="{{ st.onClick }}" title="{{ st.tip }}" style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;cursor:pointer;transition:background .2s;" style-hover="background:rgba(255,255,255,.07);">
+        <div style="position:relative;width:28px;height:28px;display:flex;align-items:center;justify-content:center;">
+          <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:26px;color:{{ st.ink }};font-variation-settings:'FILL' 0,'wght' 250,'GRAD' 0,'opsz' 24;transition:color .3s;">{{ st.icon }}</span>
+          <div style="position:absolute;right:-2px;bottom:0;width:8px;height:8px;border-radius:50%;background:{{ st.dot }};box-shadow:0 0 0 2px #000;transition:background .3s;"></div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="position:absolute;bottom:30px;right:44px;display:flex;align-items:center;gap:26px;flex-wrap:wrap;justify-content:flex-end;">
+    <sc-for list="{{ hints }}" as="h" hint-placeholder-count="3">
+      <div style="display:flex;align-items:center;gap:9px;font-size:14px;">
+        <sc-if value="{{ h.isKey }}" hint-placeholder-val="{{ true }}">
+          <div style="height:24px;min-width:24px;padding:0 7px;white-space:nowrap;border-radius:4px;border:1px solid rgba(242,180,58,.55);color:#f2b43a;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:11px;">{{ h.k }}</div>
+        </sc-if>
+        <sc-if value="{{ h.isFace }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;width:26px;height:26px;">
+            <div style="position:absolute;left:9px;top:0;width:8px;height:8px;border-radius:50%;border:1px solid rgba(242,180,58,.6);background:{{ h.n }};"></div>
+            <div style="position:absolute;right:0;top:9px;width:8px;height:8px;border-radius:50%;border:1px solid rgba(242,180,58,.6);background:{{ h.e }};"></div>
+            <div style="position:absolute;left:9px;bottom:0;width:8px;height:8px;border-radius:50%;border:1px solid rgba(242,180,58,.6);background:{{ h.s }};"></div>
+            <div style="position:absolute;left:0;top:9px;width:8px;height:8px;border-radius:50%;border:1px solid rgba(242,180,58,.6);background:{{ h.w }};"></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ h.isIcon }}" hint-placeholder-val="{{ false }}">
+          <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:26px;color:#f2b43a;font-variation-settings:'FILL' 0,'wght' 300,'GRAD' 0,'opsz' 24;">{{ h.icon }}</span>
+        </sc-if>
+        <span style="opacity:.72;">{{ h.l }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div onClick="{{ closeCheck }}" style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(10,40,64,.55),rgba(0,3,6,.9) 70%);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);opacity:{{ checkOp }};pointer-events:{{ checkPE }};transition:opacity .35s ease;display:flex;align-items:center;justify-content:center;padding:clamp(56px,10vh,96px) 24px clamp(56px,9vh,90px);">
+    <div onClick="{{ stop }}" style="width:100%;display:flex;flex-direction:column;align-items:center;gap:clamp(14px,3.6vh,36px);transform:{{ checkScale }};transition:transform .5s cubic-bezier(.2,.7,.2,1);max-width:100%;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.2em;color:#f2b43a;">HOME / PLAY</div>
+        <div style="font-size:clamp(28px,5.4vh,44px);font-weight:300;letter-spacing:.01em;white-space:nowrap;">{{ checkTitle }}</div>
+      </div>
+      <div style="width:100%;display:flex;gap:clamp(12px,2.4vw,24px);justify-content:center;">
+        <sc-for list="{{ checkTiles }}" as="t" hint-placeholder-count="2">
+          <div onClick="{{ t.onClick }}" style="position:relative;flex:0 1 280px;min-width:0;height:min(320px,44vh);border-radius:10px;border:1px solid {{ t.border }};background:{{ t.bg }};box-shadow:{{ t.shadow }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,2vh,18px);cursor:pointer;opacity:{{ t.inOp }};transform:{{ t.inY }};transition:{{ t.trans }};">
+            <div style="position:absolute;top:16px;left:18px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.2em;opacity:.55;">{{ t.label }}</div>
+            <div style="position:relative;width:min(132px,17vh);height:min(132px,17vh);flex:none;border-radius:50%;background:conic-gradient({{ t.ringColor }} {{ t.ringPct }}, rgba(255,255,255,.08) 0);display:flex;align-items:center;justify-content:center;transition:background .3s;">
+              <div style="width:calc(100% - 8px);height:calc(100% - 8px);border-radius:50%;background:#03080d;display:flex;align-items:center;justify-content:center;">
+                <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:min(60px,7.6vh);color:{{ t.iconInk }};font-variation-settings:'FILL' 0,'wght' 200,'GRAD' 0,'opsz' 48;transition:color .3s;">{{ t.icon }}</span>
+              </div>
+              <div style="position:absolute;right:6px;bottom:6px;width:30px;height:30px;border-radius:50%;background:{{ t.badgeBg }};box-shadow:0 0 0 3px #03080d;display:flex;align-items:center;justify-content:center;transition:background .3s;"><span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;-webkit-font-smoothing:antialiased;font-size:20px;color:#03080d;font-variation-settings:'FILL' 0,'wght' 500,'GRAD' 0,'opsz' 20;">{{ t.badge }}</span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+              <div style="font-size:clamp(17px,2.8vh,22px);color:{{ t.stateColor }};">{{ t.state }}</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;opacity:.55;max-width:92%;text-align:center;line-height:1.35;text-wrap:balance;">{{ t.sub }}</div>
+            </div>
+            <div style="height:32px;padding:0 16px;border-radius:16px;border:1px solid {{ t.chipBorder }};color:{{ t.chipInk }};background:{{ t.chipBg }};display:flex;align-items:center;font-size:13px;letter-spacing:.06em;transition:all .2s;">{{ t.action }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="width:100%;display:flex;flex-direction:column;align-items:center;gap:clamp(6px,1.6vh,14px);opacity:{{ deployInOp }};transform:{{ deployInY }};transition:opacity .35s ease .18s, transform .45s cubic-bezier(.2,.7,.2,1) .18s;">
+        <div onClick="{{ onDeploy }}" style="width:min(584px,86vw);height:clamp(50px,8vh,68px);border-radius:34px;background:{{ deployBg }};color:{{ deployInk }};box-shadow:{{ deployShadow }};display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer;transition:background .25s, box-shadow .25s, color .25s;">
+          <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;-webkit-font-smoothing:antialiased;font-size:32px;font-variation-settings:'FILL' 1,'wght' 400,'GRAD' 0,'opsz' 40;">play_arrow</span>
+          <span style="font-size:20px;font-weight:600;letter-spacing:.14em;">{{ deployLabel }}</span>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;opacity:.55;">{{ deployHint }}</div>
+        <div onClick="{{ onPadSettings }}" style="display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:20px;background:{{ linkBg }};color:{{ linkInk }};cursor:pointer;transition:background .2s, color .2s;font-size:14px;">
+          <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;-webkit-font-smoothing:antialiased;font-size:20px;font-variation-settings:'FILL' 0,'wght' 300,'GRAD' 0,'opsz' 20;">tune</span>
+          <span>Controller settings</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <sc-if value="{{ rpOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;top:92px;left:44px;right:44px;bottom:72px;display:flex;flex-direction:column;gap:14px;min-height:0;">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;opacity:{{ rpInOp }};transform:{{ rpHeadX }};transition:opacity .4s ease, transform .55s cubic-bezier(.2,.7,.2,1);">
+      <div style="display:flex;flex-direction:column;gap:7px;min-width:0;">
+        <div onClick="{{ rpClose }}" style="display:flex;align-items:center;gap:6px;width:max-content;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.16em;color:#f2b43a;padding:4px 10px 4px 4px;margin-left:-4px;border-radius:4px;white-space:nowrap;background:{{ rpBackBg }};box-shadow:{{ rpBackRing }};transition:background .15s, box-shadow .2s;">
+          <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:16px;font-variation-settings:'FILL' 0,'wght' 300,'GRAD' 0,'opsz' 20;">chevron_left</span><span>REPLAYS / REPLAY</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div style="font-family:'S2 Label','Oswald',sans-serif;font-size:clamp(32px,5.2vh,48px);font-weight:400;letter-spacing:.01em;line-height:1;white-space:nowrap;">{{ rpMap }}</div>
+          <div style="height:24px;padding:0 11px;border-radius:12px;border:1px solid rgba(238,242,245,.3);display:flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:rgba(238,242,245,.85);">{{ rpMode }}</div>
+          <sc-if value="{{ rpPartial }}" hint-placeholder-val="{{ false }}">
+            <div title="The recording was cut before the match ended" style="height:24px;padding:0 11px;border-radius:12px;border:1px solid rgba(242,180,58,.55);display:flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:#f2b43a;">PARTIAL RECORDING</div>
+          </sc-if>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px 16px;font-size:14px;color:rgba(238,242,245,.62);">
+          <span>{{ rpDate }}</span><span>{{ rpLen }}</span><span>{{ rpRules }} rules</span><span>12 players</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex:none;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:rgba(238,242,245,.5);white-space:nowrap;">{{ rpResultLabel }}</div>
+        <div style="display:flex;align-items:baseline;gap:12px;font-family:'S2 Label','Oswald',sans-serif;white-space:nowrap;">
+          <span style="font-size:14px;letter-spacing:.14em;color:#62b6e8;">SEALS</span>
+          <span style="font-size:34px;line-height:1;">{{ rpS0 }}</span>
+          <span style="font-size:20px;opacity:.35;">–</span>
+          <span style="font-size:34px;line-height:1;">{{ rpS1 }}</span>
+          <span style="font-size:14px;letter-spacing:.14em;color:#e9846f;">TERRORISTS</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) clamp(208px,19vw,268px);gap:16px;">
+      <div style="position:relative;min-width:0;min-height:0;border-radius:6px;overflow:hidden;background:#02060a;opacity:{{ rpInOp }};transform:{{ rpViewS }};transition:opacity .45s ease .06s, transform .65s cubic-bezier(.2,.7,.2,1) .06s;">
+        <div style="position:absolute;inset:0;transform:{{ rpCamT }};transition:transform 1.4s cubic-bezier(.2,.7,.2,1);">
+          <div style="position:absolute;inset:-4%;background-image:{{ rpImg }};background-size:cover;background-position:center;filter:{{ rpImgFilter }};transform:{{ rpDrift }};transition:filter .7s ease, transform .3s linear;"></div>
+        </div>
+        <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 45%,rgba(0,0,0,.5) 100%),linear-gradient(180deg,rgba(0,0,0,.42),rgba(0,0,0,0) 24%,rgba(0,0,0,0) 70%,rgba(0,0,0,.58));pointer-events:none;"></div>
+        <div style="position:absolute;inset:0;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);pointer-events:none;"></div>
+
+        <sc-if value="{{ rpReady }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:14px;left:14px;display:flex;flex-direction:column;gap:4px;max-width:40%;">
+            <sc-for list="{{ rpFeed }}" as="kf" hint-placeholder-count="0">
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 10px;border-radius:4px;background:{{ kf.bg }};box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);opacity:{{ kf.op }};font-size:13px;white-space:nowrap;transition:opacity .3s;">
+                <span style="color:{{ kf.ac }};">{{ kf.a }}</span><span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;opacity:.6;">{{ kf.w }}</span><span style="color:{{ kf.bc }};">{{ kf.b }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div title="SEALs vs Terrorists" style="position:absolute;top:58px;right:10px;display:flex;align-items:center;gap:10px;padding:6px 14px;border-radius:16px;background:rgba(3,8,13,.74);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;white-space:nowrap;">
+            <span style="font-size:17px;line-height:1;color:#62b6e8;">{{ rpLive0 }}</span><span style="opacity:.62;">{{ rpRoundShort }}</span><span style="font-size:17px;line-height:1;color:#e9846f;">{{ rpLive1 }}</span>
+          </div>
+          <div style="position:absolute;top:10px;right:10px;display:flex;gap:2px;padding:4px;border-radius:6px;background:rgba(3,8,13,.74);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);">
+            <sc-for list="{{ rpCams }}" as="cm" hint-placeholder-count="3">
+              <div onClick="{{ cm.onClick }}" style="position:relative;display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-radius:4px;cursor:pointer;color:{{ cm.ink }};background:{{ cm.bg }};box-shadow:{{ cm.ring }};font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;transition:color .2s, background .15s, box-shadow .2s;">
+                <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:18px;font-variation-settings:'FILL' 0,'wght' 250,'GRAD' 0,'opsz' 20;">{{ cm.icon }}</span><span>{{ cm.l }}</span>
+                <div style="position:absolute;left:12px;right:12px;bottom:3px;height:2px;background:#f2b43a;transform:{{ cm.barS }};transition:transform .35s cubic-bezier(.2,.7,.2,1);"></div>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ rpPaused }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ rpToggle }}" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:76px;height:76px;border-radius:50%;background:rgba(3,8,13,.74);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;cursor:pointer;">
+              <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:40px;color:#f4f7f9;font-variation-settings:'FILL' 1,'wght' 300,'GRAD' 0,'opsz' 40;">{{ rpPausedIcon }}</span>
+            </div>
+          </sc-if>
+          <div style="position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:4px;background:rgba(3,8,13,.74);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:20px;color:#f2b43a;font-variation-settings:'FILL' 0,'wght' 250,'GRAD' 0,'opsz' 20;">{{ rpCamIcon }}</span>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;white-space:nowrap;">{{ rpCamLabel }}</span>
+              <sc-if value="{{ rpCamSub }}" hint-placeholder-val="{{ false }}"><span style="font-size:13px;color:#ffd27a;">{{ rpCamSub }}</span></sc-if>
+            </div>
+          </div>
+          <div style="position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;align-items:flex-end;gap:3px;padding:8px 14px;border-radius:4px;background:rgba(3,8,13,.74);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.18em;opacity:.55;">ROUND TIME</span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:20px;line-height:1;color:{{ rpClockC }};">{{ rpClock }}</span>
+          </div>
+          <div style="position:absolute;left:50%;bottom:16px;transform:{{ rpNoteT }};opacity:{{ rpNoteOp }};transition:opacity .3s, transform .4s cubic-bezier(.2,.7,.2,1);max-width:min(480px,40%);padding:8px 14px;border-radius:4px;background:rgba(3,8,13,.88);box-shadow:inset 0 0 0 1px rgba(242,180,58,.35);font-size:13px;line-height:1.35;text-align:center;text-wrap:pretty;pointer-events:none;">{{ rpNoteText }}</div>
+        </sc-if>
+
+        <sc-if value="{{ rpLoading }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.2em;color:#f2b43a;">LOADING THE RECORDING</div>
+            <div style="width:240px;height:2px;background:rgba(255,255,255,.12);"><div style="height:100%;width:{{ rpLoadPct }};background:#f2b43a;"></div></div>
+            <div style="font-size:13px;color:rgba(238,242,245,.55);">{{ rpMap }} · {{ rpLen }}</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ rpMsgOn }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:44px;color:#f2b43a;font-variation-settings:'FILL' 0,'wght' 200,'GRAD' 0,'opsz' 40;">{{ rpMsgIcon }}</span>
+            <div style="font-size:24px;font-weight:300;">{{ rpMsgTitle }}</div>
+            <div style="font-size:14px;color:rgba(238,242,245,.62);max-width:40ch;text-wrap:pretty;">{{ rpMsgBody }}</div>
+            <div style="display:flex;gap:12px;margin-top:8px;">
+              <sc-for list="{{ rpMsgActs }}" as="ma" hint-placeholder-count="1">
+                <div onClick="{{ ma.onClick }}" style="height:42px;padding:0 22px;border-radius:21px;display:flex;align-items:center;cursor:pointer;font-size:15px;background:{{ ma.bg }};color:{{ ma.ink }};box-shadow:{{ ma.ring }};transition:background .15s, box-shadow .2s;">{{ ma.l }}</div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <div ref="{{ railRef }}" style="position:relative;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;display:flex;flex-direction:column;gap:10px;padding:10px 8px;border-radius:6px;background:rgba(3,10,16,.62);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);opacity:{{ rpInOp }};transform:{{ rpRailX }};transition:opacity .45s ease .12s, transform .6s cubic-bezier(.2,.7,.2,1) .12s;">
+        <sc-for list="{{ rpTeams }}" as="tm" hint-placeholder-count="2">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 10px 6px;">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;color:{{ tm.color }};">{{ tm.name }}</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:rgba(238,242,245,.5);">{{ tm.alive }}</span>
+            </div>
+            <sc-for list="{{ tm.players }}" as="p" hint-placeholder-count="6">
+              <div data-rp-p="{{ p.fi }}" onClick="{{ p.onClick }}" style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:4px;cursor:pointer;background:{{ p.bg }};box-shadow:{{ p.ring }};opacity:{{ p.op }};transition:background .15s, box-shadow .2s, opacity .35s;">
+                <div style="position:relative;width:30px;height:30px;flex:none;border-radius:50%;background:rgba(255,255,255,.05);display:flex;align-items:center;justify-content:center;">
+                  <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:18px;color:{{ p.ink }};font-variation-settings:'FILL' 0,'wght' 250,'GRAD' 0,'opsz' 20;">{{ p.icon }}</span>
+                  <div style="position:absolute;right:-1px;bottom:-1px;width:8px;height:8px;border-radius:50%;background:{{ tm.color }};box-shadow:0 0 0 2px #050c12;"></div>
+                </div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">
+                  <div style="font-size:15px;line-height:1.1;color:{{ p.nameColor }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.14em;color:rgba(238,242,245,.5);">{{ p.sub }}</div>
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:rgba(238,242,245,.8);white-space:nowrap;">{{ p.kd }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;opacity:{{ rpInOp }};transform:{{ rpLowY }};transition:opacity .45s ease .18s, transform .6s cubic-bezier(.2,.7,.2,1) .18s;">
+      <div onPointerDown="{{ rpDown }}" onPointerMove="{{ rpMove }}" onPointerUp="{{ rpUp }}" onPointerLeave="{{ rpLeave }}" style="position:relative;height:40px;cursor:pointer;touch-action:none;border-radius:4px;box-shadow:{{ rpSeekRing }};transition:box-shadow .2s;">
+        <div style="position:absolute;inset:0;display:flex;gap:2px;">
+          <sc-for list="{{ rpRounds }}" as="rd" hint-placeholder-count="10">
+            <div style="position:relative;flex:{{ rd.flex }};min-width:0;border-radius:3px;overflow:hidden;background:{{ rd.bg }};transition:background .3s;">
+              <div style="position:absolute;left:0;top:0;bottom:0;width:{{ rd.fill }};background:rgba(238,242,245,.11);"></div>
+              <div style="position:absolute;left:0;right:0;bottom:0;height:2px;background:{{ rd.winC }};transition:background .4s;"></div>
+              <div style="position:absolute;top:5px;left:7px;font-family:'JetBrains Mono',monospace;font-size:10px;color:{{ rd.numC }};transition:color .3s;">{{ rd.n }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <sc-for list="{{ rpMarks }}" as="mk" hint-placeholder-count="0">
+          <div style="position:absolute;bottom:5px;left:{{ mk.left }};width:2px;height:{{ mk.h }};margin-left:-1px;border-radius:1px;background:{{ mk.c }};pointer-events:none;"></div>
+        </sc-for>
+        <div style="position:absolute;top:-6px;bottom:-3px;left:{{ rpHead }};width:2px;margin-left:-1px;background:#f2b43a;pointer-events:none;transition:{{ rpHeadTr }};">
+          <div style="position:absolute;top:-5px;left:50%;width:{{ rpKnob }};height:{{ rpKnob }};transform:translateX(-50%);border-radius:50%;background:#f2b43a;box-shadow:0 0 0 3px #03080d;transition:width .2s, height .2s;"></div>
+        </div>
+        <sc-if value="{{ rpHoverOn }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:-34px;left:{{ rpHoverX }};transform:translateX(-50%);padding:4px 9px;border-radius:4px;background:rgba(3,8,13,.95);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;white-space:nowrap;pointer-events:none;">{{ rpHoverText }}</div>
+        </sc-if>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+        <sc-for list="{{ rpTxMain }}" as="b" hint-placeholder-count="1">
+          <div onClick="{{ b.onClick }}" title="{{ b.tip }}" style="width:{{ b.w }};height:{{ b.w }};flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ b.bg }};box-shadow:{{ b.ring }};color:{{ b.ink }};opacity:{{ b.op }};transform:{{ b.sc }};transition:background .15s, box-shadow .2s, transform .12s, opacity .2s;">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:{{ b.is }};font-variation-settings:{{ b.fvs }};">{{ b.icon }}</span>
+          </div>
+        </sc-for>
+        <div style="width:1px;height:22px;background:rgba(255,255,255,.12);margin:0 8px;flex:none;"></div>
+        <sc-for list="{{ rpTxStep }}" as="b" hint-placeholder-count="1">
+          <div onClick="{{ b.onClick }}" title="{{ b.tip }}" style="width:{{ b.w }};height:{{ b.w }};flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ b.bg }};box-shadow:{{ b.ring }};color:{{ b.ink }};opacity:{{ b.op }};transform:{{ b.sc }};transition:background .15s, box-shadow .2s, transform .12s, opacity .2s;">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:{{ b.is }};font-variation-settings:{{ b.fvs }};">{{ b.icon }}</span>
+          </div>
+        </sc-for>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-left:14px;font-family:'JetBrains Mono',monospace;font-size:14px;white-space:nowrap;"><span>{{ rpNow }}</span><span style="opacity:.42;">/ {{ rpLen }}</span></div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;color:rgba(238,242,245,.5);margin-left:14px;white-space:nowrap;">{{ rpRoundText }}</div>
+        <div style="flex:1;"></div>
+        <div style="display:flex;align-items:center;gap:2px;">
+          <sc-for list="{{ rpTxSlow }}" as="b" hint-placeholder-count="1">
+          <div onClick="{{ b.onClick }}" title="{{ b.tip }}" style="width:{{ b.w }};height:{{ b.w }};flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ b.bg }};box-shadow:{{ b.ring }};color:{{ b.ink }};opacity:{{ b.op }};transform:{{ b.sc }};transition:background .15s, box-shadow .2s, transform .12s, opacity .2s;">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:{{ b.is }};font-variation-settings:{{ b.fvs }};">{{ b.icon }}</span>
+          </div>
+        </sc-for>
+          <div style="width:52px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:14px;">{{ rpRate }}</div>
+          <sc-for list="{{ rpTxFast }}" as="b" hint-placeholder-count="1">
+          <div onClick="{{ b.onClick }}" title="{{ b.tip }}" style="width:{{ b.w }};height:{{ b.w }};flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;background:{{ b.bg }};box-shadow:{{ b.ring }};color:{{ b.ink }};opacity:{{ b.op }};transform:{{ b.sc }};transition:background .15s, box-shadow .2s, transform .12s, opacity .2s;">
+            <span style="font-family:'Material Symbols Sharp';font-weight:normal;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;-webkit-font-smoothing:antialiased;font-size:{{ b.is }};font-variation-settings:{{ b.fvs }};">{{ b.icon }}</span>
+          </div>
+        </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+  <div style="position:absolute;left:50%;bottom:86px;transform:{{ toastY }};opacity:{{ toastOp }};transition:opacity .25s ease, transform .35s cubic-bezier(.2,.7,.2,1);pointer-events:none;padding:13px 22px;border-radius:6px;background:rgba(2,8,14,.92);border:1px solid rgba(242,180,58,.35);font-size:15px;max-width:80%;text-align:center;">{{ toastText }}</div>
+
+  <sc-if value="{{ booting }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 48%,rgba(20,110,175,.35),#000 55%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;">
+      <div style="font-size:72px;font-weight:700;letter-spacing:.08em;color:#1a78b4;-webkit-text-stroke:2px #f2b43a;">SOCOM II</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.16em;color:#f2b43a;">{{ bootText }}</div>
+      <div style="width:280px;height:2px;background:rgba(255,255,255,.12);"><div style="height:100%;width:{{ bootPct }};background:#f2b43a;"></div></div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ signedOut }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ signIn }}" style="position:absolute;inset:0;background:rgba(0,3,6,.84);backdrop-filter:blur(10px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;cursor:pointer;">
+      <div style="width:84px;height:84px;border-radius:50%;border:2px solid #f2b43a;color:#f2b43a;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:14px;">W6</div>
+      <div style="font-size:26px;font-weight:400;">Signed out</div>
+      <div style="font-size:15px;opacity:.65;">Press Enter to sign in as {{ callsign }}</div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Navy &amp; Gold&quot;,&quot;Deep Water&quot;,&quot;Blackout&quot;,&quot;Night Ops&quot;,&quot;Jungle&quot;,&quot;Desert&quot;,&quot;Frost&quot;],&quot;default&quot;:&quot;Navy &amp; Gold&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;hintGlyphs&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Auto&quot;,&quot;Controller&quot;,&quot;Keyboard&quot;],&quot;default&quot;:&quot;Auto&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;railSpacing&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Refined&quot;,&quot;Current&quot;,&quot;Tight&quot;,&quot;Airy&quot;,&quot;Even rhythm&quot;,&quot;No underline&quot;],&quot;default&quot;:&quot;Refined&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;font&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Barlow&quot;,&quot;Saira&quot;,&quot;Oswald&quot;,&quot;Rajdhani&quot;,&quot;Chakra Petch&quot;],&quot;default&quot;:&quot;Barlow&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Type &amp; icons&quot;},&quot;iconStyle&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Sharp Light&quot;,&quot;Sharp Thin&quot;,&quot;Sharp Regular&quot;,&quot;Sharp Filled&quot;],&quot;default&quot;:&quot;Sharp Light&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Type &amp; icons&quot;},&quot;padIcon&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Stadia&quot;,&quot;Asset&quot;,&quot;Gamepad&quot;,&quot;Joystick&quot;,&quot;Esports&quot;],&quot;default&quot;:&quot;Stadia&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Type &amp; icons&quot;},&quot;labIcon&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Cube&quot;,&quot;Labs&quot;,&quot;Hex grid&quot;,&quot;Target&quot;,&quot;Sparkle&quot;],&quot;default&quot;:&quot;Cube&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Type &amp; icons&quot;},&quot;profIcon&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Account&quot;,&quot;ID badge&quot;,&quot;Rank&quot;,&quot;Shield&quot;,&quot;Person&quot;],&quot;default&quot;:&quot;Account&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Type &amp; icons&quot;},&quot;replayDemo&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Normal&quot;,&quot;Failed&quot;,&quot;Locked&quot;],&quot;default&quot;:&quot;Normal&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Replay&quot;}}">
+class Component extends DCLogic {
+  CATS = [
+    { id: 'lab', label: 'Experiments', icon: 'lab', items: ['forge', 'test'] },
+    { id: 'online', label: 'Online', icon: 'net', items: ['quick', 'rooms', 'friends', 'clans', 'serverinfo'] },
+    { id: 'home', label: 'Home', icon: 'home', items: ['play', 'card', 'activity'] },
+    { id: 'set', label: 'Settings', icon: 'gear', items: ['game', 'system', 'app'] },
+    { id: 'prof', label: 'Profile', icon: 'user', items: ['record', 'replays', 'loadouts', 'profiles', 'signout'] },
+  ];
+  P = {
+    forge: { code: 'FRG', title: 'Forge', desc: 'Assemble custom matches: pick a map, bend the rules, save the preset for your lobby.' },
+    test: { code: 'TST', title: 'Test Room', desc: 'An offline sandbox for practicing angles, checking recoil and trying new binds.' },
+    quick: { code: 'QM', title: 'Quick Match', desc: 'Drop into the best open game for your region and mode.' },
+    rooms: { code: 'RM', title: 'Rooms', desc: 'Browse open lobbies. Select a room to join it.' },
+    friends: { code: 'FRN', title: 'Friends', desc: 'See who’s online and join their room.' },
+    clans: { code: 'CLN', title: 'Clans', desc: 'Your clan roster, scrims and challenges.' },
+    serverinfo: { code: 'SRV', title: 'Server Information', desc: 'Status of the community servers you connect to.' },
+    play: { code: 'PLAY', title: 'Play SOCOM II', desc: 'Boot SOCOM II on community servers.' },
+    launch: { code: 'CHK', title: 'Before you deploy', desc: '' },
+    iso: { code: 'ISO', title: 'Disc Image', desc: 'Mount your own SOCOM II (NTSC-U) image. It’s verified on this machine and never uploaded.' },
+    pad: { code: 'PAD', title: 'Controller', desc: 'Plug in over USB or pair over Bluetooth, then press any button to wake it.' },
+    mic: { code: 'MIC', title: 'Microphone', desc: 'Set up a headset for squad voice. Check your level before you deploy.' },
+    card: { code: 'MC', title: 'Memory Card', desc: 'Virtual memory card saves kept by the launcher. Select one, then export or delete.' },
+    activity: { code: 'ACT', title: 'Server Activity', desc: 'What’s happening on the servers right now.' },
+    game: { code: 'GAME', title: 'Game Settings', desc: 'Everything that changes how SOCOM II plays, sounds and looks.' },
+    system: { code: 'SYS', title: 'System Settings', desc: 'How the launcher looks, connects and updates.' },
+    app: { code: 'APP', title: 'App', desc: 'Install the launcher as an app: its own window, full screen, one click from your desktop.' },
+    'sys-look': { code: 'LOOK', title: 'Appearance', desc: 'Theme, background and motion.' },
+    'sys-launcher': { code: 'LCH', title: 'Launcher', desc: 'Language, startup and updates.' },
+    'app-theme': { code: 'THM', title: 'Theme & Background', desc: 'Pick a colour theme and what sits behind the wave.' },
+    record: { code: 'REC', title: 'Service Record', desc: 'Your career across community servers.' },
+    replays: { code: 'REP', title: 'Replays', desc: 'Matches recorded on this device. Select one to watch.' },
+    loadouts: { code: 'LDT', title: 'Loadouts', desc: 'Saved kits. The marked loadout is equipped when you spawn.' },
+    profiles: { code: 'PRF', title: 'Profiles', desc: 'Local profiles on this launcher. Each keeps its own saves, binds and settings.' },
+    signout: { code: 'OUT', title: 'Sign Out', desc: 'You’ll return to the sign-in screen. Saves and settings stay on this device.' },
+    'sys-pad': { code: 'PAD', title: 'Controls', desc: 'Pick an action, then press the input you want. Esc cancels.' },
+    'sys-voice': { code: 'VOX', title: 'Voice', desc: 'Input, transmit mode and how you hear your squad.' },
+    'sys-display': { code: 'DSP', title: 'Display & Performance', desc: 'Modern rendering layered on the original game.' },
+    'sys-net': { code: 'NET', title: 'Network', desc: 'Server region and connection health.' },
+    'sys-s2': { code: 'S2', title: 'SOCOM II Options', desc: 'The original in-game options, mirrored here so they apply before boot.' },
+    'sys-patch': { code: 'PCH', title: 'Game Patches', desc: 'Community fixes and unfinished features. All of them switch off cleanly.' },
+  };
+  ICONS = {
+    lab: 'LABICON', online: 'language', home: 'home', set: 'settings', prof: 'PROFICON',
+    forge: 'build', test: 'my_location', quick: 'radar', rooms: 'view_list', friends: 'group', clans: 'shield', serverinfo: 'dns',
+    play: 'play_arrow', launch: 'checklist', iso: 'album', pad: 'PADICON', mic: 'mic', card: 'sd_card', activity: 'monitoring',
+    game: 'videogame_asset', system: 'tune', app: 'install_desktop', 'app-theme': 'palette', 'sys-look': 'palette', 'sys-launcher': 'settings_applications', record: 'military_tech', replays: 'videocam', loadouts: 'inventory_2', profiles: 'switch_account', signout: 'logout',
+    'sys-pad': 'PADICON', 'sys-voice': 'headset_mic', 'sys-display': 'monitor', 'sys-net': 'lan', 'sys-s2': 'settings_suggest', 'sys-patch': 'layers',
+  };
+  PADNAMES = ['Face ↓', 'Face →', 'Face ←', 'Face ↑', 'L1', 'R1', 'L2', 'R2', 'Select', 'Start', 'L3', 'R3', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'Home'];
+  DEFAULT_BINDS = [['Fire', 'R1'], ['Aim / Zoom', 'L1'], ['Reload', 'Face ←'], ['Jump', 'Face ↓'], ['Crouch / Prone', 'Face →'], ['Action', 'Face ↑'], ['Throw Grenade', 'R2'], ['Lean', 'L2'], ['Switch Weapon', 'D-Up'], ['Push-to-talk', 'Select'], ['Map / Objectives', 'Start']];
+  MAPS = ['Frostfire', 'Blizzard', 'Sandstorm', 'Desert Glory', 'Night Stalker', 'Crossroads', "Rat's Nest", 'Fish Hook', 'Bitter Jungle'];
+  THEMES = {
+    'Navy & Gold': { top: '#03080e', bot: '#000000', line: [38, 146, 212], glow: [16, 96, 160], gold: true },
+    'Deep Water': { top: '#04172a', bot: '#01050a', line: [70, 175, 235], glow: [20, 110, 180], gold: false },
+    'Blackout': { top: '#030405', bot: '#000000', line: [110, 130, 150], glow: [30, 40, 50], gold: true },
+    'Night Ops': { top: '#0b1622', bot: '#02050a', line: [130, 195, 235], glow: [30, 80, 120], gold: false },
+    'Jungle': { top: '#131c0f', bot: '#030503', line: [175, 205, 125], glow: [50, 80, 30], gold: true },
+    'Desert': { top: '#21170c', bot: '#060402', line: [235, 185, 115], glow: [110, 70, 20], gold: false },
+    'Frost': { top: '#17222c', bot: '#05080c', line: [205, 228, 248], glow: [60, 90, 120], gold: false },
+  };
+  THEME_NOTES = { 'Navy & Gold': 'Default · SOCOM II', 'Deep Water': 'Brighter navy', 'Blackout': 'Near-black, low light', 'Night Ops': 'Steel blue', 'Jungle': 'Olive and moss', 'Desert': 'Sand and amber', 'Frost': 'Pale ice' };
+  FONTS = { 'Barlow': "'Barlow'", 'Saira': "'Saira'", 'Oswald': "'S2 Label'", 'Rajdhani': "'Rajdhani'", 'Chakra Petch': "'Chakra Petch'" };
+  ICON_STYLES = {
+    'Sharp Light': ['Sharp', null, 0], 'Sharp Thin': ['Sharp', 100, 0], 'Sharp Regular': ['Sharp', 400, 0], 'Sharp Filled': ['Sharp', 300, 1],
+  };
+  applyStyleProps() {
+    const font = this.FONTS[this.props.font] || this.FONTS['Barlow'];
+    const ic = this.ICON_STYLES[this.props.iconStyle] || this.ICON_STYLES['Sharp Light'];
+    const key = font + '|' + ic.join(',');
+    if (key === this.styleKey) return; this.styleKey = key;
+    let el = document.getElementById('s2-style-tweaks');
+    if (!el) { el = document.createElement('style'); el.id = 's2-style-tweaks'; document.head.appendChild(el); }
+    const sel = '[data-s2root] span[style*="Material Symbols"]';
+    el.textContent = '[data-s2root]{font-family:' + font + ',sans-serif !important}'
+      + sel + '{font-family:"Material Symbols ' + ic[0] + '" !important;'
+      + (ic[1] || ic[2] ? 'font-variation-settings:"FILL" ' + ic[2] + ',"wght" ' + (ic[1] || 200) + ',"GRAD" 0,"opsz" 40 !important;' : '') + '}'
+      + '[data-s2root] span[style*="play_arrow"]{}';
+  }
+  componentDidUpdate(prev) {
+    this.applyStyleProps();
+    const rp = this.state.rp, rl = this.railRef.current;
+    if (rp && rl && rp.zone === 'players') {
+      const el = rl.querySelector('[data-rp-p="' + rp.pi + '"]');
+      if (el) { const top = el.offsetTop, bot = top + el.offsetHeight; if (top < rl.scrollTop + 8) rl.scrollTop = Math.max(0, top - 40); else if (bot > rl.scrollTop + rl.clientHeight - 8) rl.scrollTop = bot - rl.clientHeight + 40; }
+    }
+    if (prev && prev.theme !== this.props.theme && this.props.theme) this.setV('theme', this.props.theme);
+    const key = this.state.stack.join('/');
+    if (key !== this.lastStackKey) { this.lastStackKey = key; if (this.rowsRef.current) this.rowsRef.current.scrollTop = 0; }
+    this.scrollRow();
+    if (!this.state.entered && !this.enterT) this.enterT = setTimeout(() => { this.enterT = null; this.setState({ entered: true }); }, 40);
+    if (this.state.check && !this.state.checkIn && !this.checkT) this.checkT = setTimeout(() => { this.checkT = null; this.setState({ checkIn: true }); }, 40);
+    if (this.curPanel() === 'launch' && !this.autoF && this.discOk() && this.state.pads.length) { this.autoF = true; if (this.curRow() !== 2) this.setRow(2); }
+    if (!this.state.itemsIn && !this.itemsT) this.itemsT = setTimeout(() => { this.itemsT = null; this.setState({ itemsIn: true }); }, 40);
+    const c = this.rowsRef.current;
+    if (c && this.state.stack.length) {
+      const el = c.querySelector('[data-row="' + this.curRow() + '"]');
+      if (el) { const top = el.offsetTop, h = el.offsetHeight, hl = this.state.hl; if (hl.top !== top || hl.h !== h) this.setState({ hl: { top, h } }); }
+    }
+  }
+
+  state = {
+    cat: 2, sel: [0, 0, 0, 0, 0], stack: [], rowStack: [],
+    iso: null, isoPct: 0, binds: this.DEFAULT_BINDS.map(b => b.slice()), listening: null,
+    micLive: false, micSim: false, micLevel: 0, pads: [], toast: '', signedOut: false,
+    now: new Date(), booting: false, bootPct: 0,
+    entered: true, itemsIn: true, itemsSettled: true, listDir: 0, moveDir: 0, check: false, checkIn: false, checkFocus: 0, hl: { top: 0, h: 54 }, press: false, bump: 0, ibump: 0, lastToast: '',
+    pick: { save: null, loadout: 'assault', profile: 'wraith' },
+    saves: [
+      { id: 's1', title: 'SOCOM II Profile — WRAITH-6', meta: 'Card 1 · slot 1 · Oct 22', size: '142 KB' },
+      { id: 's2', title: 'Online Settings', meta: 'Card 1 · slot 2 · Oct 22', size: '36 KB' },
+      { id: 's3', title: 'Campaign — Mission 7 of 12', meta: 'Card 1 · slot 3 · Sep 30', size: '210 KB' },
+      { id: 's4', title: 'Custom Controller Layout', meta: 'Card 2 · slot 1 · Aug 14', size: '8 KB' },
+    ],
+    v: {
+      music: 6, sfx: 8, voiceVol: 7, invertY: false, vibration: true, subtitles: false, hud: 'Full', crosshair: 'Classic', brightness: 5,
+      res: '3× · 1440p', aspect: '16:9 (patched)', fps: '60 (unlocked)', filter: 'Trilinear', vsync: true, aa: 'FXAA',
+      region: 'US East', server: 'Community · Primary', showPing: true,
+      deadzone: 12, sens: 6, invertLook: false, rumble: true, aimAssist: true, port: 'Player 1', preset: 'Classic S2',
+      micDevice: 'System default', gain: 70, micMode: 'Push-to-talk', threshold: 35, noise: true, monitor: false, proximity: false,
+      forgeMap: 'Frostfire', forgeMode: 'Suppression', rounds: 6, timeLimit: 8, lowGrav: false, oneShot: false, noRadar: false, friendlyFire: true,
+      testMap: 'Desert Glory', testTeam: 'SEALs', loadout: 'M4A1 / M9', bots: 4, hitboxes: true, infAmmo: true, lag: 0,
+      fHiRes: false, f60: true, fWideHud: false, fNet2: false,
+      qmMode: 'Any', qmRegion: 'US East', roomMode: 'All modes',
+      theme: 'Navy & Gold', bg: 'None', motion: true, clock24: true, uiSounds: true, language: 'English', startup: false, autoUpdate: true,
+    },
+  };
+
+  canvasRef = React.createRef();
+  fileRef = React.createRef();
+  rowsRef = React.createRef();
+  haloRef = React.createRef();
+  colonRef = React.createRef();
+  railRef = React.createRef();
+  phase = 0;
+  sfx(kind) {
+    if (!this.state.v.uiSounds) return;
+    try {
+      const ac = this.uiAc || (this.uiAc = new (window.AudioContext || window.webkitAudioContext)());
+      if (ac.state === 'suspended') ac.resume();
+      const spec = {
+        move: [[1500, 1500, 0.028, 0.018, 'sine']], cat: [[880, 1180, 0.06, 0.025, 'sine']],
+        open: [[660, 660, 0.05, 0.03, 'sine'], [990, 990, 0.08, 0.025, 'sine', 0.045]],
+        back: [[740, 460, 0.08, 0.028, 'sine']], edge: [[150, 110, 0.09, 0.05, 'triangle']],
+        tick: [[1900, 1900, 0.02, 0.016, 'square']], on: [[1050, 1400, 0.05, 0.022, 'sine']], off: [[1200, 850, 0.05, 0.02, 'sine']],
+      }[kind] || [];
+      spec.forEach(([f0, f1, dur, vol, type, delay]) => {
+        const t = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = ac.createGain();
+        o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+      });
+    } catch (e) {}
+  }
+  bumpEdge(axis, dir) {
+    this.sfx('edge');
+    this.setState({ [axis]: dir * 14 });
+    clearTimeout(this.bumpT); this.bumpT = setTimeout(() => this.setState({ bump: 0, ibump: 0 }), 130);
+  }
+  pressFlash() { this.setState({ press: true }); clearTimeout(this.pressT); this.pressT = setTimeout(() => this.setState({ press: false }), 140); }
+  prevBtns = {};
+
+  componentDidMount() {
+    this.applyStyleProps();
+    if (this.props.theme && this.THEMES[this.props.theme]) this.setV('theme', this.props.theme);
+    this.onBip = e => { e.preventDefault(); this.deferredPrompt = e; this.forceUpdate(); };
+    this.onInstalled = () => { this.setState({ installed: true }); this.flash('Launcher installed'); };
+    window.addEventListener('beforeinstallprompt', this.onBip);
+    window.addEventListener('appinstalled', this.onInstalled);
+    this.onKey = e => this.handleKey(e);
+    window.addEventListener('keydown', this.onKey);
+    this.clock = setInterval(() => this.setState({ now: new Date() }), 15000);
+    this.t0 = performance.now(); this.lastMic = 0; this.lastPadList = 0;
+    const loop = ts => { this.frame(ts); this.raf = requestAnimationFrame(loop); };
+    this.raf = requestAnimationFrame(loop);
+  }
+  componentWillUnmount() {
+    window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('beforeinstallprompt', this.onBip);
+    window.removeEventListener('appinstalled', this.onInstalled);
+    clearInterval(this.clock); cancelAnimationFrame(this.raf);
+    clearInterval(this.isoTimer); clearInterval(this.bootTimer); clearTimeout(this.toastT);
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+  }
+  scrollRow() {
+    const c = this.rowsRef.current;
+    if (!this.state.stack.length || !c) return;
+    const el = c.querySelector('[data-row="' + this.curRow() + '"]');
+    if (!el) return;
+    const top = el.offsetTop, bot = top + el.offsetHeight;
+    if (top < c.scrollTop + 10) c.scrollTop = Math.max(0, top - 40);
+    else if (bot > c.scrollTop + c.clientHeight - 10) c.scrollTop = bot - c.clientHeight + 40;
+  }
+
+  frame(ts) {
+    const t = this.state.v.motion ? (ts - this.t0) / 1000 : 4;
+    this.draw(t);
+    this.rpTick(ts);
+    const halo = this.haloRef.current;
+    if (halo) { const p = Math.sin(ts / 900); halo.style.opacity = String(0.8 + 0.2 * p); halo.style.transform = 'scale(' + (1 + 0.03 * p) + ')'; }
+    const colon = this.colonRef.current;
+    if (colon) colon.style.opacity = Math.floor(Date.now() / 1000) % 2 ? '1' : '0.35';
+    if (this.state.micLive && ts - this.lastMic > 60) {
+      this.lastMic = ts;
+      let lvl;
+      if (this.analyser) {
+        const d = new Uint8Array(this.analyser.fftSize);
+        this.analyser.getByteTimeDomainData(d);
+        let s = 0; for (let i = 0; i < d.length; i++) { const x = (d[i] - 128) / 128; s += x * x; }
+        lvl = Math.min(1, Math.sqrt(s / d.length) * 4 * (this.state.v.gain / 70));
+      } else lvl = Math.max(0, Math.min(1, 0.25 + 0.35 * Math.sin(ts / 260) * Math.sin(ts / 97) + Math.random() * 0.15));
+      this.setState({ micLevel: this.state.micLevel * 0.5 + lvl * 0.5 });
+    }
+    this.pollPads(ts);
+  }
+
+  draw(t) {
+    const cv = this.canvasRef.current; if (!cv) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const th = this.THEMES[this.state.v.theme] || this.THEMES['Navy & Gold'];
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, th.top); g.addColorStop(1, th.bot);
+    const bgKey = this.state.v.bg;
+    if (bgKey === 'Crossroads' || bgKey === 'Legacy') {
+      this.bgImgs = this.bgImgs || {};
+      if (!this.bgImgs[bgKey]) { const im0 = new Image(); im0.src = bgKey === 'Legacy' ? ((window.__resources && window.__resources.legacy) || 'assets/legacy-wallpaper.png') : ((window.__resources && window.__resources.crossroads) || 'assets/crossroads.jpg'); this.bgImgs[bgKey] = im0; }
+      const im = this.bgImgs[bgKey];
+      if (im.complete && im.naturalWidth) {
+        const sc = Math.max(w / im.naturalWidth, h / im.naturalHeight), iw = im.naturalWidth * sc, ih = im.naturalHeight * sc;
+        ctx.drawImage(im, (w - iw) / 2, (h - ih) / 2, iw, ih);
+        ctx.globalAlpha = 0.74; ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1;
+      } else { ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); }
+    } else { ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); }
+    const [r, gg, b] = th.line, [gr, gg2, gb] = th.glow;
+    const rg = ctx.createRadialGradient(w * 0.5, h * 0.72, 0, w * 0.5, h * 0.72, Math.max(w * 0.7, h));
+    rg.addColorStop(0, `rgba(${gr},${gg2},${gb},0.32)`); rg.addColorStop(0.45, `rgba(${gr},${gg2},${gb},0.12)`); rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, w, h);
+    this.phase += (this.state.cat * 1.1 - this.phase) * 0.04;
+    const ph = this.phase, base = h * 0.73;
+    // flowing translucent sheets, XMB-style: each sheet is a band between two curves, lit at its upper edge
+    const sheets = [
+      { a: 0.9, f1: 0.0011, f2: 0.0029, s1: 0.16, s2: -0.22, amp: 0.065, thick: 0.05, o: 0 },
+      { a: 0.7, f1: 0.0009, f2: 0.0034, s1: -0.12, s2: 0.19, amp: 0.055, thick: 0.035, o: 1.7 },
+      { a: 0.55, f1: 0.0013, f2: 0.0022, s1: 0.1, s2: 0.27, amp: 0.075, thick: 0.065, o: 3.1 },
+      { a: 0.4, f1: 0.0007, f2: 0.0041, s1: -0.08, s2: -0.15, amp: 0.045, thick: 0.025, o: 4.6 },
+    ];
+    const top = (x, S) => base + Math.sin(x * S.f1 + t * S.s1 + ph + S.o) * h * S.amp + Math.sin(x * S.f2 + t * S.s2 + S.o * 2) * h * 0.012;
+    const bot = (x, S) => top(x, S) + h * S.thick * (0.55 + 0.45 * Math.sin(x * 0.0017 + t * 0.13 + S.o));
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (const S of sheets) {
+      const xs = []; for (let x = 0; x <= w + 8; x += 8) xs.push(x);
+      const fg = ctx.createLinearGradient(0, base - h * 0.1, 0, base + h * 0.12);
+      fg.addColorStop(0, 'rgba(' + r + ',' + gg + ',' + b + ',' + (0.09 * S.a) + ')');
+      fg.addColorStop(1, 'rgba(' + r + ',' + gg + ',' + b + ',0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath();
+      xs.forEach((x, n) => { const y = top(x, S); n ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      for (let n = xs.length - 1; n >= 0; n--) ctx.lineTo(xs[n], bot(xs[n], S));
+      ctx.closePath(); ctx.fill();
+      const eg = ctx.createLinearGradient(0, 0, w, 0);
+      eg.addColorStop(0, 'rgba(' + r + ',' + gg + ',' + b + ',0)');
+      eg.addColorStop(0.5, 'rgba(' + Math.min(255, r + 70) + ',' + Math.min(255, gg + 50) + ',' + Math.min(255, b + 30) + ',' + (0.45 * S.a) + ')');
+      eg.addColorStop(1, 'rgba(' + r + ',' + gg + ',' + b + ',0)');
+      ctx.strokeStyle = eg; ctx.lineWidth = 1;
+      ctx.beginPath(); xs.forEach((x, n) => { const y = top(x, S); n ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+    }
+    if (th.gold) {
+      const S = sheets[0], gl = ctx.createLinearGradient(0, 0, w, 0);
+      gl.addColorStop(0, 'rgba(242,180,58,0)'); gl.addColorStop(0.5, 'rgba(242,180,58,.28)'); gl.addColorStop(1, 'rgba(242,180,58,0)');
+      ctx.strokeStyle = gl; ctx.lineWidth = 1;
+      ctx.beginPath(); for (let x = 0; x <= w + 8; x += 8) { const y = bot(x, S); x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
+    }
+    ctx.restore();
+    ctx.fillStyle = `rgba(${r},${gg},${b},0.06)`;
+    for (let x = 40; x < w; x += 48) for (let y = 40; y < h; y += 48) ctx.fillRect(x, y, 1, 1);
+    const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.3, w / 2, h / 2, w * 0.8);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.7)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+  }
+
+  pollPads(ts) {
+    if (!navigator.getGamepads) return;
+    const list = Array.from(navigator.getGamepads()).filter(Boolean);
+    if (ts - this.lastPadList > 1000) {
+      this.lastPadList = ts;
+      const ids = list.map(p => p.id.replace(/\(.*?\)/g, '').trim() || 'Gamepad');
+      if (ids.join('|') !== this.state.pads.join('|')) this.setState({ pads: ids });
+    }
+    const p = list[0]; if (!p) return;
+    p.buttons.forEach((btn, i) => {
+      const was = this.prevBtns[i]; this.prevBtns[i] = btn.pressed;
+      if (!btn.pressed || was) return;
+      if (this.state.listening !== null) return this.assignBind(this.PADNAMES[i] || 'Btn ' + i);
+      const map = { 12: 'ArrowUp', 13: 'ArrowDown', 14: 'ArrowLeft', 15: 'ArrowRight', 0: 'Enter', 1: 'Escape', 9: ' ', 4: 'j', 5: 'l' };
+      if (map[i]) this.handleKey({ key: map[i], preventDefault() {} });
+    });
+  }
+
+  flash(msg) { clearTimeout(this.toastT); this.setState({ toast: msg, lastToast: msg }); this.toastT = setTimeout(() => this.setState({ toast: '' }), 2600); }
+  setV(k, val) { this.setState(s => ({ v: { ...s.v, [k]: val } })); }
+  curItem() { const c = this.CATS[this.state.cat]; return c.items[this.state.sel[this.state.cat]]; }
+  curPanel() { const st = this.state.stack; return st[st.length - 1]; }
+  curRow() { const r = this.state.rowStack; return r[r.length - 1] || 0; }
+  setRow(n) { this.setState(s => { const r = s.rowStack.slice(); r[r.length - 1] = n; return { rowStack: r }; }); }
+  openPanel(id) { this.sfx('open'); this.setState({ stack: [id], rowStack: [0], entered: false, hl: { top: 0, h: 54 } }); }
+  push(id) { this.sfx('open'); this.setState(s => ({ stack: s.stack.concat(id), rowStack: s.rowStack.concat(0), entered: false })); }
+  pop() { this.sfx('back'); this.setState(s => ({ stack: s.stack.slice(0, -1), rowStack: s.rowStack.slice(0, -1), listening: null, entered: s.stack.length > 1 ? false : s.entered })); }
+  setCat(i) { if (i === this.state.cat) return; this.sfx('cat'); this.setState({ cat: i, stack: [], rowStack: [], itemsIn: false, itemsSettled: false, listDir: i > this.state.cat ? 1 : -1 }); clearTimeout(this.settleT); this.settleT = setTimeout(() => this.setState({ itemsSettled: true }), 650); }
+  jumpTo(catId, itemId, panelId) {
+    const ci = this.CATS.findIndex(c => c.id === catId), ii = Math.max(0, this.CATS[ci].items.indexOf(itemId));
+    this.setState(s => { const sel = s.sel.slice(); sel[ci] = ii; return { cat: ci, sel, stack: [panelId || itemId], rowStack: [0], entered: false }; });
+  }
+
+  browser() {
+    const u = navigator.userAgent;
+    if (/iPhone|iPad|iPod/.test(u)) return 'ios';
+    if (/Firefox\//.test(u)) return 'firefox';
+    if (/Chrome\/|Edg\//.test(u)) return 'chromium';
+    return 'other';
+  }
+  chromiumName() { const u = navigator.userAgent; return /Edg\//.test(u) ? 'Microsoft Edge' : /OPR\//.test(u) ? 'Opera' : 'Chrome'; }
+  isInstalled() { return this.state.installed || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); }
+  padIcon() { return ({ 'Stadia': 'stadia_controller', 'Asset': 'videogame_asset', 'Gamepad': 'gamepad', 'Joystick': 'joystick', 'Esports': 'sports_esports' })[this.props.padIcon] || 'stadia_controller'; }
+  icon(id) {
+    const g = this.ICONS[id];
+    if (g === 'PADICON') return this.padIcon();
+    if (g === 'LABICON') return ({ 'Labs': 'labs', 'Cube': 'deployed_code', 'Hex grid': 'hive', 'Target': 'my_location', 'Sparkle': 'auto_awesome' })[this.props.labIcon] || 'deployed_code';
+    if (g === 'PROFICON') return ({ 'ID badge': 'badge', 'Account': 'account_circle', 'Rank': 'military_tech', 'Shield': 'shield_person', 'Person': 'person' })[this.props.profIcon] || 'account_circle';
+    return g;
+  }
+
+  REPLAYS = [
+    { map: 'Crossroads', mode: 'Breach', rules: 'Classic', date: 'Nov 7, 2026 · 12:57 AM', len: 1164, score: [6, 5] },
+    { map: 'Frostfire', mode: 'Suppression', rules: 'Classic', date: 'Oct 24, 2026 · 9:42 PM', len: 1122, score: [6, 4] },
+    { map: 'Night Stalker', mode: 'Demolition', rules: 'Classic', date: 'Oct 24, 2026 · 8:57 PM', len: 1330, score: [3, 6] },
+    { map: 'Desert Glory', mode: 'Extraction', rules: 'Ladder', date: 'Oct 21, 2026 · 10:12 PM', len: 905, score: [6, 2] },
+    { map: 'Fish Hook', mode: 'Escort', rules: 'Classic', date: 'Oct 17, 2026 · 11:04 PM', len: 1258, score: [4, 6], partial: true },
+  ];
+  RP_SEALS = ['WRAITH-6', 'ed', 'Troy09', 'Machete', 'imbennyhim', 'rmxd'];
+  RP_TANGOS = ['Scotho', 'Jeffro', 'bLitz', 'Crash', 'HUSH', 'Kilo_Two'];
+  RP_WEAPONS = { s: ['M4A1', 'M14', 'M3', 'Mk23', 'SR-25', 'M60E3'], t: ['AK-47', 'Type 64', 'FAMAS', '9mm', 'SPAS-12', 'RPK'] };
+  RATES = [0.25, 0.5, 1, 2, 4];
+  CAMS = [{ k: 'player', icon: 'person', l: 'PLAYER' }, { k: 'free', icon: 'visibility', l: 'FREE' }, { k: 'scenic', icon: 'videocam', l: 'SCENIC' }];
+  TX = [
+    { a: 'start', icon: 'first_page', l: 'To the start' }, { a: 'jb', icon: 'fast_rewind', l: 'Back 10 seconds' }, { a: 'prevR', icon: 'skip_previous', l: 'Previous round' },
+    { a: 'toggle', icon: 'play_arrow', l: 'Play' }, { a: 'nextR', icon: 'skip_next', l: 'Next round' }, { a: 'jf', icon: 'fast_forward', l: 'On 10 seconds' }, { a: 'end', icon: 'last_page', l: 'To the end' },
+    { a: 'stepB', icon: 'chevron_left', l: 'One snapshot back' }, { a: 'stepF', icon: 'chevron_right', l: 'One snapshot on' },
+    { a: 'slower', icon: 'remove', l: 'Slower' }, { a: 'faster', icon: 'add', l: 'Faster' },
+  ];
+  fmtClock(s) { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60, two = n => String(n).padStart(2, '0'); return h ? h + ':' + two(m) + ':' + two(r) : m + ':' + two(r); }
+  replayData(i) {
+    this.rpCache = this.rpCache || {};
+    if (this.rpCache[i]) return this.rpCache[i];
+    const R = this.REPLAYS[i];
+    let seed = 1234 + i * 7919;
+    const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const shuffle = a => { for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(rnd() * (k + 1)); const x = a[k]; a[k] = a[j]; a[j] = x; } return a; };
+    const sw = R.score[0], tw = R.score[1], matchW = sw > tw ? 0 : 1;
+    const order = []; for (let k = 0; k < sw; k++) order.push(0); for (let k = 0; k < tw; k++) order.push(1);
+    order.splice(order.indexOf(matchW), 1); shuffle(order); order.push(matchW);
+    const wts = order.map(() => 0.6 + rnd() * 0.8), wsum = wts.reduce((a, b) => a + b, 0);
+    let acc = 0;
+    const rounds = order.map((w, k) => { const d = R.len * wts[k] / wsum, r = { n: k + 1, start: acc, end: acc + d, dur: d, winner: w }; acc += d; return r; });
+    rounds[rounds.length - 1].end = R.len;
+    const players = this.RP_SEALS.map(n => ({ name: n, team: 0 })).concat(this.RP_TANGOS.map(n => ({ name: n, team: 1 })));
+    const ids = tm => players.map((p, x) => x).filter(x => players[x].team === tm);
+    const kills = [];
+    rounds.forEach((r, ri) => {
+      const lose = shuffle(ids(1 - r.winner)), win = shuffle(ids(r.winner)), wd = Math.floor(rnd() * 4);
+      const victims = shuffle(lose.slice(0, 5).concat(win.slice(0, wd))); victims.push(lose[5]);
+      const times = victims.map(() => r.start + 12 + rnd() * (r.dur - 16)).sort((a, b) => a - b);
+      const dead = new Set();
+      victims.forEach((v, k) => {
+        const opp = players.map((p, x) => x).filter(x => players[x].team !== players[v].team && !dead.has(x));
+        const killer = opp[Math.floor(rnd() * opp.length)], wl = this.RP_WEAPONS[players[killer].team ? 't' : 's'];
+        dead.add(v);
+        kills.push({ t: times[k], killer, victim: v, weapon: wl[Math.floor(rnd() * wl.length)], hs: rnd() < 0.22, round: ri });
+      });
+    });
+    return (this.rpCache[i] = { meta: R, len: R.len, rounds, players, kills });
+  }
+  setRp(p) { this.setState(s => s.rp ? { rp: { ...s.rp, ...p } } : null); }
+  openReplay(i) {
+    this.sfx('open'); this.rpT = 0; this.rpLoad = 0; this.rpRetried = false; this.rpDragging = false;
+    this.setState({ rp: { i, t: 0, playing: false, rate: 2, cam: 'free', follow: 0, zone: 'state', ti: 3, pi: 0, ci: 1, si: 0, status: 'loading', loadPct: 0, in: false, note: '', hover: null, drag: false } });
+    clearTimeout(this.rpInT); this.rpInT = setTimeout(() => this.setRp({ in: true }), 30);
+  }
+  closeReplay() {
+    if (!this.state.rp) return;
+    this.sfx('back'); this.rpDragging = false;
+    this.setRp({ in: false, playing: false });
+    clearTimeout(this.rpInT); this.rpInT = setTimeout(() => this.setState({ rp: null }), 420);
+  }
+  rpSeek(t, jumped) {
+    const rp = this.state.rp; if (!rp) return;
+    const D = this.replayData(rp.i);
+    t = Math.max(0, Math.min(D.len, t)); this.rpT = t;
+    const p = { t };
+    if (jumped) {
+      this.rpLastNote = 'Jumped to ' + this.fmtClock(t) + ' — sounds, messages and effects in between weren’t played.';
+      p.note = this.rpLastNote; clearTimeout(this.rpNoteTm); this.rpNoteTm = setTimeout(() => this.setRp({ note: '' }), 3200);
+    }
+    if (t >= D.len) p.playing = false;
+    this.setRp(p);
+  }
+  rpAct(a) {
+    const rp = this.state.rp; if (!rp || rp.status !== 'ready') return;
+    const D = this.replayData(rp.i), t = this.rpT;
+    const x = D.rounds.findIndex(r => t < r.end), ci = x < 0 ? D.rounds.length - 1 : x;
+    this.pressFlash();
+    switch (a) {
+      case 'toggle': if (t >= D.len) this.rpSeek(0); this.sfx(rp.playing ? 'off' : 'on'); this.setRp({ playing: !rp.playing }); break;
+      case 'jb': this.sfx('tick'); this.rpSeek(t - 10, true); break;
+      case 'jf': this.sfx('tick'); this.rpSeek(t + 10, true); break;
+      case 'stepB': this.sfx('tick'); this.setRp({ playing: false }); this.rpSeek(t - 0.5); break;
+      case 'stepF': this.sfx('tick'); this.setRp({ playing: false }); this.rpSeek(t + 0.5); break;
+      case 'start': this.sfx('tick'); this.rpSeek(0, true); break;
+      case 'end': this.sfx('tick'); this.rpSeek(D.len, true); break;
+      case 'prevR': { const r = D.rounds[ci], tg = (t - r.start > 2 || ci === 0) ? r.start : D.rounds[ci - 1].start; this.sfx('tick'); this.rpSeek(tg + 0.01, true); break; }
+      case 'nextR': { const nx = D.rounds[ci + 1]; this.sfx('tick'); this.rpSeek(nx ? nx.start + 0.01 : D.len, true); break; }
+      case 'slower': if (rp.rate > 0) { this.sfx('tick'); this.setRp({ rate: rp.rate - 1 }); } else this.sfx('edge'); break;
+      case 'faster': if (rp.rate < this.RATES.length - 1) { this.sfx('tick'); this.setRp({ rate: rp.rate + 1 }); } else this.sfx('edge'); break;
+    }
+  }
+  rpStateAct(i) {
+    const rp = this.state.rp; if (!rp) return;
+    if (rp.status === 'failed' && i === 0) { this.sfx('open'); this.rpRetried = true; this.rpLoad = 0; return this.setRp({ status: 'loading', loadPct: 0 }); }
+    this.closeReplay();
+  }
+  rpTick(ts) {
+    const last = this.rpLast || ts; this.rpLast = ts;
+    const rp = this.state.rp; if (!rp) return;
+    const dt = Math.min(0.1, (ts - last) / 1000);
+    if (rp.status === 'loading') {
+      this.rpLoad = Math.min(1, (this.rpLoad || 0) + dt / 1.2);
+      if (this.rpLoad >= 1) {
+        const demo = this.rpRetried ? 'Normal' : (this.props.replayDemo || 'Normal');
+        const st = demo === 'Failed' ? 'failed' : demo === 'Locked' ? 'locked' : 'ready';
+        this.rpT = 0;
+        this.setRp({ loadPct: 1, status: st, playing: st === 'ready', zone: st === 'ready' ? 'tx' : 'state', ti: 3, si: 0 });
+      } else if (ts - (this.rpEmit || 0) > 60) { this.rpEmit = ts; this.setRp({ loadPct: this.rpLoad }); }
+      return;
+    }
+    if (rp.status === 'ready' && rp.playing && !this.rpDragging) {
+      const D = this.replayData(rp.i);
+      this.rpT = Math.min(D.len, (this.rpT || 0) + dt * this.RATES[rp.rate]);
+      if (this.rpT >= D.len) this.setRp({ t: D.len, playing: false });
+      else if (ts - (this.rpEmit || 0) > 50) { this.rpEmit = ts; this.setRp({ t: this.rpT }); }
+    }
+  }
+  rpKey(e) {
+    const rp = this.state.rp, k = e.key;
+    if (k === 'Escape' || k === 'Backspace') { e.preventDefault(); return this.closeReplay(); }
+    if (!rp.in) return;
+    const ready = rp.status === 'ready', low = k.length === 1 ? k.toLowerCase() : k;
+    const sc = { ' ': 'toggle', 'k': 'toggle', 'j': 'jb', 'l': 'jf', ',': 'stepB', '.': 'stepF', '[': 'slower', '-': 'slower', ']': 'faster', '=': 'faster', 'Home': 'start', 'End': 'end' };
+    if (ready && sc[low]) { e.preventDefault(); return this.rpAct(sc[low]); }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].indexOf(k) < 0) return;
+    e.preventDefault();
+    const D = this.replayData(rp.i), z = rp.zone;
+    const move = p => { this.sfx('move'); this.setRp(p); }, edge = () => this.sfx('edge');
+    if (!ready) {
+      const n = rp.status === 'failed' ? 2 : rp.status === 'locked' ? 1 : 0;
+      if (z === 'back') { if (k === 'ArrowDown' && n) return move({ zone: 'state', si: 0 }); if (k === 'Enter') return this.closeReplay(); return edge(); }
+      if (k === 'ArrowUp') return move({ zone: 'back' });
+      if (k === 'ArrowLeft') return rp.si > 0 ? move({ si: rp.si - 1 }) : edge();
+      if (k === 'ArrowRight') return rp.si < n - 1 ? move({ si: rp.si + 1 }) : edge();
+      if (k === 'Enter' && n) return this.rpStateAct(rp.si);
+      return edge();
+    }
+    if (z === 'back') { if (k === 'ArrowDown') return move({ zone: 'cams' }); if (k === 'Enter') return this.closeReplay(); return edge(); }
+    if (z === 'cams') {
+      if (k === 'ArrowLeft') return rp.ci > 0 ? move({ ci: rp.ci - 1 }) : edge();
+      if (k === 'ArrowRight') return rp.ci < 2 ? move({ ci: rp.ci + 1 }) : move({ zone: 'players' });
+      if (k === 'ArrowUp') return move({ zone: 'back' });
+      if (k === 'ArrowDown') return move({ zone: 'seek' });
+      if (k === 'Enter') { this.sfx('open'); this.pressFlash(); return this.setRp({ cam: this.CAMS[rp.ci].k }); }
+    }
+    if (z === 'players') {
+      if (k === 'ArrowUp') return rp.pi > 0 ? move({ pi: rp.pi - 1 }) : edge();
+      if (k === 'ArrowDown') return rp.pi < D.players.length - 1 ? move({ pi: rp.pi + 1 }) : edge();
+      if (k === 'ArrowLeft') return move({ zone: 'cams' });
+      if (k === 'Enter') { this.sfx('open'); this.pressFlash(); return this.setRp({ follow: rp.pi, cam: 'player', ci: 0 }); }
+      return edge();
+    }
+    if (z === 'seek') {
+      if (k === 'ArrowLeft') { this.sfx('tick'); return this.rpSeek(this.rpT - 10, true); }
+      if (k === 'ArrowRight') { this.sfx('tick'); return this.rpSeek(this.rpT + 10, true); }
+      if (k === 'ArrowUp') return move({ zone: 'cams' });
+      if (k === 'ArrowDown') return move({ zone: 'tx' });
+      if (k === 'Enter') return this.rpAct('toggle');
+    }
+    if (z === 'tx') {
+      if (k === 'ArrowLeft') return rp.ti > 0 ? move({ ti: rp.ti - 1 }) : edge();
+      if (k === 'ArrowRight') return rp.ti < this.TX.length - 1 ? move({ ti: rp.ti + 1 }) : edge();
+      if (k === 'ArrowUp') return move({ zone: 'seek' });
+      if (k === 'ArrowDown') return edge();
+      if (k === 'Enter') return this.rpAct(this.TX[rp.ti].a);
+    }
+  }
+  rpFrac(e) { const r = e.currentTarget.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); }
+  replayVals(GOLD, K, dpad, face, padMode) {
+    const s = this.state, rp = s.rp;
+    if (!rp) return { rpOpen: false, rpDim: 0 };
+    const D = this.replayData(rp.i), R = D.meta, t = rp.t, len = D.len;
+    const SEAL = '#62b6e8', TANGO = '#e9846f', ready = rp.status === 'ready', inn = rp.in, z = rp.zone;
+    const x = D.rounds.findIndex(r => t < r.end), curI = x < 0 ? D.rounds.length - 1 : x, cur = D.rounds[curI];
+    const live = [0, 0]; D.rounds.forEach(r => { if (r.end <= t + 0.001) live[r.winner]++; });
+    const Kc = D.players.map(() => 0), Dc = D.players.map(() => 0), dead = new Set();
+    D.kills.forEach(k => { if (k.t <= t) { Kc[k.killer]++; Dc[k.victim]++; if (k.round === curI) dead.add(k.victim); } });
+    const atEnd = t >= len - 0.001;
+    const camT = rp.cam === 'free' ? 'scale(1.04)' : rp.cam === 'scenic' ? 'scale(1.2) translate(-3%,2%)'
+      : 'scale(1.34) translate(' + (((rp.follow % 3) - 1) * 5) + '%,' + ((Math.floor(rp.follow / 3) % 2) ? -3 : 2) + '%)';
+    const img = (window.__resources && window.__resources.crossroads) || 'assets/crossroads.jpg';
+    const feed = D.kills.filter(k => k.t <= t && k.t > t - 6).slice(-4).reverse().map(k => {
+      const age = t - k.t, mine = k.killer === 0 || k.victim === 0;
+      return { a: D.players[k.killer].name, b: D.players[k.victim].name, ac: D.players[k.killer].team ? TANGO : SEAL, bc: D.players[k.victim].team ? TANGO : SEAL,
+        w: k.weapon + (k.hs ? ' · HS' : ''), op: age < 4.2 ? 1 : Math.max(0, (6 - age) / 1.8), bg: mine ? 'rgba(66,48,12,.82)' : 'rgba(3,8,13,.74)' };
+    });
+    const remain = Math.max(0, 360 - (t - cur.start));
+    const two = n => String(n).padStart(2, '0');
+    const cams = this.CAMS.map((c, i) => {
+      const on = rp.cam === c.k, f = z === 'cams' && rp.ci === i;
+      return { icon: c.icon, l: c.l, ink: on ? GOLD : 'rgba(238,242,245,.72)', barS: on ? 'scaleX(1)' : 'scaleX(0)',
+        bg: f ? 'rgba(238,242,245,.1)' : 'transparent', ring: f ? 'inset 0 0 0 1px rgba(238,242,245,.28)' : 'none',
+        onClick: () => { this.sfx('open'); this.setRp({ cam: c.k, ci: i, zone: 'cams' }); } };
+    });
+    const teams = [0, 1].map(tm => ({
+      name: tm ? 'TERRORISTS' : 'SEALS', color: tm ? TANGO : SEAL,
+      alive: ready ? (6 - Array.from(dead).filter(v => D.players[v].team === tm).length) + ' ALIVE' : '',
+      players: D.players.map((p, idx) => ({ p, idx })).filter(o => o.p.team === tm).map(({ p, idx }) => {
+        const f = z === 'players' && rp.pi === idx, fol = rp.cam === 'player' && rp.follow === idx, kia = ready && dead.has(idx);
+        return { fi: idx, name: p.name, kd: Kc[idx] + ' / ' + Dc[idx],
+          sub: fol ? 'FOLLOWING' : kia ? 'KIA' : idx === 0 ? 'YOU' : (tm ? 'TERRORIST' : 'SEAL'),
+          op: kia && !f && !fol ? 0.42 : 1,
+          bg: f ? 'rgba(238,242,245,.09)' : fol ? 'rgba(242,180,58,.07)' : 'transparent',
+          ring: f ? 'inset 0 0 0 1px rgba(238,242,245,.26)' : 'none',
+          nameColor: fol ? '#ffd27a' : '#eef2f5', icon: fol ? 'videocam' : 'person', ink: fol ? GOLD : 'rgba(238,242,245,.72)',
+          onClick: () => { this.sfx('open'); this.setRp({ zone: 'players', pi: idx, follow: idx, cam: 'player', ci: 0 }); } };
+      }),
+    }));
+    const rounds = D.rounds.map(r => {
+      const done = t >= r.end - 0.001, fr = Math.max(0, Math.min(1, (t - r.start) / r.dur)), isCur = r === cur && !atEnd;
+      return { n: r.n, flex: r.dur.toFixed(2), fill: (fr * 100).toFixed(2) + '%', bg: isCur ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.045)',
+        winC: done ? (r.winner ? TANGO : SEAL) : 'transparent', numC: isCur ? '#f4f7f9' : 'rgba(238,242,245,.42)' };
+    });
+    const marks = D.kills.map(k => {
+      const kill = k.killer === 0, death = k.victim === 0;
+      return { left: (k.t / len * 100).toFixed(3) + '%', h: kill || death ? '12px' : '6px', c: kill ? GOLD : death ? TANGO : 'rgba(238,242,245,.2)' };
+    });
+    const btn = (b, i) => {
+      const f = z === 'tx' && rp.ti === i, play = b.a === 'toggle';
+      const dis = !ready || (b.a === 'slower' && rp.rate === 0) || (b.a === 'faster' && rp.rate === this.RATES.length - 1);
+      return { icon: play ? (rp.playing ? 'pause' : atEnd ? 'replay' : 'play_arrow') : b.icon, tip: play ? (rp.playing ? 'Pause' : 'Play') : b.l,
+        w: play ? '54px' : '40px', is: play ? '30px' : '24px',
+        fvs: "'FILL' " + (play ? 1 : 0) + ",'wght' " + (play ? 400 : 250) + ",'GRAD' 0,'opsz' 24",
+        bg: play ? (f ? '#ffd27a' : GOLD) : f ? 'rgba(238,242,245,.1)' : 'transparent',
+        ring: f ? (play ? '0 0 0 3px #03080d, 0 0 0 4px #ffd27a' : 'inset 0 0 0 1px rgba(238,242,245,.3)') : 'none',
+        ink: play ? '#140d02' : '#f4f7f9', op: dis ? 0.3 : 1, sc: f && s.press ? 'scale(.9)' : 'scale(1)',
+        onClick: () => { this.setRp({ zone: 'tx', ti: i }); this.rpAct(b.a); } };
+    };
+    const tx = this.TX.map(btn);
+    const msg = rp.status === 'failed' ? { icon: 'error', title: 'Couldn’t load this recording', body: 'The file may be incomplete, or saved by an older launcher.', acts: ['Retry', 'Back to replays'] }
+      : rp.status === 'locked' ? { icon: 'lock', title: 'Replays are locked during a round', body: 'Finish or leave the round in progress, then come back to watch.', acts: ['Back to replays'] } : null;
+    const hv = rp.hover;
+    const hvRound = hv === null ? null : D.rounds.find(r => hv * len < r.end) || cur;
+    const E = K('ESC', 'Back', face('e'));
+    let hints = !ready ? [K('←→', 'Select', dpad), K('ENTER', 'Press', face('s')), E]
+      : z === 'seek' ? [K('←→', '10 seconds', dpad), K('ENTER', 'Play / pause', face('s')), E]
+      : z === 'players' ? [K('↑↓', 'Player', dpad), K('ENTER', 'Follow', face('s')), E]
+      : z === 'cams' ? [K('←→', 'Camera', dpad), K('ENTER', 'Switch', face('s')), E]
+      : z === 'back' ? [K('ENTER', 'Back to replays', face('s')), E]
+      : [K('←→', 'Select', dpad), K('ENTER', this.TX[rp.ti].a === 'toggle' ? (rp.playing ? 'Pause' : 'Play') : this.TX[rp.ti].l, face('s')), K('SPACE', 'Play / pause'), K('J L', '10 seconds'), E];
+    if (padMode) hints = hints.filter(h => !h.isKey);
+    return {
+      rpOpen: true, hints, rpInOp: inn ? 1 : 0, rpDim: inn ? 1 : 0,
+      rpHeadX: inn ? 'translateX(0)' : 'translateX(-28px)', rpViewS: inn ? 'scale(1)' : 'scale(.965)',
+      rpRailX: inn ? 'translateX(0)' : 'translateX(28px)', rpLowY: inn ? 'translateY(0)' : 'translateY(18px)',
+      rpClose: () => this.closeReplay(), rpToggle: () => this.rpAct('toggle'),
+      rpBackBg: z === 'back' ? 'rgba(238,242,245,.09)' : 'transparent', rpBackRing: z === 'back' ? 'inset 0 0 0 1px rgba(238,242,245,.26)' : 'none',
+      rpMap: R.map, rpMode: R.mode.toUpperCase(), rpPartial: !!R.partial, rpDate: R.date, rpLen: this.fmtClock(len), rpRules: R.rules,
+      rpResultLabel: (R.score[0] > R.score[1] ? 'SEALS WON' : 'TERRORISTS WON') + (R.partial ? ' · RECORDING CUT' : ' · MATCH OVER'),
+      rpS0: R.score[0], rpS1: R.score[1],
+      rpImg: 'url(' + img + ')', rpCamT: camT,
+      rpDrift: 'translate(' + (Math.sin(t / 9) * 0.8).toFixed(3) + '%,' + (Math.cos(t / 13) * 0.5).toFixed(3) + '%)',
+      rpImgFilter: ready ? 'brightness(.9) saturate(.92)' : 'brightness(.28) blur(8px) saturate(.6)',
+      rpReady: ready, rpLoading: rp.status === 'loading', rpLoadPct: Math.round(rp.loadPct * 100) + '%',
+      rpMsgOn: !!msg, rpMsgIcon: msg ? msg.icon : '', rpMsgTitle: msg ? msg.title : '', rpMsgBody: msg ? msg.body : '',
+      rpMsgActs: msg ? msg.acts.map((l, i) => {
+        const f = z === 'state' && rp.si === i, primary = i === 0 && rp.status === 'failed';
+        return { l, bg: primary ? (f ? '#ffd27a' : GOLD) : f ? 'rgba(238,242,245,.12)' : 'transparent', ink: primary ? '#140d02' : '#eef2f5',
+          ring: f ? (primary ? '0 0 0 3px #03080d, 0 0 0 4px #ffd27a' : 'inset 0 0 0 1px rgba(238,242,245,.45)') : (primary ? 'none' : 'inset 0 0 0 1px rgba(238,242,245,.22)'),
+          onClick: () => { this.setRp({ zone: 'state', si: i }); this.rpStateAct(i); } };
+      }) : [],
+      rpFeed: feed, rpLive0: live[0], rpLive1: live[1], rpRoundShort: atEnd ? 'FINAL' : 'ROUND ' + cur.n,
+      rpCams: cams, rpPaused: ready && !rp.playing && !rp.drag, rpPausedIcon: atEnd ? 'replay' : 'play_arrow',
+      rpCamIcon: rp.cam === 'player' ? 'person' : rp.cam === 'free' ? 'visibility' : 'videocam',
+      rpCamLabel: rp.cam === 'player' ? 'PLAYER CAMERA' : rp.cam === 'free' ? 'FREE CAMERA' : 'SCENIC CAMERA',
+      rpCamSub: rp.cam === 'player' ? D.players[rp.follow].name : '',
+      rpClock: two(Math.floor(remain / 60)) + ':' + two(Math.floor(remain % 60)), rpClockC: remain < 30 ? GOLD : '#f4f7f9',
+      rpNoteText: this.rpLastNote || '', rpNoteOp: rp.note ? 1 : 0, rpNoteT: rp.note ? 'translate(-50%,0)' : 'translate(-50%,8px)',
+      rpTeams: teams, railRef: this.railRef,
+      rpRounds: rounds, rpMarks: marks,
+      rpHead: (t / len * 100).toFixed(3) + '%', rpHeadTr: rp.drag ? 'none' : rp.playing ? 'left .06s linear' : 'left .28s cubic-bezier(.2,.8,.25,1)',
+      rpKnob: z === 'seek' || rp.drag ? '15px' : '10px',
+      rpSeekRing: z === 'seek' ? '0 0 0 4px #03080d, 0 0 0 5px rgba(242,180,58,.6)' : 'none',
+      rpHoverOn: hv !== null && ready, rpHoverX: hv === null ? '0%' : (hv * 100).toFixed(2) + '%',
+      rpHoverText: hv === null ? '' : this.fmtClock(hv * len) + ' · ROUND ' + hvRound.n,
+      rpDown: e => { if (!ready) return; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} this.rpDragging = true; const fr = this.rpFrac(e); this.setRp({ zone: 'seek', drag: true, hover: fr }); this.rpSeek(fr * len); },
+      rpMove: e => { const fr = this.rpFrac(e); if (this.rpDragging) this.rpSeek(fr * len); this.setRp({ hover: fr }); },
+      rpUp: e => { if (!this.rpDragging) return; this.rpDragging = false; const fr = this.rpFrac(e); this.setRp({ drag: false }); this.rpSeek(fr * len, true); },
+      rpLeave: () => { if (!this.rpDragging) this.setRp({ hover: null }); },
+      rpTxMain: tx.slice(0, 7), rpTxStep: tx.slice(7, 9), rpTxSlow: [tx[9]], rpTxFast: [tx[10]],
+      rpRate: this.RATES[rp.rate] + '×', rpNow: this.fmtClock(t),
+      rpRoundText: atEnd ? 'END OF RECORDING' : 'ROUND ' + cur.n + ' OF ' + D.rounds.length,
+    };
+  }
+  discOk() { return !!(this.state.iso && this.state.iso.ok); }
+  playPressed() {
+    if (this.discOk() && this.state.pads.length) return this.act('launch');
+    this.openCheck();
+  }
+  openCheck() {
+    this.autoF = false;
+    const start = !this.discOk() ? 0 : !this.state.pads.length ? 1 : 2;
+    this.openPanel('launch');
+    if (start) this.setState({ rowStack: [start] });
+  }
+  closeCheck() { if (!this.state.check) return; this.sfx('back'); this.setState({ check: false }); }
+  checkActivate(i) {
+    this.setState({ checkFocus: i }); this.pressFlash();
+    if (i === 0) { this.sfx('open'); return this.act('browse'); }
+    if (i === 1) { this.sfx('open'); return this.state.pads.length ? this.act('identify') : this.act('scan'); }
+    if (i === 2) { if (!this.discOk()) { this.sfx('edge'); return this.flash('Disc required'); } return this.act('launch'); }
+    if (i === 3) { this.setState({ check: false }); return this.jumpTo('set', 'game', 'sys-pad'); }
+  }
+  ready() {
+    const s = this.state;
+    return [
+      ['Disc image', s.iso ? (s.iso.ok ? 'Verified' : 'Verifying') : 'Missing', !!(s.iso && s.iso.ok), true],
+      ['Controller', s.pads.length ? 'Connected' : 'Keyboard fallback', s.pads.length > 0, false],
+      ['Microphone', s.micLive ? 'Live' : 'Off · optional', s.micLive, false],
+      ['Memory card', s.saves.length + ' saves', s.saves.length > 0, false],
+      ['Server', 'Online · 38 ms', true, true],
+    ];
+  }
+
+  rowsFor(id) {
+    const s = this.state, v = s.v;
+    const H = label => ({ t: 'header', label });
+    const T = (key, label, hint) => ({ t: 'toggle', key, label, hint });
+    const S = (key, label, min, max, step, unit) => ({ t: 'slider', key, label, min, max, step: step || 1, unit: unit || '' });
+    const L = (key, label, opts, hint) => ({ t: 'select', key, label, opts, hint });
+    const A = (label, act, hint, tone) => ({ t: 'action', label, act, hint, tone });
+    const G = (label, to, hint) => ({ t: 'link', label, to, hint });
+    const I = (label, value, tone) => ({ t: 'info', label, value, tone });
+    const LI = (label, hint, value, msg) => ({ t: 'list', label, hint, value, msg });
+    const PK = (group, pid, label, hint, value) => ({ t: 'pick', group, pid, label, hint, value });
+    switch (id) {
+      case 'forge':
+        return [L('forgeMap', 'Map', this.MAPS), L('forgeMode', 'Mode', ['Suppression', 'Demolition', 'Extraction', 'Breach', 'Escort']),
+          H('Rules'), S('rounds', 'Rounds', 1, 15), S('timeLimit', 'Round time', 2, 20, 1, ' min'),
+          T('friendlyFire', 'Friendly fire'), T('oneShot', 'One-shot kills'), T('noRadar', 'Radar off'), T('lowGrav', 'Low gravity'),
+          A('Save preset', 'forgeSave', 'Hosts can load it from the lobby'), A('Host with preset', 'forgeHost', null, 'primary')];
+      case 'test':
+        return [L('testMap', 'Map', this.MAPS), L('testTeam', 'Side', ['SEALs', 'Terrorists']),
+          L('loadout', 'Loadout', ['M4A1 / M9', 'M14 / Mk23', 'AK-47 / 9mm', 'M87 / Mk23']),
+          S('bots', 'Target bots', 0, 16), S('lag', 'Simulated latency', 0, 300, 10, ' ms'),
+          T('hitboxes', 'Show hitboxes'), T('infAmmo', 'Infinite ammo'), A('Enter Test Room', 'testEnter', null, 'primary')];
+      case 'quick':
+        return [L('qmMode', 'Mode', ['Any', 'Suppression', 'Demolition', 'Extraction', 'Breach', 'Escort']), L('qmRegion', 'Region', ['US East', 'US West', 'Europe', 'Oceania']), A('Find match', 'quickFind', 'Estimated wait under 1 min', 'primary')];
+      case 'rooms':
+        return [L('roomMode', 'Filter', ['All modes', 'Suppression', 'Demolition', 'Extraction', 'Breach']), H('Open rooms · ' + v.region),
+          LI('Frostfire Clan Scrim', 'Suppression · [DGN] hosting · password', '14/16 · 32ms', 'Room is password protected'),
+          LI('Night Stalker 24/7', 'Demolition · open', '11/16 · 41ms', 'Joining Night Stalker 24/7…'),
+          LI('Newbie Friendly', 'Extraction · no ladder', '6/16 · 38ms', 'Joining Newbie Friendly…'),
+          LI('Desert Glory Pubs', 'Suppression · open', '16/16 · 29ms', 'Room is full — added to queue'),
+          LI('Crossroads Breach', 'Breach · open', '9/16 · 55ms', 'Joining Crossroads Breach…'),
+          A('Create room', 'createRoom')];
+      case 'friends':
+        return [H('Online · 3'), LI('HUSH', 'In room · Night Stalker 24/7', 'Join', 'Joining HUSH…'), LI('Kilo_Two', 'In lobby', 'Invite', 'Invite sent to Kilo_Two'), LI('Breacher', 'Test Room', 'Message', 'Opening chat with Breacher'),
+          H('Offline'), LI('DustOff', 'Last seen 2 days ago', '', 'DustOff is offline'), LI('Vantage', 'Last seen Oct 12', '', 'Vantage is offline'), A('Add friend', 'addFriend')];
+      case 'clans':
+        return [I('Clan', '[DGN] Dagger Nine'), I('Members', '18 · 5 online'), I('Ladder', '#7 · Suppression'), H('Upcoming'), LI('Scrim vs [RDX]', 'Frostfire · Sat 21:00', 'Accepted', 'You’re on the roster for Saturday'), A('Challenge a clan', 'challenge')];
+      case 'serverinfo':
+        return [I('Status', 'Online', 'good'), I('Server', v.server), I('Region', v.region + ' · 38 ms'), I('Game version', 'SOCOM II 1.4 (community)'), I('Patch level', '2026.10.2'), I('Uptime', '13 days'), H('Message of the day'), LI('Weekend double XP on Fish Hook.', 'Posted by admins · Oct 24', '', 'Double XP ends Monday 06:00')];
+      case 'launch': {
+        const disc = this.discOk(), pad = s.pads.length > 0;
+        return [{ t: 'check', kind: 'disc' }, { t: 'check', kind: 'pad' }, H(''),
+          A(disc && !pad ? 'Deploy with keyboard' : 'Deploy', 'launch', !disc ? 'Disc required' : !pad ? 'Controller takes over when connected' : v.region + ' · Community servers', disc ? 'primary' : 'muted'),
+          G('Controller settings', 'sys-pad', v.preset + ' layout')];
+      }
+      case 'iso': {
+        const iso = s.iso;
+        return [{ t: 'drop' }, H('Mounted image'), I('File', iso ? iso.name : '—'), I('Size', iso ? iso.size : '—'),
+          I('Serial', iso && iso.ok ? 'SCUS-97275' : '—'), I('Integrity', !iso ? '—' : iso.ok ? 'Verified' : 'Checking ' + s.isoPct + '%', iso && iso.ok ? 'good' : null),
+          A('Browse for image…', 'browse', '.iso, .bin or .img'), A('Eject image', 'eject', null, iso ? null : 'muted')];
+      }
+      case 'pad':
+        return [H('Detected'), ...(s.pads.length ? s.pads.map((p, i) => I(p, 'Port ' + (i + 1) + ' · ready', 'good')) : [I('No controller found', 'Press any button', 'warn')]),
+          L('port', 'Assign to', ['Player 1', 'Player 2']), A('Identify', 'identify', 'Rumbles the selected controller'), A('Scan again', 'scan'),
+          G('Button mapping & sticks', 'sys-pad', 'Settings › System Settings › Controls')];
+      case 'mic':
+        return [...(s.micLive ? [] : [A('Enable microphone', 'micOn', 'Your browser will ask for permission', 'primary')]),
+          { t: 'meter', label: 'Input level' }, L('micDevice', 'Input device', ['System default', 'USB Headset', 'Bluetooth Headset']),
+          L('micMode', 'Transmit', ['Push-to-talk', 'Open mic', 'Voice activated']), G('Voice settings', 'sys-voice', 'Gain, threshold, squad volume')];
+      case 'card':
+        return [H('Card 1 · 388 KB of 8 MB'), ...s.saves.map(sv => PK('save', sv.id, sv.title, sv.meta, sv.size)),
+          A('Import save…', 'import', '.ps2, .max, .psu or .mcd'), A('Export selected', 'export', null, s.pick.save ? null : 'muted'), A('Delete selected', 'delete', null, s.pick.save ? 'danger' : 'muted')];
+      case 'activity':
+        return [I('Players online', '412'), I('Open rooms', '23'), I('Busiest map', 'Frostfire'), H('Recent'),
+          LI('[DGN] won scrim vs [RDX]', 'Frostfire · 6–4', '4m', 'Opening match summary'), LI('HUSH reached Commander', 'Rank up', '18m', 'Opening HUSH’s record'),
+          LI('New room: Newbie Friendly', 'Extraction', '22m', 'Joining Newbie Friendly…'), LI('Server patch 2026.10.2', 'Hit-reg fixes on Blizzard', '1d', 'Opening patch notes')];
+      case 'game':
+        return [G('Controls', 'sys-pad', v.preset + ' · dead zone ' + v.deadzone + '%'), G('Voice', 'sys-voice', v.micMode), G('Display & Performance', 'sys-display', v.res + ' · ' + v.fps),
+          G('SOCOM II Options', 'sys-s2', 'Sound, controls, screen'), G('Game Patches', 'sys-patch', ['fHiRes', 'f60', 'fWideHud', 'fNet2'].filter(k => v[k]).length + ' of 4 on')];
+      case 'system':
+        return [G('Network', 'sys-net', v.region),
+          G('Appearance', 'sys-look', v.theme + ' · ' + (v.bg === 'None' ? 'Wave only' : v.bg)), G('Launcher', 'sys-launcher', v.language + ' · ' + (v.autoUpdate ? 'auto-update on' : 'auto-update off'))];
+      case 'sys-pad':
+        return [L('preset', 'Layout', ['Classic S2', 'Modern', 'Southpaw', 'Custom']), H('Bindings'), ...s.binds.map((b, i) => ({ t: 'bind', label: b[0], idx: i })),
+          A('Restore defaults', 'resetBinds'), H('Sticks'), S('deadzone', 'Dead zone', 0, 30, 1, '%'), S('sens', 'Look sensitivity', 1, 10), T('invertLook', 'Invert look'), T('rumble', 'Rumble'), T('aimAssist', 'Aim assist', 'Original S2 strength')];
+      case 'sys-voice':
+        return [...(s.micLive ? [] : [A('Enable microphone', 'micOn', 'Your browser will ask for permission', 'primary')]), { t: 'meter', label: 'Input level' }, L('micDevice', 'Input device', ['System default', 'USB Headset', 'Bluetooth Headset']), S('gain', 'Input gain', 0, 100, 5, '%'),
+          L('micMode', 'Transmit', ['Push-to-talk', 'Open mic', 'Voice activated']), S('threshold', 'Activation threshold', 0, 100, 5, '%'),
+          H('Squad'), S('voiceVol', 'Squad volume', 0, 10), T('noise', 'Noise suppression'), T('monitor', 'Hear myself'), T('proximity', 'Proximity voice', 'Experimental · enemies nearby can hear you')];
+      case 'sys-display':
+        return [L('res', 'Internal resolution', ['Native · 480p', '2× · 960p', '3× · 1440p', '4× · 2160p']), L('aspect', 'Aspect ratio', ['4:3 (original)', '16:9 (patched)', 'Stretch']),
+          L('fps', 'Frame rate', ['30 (original)', '60 (unlocked)']), L('filter', 'Texture filtering', ['Nearest', 'Bilinear', 'Trilinear', 'Anisotropic 16×']), L('aa', 'Anti-aliasing', ['Off', 'FXAA', 'SMAA']), T('vsync', 'V-Sync')];
+      case 'sys-net':
+        return [L('region', 'Preferred region', ['US East', 'US West', 'Europe', 'Oceania']), L('server', 'Server', ['Community · Primary', 'Community · Legacy', 'LAN only']), T('showPing', 'Show ping in lobby'), A('Test connection', 'nat', 'Checks NAT type and latency')];
+      case 'sys-s2':
+        return [H('Sound'), S('music', 'Music', 0, 10), S('sfx', 'Effects', 0, 10), S('voiceVol', 'Voice', 0, 10), H('Controls'), T('invertY', 'Look inversion'), T('vibration', 'Vibration'),
+          H('Screen'), S('brightness', 'Brightness', 0, 10), L('hud', 'HUD', ['Full', 'Minimal', 'Off']), L('crosshair', 'Reticle', ['Classic', 'Dot', 'Off']), T('subtitles', 'Subtitles')];
+      case 'sys-patch':
+        return [T('fHiRes', 'High-res texture pack', 'Community upscale · 1.2 GB'), T('f60', '60 fps physics fix'), T('fWideHud', 'Widescreen HUD anchors'), T('fNet2', 'Netcode v2', 'Rollback prototype · private servers only'), A('Turn everything off', 'flagsOff')];
+      case 'sys-look':
+        return [G('Theme & background', 'app-theme', v.theme + ' · ' + (v.bg === 'None' ? 'Wave only' : v.bg)), T('motion', 'Background motion'), T('clock24', '24-hour clock'), T('uiSounds', 'Menu sounds')];
+      case 'sys-launcher':
+        return [L('language', 'Language', ['English', 'Español', 'Français', 'Deutsch', 'Português']), T('startup', 'Open at login'), T('autoUpdate', 'Update automatically'),
+          I('Version', 'Launcher 0.9.4'), A('Check for updates', 'update'), A('Clear cache', 'cache', 'Frees 312 MB · keeps saves')];
+      case 'app': {
+        const b = this.browser();
+        if (this.isInstalled()) return [I('Status', 'Installed', 'good'), I('Running as', 'App window'), A('Open in browser instead', 'openBrowser')];
+        if (b === 'ios') return [I('Status', 'Not installed', 'warn'), I('Browser', 'Safari on iOS'), H('Add to Home Screen'),
+          LI('1 · Tap Share', 'The square with an arrow, bottom of Safari', '', 'Tap Share in Safari’s toolbar'), LI('2 · Add to Home Screen', 'Scroll the share sheet to find it', '', 'Then confirm with Add'), LI('3 · Open from your Home Screen', 'It launches full screen', '', 'Look for the SOCOM II icon')];
+        if (b === 'firefox') return [I('Status', 'Not installed', 'warn'), I('Browser', 'Firefox'), LI('Firefox can’t install apps on desktop', 'Open this page in Chrome or Edge to install', '', 'Copy the address into Chrome or Edge'), A('Copy launcher address', 'copyUrl')];
+        if (b === 'chromium') return [I('Status', 'Not installed', 'warn'), I('Browser', this.chromiumName()), A('Install app', 'install', this.deferredPrompt ? 'Adds the launcher to your desktop and app list' : 'Or use the install icon in the address bar', 'primary')];
+        return [I('Status', 'Not installed', 'warn'), LI('Install from your browser’s menu', 'Look for Install app or Add to Home Screen', '', 'Check your browser’s main menu'), A('Copy launcher address', 'copyUrl')];
+      }
+      case 'record':
+        return [I('Callsign', 'WRAITH-6'), I('Rank', 'Lieutenant Commander'), I('Clan', '[DGN] Dagger Nine'), H('Career'), I('Wins / losses', '1,412 / 1,087'), I('Kills / deaths', '18,240 / 12,905'),
+          I('Accuracy', '31.4%'), I('Headshots', '4,118'), I('Time in service', '1,206 h'), H('Favourites'), I('Weapon', 'M4A1'), I('Map', 'Frostfire'), I('Member since', 'March 2021')];
+      case 'replays':
+        return [H('Your matches · newest first'), ...this.REPLAYS.map((R, i) => ({ ...LI(R.map + ' · ' + R.mode, (R.score[0] > R.score[1] ? 'Won ' : 'Lost ') + R.score[0] + '–' + R.score[1] + ' · ' + R.date.split(',')[0] + (R.partial ? ' · partial' : ''), this.fmtClock(R.len), null), rp: i }))];
+      case 'loadouts':
+        return [PK('loadout', 'assault', 'Assault', 'M4A1 · M9 · frag ×2', 'SEALs'), PK('loadout', 'marks', 'Marksman', 'M14 · Mk23 · smoke ×2', 'SEALs'), PK('loadout', 'cqb', 'Close Quarters', 'M3 shotgun · M9 · flash ×3', 'SEALs'),
+          PK('loadout', 'tango', 'Tango Rush', 'AK-47 · 9mm · frag ×2', 'Terrorists'), A('New loadout', 'newLoadout')];
+      case 'profiles':
+        return [PK('profile', 'wraith', 'WRAITH-6', 'Online · this device', 'Main'), PK('profile', 'hush', 'HUSH', 'Online · shared PC', ''), PK('profile', 'guest', 'Guest', 'Offline only', ''), A('Create profile', 'newProfile')];
+      case 'app-theme':
+        return [H('Theme'), ...Object.keys(this.THEMES).map(n => ({ ...PK('theme', n, n, this.THEME_NOTES[n] || '', ''), sw: this.THEMES[n] })),
+          H('Background picture'), { ...PK('bg', 'None', 'None', 'Wave only', ''), thumbNone: true }, { ...PK('bg', 'Legacy', 'SOCOM Legacy', 'Key art · darkened behind the wave', ''), thumbSrc: (window.__resources && window.__resources.legacy) || 'assets/legacy-wallpaper.png' }, { ...PK('bg', 'Crossroads', 'Crossroads', 'Darkened behind the wave', ''), thumbSrc: (window.__resources && window.__resources.crossroads) || 'assets/crossroads.jpg' }];
+      case 'signout':
+        return [A('Sign out', 'signout', null, 'danger'), A('Cancel', 'close')];
+    }
+    return [];
+  }
+
+  focusables(rows) { return rows.map((r, i) => (r.t === 'header' || r.t === 'info' || r.t === 'meter') ? -1 : i).filter(i => i >= 0); }
+
+  adjust(r, dir) {
+    const v = this.state.v;
+    if (r.t === 'slider' || r.t === 'select') this.sfx('tick');
+    if (r.t === 'toggle' && dir && v[r.key] !== dir > 0) this.sfx(dir > 0 ? 'on' : 'off');
+    if (r.t === 'slider') this.setV(r.key, Math.max(r.min, Math.min(r.max, v[r.key] + dir * r.step)));
+    if (r.t === 'select') { const i = r.opts.indexOf(v[r.key]); this.setV(r.key, r.opts[(i + dir + r.opts.length) % r.opts.length]); }
+    if (r.t === 'toggle' && dir) this.setV(r.key, dir > 0);
+  }
+
+  activate(r) {
+    const v = this.state.v;
+    this.pressFlash();
+    if (r.t === 'toggle') { this.sfx(v[r.key] ? 'off' : 'on'); return this.setV(r.key, !v[r.key]); }
+    if (r.t === 'action' || r.t === 'list' || r.t === 'pick' || r.t === 'bind' || r.t === 'drop') this.sfx(r.tone === 'muted' ? 'edge' : 'open');
+    if (r.t === 'select') return this.adjust(r, 1);
+    if (r.t === 'drop') return this.act('browse');
+    if (r.t === 'check') { this.sfx('open'); return r.kind === 'disc' ? this.act('browse') : this.state.pads.length ? this.act('identify') : this.act('scan'); }
+    if (r.t === 'bind') return this.setState({ listening: r.idx });
+    if (r.t === 'link') return this.push(r.to);
+    if (r.t === 'list' && r.rp !== undefined) return this.openReplay(r.rp);
+    if (r.t === 'list') return r.msg && this.flash(r.msg);
+    if (r.t === 'pick' && (r.group === 'theme' || r.group === 'bg')) { this.setV(r.group, r.pid); return this.flash((r.group === 'theme' ? 'Theme: ' : 'Background: ') + r.label); }
+    if (r.t === 'pick') return this.setState(s => {
+      const cur = s.pick[r.group], toggle = r.group === 'save';
+      const next = toggle && cur === r.pid ? null : r.pid;
+      if (r.group === 'profile' && next !== cur) this.flash('Switched to ' + r.label);
+      if (r.group === 'loadout' && next !== cur) this.flash(r.label + ' equipped');
+      return { pick: { ...s.pick, [r.group]: next } };
+    });
+    if (r.t === 'action' && r.tone !== 'muted') return this.act(r.act);
+  }
+
+  act(a) {
+    const s = this.state, v = s.v;
+    const go = {
+      browse: () => this.fileRef.current && this.fileRef.current.click(),
+      eject: () => { clearInterval(this.isoTimer); this.setState({ iso: null, isoPct: 0 }); this.flash('Disc image ejected'); },
+      launch: () => {
+        if (!this.discOk()) { this.flash('Disc required'); return this.state.check ? null : this.openCheck(); }
+        this.sfx('open');
+        this.setState({ booting: true, bootPct: 0, stack: [], rowStack: [], check: false });
+        clearInterval(this.bootTimer);
+        this.bootTimer = setInterval(() => {
+          const p = this.state.bootPct + 3;
+          if (p >= 100) { clearInterval(this.bootTimer); this.setState({ booting: false, bootPct: 0 }); return this.flash('Prototype: the game would be running now'); }
+          this.setState({ bootPct: p });
+        }, 50);
+      },
+      identify: () => {
+        const p = navigator.getGamepads && Array.from(navigator.getGamepads()).filter(Boolean)[0];
+        if (p && p.vibrationActuator) { p.vibrationActuator.playEffect('dual-rumble', { duration: 400, strongMagnitude: 0.8, weakMagnitude: 0.5 }); this.flash('Rumbling ' + v.port); }
+        else this.flash('No controller to identify');
+      },
+      scan: () => { this.lastPadList = 0; this.flash('Scanning… press any button on your controller'); },
+      resetBinds: () => { this.setState(st => ({ binds: this.DEFAULT_BINDS.map(b => b.slice()), v: { ...st.v, preset: 'Classic S2' } })); this.flash('Bindings restored'); },
+      micOn: () => this.startMic(),
+      forgeSave: () => this.flash('Preset saved · ' + v.forgeMap + ' / ' + v.forgeMode),
+      forgeHost: () => this.flash('Opening lobby with ' + v.forgeMap + ' · ' + v.rounds + ' rounds'),
+      testEnter: () => this.flash('Loading Test Room · ' + v.testMap + ' as ' + v.testTeam),
+      quickFind: () => this.flash('Searching ' + v.qmRegion + ' for ' + (v.qmMode === 'Any' ? 'any mode' : v.qmMode) + '…'),
+      createRoom: () => this.jumpTo('lab', 'forge'),
+      addFriend: () => this.flash('Enter a callsign on the community site to add a friend'),
+      challenge: () => this.flash('Challenge sent to the ladder board'),
+      flagsOff: () => { this.setState(st => ({ v: { ...st.v, fHiRes: false, f60: false, fWideHud: false, fNet2: false } })); this.flash('All patches off'); },
+      nat: () => { this.flash('Testing connection…'); setTimeout(() => this.flash('NAT: Moderate · 38 ms to ' + this.state.v.region), 1200); },
+      import: () => this.flash('Choose a save file to import'),
+      export: () => this.flash('Exported to Downloads'),
+      delete: () => { const t = s.saves.find(x => x.id === s.pick.save); this.setState(st => ({ saves: st.saves.filter(x => x.id !== st.pick.save), pick: { ...st.pick, save: null } })); this.setRow(0); this.flash('Deleted “' + (t ? t.title : '') + '”'); },
+      update: () => this.flash('Launcher is up to date'),
+      install: async () => {
+        const p = this.deferredPrompt;
+        if (!p) return this.flash('Use the install icon in the address bar');
+        p.prompt(); const r = await p.userChoice; this.deferredPrompt = null;
+        if (r && r.outcome === 'accepted') this.setState({ installed: true }); else this.flash('Install cancelled');
+      },
+      copyUrl: () => { try { navigator.clipboard.writeText(location.href); this.flash('Address copied'); } catch (e) { this.flash('Couldn’t copy — use the address bar'); } },
+      openBrowser: () => this.flash('Opening in your browser…'),
+      cache: () => this.flash('Cache cleared · 312 MB freed'),
+      newLoadout: () => this.flash('Loadout editor opens in the Test Room'),
+      newProfile: () => this.flash('New profile created'),
+      signout: () => this.setState({ signedOut: true, stack: [], rowStack: [] }),
+      close: () => this.pop(),
+    };
+    go[a] && go[a]();
+  }
+
+  async startMic() {
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ac.createMediaStreamSource(this.stream);
+      this.analyser = ac.createAnalyser(); this.analyser.fftSize = 512; src.connect(this.analyser);
+      this.setState({ micLive: true }); this.setRow(0); this.flash('Microphone live — say something');
+    } catch (e) {
+      this.analyser = null; this.setState({ micLive: true, micSim: true }); this.setRow(0); this.flash('Mic access blocked — showing a simulated level');
+    }
+  }
+
+  loadFile(f) {
+    if (!f) return;
+    clearInterval(this.isoTimer);
+    this.setState({ iso: { name: f.name, size: (f.size / 1e9).toFixed(2) + ' GB', ok: false }, isoPct: 0 });
+    this.isoTimer = setInterval(() => {
+      const p = this.state.isoPct + 4;
+      if (p >= 100) { clearInterval(this.isoTimer); this.setState(s => ({ isoPct: 100, iso: { ...s.iso, ok: true } })); return this.flash('Image verified · SOCOM II (NTSC-U)'); }
+      this.setState({ isoPct: p });
+    }, 60);
+  }
+
+  assignBind(label) {
+    const i = this.state.listening;
+    this.setState(s => { const b = s.binds.map(x => x.slice()); b[i][1] = label; return { binds: b, listening: null, v: { ...s.v, preset: 'Custom' } }; });
+  }
+
+  handleKey(e) {
+    const s = this.state, k = e.key;
+    if (s.booting) return;
+    if (s.rp) return this.rpKey(e);
+    if (s.signedOut) { if (k === 'Enter' || k === ' ') { e.preventDefault(); this.setState({ signedOut: false }); this.flash('Welcome back, WRAITH-6'); } return; }
+    if (s.listening !== null) {
+      e.preventDefault();
+      if (k === 'Escape') return this.setState({ listening: null });
+      return this.assignBind(k === ' ' ? 'Space' : k.length === 1 ? 'Key ' + k.toUpperCase() : k);
+    }
+    const nav = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Escape', 'Backspace'];
+    if (!nav.includes(k)) return;
+    e.preventDefault();
+    if (s.check) {
+      const cf = s.checkFocus, mv = n => { if (n === cf) return this.sfx('edge'); this.sfx('move'); this.setState({ checkFocus: n }); };
+      if (k === 'Escape' || k === 'Backspace') return this.closeCheck();
+      if (k === 'ArrowLeft') return mv(cf === 1 ? 0 : cf);
+      if (k === 'ArrowRight') return mv(cf === 0 ? 1 : cf);
+      if (k === 'ArrowDown') return mv(cf < 2 ? 2 : 3);
+      if (k === 'ArrowUp') return mv(cf === 3 ? 2 : cf === 2 ? (this.discOk() ? 1 : 0) : cf);
+      return this.checkActivate(cf);
+    }
+    if (!s.stack.length) {
+      const c = this.CATS[s.cat];
+      if (k === 'ArrowLeft') s.cat > 0 ? this.setCat(s.cat - 1) : this.bumpEdge('bump', 1);
+      if (k === 'ArrowRight') s.cat < this.CATS.length - 1 ? this.setCat(s.cat + 1) : this.bumpEdge('bump', -1);
+      if (k === 'ArrowUp' || k === 'ArrowDown') {
+        const d = k === 'ArrowUp' ? -1 : 1, n = s.sel[s.cat] + d;
+        if (n < 0 || n > c.items.length - 1) return this.bumpEdge('ibump', -d);
+        this.sfx('move');
+        const sel = s.sel.slice(); sel[s.cat] = n; this.setState({ sel, moveDir: d });
+      }
+      if (k === 'Enter' || k === ' ') this.curItem() === 'play' ? this.playPressed() : this.openPanel(this.curItem());
+      return;
+    }
+    const rows = this.rowsFor(this.curPanel()), f = this.focusables(rows), cr = this.curRow();
+    const r = rows[f[cr]];
+    if (k === 'Escape' || k === 'Backspace') return this.pop();
+    if (k === 'ArrowUp') { if (cr > 0) { this.sfx('move'); this.setRow(cr - 1); } else this.sfx('edge'); }
+    if (k === 'ArrowDown') { if (cr < f.length - 1) { this.sfx('move'); this.setRow(cr + 1); } else this.sfx('edge'); }
+    if (!r) return;
+    if (k === 'ArrowLeft') { if (r.t === 'slider' || r.t === 'select' || r.t === 'toggle') this.adjust(r, -1); else this.pop(); }
+    if (k === 'ArrowRight') { if (r.t === 'link') this.push(r.to); else this.adjust(r, 1); }
+    if (k === 'Enter' || k === ' ') this.activate(r);
+  }
+
+  renderVals() {
+    const s = this.state, v = s.v;
+    const cat = this.CATS[s.cat];
+    const GOLD = '#f2b43a';
+    const sub = iid => ({
+      forge: v.forgeMap + ' · ' + v.forgeMode, test: 'Offline sandbox · ' + v.testMap,
+      quick: v.qmRegion + ' · ' + v.qmMode, rooms: '23 open · ' + v.region, friends: '3 online', clans: '[DGN] · 5 online', serverinfo: 'Online · ' + v.server,
+      play: !this.discOk() ? (s.iso ? 'Verifying disc image…' : 'Disc image needed') : s.pads.length ? 'Ready to deploy · ' + v.region : 'No controller — check before launch',
+      iso: s.iso ? s.iso.name + (s.iso.ok ? ' · verified' : ' · verifying') : 'No image mounted',
+      pad: s.pads.length ? s.pads[0] : 'No controller detected',
+      mic: s.micLive ? (s.micSim ? 'Simulated input' : 'Live · ' + v.micMode) : 'Not set up',
+      card: s.saves.length + ' saves on card 1', activity: '412 players online',
+      game: 'Controls, voice, display, patches', system: 'Network, appearance, launcher', app: this.isInstalled() ? 'Installed' : 'Install as an app',
+      record: 'Lieutenant Commander · 1,412 wins', replays: '5 recorded matches',
+      loadouts: ({ assault: 'Assault', marks: 'Marksman', cqb: 'Close Quarters', tango: 'Tango Rush' })[s.pick.loadout] + ' equipped',
+      profiles: ({ wraith: 'WRAITH-6', hush: 'HUSH', guest: 'Guest' })[s.pick.profile] + ' active', signout: 'Return to sign-in',
+    })[iid] || '';
+
+    const SP = {
+      'Refined': { box: 66, g1: 4, g2: 6, top: 116, row: 4, bar: true, iw: 66, ih: 58, tg: 10 },
+      'Current': { box: 84, g1: 12, g2: 7, top: 124, row: 7, bar: true },
+      'Tight': { box: 76, g1: 4, g2: 5, top: 100, row: 5, bar: true },
+      'Airy': { box: 88, g1: 18, g2: 10, top: 156, row: 10, bar: true },
+      'Even rhythm': { box: 80, g1: 10, g2: 10, top: 122, row: 8, bar: true },
+      'No underline': { box: 80, g1: 8, g2: 0, top: 104, row: 7, bar: false },
+    };
+    const sp = { iw: 84, ih: 64, tg: 20, ...(SP[this.props.railSpacing] || SP['Refined']) };
+    this.rowPitch = sp.ih + sp.row * 2 + 4;
+    const cats = this.CATS.map((c, i) => {
+      const on = i === s.cat;
+      return {
+        label: c.label, opacity: on ? 1 : 0.34, labelOp: on ? 1 : 0, labelY: on ? 'translateY(0)' : 'translateY(-4px)', barW: on && sp.bar ? '18px' : '0px',
+        icon: this.icon(c.id), size: on ? '64px' : '54px',
+        ink: '#f4f7f9',
+        fvs: "'FILL' 0,'wght' " + (on ? 300 : 200) + ",'GRAD' 0,'opsz' 48",
+        glow: 'none',
+        onClick: () => this.setCat(i),
+      };
+    });
+
+    const items = cat.items.map((iid, i) => {
+      const on = i === s.sel[s.cat], m = this.P[iid];
+      const warn = iid === 'play' && !(this.discOk() && s.pads.length);
+      return {
+        code: m.code, title: m.title, sub: sub(iid), opacity: !s.itemsIn ? 0 : on ? 1 : i < s.sel[s.cat] - 1 ? 0 : 0.42,
+        inY: 'none',
+        trans: !s.itemsIn ? 'none' : s.itemsSettled ? 'opacity .28s ease' : 'opacity .3s ease ' + (0.04 + i * 0.025) + 's',
+        titleSize: on ? '24px' : '19px',
+        subColor: warn ? '#f2b43a' : 'rgba(238,242,245,.62)',
+        icon: this.icon(iid), size: iid === 'play' ? '62px' : '46px', iconScale: on ? 'scale(1)' : 'scale(.84)',
+        titleScale: on ? 'scale(1)' : 'scale(.8)',
+        subOp: on ? 1 : 0.7, subX: on ? 'translateX(0)' : 'translateX(-3px)',
+        ink: '#f4f7f9',
+        fvs: "'FILL' 0,'wght' " + (on ? 300 : 200) + ",'GRAD' 0,'opsz' 40",
+        glow: 'none',
+        onClick: () => { if (on) return iid === 'play' ? this.playPressed() : this.openPanel(iid); const sel = s.sel.slice(); sel[s.cat] = i; this.setState({ sel, stack: [], rowStack: [] }); },
+      };
+    });
+
+    const livePid = this.curPanel();
+    if (livePid) this.lastPid = livePid;
+    const pid = livePid || this.lastPid;
+    const raw = pid ? this.rowsFor(pid) : [];
+    const foc = this.focusables(raw), cr = this.curRow();
+    const toneColor = { good: '#8fd3a0', warn: '#f2b43a', bad: '#ff8a7a' };
+    const rows = raw.map((r, i) => {
+      const fi = foc.indexOf(i), focused = fi === cr && fi >= 0;
+      const isHeader = r.t === 'header';
+      const ck = r.t === 'check' ? (r.kind === 'disc'
+        ? { ok: this.discOk(), icon: 'album', pct: this.discOk() ? 100 : s.iso ? s.isoPct : 0, label: this.discOk() ? 'Disc verified' : s.iso ? 'Verifying disc · ' + s.isoPct + '%' : 'No disc', hint: this.discOk() ? 'SOCOM II · NTSC-U' : 'Browse, or drop an .iso anywhere', chip: this.discOk() ? 'Change' : 'Browse' }
+        : { ok: s.pads.length > 0, icon: this.padIcon(), pct: s.pads.length ? 100 : 0, label: s.pads.length ? 'Controller connected' : 'No controller', hint: s.pads.length ? s.pads[0].slice(0, 32) : 'Press any button to wake it', chip: s.pads.length ? 'Identify' : 'Scan' }) : null;
+      let valueText = '';
+      if (r.t === 'info') valueText = r.value;
+      if (r.t === 'slider') valueText = v[r.key] + r.unit;
+      if (r.t === 'select') valueText = v[r.key];
+      if (r.t === 'bind') valueText = s.listening === r.idx ? 'Press input…' : s.binds[r.idx][1];
+      if (r.t === 'pick' || r.t === 'list') valueText = r.value;
+      if (r.t === 'check') valueText = r.kind === 'disc' ? (this.discOk() ? 'Change' : 'Browse') : (s.pads.length ? 'Identify' : 'Scan');
+      const pct = r.t === 'slider' ? ((v[r.key] - r.min) / (r.max - r.min) * 100) + '%' : r.t === 'drop' ? s.isoPct + '%' : '0%';
+      const listening = r.t === 'bind' && s.listening === r.idx;
+      const picked = r.t === 'pick' && ((r.group === 'theme' || r.group === 'bg') ? v[r.group] === r.pid : s.pick[r.group] === r.pid);
+      const swc = r.sw ? [r.sw.top, 'rgb(' + r.sw.line.join(',') + ')', r.sw.gold ? '#f2b43a' : 'rgb(' + r.sw.glow.join(',') + ')'] : null;
+      return {
+        fi, isHeader,
+        isLabeled: !isHeader && r.t !== 'drop' && r.t !== 'meter',
+        isInfo: r.t === 'info', isToggle: r.t === 'toggle', isSlider: r.t === 'slider', isSelect: r.t === 'select',
+        isBind: r.t === 'bind', isSide: r.t === 'pick' || r.t === 'list', isPick: r.t === 'pick', isAction: r.t === 'action' || r.t === 'link',
+        isDrop: r.t === 'drop', isMeter: r.t === 'meter', isCheck: !!ck,
+        checkIcon: ck ? ck.icon : '', ringColor: ck ? (ck.ok ? '#8fd3a0' : GOLD) : '', ringPct: ck ? ck.pct + '%' : '0%', badge: ck ? (ck.ok ? 'check' : 'priority_high') : '',
+        chipBorder: focused ? GOLD : 'rgba(255,255,255,.22)', chipInk: focused ? '#140d02' : 'rgba(238,242,245,.8)', chipBg: focused ? GOLD : 'transparent',
+        arrow: r.t === 'link' ? '›' : '→',
+        icon: r.t === 'link' ? this.icon(r.to) : '', iconInk: focused ? '#ffffff' : 'rgba(238,242,245,.7)',
+        label: ck ? ck.label : r.t === 'drop' ? (s.iso ? s.iso.name : 'Drop a SOCOM II disc image here') : r.label,
+        hint: ck ? ck.hint : r.t === 'drop' ? (s.iso ? (s.iso.ok ? 'SCUS-97275 · NTSC-U · ' + s.iso.size : 'Verifying ' + s.isoPct + '%') : 'or press Enter to browse')
+          : r.t === 'meter' ? (s.micLive ? Math.round(s.micLevel * 100) + '%' : 'mic off') : (r.hint || ''),
+        busy: r.t === 'drop' && s.iso && !s.iso.ok,
+        valueText, pct,
+        valueColor: toneColor[r.tone] || 'rgba(238,242,245,.85)',
+        minH: isHeader ? '0px' : '54px',
+        pad: isHeader ? (r.label ? '20px 24px 6px' : '10px 24px 0') : r.t === 'drop' || r.t === 'meter' || r.t === 'check' ? '12px 24px' : '8px 24px',
+        inOp: s.entered ? 1 : 0, inX: s.entered ? 'translateX(0)' : 'translateX(22px)',
+        trans: s.entered ? 'opacity .28s ease ' + Math.min(i * 0.025, 0.3) + 's, transform .42s cubic-bezier(.2,.7,.2,1) ' + Math.min(i * 0.025, 0.3) + 's' : 'none',
+        cursor: fi >= 0 ? 'pointer' : 'default',
+        labelColor: r.tone === 'danger' ? '#ff8a7a' : r.tone === 'muted' ? 'rgba(238,242,245,.35)' : r.tone === 'primary' ? '#ffd27a' : '#eef2f5',
+        dropBorder: focused ? GOLD : 'rgba(110,180,225,.35)',
+        pillBg: v[r.key] ? GOLD : 'rgba(255,255,255,.16)',
+        knobLeft: v[r.key] ? '24px' : '4px',
+        knobBg: v[r.key] ? '#1a1206' : 'rgba(238,242,245,.8)',
+        arrowOp: focused ? 1 : 0.3,
+        capBorder: listening ? GOLD : 'rgba(255,255,255,.3)',
+        capBg: listening ? 'rgba(242,180,58,.16)' : 'rgba(255,255,255,.04)',
+        capColor: listening ? '#ffd27a' : '#dfe6ec',
+        hasSw: !!swc, sw1: swc ? swc[0] : '', sw2: swc ? swc[1] : '', sw3: swc ? swc[2] : '',
+        thumb: r.thumbSrc ? 'url(' + r.thumbSrc + ')' : r.thumbNone ? 'linear-gradient(180deg,#0b1622,#000)' : '',
+        markBorder: picked ? GOLD : 'rgba(255,255,255,.4)',
+        markBg: picked ? GOLD : 'transparent',
+        onClick: () => { if (fi < 0) return; this.setRow(fi); this.activate(r); },
+        onTrack: e => {
+          e.stopPropagation(); this.setRow(fi);
+          const rc = e.currentTarget.getBoundingClientRect();
+          const p = Math.max(0, Math.min(1, (e.clientX - rc.left) / rc.width));
+          this.setV(r.key, Math.round((r.min + p * (r.max - r.min)) / r.step) * r.step);
+        },
+        onPrev: e => { e.stopPropagation(); this.setRow(fi); this.adjust(r, -1); },
+        onNext: e => { e.stopPropagation(); this.setRow(fi); this.adjust(r, 1); },
+      };
+    });
+
+    const lit = Math.round(s.micLevel * 24), thr = Math.round(v.threshold / 100 * 24);
+    const meterBars = Array.from({ length: 24 }, (_, i) => ({
+      bg: i < lit ? (i < 16 ? '#3a9ad6' : i < 21 ? GOLD : '#ff8a7a') : i === thr ? 'rgba(242,180,58,.45)' : 'rgba(255,255,255,.08)',
+    }));
+
+    const open = s.stack.length > 0;
+    const mode = this.props.hintGlyphs || 'Auto';
+    const pad = mode === 'Controller' || (mode === 'Auto' && s.pads.length > 0);
+    const face = dir => ({ isFace: true, n: dir === 'n' ? GOLD : 'transparent', e: dir === 'e' ? GOLD : 'transparent', s: dir === 's' ? GOLD : 'transparent', w: dir === 'w' ? GOLD : 'transparent' });
+    const K = (k, l, glyph) => pad && glyph ? { l, ...glyph } : { k, l, isKey: true };
+    const dpad = { isIcon: true, icon: 'gamepad' };
+    const hints = s.listening !== null ? [K('ANY', 'Press new input'), K('ESC', 'Cancel', face('e'))]
+      : s.check ? [K('←→', 'Select', dpad), K('ENTER', 'Confirm', face('s')), K('ESC', 'Back', face('e'))]
+      : open ? [K('↑↓', 'Select', dpad), K('←→', 'Adjust'), K('ENTER', 'Confirm', face('s')), K('ESC', 'Back', face('e'))].filter(h => !(pad && h.k === '←→'))
+      : [K('←→', 'Navigate', dpad), K('↑↓', 'Item')].filter(h => !(pad && h.k === '↑↓')).concat([K('ENTER', 'Open', face('s'))]);
+
+    const now = s.now, hh = now.getHours(), mm = String(now.getMinutes()).padStart(2, '0');
+    const timeH = v.clock24 ? String(hh).padStart(2, '0') : String((hh % 12) || 12), timeM = mm + (v.clock24 ? '' : hh < 12 ? ' AM' : ' PM');
+    const dateText = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
+    const rootItem = s.stack[0];
+    const crumb = [cat.label].concat(s.stack.map(id => this.P[id].title)).join(' / ').toUpperCase();
+
+    return {
+      canvasRef: this.canvasRef, fileRef: this.fileRef, rowsRef: this.rowsRef,
+      onFile: e => { this.loadFile(e.target.files[0]); e.target.value = ''; },
+      onDragOver: e => e.preventDefault(),
+      onDrop: e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { if (!this.state.check) this.openCheck(); this.loadFile(f); } },
+      status: (() => {
+        const OK = '#8fd3a0', WARN = GOLD, OFF = 'rgba(255,255,255,.28)';
+        const mk = (icon, label, state, tone, onClick) => ({ icon, label, state, onClick, tip: label.charAt(0) + label.slice(1).toLowerCase() + ' · ' + state, dot: tone === 'ok' ? OK : tone === 'warn' ? WARN : OFF,
+          ink: tone === 'off' ? 'rgba(238,242,245,.5)' : '#f4f7f9', stateColor: tone === 'warn' ? WARN : tone === 'ok' ? '#eef2f5' : 'rgba(238,242,245,.55)' });
+        const disc = this.discOk();
+        return [
+          mk('album', 'DISC', disc ? 'Verified' : s.iso ? 'Verifying ' + s.isoPct + '%' : 'Not mounted', disc ? 'ok' : 'warn', () => this.openCheck()),
+          mk(this.padIcon(), 'CONTROLLER', s.pads.length ? s.pads[0].slice(0, 22) : 'Not connected', s.pads.length ? 'ok' : 'warn', () => this.openCheck()),
+          mk('mic', 'MIC', s.micLive ? (s.micSim ? 'Simulated' : 'Live') : 'Off', s.micLive ? 'ok' : 'off', () => this.jumpTo('set', 'game', 'sys-voice')),
+        ];
+      })(),
+      callsign: ({ wraith: 'WRAITH-6', hush: 'HUSH', guest: 'Guest' })[s.pick.profile], timeH, timeM, dateText, haloRef: this.haloRef, colonRef: this.colonRef,
+      xmbOpacity: (s.rp && s.rp.in) ? 0 : s.signedOut ? 0.1 : s.check ? 0 : open ? 0.16 : 1,
+      xmbShift: open ? 'translateX(-18%) scale(.97)' : 'none',
+      itemShift: 'translate(' + (s.itemsIn ? 0 : s.listDir * 36) + 'px,' + (-Math.max(0, s.sel[s.cat] - 1) * this.rowPitch + s.ibump) + 'px)',
+      listTrans: s.itemsIn ? 'transform .42s cubic-bezier(.2,.9,.25,1.04)' : 'none',
+      catShift: 'translateX(' + (-s.cat * 160 - 80 + s.bump) + 'px)',
+      cats, items, rows, meterBars, hints,
+      panelX: open ? 'translateX(0)' : 'translateX(48px)', panelOp: open && !(s.rp && s.rp.in) ? 1 : 0, panelPE: open && !s.rp ? 'auto' : 'none',
+      hlY: 'translateY(' + s.hl.top + 'px)', hlH: s.hl.h + 'px', hlOp: open && s.entered && foc.length ? 1 : 0,
+      hlBg: s.press ? 'rgba(238,242,245,.16)' : 'rgba(238,242,245,.06)',
+      crumb: rootItem ? (this.lastCrumb = crumb) : (this.lastCrumb || ''),
+      panelTitle: pid ? this.P[pid].title : '', panelDesc: pid ? this.P[pid].desc : '',
+      toastText: s.lastToast, toastOp: s.toast ? 1 : 0, toastY: s.toast ? 'translate(-50%,0)' : 'translate(-50%,10px)', booting: s.booting, bootPct: s.bootPct + '%',
+      bootText: s.bootPct < 40 ? 'MOUNTING ' + (s.iso ? s.iso.name.toUpperCase() : '') : s.bootPct < 75 ? 'APPLYING SETTINGS & BINDS' : 'CONNECTING · ' + v.region.toUpperCase(),
+      signedOut: s.signedOut,
+      ...this.replayVals(GOLD, K, dpad, face, pad),
+      spBox: sp.box + 'px', spHalf: (sp.iw / 2) + 'px', spIW: sp.iw + 'px', spIH: sp.ih + 'px', spTGap: sp.tg + 'px', spG1: sp.g1 + 'px', spG2: sp.g2 + 'px', spTop: sp.top + 'px', spRow: sp.row + 'px',
+      initials: ({ wraith: 'W6', hush: 'HU', guest: 'G' })[s.pick.profile],
+      onSignOut: () => { this.sfx('back'); this.setState({ signedOut: true, stack: [], rowStack: [], check: false }); },
+      goProfile: () => { this.setState({ check: false, stack: [], rowStack: [] }); this.setCat(this.CATS.findIndex(c => c.id === 'prof')); },
+      chromeOp: s.check || s.rp ? 0 : 1,
+      ...(() => {
+        const disc = this.discOk(), pad = s.pads.length > 0, cf = s.checkFocus, OK = '#8fd3a0';
+        const tile = (i, d) => {
+          const on = cf === i;
+          return { ...d, onClick: e => { e.stopPropagation(); this.checkActivate(i); },
+            border: on ? 'rgba(242,180,58,.75)' : d.ok ? 'rgba(143,211,160,.22)' : 'rgba(255,255,255,.1)',
+            bg: on ? 'rgba(238,242,245,.06)' : 'rgba(255,255,255,.015)',
+            shadow: on ? (s.press ? 'inset 0 0 0 1px #f2b43a, 0 0 0 4px rgba(242,180,58,.25)' : 'inset 0 0 0 1px #f2b43a') : 'none',
+            ringColor: d.ok ? OK : GOLD, ringPct: d.pct + '%',
+            iconInk: d.ok ? '#f4f7f9' : on ? '#ffffff' : 'rgba(238,242,245,.7)',
+            badgeBg: d.ok ? OK : GOLD, badge: d.ok ? 'check' : 'priority_high',
+            stateColor: d.ok ? '#eef2f5' : GOLD,
+            chipBorder: on ? GOLD : 'rgba(255,255,255,.2)', chipInk: on ? '#140d02' : 'rgba(238,242,245,.8)', chipBg: on ? GOLD : 'transparent',
+            inOp: s.checkIn ? 1 : 0, inY: s.checkIn ? (on ? 'translateY(-4px)' : 'translateY(0)') : 'translateY(24px)',
+            trans: 'opacity .35s ease ' + (i * 0.07) + 's, transform .5s cubic-bezier(.2,.7,.2,1) ' + (s.checkIn ? 0 : i * 0.07) + 's, border-color .2s, background .2s, box-shadow .2s' };
+        };
+        const dOn = cf === 2;
+        return {
+          checkOp: s.check ? 1 : 0, checkPE: s.check ? 'auto' : 'none', checkScale: s.check ? 'scale(1)' : 'scale(.96)',
+          checkTitle: disc && pad ? 'Ready to deploy' : 'Before you deploy',
+          checkTiles: [
+            tile(0, { icon: 'album', label: 'DISC', ok: disc, pct: disc ? 100 : s.iso ? s.isoPct : 0,
+              state: disc ? 'Verified' : s.iso ? 'Verifying' : 'No disc', sub: disc ? 'SOCOM II · NTSC-U' : s.iso ? s.isoPct + '%' : 'or drop an .iso', action: disc ? 'Change' : 'Browse' }),
+            tile(1, { icon: this.padIcon(), label: 'CONTROLLER', ok: pad, pct: pad ? 100 : 0,
+              state: pad ? 'Connected' : 'Not found', sub: pad ? s.pads[0].slice(0, 28) : 'Press any button', action: pad ? 'Identify' : 'Scan' }),
+          ],
+          deployInOp: s.checkIn ? 1 : 0, deployInY: s.checkIn ? 'translateY(0)' : 'translateY(16px)',
+          deployLabel: disc && !pad ? 'DEPLOY WITH KEYBOARD' : 'DEPLOY',
+          deployHint: !disc ? 'Disc required' : !pad ? 'Controller takes over when connected' : v.region + ' · Community servers',
+          deployBg: disc ? (dOn ? '#ffd27a' : GOLD) : 'rgba(255,255,255,.06)',
+          deployInk: disc ? '#140d02' : 'rgba(238,242,245,.4)',
+          deployShadow: dOn ? (disc ? '0 0 0 3px #03080d, 0 0 0 4px #ffd27a' : '0 0 0 1px rgba(255,255,255,.35)') : 'none',
+          linkBg: cf === 3 ? 'rgba(238,242,245,.08)' : 'transparent', linkInk: cf === 3 ? '#ffffff' : 'rgba(238,242,245,.6)',
+          onDeploy: e => { e.stopPropagation(); this.checkActivate(2); },
+          onPadSettings: e => { e.stopPropagation(); this.checkActivate(3); },
+          closeCheck: () => this.closeCheck(), stop: e => e.stopPropagation(),
+        };
+      })(),
+      closePanel: () => { if (this.state.stack.length) { this.sfx('back'); this.setState({ stack: [], rowStack: [], listening: null }); } },
+      signIn: () => { this.setState({ signedOut: false }); this.flash('Welcome back'); },
+    };
+  }
+}
+</script>
+</body>
+</html>

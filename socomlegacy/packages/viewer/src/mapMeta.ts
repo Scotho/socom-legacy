@@ -1,5 +1,5 @@
 import { parseRdr, rdrGet, Zar, zdbMember, type RdrNode, type ZdbEntry } from '@s2u/archive';
-import { decodeEffectProgram, flattenScene, missionNameOf, parseAnimSets, type SceneNode, type ZAnimArchive, type ZAnimNodeRef } from '@s2u/scene';
+import { decodeEffectProgram, flattenScene, missionNameOf, NODE_ROOT, parseAnimSets, type EffectProgram, type SceneNode, type ZAnimArchive, type ZAnimNodeRef } from '@s2u/scene';
 import { readMapActions, type MapAction } from './mapActions';
 import { sceneOf, type SceneMeta } from './sceneHealth';
 
@@ -70,6 +70,13 @@ export interface MapMeta {
    * re-applies them after the restore). Absent on a map built by hand (none).
    */
   autostart?: { path: string; on: boolean }[];
+  /**
+   * Research 386 §3.2 (LATER 63): the world matrix (row-major, `flattenScene`'s `world`) of every placement whose node a
+   * `FIRE_WEAPON` command names, or whose node is the root of a program firing at -7 (DF-5, `fireNodeNames`) -- the round
+   * starts at its node's world position (`FUN_0025ccb0` D:L107229-107244 through `FUN_00310980`), plus the command's
+   * offset through it. Absent where no program fires one.
+   */
+  fireNodes?: Map<string, readonly number[]>;
 }
 
 /** Whether `path` is `root` or lies under it: a child after `/`, the realised prototype after `=`. The one subtree test. */
@@ -283,7 +290,40 @@ export function readMapMeta(bytes: Uint8Array, toc: ZdbEntry[], stem: string, mo
   const scene = archive ? sceneOf({ instances }, archive, missionNameOf(stem)) : undefined;
   // SUP-03: a damage block whose root is placed nowhere (Vigilance's access6, plankaccess1..3) is stored, never a target.
   for (const name of scene?.unplaced ?? []) diagnostics.push(`meta: zAnim ${name}: a destructible whose root is not placed: no target`);
-  return { stem, actions, instances, instanceByPath, initial, diagnostics, ...(scene ? { scene } : {}), ...(autostart.length ? { autostart } : {}) };
+  // Research 386 §3.2: where the programs' FIRE_WEAPON rounds start -- each placement of a node one names (DF-5: the
+  // program's own root for a round at -7, `fireNodeNames`).
+  const fired = new Set<string>();
+  for (const anim of archive?.sets.flatMap((s) => s.anims) ?? []) {
+    let program;
+    try { program = decodeEffectProgram(anim); } catch { continue; }
+    for (const name of fireNodeNames(program)) fired.add(name);
+  }
+  const fireNodes = new Map<string, readonly number[]>();
+  for (const f of flat) if (fired.has(f.node.name.toLowerCase()) && !fireNodes.has(f.path)) fireNodes.set(f.path, Array.from(f.world));
+  return {
+    stem, actions, instances, instanceByPath, initial, diagnostics, ...(scene ? { scene } : {}), ...(autostart.length ? { autostart } : {}),
+    ...(fireNodes.size ? { fireNodes } : {}),
+  };
+}
+
+/**
+ * Research 386 §3.2, DF-5: the node names (lower case) a program's `FIRE_WEAPON` rounds start at, for `MapMeta.fireNodes`.
+ * `FUN_0025ccb0` resolves the command's i8 +8 through `FUN_0026f4e0` (D:L107229-107230) and starts the round at that
+ * node's world position (`FUN_00310980`, D:L107232). A positive index is the program's node reference; -7 (`NODE_ROOT`,
+ * 0xf9) is answered with the context's instance (+0x3c), else the reference at the animation's root index (byte +1;
+ * D:L118170-118180) -- the program's own root, the placement its run is on (`WorldState`'s `at(NODE_ROOT)`, the run's
+ * `root`): Desert Glory's `destroy_fuel1/2` fire at their barrels so. 0 is no node (the offset alone); -6 (`NODE_CALLER`,
+ * 0xfa, D:L118164-118169) is the context's caller, not a node of the program, and names none here.
+ */
+export function fireNodeNames(program: EffectProgram): string[] {
+  const out = new Set<string>();
+  for (const seq of program.sequences) for (const op of seq.ops) {
+    if (op.op !== 'fireWeapon') continue;
+    const index = op.node === NODE_ROOT ? program.root : op.node > 0 ? op.node : -1;
+    const name = index < 0 ? undefined : program.nodes[index];
+    if (name && name !== 'NA') out.add(name.toLowerCase());
+  }
+  return [...out];
 }
 
 /**

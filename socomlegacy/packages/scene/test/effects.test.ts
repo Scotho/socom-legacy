@@ -42,6 +42,14 @@ describe('the small commands, from their bytes', () => {
   it('CALL_ANIMATION names its animation in the byte at +7', () => {
     expect(decodeEffectOp(cmd(ZCMD.CALL_ANIMATION, [1, 0, 0, 2, ...new Array(12).fill(0)]), names)).toEqual({ op: 'call', anim: 'shell_eject' });
   });
+  it('CALL_ANIMATION flag 4 hands the callee the node at +9 as its caller, flag 8 the node at +10 as its place (research 386 §3.3)', () => {
+    // `FUN_0025d5c0` D:L107605-107613 (+9, a type-3 context: the callee's NODE_CALLER) and D:L107620-107629 (+10, its
+    // world position): Blizzard's `outhouse1` calls `toilet_flypart1` with flags 0x0d and part1 (node 5) at both.
+    expect(decodeEffectOp(cmd(ZCMD.CALL_ANIMATION, [0x0d, 0, 0, 2, 0, 5, 5, ...new Array(9).fill(0)]), names))
+      .toEqual({ op: 'call', anim: 'shell_eject', caller: 5, place: 5 });
+    expect(decodeEffectOp(cmd(ZCMD.CALL_ANIMATION, [0x04, 0, 0, 2, 0, 0xfa, 7, ...new Array(9).fill(0)]), names))
+      .toEqual({ op: 'call', anim: 'shell_eject', caller: -6 });
+  });
   it("EXECUTE_ACTION (87, set 0) names the action's valve in the u16 at +4; DESTRUCTION_SOURCE (29) its node in the i8 at +4", () => {
     // research 174 s3: 8 bytes, the name index at +4 (Desert Glory's access1: `57 00 20 00 03 00 00 00`, set_access1).
     const exec = cmd(ZCMD.EXECUTE_ACTION, [3, 0, 0, 0]);

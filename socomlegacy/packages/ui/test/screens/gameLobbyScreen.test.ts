@@ -89,6 +89,13 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(r.starts.at(-1)?.mission).toBe('mp72');
   });
 
+  it("LOBBY-ONE-BEHIND, the review's F2: a launched view carrying nextMap moves no mission -- the match starts on the current map", async () => {
+    const r = await lobby();
+    r.commands.gameLobby(view(TWO, { launched: true, nextMap: 'MP72' }));
+    await r.settle(SECOND);
+    expect([r.starts.length, r.starts.at(-1)?.mission, r.commands.missionName()]).toEqual([1, 'mp2', 'mp2']);
+  });
+
   it('GetGameInfo: GAMELIST\'s focus runs UpdateGameListInfo -- GetGameInfo(INPUT_STRING), the listed record\'s GAME DETAILS (FUN_002e1f20) in GAME_INFO_DETAILS', async () => {
     const r = await briefing({ missions: discMissions });
     const from = r.outcomes.length;
@@ -304,17 +311,66 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     let r = await lobby({ missionVars: (m) => { asked.push(m); return Promise.resolve(discMissionVars(m)); } });
     expect(asked[0]).toBe('mp2');
     expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
-    let release!: () => void;
+    let release!: () => void, releaseNext!: () => void;
     const held = new Promise<void>((done) => { release = done; });
-    r = await lobby({ missionVars: (m) => held.then(() => discMissionVars(m)) });
+    const heldNext = new Promise<void>((done) => { releaseNext = done; });
+    r = await lobby({ missionVars: (m) => (m === 'mp2' ? held : heldNext).then(() => discMissionVars(m)) });
     const frostfire = { type: 'string', value: 'FROSTFIRE' };
     expect(r.text('MPgamename')).toEqual(['']);                                               // not yet read: the dialog's own empty var
     expect(r.uiVars.find('mission_title')?.value).not.toEqual(frostfire);
     r.commands.welcomed(2, 'MP72');                                                           // the lobby moved on before the read came
     release();
     await r.settle(2);
-    expect(r.uiVars.find('mission_title')?.value).not.toEqual(frostfire);
+    expect(r.uiVars.find('mission_title')?.value).not.toEqual(frostfire);                     // the left mission's read adds none
     expect(r.text('MPgamename')).toEqual(['']);
+    releaseNext();                                                                            // LOBBY-ONE-BEHIND: the move loads MP72's
+    await r.settle(2);
+    expect(r.text('MPgamename')).toEqual(['CROSSROADS']);
+  });
+
+  /**
+   * LOBBY-ONE-BEHIND (Craig, live v0.4.14: "the in game game lobby shows one match behind when matches change over"): the
+   * room sends the returned view, then rotates (its seats closed, 4021) and welcomes the seat again on the next map. The
+   * original's host writes the play list's next map into 0x414e00 before its load (`FUN_00279490` D:L123863-123877, the
+   * load D:L123881; research 309 §2.2), so the lobby draws the next map; the returned lobby's `check_loop` here ran on the
+   * map just played, and the new welcome (or the returned view's `nextMap`) loads the new map again. Reading, pending review.
+   */
+  it("LOBBY-ONE-BEHIND: after a match, the rotation's new welcome in the returned lobby draws the new map -- MPgamename CROSSROADS, not FROSTFIRE", async () => {
+    const r = await lobby({ missionVars: discMissionVars });
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
+    r.commands.gameLobby(view(TWO, { launched: true }));
+    await r.settle(SECOND);
+    expect(r.starts).toHaveLength(1);
+    r.commands.matchReturned();
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;                                                        // the page's way back (frontEnd's `back`)
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(TWO));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    await r.settle(2 * SECOND);
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);                                      // check_loop, the room not rotated yet
+    r.commands.dropped();                                                                     // the rotation's close (4021), the socket again
+    r.commands.welcomed(2, 'MP72');                                                           // the new room's welcome
+    await r.settle(2);
+    expect(r.text('MPgamename')).toEqual(['CROSSROADS']);
+    expect(r.uiVars.find('mission_title')!.value).toEqual({ type: 'string', value: 'CROSSROADS' });
+  });
+
+  it("LOBBY-ONE-BEHIND: the returned view's nextMap, heard while the returned lobby stands, draws the next map", async () => {
+    const r = await lobby({ missionVars: discMissionVars });
+    r.commands.gameLobby(view(TWO, { launched: true }));
+    await r.settle(SECOND);
+    r.commands.matchReturned();
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(TWO));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    await r.settle(2 * SECOND);
+    expect(r.text('MPgamename')).toEqual(['FROSTFIRE']);
+    r.commands.gameLobby(view(TWO, { nextMap: 'MP72' }));
+    await r.settle(2);
+    expect(r.text('MPgamename')).toEqual(['CROSSROADS']);
   });
 
   /**

@@ -3,7 +3,7 @@ import { segmentHit, segmentHits, SEAL_TUNING, type Grid, type WorldPoly } from 
 import type { Stance } from './walk';
 import { MAP_FOV } from './accuracy';
 import { ACTION_SECONDS, isCameraClassSurface, STANCE } from './mover';
-import { deathEye, deathFar, orbit, type DeathCamera } from './deathCamera';
+import { deathEye, deathFar, orbit, type DeathCamera, type DeathStick } from './deathCamera';
 import {
   CAM_BACK, CAM_CLOSE, CAM_FAR, CAM_MARGIN, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, lookHeight, peekShift, ramp, scopeEyeHeight, scopePeekShift, toWorld,
   LEAD_DOWN, CAM_HOLD, CAM_REGROW, cameraPass, isPeekCameraSurface, newPassState, TYPE_ONE_CLEAR, type LocalCamera, type PassState, type Vec3,
@@ -476,12 +476,20 @@ export class PlayerCamera {
 
   /** The death camera (`./deathCamera`, `FUN_00297a30`) while the SEAL is dead, else null. */
   death: DeathCamera | null = null;
+  /**
+   * The dead actor's controller for the death camera's state 7 (`./deathCamera` `deathStickOf`; `FUN_00297a30`
+   * D:L141130-141142), set by the walk before its ticks; null is no push. Read only while `death` is set.
+   */
+  deathStick: DeathStick | null = null;
+  /** The death camera was at 7 last tick: its first tick at 7 spends the latch +0x44 (D:L141034-141041). */
+  private deathManualWas = false;
 
   /**
-   * INV-SPECTATE C: the blend flag +0x45 -- set only by the dead player's teammate view (`SpectatorView.followWatched`,
-   * the original's death camera at 7, `FUN_00297410` D:L141028-141032); a spectator's and the own body's camera stay
-   * rigid. While on, each tick moves the stored target and eye toward the tick's new pair by `watchedEaseFactor(dt)`
-   * before the pass (`FUN_00296f10` D:L140739-140788, the vector helpers `FUN_00309200` / `FUN_00309180` /
+   * INV-SPECTATE C: the blend flag +0x45 -- set by the dead player's teammate view (`SpectatorView.followWatched`,
+   * the original's death camera at 7, `FUN_00297410` D:L141028-141032); a spectator's camera stays rigid, and the own
+   * body's until its death camera is at 7 (DEATHCAM-MANUAL: `DeathCamera.manual` sets the flag the same way, the first
+   * tick at 7 written straight as the bind's latch +0x44 is spent, D:L141034-141041; reading, pending review). While
+   * on, each tick moves the stored target and eye toward the tick's new pair by `watchedEaseFactor(dt)` before the pass (`FUN_00296f10` D:L140739-140788, the vector helpers `FUN_00309200` / `FUN_00309180` /
    * `FUN_00309240`); while off, they are written straight (D:L140729-140736). A new bind is a fresh rig or `reset`,
    * whose first tick writes them straight (the latch +0x44, D:L141034-141041).
    */
@@ -529,7 +537,7 @@ export class PlayerCamera {
     // DEAD (`./deathCamera`): the orbit laid on the local eye and the aim, the killer's point blended into the aim.
     const d = this.death;
     const ahead = scale(local.ahead, CAM_FAR);
-    let eye0 = world(d ? deathEye(d, eyeL, feet, yawDegrees, dt) : eyeL);    // the orbit turns first (141213-141217)
+    let eye0 = world(d ? deathEye(d, eyeL, feet, yawDegrees, dt, this.deathStick ?? undefined) : eyeL);    // the orbit turns first (141213-141221)
     let far = world(add(targetL, d ? orbit(d, ahead) : ahead));
     if (d) far = deathFar(d, far, dt);
     // FUN_00296f10: the target on the line from the eye to the aim, `dist` from the eye.
@@ -539,7 +547,10 @@ export class PlayerCamera {
     // INV-SPECTATE C: the +0x45 blend (D:L140737-140788), the stored pair moved toward the new by the factor; else (and
     // on a new bind's first tick) the stored pair written straight (D:L140729-140736, D:L141034-141041).
     const was = this.stored;
-    if (this.ease && was) {
+    // DEATHCAM-MANUAL: the own body's death camera at 7 sets the flag too (D:L141028-141032), its first tick at 7 the latch's.
+    const manual = d?.manual === true, latch = manual && !this.deathManualWas;
+    this.deathManualWas = manual;
+    if ((this.ease || manual) && was && !latch) {
       const f = watchedEaseFactor(dt);
       target = add(was.target, scale(sub(target, was.target), f));
       eye0 = add(was.eye, scale(sub(eye0, was.eye), f));

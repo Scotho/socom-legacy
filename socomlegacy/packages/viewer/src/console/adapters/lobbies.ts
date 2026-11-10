@@ -1,3 +1,4 @@
+import { mapLabel } from '@s2u/archive/mapNames';
 import { ELIGIBLE_RANKS, type MissionRecord } from '@s2u/ui';
 import { devMode, devSwitches } from '../../source';
 import {
@@ -80,10 +81,13 @@ export function playersOf(names: readonly string[] | null, priv: boolean, kind: 
   return { kind: 'names', names: [...names] };
 }
 
-/** A game's map and mode as GAME DETAILS names them: the disc's name and type word when available, else the map's stem and none. */
+/**
+ * A game's map and mode as GAME DETAILS names them: the disc's name and type word when available, else the one name
+ * table's name (MN-1, OT.R113: never the map's stem) and none.
+ */
 function mapAndMode(g: LobbyGame, missions: readonly MissionRecord[] | null): { map: string; mode: string | null } {
   const m = lobbyGameDetails(g, missions).mission;
-  return { map: m?.available ? m.mapName ?? '--' : g.map ?? '--', mode: m?.available ? sentence(m.typeWord ?? '') : null };
+  return { map: m?.available ? mapLabel(m.mapName ?? '--') : g.map ? mapLabel(g.map) : '--', mode: m?.available ? sentence(m.typeWord ?? '') : null };
 }
 
 /** The section's clan flag's words (its row's `Clan game` mark; `gameListRow`'s CLAN, GenericField3 set, `FUN_002e2ce0`). */

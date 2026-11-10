@@ -1,74 +1,203 @@
 /* Forge/test-room instrumentation, a browser adaptation using the site's existing materials. FUI-7 (FUI.R4): its colours,
    type, radii and states are the Forge's `--fx-*` aliases of the design system (`../forge/tokens.css`, read here too:
-   the test room's dock sits outside the Forge's body); the one focus ring is the system's own (shared/ds base.css). */
+   the test room's dock sits outside the Forge's body); the one focus ring is the system's own (shared/ds base.css).
+   AX-U (AX.R7; Crispy's Forge UI, OT.R112): one card, three moments (Connect, Allow, Connected), one primary action each.
+   Type is the `--fx-type-*` tokens (13 px: body, and all dim text, VP-8; 12 px: control). Raw px type, named: the mark's 20 px glyph and the link box's 12 px
+   (no token at those); nothing under 12 px; every control keyboard-operable with a visible ring. The card carries its own base
+   (background, edge, type, spacing), so it reads the same in the Forge's `.fx-section` and the test room's plain dock. */
 @import '../forge/tokens.css';
 .agent-panel {
   --agent-bg: var(--fx-panel);
-  --agent-edge: var(--fx-control-edge);
+  --agent-edge: var(--fx-divider);
+  --agent-control: var(--fx-control-edge);
   --agent-text: var(--fx-text);
+  --agent-strong: var(--fx-text-strong);
   --agent-dim: var(--fx-dim);
   --agent-gold: var(--fx-gold);
+  --agent-gap: var(--s2u-space-3);
   box-sizing: border-box; padding: var(--s2u-space-4); background: var(--agent-bg); color: var(--agent-text);
   border: 1px solid var(--agent-edge); border-radius: var(--fx-radius);
   font: var(--fx-type-body); line-height: 1.5; user-select: text;
   min-width: 0; max-width: 100%; text-align: left;
+  display: flex; flex-direction: column; gap: var(--agent-gap);
 }
 .agent-panel *, .agent-panel *::before, .agent-panel *::after { box-sizing: border-box; }
-.agent-panel__header { display: flex; align-items: center; gap: 10px; }
-.agent-panel h2 { font: var(--fx-type-title); margin: 0; }
-.agent-panel h3 { font-size: 13px; margin: 0 0 var(--s2u-space-2); font-weight: 600; }
-.agent-panel__mark { font-size: 27px; color: var(--agent-gold); line-height: 1; }
-.agent-panel__intro { margin: 11px 0 var(--s2u-space-4); color: var(--agent-dim); }
-.agent-panel__status { display: flex; align-items: center; gap: 7px; margin: 0; }
-.agent-panel__dot { height: 6px; width: 6px; background: var(--agent-dim); border-radius: 50%; flex: none; }
-.agent-panel[data-state="connected"] .agent-panel__dot { background: var(--fx-ready); box-shadow: 0 0 0 4px color-mix(in srgb, var(--fx-ready) 11%, transparent); }
+.agent-panel p { margin: 0; }
+.agent-panel [hidden] { display: none !important; }
+.agent-panel:focus-within :focus-visible { outline: var(--fx-focus-w) solid var(--fx-focus); outline-offset: var(--fx-focus-offset); }
+
+/* The moments: one shown, each a column of its own. */
+.agent-panel__moment { display: flex; flex-direction: column; gap: var(--agent-gap); min-width: 0; }
+.agent-panel__header { display: flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; }
+.agent-panel__mark { font-size: 20px; color: var(--agent-gold); line-height: 1; flex: none; }
+.agent-panel .agent-panel__title { font: var(--fx-type-title); color: var(--agent-strong); margin: 0; overflow-wrap: anywhere; text-transform: none; letter-spacing: normal; }
+.agent-panel__intro { color: var(--agent-dim); }
+.agent-panel__hint { font: var(--fx-type-body); color: var(--agent-dim); }
+.agent-panel__fine { font: var(--fx-type-body); color: var(--agent-dim); overflow-wrap: anywhere; }
+.agent-panel__caption { display: block; font: var(--fx-type-caption); letter-spacing: 0.14em; text-transform: uppercase; color: var(--agent-dim); margin: 0; }
+
+/* The status line: a dot and the state's words, announced politely. */
+.agent-panel__status { display: flex; align-items: center; gap: var(--s2u-space-2); font: var(--fx-type-caption); letter-spacing: 0.08em; color: var(--agent-dim); }
+.agent-panel__dot { height: 8px; width: 8px; background: var(--agent-dim); border-radius: var(--fx-radius-pill); flex: none; }
+.agent-panel[data-state="waiting"] .agent-panel__dot,
 .agent-panel[data-state="approval"] .agent-panel__dot { background: var(--agent-gold); }
+.agent-panel[data-state="connected"] .agent-panel__dot { background: var(--fx-ready); }
 .agent-panel[data-state="error"] .agent-panel__dot { background: var(--fx-alert); }
-.agent-panel__target { color: var(--agent-dim); margin: 3px 0 15px; overflow-wrap: anywhere; font-size: 13px; }
-.agent-panel__label { display: block; margin: var(--s2u-space-3) 0 var(--s2u-space-2); color: var(--agent-dim); font-size: 13px; }
-.agent-panel__select, .agent-panel__manual {
-  display: block; width: 100%; padding: 9px; margin-top: 5px; color: var(--agent-text); background: var(--fx-bg);
-  border: 1px solid var(--agent-edge); border-radius: var(--fx-radius); font: inherit;
-}
-.agent-panel__select:hover, .agent-panel__manual:hover { border-color: var(--agent-gold); }
-.agent-panel button { font: inherit; cursor: pointer; min-height: 36px; border-radius: var(--fx-radius); padding: var(--s2u-space-2) 11px; }
+.agent-panel__target { color: var(--agent-dim); overflow-wrap: anywhere; font: var(--fx-type-body); margin-top: calc(-1 * var(--s2u-space-2)) !important; }
+.agent-panel__target:empty { display: none; }
+
+/* Buttons: one primary (gold, full width), secondaries outlined. */
+.agent-panel button { font: inherit; cursor: pointer; min-height: 36px; border-radius: var(--fx-radius); padding: var(--s2u-space-2) var(--s2u-space-3); }
 /* One disabled look (the Forge's, FUI-7): faded at the system's opacity; busy is aria-busy, never a wait cursor. */
 .agent-panel button:disabled { opacity: var(--fx-disabled); cursor: default; }
 .agent-panel [aria-busy="true"] { cursor: progress; }
-.agent-panel__primary { width: 100%; color: var(--fx-on-accent); background: var(--agent-gold); border: 1px solid var(--agent-gold); font-weight: 600 !important; }
+.agent-panel__primary { width: 100%; min-height: 40px !important; color: var(--fx-on-accent); background: var(--agent-gold); border: 1px solid var(--agent-gold); font-weight: 600 !important; }
 .agent-panel__primary:hover:not(:disabled) { background: var(--fx-gold-hi); border-color: var(--fx-gold-hi); }
-.agent-panel__hint, .agent-panel__privacy { font-size: 13px; color: var(--agent-dim); margin: var(--s2u-space-2) 0 var(--s2u-space-3); }
-.agent-panel__manual { min-height: 170px; resize: vertical; font-size: 12px; }
-.agent-panel__consent { border-top: 1px solid var(--agent-edge); border-bottom: 1px solid var(--agent-edge); padding: 15px 0; margin: var(--s2u-space-4) 0; }
-.agent-panel__client { overflow-wrap: anywhere; margin: 5px 0; }
-.agent-panel__comparison { font: 500 29px/1.2 var(--s2u-font-display); letter-spacing: .12em; color: var(--agent-gold); margin: var(--s2u-space-2) 0; }
-.agent-panel__permissions { border: 0; margin: 14px 0; padding: 0; }
-.agent-panel__permissions legend { font-size: 13px; margin-bottom: var(--s2u-space-2); color: var(--agent-dim); }
-.agent-panel__permission { display: flex; align-items: center; gap: var(--s2u-space-2); margin: 7px 0; }
-.agent-panel__permission input { accent-color: var(--agent-gold); width: 15px; height: 15px; }
-.agent-panel__buttons { display: flex; gap: 7px; flex-wrap: wrap; }
-.agent-panel__buttons .agent-panel__primary { flex: 1; width: auto; }
-.agent-panel__secondary, .agent-panel__disconnect, .agent-panel__file-button { background: transparent; color: var(--agent-text); border: 1px solid var(--agent-edge); }
+.agent-panel__secondary, .agent-panel__disconnect, .agent-panel__file-button { background: transparent; color: var(--agent-text); border: 1px solid var(--agent-control); }
 .agent-panel__secondary:hover:not(:disabled), .agent-panel__disconnect:hover:not(:disabled), .agent-panel__file-button:hover { background: var(--fx-hover); border-color: var(--agent-gold); }
-.agent-panel__files { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 15px; }
-.agent-panel__files .agent-panel__hint { flex-basis: 100%; margin: 0; }
-.agent-panel__file-button { position: relative; padding: var(--s2u-space-2) 10px; border-radius: var(--fx-radius); cursor: pointer; overflow: hidden; }
+.agent-panel__buttons { display: flex; gap: var(--s2u-space-2); flex-wrap: wrap; }
+.agent-panel__buttons .agent-panel__primary { flex: 2 1 0; width: auto; }
+.agent-panel__buttons .agent-panel__secondary { flex: 1 1 0; }
+/* AX-9: the Reconnect card after a reload -- first in the Connect moment, set apart by the gold edge. */
+.agent-panel__resume { display: grid; gap: var(--s2u-space-2); padding: var(--s2u-space-3); border: 1px solid var(--agent-gold); border-radius: var(--fx-radius); }
+.agent-panel__resume[hidden] { display: none; }
+
+/* The agent picker: a compact segmented control of real radios (keyboard: arrows move, Space picks). */
+.agent-panel__segments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--agent-edge); border: 1px solid var(--agent-edge); border-radius: var(--fx-radius); }
+.agent-panel__segment { position: relative; display: flex; align-items: center; justify-content: center; min-height: 36px; padding: var(--s2u-space-1) var(--s2u-space-2); background: var(--fx-bg); color: var(--agent-dim); font: var(--fx-type-body); text-align: center; cursor: pointer; }
+.agent-panel__segment input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.agent-panel__segment:hover { color: var(--agent-text); background: var(--fx-hover); }
+.agent-panel__segment:has(input:checked) { color: var(--agent-strong); background: var(--fx-panel-2); box-shadow: inset 0 -2px 0 var(--fx-gold); }
+/* The radio is invisible (opacity 0), so its ring would be too: the segment draws the system's one ring, inset (the
+   system's offset moved inside, as the Forge's scrollers set it): outside, the next segment of the 1 px-gap grid is
+   painted over one side of it (REVIEW-3-SHADOW 1). */
+.agent-panel__segments { --fx-focus-offset: calc(-1 * var(--fx-focus-w)); }
+.agent-panel__segment:has(input:focus-visible), .agent-panel__segment input:focus-visible { outline: var(--fx-focus-w) solid var(--fx-focus); outline-offset: var(--fx-focus-offset); }
+
+/* The disclosures: the first-time setup and the connection service. */
+.agent-panel__disclosure { border: 1px solid var(--agent-edge); border-radius: var(--fx-radius); background: var(--fx-bg); padding: 0 var(--s2u-space-3); }
+.agent-panel__disclosure[open] { padding-bottom: var(--s2u-space-3); }
+.agent-panel__disclosure > :not(summary) + * { margin-top: var(--s2u-space-2); }
+.agent-panel__disclosure-summary { cursor: pointer; list-style: none; padding: var(--s2u-space-2) 0; color: var(--agent-text); font: var(--fx-type-control); min-height: 36px; display: flex; align-items: center; gap: var(--s2u-space-2); }
+.agent-panel__disclosure-summary::-webkit-details-marker { display: none; }
+.agent-panel__disclosure-summary::before {
+  content: ''; flex: none; width: 6px; height: 6px; margin: 0 2px;
+  border: solid var(--agent-dim); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg);
+}
+.agent-panel__disclosure[open] > .agent-panel__disclosure-summary::before { transform: rotate(45deg); border-color: var(--agent-gold); }
+.agent-panel__disclosure--quiet { background: transparent; border-color: transparent; padding-left: 0; padding-right: 0; }
+.agent-panel__disclosure--quiet > .agent-panel__disclosure-summary { color: var(--agent-dim); font: var(--fx-type-body); }   /* dim: 13 px, VP-8 */
+
+/* Copyable rows on `.fx-field-row`'s grid (defined here too: the test room's dock reads no forge.css). */
+.agent-panel__rows { display: grid; gap: var(--s2u-space-2); }
+.agent-panel .agent-panel__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "caption caption" "code copy"; gap: var(--s2u-space-1) var(--s2u-space-2); align-items: center; }
+.agent-panel__row > .agent-panel__caption { grid-area: caption; }
+.agent-panel__row > .agent-panel__code { grid-area: code; }
+.agent-panel__row > .agent-panel__copy { grid-area: copy; width: auto; }
+.agent-panel__code {
+  display: block; min-width: 0; padding: var(--s2u-space-2); background: var(--fx-deep); border: 1px solid var(--agent-edge);
+  border-radius: var(--fx-radius); font: var(--fx-type-mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
+}
+.agent-panel__code-inline { font: var(--fx-type-mono); color: var(--agent-gold); letter-spacing: 0.08em; }
+.agent-panel__readout { display: grid; gap: var(--s2u-space-1); }
+.agent-panel__label { display: grid; gap: var(--s2u-space-1); color: var(--agent-dim); font: var(--fx-type-body); }
+.agent-panel__field, .agent-panel__manual {
+  display: block; width: 100%; padding: var(--s2u-space-2); color: var(--agent-text); background: var(--fx-deep);
+  border: 1px solid var(--agent-control); border-radius: var(--fx-radius); font: var(--fx-type-mono);
+}
+.agent-panel__field:hover:not(:disabled), .agent-panel__manual:hover { border-color: var(--agent-gold); }
+.agent-panel__manual { resize: vertical; font-size: 12px; }
+
+/* Allow: each permission a row -- its words, then its switch (a real checkbox, styled). */
+.agent-panel__permissions { border: 0; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--agent-edge); border-top: 1px solid var(--agent-edge); border-bottom: 1px solid var(--agent-edge); }
+.agent-panel__permissions legend { padding: 0 0 var(--s2u-space-2); }
+.agent-panel__permission { display: flex; align-items: center; gap: var(--s2u-space-3); padding: var(--s2u-space-2) 0; background: var(--agent-bg); cursor: pointer; }
+.agent-panel__permission-words { display: grid; min-width: 0; flex: 1 1 auto; }
+.agent-panel__permission-label { color: var(--agent-strong); }
+.agent-panel__permission-detail { font: var(--fx-type-body); color: var(--agent-dim); }
+.agent-panel__permission[data-state="not-requested"] { cursor: default; }
+.agent-panel__permission[data-state="not-requested"] .agent-panel__permission-label { color: var(--agent-dim); }
+.agent-panel__switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 36px; height: 20px; margin: 0;
+  border: 1px solid var(--agent-control); border-radius: var(--fx-radius-pill); background: var(--fx-deep); cursor: pointer;
+  transition: background var(--s2u-dur-base), border-color var(--s2u-dur-base);
+}
+.agent-panel__switch::before {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: var(--fx-radius-pill);
+  background: var(--agent-dim); transition: transform var(--s2u-dur-base), background var(--s2u-dur-base);
+}
+.agent-panel__switch:checked { background: var(--agent-gold); border-color: var(--agent-gold); }
+.agent-panel__switch:checked::before { transform: translateX(16px); background: var(--fx-on-accent); }
+.agent-panel__switch:disabled { opacity: var(--fx-disabled); cursor: default; }
+.agent-panel__switch:focus-visible { outline: var(--fx-focus-w) solid var(--fx-focus); outline-offset: var(--fx-focus-offset); }
+.agent-panel__comparison { text-align: center; }
+/* AX-10: "Remember <client> on this browser" -- a plain checkbox under the switches, off by default. */
+.agent-panel__remember { display: flex; align-items: center; gap: var(--s2u-space-2); font: var(--fx-type-body); color: var(--agent-text); cursor: pointer; min-height: 36px; }
+.agent-panel__remember[hidden] { display: none; }
+.agent-panel__remember-box { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--agent-gold); cursor: pointer; }
+/* AX-10: a remembered agent's card is compact -- the switches keep their labels, their one-line details fold away. */
+.agent-panel__moment--remembered .agent-panel__permission-detail { display: none; }
+.agent-panel__moment--remembered .agent-panel__permission { padding: var(--s2u-space-1) 0; }
+/* AX-10: the Connect moment's footer -- the remembered agents, each with Forget. */
+.agent-panel__remembered { border-top: 1px solid var(--agent-edge); padding-top: var(--s2u-space-3); display: grid; gap: var(--s2u-space-1); }
+.agent-panel__remembered[hidden] { display: none; }
+.agent-panel__remembered-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2u-space-1); }
+.agent-panel__remembered-entry { display: flex; align-items: center; gap: var(--s2u-space-2); min-width: 0; }
+.agent-panel__remembered-name { flex: 1 1 auto; min-width: 0; color: var(--agent-text); overflow-wrap: anywhere; }
+.agent-panel__forget { flex: none; }
+
+/* Connected: the name with a live dot, the grants as chips, the activity, the files, Disconnect. */
+.agent-panel__live { flex: none; width: 10px; height: 10px; border-radius: var(--fx-radius-pill); background: var(--fx-ready); }
+/* The halo only while live: paused and connecting draw the bare gold dot (no `box-shadow: none`, FUI-7). */
+.agent-panel:not([data-state="paused"], [data-state="connecting"]) .agent-panel__live { box-shadow: 0 0 0 4px color-mix(in srgb, var(--fx-ready) 18%, transparent); }
+.agent-panel[data-state="paused"] .agent-panel__live, .agent-panel[data-state="connecting"] .agent-panel__live { background: var(--agent-gold); }
+.agent-panel__chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s2u-space-1); }
+.agent-panel__chip { font: var(--fx-type-control); padding: 2px var(--s2u-space-2); border: 1px solid var(--agent-edge); border-radius: var(--fx-radius-pill); }
+.agent-panel__chip--on { color: var(--agent-strong); border-color: var(--fx-ready); background: color-mix(in srgb, var(--fx-ready) 14%, transparent); }
+.agent-panel__chip--off { font: var(--fx-type-body); color: var(--agent-dim); text-decoration: line-through; }
+.agent-panel__recent { border-top: 1px solid var(--agent-edge); padding-top: var(--s2u-space-3); display: grid; gap: var(--s2u-space-1); }
+.agent-panel__activity { list-style: none; margin: 0; padding: 0; font: var(--fx-type-control); max-height: 180px; overflow: auto; }
+.agent-panel__activity li { padding: var(--s2u-space-1) 0 var(--s2u-space-1) var(--s2u-space-3); position: relative; overflow-wrap: anywhere; }
+.agent-panel__activity li::before { content: ''; position: absolute; left: 0; top: 12px; height: 4px; width: 4px; border-radius: var(--fx-radius-pill); background: var(--agent-dim); }
+.agent-panel__activity-success::before { background: var(--fx-ready) !important; }
+.agent-panel__activity-error::before { background: var(--fx-alert) !important; }
+/* AX-14: the note box -- a short field and Send, the sent notes under it, each marked once the agent read it. */
+.agent-panel__notes { display: flex; flex-direction: column; gap: var(--s2u-space-2); margin: 0; min-width: 0; }
+.agent-panel__note-row { display: flex; align-items: flex-end; gap: var(--s2u-space-2); min-width: 0; }
+.agent-panel__note-field { flex: 1 1 auto; min-width: 0; resize: vertical; font: inherit; }
+.agent-panel__note-send { flex: none; }
+.agent-panel__note-list { list-style: none; margin: 0; padding: 0; font: var(--fx-type-control); max-height: 140px; overflow: auto; }
+.agent-panel__note { display: flex; justify-content: space-between; gap: var(--s2u-space-2); padding: var(--s2u-space-1) 0; border-top: 1px solid var(--agent-edge); }
+.agent-panel__note-text { overflow-wrap: anywhere; white-space: pre-wrap; color: var(--agent-text); min-width: 0; }
+.agent-panel__note-mark { flex: none; color: var(--agent-dim); font: var(--fx-type-body); }   /* dim: 13 px, not the list's 12 (VP-8) */
+.agent-panel__note--delivered .agent-panel__note-mark { color: var(--fx-ready); }
+.agent-panel__note--refused .agent-panel__note-mark { color: var(--fx-alert); flex-shrink: 1; text-align: right; }
+.agent-panel__files { display: flex; flex-wrap: wrap; gap: var(--s2u-space-2); }
+.agent-panel__files:empty { display: none; }
+.agent-panel__files .agent-panel__fine { flex-basis: 100%; }
+.agent-panel__file-button { position: relative; display: inline-flex; align-items: center; min-height: 36px; padding: var(--s2u-space-2) var(--s2u-space-3); border-radius: var(--fx-radius); cursor: pointer; overflow: hidden; }
 .agent-panel__file-button input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
 /* The file button's input is invisible (opacity 0), so its ring would be too: the label draws the same one ring. */
 .agent-panel__file-button:has(:focus-visible) { outline: var(--fx-focus-w) solid var(--fx-focus); outline-offset: var(--fx-focus-offset); }
-.agent-panel__error { color: var(--fx-alert); overflow-wrap: anywhere; }
-.agent-panel__recent { border-top: 1px solid var(--agent-edge); padding-top: 13px; margin-top: var(--s2u-space-4); }
-.agent-panel__activity { list-style: none; margin: 0; padding: 0; font-size: 12px; max-height: 180px; overflow: auto; }
-.agent-panel__activity li { padding: 5px 0 5px var(--s2u-space-3); position: relative; overflow-wrap: anywhere; }
-.agent-panel__activity li::before { content: ''; position: absolute; left: 0; top: var(--s2u-space-3); height: 4px; width: 4px; border-radius: 50%; background: var(--agent-dim); }
-.agent-panel__activity-success::before { background: var(--fx-ready) !important; }
-.agent-panel__activity-error::before { background: var(--fx-alert) !important; }
-.agent-panel__disconnect { width: 100%; margin-top: 14px; }
-.agent-panel__privacy { margin: 14px 0 0; }
-.agent-panel [hidden] { display: none !important; }
+.agent-panel__disconnect { width: 100%; }
+.agent-panel__disconnect:hover:not(:disabled) { border-color: var(--fx-alert) !important; }
 .agent-panel[data-state="connected"] { border-color: color-mix(in srgb, var(--fx-ready) 50%, var(--fx-panel)); transition: border-color var(--s2u-dur-base); }
-@media (prefers-reduced-motion: reduce) { .agent-panel { transition: none !important; } }
-@media (max-width: 420px) { .agent-panel { padding: var(--s2u-space-3); } .agent-panel__buttons { flex-direction: column; } }
+
+/* An error: the stage named, one retry. */
+.agent-panel__error { display: flex; flex-direction: column; gap: var(--s2u-space-2); padding: var(--s2u-space-2) var(--s2u-space-3); border-left: 2px solid var(--fx-alert); background: color-mix(in srgb, var(--fx-alert) 10%, transparent); }
+.agent-panel__error-text { color: var(--agent-strong); overflow-wrap: anywhere; }
+.agent-panel__retry { align-self: flex-start; }
+
+.agent-panel .s2u-prompts { margin: 0; }
+@media (prefers-reduced-motion: reduce) { .agent-panel, .agent-panel * { transition: none !important; } }
+@media (max-width: 420px) {
+  .agent-panel { padding: var(--s2u-space-3); }
+  .agent-panel__buttons { flex-direction: column; }
+  .agent-panel .agent-panel__row { grid-template-columns: minmax(0, 1fr); grid-template-areas: "caption" "code" "copy"; }
+  .agent-panel__row > .agent-panel__copy { width: 100%; }
+}
+
+/* The test room's dock. */
 .agent-testroom-dock {
   position: fixed; right: var(--s2u-space-4); top: 64px; z-index: var(--fx-z-testroom); width: min(340px, calc(100vw - 32px));
   max-height: calc(100vh - 90px); overflow: auto; background: var(--fx-panel); color: var(--fx-text);
@@ -85,13 +214,13 @@
 @media (pointer: coarse) {
   .agent-testroom-dock--in-panel > summary { box-sizing: border-box; min-height: 44px; padding-top: max(10px, calc((44px - 1.5em) / 2)); padding-bottom: max(10px, calc((44px - 1.5em) / 2)); }
   .agent-testroom-dock--in-panel select, .agent-testroom-dock--in-panel button, .agent-testroom-dock--in-panel input[type="text"] { min-height: 44px; }
+  .agent-testroom-dock--in-panel .agent-panel__segment, .agent-testroom-dock--in-panel .agent-panel__disclosure-summary { min-height: 44px; }
   .agent-testroom-dock--in-panel .agent-panel__file-button { display: inline-flex; align-items: center; min-height: 44px; }
 }
-/* FUI-25 (FUI.R25; a browser adaptation): every permission listed with its state; the short-form toggle. */
-.agent-panel__short { display: flex; align-items: center; gap: var(--s2u-space-2); font-size: 13px; color: var(--agent-dim); margin: 8px 0 0; }
-.agent-panel__permission-state { margin-left: auto; font-size: 13px; color: var(--agent-dim); }
-.agent-panel__permission[data-state="not-requested"] { opacity: var(--fx-disabled); }
-.agent-panel__granted h3 { font-size: 13px; margin: 12px 0 4px; }
-.agent-panel__granted-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-.agent-panel__granted-no { color: var(--agent-dim); }
-.agent-panel__permission[hidden] { display: none; }
+
+/* AX-12: the connection doctor -- the class's words under the stage's error, and the health line's small print. */
+.agent-panel__diagnosis { margin: 0; color: var(--agent-strong); overflow-wrap: anywhere; }
+.agent-panel__error .agent-panel__disclosure { margin: 0; }
+.agent-panel__health { margin: 0; }
+/* AX-15 (REVIEW-1 finding 12): a row's own Undo, small beside its words. */
+.agent-panel button.agent-panel__undo-row { min-height: 28px; padding: 0 var(--s2u-space-2); font: var(--fx-type-control); margin-left: var(--s2u-space-1); }

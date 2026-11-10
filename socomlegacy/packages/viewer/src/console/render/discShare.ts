@@ -1,6 +1,6 @@
 import type { DiscShareAdapter, ReceiverView, SenderView } from '../../discShareView';
 import {
-  RECEIVER_FAILED_EARLY, RECEIVER_WORDS, SENDER_CLOSE, SENDER_CODE_LINE, SENDER_ENTER_NONE, SENDER_ENTER_SOME, SENDER_EXTRACT, SENDER_NO, SENDER_STOP,
+  RECEIVER_FAILED_EARLY, RECEIVER_HOSTED_WORDS, RECEIVER_WORDS, SENDER_CLOSE, SHARE_ASK_AGAIN, SHARE_HOSTED_LEAD, shareHostedSteps, SENDER_CODE_LINE, SENDER_ENTER_NONE, SENDER_ENTER_SOME, SENDER_EXTRACT, SENDER_NO, SENDER_STOP,
   SENDER_TITLE, SENDER_TYPE, SENDER_WORDS, SENDER_YES, SHARE_LEAD, SHARE_RETRY, SHARE_VIA_DIRECT, SHARE_VIA_RELAY, shareHostLine, shareRowHint,
   shareSteps,
 } from '../../discShareWords';
@@ -43,28 +43,56 @@ function hostOf(link: string | undefined): string {
   try { return new URL(link).host; } catch { return ''; }
 }
 
+/** RB-26: whether the receiver asks a host (a host's link opened the page, or its view says so). */
+export const shareHosted = (share: DiscShareAdapter, v: ReceiverView = share.receiver()): boolean => v.hosted === true || share.hostLinked?.() === true;
+
 /** The row's line in the panel: at rest the words' hint, else the phase (a copy's percent). */
 export function shareRowLine(share: DiscShareAdapter): string {
   const v = share.receiver();
-  return shareRowHint(v.phase, v.phase === 'copying' && v.total ? sharePct(v.bytes, v.total) : null);
+  return shareRowHint(v.phase, v.phase === 'copying' && v.total ? sharePct(v.bytes, v.total) : null, shareHosted(share, v));
 }
 
-/** The receiver's phase: its head, its line (a failure's reason), a copy's bar, a failure's Try again. */
-function statusHtml(v: ReceiverView): string {
-  const w = RECEIVER_WORDS[v.phase];
+/** RB-26: the share area's Cross now -- Try again after a failure, Ask again after a host's No; null, none. */
+export function shareCrossWord(v: ReceiverView): string | null {
+  return v.phase === 'failed' ? SHARE_RETRY : v.phase === 'declined' ? SHARE_ASK_AGAIN : null;
+}
+
+/** The receiver's phase: its head, its line (a failure's reason), a copy's bar, a failure's Try again (a host's No: Ask again). */
+function statusHtml(v: ReceiverView, hosted: boolean): string {
+  const w = (hosted ? RECEIVER_HOSTED_WORDS[v.phase] : undefined) ?? RECEIVER_WORDS[v.phase];
   const line = v.phase === 'failed' ? v.reason ?? '' : w.line;
   const bar = v.phase === 'copying' || (v.phase === 'done' && v.total) ? barHtml('Copied', v.bytes, v.total) : '';
-  const retry = v.phase === 'failed'
-    ? `<button type="button" class="cx-toggle is-focused" data-act="sharerx" data-share="retry"><span>${btn('cross')}${esc(SHARE_RETRY)}</span></button>` : '';
+  const cross = shareCrossWord(v);
+  const retry = cross !== null
+    ? `<button type="button" class="cx-toggle is-focused" data-act="sharerx" data-share="retry"><span>${btn('cross')}${esc(cross)}</span></button>` : '';
   return `<div class="cx-share__status is-${v.phase}" data-share="status" role="status" aria-live="polite">
       <p class="cx-share__head">${ico(v.phase === 'done' ? 'check' : v.phase === 'failed' ? 'alert' : 'download')}<span>${esc(v.phase === 'failed' && !v.link ? RECEIVER_FAILED_EARLY : w.head)}</span></p>
       ${line ? `<p class="cx-share__line">${esc(line)}</p>` : ''}${bar}${viaHtml(v.via, v.phase)}${retry}
     </div>`;
 }
 
+/**
+ * RB-26: the receiver's area on a page a host's link opened -- no QR and no link (the host's link brought it here), the
+ * code large for the host to match in their Share list, the lead and steps of a hosted request, then the host's answer.
+ */
+function hostedAreaHtml(v: ReceiverView): string {
+  const code = v.code ?? '';
+  return `<div class="cx-share" data-share="receiver" data-phase="${v.phase}" data-hosted="true">
+      ${code ? `<div class="cx-share__pair">
+        <p class="cx-share__code" data-share="code" aria-label="Code ${esc([...code].join(' '))}">${esc(code)}</p>
+      </div>` : ''}
+      <div class="cx-share__info">
+        <p class="cx-share__lead" data-share="lead">${esc(SHARE_HOSTED_LEAD)}</p>
+        <ol class="cx-share__steps" data-share="steps">${shareHostedSteps(code || '—').map((t) => `<li>${esc(t)}</li>`).join('')}</ol>
+        ${statusHtml(v, true)}
+      </div>
+    </div>`;
+}
+
 /** The receiver's expanded area (DSH.R12): drawn inside the panel while `chk.share` stands. */
 export function shareAreaHtml(share: DiscShareAdapter): string {
   const v = share.receiver();
+  if (shareHosted(share, v)) return hostedAreaHtml(v);
   const code = v.code ?? '';
   const host = hostOf(v.link);
   // Seat 3d's rendered check (844x390): a failure before any code (pairing unreachable) drew an empty QR box still saying
@@ -81,10 +109,10 @@ export function shareAreaHtml(share: DiscShareAdapter): string {
         ${host ? `<p class="cx-share__host" data-share="host">${esc(shareHostLine(host))}</p>` : ''}
       </div>`}
       <div class="cx-share__info">
-        ${early ? statusHtml(v) : ''}
+        ${early ? statusHtml(v, false) : ''}
         <p class="cx-share__lead" data-share="lead">${esc(SHARE_LEAD)}</p>
         <ol class="cx-share__steps" data-share="steps">${shareSteps(code || '—').map((t) => `<li>${esc(t)}</li>`).join('')}</ol>
-        ${early ? '' : statusHtml(v)}
+        ${early ? '' : statusHtml(v, false)}
       </div>
     </div>`;
 }

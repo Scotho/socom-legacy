@@ -1,8 +1,10 @@
+import { mapDisplayName } from '@s2u/archive/mapNames';
 import { NARROW_PX } from '../../console/fit';
 import { ico as cxIco, P as CX_MARKS, type IconName as CxIconName } from '../../console/icons';
 import { loadKindOf, type ReplayLoadKind } from '../../replay/refusalKind';
 import type { IconName } from '../icons';
 import { durationText, type ReplayEntry, type ReplayListFailure, type ReplayResult } from './data';
+import { mountReplayHud, type ReplayHud } from './hud';
 import type { ReplayStage, ReplayStageContext, ReplayStageHandle } from './stage';
 import { HELD_STATUS, mountTransport, type Transport, type TransportClient } from './transport';
 import { worldStage } from './worldStage';
@@ -31,8 +33,8 @@ import { worldStage } from './worldStage';
  *
  * **RV2-04 (the replay viewer redesign, RV2.R4; `docs/plans/2026-11-02-replay-viewer-redesign.md` §2): the chrome is the
  * console's.** The viewer is drawn in the console's classes on the design system's tokens (`../../console/replay.css`):
- * the screen head (`.cx-screenhead`: the crumb -- Back to Replays, the one return control, LR.R19 -- then the map, the
- * rules chip, "date · length" and the result line when the record holds one); the world full-bleed with the camera
+ * the screen head (`.cx-screenhead`: the crumb -- Back to Replays, the one return control, LR.R19 -- then the map and its
+ * chips, the facts line and the record's score; RB-32 below); the world full-bleed with the camera
  * strip over its corner (`.cx-kinds`, the console's icons) and the loading lamp while the client is held (RV2.R2); the
  * roster in the right aside (`.cx-player` tiles); the transport's mount point under the world (`data-transport`, the
  * bar RV2-05's); the refusals and the disc's lock as the console's empty blocks (`.cx-empty`). The viewer's own Back
@@ -51,7 +53,21 @@ import { worldStage } from './worldStage';
  * drawn are `hidden`, so the console's pad walk passes them. The root says which layout it is in (`data-layout`:
  * `phone`, `wide`). The sheets draw it (`../../console/replay.css`, `../../console/replay-transport.css`).
  *
- * Every server string -- a name, a map, the rules, a refusal -- is set as text, never as markup.
+ * **RB-32 (the replay batch, `docs/plans/2026-11-08-replay-batch.md`; the owner's S2 Launcher v2 export, RB.R3, its
+ * viewer head `D:248-274`): the head is the design's.** The crumb "‹ Replays / Replay" (its chevron, the word, the
+ * page; no mark between); the map in the label face at `clamp(32px, 5.2vh, 48px)`; beside it the mode chip, drawn only
+ * when the entry names a mode (`ReplayEntry.mode`), and the Partial recording chip (`data-field="partial"`), moved here
+ * from the transport and shown once the open recording is partial (`client.partial()`, read each frame); the facts line
+ * "date · length · {rules} rules · n players" (`data-field="facts"`, each part its own field); at the head's end, when
+ * the record holds a result, its label (`resultLabel`) over the big score "SEALs x – y Terrorists" (`data-field=
+ * "score"`, named by `resultWords`). The head enters once, from -28px, at its first drawing only (`data-enter`; the
+ * sheet's animation, none under reduced motion). A browser adaptation (OT.R53, product track): nothing of the game.
+ *
+ * **RB-34 (the export's world HUD `D:284-320`): the HUD over the world** (`./hud`): mounted in the world box with the
+ * stage's client, drawn each frame with the rest, taken away with the stage; the transport hands it the seek note
+ * (`onSeekNote`), its toast the one note. The persona is the session's player name while a ticket is held.
+ *
+ * Every server string -- a name, a map, the rules, a mode, a refusal -- is set as text, never as markup.
  */
 
 /**
@@ -174,6 +190,15 @@ export function resultWords(r: ReplayResult): string {
   return parts.join(' · ');
 }
 
+/**
+ * RB-32: the result's label over the head's score (the export's `D:263`, its words ours): the match's winner by
+ * `resultWords`' rule (only when the room ended the match, on unequal rounds), then how the record ended.
+ */
+export function resultLabel(r: ReplayResult): string {
+  const won = !r.matchOver ? null : r.wins.seal > r.wins.terrorist ? 'seal' : r.wins.terrorist > r.wins.seal ? 'terrorist' : null;
+  return [...(won ? [`${SIDE_WORDS[won]} won`] : []), r.matchOver ? 'Match over' : 'Cut short'].join(' · ');
+}
+
 const localDate = (iso: string): string => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -277,6 +302,7 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
 
   let handle: ReplayStageHandle | null = null;
   let transport: Transport | null = null;
+  let hud: ReplayHud | null = null;                        // RB-34
   let error: string | null = null;
   let locked = false;
   /** The viewer drawn, and what it was drawn for: a redraw for the same state keeps it (its focus, its keys, its bar). */
@@ -308,6 +334,8 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
   const closeStage = (): void => {
     transport?.dispose();
     transport = null;
+    hud?.dispose();
+    hud = null;
     off?.();
     off = null;
     handle?.dispose();
@@ -320,10 +348,12 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     if (disposed || !handle) return;
     handle.client.advance();
     transport?.render();
+    hud?.render();
     handFocus();
     drawRoster();
     syncCameras();
     drawLamp();
+    drawPartial();
     applyLayout();
     frame(() => { loop(); });
   }
@@ -416,6 +446,22 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     if (lamp.hidden === held) lamp.hidden = !held;
   }
 
+  /**
+   * RB-32: the head's Partial recording chip (the export's `D:257-259`), moved from the transport: one element, put in
+   * each head drawn, shown while the open recording is partial (the transport's own reading of `client.partial()`).
+   */
+  const partialChip = el('span', 'cx-replay__chip-tag cx-replay__chippartial', 'Partial recording');
+  partialChip.dataset['field'] = 'partial';
+  partialChip.title = 'The recording was cut before its end';
+  partialChip.hidden = true;
+  function drawPartial(): void {
+    const c = handle?.client;
+    const on = c !== undefined && c.state === 'open' && c.partial();
+    if (partialChip.hidden === on) partialChip.hidden = !on;
+  }
+  /** RB-32: the head enters once (`data-enter`), at its first drawing; a rebuild's head stands. */
+  let entered = false;
+
   const roster = el('ul', 'cx-replay__roster');
   roster.dataset['roster'] = '';
   roster.id = `cx-replay-roster-${serial}`;
@@ -454,11 +500,13 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
 
   /**
    * RV2-04: the screen head, the console's (`../../console/render/head.ts`' drawing): the crumb -- Back to Replays, the
-   * viewer's one return control (LR.R19), then the page's name -- the map as the title, the rules chip, "date · length",
-   * and the record's result when it holds one (`resultWords`).
+   * viewer's one return control (LR.R19), then the page's name. RB-32 (the export's `D:248-274`): the map as the title,
+   * the mode chip when the entry names a mode, the Partial recording chip, the facts line, and the record's score under
+   * its label when it holds a result.
    */
   const headView = (): HTMLElement => {
     const head = el('header', 'cx-screenhead cx-replay__head');
+    if (!entered) { entered = true; head.dataset['enter'] = ''; }   // RB-32: the entrance, once
     const text = el('div', 'cx-screenhead__text');
     const crumb = el('div', 'cx-crumb');
     const backBtn = el('button', 'cx-back');
@@ -472,28 +520,64 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     // is the console's Close, named by its legend.
     backBtn.setAttribute('aria-keyshortcuts', 'Escape');
     backBtn.title = 'Back to Replays';
-    backBtn.append(ico('left', 'cx-back__chevron'), ico('replay'), el('span', 'cx-back__label', 'Replays'));
+    // RB-32: "‹ REPLAYS / REPLAY" (`D:251-253`): the chevron and the word, no mark between
+    backBtn.append(ico('left', 'cx-back__chevron'), el('span', 'cx-back__label', 'Replays'));
     backBtn.addEventListener('click', back);
     const here = el('span', 'cx-crumb__here', ' / Replay');
     here.setAttribute('aria-hidden', 'true');
     crumb.append(backBtn, here);
     const line = el('div', 'cx-replay__titleline');
     const title = el('h2', 'cx-title');
-    const map = el('span', 'cx-replay__map', entry.map);
+    const map = el('span', 'cx-replay__map', mapDisplayName(entry.map));   // MN-1 (OT.R113): the map's name, never its stem
     map.dataset['field'] = 'map';
     title.append(map);
-    const rules = el('span', 'cx-replay__rules', entry.rules);
-    rules.dataset['field'] = 'rules';
-    line.append(title, rules);
-    const when = el('p', 'cx-screenhead__desc', `${formatDate(entry.startedAt)} · ${durationText(entry.seconds)}`);
-    when.dataset['field'] = 'when';
-    text.append(crumb, line, when);
-    if (entry.result) {
-      const result = el('p', 'cx-replay__result', resultWords(entry.result));
-      result.dataset['field'] = 'result';
-      text.append(result);
+    line.append(title);
+    if (entry.mode !== undefined) {                          // RB-32: no mode chip without a mode
+      const mode = el('span', 'cx-replay__chip-tag cx-replay__chipmode', entry.mode);
+      mode.dataset['field'] = 'mode';
+      line.append(mode);
     }
+    line.append(partialChip);
+    drawPartial();
+    // RB-32: the facts line (`D:261-263`): "date · length · {rules} rules · n players", each part its own field
+    const facts = el('p', 'cx-screenhead__desc');
+    facts.dataset['field'] = 'facts';
+    const part = (field: string, words: string): HTMLElement => {
+      const e = el('span', 'cx-replay__fact', words);
+      e.dataset['field'] = field;
+      return e;
+    };
+    const n = entry.players.length;
+    facts.append(part('when', formatDate(entry.startedAt)), ' · ', part('length', durationText(entry.seconds)), ' · ',
+      part('rules', entry.rules), ' rules · ', part('players', `${n} ${n === 1 ? 'player' : 'players'}`));
+    text.append(crumb, line, facts);
     head.append(text);
+    if (entry.result) {
+      // RB-32: the result's label over the big score (`D:265-273`), the whole said once by `resultWords`
+      const r = entry.result;
+      const score = el('div', 'cx-replay__score');
+      score.dataset['field'] = 'score';
+      score.setAttribute('role', 'group');
+      score.setAttribute('aria-label', resultWords(r));
+      const label = el('p', 'cx-replay__result', resultLabel(r));
+      label.dataset['field'] = 'result';
+      label.setAttribute('aria-hidden', 'true');
+      const tally = el('p', 'cx-replay__tally');
+      tally.setAttribute('aria-hidden', 'true');
+      const side = (team: 'seal' | 'terrorist'): HTMLElement => {
+        const e = el('span', 'cx-replay__tally-side', SIDE_WORDS[team]);
+        e.dataset['side'] = team;
+        return e;
+      };
+      const count = (team: 'seal' | 'terrorist'): HTMLElement => {
+        const e = el('span', 'cx-replay__tally-count', String(r.wins[team]));
+        e.dataset['score'] = team;
+        return e;
+      };
+      tally.append(side('seal'), count('seal'), el('span', 'cx-replay__tally-dash', '–'), count('terrorist'), side('terrorist'));
+      score.append(label, tally);
+      head.append(score);
+    }
     return head;
   };
 
@@ -633,6 +717,12 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
         el('span', 'cx-item__sub', 'The match\'s world view is not wired into this page yet: the recording plays, seeks and lists its players here.'));
       world.append(u);
     }
+    hud?.dispose();                                          // RB-34: the HUD over the world, under the lamp and the cameras
+    hud = mountReplayHud(world, handle.client, {
+      persona: () => (o.context.ticket() !== null ? o.context.name : null),
+      ...(handle.spectator ? { spectator: handle.spectator } : {}),
+      onToggle: () => { transport?.act('toggle'); },
+    });
     world.append(lamp);
     drawLamp();
     const strip = handle.spectator ? camerasView(handle.spectator) : null;
@@ -656,9 +746,12 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     cameraShown = '';
     transport?.dispose();
     // Its keys and focus are the viewer's box's, as before (`host` = the box); its element sits in the mount point.
-    transport = mountTransport(wrap, handle.client, { reason: () => refusal, frame, circleBack: true, keys });
+    transport = mountTransport(wrap, handle.client, {
+      reason: () => refusal, frame, circleBack: true, keys, onSeekNote: (at) => { hud?.note(at); },
+    });
     bar.append(transport.el);
     transport.render();
+    hud.render();
     drawRoster();
     syncCameras();
     return wrap;

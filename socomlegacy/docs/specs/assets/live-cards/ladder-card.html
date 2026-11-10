@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ladder-card (mockup, chosen)</title>
+<body style="background:#11181a;color:#dfe4e5;font-family:sans-serif;padding:16px">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="m5" viewBox="0 0 12 12"><rect x=".5" y=".5" width="11" height="11" rx="1" fill="#0b0b0b" stroke="#cfcfcf" stroke-width=".9"/><path d="M6 2.4l1 2.2 2.4.3-1.8 1.6.5 2.4L6 7.7 3.9 8.9l.5-2.4-1.8-1.6 2.4-.3z" fill="#fff"/></symbol>
+    <symbol id="m4" viewBox="0 0 12 12"><path d="M1.5 5c1.6-.2 3 .5 4.5 1.9C7.5 5.5 8.9 4.8 10.5 5c-1 1.7-2.6 2.7-4.5 4.6C4.1 7.7 2.5 6.7 1.5 5z" fill="#dcb85c"/><path d="M6 1.6l1 1.7H5z" fill="#dcb85c"/></symbol>
+    <symbol id="m3" viewBox="0 0 12 12"><path d="M6 .8l3.2 5.2L6 11.2 2.8 6z" fill="#dcb85c"/></symbol>
+    <symbol id="m2" viewBox="0 0 12 12"><rect x="2.6" y="1.6" width="2.5" height="8.8" fill="#ece8de"/><rect x="6.9" y="1.6" width="2.5" height="8.8" fill="#ece8de"/></symbol>
+    <symbol id="m1" viewBox="0 0 12 12"><rect x="4.75" y="1.6" width="2.5" height="8.8" fill="#dcb85c"/></symbol>
+  </defs>
+</svg>
+<style>
+  .lad { --ink: 3,13,16; --brass:#e1bd5f; --bone:#efe9dc; --dim: rgba(239,233,220,.55); --teal:#8fd3dc;
+         position: relative; width: 960px; height: 540px; overflow: hidden; background: rgb(var(--ink)); color: var(--bone); font-family: Oswald, sans-serif; margin: 10px auto 0; }
+  .lad .shot { position: absolute; left: 0; right: 0; top: 0; height: 56%; background: url(/files/mp72.png) center 40%/cover no-repeat; filter: saturate(.85) brightness(.8); }
+  .lad .tone { position: absolute; inset: 0; background:
+      linear-gradient(180deg, rgba(var(--ink),.5) 0%, rgba(var(--ink),.18) 18%, rgba(var(--ink),.2) 32%, rgba(var(--ink),.55) 44%, rgba(var(--ink),.88) 52%, rgb(var(--ink)) 58%),
+      linear-gradient(90deg, rgba(var(--ink),.75) 0%, rgba(var(--ink),.3) 35%, rgba(var(--ink),0) 60%); }
+  .lad .top { position: absolute; top: 20px; left: 30px; right: 30px; display: flex; align-items: center; }
+  .lad .top img { width: 150px; display: block; }
+  .lad .vr { width: 1px; height: 34px; background: rgba(239,233,220,.45); margin: 0 22px 0 20px; }
+  .lad .what { font-weight: 500; font-size: 17px; letter-spacing: .12em; }
+  .lad .when { margin-left: auto; font-size: 18px; font-weight: 500; letter-spacing: .04em; }
+  .lad .md { flex: none; }
+  .lad .tg { color: var(--dim); font-weight: 400; margin-right: 6px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .note { font-size: 12px; opacity: .8; max-width: 960px; margin: 8px auto 0; line-height: 1.5; }
+
+  /* A: podium */
+  .a .lead { position: absolute; left: 44px; top: 92px; }
+  .a .lead .k { font-size: 15px; letter-spacing: .3em; color: var(--brass); }
+  .a .lead .who { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+  .a .lead .who .nm { font-weight: 700; font-size: 64px; line-height: 1; }
+  .a .lead .who .tg { font-size: 30px; font-weight: 400; margin-right: 0; }
+  .a .lead .stat { display: flex; gap: 26px; margin-top: 10px; font-size: 16px; color: rgba(239,233,220,.85); }
+  .a .lead .stat b { font-weight: 600; color: var(--bone); font-size: 20px; margin-right: 6px; }
+  .a .score1 { position: absolute; right: 34px; top: 96px; text-align: right; }
+  .a .score1 b { display: block; font-weight: 700; font-size: 64px; line-height: 1; color: var(--brass); }
+  .a .score1 span { font-size: 15px; letter-spacing: .3em; }
+  .a .pod { position: absolute; left: 34px; right: 34px; top: 262px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; }
+  .a .p2 { display: flex; align-items: center; height: 44px; font-size: 22px; font-weight: 600; }
+  .a .p2 .pos { width: 40px; color: var(--brass); font-weight: 700; }
+  .a .p2 .sc { margin-left: auto; font-weight: 600; }
+  .a .rest { position: absolute; left: 34px; right: 34px; top: 360px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; }
+  .a .row { display: flex; align-items: center; height: 31px; font-size: 17px; font-weight: 500; }
+  .a .row .pos { width: 40px; color: rgba(239,233,220,.6); }
+  .a .row .sc { margin-left: auto; }
+  .a .row .kd { width: 64px; text-align: right; color: rgba(239,233,220,.6); font-weight: 400; }
+
+  /* B: table */
+  .b .title { position: absolute; left: 44px; top: 92px; font-weight: 700; font-size: 72px; line-height: 1; }
+  .b .sub { position: absolute; left: 48px; top: 170px; font-size: 15px; letter-spacing: .2em; color: rgba(239,233,220,.8); }
+  .b table { position: absolute; left: 34px; right: 34px; top: 214px; width: calc(100% - 68px); border-collapse: collapse; font-size: 17px; }
+  .b th { font-weight: 500; font-size: 13px; letter-spacing: .14em; color: rgba(239,233,220,.55); text-align: right; padding: 0 8px 8px; }
+  .b th:nth-child(2), .b td:nth-child(2) { text-align: left; }
+  .b td { height: 29px; padding: 0 8px; text-align: right; font-weight: 500; }
+  .b tr:nth-child(even) td { background: rgba(239,233,220,.035); }
+  .b td.pos { width: 34px; text-align: right; color: var(--brass); font-weight: 600; }
+  .b tr.first td { color: var(--brass); font-weight: 600; font-size: 19px; }
+  .b td .cell { display: flex; align-items: center; gap: 12px; }
+</style>
+
+<h2>The ladder card: TOP 10 in the SOCOM Legacy brand</h2>
+<p class="subtitle">The table direction, on the brand key art (Phil's artwork from shared/brand) instead of a map still. Names and numbers made up.</p>
+<div><div>
+    <div class="lad b">
+      <div class="shot" style="background-image:url(../../../../../shared/brand/socom-legacy-hero-clean.jpg);background-position:center 30%;height:60%;filter:saturate(.95) brightness(.85)"></div><div class="tone"></div>
+      <div class="top"><img src="../../../../../shared/brand/socom-legacy-wordmark.png" alt="SOCOM Legacy"><span class="vr"></span><span class="what">PLAYER RANKING</span><span class="when">9:41 PM ET</span></div>
+      <div class="title">TOP 10</div>
+      <div class="sub">OF 312 RANKED PLAYERS</div>
+      <table>
+        <tr><th></th><th>PLAYER</th><th>SCORE</th><th>KILLS</th><th>DEATHS</th><th>K/D</th><th>ROUNDS</th></tr>
+        <tr class="first"><td class="pos">1</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span><span class="tg">[NSW]</span>Ghostline</span></div></td><td class="num">1667</td><td class="num">2,140</td><td class="num">1,115</td><td class="num">1.92</td><td class="num">212–98</td></tr>
+        <tr><td class="pos">2</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span><span class="tg">[RZR]</span>Cinder</span></div></td><td class="num">1612</td><td class="num">1,980</td><td class="num">1,190</td><td class="num">1.66</td><td class="num">190–110</td></tr>
+        <tr><td class="pos">3</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span>Kestrel</span></div></td><td class="num">1588</td><td class="num">1,870</td><td class="num">1,204</td><td class="num">1.55</td><td class="num">184–121</td></tr>
+        <tr><td class="pos">4</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span>Mako</span></div></td><td class="num">1540</td><td class="num">1,702</td><td class="num">1,207</td><td class="num">1.41</td><td class="num">170–130</td></tr>
+        <tr><td class="pos">5</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span><span class="tg">[NSW]</span>Dragnet</span></div></td><td class="num">1522</td><td class="num">1,655</td><td class="num">1,208</td><td class="num">1.37</td><td class="num">166–133</td></tr>
+        <tr><td class="pos">6</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span>Wraith</span></div></td><td class="num">1498</td><td class="num">1,590</td><td class="num">1,223</td><td class="num">1.30</td><td class="num">160–140</td></tr>
+        <tr><td class="pos">7</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span>Hollis</span></div></td><td class="num">1471</td><td class="num">1,522</td><td class="num">1,248</td><td class="num">1.22</td><td class="num">151–149</td></tr>
+        <tr><td class="pos">8</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span>Harrow</span></div></td><td class="num">1455</td><td class="num">1,498</td><td class="num">1,259</td><td class="num">1.19</td><td class="num">149–150</td></tr>
+        <tr><td class="pos">9</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span><span class="tg">[RZR]</span>Quarry</span></div></td><td class="num">1430</td><td class="num">1,431</td><td class="num">1,278</td><td class="num">1.12</td><td class="num">141–158</td></tr>
+        <tr><td class="pos">10</td><td><div class="cell"><svg width="18" height="18"><use href="#m5"/></svg><span>Static</span></div></td><td class="num">1402</td><td class="num">1,377</td><td class="num">1,311</td><td class="num">1.05</td><td class="num">138–162</td></tr>
+      </table>
+    </div>
+  </div>
+</div></div>
+</body>

@@ -2,12 +2,13 @@
 title: "Getting started"
 description: "What packs are for in SOCOM Legacy, what each status on this wiki means, and where to go next."
 status: "Format only"
-source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:527-535"]
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620"]
 ---
 
 **Status: Format only.** The v2 pack format is defined and every v2 pack is checked against it, and a pack that
 passes is stored on your device; nothing in the game applies a v2 pack yet. The older formats on
-[The earlier formats](/kinds/earlier-formats/) are what changes the game's look in a build today.
+[The earlier formats](/kinds/earlier-formats/) are what changes the game's look in a build today, loaded in
+**Home > Experiments > Mods** ([Testing a pack locally](/guides/test-locally/)).
 
 ## What this wiki is for
 
@@ -44,9 +45,11 @@ wrong.
 | The `rules` kind | Forge, local only |
 | The `content` kind | Format only |
 | The `system` kind | Planned |
-| `s2u-mod` data mods, texture packs, the model pack | Test room only |
-| HD texture packs | Planned -- held off until the owner lifts the hold |
-| Publishing on Thunderstore | Format only -- nothing builds a store package yet |
+| Loading an earlier-format pack: Home > Experiments > Mods | Works |
+| Texture packs (one map's) | Works -- on every page, on their own map |
+| HD texture packs | Works -- on every page, every map, once chosen in Mods |
+| `s2u-mod` data mods, the model pack | Test room only |
+| Publishing on Thunderstore | Format only -- Mods reads a Thunderstore zip of an earlier format; nothing builds a store package from a v2 pack yet |
 
 Each line is explained on [Pack kinds](/kinds/), [The earlier formats](/kinds/earlier-formats/) and
 [Publishing on Thunderstore](/publishing/thunderstore/).
@@ -57,7 +60,7 @@ Each line is explained on [Pack kinds](/kinds/), [The earlier formats](/kinds/ea
 2. [Pack anatomy](/anatomy/) -- the files inside a v2 pack and its manifest, `s2u-pack.json`, part by part.
 3. [Pack kinds](/kinds/) -- `content`, `rules` and `system`, and what each can do today.
 4. [Making your first pack](/guides/first-pack/) -- a small pack from an empty folder to a passing check.
-5. [Testing a pack locally](/guides/test-locally/) -- the test room and the Forge.
+5. [Testing a pack locally](/guides/test-locally/) -- Home > Experiments > Mods, the test room and the Forge.
 
 When a check refuses your pack, [Refusal codes](/reference/codes/) lists every code and what it means, and
 [Troubleshooting](/troubleshooting/) how to fix it.
@@ -72,3 +75,29 @@ When a check refuses your pack, [Refusal codes](/reference/codes/) lists every c
 | **the contract** | The pack format as code, in the repository's `creator-contracts` package. Every list on the reference pages is read from it. |
 | **the test room** | The page at `/testroom`, where you play and look around a map on your own. |
 | **the Forge** | The map and mode editor. Its Play runs a match on your device. |
+
+## For agents
+
+```json
+{
+  "page": "/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "What packs are for, what each status on this wiki means (Works, Test room only, Forge, local only, Format only, Planned), and where to go next.",
+  "inputs": [
+    "a first question about packs"
+  ],
+  "outputs": [
+    "the status words",
+    "the next page to read"
+  ],
+  "see_also": [
+    "/map/",
+    "/what-is-a-pack/",
+    "/guides/test-locally/"
+  ]
+}
+```

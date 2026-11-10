@@ -4,10 +4,11 @@ import { REMAP_DEAD_ROW, REMAP_STANCE_ROW, remapBindOfRow, remapExtraAt } from '
 import { fieldMeta, personaItems } from './profile';
 import { customItems, lobbyRoomItems } from './lobbies';
 import { overlayDiscLine, sourceMenuHtml } from './home';
-import { senderButtons } from './discShare';
-import { SHARE_RETRY, SHARE_ROW_VERB } from '../../discShareWords';
+import { senderButtons, shareCrossWord } from './discShare';
+import { SHARE_ROW_VERB } from '../../discShareWords';
+import { COPY_LAUNCHER_ADDRESS, installCopyOffered } from '../../pwa/install';
 import {
-  CATS, DISC_SOURCES, PLAY_LABEL, PLAY_NEED_WORDS, RESUME_LABEL, canChangeRow, canResetRow, deployChecks, isToggleRow, optRowsNow, LOADOUT_SAVE_ROW, PERSONA_DELETE_ROW, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW, PERSONA_NEW_GENDER_ROW, cardNames, discSource, homeItems, inert, loadoutRows, loadoutSideItems, optCategories, overGame, playNeed, replayRows, replayStatus, roomFull, roundRunning, selectedRoom, serverItems, startLabel,
+  CATS, DISC_SOURCES, MODS_DROP_ROW, MODS_FIRST_PACK_ROW, MODS_TEXTURE_ROW, modsTestHdRow, PLAY_LABEL, PLAY_NEED_WORDS, RESUME_LABEL, canChangeRow, canResetRow, deployChecks, isToggleRow, optRowsNow, LOADOUT_SAVE_ROW, PERSONA_DELETE_ROW, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW, PERSONA_NEW_GENDER_ROW, cardNames, discSource, homeItems, inert, loadoutRows, loadoutSideItems, optCategories, overGame, playNeed, replayRows, replayStatus, roomFull, roundRunning, selectedRoom, serverItems, startLabel,
   startReady, visibleRooms, browseRows, BROWSE_CUSTOM, type Adapters, type Button, type ConsoleState, type LoadoutLocked,
   DEPLOY_NEED_WORDS, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW,
 } from '../state';
@@ -84,7 +85,14 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
   }
   if (s.overlay === 'states') { add('cross', 'Toggle', 'cross'); add('circle', 'Close', 'circle'); return false; }
   if (s.overlay === 'confirm') { add('cross', 'Choose', 'cross'); add('circle', 'Cancel', 'circle'); return false; }
-  if (s.overlay === 'install') { add('dpad-v', 'Scroll', null); add('circle', 'Close', 'circle'); return false; }
+  if (s.overlay === 'install') {
+    // RB-45 (b): Cross is Copy launcher address where the dialog offers it (`../grammar`); elsewhere Cross does not
+    // install (a pad press is not a user activation) and no prompt names it.
+    if (installCopyOffered(a.options.installSurface?.() ?? 'other')) add('cross', COPY_LAUNCHER_ADDRESS, 'cross');
+    add('dpad-v', 'Scroll', null);
+    add('circle', 'Close', 'circle');
+    return false;
+  }
   if (s.overlay === 'share') {
     // DSH-5 (DSH.R12): the sender's dialog -- Cross the focused button, Circle the last (No, Stop or Close).
     const v = a.discShare?.sender();
@@ -113,8 +121,10 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
     // LR-36 (LR.R30): Play's "Before you deploy" panel -- Cross named by the focused row (the disc's verb, Check, Deploy or
     // what Deploy still needs, Open), Circle Back; the panel holds the pad, so nothing else is offered.
     if (s.chk.open && s.chk.share) {
-      // DSH-5 (DSH.R12): the share's area -- Cross its Try again after a failure, Circle Back to the rows.
-      if (a.discShare?.receiver().phase === 'failed') add('cross', SHARE_RETRY, 'cross');
+      // DSH-5 (DSH.R12): the share's area -- Cross its Try again after a failure (RB-26: Ask again after a host's No),
+      // Circle Back to the rows.
+      const cross = a.discShare ? shareCrossWord(a.discShare.receiver()) : null;
+      if (cross !== null) add('cross', cross, 'cross');
       add('circle', 'Back', 'circle');
       return false;
     }
@@ -179,6 +189,17 @@ function prompted(s: ConsoleState, a: Adapters, out: Prompt[]): boolean {
     if (it) add('cross', it.verb, 'cross');
     add('circle', 'Back', 'circle');
     add('square', 'Refresh', 'square');
+  } else if (s.screen === 'mods') {
+    // B206 ML-2: the MODS screen. The focused row says what Cross does; a pack's Square removes it.
+    const v = a.mods?.view();
+    const row = v?.rows[s.md.row - MODS_FIRST_PACK_ROW];
+    if (s.md.row === MODS_DROP_ROW && a.mods) add('cross', 'Choose a file', 'cross');
+    else if (s.md.row === MODS_TEXTURE_ROW && a.mods) add('dpad-h', 'Texture pack', null);
+    else if (s.md.row === modsTestHdRow(v) && a.mods) add('cross', 'Add', 'cross');   // TEST_HD_PACK_BUTTON_ADAPTATION (ML-12)
+    else if (row && row.on !== null) add('cross', row.on ? 'Switch off' : 'Switch on', 'cross');
+    if (row) add('square', 'Remove', 'square');
+    if (row?.up || row?.down) add('dpad-h', 'Order', null);
+    add('circle', 'Back', 'circle');
   } else if (s.screen === 'options') {
     if (s.opt.zone === 'cats') { add('cross', 'Open', 'cross'); add('circle', 'Back', 'circle'); }
     else {

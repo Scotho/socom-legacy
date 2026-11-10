@@ -4,7 +4,8 @@ import { checkCreatorRecord, layoutOfRecord, onlineLayoutRefusal, parseLayout, r
 /**
  * The layout's placed extraction zones (a browser adaptation, FG.R2; no original): each a named rectangle on the ground
  * (`at` its centre, `size` its width along x and depth along z), an EXTRACT_ZONE (kind 1) beside the map's own for an
- * Extraction match. Kept by the file and the v3 record; refused online, which plays the disc's own zones.
+ * Extraction match. Kept by the file and the v3 record; admitted online (FP-1a: the lobby's room places them as the
+ * page's Play does, `match/src/forgeSimMap.ts` through `playObjectives`).
  */
 const layout = {
   forge: 1, base: { kind: "map", archive: "MP6" }, pieces: [], spawns: [],
@@ -27,7 +28,7 @@ describe("placed extraction zones", () => {
     expect("extractionZones" in recordOfLayout({ ...layout, extractionZones: undefined } as Layout, "none")).toBe(false);
   });
 
-  it("an online lobby refuses them", () => {
-    expect(onlineLayoutRefusal(layout).map((d) => d.code)).toEqual(["record.ONLINE_EXTRACTION_ZONES"]);
+  it("an online lobby admits them (FP-1a; refused record.ONLINE_EXTRACTION_ZONES before)", () => {
+    expect(onlineLayoutRefusal(layout)).toEqual([]);
   });
 });

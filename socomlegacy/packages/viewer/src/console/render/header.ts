@@ -1,6 +1,6 @@
 import { pageVersion } from '../pageVersion';
 import { DISCORD_INVITE, DISCORD_LABEL, discordMark } from '../discord';
-import { EMBLEM, esc, ico, shoulder } from '../icons';
+import { esc, ico, shoulder } from '../icons';
 import { CATS, homeItems, SAMPLE_DATA, type Adapters, type ConsoleState } from '../state';
 import { clock24 } from './theme';
 
@@ -10,6 +10,16 @@ import { clock24 } from './theme';
  * after the minutes; the date in the player's own locale. A browser adaptation.
  */
 export const CLOCK_TICK_MS = 15_000;
+
+/**
+ * RB-29 (the replay batch; the owner's "S2 Launcher v2" export, its header `D:28`): the brand is the project's logo PNG,
+ * 38 px tall with its drop shadow (`console.css`, the header section), in place of the emblem and the SOCOM II / LEGACY
+ * words. The file is Phil's wordmark (`shared/brand/socom-legacy-wordmark.png`) at the design's 480 x 174, its alt text
+ * the design's. RB.R9 Q1 reads the design as superseding LR.R9's brand clause, the owner to confirm (the plan's Q14). A
+ * browser adaptation: the launcher's look, nothing of the game.
+ */
+export const BRAND_LOGO_URL = new URL('../../../../../../shared/brand/socom-legacy-logo.png', import.meta.url).href;
+export const BRAND_LOGO_ALT = 'SOCOM Legacy';
 
 export function clockParts(now: Date, h24: boolean): { date: string; h: string; m: string; ampm: string; iso: string } {
   const hh = now.getHours();
@@ -134,7 +144,7 @@ export function headerHtml(s: ConsoleState, a: Adapters, narrow = false, now: Da
     : central.kind === 'release' ? `Release ${central.version}`
       : ver.text.startsWith('central') ? `Version: central ${bare(central.version)}, page ${version}` : `Version ${bare(central.version)}`;
   return `
-    <div class="cx-header__identity"><div class="cx-brand">${EMBLEM}<span class="cx-brand__name">SOCOM II</span><span class="cx-brand__sub">LEGACY</span><span class="cx-version${ver.reached ? '' : ' is-unreached'}" aria-label="${esc(versionAria)}">${esc(ver.text)}</span>${serverMarkHtml(s, a)}</div></div>
+    <div class="cx-header__identity"><div class="cx-brand"><img class="cx-brand__logo" src="${esc(BRAND_LOGO_URL)}" alt="${BRAND_LOGO_ALT}" width="480" height="174" decoding="async" draggable="false"><span class="cx-version${ver.reached ? '' : ' is-unreached'}" aria-label="${esc(versionAria)}">${esc(ver.text)}</span>${serverMarkHtml(s, a)}</div></div>
     <div class="cx-status">
       ${over}
       ${proto}

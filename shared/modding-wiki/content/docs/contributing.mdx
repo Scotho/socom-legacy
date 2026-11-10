@@ -49,6 +49,10 @@ that means for the page.
 2. Add its name, without `.mdx`, to that folder's `meta.json`, where you want it in the sidebar.
 3. Link to it from a page that leads there. Links between pages are site paths with a trailing slash, such as
    `/reference/codes/`.
+4. End it with its agent block: a last section headed `## For agents` holding one fenced `json` object with the keys
+   `page` (the page's own address), `audience` (any of `players`, `creators`, `agents`), `summary` (one line),
+   `inputs`, `outputs` and `see_also` (addresses of existing pages). [Wiki map](/map/) explains the convention.
+5. Give it one line in `public/llms.txt` (served as `/llms.txt`) and a row on [Wiki map](/map/) under its audience.
 
 The static check expects every page under `content/docs/` to be built, so a page that fails to build fails the check.
 
@@ -103,11 +107,22 @@ npx vitest run tools/test/moddingWikiExample.test.ts
 - `moddingWikiPages.test.ts`: the hand-written pages that restate the contract keep up with it. Troubleshooting has a
   repair for every refusal code, the Thunderstore page states the store's rules at the code's values, a table row that
   names a contract constant gives its value as the code holds it, the prose pages give every bound and version they
-  restate at the code's value, HD texture packs have one status everywhere, and links between pages find their page.
+  restate at the code's value, HD texture packs have one status everywhere, Testing a pack locally describes Home >
+  Experiments > Mods in the screen's own words, every cited range of the pack registry holds what it is cited for, and
+  links between pages find their page.
 - `moddingWikiExample.test.ts`: the files of [Making your first pack](/guides/first-pack/) pass the same checker the
   game uses, and the page quotes them exactly.
 
 The project's working repository also checks that every page's `source` is a file the public repository carries.
+
+One more drift test belongs to the wiki itself and needs no install at all, only Node. From `shared/modding-wiki/`:
+
+```bash
+node --test scripts/drift.test.mjs
+```
+
+It fails when a page is missing from `public/llms.txt` or from [Wiki map](/map/), when either links a page that does
+not exist, or when a page has no valid `## For agents` block as its last section.
 
 ## The static check
 
@@ -130,3 +145,26 @@ Disc paths may appear as names where a format needs one, nothing more.
 
 Write in your own words. Do not copy text, images or layout code from other modding wikis or stores; link to them
 instead.
+
+## For agents
+
+```json
+{
+  "page": "/contributing/",
+  "audience": [
+    "creators",
+    "agents"
+  ],
+  "summary": "How to edit or add a wiki page: where the wiki lives, the status rule, the generated reference, the drift tests, the static check and what never goes in.",
+  "inputs": [
+    "a change to the wiki"
+  ],
+  "outputs": [
+    "a page that passes the status test, the drift tests and the static check"
+  ],
+  "see_also": [
+    "/map/",
+    "/reference/manifest/"
+  ]
+}
+```

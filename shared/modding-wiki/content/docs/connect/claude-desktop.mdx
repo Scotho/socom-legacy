@@ -1,0 +1,143 @@
+---
+title: "Connect Claude Desktop"
+description: "Add the socom2legacy connection service to Claude Desktop's configuration file through the mcp-remote bridge and sign in as a guest, then connect it to the Forge or the solo test room you have open with one link and one Allow. Listed, not yet measured."
+status: "Forge, local only"
+source: ["socomlegacy/packages/viewer/src/agent/setup.ts", "socomlegacy/packages/viewer/src/agent/panel.ts", "socomlegacy/packages/viewer/src/agent/codes.ts", "socomlegacy/packages/viewer/src/agent/connection.ts", "socomlegacy/packages/forge-agent/src/gateway.ts", "socomlegacy/packages/forge-agent/src/mcp.ts", "socomlegacy/packages/forge-agent/src/oauth.ts"]
+---
+
+**Status: Forge, local only.** Claude Desktop would connect to the Forge or the solo test room open in your browser,
+never a lobby or an online match.
+
+**Claude Desktop: listed, not yet measured.** The card offers Claude Desktop, but no run of Claude Desktop against the
+connection service has been recorded yet (the compatibility record). The configuration below is the `mcp-remote`
+bridge's documented form, not a tested one. Claude Code and Codex are the measured clients (their sign-in, on the
+earlier panel; the one-link flow itself is not measured yet).
+
+This page follows the card's three moments -- Connect, Allow, Connected -- for Claude Desktop. What connecting means,
+the permissions, staying connected and how to disconnect are on [Connect an agent](/connect/).
+
+## 1. Connect
+
+In the page, open **Connect an agent** and choose **Claude Desktop**. The card says "Claude Desktop: listed, not yet
+measured."
+
+### First time with Claude Desktop?
+
+The box shows the entry to add once (**claude_desktop_config.json**; "Run this once where your agent runs."). With the
+production connection service it reads:
+
+```json
+{
+  "mcpServers": {
+    "socom2legacy": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://agent.socom2legacy.com/mcp"
+      ]
+    }
+  }
+}
+```
+
+Claude Desktop's configuration file starts local programs, not web addresses, so the entry runs `mcp-remote`, a small
+bridge fetched by `npx` (Node.js must be installed). Put it in `claude_desktop_config.json`; if the file already has an
+`mcpServers` object, add the `socom2legacy` entry inside it. Where the file lives (from the client's own
+documentation; not checked by this project):
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+Claude Desktop's settings open the same file (Settings, Developer, Edit Config). These places, that path and the guide
+at [modelcontextprotocol.io/quickstart/user](https://modelcontextprotocol.io/quickstart/user) are from the client's
+own documentation; not checked by this project.
+
+The card's **Connection service** box shows the address in use: copy the box's entry rather than this page's when they
+differ. A developer running `npm run forge:agent` gets `http://127.0.0.1:5360/mcp` in its place.
+
+"Then restart Claude Desktop. The bridge opens the connection service’s guest sign-in in your browser." That page asks
+"Allow … to sign in to SOCOM 2 Legacy as a guest?" with the name the client reports (through the bridge; not
+checked by this project) and says "This only lets it ask to connect. You still press Allow on your own page before it can do anything
+there." Press **Approve**. The request ends in five minutes.
+
+Once this browser has connected Claude Desktop, the box starts folded.
+
+### Copy connect link
+
+Press **Copy connect link**. It copies one line:
+
+```text
+Connect to my SOCOM 2 Legacy page: https://agent.socom2legacy.com/join/<code>
+```
+
+"Paste it into Claude Desktop. You’ll approve here." Paste it into a Claude Desktop chat. The link works once and
+expires in five minutes; the card counts down ("Link expires in 4:59"). If the browser does not let the page write to
+the clipboard, the card shows the line to select and copy yourself ("Copy failed · Select and copy the link below").
+
+Paste the link only into your own agent, and never share it -- not in a chat, a stream or a screenshot. Anyone
+holding it can ask to connect within its five minutes, and the Allow card shows the name the caller reports for
+itself.
+
+*Screenshot: `connect/claude-desktop-connect.png`, not on this site yet.* It is added in the screenshot pass.
+
+## 2. Allow
+
+The card says the reported name and "wants to connect". Every permission Claude asked for is a switch, all on. Turn
+off any you do not want, then press **Allow** (or **Decline**). Tick "Remember … on this browser" to make the next
+connect a single Allow with the same switches. The small print "Check: the code … matches your agent's" is there if
+you want to compare it with the code Claude reports; it is not a step.
+
+*Screenshot: `connect/claude-desktop-allow.png`, not on this site yet.*
+
+## 3. Connected
+
+The card shows the agent's name, each permission as a chip (on or off), the recent activity, the note box ("Tell your
+agent…"), the local files and **Disconnect**.
+
+*Screenshot: `connect/claude-desktop-connected.png`, not on this site yet.*
+
+## Troubleshooting
+
+| what you see | what to do |
+|---|---|
+| no socom2legacy server in Claude Desktop | Check the file's JSON (one `mcpServers` object), that Node.js is installed, and restart Claude Desktop. |
+| "Connect failed: The connection service is not hosted for this page yet." | A production build: no service answers at this address. Check the **Connection service** box, or press **Try again** later. |
+| "Connect failed: Start the local connection service and page with npm run forge:agent, then try again." | A development build: no local service answers. Run `npm run forge:agent`, then **Try again**. |
+| "Connect failed: The connection service is busy. Try again shortly." (or "… is unavailable …", "… did not answer in time …") | The service is there but cannot take the request now. Wait, then **Try again**. |
+| "Connect failed: The connection service does not accept this page's address." | Press **Check the connection service address**: this page names a service that does not serve it. |
+| "The link expired. Copy a fresh one." | Five minutes passed before Claude connected. Press **Copy a fresh link** and paste the new line. |
+| "The direct route between this page and the connection service did not open. A firewall or this network may block it." | Press **Try again**; if it fails again, try another network (**Details** lists the routes tried). |
+| "Connect failed: Keep this page visible while connecting your agent." | Keep the tab in view while you press **Copy connect link**. |
+| "Paused while this tab is hidden: come back to run tests again." | Not a failure: Claude is still connected. Bring the tab back; a test that was running was stopped, and Claude sends it again. |
+| "Connect failed: Too long passed since the reload to reconnect. Connect again with a fresh link." | Reconnect lasts two minutes after a reload. Press **Copy connect link** again. |
+
+## For agents
+
+```json
+{
+  "page": "/connect/claude-desktop/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "For an agent running in Claude Desktop (listed, not yet measured): the socom2legacy server is a claude_desktop_config.json entry running npx -y mcp-remote <endpoint>; the bridge opens the guest sign-in (scope bootstrap) after a restart; the person pastes one /join/ link and you call agent_pair with it, which waits for their Allow.",
+  "inputs": [
+    "the person's claude_desktop_config.json holds {\"mcpServers\": {\"socom2legacy\": {\"command\": \"npx\", \"args\": [\"-y\", \"mcp-remote\", \"<endpoint>\"]}}}; <endpoint> is the page's Connection service, production https://agent.socom2legacy.com/mcp, development http://127.0.0.1:5360/mcp",
+    "the server's fourteen tools: agent_guide, agent_status, agent_capabilities, agent_pair, agent_wait, agent_notes, agent_disconnect, agent_request, forge_read, forge_edit, forge_play, testroom, capture, camera (their arguments on /connect/)",
+    "the pasted line: 'Connect to my SOCOM 2 Legacy page: <gateway origin>/join/<invitation>'"
+  ],
+  "outputs": [
+    "if the tools are absent: tell the person to check the file's JSON and that Node.js is installed, then restart Claude Desktop (the bridge opens the guest sign-in page: Approve); you cannot sign in for them",
+    "then the sequence of /connect/: agent_guide first if you have not yet; agent_pair {invitation: the whole join link, clientName: 'Claude Desktop'} -- omit permissions to ask for all six; it waits (default 45 s, waitSeconds up to 90) and answers paired, declined or pending (then agent_wait {sessionId}; never repeat agent_pair); on pending, tell the person the comparisonCode (agent_pair returns it in `comparisonCode` and in `next`) so they can check it against the card's small print if they want; read the granted permissions; agent_capabilities, then agent_request target.status; agent_disconnect when done",
+    "this client is listed, not yet measured: if a step fails in a way this page does not name, say so plainly to the person and suggest Claude Code or Codex, the measured clients; on INVITATION_EXPIRED ask for a fresh connect link; on PERMISSION_DENIED ask the person, never work around it"
+  ],
+  "see_also": [
+    "/connect/",
+    "/connect/claude-code/",
+    "/connect/codex/",
+    "/connect/other/"
+  ]
+}
+```

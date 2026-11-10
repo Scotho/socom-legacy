@@ -80,6 +80,7 @@ export const EVENT_CLASS: Record<ServerEvent['type'], EventClass> = {
   impact: 'transient',         // to the shooter alone
   grenade: 'transient',        // a grenade's arc (W37.R4's example), a Detonator's fire; a charge's placement read (RE-1)
   detonate: 'transient',       // a charge set off: a verb; read for the charge's state (RE-1), never replayed
+  sceneRound: 'transient',     // research 386 §3.2: a scene FIRE_WEAPON's round's explosion, drawn and heard once
   placed: 'transient',         // to the thrower alone
   flinch: 'transient',         // a clip
   motion: 'transient',         // a clip a map program pushed (a door's Open door; research 92 section 2)
@@ -88,6 +89,7 @@ export const EVENT_CLASS: Record<ServerEvent['type'], EventClass> = {
   reloadSound: 'transient',    // a sound
   victory: 'stateful',         // a dance running: told after the welcome as the room's join does (RE-1; no sound, no line)
   action: 'transient',         // a switch's presentation run (sounds, effects); its state rides the snapshot's env (PF.R26)
+  sceneDeath: 'transient',     // V13-3c: a scene death's presentation run (sounds, the motion's fade), played once; not folded
   taunt: 'transient',          // a voice and a line
   communication: 'transient',  // a voice and a line
   escort: 'transient',         // LATER 131: ESCORT's script lines at the room's moments (lines and streams), heard once

@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { DialogDesign, DialogSubordinate } from '../../src/dialog';
 import {
   checkVideoMode, isVideoPictureDesign, VIDEO_PICTURE_ADAPTATION, VIDEO_PICTURE_ANIMATIONS, VIDEO_PICTURE_BOXES, VIDEO_PICTURE_CAPTIONS,
-  VIDEO_PICTURE_DEFAULT, VIDEO_PICTURE_HD_OFFERED, VIDEO_PICTURES, videoPictureDesign, videoPictureGate, videoPictureLookup,
+  VIDEO_PICTURE_DEFAULT, VIDEO_PICTURES, videoPictureDesign, videoPictureGate, videoPictureLookup,
 } from '../../src/screens/videoPicture';
+import * as videoPicture from '../../src/screens/videoPicture';
 import type { ZAnimUiCommand } from '../../src/zanimRuntime';
 
 /**
@@ -32,33 +33,37 @@ const video = (): DialogDesign => ({
   ],
 } as never);
 const subs = (d: DialogDesign) => (d.controls.find((c) => c.name === 'video_mode')!.widget as { subordinates: DialogSubordinate[] }).subordinates;
-// HD-HOLD (the owner, 2026-11-01: "Hide/disable the HD pack ... leave it in the build just don't allow people to turn it
-// on"): while VIDEO_PICTURE_HD_OFFERED is false the strip draws MODERN and PS2 only and the third box's check sets
-// nothing; the three names, captions and animations stay. Flipping the constant back makes these pins expect three.
-const OFFERED = VIDEO_PICTURE_HD_OFFERED ? 3 : 2;
+// B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110 -- the owner: "we're going to remove the actual in game
+// setting"): the HD (GoE Soul) picture is gone with HD-HOLD -- the strip is MODERN and PS2, two boxes, and the HD pack is
+// a texture pack chosen in Home > Experiments > Mods.
+const OFFERED = 2;
 const cmd = (arg: string): ZAnimUiCommand => ({ anim: 'Initialize_Options_Stuff', sequence: 'NA', nodeIndex: 0, node: null, opcodeByte: 0, fn: 'CheckVideoMode', arg, loc: 0, bytes: new Uint8Array(0x10) });
 
 describe('OT.R79: VIDEO MODE is the page\'s picture (VIDEO_PICTURE_ADAPTATION)', () => {
-  it('names the three pictures in the owner\'s order, MODERN the default (B\', what the front end drew)', () => {
+  it('names the two pictures in the owner\'s order, MODERN the default (B\', what the front end drew); ML-6: no HD picture', () => {
     expect(VIDEO_PICTURE_ADAPTATION).toContain('OT.R79');
-    expect(VIDEO_PICTURES).toEqual(['modern', 'ps2', 'experimental']);
-    expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2', 'HD (GoE Soul)']);   // HD.R8 (the owner, 2026-10-31): EXPERIMENTAL renamed
+    expect(VIDEO_PICTURE_ADAPTATION).not.toMatch(/EXPERIMENTAL/);
+    expect(VIDEO_PICTURES).toEqual(['modern', 'ps2']);
+    expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2']);                     // ML-6 (OT.R110): "HD (GoE Soul)" removed
+    expect(VIDEO_PICTURE_BOXES).toEqual(['PictureModern', 'PicturePS2']);
+    expect(VIDEO_PICTURE_ANIMATIONS).toEqual(['picture_modern', 'picture_ps2']);
     expect(VIDEO_PICTURE_DEFAULT).toBe('modern');
+    expect('VIDEO_PICTURE_HD_OFFERED' in videoPicture).toBe(false);               // HD-HOLD's switch gone with the picture
   });
 
-  it('the offered boxes (three; two under HD-HOLD) from the disc\'s own specs, at the disc\'s step (200, 320, 440), captions literal, the disc\'s scripts gone', () => {
+  it('the two boxes from the disc\'s own specs, at the disc\'s step (200, 320), captions literal, the disc\'s scripts gone', () => {
     const before = video(), d = videoPictureDesign(before);
     const s = subs(d);
     expect(s).toHaveLength(OFFERED);
-    expect(s.map((b) => [b.name, b.x, b.y])).toEqual([['PictureModern', 200, -5], ['PicturePS2', 320, -5], ['PictureExperimental', 440, -5]].slice(0, OFFERED));
-    expect(s.map((b) => (b.widget as { button: { caption: string } }).button.caption)).toEqual(['MODERN', 'PS2', 'HD (GoE Soul)'].slice(0, OFFERED));
-    expect(s.map((b) => (b.widget as { onCheck: { animation: string } }).onCheck.animation)).toEqual(VIDEO_PICTURE_ANIMATIONS.slice(0, OFFERED));
+    expect(s.map((b) => [b.name, b.x, b.y])).toEqual([['PictureModern', 200, -5], ['PicturePS2', 320, -5]]);
+    expect(s.map((b) => (b.widget as { button: { caption: string } }).button.caption)).toEqual(['MODERN', 'PS2']);
+    expect(s.map((b) => (b.widget as { onCheck: { animation: string } }).onCheck.animation)).toEqual(VIDEO_PICTURE_ANIMATIONS);
     for (const b of s) expect((b.widget as { checkTexture: string }).checkTexture).toBe('op_check.tif');   // the original's checkbox
     expect(JSON.stringify(s)).not.toMatch(/video_ntsc|video_dtv|VideoNTSC|VideoDTV/);
     expect(subs(before).map((b) => b.name)).toEqual(['VideoNTSC', 'VideoDTV']);                           // the disc's design untouched
     expect(isVideoPictureDesign(d)).toBe(true);
     expect(isVideoPictureDesign(before)).toBe(false);
-    expect(VIDEO_PICTURE_BOXES.slice(0, OFFERED)).toEqual(s.map((b) => b.name));
+    expect(VIDEO_PICTURE_BOXES).toEqual(s.map((b) => b.name));
   });
 
   it('the lookup passes VIDEO through once (any case), every other dialog as it is', () => {
@@ -74,7 +79,9 @@ describe('OT.R79: VIDEO MODE is the page\'s picture (VIDEO_PICTURE_ADAPTATION)',
     const set: string[] = [];
     const gate = videoPictureGate((p) => set.push(p));
     for (const a of VIDEO_PICTURE_ANIMATIONS) expect(gate({ dialog: 'dlgOptions_Video.rdr', animation: a, argument: null } as never)).toBe(true);
-    expect(set).toEqual(['modern', 'ps2', 'experimental'].slice(0, OFFERED));   // HD-HOLD: the third box's check is taken, nothing set
+    expect(set).toEqual(['modern', 'ps2']);
+    expect(gate({ dialog: 'dlgOptions_Video.rdr', animation: 'picture_experimental', argument: null } as never)).toBe(false);   // ML-6: no third box
+    expect(set).toEqual(['modern', 'ps2']);
     expect(gate({ dialog: 'dlgOptions_Video.rdr', animation: 'enable_headbob', argument: null } as never)).toBe(false);
   });
 

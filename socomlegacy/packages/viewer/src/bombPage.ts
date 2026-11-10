@@ -212,6 +212,12 @@ export interface BombPulseView {
   pickup(side: Team): void;
   /** `bomb_drop`'s stops: both outlines out. */
   drop(): void;
+  /**
+   * The round's reset (state 0): the Forge's own site outlines put out (a browser adaptation, FG.R2), nothing else -- the
+   * disc's `pulse_*` programs are the world's reset's to stop (`WorldState.reset`), as before the Overhaul (FP-1b,
+   * REVIEW-B 12). A view without it does nothing at a reset.
+   */
+  reset?(): void;
 }
 
 /**
@@ -229,6 +235,7 @@ export function worldPulse(world: () => WorldState | null, outlines: () => reado
   return {
     pickup: (side) => { const w = world(); if (w) for (const name of pulses(w)?.pickup[side] ?? []) w.runDisplay(name); forge.pickup(side); },
     drop: () => { const w = world(); if (w) for (const name of pulses(w)?.drop ?? []) w.stopProgram(name); forge.drop(); },
+    reset: () => forge.drop(),
   };
 }
 
@@ -694,9 +701,10 @@ export class BombPage {
     const v = this.view.pulse;
     if (!v) return;
     if (was === null) v.drop();
-    // The round's reset (state 0): the world's reset stops the bases' programs (`WorldState.reset`); the forge's own
-    // outlines (`forgeOutlinePulse`) are put out with them -- a stop of programs already stopped changes nothing.
-    if (now?.state === BOMB_STATE.ground || now?.state === BOMB_STATE.reset) { v.drop(); return; }
+    // The round's reset (state 0): the world's reset stops the bases' programs (`WorldState.reset`); only the forge's own
+    // outlines (`forgeOutlinePulse`) are put out here (`BombPulseView.reset`; FP-1b, REVIEW-B 12).
+    if (now?.state === BOMB_STATE.reset) { v.reset?.(); return; }
+    if (now?.state === BOMB_STATE.ground) { v.drop(); return; }
     if (now?.state !== BOMB_STATE.carried || now.carrier === null || was?.state === BOMB_STATE.carried) return;
     const side = this.teamOf(now.carrier);
     if (side) v.pickup(side);

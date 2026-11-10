@@ -2,7 +2,7 @@ import type { Rgba } from '@s2u/gs';
 import { sharpenBitmap, type UiSamplingSettings } from './experimentalUiSampling';
 import { UI_FRAME, composeScreen, type MoviePicture, type UiClip, type UiDrawItem, type UiModelTriangle, type UiModelVertex, type UiScreen } from '@s2u/ui';
 import {
-  MOVIE_NO_PICTURE_BLEND, blendAfterBind, clearPacker, columnAxis, coverageBounds, pickBitmap, rasterScale, rowAxis, scaleAt, scaleClip, wrap,
+  MOVIE_NO_PICTURE_BLEND, blendAfterBind, clearPacker, columnAxis, coverageBounds, modelDepthF32, modelEdgeF32, modelEdgeOwns, pickBitmap, rasterScale, rowAxis, scaleAt, scaleClip, wrap,
   type RowAxis,
 } from './uiRasterRules';
 
@@ -399,9 +399,12 @@ export function rasterizeUiDrawList(items: readonly UiDrawItem[], textures: UiTe
 }
 
 /**
- * The 3D pass's triangles into the frame: each pixel whose centre is inside the triangle (the same top-left rule as the
- * quads), the texel and the colour interpolated perspective-correctly (by 1/w), the nearest triangle winning through a
- * depth buffer of the pass, a back face (clockwise on the frame) dropped when the mesh culls. A texture the map lacks
+ * The 3D pass's triangles into the frame: each pixel whose integer point is inside the triangle by the GS's top-left
+ * rule (`UI_MODEL_EDGE_RULE_READING`, `modelEdgeOwns`: a pixel on a left or top edge in, on a right or bottom edge out,
+ * the half-open rule the quads keep) -- the edge functions and the depth in the GPU's f32 arithmetic (`modelEdgeF32`,
+ * `modelDepthF32`), the attributes in f64 -- the texel and the colour interpolated perspective-correctly (by 1/w), the depth
+ * buffer of the pass tested GEQUAL with the f32 depth against the f32 store, so the later of two equal depths wins
+ * (`UI_MODEL_DEPTH_FORMAT_READING`, `TEST_1` ZTST GEQUAL), a back face (clockwise on the frame) dropped when the mesh culls. A texture the map lacks
  * leaves its triangles undrawn, named once per node. Each drawn triangle blends by its texture's `ALPHA_1` (an
  * untextured one by the register as it stands) and leaves it set: the answer is the register after the pass
  * (`UI_MESH_BIND_READING`).
@@ -424,17 +427,23 @@ function drawModels(frame: Uint8ClampedArray, W: number, H: number, scale: numbe
     const additive = alpha === 'additive';
     const xs = Math.max(0, Math.ceil(Math.min(a.x, b.x, c.x))), xe = Math.min(W, Math.ceil(Math.max(a.x, b.x, c.x)));
     const ys = Math.max(0, Math.ceil(Math.min(a.y, b.y, c.y))), ye = Math.min(H, Math.ceil(Math.max(a.y, b.y, c.y)));
-    const inv = 1 / area;
+    const inv = 1 / area, finv = Math.fround(inv), sign = finv < 0 ? -1 : 1;
+    // Coverage and depth in the GPU's f32 arithmetic (modelEdgeF32, modelDepthF32; GM-15d's disc fold).
+    const ax = Math.fround(a.x), ay = Math.fround(a.y), bx = Math.fround(b.x), by = Math.fround(b.y), cx = Math.fround(c.x), cy = Math.fround(c.y);
+    const aw = Math.fround(a.invW), bw = Math.fround(b.invW), cw = Math.fround(c.invW);
+    const g0x = Math.fround(by - cy), g0y = Math.fround(cx - bx), g1x = Math.fround(cy - ay), g1y = Math.fround(ax - cx), g2x = Math.fround(ay - by), g2y = Math.fround(bx - ax);
     for (let y = ys; y < ye; y++) {
       for (let x = xs; x < xe; x++) {
-        // Barycentric weights at the pixel's integer centre; every edge inclusive (UI_MODEL_EDGE_RULE_READING).
+        // The edge functions at the pixel's integer point, inside by the top-left rule (UI_MODEL_EDGE_RULE_READING).
+        const e0 = modelEdgeF32(bx, by, cx, cy, x, y), e1 = modelEdgeF32(cx, cy, ax, ay, x, y), e2 = modelEdgeF32(ax, ay, bx, by, x, y);
+        if (!modelEdgeOwns(e0, g0x, g0y, sign) || !modelEdgeOwns(e1, g1x, g1y, sign) || !modelEdgeOwns(e2, g2x, g2y, sign)) continue;
+        const i = y * W + x, z = modelDepthF32(e0, e1, finv, aw, bw, cw);
+        if (z < depth[i]!) continue;                           // GEQUAL, f32 against the f32 store, 0 empty (UI_MODEL_DEPTH_FORMAT_READING)
+        // The attributes in f64 from the same integer point (M4).
         let w0 = ((b.x - x) * (c.y - y) - (c.x - x) * (b.y - y)) * inv;
         let w1 = ((c.x - x) * (a.y - y) - (a.x - x) * (c.y - y)) * inv;
         let w2 = 1 - w0 - w1;
-        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
         const invW = w0 * a.invW + w1 * b.invW + w2 * c.invW;
-        const i = y * W + x;
-        if (depth[i]! > 0 && invW <= depth[i]!) continue;     // something nearer already drawn (UI_MODEL_DEPTH_FORMAT_READING)
         // Perspective-correct: each attribute over w, divided back -- the colour too (UI_MODEL_GOURAUD_READING).
         w0 *= a.invW / invW; w1 *= b.invW / invW; w2 *= c.invW / invW;
         const lerp = (k: 'u' | 'v'): number => w0 * a[k] + w1 * b[k] + w2 * c[k];
@@ -447,7 +456,7 @@ function drawModels(frame: Uint8ClampedArray, W: number, H: number, scale: numbe
           al = (s[3]! / 255) * (rgba[3]! / 128);
         } else { r = rgba[0]!; g = rgba[1]!; bl = rgba[2]!; al = rgba[3]! / 128; }
         if (al <= 0) continue;                                 // UI_MODEL_ZWRITE_READING (the models module): a clear texel writes neither colour nor depth
-        depth[i] = invW;
+        depth[i] = z;
         const o = i * 4;
         if (additive) {
           frame[o] = frame[o]! + r * al;

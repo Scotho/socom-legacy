@@ -10,7 +10,7 @@ import type { LivePad } from './pad';
  * `../../padBinding` `PadBinding` -- the machine lifted out of the setup page's Controller view (retired with CX-26; this
  * screen is its one driver now), over the same keys -- made when the screen is pushed and ended when it is left, one at a
  * time. A fresh machine each time
- * reads the profile as it is then (Options' Stick dead zone may have changed it since). A browser adaptation with no
+ * reads the profile as it is then (Options' Pad dead zone (this browser) may have changed it since). A browser adaptation with no
  * original (OT.R28): settings and wiring, nothing of the game's behaviour.
  */
 export type RemapAdapter = NonNullable<Adapters['remap']>;

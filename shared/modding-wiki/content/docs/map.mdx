@@ -1,0 +1,140 @@
+---
+title: "Wiki map"
+description: "Every page of this wiki, sorted for the three people who read it: players, creators and agents."
+status: "Format only"
+source: ["socomlegacy/docs/specs/2026-11-07-forge-path-design.md", "socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/maps.ts:37-41"]
+---
+
+**Status: Format only.** This page is the wiki's map. The pages it links each carry their own status: the earlier
+formats loaded in Home > Experiments > Mods work today, a rules pack runs in the Forge's local Play, and a v2 pack is
+checked and stored but not applied. The rows marked *planned* are pages not written yet.
+
+The wiki has three readers. A **player** wants to put a pack in the game. A **creator** wants to make one and share
+it. An **agent** (an AI assistant working for either) wants the exact rules in a form it can read without a browser.
+Every page ends with a **For agents** section for that third reader (see [For agents](#for-agents-on-every-page)
+below), and the whole wiki is indexed in plain text at `/llms.txt` (the site's root).
+
+## Start here
+
+| page | what it is |
+|---|---|
+| [Getting started](/) | What packs are for, what each status on this wiki means, and where to go next. |
+| [What a pack is](/what-is-a-pack/) | A zip, opt-in, kept on your device: the rules every pack lives by, and the two generations of formats. |
+
+## Players: using packs
+
+| page | what it is |
+|---|---|
+| [Testing a pack locally](/guides/test-locally/) | The MODS screen walkthrough: Home > Experiments > Mods, step by step -- drop a pack, choose the texture pack, switch or remove what is installed; where each kind applies. |
+| [The earlier formats](/kinds/earlier-formats/) | Installing a texture pack, a model pack, an `s2u-mod` data mod or the HD texture pack, and where each one applies. |
+| [Custom maps](/kinds/custom-maps/) | A map someone made, in one zip: add it in Mods, open it in the Forge, walk it in the test room (never online). |
+| [Troubleshooting / FAQ](/troubleshooting/) | What a refusal means and what to do about it. |
+| *planned:* the MODS walkthrough with screenshots | A screenshot pass over each step of the MODS screen. |
+
+**The HD pack.** The HD texture pack, HD textures by GoE Soul, replaces the game's textures with high-resolution images on every page and every
+map. How to load it is on [The earlier formats](/kinds/earlier-formats/#hd-texture-packs) and
+[Testing a pack locally](/guides/test-locally/).
+
+## Creators: making packs
+
+| page | what it is |
+|---|---|
+| [Pack anatomy](/anatomy/) | Inside a v2 pack: the zip's layout, the manifest `s2u-pack.json` part by part, members, identity, dependencies, intents, handler claims. |
+| [Pack kinds](/kinds/) | The `content`, `rules` and `system` kinds of a v2 pack, each with its status. |
+| [Making your first pack](/guides/first-pack/) | A small rules pack, step by step, from an empty folder to a passing check. |
+| [Rules and limits](/rules-and-limits/) | What a rules pack may do, who decides what happens in a match, and the budgets. |
+| [The earlier formats](/kinds/earlier-formats/) | The texture pack and the model pack formats, which Mods loads today. |
+| [Changelog / format versions](/changelog/) | The pack formats and contract versions, newest first. |
+
+**Texture packs and model packs.** A texture pack replaces one map's textures; a model pack puts glTF models in place
+of the game's meshes in the test room. Both are earlier formats: their manifests and loaders are on
+[The earlier formats](/kinds/earlier-formats/), and how a v2 pack will carry the same content is the `content` kind on
+[Pack kinds](/kinds/).
+
+### Custom maps: the Forge map bundle
+
+A Forge map bundle is a zip whose root (or one folder) holds `forge-bundle.json`: the schema
+`s2u.creator/forge-map-bundle` version 1, a Forge layout, and the v2 packs it needs, each whole under its own folder.
+A pack in it can carry a content map at the schema `s2u.creator/content-map` version 2. Builds on engine contract
+0.1.2 read it (the Forge path's ruling FP.R2, in `socomlegacy/docs/specs/2026-11-07-forge-path-design.md`). The next
+format, 0.2, is a proposal the project's owner is reading (`socomlegacy/docs/specs/2026-11-08-pack-format-0.2.md`, the
+Forge path's FP-8).
+
+| page | what it is |
+|---|---|
+| [Custom maps](/kinds/custom-maps/) | The bundle's anatomy, the sample yard, how Mods lists it, how the Forge and the test room open it, and its fields. |
+
+## Creators: publishing
+
+| page | what it is |
+|---|---|
+| [Thunderstore](/publishing/thunderstore/) | How a pack fits Thunderstore's package format, how our identity maps onto the store's, and what is still open. |
+
+## Reference
+
+| page | what it is |
+|---|---|
+| [Manifest reference](/reference/manifest/) | Every field of the pack manifest, generated from the pack contract. |
+| [Bounds](/reference/bounds/) | The contract's limits and their values, generated from the code. |
+| [Refusal codes](/reference/codes/) | Every code the pack checker can refuse with, generated from the code. |
+
+## Agents: reading this wiki
+
+| page | what it is |
+|---|---|
+| `/llms.txt` | Every page of this wiki in one plain-text list, one line each, for an agent to fetch. |
+| [Contributing to the wiki](/contributing/) | Where the wiki lives, how a page is added, and the tests that keep it honest. |
+| [Connect an agent](/connect/) | Let an AI agent work in your open Forge or solo test room: the three moments (Connect, Allow, Connected), the one connect link, the connection service, the permissions and what each allows, remembered agents, staying connected, what fails and its one action, disconnecting; its agent block holds the pairing protocol. |
+| [Connect Claude Code](/connect/claude-code/) | The two `claude mcp add` commands (every project, or this project only), signing in from /mcp as a guest, Copy connect link, Allow, troubleshooting. |
+| [Connect Codex](/connect/codex/) | `codex mcp add` and `codex mcp login` as a guest, Copy connect link, Allow, troubleshooting. |
+| [Connect Claude Desktop](/connect/claude-desktop/) | The `claude_desktop_config.json` entry through `mcp-remote`, where the file lives, the guest sign-in, Copy connect link, Allow, troubleshooting. Listed, not yet measured. |
+| [Connect another MCP client](/connect/other/) | A Streamable HTTP server named `socom2legacy`, the guest sign-in, Copy connect link, Allow, and what a client must support (OAuth with dynamic registration and PKCE, the `bootstrap` scope). |
+
+### For agents, on every page
+
+Every page's last section is headed **For agents** and holds one JSON object:
+
+| key | what it holds |
+|---|---|
+| `page` | The page's address on this site, such as `/anatomy/`. |
+| `audience` | Who the page is for: one or more of `players`, `creators`, `agents`. |
+| `summary` | One line: what the page says. |
+| `inputs` | What a reader brings to the page (a file, a code, a question). |
+| `outputs` | What the reader leaves with. |
+| `see_also` | The addresses of the pages to read next. |
+
+The wiki's drift test (`shared/modding-wiki/scripts/drift.test.mjs`) fails when a page has no such block, when its
+JSON does not parse or its keys differ, or when a page is missing from this map or from `/llms.txt`.
+
+## More
+
+| page | what it is |
+|---|---|
+| [Contributing to the wiki](/contributing/) | How to edit or add a page, the status rule, the drift tests and the static check. |
+
+## For agents
+
+```json
+{
+  "page": "/map/",
+  "audience": [
+    "players",
+    "creators",
+    "agents"
+  ],
+  "summary": "The wiki's information architecture: every page, grouped for players, creators and agents, with the planned pages named.",
+  "inputs": [
+    "a goal: install a pack, make one, publish one, or read the rules as data"
+  ],
+  "outputs": [
+    "the page to read for that goal",
+    "the agent block convention every page ends with"
+  ],
+  "see_also": [
+    "/",
+    "/guides/test-locally/",
+    "/anatomy/",
+    "/reference/manifest/"
+  ]
+}
+```

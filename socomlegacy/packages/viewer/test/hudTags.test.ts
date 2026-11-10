@@ -2,9 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import { PerspectiveCamera, Vector3 } from 'three';
 import {
-  MP_TEAM_TAG_CULL_READING, MP_TEAM_TAG_TALKER_ADAPTATION, TEAMMATE_NAME_DISTANCE_ADAPTATION, TEAMMATE_NAMES_ORIGINAL_VALUE, teamTagInput,
+  MP_TEAM_TAG_CULL_READING, MP_TEAM_TAG_TALKER_ADAPTATION, TEAMMATE_NAME_DISTANCE_ADAPTATION, teamTagInput,
   teamTags, type TeamTagBody, type TeamTagInput, type TeamTagPoint, type TeamTagsView,
 } from '../src/hudTags';
+import * as hudTagsModule from '../src/hudTags';
 import {
   MP_TEAM_TAG_LINE_HEIGHT_READING, MP_TEAM_TAG_TOP_MARGIN_READING, MP_TEAM_TAG_WIDE_FRAME_ADAPTATION, TEAM_TAG_LAYOUT, teamTagLayout,
 } from '../src/hud';
@@ -228,7 +229,8 @@ describe('NU-9 T1: teamTagInput -- the page\'s rows, names, sides, heads and the
 /**
  * LATER 671 (OT.R101; product track, **a browser adaptation**, `TEAMMATE_NAME_DISTANCE_ADAPTATION`): by default the tags
  * are drawn smaller than the original's 0.9 and fade with the teammate's distance from the camera; TEAMMATE NAMES'
- * "original" setting (`DISPLAY_MP_TEAM_NAMES` 2, `TEAMMATE_NAMES_ORIGINAL_VALUE`) keeps the original's tags exactly --
+ * "original" look (SS-2, H422 answered (a): this browser's `s2u.viewer.nameTags` at `original`, `../src/nameTags`; it was
+ * `DISPLAY_MP_TEAM_NAMES` 2 until then) keeps the original's tags exactly --
  * 0.9 (D:L77539), alpha 100 alive, 100 - 20 t dead (D:L77427-77433), no distance term.
  */
 describe('LATER 671: the name tags smaller and fading with distance by default; the original behind TEAMMATE NAMES "original"', () => {
@@ -239,7 +241,7 @@ describe('LATER 671: the name tags smaller and fading with distance by default; 
   it('the adaptation\'s values (the controller\'s starting values, the owner\'s to tune): 0.7, full to 250 units, 35% from 1000', () => {
     expect(A).toEqual({ scale: 0.7, near: 250, far: 1000, minAlpha: 0.35 });
     expect(A.scale).toBeLessThan(TEAM_TAG_LAYOUT.scale);
-    expect(TEAMMATE_NAMES_ORIGINAL_VALUE).toBe(2);
+    expect('TEAMMATE_NAMES_ORIGINAL_VALUE' in hudTagsModule).toBe(false);   // SS-2 (H422 (a)): no card value 2; the look is `s2u.viewer.nameTags`
   });
 
   it('(a) the original setting: today\'s points for a near and a far teammate -- alpha 100 alive, 100 - 20 t dead, scale 0.9', () => {

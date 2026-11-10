@@ -97,6 +97,32 @@ describe("the gate's bound has one reader: LookContext.rateMax (the gameplay sea
   });
 });
 
+describe("RB-2 (RB.R4, RB.R6): the gate's open mode is the page's own room's alone", () => {
+  const pkgs = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const files = (d: string): string[] => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? files(p) : p.endsWith('.ts') ? [p] : []; });
+  const naming = (dir: string, needle: RegExp): string[] =>
+    files(join(pkgs, dir)).filter((f) => needle.test(readFileSync(f, 'utf8'))).map((f) => relative(pkgs, f).split(sep).join('/'));
+
+  it('in the match server and central no source names lookRate but room.ts, which declares and reads it', () => {
+    expect(naming('match/src', /lookRate/)).toEqual(['match/src/room.ts']);
+    expect(naming('central/src', /lookRate/)).toEqual([]);
+  });
+
+  it("no source in the match server, central or the page's network client opens a gate ('free')", () => {
+    const open = /new LookGate\(\s*['"]free['"]|lookRate\s*:\s*['"]free['"]/;
+    expect(naming('match/src', open)).toEqual([]);
+    expect(naming('central/src', open)).toEqual([]);
+    for (const f of ['net/client.ts', 'net/moverSim.ts']) expect(readFileSync(join(pkgs, 'viewer/src', f), 'utf8'), f).not.toMatch(open);
+  });
+
+  it("the room opens its movers' gates only through roomLookGateMode, which asks for solo", () => {
+    const room = readFileSync(join(pkgs, 'match/src/room.ts'), 'utf8');
+    expect(room).toMatch(/opts\.solo\s*&&\s*opts\.lookRate\s*===\s*'free'/);
+    expect(room.match(/new LookGate\(/g) ?? []).toHaveLength(1);
+    expect(room).toMatch(/new LookGate\(ai \? 'law' : roomLookGateMode\(this\.opts\)\)/);   // RB-47: a CPU seat keeps the law
+  });
+});
+
 describe('the play options carry the stick: the stored preset, or CUSTOM\'s sliders', () => {
   it('playOptionsOf: stick_preset 2 -> SEAL; 3 -> the session\'s sliders; none stored -> RECRUIT', () => {
     const valves = new ValveStore(), globals = new OptionGlobals();

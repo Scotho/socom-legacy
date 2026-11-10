@@ -27,7 +27,7 @@ import {hdTextures} from './hdTexturePack';
 /**
  * The in-game HUD (socomlegacy/docs/research/87-hud.md): SOCOM II's own multiplayer HUD drawn over the world in walk mode --
  * the ammo box (panel, "30/30", "2 MAGS", the weapon's icon, the fire-mode rounds), the compass ring turned by the
- * heading, the info box (the health bar, the round timer, the range), the stance word on a stance change, the
+ * heading, the info box (the health bar, the round timer, the consoles' count), the stance word on a stance change, the
  * context-action icon (the climb icon among them) and the message banner -- out of the game's own bitmaps and font
  * (`./hudAssets`, `./hudFont`), at the places `CHUD`'s code puts them (research 87 §1: the constants read out of
  * the ELF) and the console frames show them (`scripts/parity/refs/console_spawn_slot8.png`; research 87 §2).
@@ -134,7 +134,11 @@ export const HUD_LAYOUT = {
     box: { x: 488, y: 418, w: 134, h: 20 },
     /** `"%02d:%02d"` at (500, 433), scale 0.9. */
     timer: { x: 500, y: 433, scale: 0.9 } as TextSpot,
-    /** `"%dm"` at (587, 433), scale 0.9. */
+    /**
+     * HUD-ALIVE B (research 87 §1.12, corrected): the info box's number, `CHUD+0x19cc0`, at (587, 433) (`DAT_003dc3a8/b0`),
+     * scale 0.9 (0x3f666666), set up online only (`FUN_001fa360` D:L57455-57471): the connected consoles' count,
+     * `infoNumberText`. The element keeps its old name, 'range'. (Was: `"%dm"`, the port's range readout.)
+     */
     range: { x: 587, y: 433, scale: 0.9 } as TextSpot,
   },
   /** `PoseBitmap`'s word, multiplayer place: right-aligned to x 480, baseline 431, scale 0.765 (`FUN_00222010`). */
@@ -190,6 +194,19 @@ export const HUD_LAYOUT = {
     countBox: { x: 582, y: 359, w: 16, h: 16 },
     name: { x: 622, y: 352, scale: 0.9, align: 'right' } as TextSpot,
   },
+} as const;
+
+/**
+ * HUD-ALIVE (OT.R117; **a browser adaptation**, `./hudVoice` `HUD_ALIVE_COUNTS_ADAPTATION`, the owner's words there):
+ * where the Terrorists-alive number sits. The original draws no number in the voice element's right corner, so its place
+ * is ours: the left number's box (582-598 x 359-375, the number centred on x 589, `HUD_LAYOUT.voice`) mirrored about the
+ * channel icon's centre x 606 (590 + 32 / 2) -- the box 614-630 x 359-375, the number centred on x 623 = 2 x 606 - 589 --
+ * at the left number's baseline 371, scale 0.8, box colour and text colour. It sits under the speaker's line (baseline
+ * 352), clear of it.
+ */
+export const HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION = {
+  count: { x: 623, y: 371, scale: 0.8, align: 'centre' } as TextSpot,
+  countBox: { x: 614, y: 359, w: 16, h: 16 },
 } as const;
 
 /**
@@ -779,8 +796,22 @@ export interface HudModel {
   health: number;
   /** The round timer, seconds; static in the viewer (a round's six minutes). */
   timer: number;
-  /** The range readout, metres, or null for none (nothing under the reticle within the weapon's range). */
+  /**
+   * The range finder's metres, or null for none (nothing under the reticle within the weapon's range): the scope's and
+   * binoculars' `RANGE(m)` line, and the info box's spot only while this browser's range readout is on (`rangeReadout`).
+   */
   range: number | null;
+  /**
+   * HUD-ALIVE B: the info box's number (`infoNumberText`) -- the connected consoles' count (`validClientCount`,
+   * `INFO_CLIENT_COUNT_READING`) and whether this page is the session master (`INFO_SESSION_MASTER_READING`); null with no
+   * room, the original's offline (the number hidden, `FUN_001fa360` D:L57455-57456).
+   */
+  infoNumber: { count: number; master: boolean } | null;
+  /**
+   * HUD-ALIVE C (`./rangeReadout` `RANGE_READOUT_ADAPTATION`, a browser adaptation): this browser's range readout on --
+   * the info box's spot shows the range finder's `"<n>m"` in the count's place. Absent or false: the count (the original).
+   */
+  rangeReadout?: boolean;
   message: string | null;
   /** The event banner's messages, oldest first. */
   banner: BannerMessage[];
@@ -854,8 +885,9 @@ export interface HudModel {
    */
   teammateNames?: boolean;
   /**
-   * LATER 671 (OT.R101; a browser adaptation): TEAMMATE NAMES' "original" setting (`DISPLAY_MP_TEAM_NAMES` 2): the
-   * page's `teamTags` then makes the original's tags (`./hudTags` `TeamTagInput.original`). Absent: the adaptation.
+   * LATER 671 (OT.R101; a browser adaptation): the "original" look of the tags -- SS-2 (H422 answered (a)): this
+   * browser's Name tags (`./nameTags`), no longer a card value -- the page's `teamTags` then makes the original's tags
+   * (`./hudTags` `TeamTagInput.original`). Absent: the adaptation.
    */
   teammateNamesOriginal?: boolean;
   /**
@@ -868,7 +900,7 @@ export interface HudModel {
 
 export const DEFAULT_MODEL: HudModel = {
   rounds: 30, capacity: 30, spare: 2, reloading: false, fireMode: 'burst', weaponIcon: 'm4carbine_icon.tif',
-  yaw: 0, action: null, actionColour: 'green', actionSides: [], stance: 'stand', name: '', health: 1, timer: 6 * 60, range: null,
+  yaw: 0, action: null, actionColour: 'green', actionSides: [], stance: 'stand', name: '', health: 1, timer: 6 * 60, range: null, infoNumber: null,
   message: null, banner: [], fader: 0, navPoints: [], position: null, scoreboard: false, game: { name: '', type: '' },
   scoreRows: { rows: null, spectators: [] }, zoom: 1,
 };
@@ -979,8 +1011,6 @@ export const SPECTATOR_HEADSHOTS_PLACEHOLDER = null;
 export const SPECTATOR_FOLLOWED_HEALTH_READING = "the viewed body's overall health from the room's six part bytes (healthOf)";
 /** SPECTATOR_OWN_INFO_PLACEHOLDER (research 282 §4): free and scenic, the spectator's own object's bar and name; none drawn. */
 export const SPECTATOR_OWN_INFO_PLACEHOLDER = null;
-/** SPECTATOR_INFO_NUMBER_PLACEHOLDER (research 282 §6): the number at (587, 433) for a seat viewing another; not drawn. */
-export const SPECTATOR_INFO_NUMBER_PLACEHOLDER = false;
 /** SPECTATOR_HELP_TAIL_PLACEHOLDER (research 282 §3): help lines 5 and 6, shown but never written on this path; none drawn. */
 export const SPECTATOR_HELP_TAIL_PLACEHOLDER: readonly string[] = [];
 /**
@@ -1182,7 +1212,9 @@ export const SPECTATOR_HIDES: ReadonlySet<HudElement> = new Set<HudElement>([
   'compass', 'marks',                               // `FUN_00212260` (D:L56359; D:L68360-68369)
   'action', 'actionSides', 'actionCaption', 'holdBar', 'c4FuseBar',   // the prompts and their children (D:L56325)
   'stance', 'zoom', 'scopeRange',                   // D:L56328, D:L56338; the reticle's root (D:L56327)
-  ...(SPECTATOR_INFO_NUMBER_PLACEHOLDER ? [] : ['range' as const]),
+  // Not the number at (587, 433), 'range': written online each frame with no seat test (D:L56605-56613), hidden by the
+  // hide-all offline only (D:L56320-56324), shown each frame with SPECTATOR HUD on (D:L56803-56806) -- the review's F3,
+  // HUD-ALIVE; research 282 §6 (was `SPECTATOR_INFO_NUMBER_PLACEHOLDER`, false: not drawn).
 ]);
 /**
  * LATER 117 (research 282 §9): what a dead player watching a teammate does not draw -- the hide-all's set less the weapon
@@ -1306,6 +1338,44 @@ export function ammoLines(m: Pick<HudModel, 'rounds' | 'capacity' | 'spare' | 'm
   return { rounds: `${m.rounds}/${m.capacity}`, mags: m.spare > 0 && !m.magsHidden ? `${m.spare} MAG${m.spare === 1 ? '' : 'S'}` : null };
 }
 
+/**
+ * INFO_CLIENT_COUNT_READING (HUD-ALIVE B; research 87 §1.12, research 101): who the info box's number counts. The original
+ * counts `FUN_0030d510(0x45a0c0)` = `zNetGetValidGameClientCount` (research 193 §M2): through `FUN_00623090`
+ * (D:L532383-532408), the network table's entries whose status byte is 1 (`FUN_00615160` D:L523200-523233) -- the
+ * consoles connected to the game, players and spectators alike. The port has no such table at the page; it counts the
+ * room's human seats (the score rows less the bots, `ScoreRow.bot`, which are no consoles: the original has no online
+ * bots) and the spectators the room names (`Hud.spectatorCount`). [reading, pending review: whether a parked or
+ * reconnecting seat (OT.R59, NET-RES.R6) is still a valid client, and a console mid-join, are not traced; the archived
+ * frames' 1v1 "2" agrees]
+ */
+export const INFO_CLIENT_COUNT_READING = 'the human seats among the score rows plus the spectators' as const;
+/**
+ * INFO_SESSION_MASTER_READING (HUD-ALIVE B; research 101): which page draws the "m" -- the original's session master
+ * (`DAT_0045a0c0`, `IsSessionMaster`; `FUN_001f7ff0` D:L56607-56611), the console hosting the game. Here the match server
+ * is that host for every game (`@s2u/match` `gameLobby.ts`'s header); its stand-in is the seat wearing the game lobby's
+ * host star (`gameLobby` seats' `host`, `NetClient.sessionMaster`). A room with no game lobby (the test room's) names no
+ * master, so its pages draw "%d". [reading, pending review: the archived frames show "2m" on the host and "2" on the client]
+ */
+export const INFO_SESSION_MASTER_READING = "the seat wearing the game lobby's host star; none in a room without a game lobby" as const;
+
+/** HUD-ALIVE B (`INFO_CLIENT_COUNT_READING`): the connected consoles -- the room's human seats and its spectators. */
+export function validClientCount(rows: readonly { bot?: true }[], spectators: number): number {
+  return rows.filter((r) => r.bot !== true).length + spectators;
+}
+
+/**
+ * The info box's number at (587, 433). HUD-ALIVE B: online, the connected consoles' count, `"%d"` (0x3e3080) or `"%dm"`
+ * (0x3e3078) on the session master (`FUN_001f7ff0` D:L56605-56613; the "m" means "this console hosts", not metres); null
+ * with no room (hidden offline, `FUN_001fa360` D:L57455-57456). HUD-ALIVE C (`./rangeReadout`, a browser adaptation,
+ * off by default): with this browser's range readout on, a walker's range finder `"<n>m"` in its place, none with no
+ * range; a seat viewing another keeps the count (the review's F3).
+ */
+export function infoNumberText(m: Pick<HudModel, 'infoNumber' | 'range' | 'rangeReadout' | 'spectator'>): string | null {
+  // The readout is the walker's range finder; a seat viewing another (`spectator` set) keeps the count (the review's F3).
+  if (m.rangeReadout === true && !m.spectator) return m.range === null ? null : `${Math.round(m.range)}m`;
+  return m.infoNumber ? `${m.infoNumber.count}${m.infoNumber.master ? 'm' : ''}` : null;
+}
+
 /** `"%02d:%02d"`. */
 export function timerText(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -1427,7 +1497,7 @@ export function hudLayout(
     }
   }
 
-  // The info box: the health bar and the name on it, the timer line's box, the timer, the range.
+  // The info box: the health bar and the name on it, the timer line's box, the timer, the number (HUD-ALIVE B).
   // PAR-48: a seat viewing another shows the viewed body's (`FUN_00238500` D:L85555-85569), the walker's model untouched.
   const view = model.spectator ?? null, away = view !== null && view.path !== 'own';
   const body = away && view ? view.followed ?? SPECTATOR_OWN_INFO_PLACEHOLDER : null;
@@ -1450,7 +1520,8 @@ export function hudLayout(
   }
   // XR-06: the fuse in the round timer's place while it runs (DEFUSE_TIMER_LAYOUT_READING).
   text('timer', timerText(model.defuseTimer ?? view?.roundTimer ?? model.timer), I.timer, R);
-  if (model.range !== null) text('range', `${Math.round(model.range)}m`, I.range, R);
+  const infoNumber = infoNumberText(model);   // HUD-ALIVE B: the consoles' count ("%d" / "%dm"); C: the range readout, when on
+  if (infoNumber !== null) text('range', infoNumber, I.range, R);
 
   // MATCH-05 (research 170 §5.2): the voice element -- the number's box and the number, always (`FUN_00238ac0`
   // D:L85716-85717), the speaker's line, the channel icon and the talk / busy icon when they have a texture.
@@ -1461,6 +1532,11 @@ export function hudLayout(
     const iconA = timing.voice?.icon ?? rest, talkA = timing.voice?.talk ?? rest;
     bitmap('voice', WHITE, R(V.countBox.x), Y(V.countBox.y), V.countBox.w * s, V.countBox.h * s, HUD_COLOURS.voiceBox);
     text('voice', v.count, V.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
+    if (v.right != null) {   // HUD-ALIVE (OT.R117, a browser adaptation): the Terrorists alive, the left box mirrored
+      const A = HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION;
+      bitmap('voice', WHITE, R(A.countBox.x), Y(A.countBox.y), A.countBox.w * s, A.countBox.h * s, HUD_COLOURS.voiceBox);
+      text('voice', v.right, A.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
+    }
     if (v.name) text('voice', v.name, V.name, R);
     if (v.icon) bitmap('voice', v.icon, R(V.icon.x), Y(V.icon.y), V.icon.w * s, V.icon.h * s, [1, 1, 1, iconA]);
     if (v.talk) bitmap('voice', v.talk, R(V.talk.x), Y(V.talk.y), V.talk.w * s, V.talk.h * s, [1, 1, 1, talkA]);
@@ -1690,7 +1766,7 @@ export interface BottomEdge { element: HudElement; x0: number; x1: number; top: 
 export function bottomHudEdges(frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>): BottomEdge[] {
   const edges = new Map<HudElement, BottomEdge>();
   for (const stance of ['stand', 'crouch', 'prone'] as const) {
-    const probe: HudModel = { ...DEFAULT_MODEL, name: DEFAULT_PLAYER, range: 999, zoom: 10, stance };
+    const probe: HudModel = { ...DEFAULT_MODEL, name: DEFAULT_PLAYER, range: 999, rangeReadout: true, zoom: 10, stance };   // HUD-ALIVE C: "999m" outspans the count
     const { rects } = hudLayout(frame, probe, sizes, { fade: 1, stance: 1, pulse: 0 });
     for (const element of SCOREBOARD_KEEPS_BOTTOM) {
       const r = rects[element];
@@ -1791,7 +1867,9 @@ export interface HudView {
 }
 
 /**
- * The info box's range (`"%dm"`): how far the surface under the reticle is, in metres (`MetersPerUnit` 0.1), along
+ * The range finder -- the scope's and binoculars' `RANGE(m)` line (research 87 §13), and the info box's spot only while
+ * this browser's range readout is on (HUD-ALIVE C, `./rangeReadout`; the original's number there is the consoles' count,
+ * `infoNumberText`): how far the surface under the reticle is, in metres (`MetersPerUnit` 0.1), along
  * a segment from the eye through the aim point, `reach` long (1000 units by default) -- the viewer's reading of the
  * readout [estimate: the game's own source for the number was not traced]. Not the shot's eye ray: that one is
  * `min(max(range, 600), the camera's MID + the view's extension)` long since AD-1 (`./fire` `aimReach`, research 232
@@ -2277,11 +2355,12 @@ export class Hud {
   /**
    * NU-9 (c) T4: the TEAMMATE NAMES option (`DISPLAY_MP_TEAM_NAMES`), read once at the match's mount as the HUD's set-up
    * reads it (D:L77558-77559; research 329 §1.8): off hides the name texts only, the talk sprites drawn still.
-   * LATER 671 (OT.R101; a browser adaptation): `original`, the setting's "original" (`./hudTags`
-   * `TEAMMATE_NAMES_ORIGINAL_VALUE`) -- the original's tags, `teammateNamesOriginal()`; else the adaptation's.
+   * LATER 671 (OT.R101; a browser adaptation): `original`, the "original" look -- SS-2: this browser's Name tags
+   * (`./nameTags` `readNameTags`), the card holding only on / off -- the original's tags, `teammateNamesOriginal()`;
+   * else the adaptation's.
    */
   setTeammateNames(on: boolean, original = false): void { this.model.teammateNames = on; this.model.teammateNamesOriginal = on && original; }
-  /** LATER 671: TEAMMATE NAMES' "original" setting as set (`setTeammateNames`); false by default (the adaptation, OT.R101). */
+  /** LATER 671, SS-2: the "original" look as set (`setTeammateNames`); false by default (the adaptation, OT.R101). */
   teammateNamesOriginal(): boolean { return this.model.teammateNamesOriginal === true; }
   /**
    * NU-9 (c) T4: the TEAMMATE NAMES option as set (`setTeammateNames`), on unless set off -- one value for the tags and the
@@ -2311,6 +2390,10 @@ export class Hud {
     }
   }
   setRange(metres: number | null): void { this.model.range = metres; }
+  /** HUD-ALIVE B: the info box's number (`infoNumberText`): the consoles' count and the session master; null, none (no room). */
+  setInfoNumber(count: number | null, master: boolean): void { this.model.infoNumber = count === null ? null : { count, master }; }
+  /** HUD-ALIVE C (`./rangeReadout`, a browser adaptation): this browser's range readout on -- the range in the count's spot. */
+  setRangeReadout(on: boolean): void { this.model.rangeReadout = on; }
   /**
    * A message on the message window (the round start's), as the game posts one: in over 0.36 s, out 7 s later, the
    * newest at the bottom (research 87 §14 lists what the game posts). TAUNT-WRAP (research 87 §14.1; reading, pending

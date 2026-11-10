@@ -3,7 +3,7 @@ import type { Rgba } from '@s2u/gs';
 import type { UiDrawItem, UiModelTriangle, UiModelVertex } from '@s2u/ui';
 import {
   GS_BILINEAR_WEIGHT_READING, GS_BLEND_ROUNDING_READING, GS_SPRITE_SUBPIXEL_READING, UI_2D_QUAD_Z_READING,
-  UI_MODEL_DEPTH_FORMAT_READING, UI_MODEL_EDGE_RULE_READING, UI_MODEL_GOURAUD_READING, UI_QUAD_ALPHA_RANGE_READING,
+  UI_MODEL_DEPTH_FORMAT_READING, UI_MODEL_DEPTH_QUANTISE_READING, UI_MODEL_EDGE_RULE_READING, UI_MODEL_GOURAUD_READING, UI_QUAD_ALPHA_RANGE_READING,
   UI_TEXTURE_WRAP_READING, columnAxis, coverageBounds, rowAxis, wrap,
 } from '../src/uiRasterRules';
 import { rasterizeUiDrawList } from '../src/uiCompositorView';
@@ -13,6 +13,9 @@ import { rasterizeUiDrawList } from '../src/uiCompositorView';
  * source, named. Each constant's value says what today's software does; each test drives that software and shows the
  * behaviour the value names (and, where the GS would differ, the byte the GS's rule would give instead), so a change to
  * either side fails here. Nothing in the drawer changes: the values are today's behaviour.
+ * GM-15d (the plan's Log, R1 resolved by (a)): the edge and depth readings take the GS's rules -- top-left fill and
+ * `TEST_1` GEQUAL against an f32 store -- and a tenth, `UI_MODEL_DEPTH_QUANTISE_READING`, names the Z16S store the port
+ * does not model.
  */
 
 type Q4 = [number, number, number, number];
@@ -57,23 +60,46 @@ describe('GM-05b: the nine readings, each equal to the software\'s behaviour', (
     expect(px(f, 1, 0)).toEqual([200, 0, 0, 255]);
   });
 
-  it('UI_MODEL_EDGE_RULE_READING: a model triangle covers a pixel on any of its edges (inclusive on every edge)', () => {
-    expect(UI_MODEL_EDGE_RULE_READING).toBe('inclusive on every edge');
-    const f = draw([black, models(corner(1, [128, 0, 0, 128]))]);
-    for (const [x, y] of [[0, 0], [0, 4], [4, 0], [4, 4], [7, 1], [1, 7]] as const) expect(px(f, x, y), `${x},${y}`).toEqual([128, 0, 0, 255]);
-    expect(px(f, 5, 4)).toEqual([0, 0, 0, 255]);                 // x + y = 9: outside the hypotenuse x + y = 8
+  it('UI_MODEL_EDGE_RULE_READING: the GS\'s top-left rule -- a pixel on a left or top edge is the triangle\'s, on a right or bottom edge it is not (GM-15d)', () => {
+    expect(UI_MODEL_EDGE_RULE_READING).toBe('top-left: a pixel on a left or top edge in, on a right or bottom edge out');
+    const red: Q4 = [128, 0, 0, 128];
+    const f = draw([black, models(corner(1, red))]);
+    // x = 0 is the corner's left edge and y = 0 its top edge: in. The hypotenuse x + y = 8 is its right-and-bottom edge: out.
+    for (const [x, y] of [[0, 0], [0, 4], [4, 0], [1, 6], [6, 1], [3, 3]] as const) expect(px(f, x, y), `${x},${y} in`).toEqual([128, 0, 0, 255]);
+    for (const [x, y] of [[4, 4], [7, 1], [1, 7], [5, 4]] as const) expect(px(f, x, y), `${x},${y} out`).toEqual([0, 0, 0, 255]);
+    // The rule follows the edge, not the winding: the same triangle wound clockwise (a mesh that does not cull) covers
+    // the same pixels.
+    const cw: UiModelTriangle = { ...corner(1, red), cull: false, b: vtx(8, 0, 1, red), c: vtx(0, 8, 1, red) };
+    expect(draw([black, models(cw)]).data).toEqual(f.data);
+    // A shared edge is drawn once: the square (0,0)-(8,8) split along x + y = 8, additive, at an invW whose f32 rounds
+    // down (0.7) -- each pixel of the diagonal is the second triangle's (its left edge), never both.
+    const add = (x: number, y: number): UiModelVertex => vtx(x, y, 0.7, [60, 60, 60, 128]);
+    const glow = { width: 1, height: 1, data: new Uint8ClampedArray([128, 128, 128, 255]), blend: 'additive' as const };
+    const sq = rasterizeUiDrawList([{ kind: 'clear', rgb: [10, 10, 10] }, models(
+      { node: 'm', texture: 'g.tif', cull: true, a: add(0, 0), b: add(0, 8), c: add(8, 0) },
+      { node: 'm', texture: 'g.tif', cull: true, a: add(8, 0), b: add(0, 8), c: add(8, 8) })], (n) => (n === 'g.tif' ? glow : null)).frame;
+    for (let k = 1; k < 8; k++) expect(px(sq, k, 8 - k)[0], `diagonal ${k},${8 - k} drawn once`).toBe(10 + 60);
   });
 
-  it('UI_MODEL_DEPTH_FORMAT_READING: depth is invW stored in Float32, a later triangle must be strictly greater, the first wins a tie', () => {
-    expect(UI_MODEL_DEPTH_FORMAT_READING).toBe('float32 invW, strictly greater wins, 0 empty');
+  it('UI_MODEL_DEPTH_FORMAT_READING: depth is invW stored in Float32 and tested GEQUAL against the Float32 store, the later of two equal depths winning (TEST_1 ZTST GEQUAL; ZBUF_1 PSMZ16S) (GM-15d)', () => {
+    expect(UI_MODEL_DEPTH_FORMAT_READING).toBe('float32 invW, GEQUAL (the later of two equal depths wins), 0 empty');
     const red: Q4 = [128, 0, 0, 128], green: Q4 = [0, 128, 0, 128];
-    // Equal invW: the first drawn stays.
-    expect(px(draw([black, models(corner(0.5, red), corner(0.5, green))]), 1, 1)).toEqual([128, 0, 0, 255]);
-    // The first is nearer in Float64 (0.5 + 2e-9 > 0.5 + 1e-9), but its depth is stored as Float32 0.5, so the second,
-    // compared in Float64, is strictly greater and draws: a Float64 depth would keep red.
-    expect(px(draw([black, models(corner(0.5 + 2e-9, red), corner(0.5 + 1e-9, green))]), 1, 1)).toEqual([0, 128, 0, 255]);
+    // Equal invW: the later drawn wins (GEQUAL).
+    expect(px(draw([black, models(corner(0.5, red), corner(0.5, green))]), 1, 1)).toEqual([0, 128, 0, 255]);
+    // The second is farther in Float64 (0.5 - 1e-9 < 0.5) but its Float32 is the store's 0.5: f32 against f32, a tie,
+    // so it draws. An f64 compare would keep red (the port artefact R1 counted).
+    expect(px(draw([black, models(corner(0.5, red), corner(0.5 - 1e-9, green))]), 1, 1)).toEqual([0, 128, 0, 255]);
     // Farther by more than a Float32 step: hidden.
     expect(px(draw([black, models(corner(0.5, red), corner(0.25, green))]), 1, 1)).toEqual([128, 0, 0, 255]);
+  });
+
+  it('UI_MODEL_DEPTH_QUANTISE_READING: no quantisation -- the Float32 invW is the depth, where the GS stores a 16-bit Z at an unread scale (GM-15d)', () => {
+    expect(UI_MODEL_DEPTH_QUANTISE_READING).toBe('none: the float32 invW compared as it stands; the Z16S store and the menus\' Z scale unread');
+    const red: Q4 = [128, 0, 0, 128], green: Q4 = [0, 128, 0, 128];
+    // 0.5 + 2^-20 and 0.5 are distinct Float32 values: the farther green is hidden. A 16-bit Z at any scale that maps
+    // both to one unit would tie them, and GEQUAL would draw green.
+    expect(Math.fround(0.5 + 2 ** -20)).not.toBe(Math.fround(0.5));
+    expect(px(draw([black, models(corner(0.5 + 2 ** -20, red), corner(0.5, green))]), 1, 1)).toEqual([128, 0, 0, 255]);
   });
 
   it('UI_MODEL_GOURAUD_READING: a model\'s colour is interpolated perspective-correctly, not screen-linearly', () => {

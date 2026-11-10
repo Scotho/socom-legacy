@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ConsoleController, type Host } from '../../src/console/grammar';
+import * as icons from '../../src/console/icons';
 import { legendHtml, prompts } from '../../src/console/render/legend';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { createState, optCategories, OVERLAY_LOCK_WORDS, type Adapters, type ConsoleState } from '../../src/console/state';
@@ -76,12 +77,12 @@ describe('LR-46: the launcher\'s text one step larger, through one token', () =>
     expect(value(['.cx-crossbar__hint .cx-shoulder'], 'font-size', 1920)).toBe('1.125rem');
   });
 
-  // Every font size the sheet sets carries the token but these, named: the rail's, the brand lockup's, START's, the
-  // root's own scale (fit.ts) and the body's inherited default.
+  // Every font size the sheet sets carries the token but these, named: the rail's, START's, the root's own scale (fit.ts)
+  // and the body's inherited default. (The brand lockup's two went with RB-29's logo image; RB-45 took them out.)
   const KEPT = new Set([
     ':root[data-console]', 'body',
     '.cx-cat__label', '.cx-cat.is-current .cx-cat__label', '.cx-home.is-page .cx-cat__label', '.cx-home.is-page .cx-cat.is-current .cx-cat__label', '.cx-crossbar__hint .cx-shoulder',
-    '.cx-header .cx-brand__name', '.cx-header .cx-brand__sub', '.cx-legend .cx-start',
+    '.cx-legend .cx-start',
   ]);
   it('every other font size in console.css goes through the token (one knob, not element by element)', () => {
     const off: string[] = [];
@@ -95,6 +96,15 @@ describe('LR-46: the launcher\'s text one step larger, through one token', () =>
     }
     expect(off).toEqual([]);
     expect(css).toContain('LR-46');
+  });
+
+  // RB-45 (e), wave 1's review: RB-29 drew the brand as the logo image, so the lockup's text sizes left the sheet; a
+  // kept name the sheet no longer sizes is an exemption nothing uses, and the emblem the image replaced is gone with it.
+  it('every kept name still sizes a font in console.css, and the replaced emblem is not exported', () => {
+    const sizes = (sel: string): boolean => PAGE_RULES.some((r) => r.sel.includes(sel)
+      && declsOf(r.body).some(([n, v]) => (n === 'font' || n === 'font-size') && /\d(?:rem|px|em)\b/.test(v)));
+    expect([...KEPT].filter((k) => !sizes(k))).toEqual([]);
+    expect(Object.keys(icons)).not.toContain('EMBLEM');
   });
 });
 

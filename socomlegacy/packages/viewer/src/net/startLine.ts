@@ -8,8 +8,9 @@
  * owner's ruling: a muzzle these lines meet a wall on sends its round from the head, so the page and the room agree and
  * a round cannot pass the wall the barrel poked through.
  */
-import { segmentHit, type Grid } from '@s2u/scene';
+import { segmentHit, type Grid, type WorldPoly } from '@s2u/scene';
 import { headEye } from '../cameraRig';
+import { roundAdmits } from '../round';
 import { headPoint, targetHeight, type AimFrame } from './shotCone';
 
 type V3 = [number, number, number];
@@ -28,9 +29,25 @@ export function startLines(grid: Grid, b: StartBody): { head: V3; axis: V3 } {
   return { head, axis: [x, y + targetHeight(b.posture, b.moveRoot), z] };
 }
 
-/** Whether a wall, any polygon, stands on the head's line or the axis's line to the start `to`. */
-export function startWalled(grid: Grid, b: StartBody, to: readonly number[]): boolean {
+/** The polygons a start's two lines meet (`startWalled`'s `admits`): every one by default. */
+export type StartAdmits = (poly: WorldPoly) => boolean;
+
+/**
+ * LEAN-WALLED (issue #752 defect 2, research 390 §1-§2; reading, pending review): what a round's start lines meet --
+ * only what the round's own flight can meet, so OT.R80 never refuses a round its flight would pass: the round's query
+ * class (`../round` `roundAdmits`, `FUN_002d3030` class 0, LATER 413) less a surface whose PENETRATION is exactly 1,
+ * which the walk passes over unmarked (`FUN_003c9b70` D:L320028-320030, r4 0x3ebf28-0x3ebf40; `../accuracy`
+ * `penetrate`) -- an r0004 INVISIBLE_DI wall among them. With no material table (`null`) the round query class alone, as
+ * the page's flight then stops at every admitted polygon. A throw's, a launcher round's and a rocket's starts keep every
+ * polygon (research 390 §3: their flights are not the round's walk).
+ */
+export function roundStartAdmits(penetrationOf: ((material: number | undefined) => number) | null): StartAdmits {
+  return penetrationOf ? (p) => roundAdmits(p) && penetrationOf(p.material) !== 1 : roundAdmits;
+}
+
+/** Whether a wall -- a polygon `admits` takes, any polygon by default -- stands on the head's line or the axis's line to the start `to`. */
+export function startWalled(grid: Grid, b: StartBody, to: readonly number[], admits: StartAdmits = () => true): boolean {
   const { head, axis } = startLines(grid, b);
   const end: V3 = [to[0]!, to[1]!, to[2]!];
-  return segmentHit(grid, head, end) !== null || segmentHit(grid, axis, end) !== null;
+  return segmentHit(grid, head, end, admits) !== null || segmentHit(grid, axis, end, admits) !== null;
 }

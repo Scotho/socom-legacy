@@ -36,6 +36,8 @@ const output = vi.hoisted(() => ({
   plays: [] as { launcher: Object3D; hand: Object3D }[], stowed: [] as boolean[],
   /** NU-12 B2: each stand-in `Play`'s rebuilds (`respawn`), by its index in `plays`; the clip source its layers read. */
   respawns: [] as number[], sources: [] as unknown[],
+  /** REMOTE-RELOAD: each stand-in `Play`'s `remoteReload` (its index, then the arguments) and `stopRemoteReload` (its index). */
+  reloads: [] as unknown[][], reloadStops: [] as unknown[][],
 }));
 vi.mock('../src/bodyView', () => ({
   buildBody: (loaded: unknown) => {
@@ -69,6 +71,8 @@ vi.mock('../src/play', async () => { const { Group: G } = await import('three');
   setSidearm(o: Object3D | null) { output.sidearms.push(o); }
   addPoseLayer() {} motionSource() { return output.sources[0] ?? null; } onEvent() {}
   respawn() { output.respawns.push(output.plays.indexOf(this)); }
+  remoteReload(...args: unknown[]) { output.reloads.push([output.plays.indexOf(this), ...args]); }
+  stopRemoteReload(why: string) { output.reloadStops.push([output.plays.indexOf(this), why]); }
   frame(_dt: number, walk: { snapshot(): unknown }) { output.snapshots.push(walk.snapshot()); }
   animStats() { return { clip: 'seal_death_back', frame: 12.5, frames: 40 }; }
 } }; });
@@ -640,5 +644,43 @@ describe('NU-12 B2: the copy rebuilt at its seat\'s spawn (RemotePlayers.frame; 
     lowered.frame(at(true, 1));
     expect(binocs(lowered.remote)).toMatchObject({ clip: 'seal_stand2binocular', up: false });
     expect(binocs(lowered.remote).weight).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * REMOTE-RELOAD (`REMOTE_RELOAD_MOTION_READING`, research 91 section 22.2): a reload heard for another body
+ * (`RemotePlayers.reload`, from the room's `reloadSound` at the take) starts that body's play's reload clip with the
+ * room's posture, seconds, family and moving (`Play.remoteReload`: the posture's still clip, or the family's moving
+ * overlay); the stick's cut is the play's own (`Play.frame`, `test/remoteReload.test.ts`). A body not drawn, or an event
+ * without the room's seconds (an older room), starts none; a flinch and a death reach the play by name (`Play.stopRemoteReload` decides: a death any clip, a flinch a crouched or prone still one).
+ */
+describe("REMOTE-RELOAD: a reload heard for another body starts its play's reload clip (RemotePlayers.reload)", () => {
+  it("the drawn body's play gets the room's posture, seconds, family and moving; a body not drawn or no seconds starts none", () => {
+    const { remote, frame } = rig();
+    frame(true);
+    const at = output.plays.length - 1, before = output.reloads.length;
+    remote.reload(3, { posture: 'crouch', seconds: 1.9, family: 'rifle', moving: false });
+    remote.reload(3, { posture: 'stand', seconds: 1.2, family: 'pistol', moving: true });
+    remote.reload(9, { posture: 'stand', seconds: 1.6, family: 'rifle', moving: false });   // not drawn
+    remote.reload(3, {});                                                                // an older room's: sound only
+    expect(output.reloads.slice(before)).toEqual([[at, 'crouch', 1.9, 'rifle', false], [at, 'stand', 1.2, 'pistol', true]]);
+  });
+
+  it("absent posture, family or moving: the play's own stance, the item's family, still", () => {
+    const { remote, frame } = rig();
+    frame(true);
+    const at = output.plays.length - 1, before = output.reloads.length;
+    remote.reload(3, { seconds: 1.6 });
+    remote.reload(3, { seconds: 1.6, posture: 'sideways' as never, family: 'laser' as never });   // malformed: none
+    expect(output.reloads.slice(before)).toEqual([[at, null, 1.6, null, false], [at, null, 1.6, null, false]]);
+  });
+
+  it("a flinch and a death reach the copy's play, each by its name (the play decides what each pops)", () => {
+    const { remote, frame } = rig();
+    frame(true);
+    const at = output.plays.length - 1, before = output.reloadStops.length;
+    remote.flinch(3, 'seal_flinch_front');
+    remote.died(3, 'seal_death_back');
+    expect(output.reloadStops.slice(before)).toEqual([[at, 'flinch'], [at, 'death']]);
   });
 });

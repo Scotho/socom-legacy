@@ -46,77 +46,66 @@ function mounted(library: ModLibrary = memoryModLibrary()): {
   };
 }
 
+const line = (): string => document.getElementById('mods-line')!.textContent ?? '';
+const reload = async (): Promise<void> => { (document.getElementById('mod-reload-map') as HTMLButtonElement).click(); await new Promise((r) => setTimeout(r, 0)); };
+
+/**
+ * B206 ML-7 (plan 2026-11-06-mods-loader, ML.R14; OT.R110): the test room's mod panel is one line ("Mods: N on -- Home >
+ * Experiments > Mods") and Reload map. The mods are added, switched, ordered and removed in Home > Experiments > Mods
+ * (the one loader, the same store); Reload map reads them again, applies them, then reloads the map. The tables, the
+ * worker's message and the store are as before.
+ */
 describe('the test room mod panel', () => {
-  it('shows a loaded mod, a conflict the lower row wins, and reads the mod bytes only while mods are on', async () => {
+  it('is one line and Reload map: none of the old pickers, switches or list', async () => {
     const view = mounted();
     await view.panel.ready;
-    expect(document.getElementById('mod-reload')!.hidden).toBe(true);
+    expect([...document.getElementById('mods')!.children].map((e) => e.id)).toEqual(['mods-line', 'mod-reload-map']);
+    for (const id of ['mod-zip', 'mod-folder', 'mods-enabled', 'mod-list', 'mod-conflicts', 'mod-read', 'mod-store', 'mod-reload'])
+      expect(document.getElementById(id), id).toBeNull();
+    expect(line()).toBe('Mods: 0 on -- Home > Experiments > Mods.');
+    expect((document.getElementById('mod-reload-map') as HTMLButtonElement).textContent).toBe('Reload map');
+  });
+
+  it('Reload map reads what MODS changed, applies it to the tables and the worker, then reloads the map; a conflict is in the line', async () => {
+    const view = mounted();
+    await view.panel.ready;
     await view.panel.addZip('hello.zip', zip());
-    const row = document.querySelector('#mod-list li') as HTMLElement;
-    expect(row.dataset['state']).toBe('loaded');
-    expect(row.textContent).toContain('Hello notes');
-    expect(row.textContent).toContain('loaded');
-    expect(row.textContent).toContain('NOTES/HELLO.TXT added');
-    expect(document.getElementById('mod-read')!.dataset['from']).toBe('none');
-    expect(document.getElementById('mod-read')!.textContent).toContain('No active override.');
-    expect(document.getElementById('mod-reload')!.hidden).toBe(false);
-    expect(document.getElementById('mod-reload')!.textContent).toContain('Reload map to apply');
-    expect(localStorage.getItem('s2u.viewer.mods')).toBeNull();
-    expect(JSON.stringify(localStorage)).not.toContain('hello from the mod');
     const kept = await view.library.read();
     expect(kept.packages.map((mod) => mod.id)).toEqual(['hello-notes']);
     expect(new TextDecoder().decode(kept.packages[0]!.files.find((file) => file.name === 'HELLO.TXT')!.bytes)).toBe('hello from the mod');
-
-    // A person's own drop consents to the package. The global master remains a separate choice.
-    const firstBox = document.querySelector('[data-mod-toggle="hello-notes"]') as HTMLInputElement;
-    expect(firstBox.checked).toBe(true);
+    expect(localStorage.getItem('s2u.viewer.mods')).toBeNull();
+    expect(JSON.stringify(localStorage)).not.toContain('hello from the mod');
+    // A person's own drop consents to the package; the global master stays a separate choice (MODS's).
     expect(kept.choices.enabled).toBe(false);
-    expect(kept.choices.disabled).not.toContain('hello-notes');
+    expect(view.panel.isApplied('hello-notes')).toBe(false);
+    expect(line()).toBe('Mods: 0 on -- Home > Experiments > Mods.');
 
-    const master = document.getElementById('mods-enabled') as HTMLInputElement;
-    master.checked = true;
-    master.dispatchEvent(new Event('change', { bubbles: true }));
-    await vi.waitFor(() => expect(document.getElementById('mod-read')!.dataset['from']).toBe('mod'));
-    expect(document.getElementById('mod-read')!.textContent).toContain('NOTES/HELLO.TXT');
-    expect(document.getElementById('mod-read')!.textContent).toContain('hello from the mod');
-    expect((await view.library.read()).choices).toMatchObject({ enabled: true, order: ['hello-notes'] });
+    await view.library.writeChoices({ ...kept.choices, enabled: true });          // MODS: mods on
+    await reload();
+    await vi.waitFor(() => expect(view.reloads).toBe(1));
+    expect(view.panel.isApplied('hello-notes')).toBe(true);
+    expect(line()).toBe('Mods: 1 on -- Home > Experiments > Mods.');
     expect(view.posted.at(-1)).toEqual({ kind: 'mod-disc' });
     expect(view.posted.at(-2)).toMatchObject({ kind: 'mods', entries: [{ path: 'NOTES/HELLO.TXT' }] });
 
-    view.tellDisc(['notes/hello.txt']);
-    await vi.waitFor(() => expect(document.querySelector('[data-mod-id="hello-notes"]')!.textContent).toContain('NOTES/HELLO.TXT replaces'));
+    await view.panel.addZip('other.zip', zip(manifest({ id: 'other-notes', name: 'Other notes' }), 'from the other mod'));
+    await vi.waitFor(() => expect(line()).toContain('1 conflict: NOTES/HELLO.TXT, other-notes wins over hello-notes.'));
+    expect(line()).toMatch(/^Mods: 2 on -- Home > Experiments > Mods\./);
 
-    const other = zip(manifest({ id: 'other-notes', name: 'Other notes' }), 'from the other mod');
-    await view.panel.addZip('other.zip', other);
-    expect((await view.library.read()).choices.enabled).toBe(true);
-    expect((await view.library.read()).choices.disabled).not.toContain('other-notes');
-    await vi.waitFor(() => expect(document.getElementById('mod-conflicts')!.textContent).toContain('other-notes wins'));
-    expect(document.getElementById('mod-conflicts')!.textContent).toContain('Conflict NOTES/HELLO.TXT: other-notes wins over hello-notes');
-    expect(document.getElementById('mod-read')!.textContent).toContain('from the other mod');
+    const now = await view.library.read();                                          // MODS: other-notes switched off
+    await view.library.writeChoices({ ...now.choices, disabled: [...now.choices.disabled, 'other-notes'] });
+    await reload();
+    await vi.waitFor(() => expect(view.reloads).toBe(2));
+    expect(line()).toBe('Mods: 1 on -- Home > Experiments > Mods.');
+    expect(view.panel.isApplied('other-notes')).toBe(false);
+    const sent = view.posted.at(-2) as { kind: string; entries: { path: string; bytes: Uint8Array }[] };
+    expect(sent.entries.map((e) => [e.path, new TextDecoder().decode(e.bytes)])).toEqual([['NOTES/HELLO.TXT', 'hello from the mod']]);
 
-    const otherRow = document.querySelector('[data-mod-id="other-notes"]') as HTMLElement;
-    const box = otherRow.querySelector('input') as HTMLInputElement;
-    box.checked = false;
-    box.dispatchEvent(new Event('change', { bubbles: true }));
-    await vi.waitFor(() => expect(document.getElementById('mod-read')!.textContent).toContain('hello from the mod'));
-
-    (document.getElementById('mod-reload-map') as HTMLButtonElement).click();
-    expect(view.reloads).toBe(1);
-    expect(document.getElementById('mod-reload')!.hidden).toBe(true);
-
-    (document.querySelector('[data-mod-id="hello-notes"] [data-mod-remove]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(document.querySelector('[data-mod-id="hello-notes"]')).toBeNull());
-    expect((await view.library.read()).packages.map((mod) => mod.id)).toEqual(['other-notes']);
-
-    await view.panel.addZip('bad.zip', enc.encode('not-a-zip'));
-    const invalid = [...document.querySelectorAll('#mod-list li')].find((item) => (item as HTMLElement).dataset['state'] === 'invalid') as HTMLElement | undefined;
-    expect(invalid?.textContent).toContain('invalid:');
-    expect(invalid?.textContent).toMatch(/zip|central directory/);
-
-    await view.panel.addZip('eu.zip', zip(manifest({ id: 'eu-notes', target: 'socom2-eu' })));
-    const refused = [...document.querySelectorAll('#mod-list li')].find((item) => (item as HTMLElement).textContent?.includes('eu.zip')) as HTMLElement | undefined;
-    expect(refused?.dataset['state']).toBe('invalid');
-    expect(refused?.textContent).toContain('target must be "socom2-us-r0001"');
+    await view.library.remove('hello-notes');                                       // MODS: removed
+    await reload();
+    await vi.waitFor(() => expect(view.reloads).toBe(3));
+    expect(line()).toBe('Mods: 0 on -- Home > Experiments > Mods.');
+    expect(view.panel.isApplied('hello-notes')).toBe(false);
   });
 
   it.each(['zip', 'folder'] as const)('enables a human %s drop while retaining an unrelated disabled package and the existing master', async kind => {
@@ -129,59 +118,29 @@ describe('the test room mod panel', () => {
     if (kind === 'zip') await view.panel.addZip('hello.zip', zip());
     else await view.panel.addFolder('hello', [{ path: 'mod.json', bytes: enc.encode(manifest()) }, { path: 'HELLO.TXT', bytes: enc.encode('hello from the mod') }]);
     expect((await library.read()).choices).toEqual({ enabled: true, order: ['kept-off', 'hello-notes'], disabled: ['kept-off'] });
-    expect(document.querySelector('[data-mod-id="hello-notes"]')?.getAttribute('data-state')).toBe('loaded');
     expect(view.panel.isApplied('hello-notes')).toBe(true);
     expect(view.panel.isApplied('kept-off')).toBe(false);
-    expect(document.getElementById('mod-read')!.textContent).toContain('hello from the mod');
-  });
-
-  it('tags a saved replacement as added until the disc listing arrives, then as replaces', async () => {
-    const library = memoryModLibrary();
-    const body = manifest({
-      id: 'uimnloc', name: 'Armory text',
-      files: [{ path: 'RUN/LOCALE/STATES/UIMNLOC.ZAR', file: 'UIMNLOC.ZAR' }],
-    });
-    await library.put({
-      id: 'uimnloc', label: 'uimnloc.zip',
-      files: [
-        { name: 'mod.json', bytes: enc.encode(body) },
-        { name: 'UIMNLOC.ZAR', bytes: enc.encode('armory text') },
-      ],
-    });
-    await library.writeChoices({ enabled: true, order: ['uimnloc'], disabled: [] });
-    const view = mounted(library);
-    await view.panel.ready;
-    const row = (): HTMLElement => document.querySelector('[data-mod-id="uimnloc"]') as HTMLElement;
-    expect(row().textContent).toContain('RUN/LOCALE/STATES/UIMNLOC.ZAR added');
-    // Startup asks before a source exists. An empty answer must not be the last word.
-    view.tellDisc([]);
-    expect(row().textContent).toContain('RUN/LOCALE/STATES/UIMNLOC.ZAR added');
-    view.tellDisc(['run\\locale\\states\\uimnloc.zar']);
-    await vi.waitFor(() => expect(row().textContent).toContain('RUN/LOCALE/STATES/UIMNLOC.ZAR replaces'));
+    expect(line()).toBe('Mods: 1 on -- Home > Experiments > Mods.');
   });
 
   it('restores a stored mod without asking for a reload, and a full store names the limit', async () => {
     const library = memoryModLibrary();
-    const body = manifest();
     await library.put({
       id: 'hello-notes', label: 'hello.zip',
-      files: [{ name: 'mod.json', bytes: enc.encode(body) }, { name: 'HELLO.TXT', bytes: enc.encode('hello from the mod') }],
+      files: [{ name: 'mod.json', bytes: enc.encode(manifest()) }, { name: 'HELLO.TXT', bytes: enc.encode('hello from the mod') }],
     });
     await library.writeChoices({ enabled: true, order: ['hello-notes'], disabled: [] });
     const view = mounted(library);
     await view.panel.ready;
-    const row = document.querySelector('[data-mod-id="hello-notes"]') as HTMLElement;
-    expect(row.dataset['state']).toBe('loaded');
-    expect(document.getElementById('mod-read')!.dataset['from']).toBe('mod');
-    expect(document.getElementById('mod-read')!.textContent).toContain('hello from the mod');
-    expect(document.getElementById('mod-reload')!.hidden).toBe(true);
+    expect(view.panel.isApplied('hello-notes')).toBe(true);
+    expect(view.posted.at(-2)).toMatchObject({ kind: 'mods', entries: [{ path: 'NOTES/HELLO.TXT' }] });
+    expect(view.reloads).toBe(0);
+    expect(line()).toBe('Mods: 1 on -- Home > Experiments > Mods.');
 
     document.body.replaceChildren();
     const full = mounted(memoryModLibrary(8));
     await full.panel.addZip('hello.zip', zip());
-    const refused = document.querySelector('#mod-list li') as HTMLElement;
-    expect(refused.dataset['state']).toBe('invalid');
-    expect(refused.textContent).toContain(MOD_QUOTA_MESSAGE);
+    expect(line()).toContain(MOD_QUOTA_MESSAGE);
     expect((await full.library.read()).packages).toEqual([]);
   });
 });

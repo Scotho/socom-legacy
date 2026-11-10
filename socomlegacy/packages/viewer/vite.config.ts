@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { dsAlias, fontsAlias, shipFontLicences } from '../../../shared/vite';
 import { fmvPlugin } from '../../tools/fmvShip';
-import { describeLobby, injectLobbyHead, isLobbyId, lobbyStateHash, lobbyStateMaterial, publicLobbyFromJson, withId } from '../central/src/lobbyCard';
+import { describeLobby, injectLobbyHead, isLobbyId, lobbyStateHash, lobbyStateMaterial, publicLobbyFromJson, withId } from '../central/src/lobbyData';
 import { sitePageRoutes } from '../ui/src/routes/sitePaths';
 import { devLocalProxy } from './devProxy';
 import { pwaPlugin } from './pwaPlugin';
@@ -128,6 +128,14 @@ export default defineConfig(({ command, isPreview }) => {
       roadmap: join(here, 'roadmap/index.html'), journey: join(here, 'journey/index.html'), archive: join(here, 'archive/index.html'),
       server: join(here, 'server/index.html'),
       status: join(here, 'status/index.html'),
+      // FP-14 (FP.R10; a browser adaptation): the agent connection's public setup page.
+      agent: join(here, 'agent/index.html'),
+      // LCM-11b: the stats pages (`sitePaths.ts` `STATS_PAGES`), each its own document: /leaderboard.
+      leaderboard: join(here, 'leaderboard/index.html'),
+      // LCM-16: /match/<id> and /player/<name>, each its own document under the leaderboard's section (outside the /match/
+      // and /player/ prefixes the box answers, so central can fetch them from the page origin); central injects the head.
+      match: join(here, 'leaderboard/match/index.html'),
+      player: join(here, 'leaderboard/player/index.html'),
     } },
   },
   worker: { format: 'es' },
@@ -137,8 +145,8 @@ export default defineConfig(({ command, isPreview }) => {
     name: 'project-page-routes',
     // Vite's HTML fallback does not resolve /news to news/index.html without this rewrite.
     // Keep dev and preview equivalent to the static host's clean-route contract.
-    configureServer(server) { projectRoutes(server.middlewares, server.config.base); },
-    configurePreviewServer(server) { projectRoutes(server.middlewares, server.config.base); },
+    configureServer(server) { projectRoutes(server.middlewares, server.config.base); statsPageRoutes(server.middlewares, server.config.base); },
+    configurePreviewServer(server) { projectRoutes(server.middlewares, server.config.base); statsPageRoutes(server.middlewares, server.config.base); },
   }],
   };
 });
@@ -196,6 +204,40 @@ function projectRoutes(middlewares: import('vite').Connect.Server, prefix: strin
         break;
       }
     }
+    next();
+  });
+}
+
+/**
+ * LCM-16 (the LIVE cards plan, LCM.R18 (e)): the stats pages whose address carries a value -- `/match/<id>` and
+ * `/player/<name>` -- and the document that answers each (`leaderboard/match/index.html`, `leaderboard/player/index.html`).
+ * In production central answers the address with the document, its head injected (`matchPageHttp.ts`, `playerPageHttp.ts`);
+ * in development and preview `statsPageRoutes` rewrites to it. A development adaptation: nothing of the game.
+ */
+const STATS_DOCUMENTS_ADAPTATION: Readonly<Record<string, string>> = { match: 'leaderboard/match/index.html', player: 'leaderboard/player/index.html' };
+
+/**
+ * The document a page request names, under `prefix` (the resolved base), its query kept -- `<base>match/<id>` and
+ * `<base>player/<name>` (one segment, a trailing slash allowed), for an HTML request (an `accept` naming HTML, or none);
+ * anything else null.
+ */
+export function statsDocumentFor(url: string, prefix: string, accept: string | undefined): string | null {
+  if (accept !== undefined && accept !== '' && !accept.includes('text/html')) return null;
+  const q = url.indexOf('?');
+  const path = q < 0 ? url : url.slice(0, q);
+  if (!path.startsWith(prefix)) return null;
+  const parts = path.slice(prefix.length).split('/');
+  if (parts[parts.length - 1] === '') parts.pop();
+  if (parts.length !== 2 || parts[1] === '') return null;
+  const file = Object.prototype.hasOwnProperty.call(STATS_DOCUMENTS_ADAPTATION, parts[0]!) ? STATS_DOCUMENTS_ADAPTATION[parts[0]!] : undefined;
+  return file === undefined ? null : `${prefix}${file}${q < 0 ? '' : url.slice(q)}`;
+}
+
+/** LCM-16: the dev server's and preview's rewrite of the stats pages' addresses to their documents (`statsDocumentFor`). */
+function statsPageRoutes(middlewares: import('vite').Connect.Server, prefix: string): void {
+  middlewares.use((req, _res, next) => {
+    const to = statsDocumentFor(req.url ?? '', prefix, req.headers.accept);
+    if (to !== null) req.url = to;
     next();
   });
 }

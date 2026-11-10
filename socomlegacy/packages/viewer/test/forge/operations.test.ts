@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FORGE_AGENT_OPERATIONS, ForgeAgentError, type ForgeAgentApi } from '../../src/forge/agent/api';
 import { FORGE_LAYOUT_OPERATIONS, planForgeLayout } from '../../src/forge/agent/commands';
 import { decodeHistoryStep, encodeHistoryStep, History, historyCaption, undoMeta } from '../../src/forge/history';
+import { forgeToolKeyLabel } from '../../src/forge/keys';
 import { serializeLayout } from '../../src/forge/layout';
 import { layoutOfRecord, recordOfLayout, type LayoutRecord } from '../../src/forge/record';
 import {
@@ -182,7 +183,8 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     // R3-A (9): the undo gives back the layout before the delete, whole -- not only its count.
     expect(placed(api.read().layout)).toEqual(placed(beforeDelete!.layout));
     expect(undoBtn().title).toMatch(/^Undo: Move \(agent\)/);
-    expect(redoBtn().title).toMatch(/^Redo: Delete \(agent\) · pad L3/);
+    // OT.R112 (the Forge's UI is its contributor's): Redo is SELECT held on the pad now (06d558635), not L3.
+    expect(redoBtn().title).toMatch(/^Redo: Delete \(agent\) · pad hold SELECT/);
     document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
     const rows = [...document.querySelectorAll('.fx-menu .fx-menu-label')].map((n) => n.textContent);
     expect(rows).toContain('Undo: Move (agent)');
@@ -221,7 +223,10 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
     // jsdom has no pointer capture; the gizmo's own pointerdown (three's TransformControls) asks for it.
     Object.assign(input, { setPointerCapture: () => undefined, releasePointerCapture: () => undefined, hasPointerCapture: () => false });
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3', key: '3', bubbles: true }));
+    // OT.R112: Spawn A's key is FORGE_TOOL_ORDER's (the Overhaul's number keys, `forgeToolKeyLabel`), 1 now, not 3.
+    const spawnKey = forgeToolKeyLabel('spawnA')!;
+    expect(spawnKey).toBe('1');
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: `Digit${spawnKey}`, key: spawnKey, bubbles: true }));
     const before = api.read();
     input.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
     const after = api.read();

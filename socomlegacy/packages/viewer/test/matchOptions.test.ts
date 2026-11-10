@@ -183,16 +183,17 @@ describe('both pages mount the one part (OT.R43): the menu match its session\'s,
 
   it('/testroom: the page card\'s options through the part, applied to the pad in both frames (held and live), the firearm\'s setting off it', () => {
     const main = src('main.ts');
-    expect(main).toMatch(/let cardOptions = pageCardPlayOptions\(\)[;,]/);   // PAR-36 (b) extends the line with the card's volumes
+    expect(main).toContain('const cardReads = pageCardReads(');   // PAR-36 (b); RB-16: the card's OPTIONS, volumes and valves, `./playerSettings`' reads
     // MATCH-01: the card's options reach the part through the START menu's store over them (its writes on top).
-    expect(main).toMatch(/const localMenuOptions = localStartMenuOptions\(playOptionsGlobals\(\(\) => cardOptions\)\);/);
+    expect(main).toMatch(/const localMenuOptions = localStartMenuOptions\(playOptionsGlobals\(\(\) => cardReads\.options\(\)\)\);/);
     expect(main).toContain('sessionStartMenuOptions(() => pageOptions!.globals, () => pageOptions!.valves)');
-    expect(main).toMatch(/const playOptions = matchOptions\(\(\) => \(\{ \.\.\.playOptionsOf\(startMenuOptions\), stick: \(pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : cardOptions\)\.stick \}\)\);/);   // OT.R72: the look stick, live Options' or the card's
+    expect(main).toMatch(/const playOptions = matchOptions\(\(\) => \(\{ \.\.\.playOptionsOf\(startMenuOptions\), stick: \(pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : cardReads\.options\(\)\)\.stick \}\)\);/);   // OT.R72: the look stick, live Options' or the card's
     expect(main).toMatch(/const lanes: LaneParts = \{[^}]*fireModeSetting: playOptions\.fireModeSetting,/);
     // PP-5/PP-6 (OT.R67): the Prone bind in both frames, and the stance mode in the live one, before the options' apply.
     expect(main).toMatch(/const heldInput = padInput\(held\);\n\s+if \(gamePad\.crouch\) heldInput\.crouch = true;\n\s+if \(gamePad\.prone\) heldInput\.prone = true;[^\n]*\n\s+playOptions\.apply\(fly, heldInput\);/);
     expect(main).toMatch(/const pad = padInput\(polled\);\n\s+if \(gamePad\.crouch\) pad\.crouch = true;[^\n]*\n\s+if \(gamePad\.prone\) pad\.prone = true;[^\n]*\n\s+walk\.setStanceMode\(controllerStanceMode\(\)\);[^\n]*\n\s+playOptions\.apply\(fly, pad\);/);
-    expect(main).toMatch(/cardMessages = pageCardMessages\(\); cardOptions = pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : pageCardPlayOptions\(\);/);   // MLS.R2: applied live Options survives a map change
+    expect(main).toContain('cardMessages = pageCardMessages(); cardReads.reread(pageOptions);');   // MLS.R2: applied live Options survives a map change
+    expect(src('playerSettings.ts')).toContain('options = live ? playOptionsOf(live.globals, live.uiVars) : read.options();');
     expect(main).not.toMatch(/fly\.originalHeadBob = /);
   });
 });
@@ -236,11 +237,16 @@ describe('PAR-36 (b): /testroom\'s four option masters, the page card\'s CUIVarM
 
   it('/testroom: the page card\'s masters on the page\'s GameAudio at boot, read again at each map load with the card\'s fives and OPTIONS', () => {
     const main = src('main.ts');
-    expect(main).toMatch(/import \{ matchOptions, pageCardPlayOptions, pageCardTunerVars \} from '\.\/matchOptions';/);
-    expect(main).toMatch(/let cardOptions = pageCardPlayOptions\(\), cardTuners = pageCardTunerVars\(\);/);
-    expect(main).toMatch(/const playOptions = matchOptions\(\(\) => \(\{ \.\.\.playOptionsOf\(startMenuOptions\), stick: \(pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : cardOptions\)\.stick \}\)\);/);   // OT.R72: the look stick, live Options' or the card's
-    expect(main).toContain('audio.setTunerVars(() => pageOptions?.uiVars ?? cardTuners);');   // PAR-36: the live Options' volume masters, else the card's
-    expect(main).toContain('cardTuners = pageOptions?.uiVars ?? pageCardTunerVars();');
+    expect(main).toMatch(/import \{ matchOptions \} from '\.\/matchOptions';/);
+    // RB-16 (RB-3's inline reads moved): `./playerSettings` `pageCardReads` reads the page card's OPTIONS and masters
+    const reads = src('playerSettings.ts');
+    expect(reads).toContain("pageCardPlayOptions, pageCardTunerVars, storeCardControllerConfig, storeCardVoiceModulation } from './matchOptions';");
+    expect(reads).toContain('const PAGE_CARD_READERS: PageCardReaders = { options: pageCardPlayOptions, tuners: pageCardTunerVars, valves: () => cardValves(pageCard) };');
+    expect(reads).toContain('let options = read.options(), tuners = read.tuners(), valves = read.valves();');
+    expect(main).toContain('const cardReads = pageCardReads(undefined, undefined, {');
+    expect(main).toMatch(/const playOptions = matchOptions\(\(\) => \(\{ \.\.\.playOptionsOf\(startMenuOptions\), stick: \(pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : cardReads\.options\(\)\)\.stick \}\)\);/);   // OT.R72: the look stick, live Options' or the card's
+    expect(main).toContain('audio.setTunerVars(() => pageOptions?.uiVars ?? cardReads.tuners());');   // PAR-36: the live Options' volume masters, else the card's
+    expect(reads).toContain('tuners = live?.uiVars ?? read.tuners();');
     expect(main.match(/setTunerVars\(/g)).toHaveLength(1);                 // one source, set once; the panel's volume is its own master
     expect(main).toMatch(/ui\.onSound\(\{ volume: \(v\) => audio\.setVolume\(v\), muted: \(m\) => audio\.setMuted\(m\) \}\);/);
   });
@@ -277,8 +283,9 @@ describe("OT.R72: /testroom takes the card's look stick (CONTROLLER OPTIONS)", (
   });
 
   it("main.ts: the START menu's options with the card's stick -- the menu never sets the stick, the card's stands", () => {
-    expect(src('main.ts')).toMatch(/const playOptions = matchOptions\(\(\) => \(\{ \.\.\.playOptionsOf\(startMenuOptions\), stick: \(pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : cardOptions\)\.stick \}\)\);/);
+    expect(src('main.ts')).toMatch(/const playOptions = matchOptions\(\(\) => \(\{ \.\.\.playOptionsOf\(startMenuOptions\), stick: \(pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : cardReads\.options\(\)\)\.stick \}\)\);/);
     // a map change reads the card again -- or, under the native Options manager (MLS, #481), its live globals
-    expect(src('main.ts')).toMatch(/cardOptions = pageOptions \? playOptionsOf\(pageOptions\.globals, pageOptions\.uiVars\) : pageCardPlayOptions\(\);/);   // OT.R72: CUSTOM's sliders kept
+    expect(src('main.ts')).toContain('cardReads.reread(pageOptions);');
+    expect(src('playerSettings.ts')).toContain('options = live ? playOptionsOf(live.globals, live.uiVars) : read.options();');   // OT.R72: CUSTOM's sliders kept
   });
 });

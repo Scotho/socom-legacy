@@ -334,7 +334,7 @@
   :root[data-console] .cx-crossbar__strip { left: 44px; right: 44px; width: calc(100% - 88px); }
   :root[data-console] .cx-header { gap: 8px; }
   :root[data-console] .cx-status { gap: 8px; }
-  :root[data-console] .cx-status .cx-lampword, :root[data-console] .cx-brand__sub { display: none; }
+  :root[data-console] .cx-status .cx-lampword { display: none; }
 }
 /* LR-19 (the LR.R11 side-by-side's P3, P5 and P14's legend; its pass 2's Q1-Q3; the plan's LR.R19). The legend is one
    line at every size: part G's prompts wrapped (`flex-wrap: wrap`; at 1024x768 "L1 R1 Category" under the hints) and the
@@ -638,8 +638,6 @@
   :root[data-console] .cx-install__benefit + p { text-align: center; }
   @media (width <= 760px) {
     :root[data-console] .cx-header__identity { gap: 1rem; }
-    :root[data-console] .cx-header__identity .cx-brand__name,
-    :root[data-console] .cx-header__identity .cx-brand__sub { display: none; }
     :root[data-console] .cx-header__identity .cx-brand { gap: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -814,15 +812,14 @@
 :root[data-console] .cx-backdrop.has-sheets::before { background: none; }
 :root[data-console] .cx-backdrop.has-sheets.is-deep::before { background: var(--s2u-veil-soft); }
 
-/* The brand header (render/header.ts): the emblem with SOCOM II over LEGACY beside it (the artifact's 36px mark, 19px
-   italic display name in the bright ink, 10px LEGACY in display gold at 0.42em), the version badge after (LP.R7); at the
+/* The brand header (render/header.ts): the project's logo PNG, 38px tall with its drop shadow, its width from its aspect
+   (RB-29: the owner's "S2 Launcher v2" export, D:28, in place of the emblem and the SOCOM II / LEGACY words), the version
+   badge after (LP.R7) and the server mark (LR-40) in the grid's third and fourth columns as before; at the
    right the date (14px at 60%) and the clock (22px, its colon blinking each second, still under reduced motion), the
    Discord mark (LATER 291, unchanged) and the account control as the artifact's pill: a 1px ink edge at 24%, the avatar
    with its status dot (good when signed in, dim when not), the name in 13px sentence case; hover lights the edge gold. */
 :root[data-console] .cx-header .cx-brand { display: grid; grid-template-columns: auto auto auto; grid-template-rows: auto auto; column-gap: 0.625rem; row-gap: 0.1875rem; align-items: end; }
-:root[data-console] .cx-header .cx-brand > svg { grid-row: 1 / 3; width: 2.25rem; height: 2.25rem; align-self: center; }
-:root[data-console] .cx-header .cx-brand__name { grid-column: 2; grid-row: 1; font: italic 800 1.1875rem/1 var(--s2u-font-display); letter-spacing: 0.02em; color: var(--s2u-lx-ink-hi); white-space: nowrap; }
-:root[data-console] .cx-header .cx-brand__sub { grid-column: 2; grid-row: 2; align-self: start; font: 500 0.625rem/1 var(--s2u-font-label); letter-spacing: 0.42em; color: var(--s2u-gold-display); white-space: nowrap; }
+:root[data-console] .cx-header .cx-brand__logo { grid-column: 1 / 3; grid-row: 1 / 3; align-self: center; display: block; height: 2.375rem; width: auto; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6)); user-select: none; }
 :root[data-console] .cx-header .cx-version { grid-column: 3; grid-row: 1 / 3; align-self: center; margin-left: 0.75rem; }
 :root[data-console] .cx-header .cx-status { gap: 1.375rem; text-transform: none; letter-spacing: 0; }
 :root[data-console] .cx-clock { display: flex; align-items: baseline; gap: 0.625rem; color: var(--s2u-lx-ink); white-space: nowrap; }
@@ -1039,6 +1036,15 @@
 :root[data-console] .cx-r__opt.is-on { border-color: var(--s2u-lx-accent); color: var(--s2u-lx-accent); background: color-mix(in srgb, var(--s2u-lx-accent) 14%, transparent); }
 :root[data-console] .cx-r__opt:focus-visible, :root[data-console] button.cx-r__chip:focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: 1px; }
 :root[data-console] button.cx-r__chip { cursor: pointer; }
+/* B206 ML-2 (ML.R6): the MODS screen -- a pack's switch and Remove as real buttons in its row, the outcome line, the store link. */
+:root[data-console] .cx-mods__pack .cx-r__ctl { display: flex; align-items: center; gap: 0.75rem; }
+:root[data-console] .cx-mods__switch { display: flex; padding: 0; border: 0; background: transparent; cursor: pointer; }
+:root[data-console] .cx-mods__remove { height: 1.625rem; padding: 0 0.75rem; border-radius: var(--s2u-radius-pill); border: 1px solid color-mix(in srgb, var(--s2u-lx-ink) 22%, transparent); background: transparent; color: color-mix(in srgb, var(--s2u-lx-ink) 70%, transparent); font: 400 calc(0.75rem * var(--cx-text-scale))/1 var(--s2u-font-body); letter-spacing: 0.06em; cursor: pointer; }
+:root[data-console] .cx-mods__switch:focus-visible, :root[data-console] .cx-mods__remove:focus-visible { outline: var(--s2u-focus-w) solid var(--s2u-focus); outline-offset: 1px; }
+:root[data-console] .cx-mods__message { padding: 0.5rem 1rem; font: 400 calc(0.8125rem * var(--cx-text-scale))/1.4 var(--s2u-font-body); }
+:root[data-console] .cx-mods__message.is-bad { color: var(--s2u-lx-bad); }
+:root[data-console] .cx-mods__message.is-good { color: var(--s2u-lx-good); }
+:root[data-console] .cx-mods__store { display: block; padding: 0.5rem 1rem; color: var(--s2u-lx-accent); }
 /* LR-28 (fact 2, the box's matrix-7 consoleAside.spec / probe13): the row slid in as a whole (a transform from 1.375rem),
    and the browser kept the list's scrollable overflow it laid out at the slide's first frame (3-6 px past the Settings
    list) after the slide ended, the animation running off the layout. The row now fades in place, clipped sideways; its
@@ -1059,6 +1065,10 @@
 :root[data-console] .cx-rlist > .cx-r:nth-child(12) { animation-delay: 275ms; }
 :root[data-console] .cx-rlist > .cx-r:nth-child(n+13) { animation-delay: 300ms; }
 @keyframes cx-lx-row-in { from { opacity: 0; } }
+/* Unified controller settings: an interactive track must not slide underneath an active pointer.
+   A preset changes a locked row into a slider; keep its coordinates stable from the first visible frame. */
+:root[data-console] .cx-screen[data-key="options"] .cx-rlist > .cx-r--slider,
+:root[data-console] .cx-screen[data-key="options"] .cx-rlist > .cx-r--slider > * { animation: none; }
 @keyframes cx-lx-row-slide { from { transform: translateX(1.375rem); } }
 @media (prefers-reduced-motion: reduce) {
   :root[data-console] .cx-rlist > .cx-r, :root[data-console] .cx-rlist > .cx-r > * { animation: none; }

@@ -109,12 +109,12 @@ describe('experimental graphics are an isolated test-room preview', () => {
     expect(document.getElementById('exp-detail-status')?.textContent).toContain('Advanced detail is off');
     advancedDetail.click();
     expect(document.getElementById('exp-detail-status')?.textContent).toContain('strength between 0 and 2');
-    (document.getElementById('exp-textureBias') as HTMLInputElement).click();
+    (document.getElementById('exp-textureFiltering') as HTMLInputElement).click();   // B206 ML-7: the mip bias is Texture filtering's
     (document.getElementById('exp-detailAdjust') as HTMLInputElement).click();
     expect(experimentalAssets.mipBias.value).toBe(0);
     expect(experimentalAssets.detailStrength.value).toBe(1);
     expect(experimentalAssets.detailRangeSq).toBe(1);
-    (document.getElementById('exp-textureBias') as HTMLInputElement).click();
+    (document.getElementById('exp-textureFiltering') as HTMLInputElement).click();
     (document.getElementById('exp-detailAdjust') as HTMLInputElement).click();
     expect(experimentalAssets.mipBias.value).toBe(-1);
     expect(experimentalAssets.detailStrength.value).toBe(0.55);

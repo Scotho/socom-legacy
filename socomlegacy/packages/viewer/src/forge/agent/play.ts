@@ -1,3 +1,4 @@
+import { FORGE_PLAY_AXES, FORGE_PLAY_BUTTONS } from '@s2u/forge-agent-protocol';
 import { noInput, type Input } from '../../gamepad';
 
 /** Browser adaptation. Only the private Forge Play mount receives this normal-input port. No simulation setters. */
@@ -31,8 +32,8 @@ type Result = { ok: boolean; code?: string; message?: string; data?: unknown };
 interface Step { operation: string; args: Record<string, unknown>; seconds: number }
 interface Job { jobId: string; state: 'running' | 'completed' | 'failed' | 'cancelled'; step: number; elapsed: number;
   stepElapsed: number; started: boolean; steps: Step[]; results: unknown[]; observations: unknown[]; message: string | null; wallStart: number }
-export const FORGE_PLAY_AXES = ['moveX', 'moveY', 'lookX', 'lookY'] as const;
-export const FORGE_PLAY_BUTTONS = ['jump', 'crouch', 'prone', 'stance', 'fire', 'reload', 'action', 'swap1', 'swap2'] as const;
+// AX-1 (contract C1): the pad lanes live beside the manual's schemas in the protocol; re-exported for this module's callers.
+export { FORGE_PLAY_AXES, FORGE_PLAY_BUTTONS };
 export const FORGE_PLAY_OPERATIONS = ['input.set', 'input.release', 'action.press', 'action.hold', 'action.release', 'action.cancel',
   'equipment.equip', 'armory.key', 'scenario.start', 'scenario.status', 'scenario.cancel'] as const;
 const fields = ['map', 'feet', 'pose', 'equipment', 'action', 'plant', 'plant.state', 'plant.carrier', 'action.prompt', 'action.playerMode', 'action.playing'];

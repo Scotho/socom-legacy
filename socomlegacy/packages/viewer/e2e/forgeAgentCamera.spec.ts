@@ -36,10 +36,12 @@ function mcp(token: string) {
 }
 
 async function approve(page: Page): Promise<void> {
-  await page.getByText('Allow this connection?', { exact: true }).waitFor({ timeout: 30_000 });
-  for (const box of await page.locator('.agent-panel__permissions input:not(:disabled)').all()) await box.check();
-  await page.getByRole('button', { name: 'Allow selected access', exact: true }).click();
-  await page.getByText('Agent connected', { exact: true }).waitFor({ timeout: 30_000 });
+  // AX-U: the Allow moment, every requested permission already on (AX.R2); its primary is Allow.
+  const allow = page.locator('[data-agent-moment="allow"]');
+  await allow.waitFor({ state: 'visible', timeout: 30_000 });
+  for (const box of await allow.locator('.agent-panel__permissions input:not(:disabled)').all()) await box.check();
+  await allow.locator('[data-agent-approve]').click();
+  await page.locator('.agent-panel[data-state="connected"]').waitFor({ timeout: 30_000 });
 }
 
 test('an agent camera shot plays on the page and the chip\'s Stop camera ends it (written, not run in R5-B)', async ({ browser, baseURL }) => {
@@ -48,7 +50,8 @@ test('an agent camera shot plays on the page and the chip\'s Stop camera ends it
   try {
     const agent = mcp(token);
     await agent.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'R5-B camera e2e', version: '1' } });
-    const pairing = await agent.tool('agent_pair', { invitation: await invitation(page, 'claude'), permissions: ['inspect', 'edit'] });
+    // REVIEW-1 finding 3: agent_pair holds until the page answers (AX-3); no wait, so it answers pending before Allow.
+    const pairing = await agent.tool('agent_pair', { invitation: await invitation(page, 'claude'), permissions: ['inspect', 'edit'], waitSeconds: 0 });
     expect(pairing?.state).toBe('pending');
     await approve(page);
     const status = await agent.tool('agent_status');

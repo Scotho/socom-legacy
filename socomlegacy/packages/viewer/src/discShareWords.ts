@@ -49,6 +49,8 @@ export const RECEIVER_WORDS: Record<ReceiverPhase, { head: string; line: string 
   copying: { head: 'Copying the game files', line: 'Keep this page open, in front, until it finishes.' },
   done: { head: 'Done: your disc is ready', line: 'The files are kept in this browser. Play starts from them.' },
   failed: { head: 'The copy did not finish', line: '' },
+  // RB-26: a hosted share's No (the host's link, `?discshare-host=`).
+  declined: { head: 'The host said No', line: 'Nothing was copied. Ask the host again, or ask someone else.' },
 };
 
 /** A failure before any code was made (pairing unreachable or refused): nothing was copied, so not "the copy". */
@@ -57,13 +59,19 @@ export const RECEIVER_FAILED_EARLY = 'Could not start';
 /** The receiver's Try again (its failed phase). */
 export const SHARE_RETRY = 'Try again';
 
-/** The row's line while a request is under way (the panel shut over it, or back on its rows). */
-export function shareRowHint(phase: ReceiverPhase, pct: number | null): string {
+/**
+ * The row's line while a request is under way (the panel shut over it, or back on its rows). RB-26: `hosted`, a page a
+ * host's link opened -- its waiting and paired said as the host's answers (`RECEIVER_HOSTED_WORDS`).
+ */
+export function shareRowHint(phase: ReceiverPhase, pct: number | null, hosted = false): string {
+  const h = hosted ? RECEIVER_HOSTED_WORDS[phase] : undefined;
+  if (h && (phase === 'waiting' || phase === 'requesting' || phase === 'paired')) return h.head;
   if (phase === 'waiting' || phase === 'requesting') return 'Waiting for the other device';
   if (phase === 'paired') return 'Paired: the copy starts in a moment';
   if (phase === 'copying') return pct === null ? 'Copying the game files' : `Copying the game files · ${pct}%`;
   if (phase === 'done') return 'Copied: your disc is ready';
   if (phase === 'failed') return 'The copy did not finish · open it to try again';
+  if (phase === 'declined') return 'The host said No';
   return SHARE_ROW_HINT;
 }
 
@@ -170,3 +178,45 @@ export const SENDER_TYPE = 'Type a code';
 export const SHARE_CODE_TITLE = 'The other device\u2019s code';
 export const SHARE_CODE_LEAD = 'The 6 characters shown on the other device.';
 export const SHARE_CODE_BAD = 'That is not a code: 6 letters and digits, as the other device shows it.';
+
+/*
+ * RB-26 (the replay batch plan; DSH.R16, its Q9-Q11 defaults): the host mode's words -- a page with the disc holds a
+ * share open from the disc mark, its link (`?discshare-host=<token>`) asked by other players' pages, one copy at a time.
+ */
+
+/**
+ * A page opened by a host's link waits for the host's Yes. The host sends one copy at a time and the receiver is not told
+ * its place (RB-25's wire carries no `queued` to the receiver), so the line says it may wait its turn.
+ */
+export const RECEIVER_HOSTED_WAITING = 'Waiting for the host to say Yes. Check that the host sees this code. The host sends one copy at a time, so yours may wait its turn: keep this page open, in front.';
+/** The host's share ended (closed, its page gone, or launched into a game) before it said Yes or No. */
+export const SHARE_HOST_ENDED = 'The host stopped sharing before answering. Ask them to open Share again, then open their new link.';
+/** The host's own share was lost at central (its route's 404: it lapsed or ended). */
+export const SHARE_HOST_GONE = 'This share ended. Open Share again to take requests; the old link no longer works.';
+/** A request whose turn came after it ended (its route's 404 at the host's Yes). */
+export const SHARE_REQUEST_GONE = 'That request ended before its turn came. The next one goes ahead.';
+/** Q11's default: launching ends the share -- the copy under way and every request waiting. */
+export const SHARE_DEPLOY_STOPS = 'Launching stops sharing: the copy under way stops and the requests waiting are turned away.';
+/**
+ * RB-26, the receiver a host's link opened (`?discshare-host=<token>`): its phases said as the host's answers -- asking,
+ * queued at the host (waiting: in the host's list, unanswered; RB-25's wire tells the receiver no place, so "queued"
+ * covers both an unanswered request and one the host said Yes to while another copies), and approved (paired: the
+ * host's Yes reached central). The other phases keep `RECEIVER_WORDS` (declined: "The host said No").
+ */
+export const RECEIVER_HOSTED_WORDS: Partial<Record<ReceiverPhase, { head: string; line: string }>> = {
+  requesting: { head: 'Asking the host…', line: 'One moment.' },
+  waiting: { head: 'Queued at the host', line: RECEIVER_HOSTED_WAITING },
+  paired: { head: 'The host said Yes', line: 'The copy starts in a moment.' },
+};
+/** RB-26: the hosted area's first line, before the code. */
+export const SHARE_HOSTED_LEAD = 'Someone is sharing their game files with this link. They see the code below in their Share list and say Yes beside it.';
+/** RB-26: the hosted area's steps; `code` is the code shown above them. */
+export const shareHostedSteps = (code: string): readonly string[] => [
+  `Check that the host sees ${code} in their Share list.`,
+  'The host says Yes beside it. One copy goes at a time, so yours may wait its turn.',
+  `Keep this page open, in front, until the copy finishes (${SHARE_SIZE_WORDS}).`,
+];
+/** RB-26: a declined request's Cross -- the host is asked again. */
+export const SHARE_ASK_AGAIN = 'Ask again';
+/** The host's queue place, as the panel says it. */
+export const shareQueued = (place: number): string => `Queued #${place}`;

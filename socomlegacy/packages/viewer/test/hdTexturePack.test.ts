@@ -37,6 +37,14 @@ describe('HD texture pack manifest (HD-1)',()=>{
   const hd=image(4,4,[1,2,3,255]),a=await entry(image(2,2,[1,2,3,255]),hd),b=await entry(image(2,2,[7,8,9,255]),hd);
   const m=validateHdManifest(manifest([a,b]));expect(m.totalBytes).toBe(hd.data.length);expect(m.entries.length).toBe(2);
  });
+ it('LATER 742: an optional packedBytes (the payloads as served) is kept; a manifest without it (0.1.x packs) still loads',async()=>{
+  const e=await entry(image(2,2,[1,2,3,255]),image(4,4,[4,5,6,255])),m=manifest([e]);
+  const without=validateHdManifest(m);expect(without.packedBytes).toBeUndefined();expect('packedBytes' in without).toBe(false);
+  const withIt=validateHdManifest({...m,packedBytes:41});expect(withIt.packedBytes).toBe(41);
+  expect(validateHdManifest(JSON.parse(JSON.stringify(withIt)))).toEqual(withIt);
+  for(const bad of [0,-1,1.5,'41',null,HD_LIMITS.totalBytes+1024*HD_LIMITS.entries+1])
+   expect(()=>validateHdManifest({...m,packedBytes:bad}),String(bad)).toThrow(/packedBytes/);
+ });
 });
 
 describe('HD texture pack runtime (HD-2)',()=>{

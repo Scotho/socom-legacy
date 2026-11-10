@@ -531,15 +531,15 @@ describe('GM-15b: the models pass\'s edges -- what the software draws there, and
   it('item 4, "0 = empty": a positive invW whose f32 is 0 -- the software draws the triangle and leaves its depth empty, so a farther one draws over it; refused at every scale', () => {
     expect(Math.fround(1e-46)).toBe(0);
     const items = list(corner(1e-46, RED), corner(1e-47, GREEN));
-    // drawModels (uiCompositorView.ts): the depth is a Float32Array (:411), the test `depth[i] > 0 && invW <= depth[i]`
-    // (:437), the store `depth[i] = invW` (:450): 1e-46 stores 0, still "empty", so the green triangle draws.
+    // drawModels (uiCompositorView.ts): the depth is a Float32Array, the f32 depth z tested GEQUAL (skipped when
+    // `z < depth[i]`), the store `depth[i] = z` (GM-15d): 1e-46 is 0 in f32, so the green triangle's 0 passes over it.
     expect(px(rasterizeUiDrawList(items, () => null).frame, 1, 1), 'the farther triangle drew over the nearer').toEqual([0, 128, 0, 255]);
     // The same pair at depths f32 holds: the farther fails the nearer's depth, and the GPU draws that list.
     const held = list(corner(0.5, RED), corner(0.25, GREEN));
     expect(px(rasterizeUiDrawList(held, () => null).frame, 1, 1)).toEqual([128, 0, 0, 255]);
     expect(planFrame(held, () => null, {}).verdict).toBe('gpu');
-    // A GPU's depth is cleared to 0 and tested GREATER: a fragment at depth 0 never passes, so a GPU would draw neither
-    // triangle where the software draws both. The plan refuses the pass; the frame is the software's (L1).
+    // A GPU's highp arithmetic may flush such depths (ESSL 3.00 section 4.5.1) and its depth buffer with them, so its
+    // bytes are not held to the software's here. The plan refuses the pass; the frame is the software's (L1).
     for (const scale of UI_RASTER_CASE_SCALES) {
       const p = planFrame(items, () => null, { scale });
       expect(p.verdict, `${scale}x`).toBe('software');

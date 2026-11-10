@@ -151,6 +151,38 @@ export function voiceCount(channel: number | null, members: { channel: number; m
 }
 
 /**
+ * HUD-ALIVE (OT.R117; **a browser adaptation**, the owner's chosen deviation from the original): the voice element's
+ * left number shows the SEALs alive, and a second number in the box's right corner the Terrorists alive, for the round
+ * in progress. The owner, Craig, 2026-11-09, in the main controller's seat 99, verbatim:
+ * - "1. is the icon above the health bar at bottom right, make the [meters] a setting soption and turn it OFF by default
+ *   by the name. 2. where the icon is above the health bar to the right (skull i think), i believe it has a right
+ *   aligned label with i'm not sure what exactly. The left label should be added it and tracks the number of seals alive. the right side tracks the numebr of terorists alive"
+ * - told that the original's box shows one number (the voice channel's count) and no team counts: "alive count is a chosen feature addition deviating rom the original".
+ *
+ * The original draws one number here, `voice+0x5c`, the member count of the page's own voice channel (`FUN_00238ac0`
+ * D:L85707-85716; `voiceCount`), and nothing in the right corner. Here the number is `aliveCounts`' SEALs and the right
+ * corner its Terrorists (`./hud` `HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION`, the left box mirrored about the icon); the
+ * speaker's right-aligned line, the icons and their timing are the original's, unchanged. `voice+0x5c` is still kept
+ * (`HudVoiceElement.members`), not drawn.
+ */
+export const HUD_ALIVE_COUNTS_ADAPTATION = 'seals alive left, terrorists alive right' as const;
+
+/**
+ * HUD-ALIVE (`HUD_ALIVE_COUNTS_ADAPTATION`): the living players of each side, from the page's own round state -- the
+ * room's score rows, alive and on that side. A bot is a row and counts; spectators and hostages are not rows and never
+ * count.
+ */
+export function aliveCounts(rows: readonly Pick<ScoreRow, 'team' | 'alive'>[]): { seal: number; terrorist: number } {
+  let seal = 0, terrorist = 0;
+  for (const r of rows) {
+    if (!r.alive) continue;
+    if (r.team === 'seal') seal++;
+    else if (r.team === 'terrorist') terrorist++;
+  }
+  return { seal, terrorist };
+}
+
+/**
  * The speaker's line (`FUN_00238ac0` D:L85680-85692): `"[%s] %s"` (S:0x3e6718) with a clan, the name alone without
  * (an empty tag, `FUN_00199288` D:L85686). The clan is the holder's slot's published tag (`FUN_002c3ac0` D:L85681, the
  * player state's +0x2e), the board's own source -- a watcher's too, his state built with no role test on the tag
@@ -185,8 +217,12 @@ export interface VoiceElementInput {
   suspended?: boolean;
 }
 
-/** What the HUD draws: the channel icon, the number, the speaker's line and the talk / busy icon (null: hidden). */
-export interface VoiceElementView { icon: string | null; count: string; name: string | null; talk: string | null }
+/**
+ * What the HUD draws: the channel icon, the number, the speaker's line and the talk / busy icon (null: hidden).
+ * HUD-ALIVE (`HUD_ALIVE_COUNTS_ADAPTATION`): `right`, the Terrorists alive in the box's right corner, the number the
+ * SEALs alive; absent or null, no right number (the original's element).
+ */
+export interface VoiceElementView { icon: string | null; count: string; name: string | null; talk: string | null; right?: string | null }
 
 /** The element's state across frames: the busy hold (`DAT_004145f0`) and the last line drawn. */
 export class HudVoiceElement {
@@ -316,12 +352,18 @@ export interface VoiceHudSources {
  */
 export function voiceHudFrame(el: HudVoiceElement, now: number, s: VoiceHudSources): { view: VoiceElementView; marks: CompassMark[] } {
   const self = s.self?.id ?? null;
-  const count = el.members = voiceCount(s.voice.channel, s.voice.members, el.members);   // AD-14's word, else the count as it stood (LATER 77)
+  el.members = voiceCount(s.voice.channel, s.voice.members, el.members);   // AD-14's word, else the count as it stood (LATER 77); kept, not drawn
+  // HUD-ALIVE (OT.R117, `HUD_ALIVE_COUNTS_ADAPTATION`): the number is the SEALs alive, the right corner the Terrorists alive,
+  // both from the rows every frame. The tick's no-rewrite rule while the holder is unnamed (D:L85683-85684) is the
+  // original's, for the original's number (`voice+0x5c`, `members`), which it still runs on and the view does not draw.
+  const alive = aliveCounts(s.rows);
   const view = el.tick(now, {
-    channel: s.voice.channel, holder: s.voice.holder, self, talking: s.voice.talking, count, nameOf: s.nameOf,
+    channel: s.voice.channel, holder: s.voice.holder, self, talking: s.voice.talking, count: el.members, nameOf: s.nameOf,
     clanOf: (id) => s.clanOf?.(id) || (s.rows.find((r) => r.id === id)?.clan ?? ''),   // AD-13: the told tag, then the row's
     playing: s.voice.playing ?? null, suspended: s.voice.suspended === true,
   });
+  view.count = voiceCountText(alive.seal);
+  view.right = voiceCountText(alive.terrorist);
   // VOICE-LATE (B): the mark at the talker heard (`heardTalker`), the floor's holder while none plays.
   const talker = heardTalker(s.voice.holder, s.voice.playing, self);
   const mark = talker === null ? null : talkMark(talker, self, s.at(talker), s.own);

@@ -264,12 +264,9 @@ describe.skipIf(!M51)(`M51 guardwall g19733 -- a capture-scored spec of the orig
    * run square at the face at full stick and Jump pressed 17.43 from the plane, the stored contact `+0x10ac` SET and CLIMB
    * offered (`+0xed0` 4), the original launched the running jump -- type 8, 64.5 u carried at 62.3 u/s over the 14-u top.
    * The port pressed at the same point launches too (`JUMP_CONTACT_PROVEN` 'none'). Fresh review 2's F7 asked for the
-   * carry as well; the port misses it, so only the type is pinned here. Measured 2026-11-04 (this case's staging, full
-   * stick held after the press, 60 Hz): pressed 16.60 out at 62.3 u/s, the launch meets the face 5.19 out after 10 ticks,
-   * 5.6 over the press, and ends there (not airborne, no action, speed 0); the body then rises up the face for 34 ticks
-   * to the top (-168.5), runs across it and falls, landing (`landHard`) 90 ticks after the press at -51.70 out, y
-   * -220.03 -- the original's one 1034 ms arc (apex +15.77) landed at -49.09, y -219.61. The end point is close; the
-   * path is not: the port's launch does not clear the 14-u top in its arc.
+   * carry as well; the carry and the arc are pinned in the two JUMP-AIR cases below. *Was* (2026-11-04): the launch met
+   * the face after 10 ticks and the body climbed it for 34 ticks before falling beyond -- fixed by JUMP-AIR (research 80
+   * s7: the airborne records slant with the vertical speed every tick, no automatic step-up in the launch).
    */
   it('the running jump pressed 17.4 out, square at full stick, with the contact set and CLIMB offered: launched', () => {
     const { w, t, dist } = from(G19733.square);
@@ -284,6 +281,62 @@ describe.skipIf(!M51)(`M51 guardwall g19733 -- a capture-scored spec of the orig
     expect(t.climbPrompt(), 'CLIMB offered at the press').not.toBeNull();
     expect(w.jump()).toBe(true);
     expect(w.action?.name, 'the running jump (type 8)').toBe('launch');
+  });
+
+  /**
+   * JUMP-AIR (research 80 s7), a capture-scored spec of the jump-near-wall capture's two other columns (r0004, ac,
+   * 2026-11-04; `jump-near-wall/RESULTS.md`, two identical trials each). The run-up and press as above; what follows the
+   * press, every tick, until the body is down: the traversal's move (a climb is never started -- the original's types run
+   * 8 -> 11 and 8 -> 10 -> 2, no climb type), where it lands, when, and the highest feet.
+   */
+  const jumpFrom = (press: number) => {
+    const { w, t, dist } = from(G19733.square);
+    const { plane } = guardwall();
+    expect(w.place(w.state.x + plane.nx * 30, w.state.y + 8, w.state.z + plane.nz * 30)).toBe(true);
+    for (let i = 0; i < 300 && dist() > press; i++) w.tick(input(1));
+    const y0 = w.state.y, pressedAt = dist();
+    expect(w.jump()).toBe(true);
+    expect(w.action?.name).toBe('launch');
+    let climbed = false, apex = -Infinity, downAt = -1, landHard = false;
+    for (let i = 1; i <= 160 && downAt < 0; i++) {
+      w.tick(input(1));
+      if (t.state().kind !== 'none') climbed = true;
+      apex = Math.max(apex, w.state.y - y0);
+      if (w.action?.name === 'landHard') landHard = true;
+      if (i > 6 && !w.airborne) downAt = i;
+    }
+    return { pressedAt, climbed, apex, downAt, landHard, end: dist(), dy: w.state.y - y0 };
+  };
+
+  // The capture's 6.95 case (contact set, CLIMB offered at the press): the feet rose to +11.75 / +11.22 against the
+  // 14-tall face -- the height to the top swept the step-up's whole 5-10 band -- and it landed back at the foot (6.83
+  // out) after 701 ms in the air, never climbing. `AIR_STEP_UP_READING` 'not-in-launch' holds the no-climb; with 'any'
+  // the port steps up mid-air and lands on the top (fresh review 1 of JUMP-AIR, F1).
+  it('JUMP-AIR: pressed 6.95 out the running jump rises against the face and lands back at its foot, never climbing', () => {
+    const r = jumpFrom(6.95);
+    expect(r.pressedAt).toBeLessThanOrEqual(6.95);
+    expect(r.climbed, 'no climb in the air').toBe(false);
+    expect(r.apex).toBeGreaterThan(10.5);
+    expect(r.apex).toBeLessThan(12.5);                            // the capture +11.22 / +11.75
+    expect(r.end).toBeGreaterThan(4);
+    expect(r.end).toBeLessThan(8);                                 // at the foot (the capture 6.83)
+    expect(Math.abs(r.dy)).toBeLessThan(1.5);                      // on the ground it left
+    expect(r.downAt).toBeLessThanOrEqual(54);                      // down within 0.9 s of the press (the capture's air 701 ms)
+  });
+
+  // The capture's 17.43 case: one arc over the 14-tall top, apex +15.77, the hard landing (type 11) 1067 ms after the
+  // press, 49.09 past the face and 35.6 under the press. `AIR_SEGMENT_DIRECTION_READING` 'velocity' holds the arc (with
+  // 'frame-step' the records meet the face on a level tick); `AIR_STEP_UP_READING` the no-climb.
+  it('JUMP-AIR: pressed 17.43 out the running jump clears the 14-tall top in one arc and lands hard beyond it', () => {
+    const r = jumpFrom(17.43);
+    expect(r.climbed, 'no climb in the air').toBe(false);
+    expect(r.landHard, 'the hard landing (type 11)').toBe(true);
+    expect(r.apex).toBeGreaterThan(14.33);                         // over the top
+    expect(r.apex).toBeLessThan(17.5);                             // the capture +15.77
+    expect(r.end).toBeLessThan(-40);                               // beyond the face (the capture -49.09)
+    expect(r.end).toBeGreaterThan(-60);
+    expect(r.downAt).toBeGreaterThanOrEqual(57);                   // 0.95-1.15 s after the press (the capture 1067 ms)
+    expect(r.downAt).toBeLessThanOrEqual(69);
   });
 
   // LATER 681: walked in square the port's segment body stops a whole step short of the crossing, 5.66 from the plane at

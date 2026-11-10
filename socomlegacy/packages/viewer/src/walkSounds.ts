@@ -50,7 +50,37 @@ export interface WalkSignals {
   /** The stick: forward and right, -1..1 (the keys are the stick at its rim). */
   wish(): { forward: number; right: number };
   grid(): Grid | null;
+  /**
+   * AMB-1: the map's grid walking or not (`grid()`, else `WalkMode.gridOfGround`), the camera's floor pick in every
+   * view -- a dead page's teammate view flies (`grid()` answers only while walking). Absent, `grid()`.
+   */
+  sceneGrid?(): Grid | null;
+  /** `TESTROOM_FLY_AMBIENCE_ADAPTATION`: the test room's free-fly viewer, outside a match, holds the beds off. */
+  ambienceOff?(): boolean;
 }
+
+/**
+ * TESTROOM_FLY_AMBIENCE_ADAPTATION (AMB-1; a browser adaptation, the test room's map viewer only): the test room's
+ * free-fly camera outside a match -- no `NetPage`, the walk in fly mode -- plays no beds, as the map viewer did since
+ * the ambience came in (1fda855b17). It has no original (the console has no free-fly viewer); in a match the beds play
+ * in every view (research 81 §10) and this is never asked (`./main` asks it with no `NetPage` only; `./matchMount`
+ * never).
+ */
+export const TESTROOM_FLY_AMBIENCE_ADAPTATION = 'off' as const;
+
+/**
+ * DEAD_VIEW_BED_SIDE_READING (AMB-1's review F1; research 81 §10, §13): in a view off the own living body -- a dead
+ * player watching a teammate, a ghost, a spectator -- which side's bed plays. The common `check_camera_inside_state1`
+ * swaps the beds on `PLAYER_INDOORS` (72: bit 2 of the local player's `+0x1060`, research 81 §10), the Frostfire and MP1
+ * scripts on `CAMERA_INDOORS` (66: the camera's `m_inside`); what `PLAYER_INDOORS` answers for a dead player (its
+ * body's side, kept) and for a ghost or a spectator with no body is not read. Two candidates: `'camera'` (the active
+ * view's camera picks the side, as the port's beds always have, alive too: `frame` -> `setEnvironment`) and `'body'`
+ * (the dead body's side kept while the camera is a teammate's). The port takes `'camera'` -- what the player hears in
+ * the teammate view today. Settled by a capture of the original (die with the body outdoors, watch a teammate indoors,
+ * listen for the bed's swap) or by reading `PLAYER_INDOORS`' tick (0x2b3880) and the writer of `+0x1060` bit 2 for a
+ * dead actor. [reading]
+ */
+export const DEAD_VIEW_BED_SIDE_READING = 'camera' as const;
 
 const STANCE_CODE: Record<Stance, StanceCode> = { stand: 0, crouch: 1, prone: 2 };
 
@@ -67,19 +97,29 @@ export class WalkSounds {
   }
 
   /**
-   * Once a frame: the ambience on while walking, and the camera's place for the reverb's depth and the beds
+   * Once a frame: the ambience on, and the camera's place for the reverb's depth and the beds
    * (`GameAudio.setEnvironment`). `FUN_00295b00`'s one probe under the camera (D:L140037-140038) writes the camera's
    * `+0x2b8` (`m_inside`, D:L140054-140055) and `+0x2bc` (the reverb zone, D:L140056-140057), which the reverb reads
    * (`FUN_00341a60` D:L241520-241521) and `CAMERA_INDOORS` (66) answers: so the camera's own pick (`./floorPick`
    * `cameraFloor`, `FUN_002d4c20`: the highest floor at or below the camera), the effects' 66's; with none, nothing is
    * written (D:L140039) and the last answer stands (research 81 §9-§10, research 89 §21; reading, pending review). Was
    * the actor's pick (`probeFloor`: up to 6 over), so a camera under a low roof's top heard outdoors.
+   *
+   * AMB-1 (the owner's report, 2026-11-07, v0.4.12): the beds are on in every view, walking or not -- the common
+   * `check_camera_inside_state1` is an activation-1 script, started with the mission, looping for the whole of it and
+   * swapping the beds on `PLAYER_INDOORS` / `CAMERA_INDOORS`; no source read stops them on a death or a change of view
+   * (research 81 §10, "The beds"; reading). The camera of the view -- the own body's, the dead camera's, the spectated
+   * teammate's -- picks the side. Was: `setAmbience(walking)`, a gate with no original from the map viewer's free-fly
+   * camera, so the dead cycle's teammate view (`leaveSelf` -> fly mode) stopped every bed and `resumeBody` restarted
+   * them; only the test room's free-fly viewer keeps it (`TESTROOM_FLY_AMBIENCE_ADAPTATION`). Off the own living body
+   * the side is the view's camera's (`DEAD_VIEW_BED_SIDE_READING`: the body's side via `PLAYER_INDOORS` is unread).
+   * The match's teardown stops them (`MatchSound.dispose` -> `GameAudio.setData(null)` -> `stopAmbience`).
    */
   frame(camera: Vec3 | null): void {
-    const walking = this.walk.walking();
-    this.audio.setAmbience(walking);
-    const grid = this.walk.grid();
-    if (!walking || !grid || !camera) return;
+    const on = !(this.walk.ambienceOff?.() ?? false);
+    this.audio.setAmbience(on);
+    const grid = this.walk.sceneGrid?.() ?? this.walk.grid();
+    if (!on || !grid || !camera) return;
     const floor = cameraFloor(grid, camera[0], camera[1], camera[2])?.poly;
     if (floor) this.audio.setEnvironment((floor.inside ?? 0) !== 0, floor.reverbZone ?? 0);
   }

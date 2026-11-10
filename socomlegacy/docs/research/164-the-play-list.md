@@ -219,7 +219,7 @@ eager); the campaign's banks, until the single-player front end reaches them.
 
 | name | value | why | what settles it |
 |---|---|---|---|
-| `PLAY_LIST_FIRST_RELEASE_READING` (`packages/ui/src/screens/createGameCommands.ts`) | only Vigilance, Crossroads, Frostfire and Night Stalker listed, in `missionlist.rdr`'s order; every other row, Medley and Random included, left out at the source (until 2026-10-07: the 24 rows, the 21 not offered keyed `DISABLED` in grey; until 2026-10-12: the three without Night Stalker) | OT.R16; the owner's three-map list, 2026-10-07; OT.R45's fourth, 2026-10-12; the original's own filter leaves rows out (§3) | the owner opening more maps (the server's `FIRST_RELEASE_MAPS` with it) |
+| `PLAY_LIST_FIRST_RELEASE_READING` (`packages/ui/src/screens/createGameCommands.ts`) | only Vigilance, Fish Hook, Crossroads, Blizzard, Frostfire, Desert Glory, Night Stalker and The Ruins listed, in `missionlist.rdr`'s order; every other row, Medley and Random included, left out at the source (until 2026-10-07: the 24 rows, the 21 not offered keyed `DISABLED` in grey; until 2026-10-12: the three without Night Stalker; until V13-2, 2026-11-07: the four without Blizzard and The Ruins; until V13-3: the five without Blizzard; until DF-14, 2026-11-08: the six without Fish Hook and Desert Glory) | OT.R16; the owner's three-map list, 2026-10-07; OT.R45's fourth, 2026-10-12; OT.R58 amended 2026-11-07, the fifth (V13-2) and sixth (V13-3), and 2026-11-08, the seventh and eighth (DF-14, pending the owner's confirmation at the merge, H429) (§7); the original's own filter leaves rows out (§3) | the owner opening more maps (the server's `FIRST_RELEASE_MAPS` with it) |
 | `PLAY_LIST_NO_MEDLEY_ROW_READING` (`createGameCommands.ts`, `playListSets`; applied in `frontEndMachine.ts`) | `add_a_mission`'s `tmp_idx == 0` read as `tmp_idx < 0` (never): row 0 is not Medley | the set takes row 0 for Medley whenever respawn is off; the first release lists no Medley (§3) | Medley listed again (then the disc's set as it is) |
 | `MISSION_ARCHIVE_PRESENT_READING` (`createGameCommands.ts`) | every multiplayer mission present | `FUN_002c94f0`'s archive check; the player's own disc holds all 22 | a page that knows which `.ZDB` its disc image lacks |
 | `LISTBOX_GET_CONTENTS_READING` (`packages/ui/src/widgets/listbox.ts`) | each item serialised: a column item a sub-list, a text cell an int, a real or its string; an image cell nothing | op 10's serialisers read in the ELF (§2); the image cell's not followed | the image content's +0x40 (vtable 0x407050), when a list serialises one |
@@ -243,3 +243,28 @@ multiplayer record, after Desert Glory, MP6), never chosen. Its picture is `CGPi
 §3 -- the rows not offered left out, never greyed -- is unchanged. The default list bounds CREATE GAME and a
 created game only: the match server's own map rooms play every map its source holds (`server.ts` `playedMaps`,
 `GET /maps`).
+
+**Six since V13-3 (V13-2 made it five, The Ruins; V13-3 the sixth, Blizzard -- the owner, 2026-11-07: "ruins tonight, blizzard in the next one"; OT.R58 amended, the v0.4.13 plan's V13.R1-R2).** `FIRST_RELEASE_MAPS` is
+MP1, MP2, MP7, MP12, MP51, MP72 -- one list, `@s2u/ui`'s numbers, from which central's `lobby.ts` derives its stems --
+so the rows are 51 VIGILANCE, 72 CROSSROADS, 1 BLIZZARD, 2 FROSTFIRE, 7 NIGHT STALKER, 12 THE RUINS: Blizzard the
+file's 13th multiplayer record and The Ruins its 22nd (`createGameCommands.test.ts`, off the disc). Both are TYPE 2,
+DEMOLITION (`viewer/test/rules.test.ts`), so with RESPAWN on `FUN_00274940`'s own filter leaves them out at the source
+(D:L121528-121530), as Crossroads and Night Stalker; the original has no other per-map type to refuse -- a mission's
+type is its record's -- and a respawn game named on either plays classic (`playedRules`, `FUN_002a7560`
+D:L149405-149431), as on the other two DEMOLITION maps.
+
+**Eight since DF-14 (Fish Hook and Desert Glory -- the owner's word of 2026-11-08, "would like to release them this
+week", read as OT.R58's second amendment, the DF plan's DF.R1, confirmed by him 2026-11-09 (H429, MEGA.R10 2); reading
+(DF-14's review FAIL then PASS, high, `agent-mail/evidence/dg-fishhook-readiness-2026-11-08/REVIEW-DF-14-1.md`).** `FIRST_RELEASE_MAPS` is MP1, MP2, MP6, MP7, MP12, MP51, MP71, MP72 -- the same one list, central's
+stems derived from it -- so the rows are 51 VIGILANCE, 71 FISH HOOK, 72 CROSSROADS, 1 BLIZZARD, 2 FROSTFIRE, 6 DESERT
+GLORY, 7 NIGHT STALKER, 12 THE RUINS: Fish Hook the file's 7th multiplayer record and Desert Glory its 16th
+(`createGameCommands.test.ts`, off the disc), every row after VIGILANCE moved down by Fish Hook. Both are TYPE 4,
+EXTRACTION (`FUN_002c9540` D:L168877-168906; research 192 G2: EXT 6, 10, 11, 71), so with RESPAWN on `FUN_00274940`'s
+filter leaves them out at the source (D:L121528-121530; the respawn list stays 51, 2) and a respawn game named on either
+plays classic (`playedRules`, `FUN_002a7560` D:L149405-149431) -- V13.R2 extended from DEMOLITION to EXTRACTION by the
+same code (DF.R2), no new code. Their pictures are `CGPic71` and `CGPic6`, `mp71MissPic.tif` and `mp6MissPic.tif` in
+UICG (`createGamePictureDisc.test.ts` with `SOCOM_DISC`: both drawn, nothing undrawn). With eight rows the list's window
+no longer holds every row at the opening: the dev-disc picture check draws rows 0-6 with the focus on VIGILANCE and THE
+RUINS only once the focus has walked down and the window scrolled (`ListboxWidget.top`) -- the LISTBOX's own scroll, the
+popup's layout unchanged. `add_a_mission`'s `num_missions < 12` bound on the selection is untouched. The match
+server's own rooms are unchanged: they play every map their source holds.

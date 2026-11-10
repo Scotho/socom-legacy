@@ -20,11 +20,13 @@ describe('GX-24 opt-in contract', () => {
     expect(EXPERIMENTAL_DEFAULTS.renderScale).toBeGreaterThan(1);
   });
   it('offers each renderer option as an Experimental group with an explicit OFF value', () => {
-    for (const id of ['worldAnisotropy', 'worldTrilinear', 'worldLodBias', 'fxaa', 'resolveFiltering']) {
+    for (const id of ['fxaa', 'resolveFiltering']) {
       const group = EXPERIMENTAL_GROUPS.find(g => g.id === id);
       expect(group, id).toBeDefined();
       expect(group?.off, id).toEqual({[id]: false});
     }
+    // B206 ML-7 (ML.R14): the three world-sampling switches and the mip bias are one Texture filtering group; its OFF is all four off.
+    expect(EXPERIMENTAL_GROUPS.find(g => g.id === 'textureFiltering')?.off).toEqual({textureBias: false, worldAnisotropy: false, worldTrilinear: false, worldLodBias: false});
   });
   it.each(['GLSL', 'WGSL'] as const)('changes only world base sampling and restores its exact graph: %s', backend => {
     updateExperimentalAssets(off);

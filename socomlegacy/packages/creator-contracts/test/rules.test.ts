@@ -19,6 +19,7 @@ import {
   RULES_ADAPTATION,
   RULES_CODES,
   RULES_PER_PACK_ADAPTATION,
+  RULES_PACK_CONTRACT_FLOOR,
   RULES_SCHEMA,
   RULES_VOCABULARY_VERSION,
   rulesCatalogue,
@@ -514,10 +515,12 @@ describe("validateRules: configuration (level 1)", () => {
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Compatibility (step 5): ENGINE_CONTRACT_VERSION 0.1.1 is additive (the patch, under caret SemVer); a v2 pack without
-// rules validates as before.
+// rules validates as before. FP-4 (FP.R2) moved it to 0.1.2, the patch again (the forge-map bundle and the content map's
+// version 2, additive): every range below that admitted 0.1.1 by a floor still admits the build, and the rules floor
+// stays 0.1.1 (`RULES_PACK_CONTRACT_FLOOR`, a fixed fact, not the build's version).
 // ---------------------------------------------------------------------------------------------------------------------
 
-describe("the engine contract 0.1.1 (additive)", () => {
+describe("the engine contract 0.1.2 (additive over 0.1.1)", () => {
   const enc = new TextEncoder();
   const hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
   const pack = (contract: string, members: readonly { path: string; role: string; text: string }[], kinds: string[], intent: string) => {
@@ -530,13 +533,29 @@ describe("the engine contract 0.1.1 (additive)", () => {
     return [{ path: PACK_MANIFEST_FILE, bytes: enc.encode(JSON.stringify(manifest)) }, ...files];
   };
   const context = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
-  it("is 0.1.1", () => {
-    expect(ENGINE_CONTRACT_VERSION).toBe("0.1.1");
+  it("is 0.1.2 (FP-4), the rules floor still 0.1.1", () => {
+    expect(ENGINE_CONTRACT_VERSION).toBe("0.1.2");
+    expect(RULES_PACK_CONTRACT_FLOOR).toBe("0.1.1");
   });
   it("admits every 0.1.x range, the caret one included; a rules pack's ^0.1.1 refuses a 0.1.0 engine", () => {
-    for (const range of ["^0.1.0", ">=0.1.0", ">=0.1.0 <1.0.0", "*", "^0.1.1"]) expect(satisfiesRange(ENGINE_CONTRACT_VERSION, range), range).toBe(true);
+    for (const range of ["^0.1.0", ">=0.1.0", ">=0.1.0 <1.0.0", "*", "^0.1.1", ">=0.1.1", "~0.1.1", ">=0.1.2 <0.2.0", "^0.1.2"]) {
+      expect(satisfiesRange(ENGINE_CONTRACT_VERSION, range), range).toBe(true);
+    }
+    // a 0.1.1 build does not satisfy the sample yard's range (FP-4's fixture states >=0.1.2 <0.2.0)
+    expect(satisfiesRange("0.1.1", ">=0.1.2 <0.2.0")).toBe(false);
     // the repository's semver (`semver.ts`: `^0.y.z` fixes the minor): an additive 0.x change is the patch
     expect(satisfiesRange("0.1.0", "^0.1.1")).toBe(false);
+  });
+  it("validates a content pack stating the sample yard's >=0.1.2 <0.2.0 (FP-4), and a 0.1.1 pack (^0.1.1, ^0.1.0) still", async () => {
+    for (const range of [">=0.1.2 <0.2.0", "^0.1.1", ">=0.1.1", "^0.1.0"]) {
+      const v = await validatePack(pack(range, [{ path: "maps/yard.json", role: "gameplay", text: "{}" }], ["content"], "gameplay-value"), context);
+      expect(v.report.diagnostics, range).toEqual([]);
+      expect(v.ok, range).toBe(true);
+    }
+  });
+  it("refuses the sample yard's range on a 0.1.1 build, by name (CONTRACT_MISMATCH)", async () => {
+    const v = await validatePack(pack(">=0.1.2 <0.2.0", [{ path: "maps/yard.json", role: "gameplay", text: "{}" }], ["content"], "gameplay-value"), { ...context, contract: "0.1.1" });
+    expect(v.report.diagnostics.map((d) => [d.code, d.field, d.actual])).toEqual([[PACK_CODES.contractMismatch, "contract", "0.1.1"]]);
   });
   it("validates a v2 content pack without rules as before", async () => {
     const v = await validatePack(pack(">=0.1.0", [{ path: "maps/yard.json", role: "gameplay", text: "{}" }], ["content"], "gameplay-value"), context);
@@ -561,8 +580,14 @@ describe("the engine contract 0.1.1 (additive)", () => {
   });
   it("admits every rules-pack range whose every alternative holds a floor at 0.1.1 or above", async () => {
     const text = JSON.stringify(PAINTBALL);
-    for (const range of ["^0.1.1", ">=0.1.1", ">=0.1.1 <1.0.0", "~0.1.1", "0.1.1", "=0.1.1", ">=0.1.0 >=0.1.1", "^0.1.1 || >=0.2.0"]) {
+    for (const range of ["^0.1.1", ">=0.1.1", ">=0.1.1 <1.0.0", "~0.1.1", ">=0.1.0 >=0.1.1", "^0.1.1 || >=0.2.0", "^0.1.2 || ^0.1.1"]) {
       const v = await validatePack(pack(range, [{ path: "rules/paintball.json", role: "rules", text }], ["rules"], "new-behaviour"), context);
+      expect(v.report.diagnostics, range).toEqual([]);
+    }
+    // The exact ranges hold the floor too; they name one engine, so they are checked on a 0.1.1 build (FP-4: the
+    // floor rule is unchanged, only the build moved to 0.1.2, which an exact 0.1.1 range does not admit -- SemVer).
+    for (const range of ["0.1.1", "=0.1.1"]) {
+      const v = await validatePack(pack(range, [{ path: "rules/paintball.json", role: "rules", text }], ["rules"], "new-behaviour"), { ...context, contract: RULES_PACK_CONTRACT_FLOOR });
       expect(v.report.diagnostics, range).toEqual([]);
     }
   });

@@ -549,3 +549,62 @@ describe.skipIf(!MP2)(`a hidden tab's round backlog (a browser adaptation)${MP2 
     expect(sounds.length - before).toBe(quietSounds.length);
   });
 });
+
+/**
+ * ROUND_END_EFFECTS_READING (research 283 §9): the round's end stops what plays. `FUN_002aa910` (run at the online round's
+ * end, `FUN_002a9b30` D:L150626/D:L150668) stops every run of the `common` and `mission` zAnim sets (D:L151211-151218,
+ * `FUN_0026c2e0` D:L116144-116180 -> `FUN_0026fe90`) and ages every live particle past its life (D:L151219,
+ * `FUN_00326fb0` D:L225075-225083). The page keeps the map's ambient runs (whether the original restarts its ambient
+ * animations is unread: the reading), whose sources pour again.
+ */
+describe('ROUND_END_EFFECTS_READING: Effects.clearRound()', () => {
+  const wait = (seconds: number): EffectOp => ({ op: 'wait', seconds, range: 0, frames: null });
+  const prog = (name: string, ops: EffectOp[]): EffectProgram => ({ name, root: 0, flags: 0, nodes: ['NA'], sequences: [{ name: 's0', activation: 1, ops }] });
+  it('every run stopped but the map\'s ambient ones and what they called, silently', () => {
+    const heard: string[] = [];
+    const fx = new Effects(() => 0.5, (name) => heard.push(name));
+    fx.setData({
+      archive: 'T', models: [], textures: [], absent: [], materials: ['UNKNOWN'], defaultMaterial: 0, marks: [], footprints: [],
+      ambient: ['amb'], sceneNodes: [], hitAnims: [], missing: [],
+      programs: [
+        prog('amb', [{ op: 'call', anim: 'amb_child' }, wait(100)]), prog('amb_child', [wait(100)]),
+        prog('smoke', [{ op: 'call', anim: 'stream' }, wait(100)]), prog('stream', [wait(100)]),
+        prog('late', [wait(1), { op: 'sound', sound: '.GREN_MED', node: 0, volume: 1 }, wait(100)]),
+      ],
+    });
+    const camera = new PerspectiveCamera();
+    fx.play('smoke', { node: new Matrix4(), position: [0, 0, 0] });
+    fx.play('late', { node: new Matrix4(), position: [0, 0, 0] });
+    fx.update(1 / 30, camera);
+    expect(fx.stats().runs).toBe(5);                    // smoke, stream, late, amb, amb_child
+    fx.clearRound();
+    fx.update(1 / 30, camera);
+    expect(fx.stats().runs).toBe(2);                    // amb and amb_child
+    expect(fx.stats().ambient).toEqual(['amb']);
+    for (let i = 0; i < 60; i++) fx.update(1 / 30, camera);
+    expect(heard).toEqual([]);                          // the stopped run plays nothing more
+  });
+});
+
+describe.skipIf(!MP2)(`ROUND_END_EFFECTS_READING on the game's data${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  it('a blast\'s and a smoke\'s particles gone at once, the map\'s flames kept and pouring again', async () => {
+    const d = await effectsFromDisc(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB', 'MP2');
+    const fx = new Effects(() => 0.5, () => {});
+    fx.setData(d);
+    const camera = new PerspectiveCamera();
+    camera.position.set(40, 60, 140);
+    camera.updateMatrixWorld();
+    const ambient = fx.stats().ambient;
+    expect(ambient.length).toBeGreaterThan(0);
+    const base = fx.stats().runs;
+    fx.play('smoke_grenade', { position: [40, 50, 40], normal: [0, 1, 0], velocity: [0, 0, 0] });
+    for (let i = 0; i < 90; i++) fx.update(1 / 30, camera);
+    expect(fx.stats().runs).toBeGreaterThan(base);
+    expect(fx.stats().particles).toBeGreaterThan(0);
+    fx.clearRound();
+    expect(fx.stats().particles).toBe(0);
+    fx.update(1 / 30, camera);
+    expect(fx.stats().runs).toBe(base);
+    expect(fx.stats().ambient).toEqual(ambient);
+  });
+});

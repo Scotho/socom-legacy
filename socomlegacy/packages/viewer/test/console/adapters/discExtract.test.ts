@@ -206,6 +206,33 @@ describe('a disc chosen and validated, the state not whole: the popover extracts
     expect(r.ctl.S.extract!.phase).toBe('copy');
   });
 
+  it('clicked: the head\'s Close while it runs pauses it (the popover stays); the paused Close removes it, without the disc (IX.R4)', async () => {
+    // `e2e/consoleSounds.spec.ts`'s old way out of the popover, as a player clicks it: the head's × is Circle, so while the
+    // copy runs it is Cancel -- EXTRACTION PAUSED, the popover still up, the disc still ready from the disc; the paused
+    // popover's last Close removes it and (IX.R4, `docs/plans/2026-10-17-iphone-disc-extraction.md`: "Close exits without
+    // starting from the disc") leaves no disc open, so nothing can be read off it. A browser adaptation.
+    const r = await rig();
+    pick(disc());
+    await settle();
+    expect(document.querySelectorAll('#overlay .cx-extract')).toHaveLength(1);
+    expect(readDisc(document).state).toBe('ready');
+    (document.querySelector('#overlay .cx-extract [data-close]') as HTMLElement).click();
+    await settle();
+    expect(r.runs[0]!.hooks.signal!.aborted).toBe(true);
+    expect(document.querySelectorAll('#overlay .cx-extract')).toHaveLength(1);
+    expect(document.querySelector('#overlay .cx-dialog__title')!.textContent).toBe('EXTRACTION PAUSED');
+    expect(readDisc(document).image).not.toBeNull();
+    const closes = Array.from(document.querySelectorAll<HTMLElement>('#overlay .cx-extract button'))
+      .filter((b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim() === 'Close');
+    expect(closes).toHaveLength(2);                                     // the head's × and the paused popover's own
+    closes[closes.length - 1]!.click();
+    await settle();
+    expect(document.querySelectorAll('#overlay .cx-extract')).toHaveLength(0);
+    expect(r.ctl.S.overlay).toBeNull();
+    expect(readDisc(document).state).not.toBe('ready');
+    expect(readDisc(document).image).toBeNull();
+  });
+
   it('after three failures, a click on "Continue from the disc" closes it; START hands on the disc\'s own request', async () => {
     const r = await rig();
     const file = disc();

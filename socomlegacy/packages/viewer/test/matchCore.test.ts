@@ -98,6 +98,27 @@ describe('standOf: where the camera opens and the walk stands on a map', () => {
     expect(s.to).toEqual([0, 2, 0]);
     expect(s.from).toEqual([0, 2 + 40 * 0.4, 40 * 0.6]);
   });
+
+  // PRE-SPAWN-SIDE (PRE_SPAWN_STAND_SIDE_READING, research 222 s12): the seat's own start, A for side 0 (the SEALs) and B for
+  // side 1 (the Terrorists) -- research 75 s0, "A is side 0 and B side 1 on all 22 maps". Frostfire's measured rows
+  // (`spawns.ts`: the actor's feet, KNOWN s1): A [796, 100, 614], B [536, 143, 1254].
+  it('a Terrorist seat stands at start B, looking at A; a SEAL seat, and a page with no side given, at A looking at B', () => {
+    const frost = map({ name: 'Frostfire' });
+    const t = standOf(frost, viewWith({}), 'terrorist');
+    expect(t.feet).toEqual([536, 143, 1254]);
+    expect(t.from).toEqual([536, 143 + 20, 1254]);
+    expect(t.to).toEqual([796, 100, 614]);
+    for (const s of [standOf(frost, viewWith({}), 'seal'), standOf(frost, viewWith({}))]) {
+      expect(s.feet).toEqual([796, 100, 614]);
+      expect(s.to).toEqual([536, 143, 1254]);
+    }
+  });
+
+  it('the worker\'s stands: A\'s for a SEAL, B\'s (`standB`) for a Terrorist, their probed floor under the feet', () => {
+    const frost = map({ name: 'Frostfire', stand: { position: [796, 121, 614], floor: 101 }, standB: { position: [536, 160, 1254], floor: 140 } });
+    expect(standOf(frost, viewWith({}), 'terrorist')).toMatchObject({ from: [536, 160, 1254], feet: [536, 140, 1254] });
+    expect(standOf(frost, viewWith({}), 'seal')).toMatchObject({ from: [796, 121, 614], feet: [796, 101, 614] });
+  });
 });
 
 describe('feedCamera: the merged input into the camera\'s lanes', () => {

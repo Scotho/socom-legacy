@@ -871,10 +871,12 @@ describe("AD-9: the spectator's mode and zoom reset at a round's turnover (C82; 
  * order (SPECTATOR_CYCLE_ORDER_READING).
  */
 describe('DEAD-CYCLE (LATER 78, 79): the own body a stop of the dead player\'s cycle; the step from the bound actor\'s slot (research 314 §5.6)', () => {
-  it('names the stand-ins: the spectator\'s own slot and the own body\'s view after the cycle', () => {
+  it('names the stand-in: the spectator\'s own slot (the own body\'s view after the cycle is state 7, ported)', () => {
     const names = spectatorModule as unknown as Record<string, unknown>;
     expect(names.SPECTATOR_OWN_SLOT_PLACEHOLDER).toBe('before every player');
-    expect(names.DEAD_CYCLE_OWN_VIEW_READING).toBe('the death camera as before the cycle');
+    // DEATHCAM-MANUAL retired DEAD_CYCLE_OWN_VIEW_READING: the own view after the cycle is the death camera's state 7,
+    // ported (`WalkMode.resumeBody`, `./deathCamera` `takeDeathControl`; `FUN_002980d0` D:L141378-141389).
+    expect(names.DEAD_CYCLE_OWN_VIEW_READING).toBeUndefined();
   });
 
   it('LATER 79, the brief\'s example: self 1, teammates 2, 5, 9, watching 5 when it dies -- Right takes 9, Left 2 (the ghost and the classic dead alike)', () => {

@@ -15,7 +15,7 @@ export interface EnvironmentSource {
   rig: GlobalLighting | null;
   /** `LoadedMap.camera`'s fog: `cameras/camera` (`@s2u/scene` `cameraParams.ts`), its colour 0..255. */
   camera: { fogColor: V3; fogNear: number; fogFar: number; fogTop: number; fogBottom: number; fogEnabled: boolean; fogAltitude: boolean } | null;
-  /** `LoadedMap.night`: the world root's `NightMission` and `LensFX_NVG` (rgba 0..255). */
+  /** `LoadedMap.night`: the world root's `NightMission` and `LensFX_NVG` (rgba 0..1, the disc's floats; research 84 s14). */
   night?: { mission: boolean; lens: readonly [number, number, number, number] | null };
   /** `LoadedMap.shadowVector`: the world root's `ShadowVector`, the way the characters' shadows are cast. */
   shadowVector?: V3;
@@ -87,7 +87,8 @@ export function environmentSections(src: EnvironmentSource): EnvironmentSection[
     const lens = src.night.lens;
     out.push({ title: 'Night', source: 'the world root: NightMission, LensFX_NVG', rows: [
       { label: 'Night mission', value: src.night.mission ? 'Yes' : 'No' },
-      lens ? { label: 'Night vision lens', value: `${byteHex(lens)} · alpha ${lens[3]}`, swatch: byteHex(lens) } : { label: 'Night vision lens', value: 'None' },
+      // The lens is the disc's 0..1 floats (FP-1b, REVIEW-A 12): shown as a colour, never read as bytes.
+      lens ? { label: 'Night vision lens', value: `${rgbHex([lens[0], lens[1], lens[2]])} · alpha ${lens[3]}`, swatch: rgbHex([lens[0], lens[1], lens[2]]) } : { label: 'Night vision lens', value: 'None' },
     ] });
   }
   if (src.shadowVector) {

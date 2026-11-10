@@ -1163,23 +1163,28 @@
       },
       {
        "op": "call",
-       "anim": "FRAG_sparks"
+       "anim": "FRAG_sparks",
+       "caller": -7
       },
       {
        "op": "call",
-       "anim": "dust_explode_long"
+       "anim": "dust_explode_long",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "light_flash_large"
+       "anim": "light_flash_large",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "bsmoke_explode_large"
+       "anim": "bsmoke_explode_large",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "dust_ground_roll"
+       "anim": "dust_ground_roll",
+       "place": -7
       }
      ]
     },
@@ -1387,31 +1392,38 @@
       },
       {
        "op": "call",
-       "anim": "he_sparks_quick"
+       "anim": "he_sparks_quick",
+       "caller": -7
       },
       {
        "op": "call",
-       "anim": "he_sparks_quick"
+       "anim": "he_sparks_quick",
+       "caller": -7
       },
       {
        "op": "call",
-       "anim": "dust_explode_long"
+       "anim": "dust_explode_long",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "dust_explode_plume"
+       "anim": "dust_explode_plume",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "bsmoke_explode_large"
+       "anim": "bsmoke_explode_large",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "HE_light_flash_large"
+       "anim": "HE_light_flash_large",
+       "place": -7
       },
       {
        "op": "call",
-       "anim": "fire_explode_small"
+       "anim": "fire_explode_small",
+       "place": -7
       }
      ]
     },

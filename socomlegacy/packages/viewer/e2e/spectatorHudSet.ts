@@ -72,11 +72,12 @@ export function readOf(view: HudStateLike, reticle: boolean | null): SpectatorHu
  * - `followedBar`: the followed body's health bar (`FUN_00238500` D:L85555-85556) -- LATER 119: drawn on a follow and on a
  *   teammate from the room's part bytes (SPECTATOR_FOLLOWED_HEALTH_READING, research 282 §4; was: not drawn).
  * - `ownInfo`: the spectator's own object's bar and name in free and scenic (SPECTATOR_OWN_INFO_PLACEHOLDER, §4).
- * - `number`: the number at (587, 433) for a seat viewing another (SPECTATOR_INFO_NUMBER_PLACEHOLDER, §6).
+ * (Was also `number`, the number at (587, 433) for a seat viewing another, SPECTATOR_INFO_NUMBER_PLACEHOLDER -- retired by
+ * HUD-ALIVE's review fold, F3: drawn for every seat, D:L56605-56613, D:L56803-56806; research 282 §6.)
  * (Was also `teammateWeaponBox`, DEAD_WATCH_WEAPON_BOX_PLACEHOLDER -- retired by LATER 117: the `teammate` step asks the
  * box's panel and the watched teammate's icon, `TEAMMATE_BOX`.)
  */
-export const PORT_GAPS = { followedBar: true, ownInfo: false, number: false } as const;
+export const PORT_GAPS = { followedBar: true, ownInfo: false } as const;
 
 /** The weapon box (`FUN_00237de0`, hidden by the hide-all D:L56340; its show refuses a spectator, D:L85354). */
 export const WEAPON_BOX: readonly HudElement[] = ['panel', 'rounds', 'mags', 'icon', 'firemode'];
@@ -95,7 +96,7 @@ export const COMPASS: readonly HudElement[] = ['compass', 'marks'];
 export const PROMPTS: readonly HudElement[] = ['action', 'actionSides', 'actionCaption', 'holdBar', 'c4FuseBar'];
 /** The stance word `+0x11ca0` (D:L56328), the ZOOM line `+0x744` (D:L56338) and the scope's range `+0x165a0` (D:L56326). */
 export const VIEW_LINES: readonly HudElement[] = ['stance', 'zoom', 'scopeRange'];
-/** What the hide-all `FUN_001f77c0` (D:L56312-56361) takes from a seat viewing another: research 282 §1 (`SPECTATOR_HIDES` less the number). */
+/** What the hide-all `FUN_001f77c0` (D:L56312-56361) takes from a seat viewing another: research 282 §1 (`SPECTATOR_HIDES`). */
 export const SPECTATOR_HIDDEN: readonly HudElement[] = [...WEAPON_BOX, ...COMPASS, ...PROMPTS, ...VIEW_LINES];
 /**
  * What SELECT held takes away (D:L56808-56827, research 282 §1: the weapon box, the info box D:L56811, the compass, the
@@ -113,7 +114,7 @@ const WHY: Partial<Record<string, string>> = {
   box: "the info box, shown by the spectator's and the watching paths (D:L56875-56879, D:L57176-57179; research 282 §1)",
   name: "the viewed body's name on the info box (`FUN_00238500` D:L85558-85576; research 282 §4)",
   bar: "the info box bar: the followed body's (SPECTATOR_FOLLOWED_HEALTH_READING); the own object's not drawn while SPECTATOR_OWN_INFO_PLACEHOLDER stands (research 282 §4)",
-  range: 'the number: not drawn while SPECTATOR_INFO_NUMBER_PLACEHOLDER stands (research 282 §6)',
+  range: 'the number, the connected consoles: written each frame with no seat test (D:L56605-56613), shown with the SPECTATOR HUD option on (D:L56803-56806); research 282 §6',
   spectatorInfo: "the CSpectatorInfo panel `+0x18280`, a spectator seat's only (D:L56875-56879, D:L57116-57118, D:L57181-57183; research 282 §2)",
   help: "the help lines: the spectator's four (D:L56869-56872, D:L56881-56895; research 282 §3), a dead player's six (FUN_001f97b0 D:L56996-57107, FUN_001f9f20 D:L57149-57173; research 282 §8)",
   scoreboard: 'the scoreboard, SELECT held (`FUN_0022be20`; research 282 §5)',
@@ -145,21 +146,21 @@ export type HelpCheck = 'shown' | 'clock';
 /** The expectation of one step: drawn, hidden, and the path. */
 function expectation(step: SpectatorHudStep): { path: 'spectator' | 'teammate' | 'own'; shown: string[]; hidden: string[]; help: boolean; followed: boolean | null } {
   // LATER 119: the followed body's bar drawn (its health from the room's bytes); while the gap stood, asked hidden.
-  const bar = PORT_GAPS.followedBar ? { shown: ['bar'], hidden: [] } : { shown: [], hidden: ['bar'] }, number = PORT_GAPS.number ? [] : ['range'];
+  const bar = PORT_GAPS.followedBar ? { shown: ['bar'], hidden: [] } : { shown: [], hidden: ['bar'] };
   switch (step) {
     case 'free': case 'scenic':
       return {
         path: 'spectator', shown: ['timer', 'box', 'spectatorInfo', ...(PORT_GAPS.ownInfo ? ['name', 'bar'] : [])],
-        hidden: [...SPECTATOR_HIDDEN, ...number, ...(PORT_GAPS.ownInfo ? [] : ['name', 'bar']), 'scoreboard'], help: true, followed: false,
+        hidden: [...SPECTATOR_HIDDEN, ...(PORT_GAPS.ownInfo ? [] : ['name', 'bar']), 'scoreboard'], help: true, followed: false,
       };
     case 'follow':
-      return { path: 'spectator', shown: ['timer', 'box', 'name', 'spectatorInfo', ...bar.shown], hidden: [...SPECTATOR_HIDDEN, ...number, ...bar.hidden, 'scoreboard'], help: true, followed: true };
+      return { path: 'spectator', shown: ['timer', 'box', 'name', 'spectatorInfo', ...bar.shown], hidden: [...SPECTATOR_HIDDEN, ...bar.hidden, 'scoreboard'], help: true, followed: true };
     case 'scoreboard':
       return { path: 'spectator', shown: ['scoreboard'], hidden: [...new Set([...SCOREBOARD_HIDDEN, ...SPECTATOR_HIDDEN])], help: false, followed: null };
     case 'teammate':
       return {
         path: 'teammate', shown: ['timer', 'box', 'name', ...TEAMMATE_BOX, ...bar.shown],   // LATER 117: the panel and the teammate's icon
-        hidden: [...SPECTATOR_HIDDEN.filter((e) => !TEAMMATE_BOX.includes(e)), ...number, ...bar.hidden, 'spectatorInfo', 'scoreboard'],
+        hidden: [...SPECTATOR_HIDDEN.filter((e) => !TEAMMATE_BOX.includes(e)), ...bar.hidden, 'spectatorInfo', 'scoreboard'],
         help: true, followed: true,                     // LATER 118: the watching lines (D:L57149-57173)
       };
     case 'own':

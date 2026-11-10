@@ -1,7 +1,9 @@
 import { pageVersion } from './console/pageVersion';
 import { pageFrameSampler, type FrameStats } from './frameSampler';
-import { probeSoftwareRenderer, type SoftwareProbe } from './softwareRenderer';
-import { readVideoSettings, type RenderScale } from './videoSettings';
+import type { SoftwareProbe } from './softwareRenderer';
+import { readVideoSettings, readVideoSettingsV2, type RenderScale, type Rows } from './videoSettings';
+import { detectDeviceClass, pageDeviceClass, pageRendererProbe, readDeviceSignals, type DeviceClass } from './deviceClass';
+import { autoResolved, presetOfRows } from './autoQuality';
 import { pageBeaconText } from './clientErrorBeacon';
 import { soundDecodeText } from './soundDecodeRecord';
 
@@ -42,7 +44,8 @@ export interface PerfParts {
   buffer?: { width: number; height: number } | null;
   css?: { width: number; height: number } | null;
   refreshHz?: number | null;
-  video?: { renderScale: RenderScale; shadows: boolean } | null;
+  /** VS-7: `deviceClass` (`./deviceClass`) and `preset` -- the preset chosen, or under Automatic "automatic <what it resolved to>". */
+  video?: { renderScale: RenderScale; shadows: boolean; deviceClass?: string | null; preset?: string | null } | null;
   place?: string | null;
   stats?: FrameStats | null;
   longTasks?: number | null;
@@ -77,7 +80,7 @@ export function perfLine(p: PerfParts): string {
     `dpr ${num(p.dpr) ? d2(p.dpr) : '?'}`,
     `buffer ${size(p.buffer)} of ${size(p.css)} css`,
     `${num(p.refreshHz) ? p.refreshHz : '?'} Hz`,
-    p.video ? `${p.video.renderScale}, shadows ${p.video.shadows ? 'on' : 'off'}` : '?',
+    p.video ? `${p.video.renderScale}, shadows ${p.video.shadows ? 'on' : 'off'}${p.video.deviceClass ? `, class ${oneLine(p.video.deviceClass)}` : ''}${p.video.preset ? `, ${oneLine(p.video.preset)}` : ''}` : '?',
     p.place ? oneLine(p.place) : '?',
     `${frames}, long tasks ${num(p.longTasks) ? p.longTasks : '?'}`,
     `graphics ${p.graphics ? oneLine(p.graphics) : '?'}`,
@@ -125,9 +128,6 @@ export function placeOf(src: { kind: 'match' | 'test room'; map: string | null; 
   return now - src.at > PERF_STALE_MS_ADAPTATION ? `${place}, ended` : place;
 }
 
-/** The renderer probe, made once a page: it makes (and loses) a throwaway WebGL context. */
-let probed: SoftwareProbe | null = null;
-
 /** What a page hands `pagePerfLine` instead of its own (tests). */
 export interface PagePerfOptions {
   userAgent?: string;
@@ -135,6 +135,42 @@ export interface PagePerfOptions {
   devicePixelRatio?: number;
   version?: string;
   now?: number;
+}
+
+/** The video part's reading (the line's own, VS-7; VS-8's perf report reuses it): the v1 rows, the class, the preset word, the v2 rows. */
+export interface VideoReading {
+  renderScale: RenderScale; shadows: boolean;
+  deviceClass: DeviceClass | null;
+  /** The preset chosen, or under Automatic "automatic <what it resolved to>" (the line's word). */
+  preset: string | null;
+  /** The rows the page draws: under Automatic what it resolved to (`./autoQuality` `autoResolved`), else the saved v2 rows; null unread. */
+  resolved: Rows | null;
+}
+
+/** The page's video reading (the line's `video` part; VS-8's perf report). Throws only where `readVideoSettings` does; callers wrap it. */
+export function pageVideoReading(o: Pick<PagePerfOptions, 'userAgent' | 'probe'> = {}): VideoReading {
+  const part = <T>(f: () => T): T | null => { try { return f(); } catch { return null; } };
+  const v = readVideoSettings();
+  // VS-7: the class from the line's own probe (a test's) or the page's; under Automatic, the preset it resolved to.
+  const nav = { userAgent: o.userAgent ?? part(() => globalThis.navigator.userAgent) ?? '', deviceMemory: part(() => (globalThis.navigator as { deviceMemory?: number }).deviceMemory) ?? undefined };
+  const cls = part(() => (o.probe ? detectDeviceClass(readDeviceSignals({ navigator: nav }, o.probe)) : pageDeviceClass()));
+  const v2 = part(() => readVideoSettingsV2());
+  const auto = v2?.preset === 'auto' && cls ? autoResolved(cls) : null;   // a throw here leaves the part unread, as before
+  const preset = !v2 ? null : v2.preset !== 'auto' ? v2.preset : `automatic ${cls ? (auto ? presetOfRows(auto) : null) ?? `${cls} start` : '?'}`;
+  const resolved = !v2 ? null : v2.preset === 'auto' ? auto : (({ preset: _p, ...rows }) => rows)(v2);
+  return { renderScale: v.renderScale, shadows: v.shadows, deviceClass: cls, preset, resolved };
+}
+
+/**
+ * The test room's `window.__viewer.video()` (a test instrument, a browser adaptation: nothing of the game) -- the page's
+ * video reading cut to what the viewer spec compares the panel's shadows toggle with: the device class, the preset word,
+ * the v1 shadows switch and the shadows row the page draws (under Automatic the class's resolved row,
+ * `./autoQuality` `CLASS_START_ADAPTATION`: Off on the software class). Throws only where `pageVideoReading` does.
+ */
+export interface VideoReadout { deviceClass: DeviceClass | null; preset: string | null; shadows: boolean; resolvedShadows: Rows['shadows'] | null }
+export function pageVideoReadout(): VideoReadout {
+  const v = pageVideoReading();
+  return { deviceClass: v.deviceClass, preset: v.preset, shadows: v.shadows, resolvedShadows: v.resolved?.shadows ?? null };
 }
 
 /** The page's line: its sampler, its last frame's source and canvas, its settings. Never throws. */
@@ -147,8 +183,8 @@ export function pagePerfLine(o: PagePerfOptions = {}): string {
   const canvas = src?.canvas() ?? null;
   const renderer = part(() => {
     if (o.probe) return o.probe();
-    if (!probed) probed = probeSoftwareRenderer(globalThis.document);
-    return probed;
+    // N1b (the fresh review of N1): the page's one memoised probe (deviceClass `pageRendererProbe`), never a second throwaway WebGL context beside a live one on the Xbox class (GM-XBOX1); a browser adaptation
+    return pageRendererProbe();
   });
   return perfLine({
     version: o.version ?? part(() => pageVersion()),
@@ -159,7 +195,7 @@ export function pagePerfLine(o: PagePerfOptions = {}): string {
     buffer: canvas ? { width: canvas.width, height: canvas.height } : null,
     css: canvas ? { width: canvas.clientWidth, height: canvas.clientHeight } : null,
     refreshHz: refreshOf(stats?.min_ms),
-    video: part(() => { const v = readVideoSettings(); return { renderScale: v.renderScale, shadows: v.shadows }; }),
+    video: part(() => { const v = pageVideoReading(o); return { renderScale: v.renderScale, shadows: v.shadows, deviceClass: v.deviceClass, preset: v.preset }; }),
     place: placeOf(src, now),
     stats,
     longTasks: stats ? frames.longTasks(now - stats.span_ms) : frames.longTasks(0),

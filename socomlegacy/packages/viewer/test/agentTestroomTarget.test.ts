@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createSoloTestroomTarget, type SoloHostState } from '../src/testroom/agent/target';
-import { createTestroomPageTarget } from '../src/agent/testroomTarget';
+import { createTestroomPageTarget, SCENARIO_WIRE_STEPS } from '../src/agent/testroomTarget';
 import { createShotDriver, linearShotSampler } from '../src/forge/camera/driver';
 import type { LocalPackApi } from '../src/agent/localPacks';
-import { LIMITS, type AgentRequest } from '@s2u/forge-agent-protocol';
+import { LIMITS, TESTROOM_INPUT_OPERATIONS, TESTROOM_SETTINGS_OPERATIONS, type AgentRequest } from '@s2u/forge-agent-protocol';
 
 function rig() {
   const state: SoloHostState = { scope: 'testroom', online: false, replay: false, visible: true, ready: true, building: true,
@@ -18,6 +19,24 @@ function rig() {
   const request = (operation: string, args: unknown = {}): AgentRequest => ({ version: 1, sessionId: 'placeholder', targetId: 'target', epoch: 'epoch', requestId: `id-${++id}`, operation, args, expectedRevision: api.read().revision });
   return { state, api, packs, target, request, teleport, loadMap };
 }
+
+describe('AX-8 (AX.R4): the test-room target pauses when the tab is hidden', () => {
+  it('ends a running shot stopped, cancels the scenario and releases held inputs, and keeps the session', async () => {
+    const r = rig(), signal = new AbortController().signal;
+    r.api.stopShot = vi.fn(() => 'shot-1');
+    const cancel = vi.spyOn(r.api, 'cancel');
+    const reset = vi.spyOn(r.api, 'resetSession');
+    const started = await r.target.dispatch(r.request('scenario.start', { steps: [{ operation: 'wait', seconds: 5 }] }), signal);
+    expect(started.outcome).toBe('ok');
+    r.target.pause?.('PAGE_HIDDEN');
+    expect(r.api.stopShot).toHaveBeenCalledWith('stopped');
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(reset).not.toHaveBeenCalled();
+    const status = await r.target.dispatch(r.request('scenario.status'), signal);
+    expect(status).toMatchObject({ outcome: 'ok', data: { state: 'cancelled' } });
+    r.api.dispose();
+  });
+});
 
 describe('test-room transport boundary', () => {
   it('forwards an explicit nonblocking map load and reports pending rather than ready', async () => {
@@ -34,8 +53,22 @@ describe('test-room transport boundary', () => {
     const r = rig(), signal = new AbortController().signal;
     expect((await r.target.dispatch(r.request('testroom.teleport', { destination: 'seal_tent' }), signal)).outcome).toBe('ok');
     expect(r.teleport).toHaveBeenCalledWith([1, 2, 3], undefined);
-    expect((await r.target.dispatch(r.request('testroom.input', { operation: 'camera.set', arguments: { yaw: 2 } }), signal)).code).toBe('PERMISSION_DENIED');
-    expect((await r.target.dispatch(r.request('scenario.start', { steps: [{ operation: 'camera.set', args: { yaw: 2 } }] }), signal)).code).toBe('PERMISSION_DENIED');
+    // REVIEW-1 9: an inner operation testroom.input (or .settings) does not admit is UNSUPPORTED_OPERATION, with the admitted list.
+    const escalated = await r.target.dispatch(r.request('testroom.input', { operation: 'camera.set', arguments: { yaw: 2 } }), signal);
+    expect(escalated.code).toBe('UNSUPPORTED_OPERATION');
+    expect((escalated.data as { admitted: string[] }).admitted).toEqual([...TESTROOM_INPUT_OPERATIONS]);
+    const setting = await r.target.dispatch(r.request('testroom.settings', { operation: 'input.set', arguments: {} }), signal);
+    expect(setting.code).toBe('UNSUPPORTED_OPERATION');
+    expect((setting.data as { admitted: string[] }).admitted).toEqual([...TESTROOM_SETTINGS_OPERATIONS]);
+    // REVIEW-2 22: no grant admits camera.set as a scenario step, so it is unsupported (with the steps the wire admits),
+    // never PERMISSION_DENIED, whose hint sends the agent to re-pair.
+    const cameraStep = await r.target.dispatch(r.request('scenario.start', { steps: [{ operation: 'camera.set', args: { yaw: 2 } }] }), signal);
+    expect(cameraStep).toMatchObject({ outcome: 'refused', code: 'UNSUPPORTED_OPERATION' });
+    expect((cameraStep.data as { admitted: string[] }).admitted).toEqual(['input.set', 'input.release', 'action.press', 'action.hold', 'action.release', 'action.cancel', 'equipment.equip', 'teleport', 'observe', 'wait']);
+    // The admitted list is the room's own scenario steps less camera.set (a drift check against the room's source).
+    const room = readFileSync(new URL('../src/testroom/agent/target.ts', import.meta.url), 'utf8');
+    const roomSteps = JSON.parse(room.match(/const scenarioOperations = (\[[^\]]*\])/)![1]!.replace(/'/g, '"')) as string[];
+    expect([...SCENARIO_WIRE_STEPS]).toEqual(roomSteps.filter(step => step !== 'camera.set'));
     r.api.dispose();
   });
   it('retains pack mutation receipts and clears them on disconnect', async () => {

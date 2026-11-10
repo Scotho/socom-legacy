@@ -30,9 +30,11 @@ export function session(state: SessionState = 'signed-in'): Session {
  */
 export const TABLE: readonly MissionRecord[] = [
   { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 52, name: 'THE MIXER', type: 3, multiplayer: true },
-  { number: 53, name: 'FOXHUNT', type: 3, multiplayer: true }, { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true },
+  { number: 53, name: 'FOXHUNT', type: 3, multiplayer: true }, { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
+  { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true },
   { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true }, { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true },
-  { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true }, { number: 99, name: 'SINGLE', type: 0, multiplayer: false },
+  { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true }, { number: 10, name: 'BLOOD LAKE', type: 4, multiplayer: true },
+  { number: 99, name: 'SINGLE', type: 0, multiplayer: false },
 ];
 export const NAMES = new Map([[1, 'M16A2'], [3, '<b>HK5</b>'], [18, 'M4A1'], [75, 'MK23'], [36, 'FRAG'], [37, 'HE'], [35, '2X AMMO'], [49, 'SMOKE']]);
 

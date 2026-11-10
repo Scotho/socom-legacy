@@ -1175,6 +1175,8 @@ are dropped and keep their ids below, marked; the card codec's read side stays a
 
 
 ### PLAT-38 -- The browser's video settings page: performance options, an FPS overlay, a no-GPU notice
+
+Planned 2026-11-07 as [the video settings page](../plans/2026-11-07-video-settings-page.md) (design: [`specs/2026-11-07-video-settings-design.md`](../specs/2026-11-07-video-settings-design.md)); built on the video lane `agent/video-page`.
 - **Goal:** players on weak or GPU-less machines can get a playable frame rate, and can see it: one browser video
   settings page carrying a render scale with presets, further performance options, an FPS overlay and a no-GPU notice.
   Product track (OT.R53): a browser adaptation, labelled as one on the page; at its defaults none of it changes what the

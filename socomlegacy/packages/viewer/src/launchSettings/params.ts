@@ -110,9 +110,15 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
   },
   {
     key: 'renderer', group: 'where', kind: 'enum', values: ['auto', 'webgl2', 'xbox', 'webgpu'], sheet: false, pages: ['testroom', 'front end', 'console', 'forge'],
-    meaning: 'The graphics mode for this load only, over Settings > Display > Graphics mode (#627; a browser adaptation): auto is Automatic (WebGL2 for now, WEBGL2-DEFAULT, LATER 708), webgl2 is Compatibility (WebGL2, for a black screen), xbox is the Xbox preset (WebGL2 with edge smoothing off), webgpu asks for WebGPU (WebGL2 when no adapter answers in time). The saved choice is not changed; Graphics mode shows the row locked while it is in the address.',
+    meaning: 'The graphics mode for this load only, over Settings > Display > Graphics mode (#627; a browser adaptation): auto is Automatic (WebGPU first, WebGL2 when no hardware adapter answers in time or after a WebGPU error; WEBGPU-DEFAULT, LATER 708), webgl2 is WebGL2 (for a black screen), xbox is the Xbox preset (WebGL2 with edge smoothing off), webgpu asks for WebGPU (WebGL2 when no adapter answers in time). The saved choice is not changed, not even by a WebGPU error; Graphics mode shows the row locked while it is in the address.',
     absent: 'the saved Graphics mode, Automatic when none is saved',
     readIn: ['graphicsBackend.ts'],
+  },
+  {
+    key: 'glowscale', group: 'where', kind: 'enum', values: ['half', 'full', 'auto'], sheet: false, pages: ['testroom', 'front end', 'console', 'forge'],
+    meaning: 'The flashbang glow target scale for this load only, over the saved glow setting (GLOW-STEPDOWN, GLOW_TARGET_SCALE_ADAPTATION; a browser adaptation): half or full forces that scale on any page, auto is the policy (half on a software adapter or slow frames)',
+    absent: 'the saved glow setting, Automatic when none is saved',
+    readIn: ['glowScale.ts'],
   },
   {
     key: 'lobbyprepare', group: 'where', kind: 'enum', values: ['0', '1'], sheet: false, pages: ['front end', 'console'],
@@ -311,14 +317,14 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
   },
   {
     key: 'hdMenuScale', group: 'instruments', kind: 'number', sheet: false, pages: ['front end'],
-    meaning: 'Under the HD (GoE Soul) picture (or uiPerfHd, GM-02), a lower cap (1-4) on the scale the menus are drawn at; 1 draws the original menus (HD-3, HD.R8).',
+    meaning: 'With the HD pack chosen in Mods (or uiPerfHd, GM-02), a lower cap (1-4) on the scale the menus are drawn at; 1 draws the original menus (HD-3).',
     absent: "the HD pack's own scale (4x)",
     readIn: ['hdMenuTextures.ts'],
   },
   {
     key: 'uiGpu', group: 'instruments', kind: 'enum', values: ['off', 'shadow', 'on'], sheet: false, pages: ['front end', 'testroom'],
     meaning: 'The GPU menus switch for this load (GM-10, a browser adaptation; works without devmode, O9): off draws the menus in software as today, shadow draws both and compares, on shows the GPU frame. Over the stored support kill and the per-surface table.',
-    absent: 'the per-surface table (UI_GPU_SURFACES_ADAPTATION; every surface off until its flip lands), after the stored kill s2u.uiGpu=off',
+    absent: 'the per-surface table (UI_GPU_SURFACES_ADAPTATION; every surface on since the flip, GM.R18 -- the software only where the GPU cannot draw), after the stored kill s2u.uiGpu=off',
     readIn: ['uiGpuSwitch.ts'],
   },
   {
@@ -336,7 +342,7 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
   {
     key: 'uiGpuBlend', group: 'instruments', kind: 'enum', values: ['ff', 'exact'], sheet: false, needsDevmode: true, pages: ['front end', 'testroom'],
     meaning: 'The GPU menus\' blend mode for every surface (GM.R6, dev and test only): ff fixed-function, exact the programmable path.',
-    absent: 'the blend table (UI_GPU_BLEND_ADAPTATION): exact at scale 1, ff at HD',
+    absent: 'the blend table (UI_GPU_BLEND_ADAPTATION): exact at scale 1, ff at HD (the loading screen exact at HD too, GM.R5)',
     readIn: ['uiGpuSwitch.ts'],
   },
   {
@@ -359,8 +365,8 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
   },
   {
     key: 'uiPerfHd', group: 'instruments', kind: 'flag', sheet: false, needsDevmode: true, pages: ['front end'],
-    meaning: 'The ring, and the menus\' HD path on for the measurement whatever the picture, at the pack\'s scale capped by hdMenuScale (GM-02; a development build with devmode only; HD-HOLD still keeps HD (GoE Soul) from every player).',
-    absent: 'the menus\' HD path follows the picture (off while HD-HOLD holds)',
+    meaning: 'The ring, and the menus\' HD path on for the measurement with no pack chosen, at the pack\'s scale capped by hdMenuScale (GM-02; a development build with devmode only).',
+    absent: 'the menus\' HD path follows the texture pack chosen in Mods (B206 ML-3)',
     readIn: ['uiPerfRequest.ts'],
   },
   // ---- the pages that are not the test room
@@ -398,6 +404,12 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     key: 'discshare', group: 'pages', kind: 'string', sheet: false, pages: ['front end'],
     meaning: "A disc share pairing code, from the QR the receiving device shows: the page opens the sender's dialog with the code filled in (DSH-5, DSH.R9; a browser adaptation).",
     absent: "no pairing code; the sender's dialog opens only from Settings' \"Send game files to another device\", by typing or picking a nearby code",
+    readIn: ['discShareView.ts'],
+  },
+  {
+    key: 'discshare-host', group: 'pages', kind: 'string', sheet: false, pages: ['console'],
+    meaning: "A host's disc share link token (RB-26, over RB-25's hosted shares): the page asks that host for the game files at once, opening Play's \"Request Game Files (XBOX)\" area with its code for the host to match, and says the host's answer (queued, No, Yes; a browser adaptation).",
+    absent: "no host's link; a request from Play's \"Request Game Files (XBOX)\" row makes its own code",
     readIn: ['discShareView.ts'],
   },
 ];

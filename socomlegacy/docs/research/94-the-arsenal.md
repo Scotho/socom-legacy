@@ -33,7 +33,7 @@ ruling for M2-M9, with the part that proves it.
 | R94.9 | **Bullets ignore `Muzzle_Velocity`**: a ray of `Maximum_Range` x 1.1, no drop. Grenades and launcher rounds fall at 98 u/s^2; rockets accelerate at 980 u/s^2 and do not fall | M4 keeps the hitscan round; M7's projectiles take the two laws | §C1.12 |
 | R94.10 | The shotguns fire **4 cone rays a pull** (`NumProjectilesFired 4`), one shell; the victim's side re-counts pellets by range; one hit per victim per volley | M4's shotgun class | §C2.1 |
 | R94.11 | **C4 is timed, not remote**: planted on a C4 target object only, 6 s fuse; the Detonator comes only with a claymore and sets off only claymores. The PMN arms after 8 s and triggers within 1 m | M7 builds C4 as a timed charge on the map's C4 targets (`C4_TARGET_READING`), the claymore with its detonator | §C5 |
-| R94.12 | The 870's pump key is misspelt on the disc (`ReloadAfterShotDelay`), so its lock is the parser's default 0.01 s; `TracerTextureName` and `Encumbrance` have no reader; `Sound_Radius` only feeds the bots' hearing | reproduced as the game runs: 0.01 s, no tracer texture, no encumbrance on the mover, `Sound_Radius` unused (no bots) | §C1, §C2.2 |
+| R94.12 | The 870's pump key is misspelt on the disc (`ReloadAfterShotDelay`), so its lock is the parser's default 0.01 s; `TracerTextureName` and `Encumbrance` have no reader; `Sound_Radius` feeds the bots' hearing **and the players' threat marks** (corrected 2026-11-09, THREAT-MARKS: the release's threat block reads `+0x34`, `FUN_005c5340` D:L479142-479143; research 321 section 2.6; was: "only feeds the bots' hearing") | reproduced as the game runs: 0.01 s, no tracer texture, no encumbrance on the mover, `Sound_Radius` read for the players' threat marks (THREAT-MARKS, `threatMarks.ts`), not by the room's bots' hearing (no reader there) | §C1, §C2.2 |
 | R94.13 | 2X doubles `NumMags` (cap 10) for pistol-sniper classes, the extra magazines full; launchers, rockets and throwables are not doubled | M4/M7 | §A7 |
 | R94.14 | `SendWeaponPUMessage` (0x2ba660) is the **pick-up of a dropped weapon**, not the loadout; the kit rides in the 0x90-byte character message (up to 8 x {id and round, rounds, magazines}); how the confirmed pick reaches the others is not traced | M9's `loadout` message is the viewer's own (`PICK_WIRE_READING`); the body's kit on the wire mirrors the character message's entries | §A6, §B6 |
 | R94.15 | The thermal scope is equipment with no model: selectable only beside a sniper rifle; it swaps the sniper's `scope` node for `thermal_scope` and plays the thermal lens effect in the scoped views; zoom unchanged | M5/M7 | §C7 |
@@ -1166,8 +1166,12 @@ pistols and equipment 4, rifles/SMGs/shotguns/snipers 1, M203 rifles/F2000/MGL/M
 `FUN_003d2a00` (L325313). Read by the weapon's fire `FUN_003d2d70` (L325585-325596): for a firearm-class or rocket
 weapon with `+0x30 > 1.0`, a stimulus `FUN_0050ef30`/`FUN_0050ee30` (the AI perception broadcast, L381078-381140) at the
 muzzle with radius^2 = `+0x30^2`, 0.1 s, kind 0xe. The impact posts its own (ImpactRadius x the surface factor,
-L319424-319436). So Sound_Radius is how far bots hear a shot (M4A1 SD 100 u, M4A1 1000 u, M82A1A 1350 u); in a
-players-only match it has no effect (`SOUND_RADIUS_MP_USE_READING`).
+L319424-319436). So Sound_Radius is how far bots hear a shot (M4A1 SD 100 u, M4A1 1000 u, M82A1A 1350 u). **Corrected
+2026-11-09 (THREAT-MARKS; research 321 section 2.6):** it also gates the players' threat marks -- the weapon release
+`FUN_005c5340` compares the local player's squared distance from the release point with the release record's `+0x34`
+(D:L479142-479143), so the marks light within min(1100, Sound_Radius x 10) -- and so it has an effect in a players-only
+match. Was: "in a players-only match it has no effect (`SOUND_RADIUS_MP_USE_READING`)"; that reading's question (the fire
+stimulus's other listeners) stays open.
 
 #### C1.11 TracerTextureName
 
@@ -1698,7 +1702,7 @@ IgnoreExplosionDI; `LAW HEAT Ammo` and `RPG Ammo` AccelerationFactor 98 (default
 | name | what is unknown | searched |
 |---|---|---|
 | `ENCUMBRANCE_READER_NOT_FOUND` | any reader of weapon `+0x38` (Encumbrance) | getters L324300-325700; `lb`/`lbu ...,0x38(` over all 14,880 `recomp/retail/output/*.cpp`; reCOM `m_encumbmod` (no user) |
-| `SOUND_RADIUS_MP_USE_READING` (*note only*) | whether anything but the AI perception broadcast consumes the fire stimulus in MP | `FUN_003d2d70` L325585-325596; `FUN_0050ee30` listeners list 0x66a08c not walked |
+| `SOUND_RADIUS_MP_USE_READING` (*note only*) | whether anything but the AI perception broadcast consumes the fire stimulus in MP (2026-11-09, THREAT-MARKS: `Sound_Radius` itself has a players' use -- the release's threat block reads the record's `+0x34`, research 321 section 2.6 -- though not through the stimulus; the stimulus's listeners stay unread) | `FUN_003d2d70` L325585-325596; `FUN_0050ee30` listeners list 0x66a08c not walked |
 | `LAUNCHER_RELOAD_CONDITION_READING` (*note only*) | what `body+0x528 == DAT_0044d408` means (selects `launcher_reload`) | `FUN_005a82e0` L462833; writes of `+0x528` not traced |
 | `PUMP_BLOCKS_FIRE_READING` (resolved 2026-09-30, M4: yes -- `FUN_005a7ab0` L462527-462540, the fire gate's reload test, lists `Shotgun pump`/`crouch`/`prone pump` (`DAT_003df0b8/c0/c8`), the shotgun reloads and `Rifle m203 reload` (`DAT_003debf8`); `viewer/src/firearms.ts`, `fire.ts` hold the fire for the after-shot clip) | whether the after-shot clip (`Shotgun pump`, bolt) itself refuses fire after the kit lock ends | `FUN_005c3000` L477643; `FUN_00588bc0` action flags not read; `motion.rdr` `NoFire` on those clips not probed |
 | `HOLSTER_TRACK_READING` (in code, M7: `viewer/src/play.ts` `launcherNode`, `viewer/src/rocket.ts`; reading: a carried LAW / RPG-7 hangs at the `spinehi` `launcher` node's origin, the clips' track not played on it) | the local pose of the `rifle`/`pistol`/`launcher`/`rifle_out` nodes in the idle/walk clips (where the slung gun sits) | `CZSealBody_AddWeapon` L419019-419060; research 77 §4 (the tracks exist); the MOTION_P clips' values not probed |

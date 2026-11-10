@@ -26,7 +26,8 @@ export interface GraphicsRecord {
   lost: { api: string; message: string; reason: string | null; at: string } | null;
 }
 
-export type GraphicsEventKind = 'gpuuncapturederror' | 'gpudevicelost' | 'webglcontextlost';
+/** `gpudemoted` (WG-7, W5): this browser's Automatic was set to WebGL2 after a WebGPU error (`./graphicsDemotion`). */
+export type GraphicsEventKind = 'gpuuncapturederror' | 'gpudevicelost' | 'webglcontextlost' | 'gpudemoted';
 
 const record: GraphicsRecord = { first: null, count: 0, lost: null };
 const listeners = new Set<(kind: GraphicsEventKind, info: { api: string; message: string; detail: string | null }) => void>();
@@ -48,6 +49,9 @@ export function onGraphicsEvent(fn: (kind: GraphicsEventKind, info: { api: strin
 function tell(kind: GraphicsEventKind, info: { api: string; message: string; detail: string | null }): void {
   for (const fn of listeners) { try { fn(kind, info); } catch { /* a listener's own failure never reaches the renderer */ } }
 }
+
+/** WG-7, W5: the demotion told to the same listeners (the beacon's), as the watchers tell theirs. */
+export function tellGraphicsDemoted(reason: string): void { tell('gpudemoted', { api: 'WebGPU', message: reason, detail: null }); }
 
 /** The notice's words: the API, the browser's message, its reason when it gives one, the UTC time. */
 export function graphicsLostText(info: GraphicsLostInfo, at: Date = new Date()): string {
@@ -87,7 +91,8 @@ function notice(doc: Document, mark: string, role: string, text: string): HTMLEl
   el.className = 's2u-notice';
   el.style.position = 'fixed';
   el.style.left = '50%';
-  el.style.top = mark === 'data-graphics-lost' ? '12px' : '64px';   // the error notice one row under the lost one
+  // the error notice one row under the lost one, the demotion's (WG-7) one under that
+  el.style.top = mark === 'data-graphics-lost' ? '12px' : mark === 'data-graphics-error' ? '64px' : '116px';
   el.style.transform = 'translateX(-50%)';
   el.style.zIndex = '2147483647';
   el.style.maxWidth = '90vw';
@@ -105,6 +110,14 @@ export function showGraphicsLost(doc: Document, info: GraphicsLostInfo, at: Date
 /** One error notice on the page (its own element, under the lost one), replacing an earlier one. */
 export function showGraphicsError(doc: Document, info: GraphicsErrorInfo, count: number, at: Date = new Date()): HTMLElement {
   return notice(doc, 'data-graphics-error', 'status', graphicsErrorText(info, count, at));
+}
+
+/** WG-7, W5: the demotion's words -- what was saved and the reload that applies it (the lost notice's own prompt). */
+export const GRAPHICS_DEMOTED_TEXT = 'Graphics mode set to WebGL2 after a WebGPU error. Reload the page to continue.';
+
+/** WG-7, W5: one demotion notice on the page (its own element, under the error one), replacing an earlier one. */
+export function showGraphicsDemoted(doc: Document): HTMLElement {
+  return notice(doc, 'data-graphics-demoted', 'alert', GRAPHICS_DEMOTED_TEXT);
 }
 
 /** Chains the renderer's own handler (three's: the console line and its lost flag), records the loss, then shows the notice. */

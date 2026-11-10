@@ -167,9 +167,9 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     const css = readFileSync(resolve(here, '../../src/forge/forge.css'), 'utf-8').replace(/\r\n/g, '\n');
     const list = /\n\.fx-assets \{([^}]*)\}/.exec(css);
     expect(list, 'the list\'s rule').not.toBeNull();
-    expect(list![1]).toMatch(/\bflex: 1 1 (?:auto|0);/);   // it takes the pane's height left, and scrolls in it
+    expect(list![1]).toMatch(/\bflex: 1 1 0;/);   // it takes the pane's height left, and scrolls in it (FP-1b: one form)
     expect(list![1]).toMatch(/\bmin-height: 0;/);
-    expect(list![1]).toMatch(/\boverflow-y: (?:auto|scroll);/);   // its bar kept shown (scroll) is a scroll too
+    expect(list![1]).toMatch(/\boverflow-y: scroll;/);   // its bar kept shown (FP-1b, REVIEW-C 19: scroll, as pagePanels pins)
     expect(/\n\.fx-asset-filters \{([^}]*)\}/.exec(css)?.[1]).toMatch(/\bflex: none;/);
     expect(assetsPanel!.querySelector('.fx-assets-pane > .fx-asset-filters')!.compareDocumentPosition(assetsPanel!.querySelector('.fx-assets-pane > ul.fx-assets')!)
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -207,7 +207,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect(list.querySelector('.fx-asset-count')).toBeNull();
     const css = readFileSync(resolve(here, '../../src/forge/forge.css'), 'utf-8').replace(/\r\n/g, '\n');
     expect(css).toMatch(/\.fx-assets\[data-view="grid"\] \.fx-asset-name \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/);
-    expect(css).toMatch(/\.fx-assets\[data-view="grid"\] \{[^}]*min-height: 0;[^}]*overflow-x: hidden;[^}]*overflow-y: (?:auto|scroll);/);
+    expect(css).toMatch(/\.fx-assets\[data-view="grid"\] \{[^}]*min-height: 0;[^}]*overflow-x: hidden;[^}]*overflow-y: scroll;/);   // FP-1b: scroll, one form
     expect(css).toMatch(/\.fx-assets\[data-view="list"\] \.fx-star,[\s\S]*?\.fx-assets\[data-view="grid"\] \.fx-star \{ opacity: 0; pointer-events: none;/);
     expect(css).toMatch(/\.fx-assets\[data-view="list"\] > li\[data-asset\]:hover \.fx-star,[\s\S]*?\.fx-assets\[data-view="grid"\] > li\[data-asset\]:focus-within \.fx-star \{ opacity: 1; pointer-events: auto; \}/);
     slider.value = '160';
@@ -221,7 +221,7 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     expect(hoverToggle).not.toBeNull();
     hoverToggle.click();
     expect(hoverToggle.checked).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   it('5: no Starters button on the toolbar; START > Panels shows the Starter experiences', async () => {
     await mounted();

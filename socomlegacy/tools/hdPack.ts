@@ -95,7 +95,8 @@ export function buildHdManifest(records:readonly DiscTextureRecord[],files:reado
   type Decl=Omit<HdEntry,'key'|'width'|'height'|'tier'|'source'>;
   const payloads=new Map<string,string|Uint8Array>(),decl=new Map<string,Decl>(),own=new Map<string,Decl>();
   const sha=(d:Uint8ClampedArray)=>createHash('sha256').update(d).digest('hex');
-  const decode=(file:string)=>{const bytes=byName.get(file)!.read();return file.toLowerCase().endsWith('.png')?decodePng(bytes):decodeDds(bytes);};
+  const packed=new Map<string,number>();   // LATER 742: each linked file's bytes as it is written (hd-pack-from-pcsx2.ts links or copies it)
+  const decode=(file:string)=>{const bytes=byName.get(file)!.read();packed.set(file,bytes.length);return file.toLowerCase().endsWith('.png')?decodePng(bytes):decodeDds(bytes);};
   let n=0;
   for(const file of used){
     const ext=file.toLowerCase().endsWith('.png')?'png':'dds',img=decode(file),out=`${n++}.${ext}`;payloads.set(out,file);
@@ -123,7 +124,9 @@ export function buildHdManifest(records:readonly DiscTextureRecord[],files:reado
   const entries:HdEntry[]=[...[...best].map(([key,b])=>({key,width:b.rec.width,height:b.rec.height,...(own.get(key)??decl.get(b.file)!),tier:b.tier,source:b.file})),...placedEntries]
     .sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:area(b)-area(a)||(a.source<b.source?-1:a.source>b.source?1:0));
   const totalBytes=[...decl.values(),...own.values()].reduce((t,d)=>t+d.bytes,0);
-  const manifest=validateHdManifest({format:'s2u-hd-texture-pack',version:1,localOnly:true,game:meta.game,name:meta.name,method:meta.method,entries,totalBytes});
+  // LATER 742: the download's size -- every payload as written, a linked file's own bytes or a PNG made here.
+  const packedBytes=[...payloads.values()].reduce((t,v)=>t+(typeof v==='string'?packed.get(v)!:v.length),0);
+  const manifest=validateHdManifest({format:'s2u-hd-texture-pack',version:1,localOnly:true,game:meta.game,name:meta.name,method:meta.method,entries,totalBytes,packedBytes});
   const manifestBytes=new TextEncoder().encode(JSON.stringify(manifest));
   return {manifest,manifestBytes,id:createHash('sha256').update(manifestBytes).digest('hex'),payloads,below};
 }

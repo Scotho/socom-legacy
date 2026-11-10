@@ -47,6 +47,25 @@ describe('perfLine: one line, its parts in order', () => {
     expect(line).toContain('| last 22 s: 30 fps p50 33.3 p95');
   });
 
+  it('VS-7: the device class and the resolved preset in the video part (Automatic: the preset it resolved to)', () => {
+    expect(perfLine({ ...FULL, video: { renderScale: 'balanced', shadows: true, deviceClass: 'standard', preset: 'automatic balanced' } }))
+      .toContain('| 165 Hz | balanced, shadows on, class standard, automatic balanced | 16 seats');
+    expect(perfLine({ ...FULL, video: { renderScale: 'performance', shadows: false, deviceClass: 'xbox', preset: 'automatic xbox start' } }))
+      .toContain('| performance, shadows off, class xbox, automatic xbox start |');
+    expect(perfLine({ ...FULL, video: { renderScale: 'quality', shadows: true, deviceClass: 'high', preset: 'custom' } }))
+      .toContain('| quality, shadows on, class high, custom |');
+  });
+
+  it('VS-7: the page line names the class the probe gives -- a Series X agent with a Direct3D11 string is xbox', () => {
+    const line = pagePerfLine({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox One) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.70 Safari/537.36 Edg/130.0.2849.56',
+      probe: () => ({ renderer: 'ANGLE (AMD, AMD Custom GPU 0405 Direct3D11 vs_5_0 ps_5_0, D3D11)', software: false }), devicePixelRatio: 1, version: '0.4.2',
+    });
+    expect(line).toContain(', class xbox, ');
+    const soft = pagePerfLine({ userAgent: '', probe: () => ({ renderer: 'SwiftShader', software: true }), devicePixelRatio: 1, version: '0.4.2' });
+    expect(soft).toContain(', class software, ');
+  });
+
   it('nothing known: every part "?", never a throw', () => {
     expect(perfLine({})).toBe('s2u perf v? | ? | ? | ? | dpr ? | buffer ? of ? css | ? Hz | ? | ? | no frames, long tasks ? | graphics ? | sound ?');
   });
@@ -122,12 +141,12 @@ describe('pagePerfLine: the page\'s parts gathered', () => {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7444.59 Safari/537.36',
       probe: () => ({ renderer: null, software: true }), devicePixelRatio: 1.25, version: '0.4.2',
     });
-    expect(line).toMatch(/^s2u perf v0\.4\.2 \| Chrome 142 Windows \| \? SOFTWARE RENDERER \| webgl2 \| dpr 1\.25 \| buffer 1280x720 of 0x0 css \| 60 Hz \| balanced, shadows on \| 2 seats Crossroads \| last 0 s: 60 fps p50 16\.7 /);
+    expect(line).toMatch(/^s2u perf v0\.4\.2 \| Chrome 142 Windows \| \? SOFTWARE RENDERER \| webgl2 \| dpr 1\.25 \| buffer 1280x720 of 0x0 css \| 60 Hz \| balanced, shadows on, class standard, automatic balanced \| 2 seats Crossroads \| last 0 s: 60 fps p50 16\.7 /);
     expect(frameStats([16.7, 16.6, 16.8])!.frames).toBe(3);
   });
   it('no frames ever: no match, no frames', () => {
     const line = pagePerfLine({ userAgent: '', probe: () => ({ renderer: 'R', software: false }), devicePixelRatio: 1, version: '0.4.2' });
-    expect(line).toContain('| R | ? | dpr 1 | buffer ? of ? css | ? Hz | balanced, shadows on | no match | no frames, long tasks ');
+    expect(line).toContain('| R | ? | dpr 1 | buffer ? of ? css | ? Hz | balanced, shadows on, class standard, automatic balanced | no match | no frames, long tasks ');
     expect(line).toMatch(/\| graphics ok \| sound cold 0, warmed 0, evicted 0$/);   // LATER 730: the page's record
   });
 

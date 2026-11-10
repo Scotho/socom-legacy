@@ -93,8 +93,9 @@ type Waiting={resolve:(r:Rgba)=>void;reject:(e:Error)=>void;req:HdDecodeRequest}
  * menus draw today's frame. The fall to the main thread is said once to `onFailure` (the page's `[hd] menus:` line).
  * GM-13d (plan row GM-13d): the DDS decode, the payload's key and the whole replacement's alpha rescale moved here too
  * (review F5 had left the key and the rescale on the main thread). The pack runtime's check of each payload stays in
- * `HdPackRuntime`; with the worker it reads the key the worker computed (`seedHdKey`) instead of hashing. The match's
- * and the Experiments page's packs pass no decoder and keep all of it on the main thread.
+ * `HdPackRuntime`; with the worker it reads the key the worker computed (`seedHdKey`) instead of hashing. The match's,
+ * the Forge's and the test room's world packs pass this decoder too (B206 ML-4, `lazyHdPackDecoders`), so their `png`,
+ * `dds` and `alpha` run here as the menus' do; a pack given no decoder keeps all of it on the main thread.
  * - `png`, `dds`: the bytes are copied to the worker, never transferred, so a decode waiting when the worker fails is
  *   done on the main thread instead. The answer's key (the decoded RGBA's sha256) is seeded as `hdKeyOf`'s memo; a
  *   main-thread decode seeds nothing (the check hashes it, as before).
@@ -316,6 +317,8 @@ export class HdMenus {
   private scale=1;
   private generation=0;
   private cache:UiQuadRasterCache|null=null;
+  /** PR #729's Codex P2: the pack the menus were set on (the page's MODS choice), so a replaced one is reloaded. */
+  private packId:string|null=null;
   /**
    * `maxScale`: a lower cap than the pack's (the page's `?hdMenuScale=`, for a slower machine); a browser adaptation.
    * `decoder` (GM-13b): the menus' decode off the main thread, handed to `make` (the pack's decodes; GM-13d: its DDS
@@ -341,9 +344,13 @@ export class HdMenus {
   /**
    * On or off. Scale 1 -- `?hdMenuScale=1`, or a pack with no whole ratio -- is the original menus: no lookup, nothing
    * fetched (review F3: a 4x image bilinear-shrunk to 1x by one sample is neither the original nor the pack's art).
+   * `packId` (PR #729's Codex P2): the chosen pack (the MODS choice); another than the last one on reloads the pack, as
+   * `PackApplier` does for the world's -- its `setEnabled(true)` keeps an enabled pack's manifest as it is.
    */
-  async set(on:boolean):Promise<void>{
+  async set(on:boolean,packId:string|null=null):Promise<void>{
     const g=++this.generation;
+    const replaced=on&&this.pack?.isEnabled===true&&packId!==this.packId;
+    this.packId=on?packId:null;
     this.textures?.close();                          // GM-13 review F2: the replaced lookup's waiting loads dropped
     this.textures=null;this.scale=1;this.cache?.clear();this.cache=null;
     if(!on||Math.floor(this.maxScale)<2){
@@ -352,6 +359,8 @@ export class HdMenus {
       return;
     }
     this.pack??=this.make(this.decoder);
+    if(replaced)await this.pack.setEnabled(false);
+    if(g!==this.generation)return;
     await this.pack.setEnabled(true);
     const m=this.pack.manifest,pack=this.pack;
     if(g!==this.generation||!m)return;

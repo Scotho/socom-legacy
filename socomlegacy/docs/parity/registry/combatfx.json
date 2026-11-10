@@ -1694,14 +1694,14 @@
   },
   {
    "id": "combatfx.hud.info-box",
-   "claim": "the health bar is (488, 396) 134x18, (0, 128, 64) at alpha 80; the timer and the range on baseline 433",
+   "claim": "the health bar is (488, 396) 134x18, (0, 128, 64) at alpha 80; the timer and the console count on baseline 433",
    "level": "reading",
-   "source": "FUN_002388a0 D:L85628",
+   "source": "FUN_002388a0 D:L85628; FUN_001f7ff0 D:L56605-56613 (the console count)",
    "note": "docs/research/87-hud.md",
    "tests": [
     {
      "file": "packages/viewer/test/hud.test.ts",
-     "name": "the health bar is (488, 396) 134x18, green (0, 128, 64) at alpha 80; the timer and range on 433",
+     "name": "the health bar is (488, 396) 134x18, green (0, 128, 64) at alpha 80; the timer and the console count on 433",
      "data": "none"
     }
    ]

@@ -4,6 +4,7 @@ import type {Rgba} from '@s2u/gs';
 import {HdTextureRegistry,HD_UI_SAMPLING,fullAlpha,upscaleRgba,type HdManifest,type HdEntry} from '../src/hdTexturePack';
 import {decodeDds} from '../src/dds';
 import {HdServedPack,HD_ROOT} from '../src/hdTexturePackServed';
+import {memoryHdStore} from '../src/hdTexturePackStore';
 import {HdMenuDecoder,HdMenuTextures,HdMenus,hdMenuScale,pageHdMenus,parseHdMenuScale,menuStatusKey} from '../src/hdMenuTextures';
 import {UiGpuLoadBudget} from '../src/uiGpuLoadBudget';
 import {encodePng} from '../../../tools/png';
@@ -376,5 +377,28 @@ describe('GM-13b review F2: the decoder\'s mode surfaced',()=>{
   it('the perf hook\'s hd() carries it (frontEnd.ts)',()=>{
     const src=readFileSync(new URL('../src/frontEnd.ts',import.meta.url),'utf8');
     expect(src).toMatch(/forced: uiPerf\.hd, decoder: hdMenus\?\.decoderMode\(\) \?\? null/);
+  });
+});
+
+describe('PR #729 Codex P2: a replaced HD pack reloads the menus\' pack',()=>{
+  // The menus' `HdServedPack` stays enabled across `set(true)`; a new pack chosen (another zip dropped over the first)
+  // must disable and reload it, else the old manifest's scale, keys and files stay while the store holds the new one.
+  it('select pack A, replace it with pack B: the menus take B\'s manifest',async()=>{
+    const decode=pattern(4,4,3),store=memoryHdStore();
+    const put=async(hd:Rgba)=>{
+      const manifest:HdManifest={format:'s2u-hd-texture-pack',version:1,localOnly:true,game:'SCUS-97275',name:`HD ${hd.width}`,method:'test',totalBytes:hd.data.length,
+        entries:[{key:await hashOf(decode.data),width:4,height:4,file:'0.dds',format:'dds',outWidth:hd.width,outHeight:hd.height,bytes:hd.data.length,sha256:await hashOf(hd.data),tier:'A',source:'x'}]};
+      const mbytes=new TextEncoder().encode(JSON.stringify(manifest)),id=await sha256(mbytes),files=new Map([['manifest.json',mbytes],['0.dds',dds(hd)]]);
+      await store.replace({id,name:manifest.name,textures:1,bytes:hd.data.length,importedAt:'2026-11-07T00:00:00Z'},[...files.keys()],async(n)=>files.get(n)!);
+      return id;
+    };
+    const fetcher=vi.fn(async()=>new Response('',{status:404}));
+    const hd=new HdMenus(()=>new HdServedPack(fetcher,()=>undefined,new HdTextureRegistry(false),store,undefined,{storeOnly:true}));
+    const a=await put(pattern(8,8,9));
+    await hd.set(true,`hd:${a}`);expect(hd.options().scale).toBe(2);
+    const b=await put(pattern(16,16,9));
+    await hd.set(true,`hd:${b}`);expect(hd.options().scale).toBe(4);
+    await hd.set(true,`hd:${b}`);expect(hd.options().scale).toBe(4);   // the same pack again: kept, not reloaded
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

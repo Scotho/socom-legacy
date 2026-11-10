@@ -65,7 +65,9 @@ describe('billboardSpecs', () => {
 
   it('the user\'s own placements are kinds of their own, under User data, each drawn square (the map\'s are round)', () => {
     const user = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'user');
-    expect(user.map((t) => t.id)).toEqual(['userProps', 'userSpawns', 'userNpcs', 'userEscortees', 'userTacZones', 'userTacPoints', 'userScenicViews', 'userTurrets', 'userDoors', 'userLadders', 'userGates', 'userObjectives', 'userActions']);
+    // OT.R112: the contributor's list -- respawn points and flares placed by the user, NPCs last (no map counterpart).
+    expect(user.map((t) => t.id)).toEqual(['userProps', 'userSpawns', 'userRespawns', 'userEscortees', 'userTacZones', 'userTacPoints', 'userScenicViews', 'userTurrets', 'userDoors', 'userLadders', 'userGates', 'userFlares', 'userObjectives', 'userActions', 'userNpcs']);
+    expect([userMarkKind({ respawn: 'A' }), userMarkKind({ respawn: 'B' }), userMarkKind({ flare: true })]).toEqual(['userRespawnA', 'userRespawnB', 'userFlares']);
     expect(userMarkKind({ hostage: true })).toBe('userEscortees');
     expect(userMarkKind({ zone: true })).toBe('userTacZones');
     expect([userMarkKind({ point: true }), userMarkKind({ view: true }), userMarkKind({ turret: true }), userMarkKind({ door: true })]).toEqual(['userTacPoints', 'userScenicViews', 'userTurrets', 'userDoors']);
@@ -102,20 +104,25 @@ describe('billboardSpecs', () => {
     expect(billboardSpecs([], [])).toEqual([]);
   });
 
-  it('the dropdown pairs each user kind with its map kind on one row; one with no counterpart has an empty cell', async () => {
+  // OT.R112: the contributor's dropdown -- rows by section under a heading (the placing toolbar's own headers), a lone
+  // user switch (NPCs) in its section's first empty user cell.
+  it('the dropdown pairs each user kind with its map kind on one row, by section under its heading; a lone kind takes a free cell', async () => {
     const { billboardRows } = await import('../../src/forge/mapDataBillboards');
-    const rows = billboardRows().map((r) => [r.user?.id ?? null, r.map?.id ?? null]);
+    const all = billboardRows();
+    expect(all.flatMap((r) => ('heading' in r ? [r.heading] : []))).toEqual(['Spawn', 'Objects', 'Demolition', 'Escort · Extraction', 'Info', 'Other']);
+    expect('heading' in all[0]!).toBe(true);
+    const rows = all.flatMap((r) => ('heading' in r ? [] : [[r.user?.id ?? null, r.map?.id ?? null]]));
     expect(rows).toContainEqual(['userTurrets', 'turrets']);
     expect(rows).toContainEqual(['userDoors', 'doors']);
     expect(rows).toContainEqual(['userGates', 'gates']);
     expect(rows).toContainEqual(['userObjectives', 'bombStart']);
     expect(rows).toContainEqual(['userActions', 'actions']);
-    expect(rows).toContainEqual(['userNpcs', null]);                     // no map NPCs
-    expect(rows).toContainEqual([null, 'respawns']);                     // no user respawn points
-    expect(rows).toContainEqual([null, 'flares']);
-    // Every switch once, the map's in its own order.
+    expect(rows).toContainEqual(['userRespawns', 'respawns']);
+    expect(rows).toContainEqual(['userFlares', 'flares']);
+    expect(rows).toContainEqual(['userNpcs', 'cranes']);                 // no map NPCs: the Other section's free user cell
+    // Every switch once, the map's in the sections' order.
     expect(rows.flatMap(([u, m]) => [u, m]).filter(Boolean).sort()).toEqual(MAP_DATA_KIND_TOGGLES.map((t) => t.id).sort());
-    expect(rows.flatMap(([, m]) => (m ? [m] : []))).toEqual(MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'map').map((t) => t.id));
-    expect(rows.findIndex(([u]) => u === 'userNpcs')).toBe(rows.findIndex(([u]) => u === 'userSpawns') + 1);   // beside its user neighbour
+    expect(rows.flatMap(([, m]) => (m ? [m] : []))).toEqual(['slots', 'respawns', 'mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares', 'bombStart', 'actions', 'escortees', 'tacZones', 'tacPoints', 'scenicViews', 'cranes']);
+    expect(rows[rows.length - 1]).toEqual(['userNpcs', 'cranes']);       // last
   });
 });

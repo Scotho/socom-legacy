@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { OUTLINER_USER_ROW, placingTool } from './forgeBase';
 import { forgeStoredList } from './forgeStore';
 
 /**
@@ -16,6 +17,27 @@ const LAYOUT = JSON.stringify({
   spawns: [],
   camera: { x: 10, y: 80, z: 40, yaw: 15, pitch: -20 },
 });
+
+/**
+ * OT.R112 (the owner, 2026-11-07: the Forge's keys are its contributor's): the editor's camera flies on W only while
+ * the right mouse button is held over the viewport (`../src/camera.ts` `update`: `keyboardMove = !this.forgeKbm ||
+ * (perspective && this.rightMouseHeld)`; `onPointerDown` sets `rightMouseHeld` on button 2); a bare W is the gizmo's
+ * translate. So the fly is W with the right button held over `.fx-input`, `during` read while both are down. Letting
+ * the right button go stops the fly (`onPointerUp` clears the fly keys and the velocity).
+ */
+async function flyForward(page: Page, during: () => Promise<void>): Promise<void> {
+  const box = await page.locator('.fx-input').boundingBox();
+  if (!box) throw new Error('the forge viewport is not up');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down({ button: 'right' });
+  await page.keyboard.down('w');
+  try {
+    await during();
+  } finally {
+    await page.keyboard.up('w');
+    await page.mouse.up({ button: 'right' });
+  }
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((layout) => {
@@ -37,7 +59,10 @@ test('keeps an unknown piece through save and reopen, and names the file', async
   await page.locator('.fx-outliner-tools select').selectOption('missing');
   await expect(missing).toHaveCount(1);
   await page.locator('.fx-outliner-tools select').selectOption('spawns');
-  await expect(page.locator('.fx-outliner li.fx-empty')).toHaveText('Nothing matches');
+  // OT.R112: the Outliner is a tree; the Spawns filter shows User Data's Spawns branch, its empty line the page's own
+  // words (`../src/forge/page.ts` `drawOutliner`, `userSpawns`), not the flat list's "Nothing matches".
+  await expect(page.locator('.fx-outliner li[data-tree-branch="userSpawns"] li.fx-empty'))
+    .toHaveText('No spawns: the Spawn SEAL and Spawn Terrorist tools place them');
   await page.locator('.fx-outliner-tools select').selectOption('all');
   await page.locator('.fx-outliner-tools input').fill('does_not');
   await expect(missing).toHaveCount(1);
@@ -55,9 +80,9 @@ test('places, multi-selects, and keeps the selection across undo and redo', asyn
   await page.goto('/forge');
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(1, { timeout: 30_000 });
   const view = page.locator('.fx-input');
-  await page.getByRole('button', { name: /team A spawn/ }).click();
+  await placingTool(page, 'Spawn SEAL').click();
   await view.click({ position: { x: 200, y: 240 } });
-  await page.getByRole('button', { name: /team B spawn/ }).click();
+  await placingTool(page, 'Spawn Terrorist').click();
   await view.click({ position: { x: 420, y: 300 } });
   const spawns = page.locator('.fx-outliner li.fx-team-a, .fx-outliner li.fx-team-b');
   await expect(spawns).toHaveCount(2);
@@ -69,10 +94,10 @@ test('places, multi-selects, and keeps the selection across undo and redo', asyn
   await x.fill('400');
   await x.blur();
   await expect(x).toHaveValue('400');
-  await page.locator('button[title^="Undo"]').click();
+  await page.locator('header.fx-top button[data-forge="undo"]').click();
   await expect(page.locator('.fx-outliner li.is-on')).toHaveCount(2);
   await expect(x).toHaveValue(before);
-  await page.locator('button[title^="Redo"]').click();
+  await page.locator('header.fx-top button[data-forge="redo"]').click();
   await expect(page.locator('.fx-outliner li.is-on')).toHaveCount(2);
   await expect(x).toHaveValue('400');
 });
@@ -81,22 +106,24 @@ test('duplicate undo selects the original, and redo selects the copy in its own 
   await page.goto('/forge');
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(1, { timeout: 30_000 });
   const view = page.locator('.fx-input');
-  await page.getByRole('button', { name: /team A spawn/ }).click();
+  await placingTool(page, 'Spawn SEAL').click();
   await view.click({ position: { x: 200, y: 240 } });
-  await page.getByRole('button', { name: /team B spawn/ }).click();
+  await placingTool(page, 'Spawn Terrorist').click();
   await view.click({ position: { x: 420, y: 300 } });
   await page.locator('.fx-outliner li.fx-missing').click();
   await page.locator('button[title^="Duplicate"]').click();
-  const rows = page.locator('.fx-outliner li');
+  // OT.R112: the tree's branches are `li`s too; the placed rows, User Data's Props branch first (the original, then
+  // its copy), are `li[data-user-prop]` (`./forgeBase` `OUTLINER_USER_ROW`).
+  const rows = page.locator(OUTLINER_USER_ROW);
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(2);
   await expect(rows.nth(1)).toHaveClass(/fx-missing/);
   await expect(rows.nth(1)).toHaveClass(/is-on/);
   await expect(page.locator('.fx-outliner li.fx-team-a.is-on, .fx-outliner li.fx-team-b.is-on')).toHaveCount(0);
-  await page.locator('button[title^="Undo"]').click();
+  await page.locator('header.fx-top button[data-forge="undo"]').click();
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(1);
   await expect(page.locator('.fx-outliner li.fx-missing.is-on')).toHaveCount(1);
   await expect(page.locator('.fx-outliner li.fx-team-a.is-on, .fx-outliner li.fx-team-b.is-on')).toHaveCount(0);
-  await page.locator('button[title^="Redo"]').click();
+  await page.locator('header.fx-top button[data-forge="redo"]').click();
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(2);
   await expect(rows.nth(1)).toHaveClass(/fx-missing/);
   await expect(rows.nth(1)).toHaveClass(/is-on/);
@@ -108,9 +135,9 @@ test('multi-delete undo selects every restored item, and redo selects nothing', 
   await page.goto('/forge');
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(1, { timeout: 30_000 });
   const view = page.locator('.fx-input');
-  await page.getByRole('button', { name: /team A spawn/ }).click();
+  await placingTool(page, 'Spawn SEAL').click();
   await view.click({ position: { x: 200, y: 240 } });
-  await page.getByRole('button', { name: /team B spawn/ }).click();
+  await placingTool(page, 'Spawn Terrorist').click();
   await view.click({ position: { x: 420, y: 300 } });
   await page.locator('.fx-outliner li.fx-missing').click();
   await page.locator('.fx-outliner li.fx-team-a').click({ modifiers: ['Shift'] });
@@ -119,11 +146,11 @@ test('multi-delete undo selects every restored item, and redo selects nothing', 
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(0);
   await expect(page.locator('.fx-outliner li.fx-team-a')).toHaveCount(0);
   await expect(page.locator('.fx-outliner li.fx-team-b')).toHaveCount(1);
-  await page.locator('button[title^="Undo"]').click();
+  await page.locator('header.fx-top button[data-forge="undo"]').click();
   await expect(page.locator('.fx-outliner li.fx-missing.is-on')).toHaveCount(1);
   await expect(page.locator('.fx-outliner li.fx-team-a.is-on')).toHaveCount(1);
   await expect(page.locator('.fx-outliner li.fx-team-b.is-on')).toHaveCount(0);
-  await page.locator('button[title^="Redo"]').click();
+  await page.locator('header.fx-top button[data-forge="redo"]').click();
   await expect(page.locator('.fx-outliner li.is-on')).toHaveCount(0);
   await expect(page.locator('.fx-outliner li.fx-missing')).toHaveCount(0);
   await expect(page.locator('.fx-outliner li.fx-team-a')).toHaveCount(0);
@@ -137,9 +164,9 @@ test('remembers the camera, and Play leaves on P and on the button', async ({ pa
   const cam = page.locator('.fx-status .fx-cell').nth(2);
   await expect(cam).toHaveText('cam 10, 80, 40', { timeout: 30_000 });
   await page.locator('.fx-input').click();
-  await page.keyboard.down('w');
-  await expect(cam).not.toHaveText('cam 10, 80, 40', { timeout: 8_000 });
-  await page.keyboard.up('w');
+  await flyForward(page, async () => {
+    await expect(cam).not.toHaveText('cam 10, 80, 40', { timeout: 8_000 });
+  });
   // The status line redraws every 500 ms, so two equal readings that far apart are the camera after it has stopped.
   await expect.poll(async () => {
     const a = await cam.innerText();
@@ -188,10 +215,10 @@ test('saves the camera when the page reloads before the debounce', async ({ page
     const camera = raw ? (JSON.parse(raw) as { camera?: { x: number; y: number; z: number } }).camera : undefined;
     return camera ? `cam ${Math.round(camera.x)}, ${Math.round(camera.y)}, ${Math.round(camera.z)}` : '';
   };
-  await page.keyboard.down('w');
-  await expect(cam).not.toHaveText('cam 10, 80, 40', { timeout: 8_000 });
-  expect(await storedCam()).toBe('cam 10, 80, 40');
-  await page.keyboard.up('w');
+  await flyForward(page, async () => {
+    await expect(cam).not.toHaveText('cam 10, 80, 40', { timeout: 8_000 });
+    expect(await storedCam()).toBe('cam 10, 80, 40');
+  });
   await page.reload();
   await expect.poll(storedCam, { timeout: 30_000, message: 'the move the pagehide flushed, kept across the reload' }).not.toBe('cam 10, 80, 40');
   const moved = await storedCam();

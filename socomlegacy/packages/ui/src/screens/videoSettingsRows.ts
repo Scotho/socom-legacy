@@ -32,7 +32,11 @@ export const VIDEO_SETTINGS_ROWS_ADAPTATION = 'CPS.R7 (c): VIDEO OPTIONS -- REND
 export type VideoRowsScale = 'performance' | 'balanced' | 'quality';
 export const VIDEO_ROWS_SCALES: readonly VideoRowsScale[] = ['performance', 'balanced', 'quality'];
 export interface VideoRowsSettings { renderScale: VideoRowsScale; shadows: boolean; showFps: boolean }
-/** The page's video keeper as the rows use it (viewer `./videoSettings` `videoSettingsKeeper`). */
+/**
+ * The page's video keeper as the rows use it: since VS-2 viewer `./videoSettings` `videoRowsKeeperV2` over the v2 keeper
+ * (VS.R8) -- `renderScale` the preset drawn (Automatic's resolved one) and a press its preset chosen, never Custom;
+ * `shadows` On the preset's tier; `showFps` the performance overlay.
+ */
 export interface VideoRowsKeeper {
   get(): VideoRowsSettings;
   set(patch: Partial<VideoRowsSettings>): void;

@@ -1,4 +1,7 @@
 import {describe,expect,it} from 'vitest';
+import {mkdtempSync,rmSync,statSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {buildHdManifest,parseName,resolveFiles,type PackFile} from '../hdPack';
 import {pcsx2Names} from '../pcsx2Names';
 import type {DiscTextureRecord} from '../discTextureRecords';
@@ -85,5 +88,24 @@ describe('HD placements (HD.R9): a file named for part of a texture, placed ther
     const a=buildHdManifest(recs,files,bound,below,{name:'HD test',method:'m',game:'SCUS-97275'});
     const b=buildHdManifest(recs,files,bound,[...below],{name:'HD test',method:'m',game:'SCUS-97275'},[]);
     expect(b.id).toBe(a.id);expect(JSON.stringify(a.manifest)).not.toMatch(/placement/);
+  });
+});
+
+describe('LATER 742: the manifest names its packed (download) size',()=>{
+  it('packedBytes is the sum of the payloads as written -- linked files and recoloured PNGs -- and the manifest round-trips',async()=>{
+    const recs=[record(1),record(3)],[n1,n3]=await Promise.all(recs.map(async r=>(await pcsx2Names(r))[0]!));
+    const raw=new Map<string,Uint8Array>([[`${n1!.name}.dds`,dds(64,64,10)],[`${n3!.tex}-3333333333333333-00001113.dds`,dds(48,48,30)]]);
+    const files=[...raw].map(([n,b])=>file(n,b));
+    const {bound,below}=await resolveFiles(recs,files);
+    const built=buildHdManifest(recs,files,bound,below,{name:'HD test',method:'m',game:'SCUS-97275'});
+    expect([...built.payloads.values()].some(v=>typeof v!=='string')).toBe(true);   // the tier C file, recoloured into a PNG made here
+    const dir=mkdtempSync(join(tmpdir(),'s2u-hd-packed-'));
+    try{
+      for(const [out,src] of built.payloads)writeFileSync(join(dir,out),typeof src==='string'?raw.get(src)!:src);
+      const written=[...built.payloads.keys()].reduce((t,n)=>t+statSync(join(dir,n)).size,0);
+      expect(built.manifest.packedBytes).toBe(written);
+      expect(built.manifest.packedBytes).not.toBe(built.manifest.totalBytes);
+    }finally{rmSync(dir,{recursive:true,force:true});}
+    expect(validateHdManifest(JSON.parse(new TextDecoder().decode(built.manifestBytes)))).toEqual(built.manifest);
   });
 });

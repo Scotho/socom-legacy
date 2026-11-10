@@ -1,0 +1,6 @@
+# EPH probe script (tools/eph/probe.ts --origin, PCSX2 alone; grammar <t_ms> <input> <pressure>). The jump-air origin trace (redotcom-30's trace agent, 2026-11-08; agent-mail/evidence/jump-air/ORIGIN-TRACE.md).
+# Starts from the saved standing state (r0004 --state 5, M51 insertion point 938.2,-145.5,858.2, facing +z = yaw 180, Help OFF).
+# Measures: every guest frame, the floor probe record's origin y less the feet (probeLift; FUN_005b0840, socom_pc research 23 s1.2) beside actionId, airborne, posture -- settles AIR_PROBE_LIFT_READING (research 80 s7: feet + 10.57 in the running jump's launch, against 5.5).
+# Case (d), a standing jump: a Square tap from standing, no stick (as mx-jump-stand).
+1000 square 1
+1150 square 0

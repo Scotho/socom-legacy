@@ -52,16 +52,22 @@ describe('teammate votes through the shared NetPage action (research 263 section
     players: [{ id: 2, name: 'Teammate', team: 'seal' }, { id: 3, name: 'Enemy', team: 'terrorist' }],
     rules: 'classic', round: 1, rounds: 11, ghost: false, epoch: 0, env: { revision: 0, epoch: 0, states: [] }, ...over,
   } as ServerEvent);
+  // HOTFIX vote-roster: the vote's teammates are the room's live score rows, the TEAMMATES menu's (one roster); the room
+  // sends its rows to a seat at its welcome (`Room.hello`, `scoreEvent`) and whenever they change.
+  const row = (id: number, team: 'seal' | 'terrorist') => ({ id, name: `P${id}`, team, kills: 0, deaths: 0, score: 0, alive: true, ping: 0 });
+  const score = (...ids: number[]) => ({
+    type: 'score', rows: ids.map((id) => row(id, id === 3 ? 'terrorist' : 'seal')), timeLeft: null, spectators: [], wins: { seal: 0, terrorist: 0 },
+  } as unknown as ServerEvent);
 
   it('sends remove then retain; rejects self, enemies, missing targets and departed teammates', () => {
-    const r = page(); r.server(welcome());
+    const r = page(); r.server(welcome()); r.server(score(1, 2, 3));
     expect([1, 3, 99].map((id) => r.net.toggleVote(id))).toEqual([false, false, false]);
     expect(r.net.toggleVote(2)).toBe(true);
     expect(r.net.votingToRemove(2)).toBe(true);
     expect(r.net.toggleVote(2)).toBe(true);
     expect(r.net.votingToRemove(2)).toBe(false);
     r.net.toggleVote(2);
-    r.server({ type: 'left', id: 2 });
+    r.server({ type: 'left', id: 2 }); r.server(score(1, 3));      // the room's rows without the leaver
     expect([r.net.votingToRemove(2), r.net.toggleVote(2)]).toEqual([false, false]);
     expect(r.sent.filter((e) => e.type === 'vote')).toEqual([
       { type: 'vote', target: 2, remove: true }, { type: 'vote', target: 2, remove: false }, { type: 'vote', target: 2, remove: true },
@@ -71,7 +77,7 @@ describe('teammate votes through the shared NetPage action (research 263 section
 
   it('refuses a spectator and a disconnected page without changing the flag', () => {
     const r = page();
-    r.server(welcome({ role: 'spectator', team: undefined }));
+    r.server(welcome({ role: 'spectator', team: undefined })); r.server(score(2, 3));
     expect(r.net.toggleVote(2)).toBe(false);
     expect(r.net.votingToRemove(2)).toBe(false);
     r.server(welcome()); r.net.close();
@@ -81,7 +87,7 @@ describe('teammate votes through the shared NetPage action (research 263 section
 
   it('AD-10: a dead player votes -- the row\'s enable FUN_0022f440 D:L81384-81396 and the toggle FUN_0022f3c0 D:L81363-81370 test no life', () => {
     const r = page();
-    r.server(welcome());
+    r.server(welcome()); r.server(score(1, 2, 3));
     r.server({ type: 'kill', victim: 1, killer: null, how: 'fall' } as ServerEvent);
     expect(r.net.gate().alive).toBe(false);
     expect([r.net.toggleVote(2), r.net.votingToRemove(2)]).toEqual([true, true]);
@@ -93,7 +99,7 @@ describe('teammate votes through the shared NetPage action (research 263 section
   it('R4B-08 (r0004, VOTE_ROWS_CAMERA_GATE_READING): a dead player following a teammate is refused the vote; back on his own body he votes', () => {
     // The developer K list and the Chat menu share `toggleVote`, so the gate (r4 0x2d1710's prologue) holds both.
     const r = page();
-    r.server(welcome());
+    r.server(welcome()); r.server(score(1, 2, 3));
     r.server({ type: 'kill', victim: 1, killer: null, how: 'fall' } as ServerEvent);
     (r.net.spectator as unknown as { watchingNow: number | null }).watchingNow = 2;   // the cycle onto teammate 2
     expect(r.net.gate().cameraOnSelf).toBe(false);
@@ -105,12 +111,12 @@ describe('teammate votes through the shared NetPage action (research 263 section
   });
 
   it('keeps votes on a resumed seat, prunes departed targets, and resets on a fresh welcome', () => {
-    const r = page(); r.server(welcome()); r.net.toggleVote(2);
+    const r = page(); r.server(welcome()); r.server(score(1, 2, 3)); r.net.toggleVote(2);
     r.server(welcome({ resumed: true }));
     expect(r.net.votingToRemove(2)).toBe(true);
-    r.server(welcome({ resumed: true, players: [] }));
+    r.server(welcome({ resumed: true, players: [] })); r.server(score(1));
     expect([r.net.votingToRemove(2), r.net.toggleVote(2)]).toEqual([false, false]);
-    r.server(welcome()); r.net.toggleVote(2);
+    r.server(welcome()); r.server(score(1, 2, 3)); r.net.toggleVote(2);
     r.server(welcome());
     expect(r.net.votingToRemove(2)).toBe(false);
     r.net.close();

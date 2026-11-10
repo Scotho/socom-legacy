@@ -1,0 +1,48 @@
+# SOCOM Legacy Modding -- the modding wiki for SOCOM Legacy, SOCOM II in the browser
+
+> Packs for SOCOM Legacy: what they are, how to install one, how to make and publish one, and the exact format as
+> generated from the pack contract's code. Every page names its status (Works, Test room only, Forge, local only,
+> Format only, Planned) and the repository path that owns it; a v2 pack is checked and stored but not applied in the
+> game yet, while the earlier formats load in Home > Experiments > Mods. No game data is on this site. Addresses are
+> relative to the site's root. This file is kept by hand; `scripts/drift.test.mjs` fails when a page is missing here.
+
+Every page ends with a section headed `## For agents` holding one fenced JSON object with the keys `page` (its
+address), `audience` (`players`, `creators`, `agents`), `summary`, `inputs`, `outputs` and `see_also` (addresses to
+read next). Read that block first; the page above it is written for people.
+
+## Start
+
+- [Getting started](/): what packs are for, what each status on the wiki means, and where to go next
+- [Wiki map](/map/): every page grouped for players, creators and agents, the planned pages named, the agent block convention
+- [What a pack is](/what-is-a-pack/): a zip, opt-in, kept on your device; the rules every pack lives by; the earlier formats and v2 side by side
+
+## Players
+
+- [Testing a pack locally](/guides/test-locally/): the MODS screen walkthrough (Home > Experiments > Mods) and where each kind of pack loads and applies
+- [The earlier formats](/kinds/earlier-formats/): s2u-mod data mods, texture packs, the model pack and HD texture packs: what each is, how it is loaded, where it applies
+- [Custom maps](/kinds/custom-maps/): the Forge map bundle (forge-bundle.json, s2u.creator/forge-map-bundle version 1, engine contract 0.1.2): its anatomy, the CC0 sample yard, the Mods row and its readiness words, the Forge's Custom Maps group and Save as, the test room's offline walk, the fields
+- [Troubleshooting / FAQ](/troubleshooting/): what to do about each refusal code, and answers to common questions
+
+## Creators
+
+- [Pack anatomy](/anatomy/): inside a v2 pack: the zip's layout, the manifest s2u-pack.json part by part, members, identity, dependencies, intents, handler claims
+- [Pack kinds](/kinds/): the content, rules and system kinds of a v2 pack, each with its status
+- [Making your first pack](/guides/first-pack/): a small rules pack step by step: the rules, the manifest, the store files, the zip and the check
+- [Rules and limits](/rules-and-limits/): what a rules pack may do, who decides what happens in a match, the budgets and bounds
+- [Thunderstore](/publishing/thunderstore/): how a pack fits Thunderstore's package format, how our identity maps onto the store's, what is still open
+- [Changelog / format versions](/changelog/): the pack formats and the contract versions, newest first, each with what it does today
+
+## Reference (generated from the pack contract's code)
+
+- [Manifest reference](/reference/manifest/): every field of the pack manifest
+- [Bounds](/reference/bounds/): the pack contract's limits and their values, and Thunderstore's package rules
+- [Refusal codes](/reference/codes/): every code the pack checker and the Thunderstore checker can refuse with
+
+## Agents
+
+- [Connect an agent](/connect/): connecting an MCP agent to your open Forge or solo test room: the three moments (Connect, Allow, Connected), the one connect link (works once, five minutes), the connection service, the six permissions (all on, switch off any), remembered agents, staying connected (a hidden tab pauses tests, Reconnect after a reload), what fails and its one action, disconnecting; its agent block holds agent_pair with the /join/ link, the guide, the fourteen tools and the refusals with hint and retry
+- [Connect Claude Code](/connect/claude-code/): claude mcp add --transport http --scope user (or local) socom2legacy <endpoint>, /mcp to sign in as a guest, Copy connect link, Allow, troubleshooting; the agent block in Claude Code's terms
+- [Connect Codex](/connect/codex/): codex mcp add socom2legacy --url <endpoint>, codex mcp login socom2legacy as a guest, Copy connect link, Allow, troubleshooting; the agent block in Codex's terms
+- [Connect Claude Desktop](/connect/claude-desktop/): the claude_desktop_config.json entry (npx -y mcp-remote <endpoint>), where the file lives on macOS and Windows, the guest sign-in, Copy connect link, Allow, troubleshooting; listed, not yet measured
+- [Connect another MCP client](/connect/other/): a Streamable HTTP MCP server named socom2legacy at <endpoint>, OAuth with dynamic registration and PKCE, the bootstrap scope, the guest sign-in, Copy connect link, Allow; what a client must support
+- [Contributing to the wiki](/contributing/): where the wiki lives, how to edit or add a page, the status rule, the drift tests and the static check

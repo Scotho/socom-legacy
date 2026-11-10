@@ -15,7 +15,7 @@ import { OneShotSteer } from './net/emplacement';
 import { CROUCH_HEIGHT, PRONE_HEIGHT, STANDING_HEIGHT } from './stature';
 import { shortTurn } from './yaw';
 import {
-  BODY_RADIUS, holdFamily, RELOAD_PUSH_LAG, rootY as stanceRootY, STEP_PROBE_LIFT_READING, STICK_SNAP_BLEND, TICK,
+  BODY_RADIUS, holdFamily, RELOAD_PUSH_LAG, rootY as stanceRootY, probeLiftOf, STICK_SNAP_BLEND, TICK,
   WALL_BODY_READING,
   type HoldPass, type PopOutcome, type Stance, type TraversalHooks, type TraversalKept, type Walker, type WalkInput,
 } from './mover';
@@ -507,6 +507,20 @@ export const CLIMB_STEER_READING = 'concurrent' as const;
 export const CLIMB_STEP_UP_STICK_READING = 'none' as 'pushing' | 'none';
 
 /**
+ * PROVEN for the running jump's launch at one face, the code's cause unread (JUMP-AIR, research 80 s7): the automatic
+ * step-up does not start in the launch (`'not-in-launch'`; `'any'` is the port before). The r0004 jump-near-wall capture
+ * (ac, 2026-11-04, M51 g19733; capture-scored by `test/weaponLine.test.ts`'s two JUMP-AIR cases) never stepped up in
+ * the air: pressed 6.95 out the feet rose to +11.75 against the 14-tall face, the height to the top sweeping the whole
+ * 5-10 band with the contact held (`+0x10ac` set every airborne frame, CLIMB offered), and the jump ran 8 -> 10 -> 2;
+ * pressed 17.43 out it cleared in one arc. The code read (`FUN_00593500` D:L452279-452290 -> `FUN_0059d980` ->
+ * `FUN_005b3ce0` D:L469263-469276 -> `FUN_005b2620` -> `FUN_00580b70`) would push the step-up in the air, so what
+ * refuses it is unread (upstream, perhaps the contact's life in the air, `FUN_005483d0` D:L413618-413671). Scoped to the
+ * launch, the one state the capture holds: a walk-off fall, a dive, a knock and the bots keep the step-up, unevidenced
+ * either way. The press's jump-grab is unchanged.
+ */
+export const AIR_STEP_UP_READING = 'not-in-launch' as 'not-in-launch' | 'any';
+
+/**
  * NU-1c B10: the climb's steer under way, on its clip's run -- the clock, the weight and the turn (`OneShotSteer`), the
  * facing it turns to (degrees), the horizontal offset still open between the clip's track and the body, the share of the
  * vertical (`lift`) still open, and that vertical whole.
@@ -533,7 +547,7 @@ export const CLIMB_NO_INTERRUPT: Readonly<Record<string, number>> = Object.freez
  * push of this pass -- `'before'`, none: the climb is pushed inside the driver before its top-play block (D:L418132,
  * D:L418155 before D:L418172), as the swap is. The cut pops the climb and runs its end handler (`FUN_00589aa0`
  * D:L446582-446648): the body at its own x and z and the floor pick's y (`+0x2e4` copied from `+0x404` each climb tick,
- * D:L466784; the port's pick, `selectFloor` from the feet + `STEP_PROBE_LIFT_READING`), and the ground state takes the
+ * D:L466784; the port's pick, `selectFloor` from the feet + the posture's lift, `probeLiftOf`), and the ground state takes the
  * same tick (`FUN_005870e0`, D:L418203). "Stand -> Hang" cut reveals the hang under it (0x22, D:L442288-442293), held
  * where the clip has the body. The climb over's handler hands the body to a fall from its root (D:L446538-446542;
  * research 313 section 6, not followed): settled on the floor pick here. The port's 60 Hz tick stands for the frame; the
@@ -1255,7 +1269,8 @@ export class Traversal implements TraversalHooks {
     if (!w.airborne && this.touchLadder(w, input)) return true;
     this.keepContact(w);
     const plan = this.plan;
-    const stepUp = plan?.automatic === true && (CLIMB_STEP_UP_STICK_READING === 'none' || this.pushing(w, input, plan.contact));
+    const stepUp = plan?.automatic === true && !(AIR_STEP_UP_READING === 'not-in-launch' && w.airborne && w.action?.name === 'launch')
+      && (CLIMB_STEP_UP_STICK_READING === 'none' || this.pushing(w, input, plan.contact));
     if (plan && (pressed || stepUp)) { this.startClimb(w, plan); return true; }
     return false;
   }
@@ -1952,11 +1967,11 @@ export class Traversal implements TraversalHooks {
   /**
    * `FUN_00589aa0`'s climb settle (D:L446582-446648): the body at its own x and z, its y the floor pick (`+0x2e4`, copied
    * from `+0x404` each climb tick, D:L466784) -- the port's pick from the feet, as every tick's (`selectFloor` from the
-   * feet + `STEP_PROBE_LIFT_READING`); unchanged where there is none.
+   * feet + the posture's lift, `probeLiftOf`, LATER 785); unchanged where there is none.
    */
   private climbSettle(w: Walker): void {
     const s = w.state;
-    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + STEP_PROBE_LIFT_READING, s.y);
+    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + probeLiftOf(w.posture), s.y);
     if (floor) s.y = floor.y;
   }
 

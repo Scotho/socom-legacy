@@ -1,4 +1,7 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { recordOfLayout } from '../src/forge/record';
+import { expectBase } from './forgeBase';
 
 /** The existing START menu: menuView.ts section/row hooks, as exercised by forgeMenuPointer.spec.ts. */
 async function openStarters(page: Page): Promise<void> {
@@ -24,15 +27,24 @@ test('starter discovery names missing sources and never applies a partial layout
   await expect(panel.locator('[data-apply-starter]')).toBeDisabled();
 });
 
-test('a static starter previews, imports once, undoes, and survives download/reopen', async ({ page, baseURL }) => {
+test('a static starter previews, imports once, undoes, and survives download/reopen', async ({ page, baseURL }, info) => {
   test.setTimeout(180_000);
   const index = await page.request.get(new URL('/maps/index.json', baseURL!).href);
   test.skip(!index.ok(), 'No served source: rendered starter acceptance is skipped, not passed.');
   const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/forge?devmode');
   await expect(page.locator('.fx-status-msg')).toHaveText(/layout open/i, { timeout: 120_000 });
-  await expect(page.locator('.fx-vp-label')).toContainText(/frostfire/i, { timeout: 120_000 });
-  const name = page.getByLabel('Layout name'); await name.fill('Before starter'); await name.blur();
+  await expectBase(page, /frostfire/i);                                 // OT.R112: the base named (`./forgeBase`)
+  // The name field is shown, not typed, since the owner's 2026-11-06 ruling (`../src/forge/page.ts` `layoutNameIn.readOnly`,
+  // daed4f539): the layout is named as a file opened names it -- its own name, the undo's start (`openLayout` resets the
+  // history) -- on the same base. Saves > Save as names it too, but records no step for Undo to come back to.
+  const name = page.getByLabel('Layout name');
+  const before = info.outputPath('before-starter.json');
+  mkdirSync(info.outputPath(), { recursive: true });
+  writeFileSync(before, JSON.stringify(recordOfLayout({ forge: 1, base: { kind: 'map', archive: 'MP2' }, pieces: [], spawns: [] }, 'Before starter')));
+  await page.locator('input[type=file][accept=".json,application/json"]').setInputFiles(before);
+  await expect(name).toHaveValue('Before starter');
+  await expectBase(page, /frostfire/i);
   await openStarters(page);
   const panel = page.locator('[data-creator-examples]');
   await panel.locator('[data-starter-id="static-mood"]').click();
@@ -52,7 +64,14 @@ test('a static starter previews, imports once, undoes, and survives download/reo
   const file = await (await download).path();
   if (!file) throw new Error('Layout download did not produce a file.');
   await page.locator('.fx-modal').getByRole('button', { name: 'Close', exact: true }).click();
-  await name.fill('After export'); await name.blur();
+  // Renamed by Saves > Save as (the field is read-only), so the file's open below has a name to put back.
+  await page.locator('[data-forge="saves"]').click();
+  await page.locator('.fx-modal').getByRole('button', { name: 'Save as' }).click();
+  await page.locator('.fx-modal form.fx-card input').fill('After export');
+  await page.locator('.fx-modal').getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.locator('.fx-saves-list')).toContainText('After export');
+  await page.locator('.fx-modal').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(name).toHaveValue('After export');
   await page.locator('input[type=file][accept=".json,application/json"]').setInputFiles(file);
   await expect(name).toHaveValue('Static dusk settings');
   expect(errors).toEqual([]);

@@ -5,7 +5,7 @@
  * `./graphicsLost`'s fixed `s2u-notice`, its own element. Dismissed for the session only (this module's flag), never
  * stored. It changes nothing the game does.
  */
-import { noticeSuppressed, probeSoftwareRenderer, type SoftwareProbe } from './softwareRenderer';
+import { noticeSuppressed, pageSoftwareProbe, type SoftwareProbe } from './softwareRenderer';
 
 /** Dismissed for this page's session: a module variable, not storage. */
 let dismissed = false;
@@ -82,8 +82,10 @@ export function showSoftwareRendererNotice(doc: Document, renderer: string | nul
  * when the renderer is software. A probe that throws shows nothing; a dismissed notice stays dismissed this session.
  * Under a test driver it does nothing: the notice is for a player; an automated browser (Playwright, the perf drivers)
  * runs on SwiftShader by design -- the batch review, 2026-11-02 (`noticeSuppressed`).
+ * N1b (the fresh review of N1): the page's one memoised probe (deviceClass `pageRendererProbe`), never a second throwaway WebGL context beside a live one on the Xbox class (GM-XBOX1); a browser adaptation.
+ * The memo itself is `./softwareRenderer` `pageSoftwareProbe`, which `pageRendererProbe` returns: this module imports no `./deviceClass` value.
  */
-export function watchSoftwareRenderer(doc: Document, win: Window, probe: (doc: Document) => SoftwareProbe = probeSoftwareRenderer): void {
+export function watchSoftwareRenderer(doc: Document, win: Window, probe: (doc: Document) => SoftwareProbe = () => pageSoftwareProbe()): void {
   if (dismissed || noticeSuppressed(win.navigator ?? {})) return;
   win.requestAnimationFrame(() => {
     win.setTimeout(() => {

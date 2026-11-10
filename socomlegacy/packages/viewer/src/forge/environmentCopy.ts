@@ -35,10 +35,10 @@ export function environmentOf(map: LoadedMap): Partial<LayoutSettings> {
   // Its night always (the owner, 2026-11-06: a preset sets every field): a map with no night record is no night mission
   // and no lens -- never the built-from map's showing through.
   const l = map.night?.lens ?? null;
-  out.night = { mission: map.night?.mission ?? false, lens: l ? [clamp(l[0], 0, 255), clamp(l[1], 0, 255), clamp(l[2], 0, 255), clamp(l[3], 0, 1)] : null };
+  out.night = { mission: map.night?.mission ?? false, lens: l ? [clamp(l[0], 0, 1), clamp(l[1], 0, 1), clamp(l[2], 0, 1), clamp(l[3], 0, 1)] : null };   // the disc's 0..1 (research 84 s14)
   const sv = map.shadowVector;
   if (sv && Math.hypot(sv[0], sv[1], sv[2]) > 0) out.shadowVector = [clamp(sv[0], -1000, 1000), clamp(sv[1], -1000, 1000), clamp(sv[2], -1000, 1000)];
-  // Its sky named whether or not the dome is found by its textures (`SKY_DOME_TEXTURE_READING`): the field shows the map
+  // Its sky named whether or not the dome is found by its textures (`SKY_DOME_TEXTURE_ADAPTATION`): the field shows the map
   // chosen, and the editor says when it finds no sky there to copy.
   if (/^[A-Z]{1,3}\d{1,3}$/.test(map.archive)) out.skyFrom = map.archive;
   return out;

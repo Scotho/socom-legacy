@@ -35,7 +35,7 @@ function parts(caps: MatchNetParts['caps']): MatchNetParts {
   };
 }
 const frontRest = {
-  remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {},   // P2: the room's white-out
+  remoteGrenade: () => {}, ownProjectiles: () => false, staleThrow: () => {}, tagOwnProjectile: () => {}, detonateProjectile: () => {}, whiteOut: () => {}, sceneRound: () => {},   // P2: the room's white-out
   reloadSound: () => {}, deathVoice: () => {}, hurtVoice: () => {}, ring: () => {}, roundAudio: {} as never, objective: () => null, escorteeVoice: () => {},
   taunt: () => {}, communication: () => {}, hostageState: () => {},   // the front end's hostages since ACT (PR #71)
   voiceFloor: () => {}, voiceFrame: () => {},   // SVC-20b-page: both pages mount the voice; PART_DEPS checks it before the replay
@@ -156,7 +156,7 @@ describe('the test room\'s replay address (W35.R2; research 244 §2)', () => {
   it('the map is the header\'s: another map shown reopens the page on it, once; the same map plays', () => {
     expect(replayMapAddress('?devmode&replay=u', 'MP5', 'MP2')).toEqual({ navigate: '?devmode&replay=u&map=MP5' });
     expect(replayMapAddress('?devmode&map=mp2&replay=u', 'MP5', 'MP2')).toEqual({ navigate: '?devmode&map=MP5&replay=u' });
-    expect(replayMapAddress('?devmode&map=MP5&replay=u', 'MP5', 'MP2')).toEqual({ refuse: 'This recording is of map MP5, which the page could not open.' });
+    expect(replayMapAddress('?devmode&map=MP5&replay=u', 'MP5', 'MP2')).toEqual({ refuse: 'This recording is of map Abandoned, which the page could not open.' });
     expect(replayMapAddress('?devmode&replay=u', 'mp2', 'MP2')).toBeNull();
   });
   it('the factory: an address off this computer is refused in words; a recording of another map reopens the page on it, once', async () => {
@@ -274,7 +274,7 @@ describe('the test room\'s replay address (W35.R2; research 244 §2)', () => {
   });
   it('main.ts: the replay branch is the capability\'s, a development build\'s and ?devmode\'s only, ahead of the server and the offline room', () => {
     const main = src('main.ts');
-    expect(main).toMatch(/const replayOn = TESTROOM_CAPABILITIES\.replay && import\.meta.env\.DEV && DEV\.tools && new URLSearchParams\(SEARCH\)\.has\('replay'\);\n\s+if \(replayOn\) \{[\s\S]{0,900}?import\('\.\/replay\/mount'\)[\s\S]{0,900}?\} else if \(NET\.url && !campaignLoad\) \{/);   // EPH campaign stand: a campaign load plays offline
+    expect(main).toMatch(/const replayOn = TESTROOM_CAPABILITIES\.replay && import\.meta.env\.DEV && DEV\.tools && new URLSearchParams\(SEARCH\)\.has\('replay'\);\n\s+if \(replayOn\) \{[\s\S]{0,900}?import\('\.\/replay\/mount'\)[\s\S]{0,900}?\} else if \(NET\.url && !campaignLoad && !customLoad\) \{/);   // EPH campaign stand: a campaign load plays offline; FP-6: a custom map too
     expect(main).toMatch(/^\s+client: null,/m);                 // the part's dep, owed: the page's own NetClient outside the mode
     expect(main.match(/client: /g)?.length).toBe(2);             // that one and the replay branch's
   });

@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
+import type { Rgba } from '@s2u/gs';
+import { parseUiLayout } from '@s2u/scene';
 import type { LoadingScreen } from '../src/loadingAssets';
-import { LoadingPanel, LoadingWatch, tintTexels, type LoadingSurface } from '../src/loadingPanel';
+import { LoadingPanel, LoadingWatch, type LoadingSurface } from '../src/loadingPanel';
 
 /**
  * The loading screen's life on the page (INT-LOADING; research 125 §5): shown when the worker's early `loading` answer
  * for the wanted map arrives, gone when that map's `map` (or `error`) answer does -- Chris's browser-beta-v5 hook-up
- * (`main.ts` `loadingUi` / `wantedMap`), kept in its own module so the page gains one call. Then the GS MODULATE tint.
+ * (`main.ts` `loadingUi` / `wantedMap`), kept in its own module so the page gains one call. Then the fader over the frame.
+ * (The GS MODULATE tint, `tintTexels`, went with GM-22's code step: the panel's quads are modulated by the menus'
+ * compositor, research 380 P8, held by its own tests.)
  */
 
 const screen = (map: string): LoadingScreen => ({
@@ -100,14 +104,6 @@ describe('LoadingWatch', () => {
   });
 });
 
-describe('tintTexels: the GS MODULATE of a quad\'s colour (128 = 1.0)', () => {
-  it('multiplies each channel by colour / 128, clamped, and keeps the texel\'s alpha', () => {
-    const out = tintTexels(Uint8ClampedArray.from([255, 255, 255, 200, 100, 50, 0, 255]), [14, 57, 65]);
-    expect([...out]).toEqual([28, 114, 129, 200, 11, 22, 0, 255]);
-    expect([...tintTexels(Uint8ClampedArray.from([200, 10, 0, 9]), [128, 255, 128])]).toEqual([200, 20, 0, 9]);
-  });
-});
-
 describe('LoadingPanel (jsdom): the overlay covers the page only while a screen is up', () => {
   it('is built out of sight, shows on a screen and goes again; its pointer coverage is styled in CSS', () => {
     const panel = new LoadingPanel(document);
@@ -125,22 +121,29 @@ describe('LoadingPanel (jsdom): the overlay covers the page only while a screen 
   });
 
   it('draws the fader black over the frame last, at loadingFaderAlpha: from black over OnMenuStart\'s 1.5 s (review F1)', () => {
-    const fills: [string, number, number[]][] = [];
-    const ctx = { globalAlpha: 1, fillStyle: '', fillRect(...r: number[]) { fills.push([String(this.fillStyle), this.globalAlpha, r]); }, drawImage() {} };
+    // GM-22: the frame is the menus' compositor's (research 380 §4), put on the canvas whole; read here off the put.
+    // A white background under MENUFADER (untextured, black, the source blend P10, stored round half to even P12).
+    const puts: Uint8ClampedArray[] = [];
+    const ctx = {
+      createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData: (d: { data: Uint8ClampedArray }) => { puts.push(d.data.slice()); },
+    };
     const get = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as never);
     let now = 1000;
     const perf = vi.spyOn(window.performance, 'now').mockImplementation(() => now);
     try {
       const panel = new LoadingPanel(document);
       const fade = { node: 'MENUFADER', from: 1, to: 0, rate: -1 / 1.5, seconds: 1.5 };
-      const layout: LoadingScreen['layout'] = { libraries: [], background: null, font: null, scripts: [], objects: [], animations: [], controls: [], models: [] };
-      panel.show({ ...screen('RUN/MP2.ZDB'), layout, fade });
-      // The frame's black ground, then the fader over it at alpha 128/128 (t = 0: the load state's 128 stands).
-      expect(fills).toEqual([['#000', 1, [0, 0, 640, 448]], ['#000', 1, [0, 0, 640, 448]]]);
-      fills.length = 0; now = 1750; panel.redraw();
-      expect(fills[1]![1]).toBeCloseTo(0.5, 6);                  // opacity 0.5 at 0.75 s -> alpha 64 / 128
-      fills.length = 0; now = 3000; panel.redraw();
-      expect(fills).toHaveLength(1);                              // faded in: no fader drawn
+      const layout = parseUiLayout([['SCREENS', ['BACKGROUND', ['TYPE', ['IMAGE'], 'FILENAME', ['LittleBlack.tif']], 'OBJECTS', []]]]);
+      const white: Rgba = { width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4).fill(255) };
+      panel.show({ ...screen('RUN/MP2.ZDB'), layout, fade, bitmaps: [['littleblack.tif', white]] });
+      const pixel = (): number[] => [...puts.at(-1)!.slice((100 * 640 + 100) * 4, (100 * 640 + 100) * 4 + 4)];
+      expect(pixel()).toEqual([0, 0, 0, 255]);                   // t = 0: the load state's 128 stands, all black
+      now = 1750; panel.redraw();
+      expect(pixel()).toEqual([128, 128, 128, 255]);             // opacity 0.5 at 0.75 s -> alpha 64: 255 x 0.5 = 127.5 -> 128
+      now = 3000; panel.redraw();
+      expect(pixel()).toEqual([255, 255, 255, 255]);             // faded in: the fader at 0 draws nothing
+      expect(puts).toHaveLength(3);
       panel.hide();
       document.getElementById('original-loading')!.remove();
     } finally {

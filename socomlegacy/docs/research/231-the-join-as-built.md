@@ -111,7 +111,9 @@ never doubled (a rejoin's second welcome), and so is its smoke: the puffs are ke
 explode path too) and the old ones dropped on the replace. Only a joiner's hydrate (a pid with a phase) replaces: an
 ordinary `grenade` event's pid is new within its round, and `clearAir` (the round's start, the abandon) strips the
 pids from the smokes still pouring -- the puffs outlast the gap between rounds (37 s), and round N+1's pid 2 must not cut
-round N's smoke off. The page's own throws carry no pid and are untouched.
+round N's smoke off. The page's own throws carry no pid and are untouched. (Since 2026-11-09 the round's start also
+stops every smoke and puff, as the original's round end does: research 283 §9, `ROUND_END_EFFECTS_READING`; an abandon
+likewise. The pid strip stays for what `clearAir` alone clears.)
 
 **A rejoin and the page's own throws** (the integration review of sprint 29, item 1). On a takeover, an in-page
 reconnect or a page shown again from its cache, `Room.seat` re-owns the old seat's flying list to the new id before the

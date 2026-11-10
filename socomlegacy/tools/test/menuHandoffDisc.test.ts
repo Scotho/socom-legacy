@@ -121,9 +121,12 @@ describe.skipIf(DISC === null)(`the boot -> MENU hand-off on the disc${DISC === 
       expect(after(45).fader).toBe(0);                                               // menu_fade_up's end, 1.5 s after the build
       // The frame: lit on every tick from the build, where it was a ramp to the 15th, black from the 16th to the 44th
       // but for the 23rd, and whole from the 45th (2.07 s after the key). The build's own frame is the dialog as its
-      // file has it (LoadGameBack's popup_bg whole, mean 33.9); the menu over the black stand-in is 20.6 .. 25.2.
+      // file has it (LoadGameBack's popup_bg whole, every roller item lit, mean 34.0); the menu over the black stand-in
+      // is 20.6 .. 25.2. The 34.0 is the page's own frame, no value of the original's: GM-15d (b92e2008f) drew the 3D
+      // pass's models by the GS's top-left fill rule and ZTST GEQUAL on an f32 depth (UI_MODEL_EDGE_RULE_READING,
+      // UI_MODEL_DEPTH_FORMAT_READING; research 380 §4), which moved this frame from 33.896 to 34.009 (33.9 before it).
       for (let k = 0; k < 62; k++) expect(lit(k), `build + ${k}: fader ${after(k).fader}, mean ${after(k).mean}`).toBe(true);
-      expect(Math.round(after(0).mean * 10) / 10).toBe(33.9);
+      expect(Math.round(after(0).mean * 10) / 10).toBe(34);
       // From the key to the menu whole: the 17 ticks of the switch, 0.57 s (2.07 s until MENU-FADE).
       expect(Math.round((buildTick - pressTick) * UI_TICK_SECONDS * 100) / 100).toBe(0.57);
     });

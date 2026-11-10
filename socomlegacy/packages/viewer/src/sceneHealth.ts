@@ -210,6 +210,18 @@ export function blastSkipPath(d: Pick<SceneDestructible, 'targetPath' | 'root' |
 }
 
 /**
+ * BLAST_REACH_LINE_SIDES_READING (research 386 §3.2 and §8; review 3 F1): the sides of a blast's line to a destructible
+ * (`blastLine`). By the reading it is one-sided, as the line to a head is (`./net/blast` `blastSeen`): `FUN_003c80e0`'s ray
+ * queues through the same `FUN_0031dd90` batch (`FUN_003c7ee0` D:L319056), which `FUN_002d3030` runs in the hull
+ * colliders' mode 0x20 (D:L175276-175281; research 281 §4.3) [reading: kept two-sided here, a known departure, because
+ * the one-sided line re-pins reviewed scene sweeps -- B194's base reach on every Demolition map (`blastSkipWiden`,
+ * `bombPlantSweep`), Vigilance's access4 and access5 opening from their witness (AD-5, `accessBarriers`) and the room's
+ * one-faced barrier fixtures (`roomBarriers`) -- which is the controller's to size; a capture of a grenade behind a
+ * one-faced surface at a barrier (H421) settles it].
+ */
+export const BLAST_REACH_LINE_SIDES_READING = 'two-sided' as 'two-sided' | 'one-sided';
+
+/**
  * `reachGate` on the segment from `from` to `to` over `grid` (`REACH_HITS_READING`): `penetration` gives a polygon's
  * material's PENETRATION (`surfaceMaterial(p.material, defaultMaterial).penetration`, `FUN_002dc1d0`). A round with
  * `IgnoreExplosionDI` skips it (D:L319096: the caller's).
@@ -217,9 +229,9 @@ export function blastSkipPath(d: Pick<SceneDestructible, 'targetPath' | 'root' |
 export function blastLine(grid: Grid, from: V3, to: V3, targetPath: string, radius: number, penetration: (p: WorldPoly) => number): boolean {
   // `segmentHits` asks `accept` of each owner's polygons in its surface order: the count is that order. LATER 416: the
   // blast ray queues through `FUN_0031dd90` as a round's segment does (`FUN_003c7ee0` D:L319056), so the batch's class
-  // admits what the round's does (`roundAdmits`: the camera-only faces passed).
+  // admits what the round's does (`roundAdmits`: the camera-only faces passed). BLAST_REACH_LINE_SIDES_READING: two-sided.
   const order = new Map<WorldPoly, number>();
-  const hits = segmentHits(grid, from, to, (p) => { order.set(p, order.size); return roundAdmits(p); });
+  const hits = segmentHits(grid, from, to, (p) => { order.set(p, order.size); return roundAdmits(p); }, undefined, BLAST_REACH_LINE_SIDES_READING === 'one-sided');
   const first = new Map<CollisionOwner, SegmentHit>();
   for (const h of hits) {
     if (under(h.owner.path, targetPath)) continue;
@@ -650,6 +662,7 @@ export class SceneHealth {
     this.spent[id] = true;
     // SUP-03 (ROOM_SKIP_EFFECTS_READING): the room's world runs the death as a joiner's replay does, skip_effects 1.
     this.world.runProgram(d.program, { root: d.root, nodes: d.nodes, caller: d.targetPath, valve: null, silent: this.world.skipEffects });
+    this.world.diedHere(id);                                     // V13-3c: the room tells every page (`sceneDeath`)
     return { applied: true, died: true };
   }
 

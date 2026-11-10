@@ -77,7 +77,7 @@ const stored = (p: Pad): unknown => JSON.parse(localStorage.getItem(extrasKey(p)
 describe('h59U9CLb: the Extra binds row', () => {
   it('one row before Finish, labelled a browser adaptation, folded; none without a controller', () => {
     const { ctl } = openMapping();
-    expect(titles()).toEqual(['Stance mode', 'Stick dead zone', ...ACTIONS, 'Extra binds', 'Finish']);   // STANCE-TOP's order; DEAD-UP's dead zone second
+    expect(titles()).toEqual(['Stance mode', 'Pad dead zone (this browser)', ...ACTIONS, 'Extra binds', 'Finish']);   // STANCE-TOP's order; DEAD-UP's dead zone second
     expect(sub(rowAt('Extra binds'))).toContain('Browser adaptation');
     ctl.S.rm.row = rowAt('Extra binds'); page!.render();
     expect(said(ctl)[0]).toEqual(['cross', 'Show']);

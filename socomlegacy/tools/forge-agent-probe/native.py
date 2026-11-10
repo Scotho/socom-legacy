@@ -39,7 +39,7 @@ with sync_playwright() as p:
     auth=context.new_page()
 
     auth.goto(metadata['authorization_endpoint']+'?'+urlencode({'client_id':registered['client_id'],'redirect_uri':redirect,'response_type':'code','code_challenge_method':'S256','code_challenge':challenge,'resource':gateway+'/mcp','state':'probe'}))
-    auth.get_by_role('button',name='Continue as guest').click()
+    auth.get_by_role('button',name='Approve',exact=True).click()  # FP-14: the consent page's button (probeWords.test.ts)
     auth.wait_for_url(redirect+'**',timeout=5000)
     code=parse_qs(urlparse(auth.url).query)['code'][0]
     tokens=context.request.post(metadata['token_endpoint'],form={'grant_type':'authorization_code','client_id':registered['client_id'],'code':code,'code_verifier':verifier,'redirect_uri':redirect,'resource':gateway+'/mcp'}).json()
@@ -50,18 +50,26 @@ with sync_playwright() as p:
     page.goto(options.page.rstrip('/')+('/forge?floor&devmode' if options.plant else '/forge?floor'))
     page.wait_for_load_state('networkidle')
     page.get_by_text('Connect your agent',exact=True).click()
-    page.get_by_role('button',name='Copy connection instructions').wait_for(timeout=60000)
+    # AX-U: one card; the Connect moment's one primary button copies the connect line (probeWords.test.ts holds these words).
+    page.get_by_role('button',name='Copy connect link',exact=True).wait_for(timeout=60000)
     page.screenshot(path=str(root/'forge-connect.png'),full_page=True)
-    page.get_by_role('button',name='Copy connection instructions').click()
+    page.get_by_role('button',name='Copy connect link',exact=True).click()
     page.get_by_text('Waiting for your agent',exact=True).wait_for(timeout=10000)
     blurb=page.evaluate('navigator.clipboard.readText()')
-    invitation=json.loads(re.search(r'Use agent_pair with invitation ("[^"]+")',blurb).group(1))
-    pair=context.request.post(gateway+'/api/v1/pair',headers=headers,data={'invitation':invitation,'permissions':['inspect','edit','capture','import','test'],'clientName':'Native browser acceptance probe'}).json()
-    page.get_by_text('Allow this connection?',exact=True).wait_for(timeout=10000)
-    for box in page.locator('.agent-panel__permissions input').all(): box.check()
+    invitation=re.search(r'^Connect to my SOCOM 2 Legacy page: \S+/join/([A-Za-z0-9_.:-]{1,128})$',blurb.strip()).group(1)
+    # REVIEW-1 finding 3: the gateway holds the pair until the page answers (AX-3); the sync API cannot leave the call
+    # running across the Allow click, so it asks no wait (pending at once) and confirms paired after the click.
+    pair=context.request.post(gateway+'/api/v1/pair',headers=headers,data={'invitation':invitation,'permissions':['inspect','edit','capture','import','test'],'clientName':'Native browser acceptance probe','waitSeconds':0}).json()
+    assert pair['state']=='pending',pair
+    allow=page.locator('[data-agent-moment="allow"]')
+    allow.wait_for(state='visible',timeout=10000)
+    # AX.R2: every requested permission is on by default; the probe keeps them all on.
+    for box in allow.locator('.agent-panel__permissions input:not(:disabled)').all(): box.check()
     page.screenshot(path=str(root/'forge-approve.png'),full_page=True)
-    page.get_by_role('button',name='Allow selected access').click()
-    page.get_by_text('Agent connected',exact=True).wait_for(timeout=30000)
+    allow.get_by_role('button',name='Allow',exact=True).click()
+    page.locator('.agent-panel[data-state="connected"]').wait_for(timeout=30000)
+    answered=context.request.post(gateway+'/api/v1/wait',headers=headers,data={'sessionId':pair['sessionId'],'waitSeconds':0}).json()
+    assert answered['state']=='paired',answered
     statuses=context.request.get(gateway+'/api/v1/status',headers=headers).json()
     session=statuses['sessions'][0]
     def command(op,args,revision=None,rid=None):
@@ -137,7 +145,7 @@ with sync_playwright() as p:
     (root/'agent-canvas.png').write_bytes(image_bytes)
     page.screenshot(path=str(root/'forge-connected.png'),full_page=True)
     if options.plant: mutate('play.stop',{})
-    page.get_by_role('button',name='Disconnect agent').click()
+    page.get_by_role('button',name='Disconnect',exact=True).click()
     blocked=command('forge.read',{})
     assert blocked['code']=='NOT_PAIRED',blocked
     result={'guestConsent':'passed','nativeWebRTC':'passed','actualForgeEdit':'passed','retryReceipt':'passed','gameCanvasCaptureBytes':len(image_bytes),'disconnect':'passed','pageErrors':errors}

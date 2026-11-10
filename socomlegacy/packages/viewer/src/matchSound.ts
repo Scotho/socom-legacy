@@ -42,7 +42,8 @@ export interface MatchAudio {
 /** What the sound reads. */
 export interface MatchSoundParts {
   audio: GameAudio;
-  walk: Pick<WalkMode, 'mode' | 'drawnFeet' | 'posture' | 'grid'>;
+  /** AMB-1: `gridOfGround`, the camera's floor pick in every view (`WalkSignals.sceneGrid`); absent, `grid` alone. */
+  walk: Pick<WalkMode, 'mode' | 'drawnFeet' | 'posture' | 'grid'> & Partial<Pick<WalkMode, 'gridOfGround'>>;
   fly: Pick<FlyCamera, 'groundWish'>;
   loadouts: Pick<PlayerLoadout, 'type'>;
   /** The page's side (`./matchCore` `matchSide`): the page's own body's voice. */
@@ -71,6 +72,11 @@ export interface MatchSoundParts {
    * are heard (`ROUND_SCREENS_SILENCE_WALK_READING`).
    */
   screenUp?(): boolean;
+  /**
+   * AMB-1 (`./walkSounds` `TESTROOM_FLY_AMBIENCE_ADAPTATION`): the test room's free-fly viewer, outside a match, holds
+   * the beds off; absent (the front end's match), never -- the beds play in every view (research 81 §10).
+   */
+  ambienceOff?(): boolean;
 }
 
 /**
@@ -222,6 +228,8 @@ export function mountSound(p: MatchSoundParts): MatchSound {
     stance: () => walk.posture(),
     wish: () => fly.groundWish(),
     grid: () => walk.grid(),
+    sceneGrid: () => walk.grid() ?? walk.gridOfGround?.() ?? null,   // AMB-1: the dead and spectator cameras pick the beds too
+    ...(p.ambienceOff ? { ambienceOff: p.ambienceOff } : {}),
   });
   /** The blast's ring above selected ducked sound groups: a 5 s hold, then 5 s master recovery (`./ringingEars`). */
   const ears = new RingingEars(audio);

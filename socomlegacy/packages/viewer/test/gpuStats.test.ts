@@ -109,11 +109,12 @@ describe('CPS GPU time: the wiring is a development build\'s only', () => {
   it('renderer.ts hands three trackTimestamp only when asked (false, three\'s default, otherwise)', () => {
     const r = src('renderer.ts');
     expect(r).toMatch(/export async function createRenderer\(canvas: HTMLCanvasElement, options: RendererOptions = \{\}\): Promise<ViewerRenderer>/);
-    expect(r).toMatch(/new WebGPURenderer\(\{ canvas, antialias: graphics !== 'xbox', forceWebGL: !webgpu, alpha: false, trackTimestamp: options\.trackTimestamp === true \}\)/);
+    expect(r).toMatch(/new WebGPURenderer\(\{ canvas, antialias, forceWebGL: !webgpu, alpha: false, trackTimestamp: options\.trackTimestamp === true, \.\.\.powerParameters\(canvas, options\.power, webgpu, antialias\) \}\)/);   // VS-6: antialias and power from the options
   });
   it('matchMount.ts asks for it under a literal import.meta.env.DEV and the switch, times at the frame tail, and hangs gpuStats under devStats', () => {
     const mount = src('matchMount.ts');
-    expect(mount).toMatch(/r\.createRenderer\(c, \{ trackTimestamp: import\.meta\.en[v]\.DEV && gpuTimeAsked\(win\.location\?\.search \?\? ''\) \}\)/);
+    expect(mount).toMatch(/const search = win\.location\?\.search \?\? '';/);
+    expect(mount).toMatch(/r\.createRenderer\(c, \{ \.\.\.choice, trackTimestamp: import\.meta\.en[v]\.DEV && gpuTimeAsked\(search\) \}\)/);   // VS-6: the keeper's next-match rows beside it
     // the frame tail: after the overlays' snapshot, under the same gate
     expect(mount).toMatch(/lastOverlays = frameOverlaysOf\(firearm\.effects\.lights\);[^\n]*\n {4}if \(import\.meta\.en[v]\.DEV && devStats && renderer\) \(gpuTimer \?\?= new GpuTimer\(renderer\.renderer as unknown as TimestampRendererLike\)\)\.frame\(\);/);
     expect(mount).toMatch(/\n {2}if \(import\.meta\.en[v]\.DEV && devStats\) [^\n]*\.gpuStats = \(\) => gpuTimer\?\.stats\(\) \?\? null;/);

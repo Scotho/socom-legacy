@@ -562,7 +562,7 @@ export interface BotSettings { seal: BotSetting; terrorist: BotSetting }
 /** One seat of the bridge's `gameLobby` (`net/protocol.ts`, research 159 §4). */
 export interface GameLobbySeat { id: number; name: string; team: LobbySide | null; ready: boolean; host: boolean; readyIn: number; bot?: boolean }
 /** The bridge's `gameLobby` message. */
-export interface GameLobbyView { seats: readonly GameLobbySeat[]; countdown: number | null; launched: boolean; refused?: string; botSettings?: BotSettings }
+export interface GameLobbyView { seats: readonly GameLobbySeat[]; countdown: number | null; launched: boolean; refused?: string; botSettings?: BotSettings; nextMap?: string }
 
 /**
  * A game the lobby is entered for -- `enterGameLobby`'s argument: the record a listed game's join found (the briefing
@@ -1301,9 +1301,23 @@ export class GameLobbyCommands {
   welcomed(id: number, map?: string): void {
     this.seatId = id; this.connected = true;
     this.seatSide = null;                                         // R4B-08: a new seat's first view is no move
-    if (map && /^MP[0-9]{1,2}$/i.test(map)) {
-      this.mission = map.toLowerCase();
-    }
+    this.moveMission(map);
+  }
+
+  /**
+   * LOBBY-ONE-BEHIND (v0.4.14): the room's map moved under a standing lobby -- the rotation's new welcome, or the returned
+   * view's `nextMap`. The original's host writes the play list's next map into 0x414e00 before loading it (`FUN_00279490`
+   * D:L123863-123877, the load `FUN_002acc10(0x4364e0, 0x414e00)` at D:L123881; research 309 §2.2), so its lobby draws the
+   * next map from its entry; the port's `AdvanceMPMission` ran on the map just played, so the move loads the new map's
+   * variables again (`mission_title`, `MPgamename`), behind the same asynchronous guard. A reading, pending review; a
+   * non-host console's moment is not read (research 309 §2.1).
+   */
+  private moveMission(map: string | undefined): void {
+    if (!map || !/^MP[0-9]{1,2}$/i.test(map)) return;
+    const next = map.toLowerCase();
+    if (next === this.mission) return;
+    this.mission = next;
+    if (this.inLobby && !this.started && this.inSession()) this.loadMissionVars();
   }
 
   /**
@@ -1318,6 +1332,9 @@ export class GameLobbyCommands {
     const cancelled = this.view?.countdown != null && !this.view.launched && view.countdown === null && !view.launched;
     const lateEnded = this.lateJoiner && !view.launched;
     this.view = view;
+    // LOBBY-ONE-BEHIND: the room's next map, the lobby standing; a launched view never moves the mission (the review's F2:
+    // the match starts below on the map the room plays, not the rotation's next).
+    if (!view.launched) this.moveMission(view.nextMap);
     this.drawLists();
     this.drawBotSettings();
     const own = this.own();

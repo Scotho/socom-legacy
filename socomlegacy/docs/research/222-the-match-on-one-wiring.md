@@ -547,3 +547,24 @@ not run (the gameplay seat runs the browser).
   phone's first visit) and the phone's tip (dismissable, `TOUCH_TIP_MS`) -- are page chrome over the menu, not the
   touch zones; the brief names the zones alone. Whether a row under the open panel or the tip should take the tap is
   for the rendered run to report.
+
+## 12. Readings: the pre-spawn stand at the seat's own start (PRE-SPAWN-SIDE, 2026-11-09)
+
+The owner's report (seat 99, 2026-11-09): "sometimes when I join a match I can see the enemies spawn but by the time I
+actually join it does put me on the right side". Between the map's load and the room's first `spawn`, both pages stood
+every joiner at measured start A (`standOf`, `packages/viewer/src/matchCore.ts`; `LoadedMap.stand` built from A alone,
+`packages/viewer/src/loadMap.ts`; the front end's mount stands the walk and the camera there, `matchMount.ts`) whatever
+the seat's side -- and A is side 0's, the SEALs': research 75 s0 ("A is side 0 and B side 1 on all 22 maps"; s10: A is
+side 0's slot #0, B side 1's #1, 44 of 44). A Terrorist joiner so stood in the SEALs' start and watched them appear
+there until the room's spawn moved him. `standOf` now takes the seat's side (`matchSide`: the net client's team, else the
+lobby client's) and stands a Terrorist at B, looking at A, on the worker's B stand (`LoadedMap.standB`, `openingStand` at
+B over the same probe); a SEAL, a page with no side given (the test room's, the Forge's), and a page whose team is not
+known yet (`matchSide`'s 'seal' fallback, unchanged) stand at A, looking at B, as before. A side change in the game
+lobby before the launch (`reseat`, the prepared match's) re-stands the walk and the camera at the new side's start while
+the room has not spawned the seat, and leaves the body alone once it has (the review's finding, 2026-11-09). Unit-tested
+(`test/matchCore.test.ts`, `test/matchMount.test.ts`, `test/matchPrepare.test.ts`); no browser run, no capture. Reading
+(the bug-team-sides review PASS WITH FINDINGS, high, its fold re-checked PASS, high; `agent-mail/evidence/mega/REVIEWS-RECORDED-IN-SESSION-99.md`).
+
+| name | where | state |
+|---|---|---|
+| `PRE_SPAWN_STAND_SIDE_READING` (`packages/viewer/src/matchCore.ts`) | s12 | open (reading): before its first spawn a seat's page stands at its own side's measured start -- A for side 0 (the SEALs), B for side 1 (the Terrorists), research 75 s0 and s10 -- looking at the other. What the original shows between the load and the first spawn is not read (no citation found: neither the decompilation's join path nor a capture of that interval); the choice is the seat's own start because it is the place the room's spawn puts the seat, so the view before it does not show the other side's start. Settled by a capture of the original's view between the load and the first spawn as a Terrorist joiner (and as a SEAL) |

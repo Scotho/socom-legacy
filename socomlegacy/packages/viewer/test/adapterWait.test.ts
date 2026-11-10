@@ -24,6 +24,16 @@ describe('LATER 128: WebGPU\'s adapter, waited for a bounded time', () => {
     await expect(webgpuAnswers(undefined)).resolves.toBe(false);
   });
 
+  // WG-7 (W5, a browser adaptation): a software adapter -- the WebGPU spec's `isFallbackAdapter`, on the adapter (the
+  // older field) or on its `info` (GPUAdapterInfo, where the spec moved it) -- is treated as no adapter: WebGL2.
+  it('a fallback (software) adapter is refused: WebGL2; a hardware adapter is taken', async () => {
+    const gpu = (adapter: unknown) => ({ requestAdapter: () => Promise.resolve(adapter) });
+    await expect(webgpuAnswers(gpu({ isFallbackAdapter: true }))).resolves.toBe(false);
+    await expect(webgpuAnswers(gpu({ info: { isFallbackAdapter: true } }))).resolves.toBe(false);
+    await expect(webgpuAnswers(gpu({ isFallbackAdapter: false, info: { isFallbackAdapter: false } }))).resolves.toBe(true);
+    await expect(webgpuAnswers(gpu({ info: { vendor: 'nvidia' } }))).resolves.toBe(true);
+  });
+
   it('a stalled request: WebGL2 at the bound, and an answer after it changes nothing', async () => {
     vi.useFakeTimers();
     let answer: (a: object) => void = () => {};

@@ -214,8 +214,10 @@ for every value, write the failing test first, and say how sure you are: **prove
 
 Questions first? See the [FAQ](FAQ.md). Everyone here follows the [code of conduct](CODE_OF_CONDUCT.md).
 
-This repository is published from the project's working repository, one release at a time. A merged contribution is
-applied there with its author credited and returns here with the next release. Notes and comments that mention plans,
+Send a pull request based on the latest release tag. This repository is published from the project's working
+repository, one release at a time: an accepted pull request is merged here, imported there with its author's commits
+and credit intact, landed after the project's full verification run, and its final form returns here with the next
+release ([`CONTRIBUTING.md`](CONTRIBUTING.md), "How a pull request lands"). Notes and comments that mention plans,
 numbered rulings, `ref/desktop` or `SOCOM_PC_ROOT` point at that working repository or the desktop recompilation.
 
 ## Credits

@@ -6,20 +6,26 @@
  *
  * Resolution, per surface and per scale (first match wins):
  * 1. the URL `?uiGpu=off|shadow|on`, limited by `&uiGpuSurface=front,armory,overlay,loading` when given. It works in
- *    release builds without `devmode`, as `?hdMenuScale=` does (the owner's question O9; default yes);
+ *    release builds without `devmode`, as `?hdMenuScale=` does (the owner's question O9; default yes). Since the flip
+ *    (GM.R18) `uiGpuSurface` no longer isolates a surface: the surfaces it does not name fall through to the table, now
+ *    `on`; and `?uiGpuAllowSoftwareAdapter=1` applies to every surface of the page (the flip's review F4);
  * 2. the support-only `localStorage` kill `s2u.uiGpu = 'off'` (GM.R13; no Settings entry), read once per session
  *    through the page's settings path (`./pageStore` `pageSettings`, its key in `PAGE_SETTING_KEYS`);
  * 3. the session kill -- the loss limit or a guard trip (fallback level L3, "for the rest of the session"). It also
  *    overrides a URL `on`/`shadow`: the plan's L3 binds the rest of the session, and a URL that kept a looping context
  *    alive would defeat the loss limit. A URL `off` still answers as the URL's;
- * 4. `UI_GPU_SURFACES_ADAPTATION[surface][hd|sd]` -- every cell `off` until a landed flip (GM.R8). The test room's
- *    Settings overlay has no HD and reads `overlay.sd` (`resolveTestRoomOverlay`). GM-16b: a page served by the Vite
- *    dev server reads `UI_GPU_DEV_SURFACES_ADAPTATION` instead (`front.hd` `shadow`); no built page does (`uiGpuDevEnv`);
+ * 4. `UI_GPU_SURFACES_ADAPTATION[surface][hd|sd]` -- every cell `on` since the flip (GM-17, GM-18, GM-19a/b, GM-21,
+ *    GM-23 in one change; GM.R18, the owner's word in the seat; GM.R8's order done). The test room's Settings overlay has
+ *    no HD and reads `overlay.sd` (`resolveTestRoomOverlay`). GM-16b: a page served by the Vite dev server reads
+ *    `UI_GPU_DEV_SURFACES_ADAPTATION` instead (since the flip the same cells); no built page does (`uiGpuDevEnv`);
  * 5. the capability gate (`auto`) on a requested `on`/`shadow`: WebGL2, not a software adapter (SwiftShader, llvmpipe,
  *    the Microsoft Basic Render Driver) unless `?uiGpuAllowSoftwareAdapter=1`, `MAX_TEXTURE_SIZE >= 4096`, every
- *    program linked. A failure is fallback level L4: today's path, unchanged.
+ *    program linked. A failure is fallback level L4: the software path, at HD the 1x frame (GM-28, GM.R19).
  *
- * `off`, by any route, is today's code (GM.R16). Nothing in the page reads this module at GM-10: it changes no frame.
+ * `off`, by any route, is the software path; at HD it draws the original 1x frame, not the player's scale (GM-28: GM.R19
+ * withdraws GM.R16's "today's code at the chosen scale", as `./uiGpuFront` says; `UI_GPU_LOSS_FALLBACK_ADAPTATION` below).
+ * Nothing in the page read this module at GM-10: it changed no frame. Since the flip (GM.R18) a page with a hardware
+ * adapter draws every surface on the GPU, and the software path is only the fallback (L1-L4, `off`), at 1x under HD.
  * GM-16: `shadow` -- the software's frame shown, the GPU's drawn offscreen beside it and compared by the guard
  * (`./uiGpuGuard`, `./uiGpuPresenter`) -- is honoured by the front end's surface; a guard trip escalates the surface's
  * blend (`escalateBlend`) or kills it for the session (`guard-trip`), and every record reaches the read-out (`guarded`).
@@ -28,6 +34,7 @@
 import { pageSettings } from './pageStore';
 import { devSwitches } from './source';
 import type { UiGpuGuardRecord } from './uiGpuGuard';
+import { uiGpuRefusalKey } from './uiGpuTextures';
 
 /** The surfaces the GPU drawer may draw (the plan, "Architecture"). The loader screens belong to `front`. */
 export const UI_GPU_SURFACES = Object.freeze(['front', 'armory', 'overlay', 'loading'] as const);
@@ -54,31 +61,35 @@ const freezeTable = <T>(t: Record<UiGpuSurface, Record<UiGpuScaleKey, T>>): Read
 
 /**
  * UI_GPU_SURFACES_ADAPTATION: no original; bounds which browser drawer makes each surface's frame. Per surface and
- * per scale (GM.R8): HD goes on first, scale 1 last and only on the owner's word in the seat. Every cell is `off` until
- * its rollout step lands (GM-16b, GM-17, GM-18, GM-19a/b, GM-21, GM-23); a flip is a landed line here, never a write.
+ * per scale (GM.R8): HD went on first, scale 1 last and only on the owner's word in the seat -- given 2026-11-09 (GM.R18:
+ * "I want the GPU menu work done and turned on by default and the old menu path only existing when fallbacks occur and
+ * no GPU is found. Both when the pack is on and off."). The rollout is done: every cell `on` (GM-17 `front.hd`, GM-18
+ * `armory.hd`, GM-19a `overlay.hd`, GM-19b `overlay.sd`, GM-21 `front.sd` and `armory.sd`, GM-23 `loading`), flipped in
+ * one change. `on` asks for the GPU; the capability gate (resolution 5) still sends a page with no WebGL2, a software
+ * adapter, `MAX_TEXTURE_SIZE < 4096` or a link failure to the software path at 1x (L4, GM-28, GM.R19), as does a session
+ * kill (L3). `?uiGpu=off` and the storage kill stay the rollback (GM.R13); a landed rollback reverts a line here.
  */
 export const UI_GPU_SURFACES_ADAPTATION: UiGpuSurfaceTable = freezeTable<UiGpuMode>({
-  front: { hd: 'off', sd: 'off' },
-  armory: { hd: 'off', sd: 'off' },
-  overlay: { hd: 'off', sd: 'off' },
-  loading: { hd: 'off', sd: 'off' },
+  front: { hd: 'on', sd: 'on' },
+  armory: { hd: 'on', sd: 'on' },
+  overlay: { hd: 'on', sd: 'on' },
+  loading: { hd: 'on', sd: 'on' },
 });
 
 /**
- * UI_GPU_DEV_SURFACES_ADAPTATION: no original; bounds which browser drawer a development build's surfaces use (GM-16b;
- * the plan's rollout, "GM-16b: front end, dev builds, `front.hd: 'shadow'` in dev only; guard records start"): the landed
- * table with the front end at HD in `shadow` -- the software's frame shown, today's bytes, and the GPU's drawn offscreen
- * and compared by the guard (GM.R11: shadow is a dev and canary instrument). Scale 1 stays `off` (GM.R8). Only a page
- * the Vite dev server serves reads it (`uiGpuDevEnv`: DEV and MODE `development`). Every built page reads
- * `UI_GPU_SURFACES_ADAPTATION` (every cell `off`) and makes no canvas and no context (GM.R16) -- `npm run build`
- * (DEV false) and the nightly too, which builds with `NODE_ENV=development` (deploy/nightly.sh, OT.R47) and so has DEV
- * true but MODE `production` (review F1: DEV alone is not false in every built page).
+ * UI_GPU_DEV_SURFACES_ADAPTATION: no original; bounds which browser drawer a development build's surfaces use. GM-16b
+ * made it the landed table with `front.hd` in `shadow` (the guard's records started there, GM.R11). Since the flip
+ * (GM.R18) it holds the built table's cells -- every cell `on` -- so the dev server shows what a player sees; the guard's
+ * HD compare stays reachable there by `?uiGpuGuard=on` (GM-14c, `guardOn`) and a `shadow` frame by `?uiGpu=shadow`.
+ * Only a page the Vite dev server serves reads it (`uiGpuDevEnv`: DEV and MODE `development`); every built page reads
+ * `UI_GPU_SURFACES_ADAPTATION` -- `npm run build` (DEV false) and the nightly too, which builds with
+ * `NODE_ENV=development` (deploy/nightly.sh, OT.R47) and so has DEV true but MODE `production` (review F1).
  */
 export const UI_GPU_DEV_SURFACES_ADAPTATION: UiGpuSurfaceTable = freezeTable<UiGpuMode>({
-  front: { hd: 'shadow', sd: 'off' },
-  armory: { hd: 'off', sd: 'off' },
-  overlay: { hd: 'off', sd: 'off' },
-  loading: { hd: 'off', sd: 'off' },
+  front: { hd: 'on', sd: 'on' },
+  armory: { hd: 'on', sd: 'on' },
+  overlay: { hd: 'on', sd: 'on' },
+  loading: { hd: 'on', sd: 'on' },
 });
 
 /**
@@ -105,13 +116,45 @@ export function uiGpuPageTable(dev: boolean): UiGpuSurfaceTable {
  * UI_GPU_BLEND_ADAPTATION: no original; bounds the browser's blend rounding on the GPU path (GM.R6). Scale 1 is
  * `exact` (the original transcription gets the widest exact class); HD is `ff` unless the twin, a real-GPU bound or a
  * field trip escalates that surface to `exact` (GM.R5).
+ * The loading screen is escalated at HD by a real-GPU bound (the flip's 4070 evidence, 2026-11-09, at f85dc01e1,
+ * evidence/gpu-menus/gm-flip-4070): under `ff` on ANGLE D3D11 its panel ran up to ~9.5% of the 4x frame at |d| 1 and
+ * one pixel at |d| 2 in each of two runs (`loading.up@4x`, `loading.fade32@4x`): the |d| 1 counts past the SwiftShader
+ * bound, the |d| 2 pixels past the pinned tolerance's |d| <= 1 rule (GM-27); `exact` stayed within the SwiftShader bound.
  */
 export const UI_GPU_BLEND_ADAPTATION: UiGpuBlendTable = freezeTable<UiGpuBlend>({
   front: { hd: 'ff', sd: 'exact' },
   armory: { hd: 'ff', sd: 'exact' },
   overlay: { hd: 'ff', sd: 'exact' },
-  loading: { hd: 'ff', sd: 'exact' },
+  loading: { hd: 'exact', sd: 'exact' },
 });
+
+/**
+ * UI_GPU_LOSS_FALLBACK_ADAPTATION: no original; bounds the browser's software frame whenever a menu surface's GPU path
+ * does not present (the plan's ladder; GM.R9, GM.R12; GM-28 under GM.R19, the owner's "the original 1x frame"): the
+ * software draws the frame at scale 1 -- the original frame, byte for byte -- with no HD lookup and no quad cache (both
+ * belong to the HD scale), so no fallback puts the 4x software path (GM-02: 150-183 ms a frame) on the player's frame.
+ * GM-12a made it L2/L3's (the GPU lost); GM-28 extends it to every state that does not present: L4 (no WebGL2, a software
+ * adapter, `MAX_TEXTURE_SIZE`, a link failure), waiting for the links, released in a match, before the surface's module
+ * lands, a guard trip, and `off` (URL, storage kill, table). The canvas's CSS box shows it at the same size. Moved here
+ * from `./uiGpuPresenter` (re-exported there) so the page's frame loop, which imports no GPU module (GM.R15), uses the
+ * same rule. The 4x software path stays for tests and the guard only (GM.R19).
+ */
+export const UI_GPU_LOSS_FALLBACK_ADAPTATION = Object.freeze({ scale: 1 } as const);
+
+/** What a frame's options carry that the fallback drops: the HD scale's lookup and quad cache. */
+export interface UiGpuFallbackable { readonly scale?: number; readonly hd?: unknown; readonly quadCache?: unknown }
+
+/**
+ * The options of a software frame drawn while the GPU path does not present: `UI_GPU_LOSS_FALLBACK_ADAPTATION` over the
+ * frame's own -- scale 1, the HD lookup and the quad cache dropped, everything else (`transparent`, `movie`, `version`)
+ * kept.
+ */
+export function uiGpuLossFallbackOptions<O extends UiGpuFallbackable>(options: O): Omit<O, 'hd' | 'quadCache' | 'scale'> & { scale: number } {
+  const rest: { hd?: unknown; quadCache?: unknown } = { ...options };
+  delete rest.hd;
+  delete rest.quadCache;
+  return { ...(rest as Omit<O, 'hd' | 'quadCache' | 'scale'>), scale: UI_GPU_LOSS_FALLBACK_ADAPTATION.scale };
+}
 
 /** The support-only kill switch's key (GM.R13); only the value `'off'` means anything. */
 export const UI_GPU_KILL_STORAGE_KEY = 's2u.uiGpu';
@@ -205,7 +248,12 @@ export interface UiGpuCaps {
   readonly programsLinked: boolean;
 }
 
-export type UiGpuCapabilityReason = 'no-webgl2' | 'software-adapter' | 'max-texture-size' | 'program-link';
+/**
+ * Why a surface's GPU path is unavailable (L4). `no-parallel-link` (GM-23 / GM-19a review fold 4): a surface that must not
+ * stall (`UiGpuSurfacePresenter.prepare`: the loading screen, the overlay) found no `KHR_parallel_shader_compile` and let
+ * its context go before compiling; the gate (`uiGpuCapability`) never answers it.
+ */
+export type UiGpuCapabilityReason = 'no-webgl2' | 'software-adapter' | 'max-texture-size' | 'program-link' | 'no-parallel-link';
 
 /** The capability gate (resolution 5), in the order a context is checked. */
 export function uiGpuCapability(caps: UiGpuCaps, allowSoftwareAdapter: boolean):
@@ -242,6 +290,35 @@ export interface UiGpuResolution {
 
 /** The fallback ladder's levels (the plan, "The fallback ladder"), each counted on `window.__uiGpu`. */
 export type UiGpuLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4';
+
+/**
+ * GM-30: a frame a surface's read-out counts -- a ladder level, or `waiting` (the software while the surface's module
+ * loads, its links run after no loss, or its context is released in a match). A test and playtest instrument.
+ */
+export type UiGpuFallbackLevel = UiGpuLevel | 'waiting';
+
+/**
+ * GM-30 (a browser adaptation, a test and playtest instrument): what a surface's mount tells the switch of a frame it
+ * sends to the page's own software (`./uiGpuSurfaceMount` `UiGpuCanvasMount.readyOn`) -- the level and its reason (L4's
+ * capability reason, `no-parallel-link` and `load-failed` included; L3's kill reason; `waiting`'s `module`, `links` or
+ * `released`; L2 none). The switch's `hostFor(surface)` is one.
+ */
+export interface UiGpuLadder {
+  fallback(level: UiGpuFallbackLevel, reason: string | null): void;
+}
+
+/**
+ * GM-30: one surface's counts on `window.__uiGpu` (`surfaces[surface]`): its frames by level -- the ones the surface
+ * counts itself through `hostFor` (L0-L4) and the ones its mount sends to the page's software (`fallback`) --, its waiting
+ * frames, each reason's frames keyed `<level>:<reason>` (the reasons are closed sets: the bound is theirs), and the last
+ * frame counted. The aggregate `levels` keeps counting every level as before; `waiting` is per surface only.
+ */
+export interface UiGpuSurfaceLadderReadout {
+  readonly levels: Record<UiGpuLevel, number>;
+  readonly waiting: number;
+  readonly reasons: Record<string, number>;
+  readonly last: { readonly level: UiGpuFallbackLevel; readonly reason: string | null } | null;
+}
 
 /** The storage the kill is read from: a thunk, so a throwing `window.localStorage` accessor is caught too. */
 export type UiGpuStorage = () => { getItem(key: string): string | null } | null | undefined;
@@ -283,6 +360,13 @@ export interface UiGpuReadout {
   };
   /** GM-16c: why frames were L1 -- the last refusal and each reason's frames (`UI_GPU_REFUSAL_KEYS_MAX` keys at most). */
   readonly refusals: { readonly last: UiGpuRefusal | null; readonly counts: Record<string, number> };
+  /**
+   * GM-30: the counts per surface (`UiGpuSurfaceLadderReadout`), every surface present. Added beside the older keys, whose
+   * shapes are unchanged: a surface whose frames reach the switch only through `count(level)` (a host made from the
+   * switch itself) moves the aggregate `levels` and not its entry here. The flip's change (GM-30 review finding 1): the
+   * front end's own presenter takes `hostFor('front')`, so its frames count in `surfaces.front` as well.
+   */
+  readonly surfaces: Record<UiGpuSurface, UiGpuSurfaceLadderReadout>;
 }
 
 /**
@@ -332,6 +416,9 @@ export class UiGpuSwitch {
   private guardLast: UiGpuGuardRecord | null = null;
   private refusalLast: UiGpuRefusal | null = null;
   private readonly refusalCounts = new Map<string, number>();
+  private readonly ladders = new Map<UiGpuSurface, {
+    levels: Record<UiGpuLevel, number>; waiting: number; reasons: Map<string, number>; last: UiGpuSurfaceLadderReadout['last'];
+  }>(UI_GPU_SURFACES.map((s) => [s, { levels: { L0: 0, L1: 0, L2: 0, L3: 0, L4: 0 }, waiting: 0, reasons: new Map(), last: null }]));
 
   constructor(opts: UiGpuSwitchOptions) {
     this.url = parseUiGpuUrl(opts.search);
@@ -400,9 +487,50 @@ export class UiGpuSwitch {
     this.kills.push({ reason, surface: surface ?? null });
   }
 
-  /** Count one frame or event at a fallback level. */
-  count(level: UiGpuLevel): void {
+  /**
+   * Count one frame or event at a fallback level. GM-30: with `surface` (a surface's host from `hostFor`), counted in that
+   * surface's entry too; without it (the front end's presenter, a test's), the aggregate only, as before.
+   */
+  count(level: UiGpuLevel, surface?: UiGpuSurface): void {
     this.levels[level] += 1;
+    if (surface !== undefined) this.counted(surface, level, null);
+  }
+
+  /**
+   * GM-30: a frame `surface`'s mount sent to the page's own software (`UiGpuCanvasMount.readyOn`), at `level` for
+   * `reason`: a ladder level counted in the aggregate and the surface, `waiting` in the surface only.
+   */
+  fallback(surface: UiGpuSurface, level: UiGpuFallbackLevel, reason: string | null): void {
+    if (level !== 'waiting') this.levels[level] += 1;
+    this.counted(surface, level, reason);
+  }
+
+  private counted(surface: UiGpuSurface, level: UiGpuFallbackLevel, reason: string | null): void {
+    const l = this.ladders.get(surface)!;
+    if (level === 'waiting') l.waiting += 1;
+    else l.levels[level] += 1;
+    if (reason !== null) { const k = `${level}:${reason}`; l.reasons.set(k, (l.reasons.get(k) ?? 0) + 1); }
+    l.last = { level, reason };
+  }
+
+  /**
+   * GM-30: the switch as one surface's host (`./uiGpuPresenter` `UiGpuSurfaceHost`) and ladder (`UiGpuLadder`): its
+   * frames counted under `surface` too (`count`, `fallback`); every other call is the switch's own, unchanged.
+   * `./uiGpuSurfaceMount` `uiGpuSurfaceLoader` hands it to the overlay's and the loading panel's surfaces and mounts.
+   */
+  hostFor(surface: UiGpuSurface) {
+    return {
+      kill: (reason: UiGpuKillReason, s?: UiGpuSurface): void => { this.kill(reason, s); },
+      count: (level: UiGpuLevel): void => { this.count(level, surface); },
+      fallback: (level: UiGpuFallbackLevel, reason: string | null): void => { this.fallback(surface, level, reason); },
+      adjustContexts: (delta: number): void => { this.adjustContexts(delta); },
+      resolve: (s: UiGpuSurface, scale: number): UiGpuResolution => this.resolve(s, scale),
+      escalateBlend: (s: UiGpuSurface): void => { this.escalateBlend(s); },
+      guarded: (record: UiGpuGuardRecord): void => { this.guarded(record); },
+      refused: (s: UiGpuSurface, why: readonly string[]): void => { this.refused(s, why); },
+      guardOn: (s: UiGpuSurface): boolean => this.guardOn(s),
+      guardPlant: (s: UiGpuSurface): UiGpuGuardPlant | null => this.guardPlant(s),
+    };
   }
 
   /**
@@ -419,11 +547,13 @@ export class UiGpuSwitch {
   /**
    * GM-16c: a surface's L1 frame, refused by its plan (a software verdict, `uiFramePlan.ts`) or by the backend
    * (`UiGpuBackend.refusal`, a texture upload wait): kept as the last refusal and each reason counted once for the frame
-   * (a frame with no reason under `(none)`; past `UI_GPU_REFUSAL_KEYS_MAX` distinct reasons, under `(other)`).
+   * (a frame with no reason under `(none)`; past `UI_GPU_REFUSAL_KEYS_MAX` distinct reasons, under `(other)`; GM-14b's
+   * route under its one reason, `uiGpuRefusalKey`, its per-image detail kept in `last`).
    */
   refused(surface: UiGpuSurface, why: readonly string[]): void {
     this.refusalLast = { surface, why: why.slice(), at: this.levels.L1 };
-    for (const w of why.length ? why : [REFUSAL_NONE]) {
+    for (const reason of why.length ? why : [REFUSAL_NONE]) {
+      const w = uiGpuRefusalKey(reason);   // GM-14b review F2: the large-image route under its one key, its detail in `last`
       const keyed = this.refusalCounts.size - (this.refusalCounts.has(REFUSAL_OTHER) ? 1 : 0);
       const key = this.refusalCounts.has(w) || keyed < UI_GPU_REFUSAL_KEYS_MAX ? w : REFUSAL_OTHER;
       this.refusalCounts.set(key, (this.refusalCounts.get(key) ?? 0) + 1);
@@ -459,6 +589,10 @@ export class UiGpuSwitch {
         last: this.refusalLast && { ...this.refusalLast, why: this.refusalLast.why.slice() },
         counts: Object.fromEntries(this.refusalCounts),
       },
+      surfaces: Object.fromEntries(UI_GPU_SURFACES.map((s) => {
+        const l = this.ladders.get(s)!;
+        return [s, { levels: { ...l.levels }, waiting: l.waiting, reasons: Object.fromEntries(l.reasons), last: l.last && { ...l.last } }];
+      })) as Record<UiGpuSurface, UiGpuSurfaceLadderReadout>,
     };
   }
 
@@ -480,7 +614,7 @@ export function pageUiGpuSwitch(): UiGpuSwitch {
     search,
     storage: () => ({ getItem: (key: string) => pageSettings.get(key) }), // the page's settings path (pageStore.ts)
     devTools: devSwitches(search).tools,
-    table: uiGpuPageTable(uiGpuDevBuild()),                               // GM-16b: front.hd shadow on a development build only
+    table: uiGpuPageTable(uiGpuDevBuild()),                               // GM-16b's split; since the flip (GM.R18) both tables every cell on
     devBuild: uiGpuDevBuild(),                                             // GM-14c: ?uiGpuGuard / ?uiGpuGuardPlant on the dev server only
   });
   if (typeof window !== 'undefined') page.expose(window);

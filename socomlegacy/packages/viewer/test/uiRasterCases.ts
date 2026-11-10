@@ -21,8 +21,11 @@ import { UiQuadRasterCache, type RasterOptions, type UiBitmap, type UiTextures }
  * - The transparent leg adds information only for cases 4, 8, 17, 19 and 20; the other keys begin with a clear that
  *   sets alpha to 255, so both modes hash the same. Case 15's `MAX_TEXTURE_SIZE` route exists only on the GPU
  *   (GM-14b); on the software it tests the large-image draw alone (GM-03 review F4).
- * - Two model triangles with equal `invW` on a shared edge: the second is rejected by the depth test (`invW <= depth`),
- *   so the edge is drawn once; it is drawn twice only where the later triangle is nearer (case 2).
+ * - A shared edge between two model triangles is drawn once, by the triangle for which it is a left or top edge (the
+ *   GS's top-left fill rule, `UI_MODEL_EDGE_RULE_READING`), whatever the depths (case 2); two triangles at equal depth
+ *   on the same pixels leave the later one (`TEST_1` GEQUAL, `UI_MODEL_DEPTH_FORMAT_READING`; case 3). GM-15d (the
+ *   plan's Log, R1 resolved by (a)) re-pinned cases 2, 3, 16, 17 and 18 for the two rules; before it the edges were
+ *   inclusive and a tie kept the first triangle, the pins of 95c4fa80e.
  */
 
 export type UiRasterScale = 1 | 2 | 4;
@@ -152,7 +155,7 @@ export const UI_RASTER_CASES: readonly UiRasterCase[] = [
     ],
   }),
   C({
-    id: 2, name: 'the additive 3D pass: a shared edge, drawn once at equal depth, twice where the later triangle is nearer',
+    id: 2, name: 'the additive 3D pass: a shared edge, drawn once (top-left) at equal depth and where the later triangle is nearer',
     rules: ['M1', 'M2', 'M3', 'P11'], readings: ['UI_MODEL_EDGE_RULE_READING', 'UI_MODEL_DEPTH_FORMAT_READING', 'UI_MESH_BIND_READING', 'UI_MODEL_TEXTURE_ROWS_READING'], gpu: 'B',
     data: () => ({
       textures: { 'roll.tif': solid(4, 4, [60, 60, 60, 255], 'additive') },
@@ -163,19 +166,19 @@ export const UI_RASTER_CASES: readonly UiRasterCase[] = [
     }),
     probes: [
       { x: 2, y: 2, rgba: [70, 70, 70, 255], why: '10 + 60' },
-      { x: 4, y: 4, rgba: [70, 70, 70, 255], why: 'the shared edge at equal invW: the second triangle fails invW <= depth' },
+      { x: 4, y: 4, rgba: [70, 70, 70, 255], why: 'the shared edge at equal invW: the second triangle\'s left edge, the first\'s right-bottom one -- drawn once (GM-15d)' },
       { x: 6, y: 6, rgba: [70, 70, 70, 255] },
       { x: 22, y: 2, rgba: [70, 70, 70, 255] },
-      { x: 24, y: 4, rgba: [130, 130, 130, 255], why: 'the shared edge, the later triangle nearer: inclusive edges, drawn twice' },
-      { x: 27, y: 1, rgba: [130, 130, 130, 255] },
+      { x: 24, y: 4, rgba: [70, 70, 70, 255], why: 'the shared edge, the later triangle nearer: still one owner (top-left), drawn once (GM-15d; inclusive edges drew it twice)' },
+      { x: 27, y: 1, rgba: [70, 70, 70, 255] },
       { x: 26, y: 6, rgba: [70, 70, 70, 255] },
     ],
   }),
   C({
-    id: 3, name: 'a depth tie (equal invW): the first drawn triangle wins',
+    id: 3, name: 'a depth tie (equal invW): the later drawn triangle wins (TEST_1 GEQUAL; GM-15d, was the first)',
     rules: ['M3'], readings: ['UI_MODEL_DEPTH_FORMAT_READING', 'GS_ALPHA_FRAME_START_READING'], gpu: 'B',
     data: () => ({ textures: {}, items: [clear(0, 0, 0), { kind: 'models', triangles: [corner(null, 1, [128, 0, 0, 128]), corner(null, 1, [0, 128, 0, 128])] }] }),
-    probes: [{ x: 1, y: 1, rgba: [128, 0, 0, 255] }, { x: 7, y: 7, rgba: [128, 0, 0, 255] }],
+    probes: [{ x: 1, y: 1, rgba: [0, 128, 0, 255], why: 'equal f32 depth: GEQUAL passes, the green drawn second stays' }, { x: 7, y: 7, rgba: [0, 128, 0, 255] }],
   }),
   C({
     id: 4, name: 'the transparent overlay\'s accumulation at fractional alpha, divided back to straight RGB',
@@ -402,10 +405,10 @@ export const UI_RASTER_CASES: readonly UiRasterCase[] = [
     data: () => ({ textures: {}, items: [fill(8, 8, 24, 24, [0, 0, 200, 64]), { kind: 'models', triangles: [corner(null, 1, [128, 0, 0, 128])] }] }),
     probes: [
       { x: 1, y: 1, rgba: [128, 0, 0, 0], mode: 'transparent', why: 'RGB written, alpha left 0: no divide' },
-      { x: 8, y: 8, rgba: [255, 0, 0, 128], mode: 'transparent', why: 'the quad\'s alpha 128 kept; 128 / (128/255)' },
+      { x: 8, y: 8, rgba: [0, 0, 199, 128], mode: 'transparent', why: 'on the hypotenuse, the triangle\'s right-bottom edge: not the model\'s (top-left, GM-15d), the quad alone' },
       { x: 12, y: 12, rgba: [0, 0, 199, 128], mode: 'transparent' },
       { x: 1, y: 1, rgba: [128, 0, 0, 255] },
-      { x: 8, y: 8, rgba: [128, 0, 0, 255], why: 'on the hypotenuse: inclusive' },
+      { x: 8, y: 8, rgba: [0, 0, 100, 255], why: 'on the hypotenuse: out (top-left, GM-15d; inclusive drew the model here)' },
       { x: 12, y: 12, rgba: [0, 0, 100, 255] },
     ],
   }),
@@ -492,8 +495,9 @@ export const UI_SEAM_TEXEL = 60;
  * GM-15b: a list of squares on a grid (none overlaps another), each split along its anti-diagonal into two front-facing
  * triangles that share that edge (case 2's first pair, generalised): every vertex of square k at `invWs[k]`, one
  * additive 4 x 4 texture of `UI_SEAM_TEXEL`, sides 8, 16, 32 in turn (powers of two, so every barycentric weight is
- * dyadic at every scale). The inclusive-edge rule (M2, `UI_MODEL_EDGE_RULE_READING`) puts each seam pixel in both
- * triangles; the depth test (M3, `UI_MODEL_DEPTH_FORMAT_READING`) decides whether the second adds its texel again.
+ * dyadic at every scale). The top-left rule (M2, `UI_MODEL_EDGE_RULE_READING`; GM-15d) gives each seam pixel to the
+ * second triangle only (the diagonal is its left edge, the first's right-bottom one), so no depth test is reached
+ * there; under the inclusive rule before GM-15d both covered it and M3 decided whether the second added its texel again.
  */
 export function seamSquares(invWs: readonly number[]): { items: UiDrawItem[]; textures: UiTextures; squares: UiSeamSquare[] } {
   const squares = invWs.map((invW, k): UiSeamSquare => ({ x: 4 + 40 * (k % 12), y: 4 + 40 * Math.floor(k / 12), n: [8, 16, 32][k % 3]!, invW }));
@@ -517,6 +521,10 @@ export function seamPixels(sq: UiSeamSquare, scale: number): [number, number][] 
 /**
  * SHA-256 of `rasterizeUiDrawList`'s frame bytes for every case, scale and mode, taken from the software on
  * `agent/gpu-menus` at 95c4fa80e, whose `uiCompositorView.ts` and `@s2u/ui` are main cbe52f724's (v0.4.1). A later executor equal to the software reproduces these exactly.
+ * GM-15d re-pinned the model cases' 30 keys (2, 3, 16, 17, 18 at every scale and mode) from `drawModels` under the GS's
+ * top-left rule and GEQUAL on the f32 store (the plan's Log, R1 resolved by (a)): a pixel on a triangle's right or
+ * bottom edge is no longer drawn (case 2's shared edge once, case 17's hypotenuse out, the corners' hypotenuses in 3, 16
+ * and 18), and case 3's tie keeps the later triangle. No other key moved.
  */
 export const UI_RASTER_SOFTWARE_SHA256: Readonly<Record<string, string>> = {
   '1@1x/opaque': '63a0b669dc4f46fe08ad91a74383b1bc21b36cc9661ad62934c1c6795a51efad',
@@ -525,18 +533,18 @@ export const UI_RASTER_SOFTWARE_SHA256: Readonly<Record<string, string>> = {
   '1@2x/transparent': '2e7e5fc60f6bae302085894bb6400aad8c90b64b15612ee125d574712762fd2c',
   '1@4x/opaque': '100672c67b50fa765134a80ba0c7af1533fcbf9c389cc1b2d049f853d3fc6788',
   '1@4x/transparent': '100672c67b50fa765134a80ba0c7af1533fcbf9c389cc1b2d049f853d3fc6788',
-  '2@1x/opaque': '4979ec144b9736a09bbe118055bcfceea663578cd2f1bfd7afe6f038a8bf09b2',
-  '2@1x/transparent': '4979ec144b9736a09bbe118055bcfceea663578cd2f1bfd7afe6f038a8bf09b2',
-  '2@2x/opaque': '80b01cdf03d13380350fb219191a4cfbb7294062812f567609cfa326a97d7260',
-  '2@2x/transparent': '80b01cdf03d13380350fb219191a4cfbb7294062812f567609cfa326a97d7260',
-  '2@4x/opaque': 'a717cfb29c8a2c60689504d2b8acc89233b8650f337e4c4af17f56a24ae59293',
-  '2@4x/transparent': 'a717cfb29c8a2c60689504d2b8acc89233b8650f337e4c4af17f56a24ae59293',
-  '3@1x/opaque': '0d4daf49ba98a25100a29bc27d73c0bd621ee039469de5d282cee40fbe1a87b3',
-  '3@1x/transparent': '0d4daf49ba98a25100a29bc27d73c0bd621ee039469de5d282cee40fbe1a87b3',
-  '3@2x/opaque': 'c5d322ed017ce1240aa8e1967f7f023e3e12b049aa8a22049f7d701da8d2a119',
-  '3@2x/transparent': 'c5d322ed017ce1240aa8e1967f7f023e3e12b049aa8a22049f7d701da8d2a119',
-  '3@4x/opaque': '3215077d4f2ba095e540f56f8dc732d2074c3d6c49baf8ef8728a82e6120aa14',
-  '3@4x/transparent': '3215077d4f2ba095e540f56f8dc732d2074c3d6c49baf8ef8728a82e6120aa14',
+  '2@1x/opaque': '2b8927afaa5f6399ca7f9a558eb5a21dca294edbfe2f6f6d2de397c005bccc4e',
+  '2@1x/transparent': '2b8927afaa5f6399ca7f9a558eb5a21dca294edbfe2f6f6d2de397c005bccc4e',
+  '2@2x/opaque': 'e7fa8b98d2eca970a03503a65432871ef82552044c8858a65346f8213dc871b1',
+  '2@2x/transparent': 'e7fa8b98d2eca970a03503a65432871ef82552044c8858a65346f8213dc871b1',
+  '2@4x/opaque': '31f51727cb1792bf5a0fdde61bf7f7b6ae0385e3e1475408ca8a14372df3da3c',
+  '2@4x/transparent': '31f51727cb1792bf5a0fdde61bf7f7b6ae0385e3e1475408ca8a14372df3da3c',
+  '3@1x/opaque': '0e14df8f1902664a3b3af0930e140d7293c3b139e694a8e193491c068a092f36',
+  '3@1x/transparent': '0e14df8f1902664a3b3af0930e140d7293c3b139e694a8e193491c068a092f36',
+  '3@2x/opaque': 'cb50eae1be20944e04e9d2baecabfbf8f1c017e460bbaafdc0214d597ac2232b',
+  '3@2x/transparent': 'cb50eae1be20944e04e9d2baecabfbf8f1c017e460bbaafdc0214d597ac2232b',
+  '3@4x/opaque': 'ab0667db9963744817d8fe28b1e3148fd13e4ecf51d56a465a8445711db7d77f',
+  '3@4x/transparent': 'ab0667db9963744817d8fe28b1e3148fd13e4ecf51d56a465a8445711db7d77f',
   '4@1x/opaque': 'f83d4aa63e2e58a004d2f87f428dd5d910986f7892d02cabf110be189b4fc326',
   '4@1x/transparent': 'a148f92e8305ad29ec1476b849e1c92989e648f2c45cf5ced77141185dec073c',
   '4@2x/opaque': 'b0dc9a2a1a9a877ff6ea92b04c288b78bd769d7b30c1d33797ab401de03cca12',
@@ -621,24 +629,24 @@ export const UI_RASTER_SOFTWARE_SHA256: Readonly<Record<string, string>> = {
   '15@2x/transparent': '5bf88e1e2fec5991e198af1049b850dfb4723f9fd0ed671eb28ca4ff042edd69',
   '15@4x/opaque': 'a7581a84100b09613e3d19068a0db1b8b54bc379e9761113ea9fb4a00b050773',
   '15@4x/transparent': 'a7581a84100b09613e3d19068a0db1b8b54bc379e9761113ea9fb4a00b050773',
-  '16@1x/opaque': '0d4daf49ba98a25100a29bc27d73c0bd621ee039469de5d282cee40fbe1a87b3',
-  '16@1x/transparent': '0d4daf49ba98a25100a29bc27d73c0bd621ee039469de5d282cee40fbe1a87b3',
-  '16@2x/opaque': 'c5d322ed017ce1240aa8e1967f7f023e3e12b049aa8a22049f7d701da8d2a119',
-  '16@2x/transparent': 'c5d322ed017ce1240aa8e1967f7f023e3e12b049aa8a22049f7d701da8d2a119',
-  '16@4x/opaque': '3215077d4f2ba095e540f56f8dc732d2074c3d6c49baf8ef8728a82e6120aa14',
-  '16@4x/transparent': '3215077d4f2ba095e540f56f8dc732d2074c3d6c49baf8ef8728a82e6120aa14',
-  '17@1x/opaque': 'ee9d164755ebc4b3b621125a149ef9adb739d6297a37a03725a3b7db890b272d',
-  '17@1x/transparent': 'a7e54bec55b03b06a59b9eca29713e36140b33192f2a8a7572e49c5b94996aaa',
-  '17@2x/opaque': 'd6e1d3aba0c23ee5981d08e9bf61f05926ff5f556e2625fc309eeab84798fc83',
-  '17@2x/transparent': '20f6954f19d31bd809375e2581971fd70499c9eb51eb4140cb3699aa096097dd',
-  '17@4x/opaque': '7eaa684ec3ee150068387d6bbdd6b396ef0b43cd6391dc4dcd6879c7edb5364c',
-  '17@4x/transparent': 'c4c71728e27236982f709a29c51f9886ace1a896d69b4fea4548dbbed4c00391',
-  '18@1x/opaque': '4b9ec32bfc8bc8f55f014be053f7fb62b0eeca2e9797cfae8ec66368446bbb70',
-  '18@1x/transparent': '4b9ec32bfc8bc8f55f014be053f7fb62b0eeca2e9797cfae8ec66368446bbb70',
-  '18@2x/opaque': 'c1b6388b585a681520407fbe9a83ddeda7b6f772eff1434971e19a8a57808b77',
-  '18@2x/transparent': 'c1b6388b585a681520407fbe9a83ddeda7b6f772eff1434971e19a8a57808b77',
-  '18@4x/opaque': '709b17cc6d33508eba3197172e781a21dcecc661ad808f5ee8ce2f4221a317e9',
-  '18@4x/transparent': '709b17cc6d33508eba3197172e781a21dcecc661ad808f5ee8ce2f4221a317e9',
+  '16@1x/opaque': '2a22117412035d4b3b1a5d8d46d3e529397ed84f8883611503b98987d3185b67',
+  '16@1x/transparent': '2a22117412035d4b3b1a5d8d46d3e529397ed84f8883611503b98987d3185b67',
+  '16@2x/opaque': 'e72bbe6dc4fad7d00448bfcbf0b45722b17097ba662382278164f370b39e323d',
+  '16@2x/transparent': 'e72bbe6dc4fad7d00448bfcbf0b45722b17097ba662382278164f370b39e323d',
+  '16@4x/opaque': '51e79c1d87874f19f75d540c486978528720b17e4d7bc8891478c6e85285fe75',
+  '16@4x/transparent': '51e79c1d87874f19f75d540c486978528720b17e4d7bc8891478c6e85285fe75',
+  '17@1x/opaque': '1444f159e53999da12c38101365bd6aeefb185f535320583a29a0d37fdc70e86',
+  '17@1x/transparent': '17827e7fca909bb7071bdb01810b42663b5bffd4cdeffeb6a334f681f6b8e3d4',
+  '17@2x/opaque': '93004d7bb318d0adca2a8b8b4360731a887dd9b8ce8c5cd53bd29e09c42384cf',
+  '17@2x/transparent': '36868651d0766cf9351f591db652118b10b846eca007cbb7b77cedec9d7f5702',
+  '17@4x/opaque': '3385a3e83fae9fdbe96dc3ab23b02bdb4dafd255ddc6ace846e096dafff8468b',
+  '17@4x/transparent': '9280cc30dc01a4f75d8a3940eca0f2deebea0d58be27ea71a67cc30e106d684a',
+  '18@1x/opaque': '49e5c91536246921061fcaf2c442b216e70ac239d13ee53cf6234e406663b333',
+  '18@1x/transparent': '49e5c91536246921061fcaf2c442b216e70ac239d13ee53cf6234e406663b333',
+  '18@2x/opaque': '818ef687ea880eb1a3984b4f141789db747c12c98fb6575da81bfbc1950bc17d',
+  '18@2x/transparent': '818ef687ea880eb1a3984b4f141789db747c12c98fb6575da81bfbc1950bc17d',
+  '18@4x/opaque': 'b73955de89960cbfac16e4e39fbe0bfca519a483beecd09dada161e0b173d71f',
+  '18@4x/transparent': 'b73955de89960cbfac16e4e39fbe0bfca519a483beecd09dada161e0b173d71f',
   '19.a0@1x/opaque': '5c6d30706fddab517986c9a2320221d5b49d03cfdb373fd2319409762defff24',
   '19.a0@1x/transparent': '4563b98ea2c0e810000796df117d519e784943174f3c5491d9faef565e8a9f36',
   '19.a0@2x/opaque': 'e3acdc1dbdbbc38ace6b701c195f1698ca27e57998aa3ce5894e8bba634cfed7',
@@ -703,7 +711,7 @@ export const UI_RASTER_PREDIVIDE_PROBES: Readonly<Record<string, UiRasterProbe[]
   ],
   '17': [
     { x: 1, y: 1, rgba: [128, 0, 0, 0], why: "the model's RGB, alpha left 0 (M7)" },
-    { x: 8, y: 8, rgba: [128, 0, 0, 128], why: "the model over the quad: its RGB, the quad's alpha 128 kept" },
+    { x: 8, y: 8, rgba: [0, 0, 100, 128], why: "on the hypotenuse, the triangle's right-bottom edge (top-left, GM-15d): the quad alone" },
     { x: 12, y: 12, rgba: [0, 0, 100, 128], why: 'the quad alone: 200 x .5' },
   ],
   ...Object.fromEntries(CASE_19.map(([alpha, opaque, transparent]) => [`19.a${alpha}`, [
@@ -715,15 +723,16 @@ export const UI_RASTER_PREDIVIDE_PROBES: Readonly<Record<string, UiRasterProbe[]
 /**
  * SHA-256 of `rasterizeUiDrawList`'s transparent frame under `preDivide`, for cases 4, 17 and 19 at scales 1, 2 and 4,
  * taken from the software on `agent/gpu-menus` with GM-09's option (the raster itself is the GM-03 pins' unchanged;
- * the test holds that the divide applied to each gives the transparent pin above).
+ * the test holds that the divide applied to each gives the transparent pin above). GM-15d re-pinned case 17's three
+ * (its hypotenuse no longer the model's, the top-left rule).
  */
 export const UI_RASTER_PREDIVIDE_SHA256: Readonly<Record<string, string>> = {
   '4@1x/predivide': '391fe115766aefe8192b1ab2905be2dfbf858ee8a23598550e706104d861cbae',
   '4@2x/predivide': '8b7f182f10e72ae64e27ff767060392129aa679a10e7592a18c543f500499545',
   '4@4x/predivide': '2e43694c8c8cc9f82e87868806a441d27d4919db23fa500e84a1236900921ccd',
-  '17@1x/predivide': '30c0b9dc5ab1449db4c59176b6cc4bfac6415d2dcd35afe84f60dda5ba931e0f',
-  '17@2x/predivide': 'a0bcb415dc9736ba2ad770247be5fda3f4f9a863f87ffec6bf562e34b51fa406',
-  '17@4x/predivide': 'bc06c4487906414054289fead60a9f36bc23f8e98462001863e8c73b2940bcf8',
+  '17@1x/predivide': 'f524b2fa1758f4abe2b8c8779d7cdeb793ab970ed402ee768699ba5335242c1b',
+  '17@2x/predivide': '097284303eb37094337da3dc4954c84ff69dbb705c4fe20703156a29fac822b7',
+  '17@4x/predivide': 'e3d2b3fe4d461d9c66f9c64ac9081b87925e0ee611e92cc2f92e4ba5fcd4133b',
   '19.a0@1x/predivide': '827bc1e837555baa8c9d6add721280461c423eea98a252521c9a4ffe473dcd35',
   '19.a0@2x/predivide': 'c6a3ce9cf7af244b57e11728139876f543f9e1bad97f33777d7bf56e853019f7',
   '19.a0@4x/predivide': 'b2fbc6bf6d1ae29984f0f8681f40245ef816e5e9f6d0cfe8234f5ef4357c1cfb',

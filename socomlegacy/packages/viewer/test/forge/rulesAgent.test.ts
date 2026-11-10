@@ -92,7 +92,7 @@ describe('FCW-32 the page target: the rules verbs', () => {
     expect(r.execute).toHaveBeenCalledWith('rules.rule.set', { rule: RULE }, 1, 'placeholder:one', { signal, sessionId: 'placeholder' });
     for (const operation of ['rules.import', 'rules.check', 'rules.export']) {
       const result = await r.target.dispatch({ ...r.request('forge.edit', { operation, arguments: {} }), requestId: `x-${operation}` }, signal);
-      expect(result.code, operation).toBe('PERMISSION_DENIED');
+      expect(result.code, operation).toBe('UNSUPPORTED_OPERATION');   // REVIEW-1 9: not admitted by forge.edit, not a grant
     }
     expect(r.execute).toHaveBeenCalledTimes(1);
   });

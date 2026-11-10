@@ -33,11 +33,18 @@ export const MOVIE_PCM_MOVE_GRANULE = 0x400;
 /** The open's volume argument: `snd_PcmStreamOpen(0x6000, 0, 0x366, 0, 2, 2)` (`FUN_0030a7c0`, D:L208361). */
 export const MOVIE_PCM_STREAM_VOLUME = 0x366;
 /**
- * The gain the page gives the track's samples: unity, the PCM at its own level. How 989snd maps `0x366` to the
- * output is not read (the block's unknown; the PC project's movie-audio level row, "~20 dB under the console", then
- * a median -3.9 dB on the title ring; settled by PLAT-36's `PS2X_AUDIO_TRACE` and the +-1 dB level check).
+ * Movie PCM level in the port's existing voice units (research 137 section 9): the original open at 0x366
+ * (D:L208361), IRX PCM pan table 0x1c8d0 and group stage 0x19b7c give full-master BVOL 23258.
+ * PCM BVOL is unshifted; voice registers are doubled by the SPU. The port divides voice registers by
+ * 32766, so PCM needs BVOL / (2 * 32766) before the shared listening master. [reading]
+ * Primary hardware model: PCSX2@695e26713be06daf8b9d05978602946b82008716, SPU2/spu2sys.cpp:1270,
+ * ADSR.cpp:110, Mixer.cpp:155. The IRX's own evidence beside it: `FUN_0000a9ac` writes one group-stage
+ * value to mode 3's voice pair `>> 1` (989SND.IRX I:L6790-6795, I:L6814-6815) and to mode 2's BVOL pair
+ * unshifted (I:L6826-6829) -- an inference from the code that a voice register counts twice BVOL.
+ * No duck lowers group 2: the ELF never sends the duck RPC 0x60 (research 137 section 9.1).
+ * A console output capture is what would prove the factor 2; it remains owed.
  */
-export const MOVIE_AUDIO_GAIN_PLACEHOLDER = 1;
+export const MOVIE_AUDIO_GAIN_READING = 23258 / (2 * 32766);
 /**
  * The seconds between the frame that shows picture 0 and the sound's first sample: 0. The start is issued in the same
  * call that uploads picture 0 (`FUN_0030b1d0`: the upload D:L208733-208746, the start D:L208747-208751); the IOP's RPC

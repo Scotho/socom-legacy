@@ -219,6 +219,32 @@ function clut16(gsaddr: number): { par: Uint8Array; buf: Uint8Array } {
   return { par, buf };
 }
 
+describe.skipIf(mapsAbsent)(`the threat marks' bitmap off HUD2_TXR.ZED (THREAT-MARKS, research 321 s2.6)${mapsAbsent ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+  const threat = (m: (typeof MAPS)[number]) => readReticle(mapBytes[m]!, parseZdb(mapBytes[m]!)).bitmaps!.sets!['ret_threat.tif']!;
+
+  it('ret_threat is 16x16 with 76 inked texels on MP2, MP6 and MP72, its alphas 86, 169 and 255 only', () => {
+    for (const m of MAPS) {
+      const b = threat(m);
+      expect([b.width, b.height, inked(b.data)], m).toEqual([16, 16, 76]);
+      const alphas = new Set<number>();
+      for (let i = 3; i < b.data.length; i += 4) if (b.data[i]! > 0) alphas.add(b.data[i]!);
+      expect([...alphas].sort((x, y) => x - y), m).toEqual([86, 169, 255]);
+    }
+  });
+
+  it('its ink mirror-symmetric across (the alphas of row 5 aside:169 at x 5-9, 255 at x 10-12); a wedge wide at row 4, its tip at row 11', () => {
+    const b = threat('MP2');
+    const at = (x: number, y: number): number => b.data[(y * 16 + x) * 4 + 3]!;
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) expect(at(x, y) > 0, `${x},${y}`).toBe(at(15 - x, y) > 0);
+    for (let y = 0; y < 16; y++) if (y !== 5) for (let x = 0; x < 8; x++) expect(at(x, y), `${x},${y}`).toBe(at(15 - x, y));
+    expect([5, 6, 7, 8, 9, 10, 11, 12].map((x) => at(x, 5))).toEqual([169, 169, 169, 169, 169, 255, 255, 255]);
+    const span = (y: number): number[] => { const xs: number[] = []; for (let x = 0; x < 16; x++) if (b.data[(y * 16 + x) * 4 + 3]! > 0) xs.push(x); return xs; };
+    const rows = [...Array(16).keys()].filter((y) => span(y).length > 0);
+    expect([rows[0], rows[rows.length - 1]]).toEqual([4, 11]);
+    expect(span(4).length).toBeGreaterThan(span(11).length);
+  });
+});
+
 describe('decodeNamedTextures (synthetic, the same path)', () => {
   it('an 8x8 PSMT8 texture through a 16-entry CLUT decodes to that CLUT\'s entries, csm1 order and alpha rescaled', () => {
     const table = new PaletteTable();

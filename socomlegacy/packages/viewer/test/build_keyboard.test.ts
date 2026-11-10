@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { KEYBOARD_SITES } from '../src/keyboardTesting';
 import { MOUSE_SITES } from '../src/mouseTesting';
+import { KBM_POINTER_LOCK_SITE } from '../src/camera';
 import { VOICE_COUNTERS_MARKER } from '../src/voice/voiceCounters';
 import { VOICE_REPORT_MARKER, VOICE_REPORT_PATH } from '../src/voice/voiceReport';
 import { CLOSE_REPORT_MARKER, CLOSE_REPORT_PATH } from '../src/net/closeReport';
@@ -98,6 +99,22 @@ describe("OT.R62: the touch layout editor's Escape ships in a release build in t
   it('no keyboard site and no literal gate in the module; the listener reads Escape alone and closes as Cancel does', () => {
     expect(src).not.toMatch(/keyboardSite\(|import\.meta\.en[v]\.DEV/);
     expect(line).toMatch(/\{ if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); finish\(\); \} \}\);$/);
+  });
+});
+
+/**
+ * RB-8 (OT.R114, RB.R4): the build's pointer lock allow-list widens by name only -- the camera's kbm lock writes its
+ * name (`KBM_POINTER_LOCK_SITE`) where it asks, outside the literal gate, so the chunk that asks carries it; the mouse
+ * sites' markers stay under the gate (the built case below). Read off the source: no build needed.
+ */
+describe("RB-8: the camera's kbm pointer lock names itself where it asks, outside the literal gate", () => {
+  it('the name, and its use beside the ask', () => {
+    expect(KBM_POINTER_LOCK_SITE).toBe('s2u-kbm-pointer-lock');
+    expect(MOUSE_SITES as readonly string[]).not.toContain(KBM_POINTER_LOCK_SITE);
+    const cam = readFileSync(resolve(here, '../src/camera.ts'), 'utf-8').split(/\r?\n/);
+    const ask = cam.findIndex((l) => l.includes('requestLock(this.canvas)'));
+    expect(ask).toBeGreaterThan(0);
+    expect(cam.slice(ask - 3, ask + 1).some((l) => l.includes('kbmLockAsked = KBM_POINTER_LOCK_SITE')), 'the name beside the ask').toBe(true);
   });
 });
 
@@ -215,11 +232,13 @@ describe.skipIf(!dist.built)(builtTitle('the built viewer has no keyboard path (
     expect(js).not.toContain('s2u-mouse-site');
     for (const site of MOUSE_SITES) expect(js, site).not.toContain(site);
     // OT.R68 (the owner, 2026-10-21): the forge editor asks the pointer lock in every build (`src/forge/page.ts`
-    // `lockMouse`, on a right-click and at the Walk); no other chunk asks it -- the forge's is the one with its docks'
-    // class. Was: no pointer lock asked at all (OT.R38).
+    // `lockMouse`, on a right-click and at the Walk) -- the forge's chunk is the one with its docks' class. RB-8 (OT.R114,
+    // RB.R4): the test room's camera asks it too, under its `kbm` predicate (`src/camera.ts`), in the chunk that carries
+    // the camera's kbm lock name (`KBM_POINTER_LOCK_SITE`); no other chunk asks it. Was: the forge's alone (OT.R68), and
+    // before that none at all (OT.R38).
     const asking = jsFiles.filter((t) => t.includes('requestPointerLock'));
-    expect(asking.length, 'the pointer lock asked in more than one chunk').toBeLessThanOrEqual(1);
-    expect(asking.every((t) => t.includes('fx-docks-off')), 'the pointer lock asked outside the forge editor').toBe(true);
+    expect(asking.length, 'the pointer lock asked in more than two chunks').toBeLessThanOrEqual(2);
+    expect(asking.every((t) => t.includes('fx-docks-off') || t.includes(KBM_POINTER_LOCK_SITE)), 'the pointer lock asked outside the forge editor and the kbm camera').toBe(true);
   });
   it('no match hook for the browser spec (MATCH_WINDOW_HOOK, `src/matchMount.ts`)', () => {
     expect(js).not.toContain(matchHook);

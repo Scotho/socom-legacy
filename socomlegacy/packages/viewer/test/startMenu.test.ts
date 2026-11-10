@@ -859,7 +859,10 @@ describe('MATCH-01: one wiring -- both matches mount the menu (OT.R43), the fron
     }
     expect(src('matchMount.ts')).toContain('startMenu.dispose();');
     expect(src('matchMount.ts')).toContain('startMenuOptions?: StartMenuOptions;');
-    expect(src('main.ts')).toContain('matchOptions(() => ({ ...playOptionsOf(startMenuOptions), stick: (pageOptions ? playOptionsOf(pageOptions.globals, pageOptions.uiVars) : cardOptions).stick }))');   // OT.R72: the look stick, live Options' or the card's
+    expect(src('main.ts')).toContain('matchOptions(() => ({ ...playOptionsOf(startMenuOptions), stick: (pageOptions ? playOptionsOf(pageOptions.globals, pageOptions.uiVars) : cardReads.options()).stick }))');   // OT.R72: the look stick, live Options' or the card's
+    // PR #765 (1c137a989's pin, adapted to mega): without native Options, the card's look stick follows the shared editor's live
+    // preset and tuners -- composed in `playerSettings.ts` `pageCardReads` (mega's home for the test room's card reads), not main.ts.
+    expect(src('playerSettings.ts')).toContain('return composed ??= { ...options, stick: lookStickOf(stickPresetOf(valves), stickVars(tuners)) };');
     expect(src('main.ts')).toContain('startMenu.teardown(); localMenuOptions.clear();');   // MLS.R2: only the pre-editor local fallback clears; applied native state survives
   });
   it('MATCH-02: both mounts make the abort, hand it the menu\'s YES and the talk gate, tick it after the menu\'s pad and reset it', () => {

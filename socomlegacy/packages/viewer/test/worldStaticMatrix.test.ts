@@ -107,6 +107,23 @@ function expectAutoUpdatingMatch(scene: Scene, all: readonly Object3D[]): void {
 }
 
 describe('buildWorld: the static matrices (CPS H9 step 1, a CPU-side browser adaptation)', () => {
+  it('culls static world geometry and its detail/env passes without changing line or mover policies', () => {
+    const { view, named } = setUp();
+    try {
+      for (const name of ['ground.tif', 'ground.tif (detail)', 'water.tif', 'water.tif (env)']) {
+        expect(named(name).frustumCulled, name).toBe(true);
+      }
+      // The marks' clip keys the world's draws by this flag, not by an off cull (`./markClip` `entryOf`).
+      expect(named('ground.tif').userData.worldDraw).toBe(true);
+      expect(named('water.tif').userData.worldDraw).toBe(true);
+      expect(named('leaf').userData.worldDraw).toBeUndefined();
+      const ground = named('ground.tif') as Mesh;
+      expect((named('ground.tif (detail)') as Mesh).geometry).toBe(ground.geometry);
+      expect(named('line strips (rope.tif)').frustumCulled).toBe(false);
+      expect(named('leaf').matrixAutoUpdate).toBe(true);
+    } finally { view.dispose(); }
+  });
+
   it('the fixture holds every kind of object, each once', () => {
     const { all, named } = setUp();
     for (const name of [...MOVERS, ...STATIC]) named(name);

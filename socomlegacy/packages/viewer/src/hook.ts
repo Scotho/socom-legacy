@@ -18,6 +18,7 @@ import type { PlayOptions } from './originalOptions';
 import type { ZoomView } from './zoom';
 import type { Stand } from './stand';
 import type { BodyView } from './bodyView';
+import type { VideoReadout } from './perfLine';
 import type { SliderName, ToggleName } from './ui';
 import type { MoverState, Stance, WalkCameraState } from './walk';
 import type { AnimStats } from './animator';
@@ -163,6 +164,11 @@ export interface ViewerHook {
     lens: { effect: string | null; rows: [number, number, number, number][] | null; node: string | null };
   };
   toggles(): Record<ToggleName, boolean>;
+  /**
+   * A test instrument (a browser adaptation, nothing of the game; `./perfLine` `pageVideoReadout`): the page's device
+   * class, preset word and resolved shadows -- what the viewer spec checks the panel's shadows toggle against.
+   */
+  video(): VideoReadout;
   chromeHidden(): boolean;
   panelCollapsed(): boolean;
   flares(): [number, number, number][];
@@ -197,7 +203,7 @@ export interface ViewerHook {
   feet(): [number, number, number] | null;
   /**
    * The release sweep (`tools/release-sweep.ts`, `tools/sweepFall.ts`): the height of the floor the walk picks under
-   * (x, z) for feet at `y` -- `FUN_005b5d40`'s pick, `selectFloor(probeGround(x, z), from + STEP_PROBE_LIFT_READING, y)`, `from` the
+   * (x, z) for feet at `y` -- `FUN_005b5d40`'s pick, `selectFloor(probeGround(x, z), from + probeLiftOf('stand'), y)`, `from` the
    * feet as they were (the airborne mover's origin; `y` by default, the grounded one's) -- or null with no hull or no pick.
    */
   floorUnder(x: number, z: number, y: number, from?: number): number | null;
@@ -481,7 +487,7 @@ export interface ViewerHook {
   turretParts?(): DrawnTurretPart[];
   /**
    * W0-gate, dev only (present with `?devmode` alone, absent otherwise): stands the walk's mover at the feet (x, y, z)
-   * facing `yaw` (degrees; the look's yaw when absent), the floor picked from the feet + `STEP_PROBE_LIFT_READING` as a
+   * facing `yaw` (degrees; the look's yaw when absent), the floor picked from the feet + `probeLiftOf('stand')` as a
    * spawn picks it (`WalkMode.respawn`); in the page's own match the room's mover is stood there too, so the room's
    * mount test (`canMount`) sees the same feet. False off the walk, with no floor, or in a match on a server (a room this
    * page does not hold is never moved). For the turret spec (`e2e/turretMount.spec.ts`): the test room cannot walk to a

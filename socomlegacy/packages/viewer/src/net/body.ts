@@ -13,9 +13,10 @@ import { ACTION_CODES, BodyFlag, bodyHoldBits, bodyHoldOf, LANDING_CODES, STANCE
 
 /**
  * What a body carries beside its mover: alive, the firearm slot in hand (`weapon`, the mover's 0 / 1), the aim and the
- * trigger, the sprint -- and (protocol 7) `item`, the id of the item in that slot (255, none, when not given).
+ * trigger, the sprint -- and (protocol 7) `item`, the id of the item in that slot (255, none, when not given); (protocol 14,
+ * ENEMY-RAISE ER-2) `raised`, the owner's raise state (`BodyFlag.Raised`).
  */
-export interface BodyExtras { alive: boolean; weapon: 0 | 1; item?: number; aiming: boolean; trigger: boolean; boost: boolean; binoculars?: boolean }
+export interface BodyExtras { alive: boolean; weapon: 0 | 1; item?: number; aiming: boolean; trigger: boolean; boost: boolean; binoculars?: boolean; raised?: boolean }
 
 /** No item (`EMPTY_ITEM`, `EQUIP_NONE`): a body's `weapon` when its kit is not known. */
 const NO_ITEM = 255;
@@ -38,6 +39,7 @@ export function bodyOf(id: number, s: PlaySnapshot, extras: BodyExtras): BodySta
   if (extras.trigger) flags |= BodyFlag.Trigger;
   if (extras.boost) flags |= BodyFlag.Boost;
   if (extras.binoculars) flags |= BodyFlag.Binoculars;
+  if (extras.raised) flags |= BodyFlag.Raised;               // ER-2: the owner's raise state (byte +0x7e, D:L161978)
   flags |= bodyHoldBits(s.hold);                     // the throw's or the placing's clip for the others (BODY_HOLD_SHIFT)
   if (s.hold && ((s.holdSerial ?? 0) & 1)) flags |= BodyFlag.HoldSerial;   // and its start's parity
   const t = s.traversal ?? null;
@@ -62,7 +64,7 @@ export function bodyOf(id: number, s: PlaySnapshot, extras: BodyExtras): BodySta
  * The wire's `BodyState` back as the `PlaySnapshot` a remote body's animator takes; `weapon` is the slot in hand (the
  * mounts follow it, `../remotePlayers`) and `item` the id of what is in it (the model, the muzzle, the sounds).
  */
-export function snapshotOf(b: BodyState): PlaySnapshot & { alive: boolean; weapon: 0 | 1; item: number; aiming: boolean; trigger: boolean; boost: boolean; binoculars: boolean } {
+export function snapshotOf(b: BodyState): PlaySnapshot & { alive: boolean; weapon: 0 | 1; item: number; aiming: boolean; trigger: boolean; boost: boolean; binoculars: boolean; raised: boolean } {
   const stance = STANCE_CODES[b.stance] ?? 'stand';
   const groundState: GroundMotion['state'] = b.ground === 0 ? 'idle' : (STANCE_CODES[b.ground - 1] ?? 'stand');
   const actionName = b.action ? ACTION_CODES[b.action - 1] : undefined;
@@ -98,6 +100,7 @@ export function snapshotOf(b: BodyState): PlaySnapshot & { alive: boolean; weapo
     alive: (b.flags & BodyFlag.Alive) !== 0, weapon: (b.slot ? 1 : 0), item: b.weapon, aiming: (b.flags & BodyFlag.Aiming) !== 0,
     trigger: (b.flags & BodyFlag.Trigger) !== 0, boost: (b.flags & BodyFlag.Boost) !== 0,
     binoculars: (b.flags & BodyFlag.Binoculars) !== 0,
+    raised: (b.flags & BodyFlag.Raised) !== 0,                // ER-2 (protocol 14); a 13 room never sets it
     ...(bodyHoldOf(b.flags) ? { hold: bodyHoldOf(b.flags), holdSerial: (b.flags & BodyFlag.HoldSerial) !== 0 ? 1 : 0 } : {}),
   };
 }

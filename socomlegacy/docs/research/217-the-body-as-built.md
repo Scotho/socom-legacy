@@ -3,6 +3,7 @@
 - Date: 2026-10-05 (web sprint 28). PF-15 writes §1, §5 and §6; PF-16 (§2), PF-20 (§3, its §6 rows) and PF-21 (§4, its §6 rows) add theirs.
   PRONE-TILT (2026-10-31, the gameplay lane) adds §7, its §6 rows and a note in §2.5.
   SEGMENT-BODY (2026-11-02, the gameplay lane) adds §2.9 and its §6 rows, and resolves `WALL_DEEP_REVERT_READING`.
+  LEAN-HIT (2026-11-08, issue #752) adds §3.6 and its §6 row.
 - Status: **reading, pending review.** Every value below is a read of the decompilation (`D:L<n>` of
   `socom2_game.elf.decomp.c` r0001) or of the disc through the port's own parsers; nothing here is a capture. Research
   180 grades several of these PROVEN or STRONG; under AGENTS.md a source read is a reading until reviewed (research 206).
@@ -1330,6 +1331,189 @@ press with the lean still held), with `peekOutcome`; two rows, run by `bodyGates
 off and the stance standing) and `lean after stance in one tick` (crouched, left, to prone: `lean next tick` -- the
 peek back the tick after, from the held key, the stance crouched). A mover rule: no room code of its own (PF.R35).
 
+### 3.6 The hit body under the lean (LEAN-HIT, 2026-11-08)
+
+Issue #752, LATER 775 (a player's report on MP51's roofs: a leaner behind the chimney hits while rounds at his visible
+head do not land). **Reading, pending review.** The lean is a full-body clip `FUN_0057d810` (D:L440437-440510) pushes
+on the stack, twice at each side and stance (D:L440476-440505): first `FUN_00588bc0(actor, clip, stance, 1, 0)` --
+stance 0 standing, 1 crouched, 2 prone -- then `FUN_00588bc0(actor, clip, 3, 0, 0)` in posture 3, the clip 0x1e / 0x1d
+standing, 0x20 / 0x1f crouched, `DAT_003deb08` / `DAT_003deb00` prone, right / left ("Peek left/right", "Crouch peek
+left/right", "Prone peek left/right"; research 86 §1, §4). It holds on its last key, a one-shot not looped in
+`motion.rdr`. A round hits the skeleton node its collision meets (`FUN_005abbc0` D:L464672-464803, the nodes bound
+in `FUN_00553ea0` D:L419606-419652; research 91 §1.3): the actor's live nodes. So under a held peek the original's hit
+body is the skeleton at the lean clip's key. The port judged every body at its stance's idle key: the leaner's head
+was judged behind his cover while his eye (`scopePeekShift`, 4.35 right, 3.3 left; `FUN_0029ae50`
+D:L142613-142617) and his drawn body were out of it.
+
+As built: `simMap.ts` reads the six lean clips with the idles (`SimSkeleton.leans`, the names `traversal.ts`
+`leanClip` gives; a hostage's none); `hitVolumes.ts` `stanceVolumes` builds each posture's left and right capsule set
+at the clip's held key (`leanHeldKey`: `frameCount - 1`, the key `Traversal.pose` holds the lean on, `clipShape`
+dropping the closing key) and the root posed there (`leanPivot`, what PRONE-TILT's tilt turns the set about);
+`bodyVolumes(feet, yaw, posture, volumes, tilt, peek)` takes the body's held peek (`TraversalHooks.peeking`, -1 / 0 /
+1 -- never the camera's eased `peek()`), 0 the idle's capsules byte for byte. The room's rewind history (`Past.peek`,
+written each command from `moves.peeking()`) carries it to `rewoundBodies`; the page's `aimDistance` and
+`aimBodies` pass the snapshot's peek (the wire quantises it to -1 / 0 / 1, `net/body.ts`), the in-page loopback's
+bodies carry the page's lean clips (`teamBody.ts` `hitBodiesOfPage`).
+
+What the clips give, `seal_A_scuba` on the fixture disc's MP2 (`hitVolumes.test.ts`, the `head` bone's capsule
+centre, body frame, x right):
+
+| clip | held key | head centre move from the idle's | source |
+|---|---|---|---|
+| `seal_stand2rlean` | 17 | x +3.736 (right), y 17.864 -> 14.701 | `MOTION_P.ZAR` through `clipsFromPack` |
+| `seal_stand2llean` | 22 | x -3.384 (left), y 17.864 -> 14.620 | the same |
+| `seal_crouch2llean` / `rlean`, `seal_prone2llean` / `rlean` | the clip's `frameCount - 1` | each a set of 13 capsules unlike the idle's, every capsule's length and radius within 25% of its idle twin's | the same |
+
+The standing right lean's head stands 4.33 right of the feet (the idle's 0.60), where the peek's eye goes (4.35;
+`roomLeanHit.test.ts` holds it within 1 of `scopePeekShift(1)`). The page's drawn head (the animator at the held key) and the room's head capsule agree over the
+posed root to under 0.1 u, closer than the two posers agree at the idle (0.21; `hitVolumes.test.ts` "A = B"). The
+prone peek's own shape (§3, an open item here) is carried as the clip gives it; nothing new is named for it.
+
+**Not built** (`LEAN_HIT_POSE_READING` 'held', §6): the clip's rise -- 0.4 s standing, 0.5 crouched, 0.8 / 0.65
+prone -- is judged at the held key from the press, where the original meets the clip's key of the moment; a second
+commit may sample the clip at the room's lean clock. Left at the idle, read and not changed by this task: the room's
+live-body cast `bodyCast` (a launched round's body test -- LATER 778), the
+bots' aim point (`botAim.ts` `torsoPoint`, a bot adaptation -- LATER 779), and a lean a stance press popped and still
+draws (`Traversal.pose`'s `popped`, `PEEK_REPUSH_KEY_READING`), for which `peeking()` is 0.
+The hostage order's pick (`orderPick`, Codex P2 on PR #761, 2026-11-08; reading, pending review) casts each player on
+its held peek's lean set (`moves.peeking()`), as the page's `aimBodies` does: the original's pick is the camera's ray
+query over the scene's live nodes (`FUN_005aa6e0` D:L464118-464122 -> `FUN_0031e160`, the issuer's own node switched
+off around it; research 199), the nodes a round meets, so a leaner who leans off the line exposes the hostage behind
+him on both sides and one in it blocks the order on both.
+Tests: `hitVolumes.test.ts` "LEAN-HIT: the hit body under the held lean", `roomLeanHit.test.ts` (the order pick
+blocked on the leaned head's line and open on the upright head's while leaning, the converse upright; a round at the
+leaner's head hits HEAD, at his upright head's place misses, the same round on an upright body misses, and a round
+rewound 300 ms to a lean since stood up from hits the leaned head), `remoteAim.test.ts` "LEAN-HIT". Owed to reach
+proven: a capture of a hit on a leaning target (PCSX2 r0004, two clients on our Horizon: a leaner behind an edge, shots
+at the leaned head and at the covered body; OT.R103).
+
+### 3.6a The live hit body (HIT-POSE, 2026-11-10; reading, pending review)
+
+The owner's priority (players' reports: a sniper's round on a moving target "off"). §3.6's own reading said it: the
+original's round meets the actor's live skeleton nodes (`FUN_005abbc0` D:L464672-464803, bound in `FUN_00553ea0`
+D:L419606-419652) as the animation left them that frame. The room judged every body at its stance's idle key
+(`stanceVolumes`) while the shooter's page drew it playing its locomotion. Measured with the port's own code on
+`seal_A_scuba` (the fixture disc's MP2, `MOTION_P.ZAR`; a probe over every key of each clip, then held by
+`hitPoseRewind.test.ts`): crouch-walking (`seal_crouchwalk`) the drawn head sat 2.8-3.0 u above the hit head -- a
+round through the drawn head missed from the front and the side on every key, one at the drawn chest scored HEAD on
+63-100% of them; running (`seal_run`) the drawn head sat 1.6-2.0 u lower and 2.4-2.9 u ahead -- BODY from the front,
+a miss from the side. Standing still was exact (both posers at the idle's key 0).
+
+As built: the room runs, per living player, the page's own `Animator` (`animator.ts`: what a remote copy plays) on
+the player's own instance of its type's skeleton (`net/hitPose.ts` `HitPoser`; a skeleton is never shared: the
+animator writes its matrices), stepped once a room tick by `1 / TICK_HZ` on the snapshot the room sends of the body
+(`hitPoseSnapshot`: `net/body.ts` `snapshotOf` of the room's `BodyState`, the same `PlaySnapshot` a page's copy
+plays, with the walker's root tilt), and keeps the pose it leaves for the tick's rewind entry (since the perf fold
+below: the damage bones' matrices in the poser's ring, `HitPoser.keep`, `room.ts` `Past.pose` / `poseAt`; the
+capsules -- `hitVolumes.ts` `posedVolumes`' fit, the same damage bones and fit as `skeletonVolumes` read off the
+current matrices without posing -- fitted from them only for a body a round's ray reaches, `capsulesAt`). `rewoundBodies`
+(the round's and NCW-1's twin's one read) places the tick's set at its feet and yaw (`placedVolumes`); `bodyCast` (a
+launched round) and `orderPick` (the hostage order) place the last tick's (`Player.hitAt`, `liveVolumes`). A new seat `sim` (a spawn) or a new hit body makes a new poser, as the page
+rebuilds its copy (`REMOTE_RESPAWN_REBUILD_READING`); a dead or away player has none. The server's skeleton reader
+(`simMap.ts`) reads the motion (`SimSkeleton.motion`: `HIT_POSE_CLIPS`, the page's plays and the traversal moves,
+and `motion.rdr`'s table) once a map, shared by its skeletons; without the table or the pack the room keeps the idle
+sets, without a skeleton the placeholder capsules. The page aims on its copy's drawn skeleton (`play.ts`
+`drawnCapsules`, `remotePlayers.ts` `aimDistance` / `aimBodies`), a hostage on its idle set.
+
+The tilt and the lean are not applied twice: the animator writes `MoverSnapshot.rootTilt` on the root after the
+cross-fade (`FUN_00548090`'s write) and plays the lean's traversal clip (`Traversal.pose`), so the posed set carries
+both and `placedVolumes` turns neither again; `bodyVolumes`' tilt and peek apply only to the idle sets.
+`LEAN_HIT_POSE_READING` 'held' stands: the poser feeds a peek's clip at its held key from the press (`HitPoser.step`),
+as the idle sets' lean was, where the page draws the rise. A lean a stance press popped (`Traversal.pose`'s `popped`,
+§3.6's "Left at the idle") is now posed as drawn, at its held key.
+
+What is not the page's, each named: the two clocks' phase (`HIT_POSE_CLOCK_READING`), the animator's random draws
+(`HIT_POSE_RANDOM_READING`), and what the page's `Play` lays over its animator that the room does not feed
+(`HIT_POSE_LAYERS_READING`). A body on a turret (`HIT_POSE_MOUNT_READING` 'idle'): the page draws it on the turret
+anim set's mount or hold clip (`turretPage.ts` `turretPose`), which the room's poser is not fed, so the room meets a
+mounted gunner on its stance's idle set and the page's aim does the same (`remotePlayers.ts` `aimCapsules`), as both did
+before HIT-POSE; the poser steps on through the mount. Hostages stay on their idle sets (LATER 831), and so do the
+in-page loopback room's bodies (LATER 832).
+
+The wire's quantisation (the fold of 2026-11-10, the review's MAJOR): the page's copy plays the body as the codec
+carries it (`net/codec.ts`: the yaw to 1/65536 turn, the stick to 1/127, the speeds, the clip seconds, the feet to
+`FEET_STEP`), so the room's poser plays the same numbers -- `hitPoseSnapshot` took the room's `BodyState` through
+`encodeSnapshot` / `decodeSnapshot` (`hitPose.ts` `wireBody`) before `snapshotOf`, and since the perf fold rounds it in
+place to the same numbers (`codec.ts` `quantiseBody`); a gait blend near a threshold is then picked from the same
+quantised stick and speed on both. The A = B test feeds the page's copy the room's body
+encoded on the room's `feetOrigin` and decoded as a page decodes it. What stays outside A = B is the page's frame
+clock: it receives every second tick's body (`SNAPSHOT_HZ` 30 against `TICK_HZ` 60), draws `INTERP_DELAY_MS` behind
+between two of them and steps per drawn frame (`HIT_POSE_CLOCK_READING`).
+
+A still body's capsules move (recorded for the controller, the review's minor): the animator's idle -- its loop
+running, the head look, the aim's twist, the root's x and z zeroed -- stands up to 0.574 u from the idle set's key 0
+on an endpoint, so a still target's hit body is the idle the page draws, no longer key 0; the test holds it under
+0.75 u. That moved the committed two-round recording: `test-fixtures/replay/mp2-classic-two-rounds.s2r`
+(`e2e/roomRecordings.ts` `twoRoundsRecording`) shoots a still victim at its feet plus 12, and the six `shot` events'
+impact points moved (the first, tick 624, its `to` by about 0.19 u) -- the record count (2836), the events' count by
+kind, the shots', flinches', kills' and rounds' ticks and clips unchanged. Re-recorded at the fold's head (seat box job
+hitpose-fold-fix, 2026-11-10), its protocol-13 copy remade from it (the header record re-encoded at 13; `MANIFEST.json`).
+
+Tests (unit-test evidence; the fixture disc): `hitPoseRewind.test.ts` (a round through the head the page's animator
+draws for the same snapshots is HEAD from the front and the side, crouch-walking and running, a round at the drawn
+crouch-walker's chest is not HEAD; a round named 41 ticks back meets that tick's crouch-walk, not the standing body
+now, and the converse); `hitPoseAnimated.test.ts` (A = B: the room's stored set equals the page's animator's drawn
+skeleton fed the body as a page receives it -- encoded by the codec on the room's `feetOrigin`, decoded, `snapshotOf`
+-- within 1e-6 u, idle, crouch-walk and run: 0 over 210 ticks (seat box job hitpose-fold-fix; before the room posed
+`wireBody`, 3.3e-6 u at the crouch-walk's second tick, job hitpose-fold-red); a mounted seat keeps no posed set while
+its poser steps on (`HIT_POSE_MOUNT_READING`); a
+still body against today's idle set, the two posers' difference -- the root's x and z zeroed by the animator
+(`FUN_0057a330` D:L439147-439148), the idle's loop, the head look: at most 0.574 u on any endpoint, a ray from behind
+at the head, chest and thigh meeting the same part on both; the cost: 16 bodies' steps and capsules 0.38-0.45 ms a
+tick on the seat box, 0.024-0.028 ms a body, against the 16.67 ms of a tick at `TICK_HZ` 60 -- seat box job
+hitpose-green, 2026-11-10; 0.371 ms at the fold, job hitpose-fold-fix, the codec's round trip outside the bench);
+`remoteAim.test.ts`
+"HIT-POSE" (and "HIT-POSE: a body on a turret": aimed on its idle set). Owed to reach proven: a capture of hits on a crouch-walking and a running target (PCSX2 r0004, two
+clients on our Horizon; OT.R103), the drawn body's phase on both consoles beside it.
+
+**The perf fold (2026-11-10; the merging controller's condition; no new reading).** Measured by the controller on a
+2 vCPU c7a.large (MP2, 16 bots, 4 x 300 s) at 76b1eac24: the room's step mean 0.80 -> 1.74 ms, worst 5.9 -> 16.38 ms
+(98% of the 16.67 ms tick), a core's 8.5% -> 15.6%, the heap's peak +55-60 MB -- on a host that runs up to four rooms.
+Three changes, none to what is judged:
+- *The wire's numbers without the frame.* `hitPoseSnapshot` no longer encodes and decodes a snapshot frame per player
+  per tick: `codec.ts` `quantiseBody` writes each field through `writeBody`'s quantiser and the width it is written at,
+  read back as `readBody` reads it, into a `BodyState` the poser keeps (`HitPoser.stepBody`). `quantiseBody.test.ts`
+  holds it equal to the round trip, number for number (-0, NaN and the widths' wraps included), over 5000 bodies in
+  range and past it; A = B stays 0 over the 210 ticks.
+- *Capsules only where a ray reaches.* The animator still steps every living player every tick (the clock stays
+  continuous, `HIT_POSE_CLOCK_READING`); what a tick keeps is the 13 damage bones' world matrices and next-joint
+  translations (`hitVolumes.ts` `capturePose`, 247 float32s, exact copies of the skeleton's float32 matrices) in a ring
+  of `HISTORY` + 1 poses allocated once per poser. `capsulesAt` fits a kept tick's capsules (`capturedVolumes`:
+  `posedVolumes`' fit and `transformPoint`'s arithmetic in its order) when `rewoundBodies` (and NCW-1's twin) has passed
+  `nearRay` for that body, and `liveVolumes` for `bodyCast` and `orderPick`. `hitPoseAnimated.test.ts` "lazy = eager"
+  holds every kept tick's capsules equal, to the bit, to fitting them at that tick, over the 210 ticks; a tick the ring
+  has written over answers null, never another tick's pose. The rewind test stands.
+- *No per-tick capsule arrays.* A rewind entry carries the poser and its stamp (one shape for every entry), not a fresh
+  13-capsule array; `Player.hitCaps` became `hitAt`.
+The judgement is unchanged: the replay fixture (`twoRoundsFixture`) is byte-for-byte HIT-POSE's (`twoRoundsFixture.test.ts` 4 of 4 at the fold's head, seat box job hpperf-green2).
+Measured on the seat box (unit-test evidence, the fixture disc; each run's numbers that host's, compared within one
+run): a full room (`hitPoseRoomCost.test.ts`, 16 seats moving every tick, 1800 ticks, two rounds each) -- at 76b1eac24
+(job hpperf-red) the step's mean 0.840-0.895 ms posed against 0.342-0.373 ms on the idle sets, p99 2.18-2.23 against
+1.16-1.17, worst 2.65-4.86 against 1.88-2.11, the heap's rise 1258-1282 kB a tick against 391-422, 35-37 collections
+(26-33 ms) against 11-12; at the fold (job hpperf-green2) posed 0.716-0.738 ms, p99 1.95, worst 2.43-2.44, 947-962 kB a
+tick, 27-28 collections (20-22 ms), the idle sets 0.342-0.382 ms, 389-421 kB. The poses alone (`hitPoseAnimated.test.ts`
+"the cost", 16 bodies, 600 ticks, job hpperf-green2): 76b1eac24's tick 0.449 ms and 916 kB, the fold's 0.300 ms and 552
+kB; by part, the codec's round trip and `snapshotOf` 0.060 ms and 57 kB against `quantiseBody` and `snapshotOf`
+0.019 ms and 12 kB, fitting the capsules every tick 0.081 ms and 271 kB against `keep` 0.011 ms and 2 kB -- and the
+animator's step itself 0.278 ms and 539 kB a tick (~34 kB a body: its per-node `sampleClip`, the per-part rotation
+lists and target locals), now what dominates the posed room's cost and its collections. That allocation is the page's
+animator's (`animator.ts`, its drawn frame's code too), not this fold's to change; it is the controller's to schedule.
+
+*The review's fold (2026-11-10; no new reading).* The room's whole rewind history is pinned
+(`hitPoseAnimated.test.ts` "the room's whole rewind history answers"): past `REWIND_HISTORY_TICKS` ticks every entry
+holds a stamp whose capsules fit, each the page's drawn skeleton's at its tick (A = B, 1e-6 u) -- red with the ring cut
+to `HISTORY` - 1 (seat box job hpperf-fold4: "tick 112: the ring no longer holds its pose"), green at the head. And the
+bots bench re-run headless on the seat box (job hpperf-fold2; product-track instrument `tools/bot-soak.ts`, MP2, 15
+bots and a static host, 4 x 300 s, seeds 7-10, the room handed the map's skeletons with their motion by a job-local
+edit, not committed, else it poses nobody): `room.step()` mean 0.52-0.54 ms at a76722c04 (before HIT-POSE), 1.37-1.41
+at 76b1eac24, 1.16-1.20 at the fold; its worst 9.36-9.46, 18.01-18.16 and 17.24-17.32 ms. The worst is one step in the
+process's first second, the same at 1, 5, 30 and 300 s of play (job hpperf-fold3: 17.42, 17.43, 17.24 ms at the fold,
+9.31-9.43 at a76722c04): the cold process's first room, not the steady state, whose p95 is 1.76-1.81 ms. The room cost
+test now logs that step apart (the spawn step and the next 180 ticks; job hpperf-fold4): 7.85 ms posed and 11.15 ms on
+the idle sets in the process's first room, 2.90 against 1.92 ms in its second -- 16 posers built at a warm spawn cost
+about 1 ms. Owed (the controller's): its own bench on the 2 vCPU c7a.large at this head; the steady state's remaining
+cost is the shared `Animator`'s step (above).
+
 ## 4. The bodies (PF-21)
 
 Ruling PF.R45. Seven small facts research 179 C1-E and 180 §1 read; each built on the page and in the room, the room
@@ -1520,6 +1704,12 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `PEEK_STANCE_ENDS_PEEK_READING` (`traversal.ts`) | true: a stance press under a held peek ends it, no transition, the stance kept | `FUN_00581660` D:L442436-442477, `FUN_005817d0` D:L442479-442524, `FUN_00581c10` D:L442605-442648: no case for 3 (180 §1.12; §3.1) | a reading, re-documented by PF-20 (was: the transition played first); owed the PINE capture of 180 §1.12 |
 | `PEEK_REPUSH_KEY_READING` (`traversal.ts`) | `'held'`: the re-peek the tick after the press resumes the lean clip at its held key; the press's tick drawn from it | `FUN_00594cf0` D:L453431-453458, `FUN_005b4340` (180 §1.12; §3.1) | a reading: whether the original's re-push replays the rise (the flicker) is owed the capture of 180 §1.12 |
 | `PEEK_HOLD_CONTINUES_READING` (`traversal.ts`) | true: the lean's toss and a reload, still or not, play over the held peek, state 3 kept | `FUN_005b4340` 469345; `GetThrowAnim` D:L441773-441796; `FUN_005a82e0` D:L462925-462928 with `FUN_0057dc20` D:L440540 (cVar7 never 3: no pop) (§3.2) | a reading, restored by PF-20's review (2026-10-05); not read: whether `FUN_00588bc0`'s mapped-type pops (D:L446070-446240) catch a reload's type; owed a capture of R mid-peek, crouched |
+| `LEAN_HIT_POSE_READING` (`net/hitVolumes.ts`) | `'held'`: under a held peek the hit body is the lean clip's held key (`frameCount - 1`) from the press, the rise included; `'clip'` (the clip's key of the moment) not built | `FUN_0057d810` D:L440437-440510, the pushes D:L440476-440505 (the clip pushed and held), `FUN_005abbc0` D:L464672-464803 with `FUN_00553ea0` D:L419606-419652 (the live nodes) (§3.6) | a reading, pending review (LEAN-HIT, 2026-11-08): the rise (0.4 / 0.5 / 0.8 / 0.65 s) is judged at the held pose; settles with a sample of the clip at the room's lean clock and a capture of a hit on a leaning target |
+| `HIT_POSE_CLOCK_READING` (`net/hitPose.ts`) | `'tick'`: the room's animator steps once a room tick by `1 / TICK_HZ` on that tick's snapshot of the body; a shooter's page steps its copy each drawn frame on snapshots at `SNAPSHOT_HZ`, `INTERP_DELAY_MS` behind, its copy built at its first snapshot -- nothing aligns the two loops' phases | `FUN_005abbc0` D:L464672-464803 meets the shooter console's own copy (its phase that console's); one judge here (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): settles with a capture of the drawn body's phase on two consoles at once, or the room's phase sent to the pages (a wire change, not made) |
+| `HIT_POSE_RANDOM_READING` (`net/hitPose.ts`) | `0`: every random number the room's animator draws (the crouch's three idles, the first at 0; the head look's turns); a page's copy draws `Math.random` | each console's copy draws its own; nothing on the wire aligns them (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): a still crouched body's idle and a looking head can differ between the room and a page |
+| `HIT_POSE_LAYERS_READING` (`net/hitPose.ts`) | `'none'`: the room's animator takes the snapshot alone -- no pose layer (the Fire set and the reloads, the binoculars, the throw's hands, the flinch, the victory dance), no pistol version, no launcher set, no `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`) | the page's `Play` lays them over its copy's animator (`play.ts`, `remotePlayers.ts`) (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): each moves the arms and the spine more than the head; settles with each layer fed from what the room holds (the reload's lock, the hold code, the raise), one at a time, each against its capture |
+| `HIT_POSE_MOUNT_READING` (`net/hitPose.ts`) | `'idle'`: a seat holding a turret (`Player.mounted`) is met on its stance's idle set in the room (`Room.hitPose` keeps no posed set) and in the page's aim (`remotePlayers.ts` `aimCapsules`), where the page draws the turret anim set's mount or hold clip; `'posed'` (the poser fed the turret clip at the seat's steer frame) not built | the page's mount pose, `turretPage.ts` `turretPose` (MAP-10b, research 215 s7); the live nodes `FUN_005abbc0` D:L464672-464803 (§3.6a) | a reading, pending review (HIT-POSE's fold, 2026-11-10): page and room agree (both idle), the drawn mount pose is not judged; settles with the turret clip fed to the poser and its A = B test against the page's mount pose |
+| `PRONE_POP_RISE_S_ADAPTATION` (`animator.ts`) | 0.26 s: the prone-pop's rise, the cross-fade from the prone pose into the standing play in place of the get-up clip the pop skips (`stanceButton.ts` `PRONE_POP_ADAPTATION`) | an adaptation, no original: OT.R67 (the owner's word, 2026-10-20), Benny's playtest's 0.26 s (`playtests/prone-pop/client.js`) | an adaptation (OT.R67); since HIT-POSE (§3.6a) the room's animator runs it too, so the room's hit body rises as the page draws it -- listed here since the animator joined the shared sim's closure (`simMap.ts` -> `net/hitPose.ts`) |
 | `AIM_FRAME_BODY_PEEK_READING` | (none) | `AimFrame.peek` is the camera's eased value (§3.3) | *note only*: owed a body-peek field on `AimFrame` (the peek held, the lean clip) so the room can refuse a throw from a prone peek or from state 3 without a lean clip at the command (PF.R36's area) |
 | `ROOM_LEAN_ORDER_READING` (`net/moverSim.ts`) | `'after'`: a command's lean read after its stance, the page's the same | `FUN_00594cf0` D:L453331-453430 then D:L453431-453458 (211 §2; §3.4) | a reading of the update's order |
 | `PEEK_THROW_READING` (`grenade.ts`) | was 0.5 | `GetThrowAnim` D:L441773-441796 (181 §2.10; §3.3) | retired 2026-10-05 (PF-20): state 3 and the lean clip playing, no magnitude |

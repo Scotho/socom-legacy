@@ -1,0 +1,104 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>players-card (mockup)</title>
+<body style="background:#11181a;color:#dfe4e5;font-family:sans-serif;padding:16px">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Saira+Condensed:ital,wght@1,800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  .lc { position: relative; width: 720px; height: 378px; background: #000e11; color: #dfe4e5; font-family: Oswald, sans-serif; overflow: hidden; border: 1px solid #1c2a2c; margin: 8px auto 0; }
+  .lc .bg { position: absolute; inset: 0; background:
+      linear-gradient(90deg, rgba(0,14,17,.96) 0%, rgba(0,14,17,.82) 45%, rgba(0,14,17,.45) 100%),
+      repeating-linear-gradient(135deg, #24383a 0 18px, #1b2c2e 18px 36px); }
+  .lc .bgtag { position: absolute; right: 14px; bottom: 44px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8fa3a5; border: 1px dashed #4b5f61; padding: 3px 6px; }
+  .lc .in { position: relative; padding: 20px 26px; height: 100%; box-sizing: border-box; }
+  .lc .top { display: flex; align-items: center; gap: 12px; }
+  .lc .emb { width: 34px; height: 34px; border: 2px solid #c4a04a; border-radius: 4px; display: grid; place-items: center; color: #dcb85c; font-weight: 600; font-size: 15px; }
+  .lc .brand { font-size: 17px; letter-spacing: 1px; }
+  .lc .when { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a89a5c; }
+  .lc .badge { border: 1px solid #c4a04a; border-radius: 3px; padding: 4px 10px; color: #dcb85c; font-size: 11px; letter-spacing: 1.5px; display: flex; gap: 6px; align-items: center; }
+  .lc .dot { width: 6px; height: 6px; border-radius: 50%; background: #dcb85c; }
+  .lc .name { color: #dcb85c; letter-spacing: 4px; font-size: 13px; margin-top: 14px; }
+  .lc .map { font-family: 'Saira Condensed', sans-serif; font-style: italic; font-weight: 800; font-size: 50px; line-height: 1; }
+  .lc .mode { color: #c4a04a; letter-spacing: 4px; font-size: 13px; margin-top: 2px; }
+  .lc .roster { display: grid; grid-template-columns: repeat(3, 150px); gap: 2px 10px; margin-top: 10px; font-size: 12px; }
+  .lc .roster .sp { color: #8fc3c7; }
+  .lc .tag { color: #a89a5c; margin-right: 3px; }
+  .lc .rk { display: inline-block; width: 11px; height: 11px; margin-right: 4px; vertical-align: -1px; }
+  .lc .count { position: absolute; right: 26px; top: 96px; text-align: right; }
+  .lc .count .n { font-size: 52px; font-weight: 500; line-height: 1; }
+  .lc .count .l { color: #c4a04a; letter-spacing: 4px; font-size: 12px; }
+  .lc .pips { display: flex; gap: 3px; justify-content: flex-end; margin-top: 8px; }
+  .lc .pip { width: 8px; height: 8px; border-radius: 1px; background: #0d595c; } .lc .pip.f { background: #dcb85c; } .lc .pip.s { background: #8fc3c7; }
+  .lc .spec { font-size: 11px; color: #8fc3c7; letter-spacing: 2px; margin-top: 6px; }
+  .pc { position: relative; width: 720px; background: #000e11; color: #dfe4e5; font-family: Oswald, sans-serif; border: 1px solid #1c2a2c; margin: 8px auto 0; overflow: hidden; }
+  .pc .in { position: relative; padding: 20px 26px; }
+  .pc .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 12px; font-size: 14px; }
+  .pc .cols div { padding: 4px 0; border-top: 1px solid rgba(13,89,92,.5); }
+  .pc .big { font-family: 'Saira Condensed', sans-serif; font-style: italic; font-weight: 800; font-size: 44px; line-height: 1; margin-top: 12px; }
+  .pc .foot { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #786e3b; margin-top: 10px; }
+  .pc .tag { color: #a89a5c; margin-right: 3px; }
+  .pc .rk { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+  .note { max-width: 720px; margin: 6px auto 0; font-size: 12px; opacity: .75; }
+</style>
+
+<h2>The lobby card and the players card</h2>
+<p class="subtitle">Built from your notes. The striped area stands in for your map image. The rank icons are stand-in shapes.</p>
+
+<div class="section">
+  <h3>Lobby card: a full lobby with two spectators</h3>
+  <div class="lc">
+    <div class="bg"></div><div class="bgtag">YOUR FROSTFIRE IMAGE HERE</div>
+    <div class="in">
+      <div class="top"><div class="emb">//</div><div class="brand">SOCOM Legacy</div><span class="when">NOV 8 · 9:41 PM ET</span><div class="badge"><span class="dot"></span>LIVE MATCH</div></div>
+      <div class="name">FRIDAY NIGHT SCRIMS</div>
+      <div class="map">FROSTFIRE</div>
+      <div class="mode">MEDLEY</div>
+      <div class="roster">
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 6l5-4 5 4M1 10l5-4 5 4" stroke="#dcb85c" stroke-width="1.6" fill="none"/></svg><span class="tag">[NSW]</span>Ghostline</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 6l5-4 5 4M1 10l5-4 5 4" stroke="#dcb85c" stroke-width="1.6" fill="none"/></svg><span class="tag">[RZR]</span>Cinder</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 8l5-4 5 4" stroke="#c4a04a" stroke-width="1.6" fill="none"/></svg><span class="tag">[NSW]</span>Kestrel</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 8l5-4 5 4" stroke="#c4a04a" stroke-width="1.6" fill="none"/></svg><span class="tag">[RZR]</span>Mako</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 8l5-4 5 4" stroke="#c4a04a" stroke-width="1.6" fill="none"/></svg>Dragnet</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Wraith</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Harrow</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Hollis</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Vandal</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Quarry</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Sixgun</div>
+        <div style="color:#786e3b">+5 more</div>
+        <div class="sp">👁 Juno</div>
+        <div class="sp">👁 Fennec</div>
+      </div>
+      <div class="count"><div class="n">16 / 16</div><div class="l">PLAYERS</div>
+        <div class="pips"><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span class="pip f"></span><span style="width:6px"></span><span class="pip s"></span><span class="pip s"></span></div>
+        <div class="spec">+ 2 SPECTATORS</div>
+      </div>
+    </div>
+  </div>
+  <p class="note">Changes from today: the header reads "SOCOM Legacy", and the time sits next to LIVE MATCH without the word "SNAPSHOT". Names are listed under MEDLEY. Players are capped at 16/16, with spectators as extra dots in a second colour and named in that colour. JOIN MATCH is gone. A private lobby keeps its "Private match" card with no names.</p>
+</div>
+
+<div class="section">
+  <h3>Players channel: names in two columns, in the ladder card's style</h3>
+  <div class="pc">
+    <svg style="position:absolute;inset:0;width:100%;height:100%" viewBox="0 0 720 330" preserveAspectRatio="none"><g fill="none" stroke="#0d595c" stroke-width="1" opacity=".45"><path d="M0 30 Q90 12 180 30 T360 30 T540 30 T720 30"/><path d="M0 85 Q90 65 180 85 T360 85 T540 85 T720 85"/><path d="M0 140 Q90 120 180 140 T360 140 T540 140 T720 140"/><path d="M0 195 Q90 177 180 195 T360 195 T540 195 T720 195"/><path d="M0 250 Q90 230 180 250 T360 250 T540 250 T720 250"/><path d="M0 305 Q90 287 180 305 T360 305 T540 305 T720 305"/></g></svg>
+    <div class="in">
+      <div style="display:flex;align-items:center;gap:12px"><div style="width:34px;height:34px;border:2px solid #c4a04a;border-radius:4px;display:grid;place-items:center;color:#dcb85c;font-weight:600">//</div><div style="font-size:17px;letter-spacing:1px">SOCOM Legacy</div><span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:#a89a5c">NOV 8 · 9:41 PM ET</span><div style="border:1px solid #c4a04a;border-radius:3px;padding:4px 10px;color:#dcb85c;font-size:11px;letter-spacing:1.5px">● 20 ONLINE</div></div>
+      <div class="big">PLAYERS ONLINE</div>
+      <div class="cols">
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 6l5-4 5 4M1 10l5-4 5 4" stroke="#dcb85c" stroke-width="1.6" fill="none"/></svg><span class="tag">[NSW]</span>Ghostline</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 8l5-4 5 4" stroke="#c4a04a" stroke-width="1.6" fill="none"/></svg>Dragnet</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 6l5-4 5 4M1 10l5-4 5 4" stroke="#dcb85c" stroke-width="1.6" fill="none"/></svg><span class="tag">[RZR]</span>Cinder</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Harrow</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 8l5-4 5 4" stroke="#c4a04a" stroke-width="1.6" fill="none"/></svg><span class="tag">[NSW]</span>Kestrel</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Hollis</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><path d="M1 8l5-4 5 4" stroke="#c4a04a" stroke-width="1.6" fill="none"/></svg><span class="tag">[RZR]</span>Mako</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Vandal</div>
+        <div><svg class="rk" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#786e3b"/></svg>Wraith</div>
+        <div style="color:#786e3b">+ 11 more</div>
+      </div>
+      <div class="foot">Sorted by rank, then name (my guess) · updates when someone joins or leaves</div>
+    </div>
+  </div>
+</div>
+
+</body>

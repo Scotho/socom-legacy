@@ -153,7 +153,7 @@ describe('GM-13: the cache on a fake WebGL2', () => {
     expect(uploads(f)).toBe(2);
   });
 
-  it.skipIf(!UIMP_PRESENT)(`frontEndAssets.ts :157/:166/:171: a real bank reload clears the decode cache (new objects); the keys hold and nothing is uploaded again${UIMP_PRESENT ? '' : ` (${FIXTURES_ABSENT})`}`, async () => {
+  it.skipIf(!UIMP_PRESENT)(`frontEndAssets.ts: a real second bank keeps the decoded objects (GM-29: no decode cache clear); the keys hold and nothing is uploaded again${UIMP_PRESENT ? '' : ` (${FIXTURES_ABSENT})`}`, async () => {
     const root = resolve(FIXTURES, 'RUN/UI');
     const files: Record<string, string> = {
       'RUN/UI/UIMP_TXR.ZED': 'UIMP_TXR.ZED', 'RUN/UI/UIMP_PAL.ZED': 'UIMP_PAL.ZED',
@@ -169,9 +169,9 @@ describe('GM-13: the cache on a fake WebGL2', () => {
     const f = fakeGl(), c = cacheOn(f);
     drawFrame(c, first.map((im, i) => ref(names[i]!, im)));
     const n0 = c.stats.uploads;
-    expect(await page.need({ libraries: [{ name: 'ui/assetlib/uixx' }] })).toEqual([]);   // the second bank: `cache.clear()`
+    expect(await page.need({ libraries: [{ name: 'ui/assetlib/uixx' }] })).toEqual([]);   // the second bank (was a `cache.clear()`)
     const again = names.map((n) => page.textures(n)!).filter((x) => x !== null);
-    expect(again.every((im, i) => im !== first[i])).toBe(true);                          // new objects
+    expect(again.every((im, i) => im === first[i])).toBe(true);                          // GM-29: the same objects (were new ones)
     drawFrame(c, again.map((im, i) => ref(names[i]!, im)));
     expect(c.stats.uploads).toBe(n0);                                                    // and no upload
   });

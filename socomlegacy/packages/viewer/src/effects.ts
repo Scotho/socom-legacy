@@ -902,6 +902,29 @@ export class Effects {
     if (!this.stepping) this.sweepRuns();
   }
 
+  /**
+   * ROUND_END_EFFECTS_READING (research 283 §9): a round's end -- every run stopped, silently, but the map's ambient ones
+   * and what they called; the tracers' flights and the script rounds' copies gone; every live particle gone. The
+   * original's online round end (`FUN_002a9b30`: the host D:L150668, a page on game state 4 D:L150626) runs
+   * `FUN_002aa910`, which stops every animation of the `common` and `mission` zAnim sets and frees their sources
+   * (D:L151211-151218, `FUN_0026c2e0` D:L116144-116180 -> `FUN_0026fe90`) and ages every live particle past its life
+   * (D:L151219, `FUN_00326fb0`). The page runs it at the next `roundStart` (`./matchThrow`), as it clears the decal
+   * pools. Kept: the map's ambient runs (whether the original's ambient animations stop there and start again is unread:
+   * the reading), the footprints (the decals' clear, `clearFootprints`) and the lights' pool.
+   */
+  clearRound(): void {
+    for (const t of [...this.tracers]) this.retireTracer(t);
+    this.tracerTime = 0;
+    this.scriptRounds = [];
+    this.scriptTime = 0;
+    this.hush++;
+    try {
+      for (const run of this.runs) if (!run.finished && !this.ambientRooted(run)) run.stop();
+    } finally { this.hush--; }
+    if (!this.stepping) this.sweepRuns();
+    this.particles.expire();
+  }
+
   /** Everything playing stops (a new map). */
   reset(): void {
     for (const t of [...this.tracers]) this.retireTracer(t);

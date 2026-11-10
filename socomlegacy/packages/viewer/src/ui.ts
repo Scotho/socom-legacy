@@ -103,9 +103,8 @@ export class Ui {
     for (const box of Object.values(this.checks)) box.checked = box.defaultChecked;
     for (const { input } of Object.values(this.sliders)) input.value = input.defaultValue;
     this.setCameraHint(...this.hintArgs);         // the line for the mode the page starts in, whatever the markup says
-    // OT.R38 / H115 ("Controller only"): the mouse's look is a development build's only (`./mouseTesting`), so a release
-    // has no Mouse look section -- taken out here, before the play's switch (`PlayUi`) ever holds it.
-    if (!import.meta.env.DEV) document.getElementById('look-section')?.remove();
+    // RB-8 (OT.R114, KBM-2): the test room's mouse looks in every build now, so its Mouse look section stays in a release.
+    // Was (OT.R38 / H115, "Controller only"): taken out of a release here, before the play's switch (`PlayUi`) held it.
   }
 
   /** The map list, named from each archive's own `mission.rdr`. The value is the archive-relative path. */
@@ -377,9 +376,11 @@ export class Ui {
    * than the canvas so it works whether or not the mouse is captured, and ignored while a control has
    * the keyboard so it cannot fire from inside a text field.
    */
-  onChromeToggle(): void {
+  onChromeToggle(kbm: (() => boolean) | null = null): void {
     if (import.meta.env.DEV) keyboardSite('s2u-kb-chrome-keys');            // OT.R29: the page's hotkeys a development build's only
-    if (import.meta.env.DEV) globalThis.addEventListener('keydown', (e) => {
+    // RB-8 (OT.R114, RB.R4): and a `kbm` page's (the test room's `kbmAllowed`), asked again at each press
+    if (import.meta.env.DEV || kbm !== null) globalThis.addEventListener('keydown', (e) => {
+      if (!import.meta.env.DEV && !kbm?.()) return;
       if (e.code !== 'Backquote' || e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target;
       if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
@@ -393,7 +394,7 @@ export class Ui {
    * are a third of the screen, and fullscreen is also the one place a landscape lock is allowed, so
    * one is asked for and the refusal (a desktop, an iPhone) is ignored.
    */
-  onFullscreen(): void {
+  onFullscreen(kbm: (() => boolean) | null = null): void {
     const button = find<HTMLButtonElement>('fullscreen');
     // cq41E0VR: the shared helper (`./mobileFullscreen`) -- the request on the element, the exit on the document, each
     // with its own prefixed fallback (the prefixed exit no longer stands in for a request).
@@ -408,7 +409,9 @@ export class Ui {
       try { orientation?.lock?.('landscape').catch(() => undefined); } catch { /* a desktop, or an iPhone */ }
     };
     button.addEventListener('click', toggle);
-    if (import.meta.env.DEV) globalThis.addEventListener('keydown', (e) => {   // OT.R29: a development build's only
+    // OT.R29: a development build's only; RB-8 (OT.R114, RB.R4): and a `kbm` page's, asked again at each press
+    if (import.meta.env.DEV || kbm !== null) globalThis.addEventListener('keydown', (e) => {
+      if (!import.meta.env.DEV && !kbm?.()) return;
       if (e.code !== 'KeyF' || e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target;
       if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
@@ -638,8 +641,13 @@ export class Ui {
    * Keeps the existing URL > remembered choice > Modern precedence and the checkbox test hooks.
    * Returns a transient preset setter: skips storage and the preset callback, but still fires checkbox
    * changes. The page may update its address from those events to match the picture shown.
+   *
+   * RB-16 (PS-4; a browser adaptation): given the page's one picture (`./picture` `pagePicture`, the key Home's
+   * Options > Display "Video" row and the front end's VIDEO MODE write), the remembered choice is that picture's, a press
+   * of the look writes it (and the old `s2u.viewer.look` beside it), and a change of it made elsewhere while the page runs
+   * is applied and published as a press would be, unstored. Without one, the remembered `s2u.viewer.look` as before.
    */
-  onLook(fromAddress: 'modern' | 'ps2' | null = null, changed: (view: 'modern' | 'ps2') => void = () => undefined): (view: 'modern' | 'ps2') => void {
+  onLook(fromAddress: 'modern' | 'ps2' | null = null, changed: (view: 'modern' | 'ps2') => void = () => undefined, picture: LookPicture | null = null): (view: 'modern' | 'ps2') => void {
     const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('#look button[data-look]'));
     const box = this.checks.ps2look;
     const show = (): void => {
@@ -651,13 +659,30 @@ export class Ui {
       this.checks.detail.checked = preset.detail;
       this.checks.detail.dispatchEvent(new Event('change', { bubbles: true }));
       box.dispatchEvent(new Event('change', { bubbles: true }));
-      if (remember) write(LOOK_KEY, view);
+      if (remember) { write(LOOK_KEY, view); picture?.set(view); }
       show(); if (publish) changed(view);
     };
     for (const b of buttons) b.addEventListener('click', () => apply(b.dataset['look'] === 'ps2' ? 'ps2' : 'modern', true));
     box.addEventListener('change', show);
-    apply(resolveVisuals(fromAddress, read(LOOK_KEY)).view, false);
+    apply(resolveVisuals(fromAddress, picture ? picture.get() : read(LOOK_KEY)).view, false);
+    picture?.observe((p) => { const view = p === 'ps2' ? 'ps2' : 'modern'; if ((view === 'ps2') !== box.checked) apply(view, false); });
     return (view) => apply(view, false, false);
+  }
+
+  /**
+   * RB-16 (PS-7): a panel toggle set from outside (the shared Shadows key's change), its change announced to `onToggle`'s
+   * handler as a click's would be; the same value again, nothing.
+   */
+  setToggle(name: ToggleName, on: boolean): void {
+    const box = this.checks[name];
+    if (box.checked === on) return;
+    box.checked = on;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  /** RB-16 (PS-7): the frame counter (`setFps`) drawn or not -- the page's Show FPS key (`./videoSettings`). */
+  setFpsShown(on: boolean): void {
+    find<HTMLElement>('fps').style.display = on ? '' : 'none';
   }
 
   /** The fog checkbox follows the map's own enable bit. */
@@ -788,8 +813,9 @@ export class Ui {
    * is the game's own and stays off) at the start and on every change.
    */
   onLookControls(handler: (opts: Pick<LookOptions, 'mouse' | 'sensitivity' | 'pitchRatio' | 'invertPitch'>) => void): void {
-    if (import.meta.env.DEV) {                                       // OT.R38: the mouse's look a development build's only
-      mouseSite('s2u-mouse-look-settings');
+    // OT.R38 made it a development build's only; RB-8 (OT.R114, KBM-2): every build's, the test room's mouse looking there
+    {
+      if (import.meta.env.DEV) mouseSite('s2u-mouse-look-settings');
       const slider = document.getElementById('sensitivity') as HTMLInputElement | null;
       const out = document.getElementById('sensitivity-out');
       const invert = document.getElementById('invertpitch') as HTMLInputElement | null;
@@ -1087,6 +1113,13 @@ function fillList(selector: string, groups: ControlGroup[]): void {
     }
   }
   body.replaceChildren(...rows);
+}
+
+/** RB-16: the page's picture as `Ui.onLook` reads it (`./picture` `PictureKeeper`, by its shape). */
+export interface LookPicture {
+  get(): string;
+  set(view: 'modern' | 'ps2'): void;
+  observe(f: (picture: string) => void): () => void;
 }
 
 function find<T extends HTMLElement>(id: string): T {

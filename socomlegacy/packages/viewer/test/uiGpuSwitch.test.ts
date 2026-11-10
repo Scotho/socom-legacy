@@ -14,6 +14,7 @@ import {
   parseUiGpuUrl,
   uiGpuCapability,
   uiGpuDevEnv,
+  uiGpuLossFallbackOptions,
   uiGpuPageTable,
   uiGpuScaleKey,
   type UiGpuSurfaceTable,
@@ -22,7 +23,8 @@ import {
 /**
  * GM-10 (the GPU menus plan, docs/plans/2026-11-01-gpu-menus.md; research 380 §5): the switch that says, per surface
  * and per scale, whether the menus draw on the GPU. Product track: every value here is a browser adaptation with no
- * original (`UI_GPU_SURFACES_ADAPTATION`, `UI_GPU_BLEND_ADAPTATION`); nothing reads the switch yet, so no frame changes.
+ * original (`UI_GPU_SURFACES_ADAPTATION`, `UI_GPU_BLEND_ADAPTATION`). Since the flip (GM.R18) the landed table is every
+ * cell `on`; a test whose point is the order falls through to an all-off table it builds itself (`OFF`).
  *
  * The resolution order (the plan, "Rollout per surface: switch and rollback"; first match wins):
  * 1. the URL `?uiGpu=off|shadow|on`, optionally limited by `&uiGpuSurface=front,armory,overlay,loading`;
@@ -38,6 +40,11 @@ const ON: UiGpuSurfaceTable = {
   front: { hd: 'on', sd: 'on' }, armory: { hd: 'on', sd: 'on' },
   overlay: { hd: 'on', sd: 'on' }, loading: { hd: 'on', sd: 'on' },
 };
+/** The flip, GM.R18: the landed table is every cell `on`, so a fall-through to "the table" is shown on this one. */
+const OFF: UiGpuSurfaceTable = {
+  front: { hd: 'off', sd: 'off' }, armory: { hd: 'off', sd: 'off' },
+  overlay: { hd: 'off', sd: 'off' }, loading: { hd: 'off', sd: 'off' },
+};
 
 /** A storage double: `getItem` answers `value`, or throws when `value` is an Error. */
 const storage = (value: string | null | Error) => ({
@@ -50,11 +57,11 @@ const storage = (value: string | null | Error) => ({
 const sw = (search = '', opts: Partial<ConstructorParameters<typeof UiGpuSwitch>[0]> = {}) =>
   new UiGpuSwitch({ search, storage: () => storage(null), devTools: false, ...opts });
 
-describe('GM-10: the tables (product track; every surface off at landing)', () => {
-  it('the surfaces are front, armory, overlay, loading, each {hd, sd}, every cell off', () => {
+describe('GM-10: the tables (every surface off at GM-10\'s landing; every cell on since the flip, GM.R18)', () => {
+  it('the surfaces are front, armory, overlay, loading, each {hd, sd}, every cell on (the flip, GM.R18)', () => {
     expect([...UI_GPU_SURFACES]).toEqual(['front', 'armory', 'overlay', 'loading']);
     expect(Object.keys(UI_GPU_SURFACES_ADAPTATION).sort()).toEqual([...UI_GPU_SURFACES].sort());
-    for (const s of UI_GPU_SURFACES) expect(UI_GPU_SURFACES_ADAPTATION[s], s).toEqual({ hd: 'off', sd: 'off' });
+    for (const s of UI_GPU_SURFACES) expect(UI_GPU_SURFACES_ADAPTATION[s], s).toEqual({ hd: 'on', sd: 'on' });
   });
 
   it('the tables are frozen (a flip is a landed table line, never a runtime write)', () => {
@@ -66,8 +73,9 @@ describe('GM-10: the tables (product track; every surface off at landing)', () =
     }
   });
 
-  it('the blend table (GM.R6): scale 1 exact, HD ff, on every surface', () => {
-    for (const s of UI_GPU_SURFACES) expect(UI_GPU_BLEND_ADAPTATION[s], s).toEqual({ hd: 'ff', sd: 'exact' });
+  it('the blend table (GM.R6): scale 1 exact everywhere; HD ff, but the loading screen escalated to exact (GM.R5, the 4070 evidence)', () => {
+    // The flip's 4070 run (2026-11-09, evidence/gpu-menus/gm-flip-4070): the loading panel under ff past the SwiftShader bound (|d| 1 counts) and the pin's |d| <= 1.
+    for (const s of UI_GPU_SURFACES) expect(UI_GPU_BLEND_ADAPTATION[s], s).toEqual({ hd: s === 'loading' ? 'exact' : 'ff', sd: 'exact' });
   });
 
   it('scale 1 reads sd, every whole scale above it hd; a nonsense scale reads sd (the original menus)', () => {
@@ -78,11 +86,63 @@ describe('GM-10: the tables (product track; every surface off at landing)', () =
   });
 });
 
+// The flip (GM-17, GM-18, GM-19a/b, GM-21, GM-23 in one change; GM.R18, the owner 2026-11-09: "I want the GPU menu work
+// done and turned on by default and the old menu path only existing when fallbacks occur and no GPU is found. Both when
+// the pack is on and off."). A built page (the landed table, `uiGpuPageTable(false)`, the switch's default) resolves `on`
+// on a hardware adapter for every surface at every scale; every L4 state resolves the software path, drawn at 1x under
+// HD (GM-28, GM.R19); the URL `off` and the storage kill stay the rollback (GM.R13).
+describe('the flip (GM.R18): a built page draws every surface on the GPU, the software only as L4 at 1x', () => {
+  const HARDWARE = { webgl2: true, renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0, D3D11)', rendererSource: 'unmasked' as const, maxTextureSize: 16384, programsLinked: true };
+  const built = () => [sw(), sw('', { table: uiGpuPageTable(false) })];
+
+  it('a hardware adapter: on for every surface at scales 1, 2 and 4, and the test room\'s overlay (overlay.sd)', () => {
+    for (const s of built()) {
+      for (const surface of UI_GPU_SURFACES) for (const scale of [1, 2, 4]) {
+        expect(s.resolve(surface, scale, HARDWARE), `${surface}@${scale}`).toMatchObject({ mode: 'on', source: 'table', capability: 'ok' });
+      }
+      expect(s.resolveTestRoomOverlay(HARDWARE)).toMatchObject({ mode: 'on', source: 'table', scaleKey: 'sd' });
+      for (const surface of UI_GPU_SURFACES) expect(s.readout().modes[surface], surface).toEqual({ hd: 'on', sd: 'on' });
+    }
+  });
+
+  it('L4 -- no WebGL2, a software adapter, MAX_TEXTURE_SIZE < 4096, a link failure: the software path, at 1x under HD', () => {
+    const l4 = [
+      [{ ...HARDWARE, webgl2: false }, 'no-webgl2'],
+      [{ ...HARDWARE, renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)' }, 'software-adapter'],
+      [{ ...HARDWARE, renderer: 'llvmpipe (LLVM 15.0.7, 256 bits)' }, 'software-adapter'],
+      [{ ...HARDWARE, renderer: 'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)' }, 'software-adapter'],
+      [{ ...HARDWARE, maxTextureSize: 4095 }, 'max-texture-size'],
+      [{ ...HARDWARE, programsLinked: false }, 'program-link'],
+    ] as const;
+    for (const s of built()) for (const [caps, reason] of l4) for (const surface of UI_GPU_SURFACES) for (const scale of [1, 2, 4]) {
+      expect(s.resolve(surface, scale, caps), `${surface}@${scale} ${reason}`).toMatchObject({ mode: 'off', source: 'capability', reason, requested: 'on' });
+    }
+    expect(uiGpuLossFallbackOptions({ scale: 4, hd: {}, quadCache: {}, transparent: true })).toEqual({ scale: 1, transparent: true });
+    expect(sw('?uiGpuAllowSoftwareAdapter=1').resolve('front', 4, { ...HARDWARE, renderer: 'Google SwiftShader' })).toMatchObject({ mode: 'on' }); // an explicit opt-in only
+  });
+
+  it('the loss limit and a guard trip (L3): the software for the rest of the session', () => {
+    for (const reason of ['loss-limit', 'guard-trip'] as const) {
+      const s = sw();
+      s.kill(reason, 'overlay');
+      expect(s.resolve('overlay', 2, HARDWARE)).toMatchObject({ mode: 'off', source: 'session', reason });
+      expect(s.resolve('front', 2, HARDWARE)).toMatchObject({ mode: 'on' });
+    }
+  });
+
+  it('the rollback: ?uiGpu=off and the stored kill s2u.uiGpu=off turn every surface off at every scale', () => {
+    for (const s of [sw('?uiGpu=off'), sw('', { storage: () => storage('off') })]) {
+      for (const surface of UI_GPU_SURFACES) for (const scale of [1, 2, 4]) expect(s.resolve(surface, scale, HARDWARE).mode, `${surface}@${scale}`).toBe('off');
+      expect(s.resolveTestRoomOverlay(HARDWARE).mode).toBe('off');
+    }
+  });
+});
+
 describe('GM-10: the resolution order (first match wins)', () => {
-  it('nothing set: the table, off on every surface at both scales', () => {
+  it('nothing set: the table, on on every surface at both scales (the flip, GM.R18; was off)', () => {
     const s = sw();
     for (const surface of UI_GPU_SURFACES) for (const scale of [1, 2, 4]) {
-      expect(s.resolve(surface, scale), `${surface}@${scale}`).toMatchObject({ mode: 'off', source: 'table' });
+      expect(s.resolve(surface, scale), `${surface}@${scale}`).toMatchObject({ mode: 'on', source: 'table' });
     }
   });
 
@@ -95,12 +155,12 @@ describe('GM-10: the resolution order (first match wins)', () => {
 
   it('1. a URL value that is not off, shadow or on is ignored (falls through); the match is exact', () => {
     for (const bad of ['ON', 'yes', '1', '', 'auto']) {
-      expect(sw(`?uiGpu=${bad}`).resolve('front', 4), bad).toMatchObject({ mode: 'off', source: 'table' });
+      expect(sw(`?uiGpu=${bad}`, { table: OFF }).resolve('front', 4), bad).toMatchObject({ mode: 'off', source: 'table' });
     }
   });
 
   it('1. uiGpuSurface limits the URL to the surfaces it names; the others fall through to the table', () => {
-    const s = sw('?uiGpu=on&uiGpuSurface=front,armory');
+    const s = sw('?uiGpu=on&uiGpuSurface=front,armory', { table: OFF });
     expect(s.resolve('front', 4)).toMatchObject({ mode: 'on', source: 'url' });
     expect(s.resolve('armory', 1)).toMatchObject({ mode: 'on', source: 'url' });
     expect(s.resolve('overlay', 2)).toMatchObject({ mode: 'off', source: 'table' });
@@ -113,7 +173,7 @@ describe('GM-10: the resolution order (first match wins)', () => {
     expect(parseUiGpuUrl('?uiGpu=on')).toMatchObject({ mode: 'on', surfaces: [...UI_GPU_SURFACES] });
     // a list naming nothing known limits the URL to nothing (it never widens to every surface)
     expect(parseUiGpuUrl('?uiGpu=on&uiGpuSurface=bogus')).toMatchObject({ mode: 'on', surfaces: [] });
-    expect(sw('?uiGpu=on&uiGpuSurface=bogus').resolve('front', 4)).toMatchObject({ mode: 'off', source: 'table' });
+    expect(sw('?uiGpu=on&uiGpuSurface=bogus', { table: OFF }).resolve('front', 4)).toMatchObject({ mode: 'off', source: 'table' });
   });
 
   it('1. the URL works in a release build, without devmode (O9 default)', () => {
@@ -199,7 +259,7 @@ describe('GM-10: the resolution order (first match wins)', () => {
     expect(s.resolve('front', 4, { ...good, maxTextureSize: 2048 })).toMatchObject({ mode: 'off', source: 'capability', reason: 'max-texture-size' });
     expect(s.resolve('front', 4, { ...good, programsLinked: false })).toMatchObject({ mode: 'off', source: 'capability', reason: 'program-link' });
     expect(sw('?uiGpu=shadow').resolve('front', 4, { ...good, webgl2: false })).toMatchObject({ mode: 'off', source: 'capability' });
-    expect(sw().resolve('front', 4, { ...good, webgl2: false })).toMatchObject({ mode: 'off', source: 'table' });
+    expect(sw('', { table: OFF }).resolve('front', 4, { ...good, webgl2: false })).toMatchObject({ mode: 'off', source: 'table' });
   });
 
   it('5. without capabilities (no context made yet) the resolution is the requested mode, the gate still owed', () => {
@@ -259,7 +319,7 @@ describe('GM-10: the blend mode (GM.R6)', () => {
 describe('GM-10: window.__uiGpu', () => {
   it('expose() publishes a live read-out: each surface\'s resolution at hd and sd, the levels, contexts, kills', () => {
     const target: Record<string, unknown> = {};
-    const s = sw('?uiGpu=on&uiGpuSurface=front');
+    const s = sw('?uiGpu=on&uiGpuSurface=front', { table: OFF });
     s.expose(target);
     const read = () => target.__uiGpu as {
       modes: Record<string, { hd: string; sd: string }>; levels: Record<string, number>; contexts: number;
@@ -298,21 +358,24 @@ describe('GM-10: the launch settings table carries the switch\'s keys', () => {
   });
 });
 
-describe('GM-16b: front.hd shadow in development builds only; a release build stays off everywhere', () => {
-  it('the development table is the landed one with front.hd shadow, nothing else on; frozen', () => {
-    expect(UI_GPU_DEV_SURFACES_ADAPTATION.front).toEqual({ hd: 'shadow', sd: 'off' });
-    for (const s of UI_GPU_SURFACES.filter((x) => x !== 'front')) expect(UI_GPU_DEV_SURFACES_ADAPTATION[s], s).toEqual({ hd: 'off', sd: 'off' });
+// GM-16b split the tables: the dev server's `front.hd` `shadow`, every built page off. The flip (GM.R18) sets both to every
+// cell `on` -- the dev server shows what a player sees; the guard stays reachable there by `?uiGpuGuard=on` (GM-14c).
+describe('GM-16b: the development table on the Vite dev server only (since the flip, the same cells as the built one)', () => {
+  it('the development table holds the built table\'s cells -- every cell on (the flip, GM.R18; was front.hd shadow); frozen', () => {
+    for (const s of UI_GPU_SURFACES) expect(UI_GPU_DEV_SURFACES_ADAPTATION[s], s).toEqual(UI_GPU_SURFACES_ADAPTATION[s]);
+    for (const s of UI_GPU_SURFACES) expect(UI_GPU_DEV_SURFACES_ADAPTATION[s], s).toEqual({ hd: 'on', sd: 'on' });
     expect(Object.isFrozen(UI_GPU_DEV_SURFACES_ADAPTATION)).toBe(true);
     for (const s of UI_GPU_SURFACES) expect(Object.isFrozen(UI_GPU_DEV_SURFACES_ADAPTATION[s])).toBe(true);
   });
 
-  it('the page reads the development table on a development build, the landed (every cell off) one otherwise', () => {
+  it('the page reads the development table on a development build, the landed one otherwise; both every cell on (the flip)', () => {
     expect(uiGpuPageTable(true)).toBe(UI_GPU_DEV_SURFACES_ADAPTATION);
     expect(uiGpuPageTable(false)).toBe(UI_GPU_SURFACES_ADAPTATION);
     const dev = sw('', { table: uiGpuPageTable(true) }), release = sw('', { table: uiGpuPageTable(false) });
-    expect(dev.resolve('front', 4)).toMatchObject({ mode: 'shadow', source: 'table' });
-    expect(dev.resolve('front', 1)).toMatchObject({ mode: 'off' });                // scale 1 stays today's (GM.R8)
-    for (const scale of [1, 2, 4]) for (const s of UI_GPU_SURFACES) expect(release.resolve(s, scale).mode, `${s} ${scale}x`).toBe('off');
+    for (const scale of [1, 2, 4]) for (const s of UI_GPU_SURFACES) {
+      expect(dev.resolve(s, scale), `dev ${s} ${scale}x`).toMatchObject({ mode: 'on', source: 'table' });
+      expect(release.resolve(s, scale), `release ${s} ${scale}x`).toMatchObject({ mode: 'on', source: 'table' });
+    }
     // The URL and the stored kill still win on a development build: `?uiGpu=off`, `s2u.uiGpu = 'off'`.
     expect(sw('?uiGpu=off', { table: uiGpuPageTable(true) }).resolve('front', 4).mode).toBe('off');
     expect(new UiGpuSwitch({ search: '', storage: () => ({ getItem: () => 'off' }), devTools: false, table: uiGpuPageTable(true) }).resolve('front', 4).mode).toBe('off');
@@ -328,16 +391,14 @@ describe('GM-16b: front.hd shadow in development builds only; a release build st
   // Review F1: the nightly builds with `NODE_ENV=development npx vite build` (deploy/nightly.sh, OT.R47) -- DEV true,
   // MODE 'production' -- so DEV alone would ship the development table to players. Only the dev server (MODE
   // 'development') reads it; `npm run build` (DEV false, MODE 'production') and the unit tests (MODE 'test') do not.
-  it('review F1: only the Vite dev server reads the development table -- the nightly (DEV true, MODE production) is off', () => {
+  it('review F1: only the Vite dev server reads the development table -- the nightly (DEV true, MODE production) reads the built one', () => {
     expect(uiGpuDevEnv({ DEV: true, MODE: 'development' })).toBe(true);
     expect(uiGpuDevEnv({ DEV: true, MODE: 'production' })).toBe(false);     // the nightly's NODE_ENV=development build
     expect(uiGpuDevEnv({ DEV: false, MODE: 'production' })).toBe(false);    // npm run build
     expect(uiGpuDevEnv({ DEV: true, MODE: 'test' })).toBe(false);           // vitest
     expect(uiGpuDevEnv({ DEV: false, MODE: 'development' })).toBe(false);
     expect(uiGpuDevEnv({})).toBe(false);                                      // no Vite env (Node)
-    for (const s of UI_GPU_SURFACES) for (const scale of [1, 2, 4]) {
-      expect(sw('', { table: uiGpuPageTable(uiGpuDevEnv({ DEV: true, MODE: 'production' })) }).resolve(s, scale).mode, `${s} ${scale}x`).toBe('off');
-    }
+    expect(uiGpuPageTable(uiGpuDevEnv({ DEV: true, MODE: 'production' }))).toBe(UI_GPU_SURFACES_ADAPTATION);   // the flip: its cells on
   });
 });
 
@@ -423,7 +484,7 @@ describe('GM-14c: the guard under `on` on the Vite dev server only (uiGpuGuard, 
       for (const x of UI_GPU_SURFACES) { expect(s.guardOn(x), x).toBe(false); expect(s.guardPlant(x), x).toBeNull(); }
       expect(s.readout().guard).toMatchObject({ armed: [], plant: null });
     }
-    const keysOnly = sw('?uiGpuGuard=on&uiGpuGuardPlant=4', { devBuild: true, table: uiGpuPageTable(false) } as never);
+    const keysOnly = sw('?uiGpuGuard=on&uiGpuGuardPlant=4', { devBuild: true, table: OFF } as never);   // the flip: an all-off table shown
     for (const scale of [1, 2, 4]) for (const x of UI_GPU_SURFACES) expect(keysOnly.resolve(x, scale).mode, `${x} ${scale}x`).toBe('off');
   });
 

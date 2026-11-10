@@ -23,11 +23,12 @@ it('gates each new colour control and labels neutral settings',()=>{
  input('warmth').value='1';input('warmth').dispatchEvent(new Event('input'));expect(states.at(-1)?.warmth).toBe(1);
  input('bloomTint').click();expect(input('bloomRed').disabled).toBe(false);input('bloom').click();expect(input('bloomRed').disabled).toBe(true);
 });
+// B206 ML-7 (ML.R14): the HUD's and the menus' sampling rows are one, UI sampling, with an "Applies to" select.
 it('only offers UI sliders for modes that use them, and explains nearest is already the reticle default',()=>{
- document.querySelector<HTMLButtonElement>('[data-experimental]')!.click();input('hudSampling').click();
- expect(input('hudSharpness').disabled).toBe(true);expect(input('hudSnap').disabled).toBe(true);expect(document.getElementById('exp-hud-status')!.textContent).toContain('reticle already uses nearest');
- select('hudMode','sharpen');expect(input('hudSharpness').disabled).toBe(false);expect(input('hudSnap').disabled).toBe(true);
- select('hudMode','integer');expect(input('hudSharpness').disabled).toBe(true);expect(input('hudSnap').disabled).toBe(false);
- input('menuSampling').click();select('menuMode','integer');expect(input('menuSnap').disabled).toBe(false);expect(document.getElementById('exp-menu-status')!.textContent).toContain('Open menu preview');
- input('enabled').click();expect(input('menuSnap').disabled).toBe(true);expect((document.getElementById('exp-hudMode') as HTMLSelectElement).disabled).toBe(true);
+ document.querySelector<HTMLButtonElement>('[data-experimental]')!.click();input('uiSampling').click();select('uiApplies','hud');
+ expect(input('uiSharpness').disabled).toBe(true);expect(input('uiSnap').disabled).toBe(true);expect(document.getElementById('exp-ui-status')!.textContent).toContain('reticle already uses nearest');
+ select('uiMode','sharpen');expect(input('uiSharpness').disabled).toBe(false);expect(input('uiSnap').disabled).toBe(true);
+ select('uiMode','integer');expect(input('uiSharpness').disabled).toBe(true);expect(input('uiSnap').disabled).toBe(false);
+ select('uiApplies','menu');expect(input('uiSnap').disabled).toBe(false);expect(document.getElementById('exp-ui-status')!.textContent).toContain('Open menu preview');
+ input('enabled').click();expect(input('uiSnap').disabled).toBe(true);expect((document.getElementById('exp-uiMode') as HTMLSelectElement).disabled).toBe(true);
 });

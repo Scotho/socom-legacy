@@ -145,8 +145,8 @@ MP51 has no `CLUTTER.ZAR` instances. Needs an exactly-posed MP frame to settle.
   what the viewer uses.
 
 - **The texture scroll rate.** The engine steps a band by `du * param` once a frame (`FUN_003c0120`, called from
-  `FUN_00313c60` with the frame's time), so `du` is per second -- what `SCROLL_TICKS_PER_SECOND = 1` in `world.ts`
-  assumed.
+  `FUN_00313c60` with the frame's time), so `du` is per second -- what `world.ts`'s multiplier of 1 (then
+  `SCROLL_TICKS_PER_SECOND`, now `SKY_SCROLL_TICKS_READING`, §8) assumed.
 
 ### The 22-map survey
 
@@ -353,3 +353,20 @@ The data draws that, and the console would too; the defect in the frame is D8's 
 question it raises -- the camera's `m_far_plane` is 2,000 on MP51 and the dome's far wall is 2,250 from spawn A --
 is open: the dome is drawn on the console (the PCSX2 frame shows it), so either the VU1 clip or the deferred-layer
 pass does not clip it at the camera's far plane; the viewer's far plane is the map's extent and draws it either way.
+
+## 8. Readings (DF-11, the Desert Glory / Fish Hook release, 2026-11-08)
+
+Filed by DF-11 (plan `2026-11-08-desert-glory-fish-hook.md`), at **reading**: transcribed from the
+decompilation and the disc's data through the repository's readers, unit- and dev-disc-tested, not yet measured running
+and re-read by DF-11's fresh review (PASS WITH FINDINGS, high, `agent-mail/evidence/mega/REVIEW-DF-TASKS-AND-BATCH.md`; its F1, the dT citation, folded). No capture compares either value (H431 is the capture session).
+
+| name | where | status |
+|---|---|---|
+| `SKY_SCROLL_TICKS_READING` | `packages/viewer/src/world.ts` (the scroll constant, formerly the bare `SCROLL_TICKS_PER_SECOND = 1` of §2's "texture scroll rate" line) | open, reading: the multiplier of a `TextureScroll_Object` band's `du, dv` is 1 -- texture widths a second. It multiplies **every** band, not only the skies (Frostfire's ocean and horizon, The Ruins' water channel among them), and it is a unit factor on seconds, not a tick count: the name is the plan's (DF-11), and a better one would be `TEXTURE_SCROLL_UNIT_READING` -- a rename for the plan to call. The engine adds `du, dv` times the scheduler's dT once a frame (`FUN_003c0120` D:L313834-313853), and dT is in seconds: the state tick's `param_1`, which it hands the pad reader at `FUN_001ebed0` D:L50795-50801 and which the pad reader's flush passes as 1/30 for one frame (research 205 §5.2, research 188 U7; the 1/30 itself is not in D:L50795-50801, DF-11's review F1; a frame pair still owed). The two maps' bands, off the disc through `parseWorldRoot`: Desert Glory (MP6) holds no band -- its sky stands still; Fish Hook (MP71) holds one, `mp71_sky` / `whispy_scroller` at (0.08, 0.01): a width every 12.5 s across u, 100 s across v. Pinned: `viewer/test/skyScroll.test.ts` (the source's name and both scroll lines; MP6 on the fixture, MP71 dev-disc). Settles: a frame pair of Fish Hook's sky a known interval apart, the wisp's offset measured against the 0.08 a second -- `viewer/e2e/waterLook.spec.ts`'s MP71 `08-sky-a` / `08-sky-b` on the port, and the same pair of the original (H431) |
+
+**The fog records, all 22 maps** (no constant: the disc's own values, pinned as a dev-disc golden in
+`scene/test/cameraParamsDisc.test.ts` beside the clip census): `cameras/camera`'s near / far / colour / enable / band,
+each held against the map's text (`mp<N>.rdr`'s `fog_standard`, `fog_altitude`). Desert Glory: 300 / 590, (46, 47, 59),
+the band off; Fish Hook: 300 / 799, (156, 155, 136), the band off. The fog is off on MP51 and MP81 alone; the band is
+on six maps (MP1, 7, 10, 62, 64, 82). The ramp they feed is research 13 lines 570-585 (`sub_00294070`, VU1 qwords
+28-29), as `viewer/src/fog.ts` states it.

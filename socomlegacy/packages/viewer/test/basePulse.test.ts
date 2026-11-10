@@ -256,6 +256,31 @@ const synthetic = (): LoadedMap => ({
 } as unknown as LoadedMap);
 
 describe('WorldView.setNodeOpacity (BASE_PULSE_DRAW_READING): a node\'s opacity scales its draw at its texture\'s blend', () => {
+  it('keeps descendant counts, duplicate placements and material transitions before and after reveal', () => {
+    const map = synthetic();
+    const paths = ['world/node', 'world/node/leaf', 'world/node=1', 'world/node=1/leaf', 'world/nodeExtra', 'world/node'];
+    map.world = paths.map(outline);
+    const view = buildWorld(map);
+    // An unrevealed object still receives program updates, as with the former scan.
+    expect(view.setNodeOpacity('world/node', 0.25)).toBe(5);
+    expect(view.setNodeOpacity('world/n', 0.5)).toBe(0);
+    expect(view.setNodeOpacity('world/node=1', 0.75)).toBe(2);
+    for (const task of view.revealWorld) task();
+    const meshes = view.worldObjects as Mesh[];
+    const faded = meshes.map(m => m.material);
+    expect(view.setNodeOpacity('world/node', 1)).toBe(5);
+    const restored = meshes.map(m => m.material);
+    for (let i = 0; i < paths.length; i++) {
+      if (i === 4) expect(restored[i]).toBe(faded[i]);
+      else expect(restored[i]).not.toBe(faded[i]);
+    }
+    expect(view.setNodeOpacity('world/node/leaf', 0.125)).toBe(1);
+    expect(view.setNodeOpacity('world/node/leaf', 1)).toBe(1);
+    expect(meshes.map(m => m.material)).toEqual(restored);
+    expect(view.setNodeOpacity('missing/node', 0)).toBe(0);
+    view.dispose();
+  });
+
   it('under 1 the placement draws with its material\'s faded twin -- additive, its alpha scaled -- and at 1 with its own', () => {
     expect(BASE_PULSE_DRAW_READING).toBe('alpha-times-opacity');
     const view = buildWorld(synthetic());

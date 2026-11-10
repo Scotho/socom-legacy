@@ -1,3 +1,4 @@
+import { mapLabel } from '@s2u/archive/mapNames';
 import { btn, dpad, esc, ico } from '../icons';
 import { screenHead } from './head';
 import { rowHtml } from './rows';
@@ -44,10 +45,11 @@ function moreHtml(m: ReplaysMore | undefined): string {
 
 function drawerHtml(r: ReplayRow, a: Adapters): string {
   const ready = a.disc.state() === 'ready';
-  return `<aside class="cx-drawer" aria-label="Replay ${esc(r.map)}">
-    <div class="cx-drawer__map is-guide"><span>${ready ? 'Map picture from your disc' : 'Needs disc'}</span><span class="cx-drawer__name">${esc(r.map)}</span></div>
+  const map = mapLabel(r.map);                            // MN-1 (OT.R113): the map's name, never its stem
+  return `<aside class="cx-drawer" aria-label="Replay ${esc(map)}">
+    <div class="cx-drawer__map is-guide"><span>${ready ? 'Map picture from your disc' : 'Needs disc'}</span><span class="cx-drawer__name">${esc(map)}</span></div>
     <div class="cx-drawer__body">
-      <dl class="cx-facts"><dt>Map</dt><dd>${esc(r.map)}</dd><dt>Rules</dt><dd>${esc(r.rules)}</dd><dt>Recorded</dt><dd>${esc(r.when)} UTC</dd><dt>Length</dt><dd>${esc(r.length)}</dd><dt>Players</dt><dd>${esc(r.names)}</dd>${resultHtml(r)}</dl>
+      <dl class="cx-facts"><dt>Map</dt><dd>${esc(map)}</dd><dt>Rules</dt><dd>${esc(r.rules)}</dd><dt>Recorded</dt><dd>${esc(r.when)} UTC</dd><dt>Length</dt><dd>${esc(r.length)}</dd><dt>Players</dt><dd>${esc(r.names)}</dd>${resultHtml(r)}</dl>
       <div class="cx-drawer__cta">${ready ? `${btn('cross')}Watch` : 'Needs disc to watch'}</div>
     </div>
   </aside>`;
@@ -82,8 +84,8 @@ export function replaysHtml(s: ConsoleState, a: Adapters): string {
     <div class="cx-screen__body">
       <div class="cx-rooms">
         <div class="cx-rooms__head" aria-hidden="true"><span>Map</span><span>Rules</span><span>Recorded</span><span>Length</span><span>Players</span></div>
-        <div data-scroll data-key="list">${rows.length ? rows.map((r, i) => `<button type="button" class="cx-room ${i === s.rp.row ? 'is-focused' : ''}" data-act="replay" data-i="${i}" data-fk="replay-${esc(r.id)}" aria-label="Replay on ${esc(r.map)}, ${esc(r.rules)}, recorded ${esc(r.when)} UTC, ${esc(r.length)}, ${r.players} players">
-            <span class="cx-room__name">${esc(r.map)}</span><span>${esc(r.rules)}</span><span>${esc(r.when)}</span><span class="cx-room__count">${esc(r.length)}</span><span>${r.players}</span>
+        <div data-scroll data-key="list">${rows.length ? rows.map((r, i) => `<button type="button" class="cx-room ${i === s.rp.row ? 'is-focused' : ''}" data-act="replay" data-i="${i}" data-fk="replay-${esc(r.id)}" aria-label="Replay on ${esc(mapLabel(r.map))}, ${esc(r.rules)}, recorded ${esc(r.when)} UTC, ${esc(r.length)}, ${r.players} players">
+            <span class="cx-room__name">${esc(mapLabel(r.map))}</span><span>${esc(r.rules)}</span><span>${esc(r.when)}</span><span class="cx-room__count">${esc(r.length)}</span><span>${r.players}</span>
           </button>`).join('') + moreHtml(v?.kind === 'ok' ? v.more : undefined) : status ? statusHtml(status, v?.kind === 'loading') : ''}</div>
         <div class="cx-rooms__foot">${v?.kind === 'ok' ? `${replaysTally(v)} · newest first` : ''}</div>
       </div>

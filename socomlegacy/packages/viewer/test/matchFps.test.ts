@@ -79,6 +79,55 @@ describe('SHOW FPS: the match\'s frame-rate readout', () => {
   });
 });
 
+describe('VS-4: the performance overlay\'s three modes (the v2 keeper\'s `overlay`; a browser adaptation, no original)', () => {
+  it("'off' hides the readout; 'fps' is SHOW FPS's readout as before; 'full' adds the net client's rtt on the one line", () => {
+    let mode: 'off' | 'fps' | 'full' = 'off';
+    let rtt: number | null = 42.4;
+    const r = mountFpsReadout(document.body, { smoothedMs: () => 20, store: memory(), overlay: () => mode, rttMs: () => rtt });
+    const el = document.querySelector<HTMLElement>('[data-match-fps]')!;
+    expect(r.shown()).toBe(false);
+    expect(el.hidden).toBe(true);
+    mode = 'fps'; r.refresh();
+    expect(r.shown()).toBe(true);
+    expect(el.textContent).toBe('50 fps · 20.0 ms');
+    mode = 'full'; r.refresh();
+    expect(el.textContent).toBe('50 fps · 20.0 ms · 42 ms ping');
+    rtt = null; r.tick();
+    expect(el.textContent).toBe('50 fps · 20.0 ms · -- ms ping');                     // no pong yet (offline, or before the first)
+    mode = 'off'; r.refresh();
+    expect(r.shown()).toBe(false);
+    expect(el.hidden).toBe(true);
+    r.dispose();
+  });
+
+  it("the mode is read at the mount ('full' stored), and the START menu's toggle keeps writing FPS_SHOWN_KEY, the mode re-read", () => {
+    const store = memory({ [FPS_SHOWN_KEY]: '1' });
+    let kept: 'fps' | 'full' = 'full';
+    const overlay = (): 'off' | 'fps' | 'full' => (store.m.get(FPS_SHOWN_KEY) === '1' ? kept : 'off');   // the keeper's mapping (VS-1)
+    const r = mountFpsReadout(document.body, { smoothedMs: () => 25, store, overlay, rttMs: () => 80 });
+    const el = document.querySelector<HTMLElement>('[data-match-fps]')!;
+    expect(r.shown()).toBe(true);
+    r.tick();
+    expect(el.textContent).toBe('40 fps · 25.0 ms · 80 ms ping');
+    r.toggle();
+    expect(store.m.get(FPS_SHOWN_KEY)).toBe('0');
+    expect(el.hidden).toBe(true);
+    kept = 'fps';
+    r.toggle();
+    expect(store.m.get(FPS_SHOWN_KEY)).toBe('1');
+    expect(el.textContent).toBe('40 fps · 25.0 ms');
+    r.dispose();
+  });
+
+  it('an overlay read that throws leaves the readout on its stored key, as before', () => {
+    const r = mountFpsReadout(document.body, { smoothedMs: () => 20, store: memory({ [FPS_SHOWN_KEY]: '1' }), overlay: () => { throw new Error('blocked'); } });
+    expect(r.shown()).toBe(true);
+    r.tick();
+    expect(document.querySelector<HTMLElement>('[data-match-fps]')!.textContent).toBe('50 fps · 20.0 ms');
+    r.dispose();
+  });
+});
+
 describe('the shared fullscreen helper (./mobileFullscreen documentFullscreen)', () => {
   it('requests on the element, exits on the document, the prefixed pair when the standard is absent', async () => {
     const request = vi.fn(function (this: unknown) { expect(this).toBe(document.documentElement); });

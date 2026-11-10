@@ -187,15 +187,28 @@ export interface MapStand {
 }
 
 /**
+ * PRE-SPAWN-SIDE (research 222 s12; reading, pending review): before its first spawn a seat's page stands at its own
+ * side's measured start -- A for side 0 (the SEALs), B for side 1 (the Terrorists), research 75 s0 and s10 -- looking at
+ * the other. What the original shows between the load and the first spawn is not read; settled by a capture of that
+ * interval as a Terrorist joiner.
+ */
+export const PRE_SPAWN_STAND_SIDE_READING = "the seat's own start";
+
+/**
  * W1.4b: the stand the worker worked out (`LoadedMap.stand`, `./stand`) at spawn A of the measured table
  * (`@s2u/scene`'s `spawnsFor`), looking at B, the walk at A's (x, z) on the stand's floor (A's recorded y where the probe
  * found none); a map with no measured spawns is looked at from off its own extent, at the middle of it.
+ * PRE-SPAWN-SIDE (`PRE_SPAWN_STAND_SIDE_READING`): a Terrorist `side` stands at B instead (`LoadedMap.standB`), looking at
+ * A; a SEAL, or no side given (the test room, the Forge), at A as before.
  */
-export function standOf(map: LoadedMap, view: Pick<WorldView, 'box'>): MapStand {
+export function standOf(map: LoadedMap, view: Pick<WorldView, 'box'>, side: Side = 'seal'): MapStand {
   const spawn = spawnsFor(map.name);
-  const stand = spawn ? map.stand ?? openingStand(spawn.a, undefined) : null;
-  if (spawn && stand) {
-    return { spawn, from: [...stand.position] as [number, number, number], to: [...spawn.b] as [number, number, number], feet: [spawn.a[0], stand.floor ?? spawn.a[1], spawn.a[2]] };
+  const terrorist = side === 'terrorist';
+  const own = spawn ? (terrorist ? spawn.b : spawn.a) : null;
+  const stand = spawn && own ? (terrorist ? map.standB : map.stand) ?? openingStand(own, undefined) : null;
+  if (spawn && own && stand) {
+    const other = terrorist ? spawn.a : spawn.b;
+    return { spawn, from: [...stand.position] as [number, number, number], to: [...other] as [number, number, number], feet: [own[0], stand.floor ?? own[1], own[2]] };
   }
   const [cx, cy, cz] = centre(view.box as WorldView['box']);
   const reach = Math.max(view.box.max.x - view.box.min.x, view.box.max.z - view.box.min.z) || 1000;

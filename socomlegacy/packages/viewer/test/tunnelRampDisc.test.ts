@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { FsAssetSource } from '@s2u/archive/node';
 import type { Grid } from '@s2u/scene';
 import { loadMap } from '../src/loadMap';
-import { CROUCH_GATE_REACH_READING, CROUCH_GATE_READING, groundGrid, STEP_PROBE_LIFT_READING, Walker } from '../src/mover';
+import { CROUCH_GATE_REACH_READING, CROUCH_GATE_READING, groundGrid, probeLiftOf, Walker } from '../src/mover';
 
 /**
  * LATER 412 (struck, 2026-10-26): "a crouched walk stops dead at the foot of Frostfire's tunnel ramp; a standing one
@@ -36,7 +36,7 @@ const mp2 = async (): Promise<Grid> => (grid ??= groundGrid((await loadMap(new F
  */
 const walkUp = (g: Grid, x: number, stance: 'stand' | 'crouch'): Walker => {
   const w = new Walker(g);
-  expect(w.place(384, 63.2 + STEP_PROBE_LIFT_READING, 1110)).toBe(true);
+  expect(w.place(384, 63.2 + probeLiftOf('stand'), 1110)).toBe(true);
   w.state.yaw = 180;                                             // facing +z before any stance change: no root travel across
   for (let i = 0; i < 10; i++) w.tick({ forward: 0, right: 0, boost: false });   // settled on the floor first
   if (stance === 'crouch') w.changeStance('crouch');
@@ -86,7 +86,7 @@ describe.skipIf(!HAVE_DISC)(`LATER 412: Frostfire's tunnel ramp foot, standing a
     expect(CROUCH_GATE_REACH_READING.stand * CROUCH_GATE_READING.scale).toBeGreaterThan(10);
     for (const [x, refused] of [[382.81, true], [383.5, false], [384, false]] as const) {
       const w = new Walker(g);
-      expect(w.place(x, 63.2 + STEP_PROBE_LIFT_READING, 1110)).toBe(true);
+      expect(w.place(x, 63.2 + probeLiftOf('stand'), 1110)).toBe(true);
       w.state.yaw = 180;
       for (let i = 0; i < 10; i++) w.tick({ forward: 0, right: 0, boost: false });
       expect(w.crouchRefused(), `x ${x}`).toBe(refused);

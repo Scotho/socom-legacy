@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { GamePad, PAD_SELECTION_KEY } from '../src/setupPad';
+import { crossTaken, GamePad, PAD_SELECTION_KEY, takeCrossPress } from '../src/setupPad';
 import { padInput } from '../src/gamepad';
 import { attachMenuInput } from '../src/menuInput';
 import { defaultController, SETUP_KEY, setControllerStanceMode } from '../src/startupSettings';
-import { calibrateStick, resolveConflict } from '../src/controllerInput';
+import { calibrateStick, padKey, resolveConflict } from '../src/controllerInput';
 import { PAD_DEAD_ZONE } from '../src/gamepad';
 
 /**
@@ -202,5 +202,103 @@ describe("resolveConflict: the bindings dialog never leaves the menus' buttons u
     const r = resolveConflict(ident(), 3, 5, 'replace');
     expect(r.refused).toBeUndefined();
     expect(r.bindings[5]).toBe(-1);
+  });
+});
+
+describe('OA-3 fold F2: a Cross the operator toast takes never reaches a game reader (`takeCrossPress`, the seam in `GamePad.poll`)', () => {
+  const cross = (g: GamePad, src: ReturnType<typeof source>): boolean => !!g.poll(src)?.buttons[0]?.pressed;
+
+  it('a taken press is reported up to every reader until its release; then a new press is reported', () => {
+    const p = pad(0); const src = source([p]);
+    const a = new GamePad({ waitForRest: false }), b = new GamePad({ releaseCrouch: false, waitForRest: false });   // the match's and the menus'
+    const got: number[] = [];
+    const off = takeCrossPress(() => { got.push(1); });
+    expect(cross(a, src)).toBe(false);                                          // up: a fresh press may now be taken
+    press(p, 0);
+    expect(cross(a, src)).toBe(false);
+    expect(got).toEqual([1]);
+    expect(cross(b, src)).toBe(false);                                          // the other reader, the same frame
+    expect(cross(a, src)).toBe(false);                                          // the next frames
+    press(p);
+    expect(cross(a, src)).toBe(false);
+    press(p, 0);
+    expect(cross(a, src)).toBe(true);                                           // a new press after the release: the game's
+    expect(cross(b, src)).toBe(true);
+    expect(got).toEqual([1]);                                                   // one press taken (the taker's one shot)
+    off();
+  });
+
+  it('a press held before the take is not taken', () => {
+    const p = pad(0); const src = source([p]); const g = new GamePad({ waitForRest: false });
+    press(p, 0);
+    expect(cross(g, src)).toBe(true);
+    const got: number[] = [];
+    const off = takeCrossPress(() => { got.push(1); });
+    expect(cross(g, src)).toBe(true);                                           // still held: the game's
+    expect(got).toEqual([]);
+    press(p);
+    expect(cross(g, src)).toBe(false);
+    press(p, 0);
+    expect(cross(g, src)).toBe(false);                                          // fresh: taken
+    expect(got).toEqual([1]);
+    off();
+  });
+
+  it('let go before any press: nothing taken, nothing masked; the toast\'s own reader (`ownsCross`) sees the button as it is', () => {
+    const p = pad(0); const src = source([p]); const g = new GamePad({ waitForRest: false }); const own = new GamePad({ waitForRest: false, ownsCross: true });
+    const off = takeCrossPress(() => {});
+    off();
+    g.poll(src); press(p, 0);
+    expect(cross(g, src)).toBe(true);
+    press(p);
+    g.poll(src);
+    const off2 = takeCrossPress(() => {});
+    own.poll(src); press(p, 0);
+    expect(cross(own, src)).toBe(true);                                          // taken -- yet its own reader is not masked
+    expect(cross(g, src)).toBe(false);
+    off2();
+    press(p);
+    g.poll(src);
+  });
+});
+
+describe('OA-3 fold 2 F2: the taken press is the taken pad\'s', () => {
+  it('a second reader on another pad, its Cross up, neither lets go of the mask nor is masked itself', () => {
+    const p0 = pad(0), p1 = pad(1); const src = source([p0, p1]);
+    const a = new GamePad({ wanted: padKey(p0 as never), waitForRest: false }), b = new GamePad({ wanted: padKey(p1 as never), waitForRest: false });
+    const cross = (g: GamePad): boolean => !!g.poll(src)?.buttons[0]?.pressed;
+    const off = takeCrossPress(() => {});
+    expect(cross(a)).toBe(false);
+    press(p0, 0);
+    expect(cross(a)).toBe(false);                                               // pad 0's press taken
+    expect(cross(b)).toBe(false);                                               // pad 1's Cross up: the mask kept
+    expect(cross(a)).toBe(false);                                               // still pad 0's held press: masked
+    press(p1, 0);
+    expect(cross(b)).toBe(true);                                                // pad 1's own press is never masked
+    press(p0);
+    expect(cross(a)).toBe(false);
+    press(p0, 0);
+    expect(cross(a)).toBe(true);                                                // released on pad 0: its next press is the game's
+    off();
+    press(p0); press(p1); a.poll(src); b.poll(src);
+  });
+});
+
+describe('OA-3: a vanished pad clears the taken-Cross mask', () => {
+  it('a press taken on pad 0, pad 0 gone from getGamepads(): the next poll lets go; a fresh press on pad 1 is the game\'s', () => {
+    const p0 = pad(0), p1 = pad(1); const pads = [p0, p1]; const src = source(pads);
+    const g = new GamePad({ waitForRest: false });
+    const off = takeCrossPress(() => {});
+    g.poll(src);
+    press(p0, 0);
+    expect(g.poll(src)?.buttons[0]?.pressed).toBe(false);                       // taken on pad 0
+    expect(crossTaken()).toBe(true);
+    pads.splice(0, 1);                                                           // pad 0 unplugged with Cross held
+    g.poll(src);
+    expect(crossTaken()).toBe(false);
+    press(p1, 0);
+    expect(g.poll(src)?.buttons[0]?.pressed).toBe(true);
+    off();
+    press(p1); g.poll(src);
   });
 });

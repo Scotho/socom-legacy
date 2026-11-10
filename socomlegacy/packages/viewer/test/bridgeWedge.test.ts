@@ -7,7 +7,7 @@ import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { simMapFromBytes } from '../src/simMap';
 import { WorldState } from '../src/worldState';
 import { Traversal } from '../src/traversal';
-import { BODY_RADIUS, groundGrid, groundPolygons, STEP_PROBE_LIFT_READING, wallProbeHeights, Walker, WEDGE_PUSH_OUT_ADAPTATION } from '../src/mover';
+import { BODY_RADIUS, groundGrid, groundPolygons, probeLiftOf, wallProbeHeights, Walker, WEDGE_PUSH_OUT_ADAPTATION } from '../src/mover';
 import { CLIMBABLE } from '../src/climb';
 
 /**
@@ -58,17 +58,21 @@ function fallAt(grid: Grid, feet: number, z0: number, vz = 60): { w: Walker; cro
 describe('HOTFIX BRIDGE-WEDGE (1): the walls in the air at the feet the tick leaves, front faces only', () => {
   const [low] = wallProbeHeights('stand');
 
-  it("a fin whose top the low line passes on the crossing tick's frame stops the body on its front side", () => {
+  it("a fin whose top the falling body's slanted lines reach under stops the body on its front side", () => {
     const { w, crossing } = fallAt(finWorld(20), 15, -2.5);
-    expect(crossing.y0 + low).toBeGreaterThan(20);              // the line over the top at the tick's start
-    expect(crossing.y1 + low).toBeLessThan(20);                 // under it after the frame
-    expect(crossing.z1).toBeLessThan(0);                        // met there: the move across is not taken
+    // JUMP-AIR (`AIR_SEGMENT_DIRECTION_READING` 'velocity', research 80 s7): the records slant with the body's vertical
+    // speed on every tick, as the original's one tick a frame does, so falling at 90 with 60 across they reach under the
+    // top from the first airborne tick (three hits, the jam: D:L413602-413611) -- not first on the crossing frame, as
+    // when half the ticks laid them level. The move across is never taken: no crossing tick at all.
+    expect(Number.isNaN(crossing.z1)).toBe(true);
+    expect(15 + low).toBeGreaterThan(20);                       // a level line would have been over the top
     expect(w.airborne).toBe(false);
     expect(w.state.y).toBeCloseTo(0, 6);
-    // SEGMENT-BODY: held at the crossing tick's start, z -0.5 -- in the air the move is put out by the depth (D:L413543-
-    // 413556) and more than two hits jam it (D:L413602-413611); it lands facing -z, away from the fin, and a still body
-    // looks along its facing (D:L415135-415161), so nothing pushes it after. Was the disc's stand-off, -3.5.
-    expect(w.state.z).toBeCloseTo(-0.5, 3);
+    // SEGMENT-BODY: held where the jam met it -- in the air the move is put out by the depth (D:L413543-413556) and more
+    // than two hits jam it (D:L413602-413611); it lands facing -z, away from the fin, and a still body looks along its
+    // facing (D:L415135-415161), so nothing pushes it after. JUMP-AIR: met on the first tick, so held at the start, -2.5
+    // (was -0.5, the crossing tick's start; before SEGMENT-BODY the disc's stand-off, -3.5).
+    expect(w.state.z).toBeCloseTo(-2.5, 3);
   });
 
   it('a fin whose top is under the low line on both sides of the crossing is passed over', () => {
@@ -111,7 +115,7 @@ describe('HOTFIX BRIDGE-WEDGE (1): the walls in the air at the feet the tick lea
   it("a fall carried at a rim: the segment arm stops it at the rim's face on the crossing frame and it lands in front, never through (HF2-slim's landing on the rim is the disc arm's)", () => {
     // A block 10 tall from z 0 on (its face toward -z, its top a floor). Carried 1.5 a tick from z -4, the third tick
     // crosses z 0 and is the flight's first game frame: the feet 5 -> 1.6, the low line 11.5 (over the face's top) -> 8.1
-    // (under it), and the pick from 5 + STEP_PROBE_LIFT_READING finds the top at 10.
+    // (under it), and the pick from 5 + probeLiftOf('stand') finds the top at 10.
     const grid = world([
       floor0(),
       quad([50, 0, 0, -50, 0, 0, -50, 10, 0, 50, 10, 0], 2, 'worldmodel/rim'),
@@ -128,11 +132,14 @@ describe('HOTFIX BRIDGE-WEDGE (1): the walls in the air at the feet the tick lea
     w.setAirborne(true, -100);
     const met: string[][] = [];
     for (let i = 0; i < 12; i++) { w.tick({ forward: 0, right: 0, boost: false }); met.push(w.wallHits().map((h) => h.poly.path)); }
-    expect(met[2]).toContain('worldmodel/rim');                     // the crossing frame meets the face
+    // JUMP-AIR (`AIR_SEGMENT_DIRECTION_READING` 'velocity', research 80 s7): the records slant with the fall from the
+    // first tick (falling at 100 with 90 across), so the first tick meets the face, three hits, the jam: held at the start,
+    // z -4 (was the crossing frame, the third tick, and z -1).
+    expect(met[0]).toContain('worldmodel/rim');                     // the first airborne tick meets the face
     expect(w.airborne).toBe(false);
     expect(w.state.y).toBeCloseTo(0, 3);                           // in front of the face, on the floor
-    expect(w.state.z).toBeCloseTo(-1, 3);                          // never through it
-    expect(5 + STEP_PROBE_LIFT_READING + 1).toBeGreaterThan(10);
+    expect(w.state.z).toBeCloseTo(-4, 3);                          // never through it
+    expect(5 + probeLiftOf('stand') + 1).toBeGreaterThan(10);
   });
 });
 
@@ -195,18 +202,23 @@ describe.skipIf(!MP72)(`HOTFIX BRIDGE-WEDGE on Crossroads with terrorist_demo_1 
   });
 
   // The playtest's trajectory and variations along the slot and in the carry: never frozen.
-  const cases: [number, number, number][] = [
-    [1676.4, 8.9, 64.4], [1668, 8.9, 64.4], [1672, 0, 64.4], [1680, -8.9, 64.4], [1684, 8.9, 64.4], [1676.4, 8.9, 55],
+  // JUMP-AIR (`AIR_SEGMENT_DIRECTION_READING` 'velocity', research 80 s7): with the records slanting with the fall on
+  // every tick, the five carried along x meet the fin's front on the way down and land before it (out of the slot); the
+  // one carried straight at it (x 1672, vx 0) clears the fin's top while its lines are still over it, is held by dia's
+  // face at z 1423.59 and falls into the slot -- where LATER 620 reads the original landing too -- and walks out (the
+  // segments cross the fin from behind, research 281 s4.3). Never frozen either way; the `inSlot` column says which.
+  const cases: [number, number, number, boolean][] = [
+    [1676.4, 8.9, 64.4, false], [1668, 8.9, 64.4, false], [1672, 0, 64.4, true], [1680, -8.9, 64.4, false], [1684, 8.9, 64.4, false], [1676.4, 8.9, 55, false],
   ];
-  for (const [x, vx, vz] of cases) {
-    it(`from (${x}, 84.3, 1419.3) v (${vx}, -84.8, ${vz}): out of the slot within 4 idle ticks of the landing, and walks out`, () => {
+  for (const [x, vx, vz, inSlot] of cases) {
+    it(`from (${x}, 84.3, 1419.3) v (${vx}, -84.8, ${vz}): ${inSlot ? 'lands in the slot' : 'out of the slot within 4 idle ticks of the landing'}, and walks out`, () => {
       const make = fall(x, vx, vz, 4);
       const w = make();
       expect(w.airborne).toBe(false);
       expect(w.state.y).toBeCloseTo(57.6, 0);
-      // Not in the slot: the disc clear of both faces.
+      // In the slot or clear of both faces, as the case says.
       const z = w.state.z;
-      expect(z <= 1422.32 - BODY_RADIUS || z >= 1425.32 + BODY_RADIUS).toBe(true);   // the planes in float32: 1422.313, 1425.325
+      expect(z <= 1422.32 - BODY_RADIUS || z >= 1425.32 + BODY_RADIUS).toBe(!inSlot);   // the planes in float32: 1422.313, 1425.325
       const moved = walkOut(make).filter((d) => d > WALKED).length;
       expect(moved).toBeGreaterThanOrEqual(6);
     });
@@ -260,7 +272,7 @@ for (const c of PINS) {
       const make = () => {
         const w = new Walker(grid);
         w.driver = new Traversal(grid, polys);
-        w.place(c.x - c.out[0] * 6, c.top + STEP_PROBE_LIFT_READING, c.z - c.out[1] * 6);
+        w.place(c.x - c.out[0] * 6, c.top + probeLiftOf('stand'), c.z - c.out[1] * 6);
         w.state.yaw = (Math.atan2(-c.out[0], -c.out[1]) * 180) / Math.PI;
         for (let i = 0; i < 420; i++) {
           w.tick({ forward: i < 120 ? 1 : 0, right: 0, boost: false });
@@ -296,7 +308,7 @@ for (const c of FALLS) {
       const grid = groundGrid(map.ground!), polys = groundPolygons(map.ground!);
       const w = new Walker(grid), t = new Traversal(grid, polys);
       w.driver = t;
-      expect(w.place(c.x - c.out[0] * 6, c.top + STEP_PROBE_LIFT_READING, c.z - c.out[1] * 6)).toBe(true);
+      expect(w.place(c.x - c.out[0] * 6, c.top + probeLiftOf('stand'), c.z - c.out[1] * 6)).toBe(true);
       w.stance = c.stance;
       const yaw = (Math.atan2(-c.out[0], -c.out[1]) * 180) / Math.PI;
       w.state.yaw = yaw;
@@ -318,7 +330,7 @@ for (const c of FALLS) {
       expect(climbed).toBe(false);
       expect(w.airborne).toBe(false);
       expect(w.state.y).toBeGreaterThan(c.top - 100);                // never through the world (MP61 fell to -4836.76)
-      const floor = selectFloor(probeGround(grid, w.state.x, w.state.z), w.state.y + STEP_PROBE_LIFT_READING, w.state.y);
+      const floor = selectFloor(probeGround(grid, w.state.x, w.state.z), w.state.y + probeLiftOf('stand'), w.state.y);
       expect(floor).not.toBeNull();
       expect(Math.abs(floor!.y - w.state.y)).toBeLessThan(0.5);
     }, 120_000);
@@ -382,7 +394,7 @@ describe(`HF2-slim's bound: a healthy body is untouched by the wedge push-out`, 
       for (const [x, y, z] of starts) for (const stance of ['stand', 'crouch', 'prone'] as const) for (let k = 0; k < 8; k++) {
         const pair = [true, false].map(() => {
           const w = new Walker(map.grid);
-          w.place(x, y + STEP_PROBE_LIFT_READING, z);
+          w.place(x, y + probeLiftOf('stand'), z);
           w.stance = stance;
           w.state.yaw = k * 45;
           return w;
@@ -409,7 +421,7 @@ describe(`HF2-slim's bound: a healthy body is untouched by the wedge push-out`, 
  * The review of 1c594ffa4 (D; probe and rows: agent-mail evidence gameplay/hotfix-bridge-wedge5): bodies dropped beside
  * tall wall faces. The face is `groundPolygons`' polygon `poly`; the start its vertex mean plus `side` x its horizontal
  * normal (the first three vertices' cross product) x `off`, placed on the floor under (the face's lowest y + 2 +
- * `STEP_PROBE_LIFT_READING`), the stance set, then dropped from that floor (`setAirborne(true, 0)`) at the walker's own
+ * `probeLiftOf('stand')`), the stance set, then dropped from that floor (`setAirborne(true, 0)`) at the walker's own
  * yaw and left at rest 150 ticks. On 1c594ffa4 (and since df48d0f32) MP9's ended airborne, MP1's floorless and MP51's
  * 105.9 under its start; each must end as on main c15928e75. Dev-disc.
  */
@@ -423,7 +435,11 @@ describe(`HF2-slim's bound: a healthy body is untouched by the wedge push-out`, 
 const FACE_DROPS = [
   { map: 'MP9', poly: 12898, side: 1, off: 0.5, stance: 'prone', main: [1801.22, 114.30, 1737.03], rest: [1807.30, 161.32, 1739.90], what: 'land_04/congo2_tree4' },
   { map: 'MP1', poly: 3288, side: 1, off: 0.5, stance: 'stand', main: [2228.66, 117.48, 2671.49], rest: [2226.98, 79.48, 2684.61], what: 'land27/invis27' },
-  { map: 'MP1', poly: 3288, side: -1, off: 0.5, stance: 'prone', main: [2227.14, 116.40, 2673.63], what: 'land27/invis27' },
+  // LATER 785 re-pin: (2227.14, 116.40, 2673.63) -> (2226.98, 79.49, 2684.68). Placed on the ledge at 110.09, the prone
+  // body rose onto the top 6.31 over it only by the former 5.5 lift (window + 6.5); its lift in the air is now r0004's prone
+  // floor 0 (`AIR_PROBE_ROOT_READING`; on the ground the prone root 2.168, window + 3.17), so it stays on the ledge, is put
+  // off it along the face and lands on the floor at 79.49 -- the standing drop's segment-arm rest above, on a floor.
+  { map: 'MP1', poly: 3288, side: -1, off: 0.5, stance: 'prone', main: [2226.98, 79.49, 2684.68], what: 'land27/invis27' },
   { map: 'MP51', poly: 1358, side: 1, off: 0.5, stance: 'stand', main: [1525.56, 62.83, 635.38], what: 'wc06/window_frame' },
 ] as const;
 for (const c of FACE_DROPS) {
@@ -439,7 +455,7 @@ for (const c of FACE_DROPS) {
     let nx = ay * bz - az * by, nz = ax * by - ay * bx;
     const h = Math.hypot(nx, nz); nx /= h; nz /= h;
     const w = new Walker(grid);
-    expect(w.place(cx + c.side * nx * c.off, minY + 2 + STEP_PROBE_LIFT_READING, cz + c.side * nz * c.off)).toBe(true);
+    expect(w.place(cx + c.side * nx * c.off, minY + 2 + probeLiftOf('stand'), cz + c.side * nz * c.off)).toBe(true);
     w.stance = c.stance;
     w.setAirborne(true, 0);
     for (let i = 0; i < 150; i++) w.tick(still(0));
@@ -449,7 +465,7 @@ for (const c of FACE_DROPS) {
     it(`rests at (${at.join(', ')}), on a floor, not airborne`, () => {
       const w = drop();
       expect(w.airborne).toBe(false);
-      const floor = selectFloor(probeGround(w.grid, w.state.x, w.state.z), w.state.y + STEP_PROBE_LIFT_READING, w.state.y);
+      const floor = selectFloor(probeGround(w.grid, w.state.x, w.state.z), w.state.y + probeLiftOf('stand'), w.state.y);
       expect(floor).not.toBeNull();
       expect(Math.abs(floor!.y - w.state.y)).toBeLessThan(0.5);
       expect(w.state.x).toBeCloseTo(at[0]!, 1);
@@ -536,14 +552,14 @@ describe.skipIf(!haveDisc('MP9'))(`LATER 687: no player's route reaches MP9's co
       if (t.climbPrompt() !== null) t.action();                  // every climb offered, taken
       w.tick(still(forward));
       const s = w.state;
-      const fl = w.airborne ? null : selectFloor(probeGround(grid, s.x, s.z), s.y + STEP_PROBE_LIFT_READING, s.y);
+      const fl = w.airborne ? null : selectFloor(probeGround(grid, s.x, s.z), s.y + probeLiftOf('stand'), s.y);
       if (fl && fl.poly.path.includes('congo2_tree4') && Math.abs(fl.y - s.y) < 1) seen.tree++;
       if (Math.hypot(s.x - REST[0], s.z - REST[2]) < 3 && Math.abs(s.y - REST[1]) < 3) seen.rest = true;
     };
     /** Placed on the ground `d` out at bearing `a`, facing the trunk's axis. */
     const start = (a: number, d: number): boolean => {
       const r = (a * Math.PI) / 180, x = AXIS[0] + Math.sin(r) * d, z = AXIS[1] + Math.cos(r) * d, g = terrain(grid, x, z);
-      if (g === null || !w.place(x, g + STEP_PROBE_LIFT_READING, z)) return false;
+      if (g === null || !w.place(x, g + probeLiftOf('stand'), z)) return false;
       w.state.yaw = (Math.atan2(-(AXIS[0] - x), -(AXIS[1] - z)) * 180) / Math.PI;
       return true;
     };
@@ -629,7 +645,7 @@ for (const c of STEEP) {
         const x = cx + side * nx * off, z = cz + side * nz * off, yaw = (Math.atan2(side * nx, side * nz) * 180) / Math.PI;
         const pair = [0, 1].map(() => {
           const w = new Walker(grid);
-          if (!w.place(x, minY + 2 + STEP_PROBE_LIFT_READING, z)) return null;
+          if (!w.place(x, minY + 2 + probeLiftOf('stand'), z)) return null;
           w.stance = stance; w.state.y += dy; w.setAirborne(true, 0);
           return w;
         });
@@ -693,7 +709,10 @@ describe.skipIf(!MP2)(`HF2-slim's cost cut leaves every walker state as it was${
     // clip's, before the walls cut it (`FUN_0057e1b0` D:L440812-440814; ac's r0004 ditch capture): 383 and 116, the hash
     // re-measured. R4B-12 (2026-11-05) moved it to 0a7b0923... with r0004's forward-only standing jump; OT.R108 (the
     // owner, 2026-11-06) rejected that segment and the air control is kept, so the hash is Part 6's again, re-measured.
+    // JUMP-AIR (2026-11-08, research 80 s7): `AIR_SEGMENT_DIRECTION_READING` alone moves it -- the airborne records slant
+    // with the vertical speed every tick (reverting it alone restores c2b30349..., review 1 F4); the launches and stands
+    // are unchanged, the airborne states move, so the hash re-measured.
     expect([launched, stood]).toEqual([383, 116]);
-    expect(digest).toBe('c2b30349ff5ef7ca715d45c59f6264c5464645b4d6f96abe85c821c28732ceb5');
+    expect(digest).toBe('a27ba877bb86307968bf51a528a3ca522a4cca785c9b9fc8667277570579a06b');
   }, 120_000);
 });

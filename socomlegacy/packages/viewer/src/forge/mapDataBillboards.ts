@@ -407,7 +407,9 @@ export const BILLBOARD_SECTIONS: readonly { heading: string; map: readonly strin
  * own user switches with no map counterpart (NPCs) fill its empty user cells, else rows of their own. A switch no section
  * names goes to Other.
  */
-export type BillboardRow = { heading: string } | { user: KindToggle | null; map: KindToggle | null };
+/** One cell pair of the dropdown: a map switch beside its user counterpart, either side empty. */
+export type BillboardPair = { user: KindToggle | null; map: KindToggle | null };
+export type BillboardRow = { heading: string } | BillboardPair;
 export function billboardRows(): BillboardRow[] {
   const users = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'user');
   const maps = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'map');
@@ -416,7 +418,7 @@ export function billboardRows(): BillboardRow[] {
   for (const section of BILLBOARD_SECTIONS) {
     const other = section.heading === 'Other';
     const mapIds = [...section.map, ...(other ? maps.filter((m) => !named.has(m.id)).map((m) => m.id) : [])];
-    const rows = mapIds.flatMap((id) => {
+    const rows = mapIds.flatMap((id): BillboardPair[] => {
       const map = maps.find((m) => m.id === id);
       return map ? [{ user: users.find((u) => BILLBOARD_PAIRS[u.id] === id) ?? null, map }] : [];
     });

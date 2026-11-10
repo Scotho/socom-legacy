@@ -1,0 +1,250 @@
+{
+  "purpose": "Local cinematic map stills for replay viewer and rich invite links",
+  "status": "in progress",
+  "maps": [
+    {
+      "stem": "MP1",
+      "label": "BLIZZARD",
+      "campaign": false
+    },
+    {
+      "stem": "MP2",
+      "label": "FROSTFIRE",
+      "campaign": false
+    },
+    {
+      "stem": "MP5",
+      "label": "ABANDONED",
+      "campaign": false
+    },
+    {
+      "stem": "MP6",
+      "label": "DESERT GLORY",
+      "campaign": false
+    },
+    {
+      "stem": "MP7",
+      "label": "NIGHT STALKER",
+      "campaign": false
+    },
+    {
+      "stem": "MP8",
+      "label": "RAT'S NEST",
+      "campaign": false
+    },
+    {
+      "stem": "MP9",
+      "label": "BITTER JUNGLE",
+      "campaign": false
+    },
+    {
+      "stem": "MP10",
+      "label": "BLOOD LAKE",
+      "campaign": false
+    },
+    {
+      "stem": "MP11",
+      "label": "DEATH TRAP",
+      "campaign": false
+    },
+    {
+      "stem": "MP12",
+      "label": "THE RUINS",
+      "campaign": false
+    },
+    {
+      "stem": "MP51",
+      "label": "VIGILANCE",
+      "campaign": false
+    },
+    {
+      "stem": "MP52",
+      "label": "THE MIXER",
+      "campaign": false
+    },
+    {
+      "stem": "MP53",
+      "label": "FOXHUNT",
+      "campaign": false
+    },
+    {
+      "stem": "MP61",
+      "label": "SUJO",
+      "campaign": false
+    },
+    {
+      "stem": "MP62",
+      "label": "ENOWAPI",
+      "campaign": false
+    },
+    {
+      "stem": "MP64",
+      "label": "SHADOW FALLS",
+      "campaign": false
+    },
+    {
+      "stem": "MP71",
+      "label": "FISH HOOK",
+      "campaign": false
+    },
+    {
+      "stem": "MP72",
+      "label": "CROSSROADS",
+      "campaign": false
+    },
+    {
+      "stem": "MP73",
+      "label": "SANDSTORM",
+      "campaign": false
+    },
+    {
+      "stem": "MP81",
+      "label": "CHAIN REACTION",
+      "campaign": false
+    },
+    {
+      "stem": "MP82",
+      "label": "GUIDANCE",
+      "campaign": false
+    },
+    {
+      "stem": "MP83",
+      "label": "REQUIEM",
+      "campaign": false
+    }
+  ],
+  "captures": [
+    {
+      "mapId": "MP7",
+      "image": "MP7-night-stalker.png",
+      "metadata": "MP7-night-stalker.json",
+      "sha256": "702b3c0176c426f655a3693cfb7f4ee0ef2bc4722af10fa724c6f57ef2466c31"
+    },
+    {
+      "mapId": "MP1",
+      "image": "MP1-blizzard.png",
+      "metadata": "MP1-blizzard.json",
+      "sha256": "cbf863544d7affd07f3db8586fb860f4685a50f2b56ab531ee33c3c67985bf19"
+    },
+    {
+      "mapId": "MP2",
+      "image": "MP2-frostfire.png",
+      "metadata": "MP2-frostfire.json",
+      "sha256": "9ac375462ccf5bc7d470d0084ef31314a194ce03c473c78d8a3ba9b6cab851e4"
+    },
+    {
+      "mapId": "MP5",
+      "image": "MP5-abandoned.png",
+      "metadata": "MP5-abandoned.json",
+      "sha256": "888441e2cd4e3773e1fa9ca609490e0860fd454cdcf75531e40d75795b3be36c"
+    },
+    {
+      "mapId": "MP6",
+      "image": "MP6-desert-glory.png",
+      "metadata": "MP6-desert-glory.json",
+      "sha256": "466b96aaa329142eace1ce42fb120e29ad0ffac0dcde45bf0a72f8c151170b3e"
+    },
+    {
+      "mapId": "MP8",
+      "image": "MP8-rats-nest.png",
+      "metadata": "MP8-rats-nest.json",
+      "sha256": "3c1727538c932d039015b01d40e246dd1ee9da3dcb88e8e3eb8bacfcba679a8e"
+    },
+    {
+      "mapId": "MP9",
+      "image": "MP9-bitter-jungle.png",
+      "metadata": "MP9-bitter-jungle.json",
+      "sha256": "44b914eae1225362f31e41abb413808af5436c03a57d9220bf2c14e432baa7f9"
+    },
+    {
+      "mapId": "MP10",
+      "image": "MP10-blood-lake.png",
+      "metadata": "MP10-blood-lake.json",
+      "sha256": "3ceedbc527db3ace5f9f28065105664bb47a6d6fad2849dcd12f8cc3c86c1b71"
+    },
+    {
+      "mapId": "MP11",
+      "image": "MP11-death-trap.png",
+      "metadata": "MP11-death-trap.json",
+      "sha256": "e0375e5bfe368fe332ad7f769cf2b88742580a3db55fabe86ee782fbd0169edc"
+    },
+    {
+      "mapId": "MP12",
+      "image": "MP12-the-ruins.png",
+      "metadata": "MP12-the-ruins.json",
+      "sha256": "9b9910e5d4bdf3a8bcfb8323527658de336da1adbd0f853192b83c3a7f2bc1d5"
+    },
+    {
+      "mapId": "MP51",
+      "image": "MP51-vigilance.png",
+      "metadata": "MP51-vigilance.json",
+      "sha256": "7744a74b0a11bb3b2a864a1800d07aba7a4f367ce22e5debe0f45c6fea55ea64"
+    },
+    {
+      "mapId": "MP52",
+      "image": "MP52-the-mixer.png",
+      "metadata": "MP52-the-mixer.json",
+      "sha256": "a09d5334eefede713aaaaf387b66bdea23ffd6754e7db0affa3c59bcffb53230"
+    },
+    {
+      "mapId": "MP53",
+      "image": "MP53-foxhunt.png",
+      "metadata": "MP53-foxhunt.json",
+      "sha256": "770b738c811b1ba3fc843101fcdf7bbdaa72571fb5cc0d028fdd3c67ca2e331d"
+    },
+    {
+      "mapId": "MP61",
+      "image": "MP61-sujo.png",
+      "metadata": "MP61-sujo.json",
+      "sha256": "aa715f131abd8efbbc63a551130ea059399447856ec5525f4bf6b70bc56fc232"
+    },
+    {
+      "mapId": "MP62",
+      "image": "MP62-enowapi.png",
+      "metadata": "MP62-enowapi.json",
+      "sha256": "9b77f393e56fa737272db8f18eba8cddef8905e47b57dc409aea7068bd955a58"
+    },
+    {
+      "mapId": "MP64",
+      "image": "MP64-shadow-falls.png",
+      "metadata": "MP64-shadow-falls.json",
+      "sha256": "7e629be37a3b2483fa61c508f69c3fd0e6c2212e2d9d1416d1748e7ae5bbea02"
+    },
+    {
+      "mapId": "MP71",
+      "image": "MP71-fish-hook.png",
+      "metadata": "MP71-fish-hook.json",
+      "sha256": "1bf8b32291be15f05b00b2019d49d9e29c05ed15e529d3e8b6a1b91d448114bb"
+    },
+    {
+      "mapId": "MP72",
+      "image": "MP72-crossroads.png",
+      "metadata": "MP72-crossroads.json",
+      "sha256": "1802b59cf73f8ee73732484a9113ac077908f3a211d2f95775a045aa8c285501"
+    },
+    {
+      "mapId": "MP73",
+      "image": "MP73-sandstorm.png",
+      "metadata": "MP73-sandstorm.json",
+      "sha256": "13acf6f96d5e89333e08c5945f78bfe8912f08768a1dd1ae1295aaa6f5df5fb2"
+    },
+    {
+      "mapId": "MP81",
+      "image": "MP81-chain-reaction.png",
+      "metadata": "MP81-chain-reaction.json",
+      "sha256": "cf2d21c2914720741e7a78cdb39f891d17ff08c66b480316ff8e5be23991a483"
+    },
+    {
+      "mapId": "MP82",
+      "image": "MP82-guidance.png",
+      "metadata": "MP82-guidance.json",
+      "sha256": "63916a4c3a733eb043dbd5a1cab9a7210968e0c144cad971f27c621071789396"
+    },
+    {
+      "mapId": "MP83",
+      "image": "MP83-requiem.png",
+      "metadata": "MP83-requiem.json",
+      "sha256": "a747271dd7eb135c58891956277f83f92eb08a501cd7a1e642e6ae95e9f12dc9"
+    }
+  ]
+}

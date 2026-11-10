@@ -44,22 +44,30 @@ const cat = (options: { categories(): readonly OptCat[] }, id: string) => option
 const ids = (options: { categories(): readonly OptCat[] }, id: string) => cat(options, id).rows.map((r) => r.id);
 const headings = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('#stage [data-key="options"] .cx-rows [role="heading"]')];
 
-const CARD_CONTROLS = ['VIBRATION_CONTROLLER', 'AutoAim', 'INVERT_PITCH_CONTROLLER', 'FIREMODESWAP_CONTROLLER', 'stick_preset', 'STICK_SENSITIVITY', 'STICK_INERTIA', 'STICK_DEADZONE'];
+/**
+ * VS-2: Display's browser rows (`VIDEO_SCHEMA`'s launcher rows under Automatic, the page's picture, Name tags and -- HUD-ALIVE
+ * C, OT.R117 -- the Range readout in the same Picture group with no heading of its own, Restore defaults, This device).
+ */
+const BROWSER_DISPLAY = ['video-preset', 'render-scale', 'video-ceiling', 'video-frame-cap', 'show-fps', 'shadows', 'detail-distance', 'video-antialias', 'graphics-backend', 'video-picture', 'name-tags', 'range-readout', 'video-restore', 'device-memory', 'device-detected', 'perf-line'];
+/** VS-2: the spec §4.2's groups after the first, each heading its group's first row (the first group's row carries "This browser"). */
+const DISPLAY_GROUPS: readonly (readonly [string, string])[] = [['render-scale', 'Display'], ['shadows', 'Detail'], ['graphics-backend', 'Renderer'], ['video-picture', 'Picture'], ['device-memory', 'This device']];
+const CARD_CONTROLS = ['SelectedControllerConfig', 'VIBRATION_CONTROLLER', 'AutoAim', 'INVERT_PITCH_CONTROLLER', 'FIREMODESWAP_CONTROLLER', 'stick_preset', 'STICK_SENSITIVITY', 'STICK_INERTIA', 'STICK_DEADZONE'];
 const ROWS = {
   // HD-4: Display's "Video" row (the page's picture) leads the browser's rows, under the same heading.
-  display: ['BRIGHTNESS', 'BOBBING_1ST_PERSON', 'DISPLAY_MP_TEAM_NAMES', 'HelpWindowsEnabled', 'ScreenOriginX', 'ScreenOriginY', 'video-picture', 'render-scale', 'detail-distance', 'shadows', 'show-fps', 'graphics-backend', 'perf-line'],   // CPS-4a: Render scale, Shadows, Show FPS; CPS-5: Copy performance line
+  // VS-2: the browser's rows from the video schema, in its order and groups (the Custom-only rows hidden under Automatic)
+  display: ['BRIGHTNESS', 'BOBBING_1ST_PERSON', 'DISPLAY_MP_TEAM_NAMES', 'ScreenOriginX', 'ScreenOriginY', ...BROWSER_DISPLAY],   // SS-1 D4: Help windows not offered
   controller: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, ...CARD_CONTROLS],
   controllerOverlay: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, OVERLAY_BUTTON_ROW, ...CARD_CONTROLS],
   communication: ['EnableExternalWhispers', 'mic-on', 'mic-device'],
 };
 
-/** Each tab's one heading: its words (the spec's) and the row it sits above. */
-const CASES = [
-  { tab: 'display', heading: 'This browser', first: 'video-picture', rows: ROWS.display, o: {} },
-  { tab: 'controller', heading: 'In the game', first: 'VIBRATION_CONTROLLER', rows: ROWS.controller, o: {} },
-  { tab: 'controller', heading: 'In the game', first: 'VIBRATION_CONTROLLER', rows: ROWS.controllerOverlay, o: { overlay: true, touch: true } },
-  { tab: 'communication', heading: 'This browser', first: 'mic-on', rows: ROWS.communication, o: {} },
-] as const;
+/** Each tab's owner heading: its words (the spec's) and the row it sits above; VS-2: Display's group headings after it (`more`). */
+const CASES: readonly { tab: string; heading: string; first: string; rows: readonly string[]; o: { touch?: boolean; overlay?: boolean }; more: readonly (readonly [string, string])[] }[] = [
+  { tab: 'display', heading: 'This browser', first: 'video-preset', rows: ROWS.display, o: {}, more: DISPLAY_GROUPS },
+  { tab: 'controller', heading: 'Layout and aiming', first: 'SelectedControllerConfig', rows: ROWS.controller, o: {}, more: [] },
+  { tab: 'controller', heading: 'Layout and aiming', first: 'SelectedControllerConfig', rows: ROWS.controllerOverlay, o: { overlay: true, touch: true }, more: [] },
+  { tab: 'communication', heading: 'This browser', first: 'mic-on', rows: ROWS.communication, o: {}, more: [] },
+];
 
 describe('LATER 294 slice 3: headings on Display, Controller and Communication', () => {
   for (const c of CASES) {
@@ -69,18 +77,22 @@ describe('LATER 294 slice 3: headings on Display, Controller and Communication',
       const { options } = boot(c.o);
       expect(ids(options, c.tab)).toEqual([...c.rows]);
       const headed = cat(options, c.tab).rows.filter((r) => r.section !== undefined).map((r) => [r.id, r.section]);
-      expect(headed).toEqual([[c.first, c.heading]]);
+      expect(headed).toEqual([[c.first, c.heading], ...c.more.map(([id, h]) => [id, h])]);
     });
 
-    it(`${name}: the heading is drawn once, just above ${c.first}, and is not a row the grammar acts on`, () => {
-      const { ctl } = boot(c.o);
+    it(`${name}: the heading is drawn once, just above ${c.first} (and each group heading above its row), and is not a row the grammar acts on`, () => {
+      const { ctl, options } = boot(c.o);
       ctl.doAct(`opt:${c.tab}`);
       page!.render();
       const hs = headings();
-      expect(hs.map((h) => h.textContent)).toEqual([c.heading]);
+      expect(hs.map((h) => h.textContent)).toEqual([c.heading, ...c.more.map(([, h]) => h)]);
       const h = hs[0]!;
       expect(h.dataset.act).toBeUndefined();
       expect((h.nextElementSibling as HTMLElement | null)?.dataset.id).toBe(c.first);
+      // an info row (This device's readouts) carries no data-id: its index (`data-row`) names it
+      const rowIds = ids(options, c.tab);
+      const named = (el: Element | null): string | undefined => { const e = el as HTMLElement | null; return e?.dataset.id ?? (e?.dataset.row !== undefined ? rowIds[Number(e.dataset.row)] : undefined); };
+      c.more.forEach(([id], i) => { expect(hs[i + 1]!.dataset.act).toBeUndefined(); expect(named(hs[i + 1]!.nextElementSibling)).toBe(id); });
     });
 
     it(`${name}: Down from the row above the heading lands on ${c.first}, Up goes back, and a click on the heading moves nothing`, () => {
@@ -113,19 +125,18 @@ describe('LATER 294 slice 3: headings on Display, Controller and Communication',
 
 describe('LATER 294 slice 3: no heading above the rows that lead a tab, when a tab has no card rows', () => {
   const EMPTY = [
-    { tab: 'communication', groups: ['communication'], rows: ['mic-on', 'mic-device'] },
-    { tab: 'display', groups: ['display', 'console'], rows: ['video-picture', 'render-scale', 'detail-distance', 'shadows', 'show-fps', 'graphics-backend', 'perf-line'] },
-    { tab: 'controller', groups: ['controls'], rows: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW] },
-  ] as const;
+    { tab: 'communication', groups: ['communication'], rows: ['mic-on', 'mic-device'], more: [] },
+    { tab: 'display', groups: ['display', 'console'], rows: BROWSER_DISPLAY, more: DISPLAY_GROUPS },
+  ];
   for (const c of EMPTY) {
-    it(`${c.tab} with no ${c.groups.join(' or ')} card rows: the rows are the browser ones and none carries a heading`, () => {
+    it(`${c.tab} with no ${c.groups.join(' or ')} card rows: the rows are the browser ones and none carries the owner heading (VS-2: Display's group headings stay)`, () => {
       for (const g of c.groups) empty.groups.add(g);
       const { ctl, options } = boot();
       expect(ids(options, c.tab)).toEqual([...c.rows]);
-      expect(cat(options, c.tab).rows.filter((r) => r.section !== undefined).map((r) => [r.id, r.section])).toEqual([]);
+      expect(cat(options, c.tab).rows.filter((r) => r.section !== undefined).map((r) => [r.id, r.section])).toEqual(c.more.map(([id, h]) => [id, h]));
       ctl.doAct(`opt:${c.tab}`);
       page!.render();
-      expect(headings()).toEqual([]);
+      expect(headings().map((h) => h.textContent)).toEqual(c.more.map(([, h]) => h));
     });
   }
 });

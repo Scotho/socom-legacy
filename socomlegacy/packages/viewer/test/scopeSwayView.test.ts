@@ -4,8 +4,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HELD_RIFLE } from '@s2u/scene';
-import { Accuracy, scopeViewOffset, tangentPerPixel, TICK, type AccuracyInput } from '../src/accuracy';
+import { Vector3 } from 'three';
+import { Accuracy, MAP_FOV, scopeViewOffset, tangentPerPixel, TICK, type AccuracyInput } from '../src/accuracy';
 import { FlyCamera } from '../src/camera';
+import { viewOffsetPerPixelX } from '../src/look';
+import { Zoom } from '../src/zoom';
 
 /**
  * Research 381: the scope's sway moves the view, so the scope's fixed cross stays on the round (Trello "Scoped: the
@@ -70,7 +73,7 @@ describe('the scoped sway on the view (research 381)', () => {
     fly.setKitOffset(12, -9);
     expect(fly.lookState().screen).toEqual([12, -9]);                 // this frame: the round's frame
     expect(fly.camera.view?.enabled).toBe(true);
-    expect(fly.screenShift()[0]).toBeCloseTo(12 / 640, 9);
+    expect(fly.screenShift()[0]).toBeCloseTo((12 * viewOffsetPerPixelX()) / ((4 / 3) * 448), 9); // LATER 621: was 12 / 640
     expect(fly.screenShift()[1]).toBeCloseTo(-9 / 448, 9);
     fly.update(TICK);
     expect(fly.lookState().screen).toEqual([12, -9]);                 // kept through the look's frame
@@ -80,6 +83,46 @@ describe('the scoped sway on the view (research 381)', () => {
     fly.setKitOffset(3, 4);
     fly.setWalking(false);
     expect(fly.lookState().screen).toEqual([0, 0]);
+  });
+
+  /**
+   * LATER 621 (research 381, 2026-11-10): measured through the page's own three.js camera -- the map's vfov
+   * (`MAP_FOV`, as `matchFirearm.ts` takes `baseFov` from the map's camera), the scope's FOV from `Zoom.fov`, the kit's
+   * offset by `FlyCamera.setKitOffset` -- the direction the frame's centre (the scope's fixed cross) shows, against the
+   * round's (`Accuracy.cone`). The original's projection puts a PS2 pixel across at tan(hfov) / 320 in tangent
+   * (`FUN_00294070` D:L138944-138945: the offset `cam+0x480` added to the centre, scaled by `cam+0x290` = 320 /
+   * tan(hfov), `FUN_002915f0`), and the round's factor is tan(tan(hfov)) / 320 (`FUN_005bd100`, `tangentPerPixel`):
+   * across, the round is tan(tan(hfov)) / tan(hfov) = 1.203 of the cross's shift. Down, the round's
+   * tan(tan(hfov) x 448/640) / 224 over the page's tan(vfov) / 224 = 1.168, as it was (left alone, pinned).
+   */
+  it('the round is 1.203x the cross across (the original projection) and 1.168x down, at every aspect and power', () => {
+    const across = Math.tan(Math.tan(MAP_FOV.hfov)) / Math.tan(MAP_FOV.hfov);
+    const down = tangentPerPixel().y / (Math.tan(MAP_FOV.vfov) / 224);
+    expect(across).toBeCloseTo(1.2035, 3);
+    expect(down).toBeCloseTo(1.168, 2);
+    const baseFov = (2 * MAP_FOV.vfov * 180) / Math.PI;               // matchFirearm.ts: baseFov from the map's vfov
+    const zoom = new Zoom({ ...HELD_RIFLE, zoomModes: [1.5, 3, 5, 10] });
+    for (const aspect of [4 / 3, 16 / 9, 21 / 9]) {
+      for (const state of [5, 6, 7]) {                               // 3x, 5x, 10x
+        zoom.set(state);
+        zoom.settle();
+        const m = zoom.renderView().magnification;
+        const a = new Accuracy(HELD_RIFLE);
+        a.update(2.3, { ...still, zoomState: state });
+        const fly = new FlyCamera(canvas());
+        fly.setPose({ yaw: 0, pitch: 0 });
+        fly.setWalking(true);
+        fly.setAspect(aspect);
+        fly.setFov(zoom.fov(baseFov));
+        fly.setKitOffset(...a.viewOffset(state));
+        expect(fly.camera.view?.enabled).toBe(true);
+        const p = new Vector3(0, 0, 0.5).applyMatrix4(fly.camera.projectionMatrixInverse);
+        const cross = [p.x / -p.z, p.y / -p.z];                       // camera tangents, x right, y up
+        const c = a.cone(state, m);
+        expect(c.offsetX / cross[0]!).toBeCloseTo(across, 3);
+        expect(c.offsetY / cross[1]!).toBeCloseTo(down, 3);
+      }
+    }
   });
 
   it("the page hands the kit's view offset to the camera each gun frame, before the aim point is read", () => {
