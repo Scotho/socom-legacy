@@ -385,14 +385,18 @@ export class PadBinding {
   /**
    * Restore defaults: `defaultController()` under the chosen pad's profile. STM.R1 with the review's F1: in SEPARATE the
    * clone is made again (Prone on Triangle's button, Crouch unbound: STM.R1a), so a restore ends where entering SEPARATE
-   * does; in COMBINED Prone stays unbound.
+   * does -- on a pressure pad Crouch on the same button too (PS2P, `bindPressureCrouch`; LATER 663); a touchpad's Crouch
+   * stays the mode change's alone (SEP-SHOW). In COMBINED Prone stays unbound. A browser adaptation (OT.R28).
    */
   restoreDefaults(): void {
     this.finish('idle');
     const layout = this.input.config.layout;       // a taught pad stays taught (LATER 380): its layout is no binding
     this.input.config = { ...defaultController(), ...(layout ? { layout } : {}) };
     this.input.save();
-    if (controllerStanceMode() === 'separate') this.input.cloneTriangleToProne();
+    if (controllerStanceMode() === 'separate') {
+      this.input.cloneTriangleToProne();
+      this.input.bindPressureCrouch();                         // PS2P: as `enterSeparate` (LATER 663)
+    }
     // h59U9CLb: the extra binds cleared with the rest (written only where the profile holds any record of them).
     if (this.input.hasStoredExtras()) this.input.saveExtras(EMPTY_PAD_EXTRAS);
     this.emit({ kind: 'restored' });
@@ -567,10 +571,17 @@ export class PadBinding {
     return 'That cannot be an extra bind. Hold another button.';
   }
 
+  /**
+   * The shown extras written under the profile. SEP-ROWS's settings-loss fix (the owner, 2026-11-11: "don't lose existing
+   * settings"; the loss came from h59U9CLb, 80e60d8c2f): with them, the stored combos SEPARATE sets aside, each in its
+   * stored place (`ControllerInput.combosToStore`; the review's F1), which the list shown never held -- an add or a remove
+   * no longer erases or reorders them, and COMBINED reads them again. Clear and Restore defaults still write none
+   * (`clearExtras`, `restoreDefaults`).
+   */
   private saveExtraRows(rows: readonly ExtraRow[]): void {
     this.input.saveExtras({
       doubles: rows.filter((r) => r.kind === 'double').map((r) => ({ button: r.button, action: r.action })),
-      combos: rows.filter((r) => r.kind === 'combo').map((r) => ({ modifier: r.modifier, button: r.button, action: r.action })),
+      combos: this.input.combosToStore(rows.filter((r) => r.kind === 'combo').map((r) => ({ modifier: r.modifier, button: r.button, action: r.action }))),
     });
   }
 

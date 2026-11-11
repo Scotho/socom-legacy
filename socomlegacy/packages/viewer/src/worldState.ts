@@ -4,7 +4,9 @@ import { AUTOSTART_INITIAL_READING, under, type MapMeta } from './mapMeta';
 import type { EnvWire } from './net/protocol';
 import { EffectRun, opacityTick, type EffectHost } from './effectRunner';
 import { valveApply, valveTest } from './doors';
+import { apply4 } from './doorMath';
 import { placeRefs, SceneHealth, SKIP_EFFECTS_VALVE, type SceneMeta, type SceneProgram, type SceneRunContext } from './sceneHealth';
+import { NodeFrame, profileStrokeTick, runsProfileStroke, runsScroll, scrollTick, type Vec3 } from './sceneScroll';
 
 /**
  * The world's mutable state (MAP-02; socomlegacy/docs/research/209-the-mutable-world.md s8-s10): one per room and one per
@@ -45,13 +47,16 @@ export interface WorldHooks {
   visible?(path: string, on: boolean): void;
   /** The world changed: its revision now. */
   changed?(revision: number): void;
-  /** A program's `SOUND` (a new play only: `newPlay`), at the node's place, at the command's volume. */
-  sound?(name: string, path: string | null, volume: number): void;
+  /**
+   * A program's `SOUND` (a new play only: `newPlay`) at the command's volume: `path` the node it names (the run's root
+   * when it names none), `at` where it plays (`SCENE_SOUND_PLACE_READING`; null: without a place).
+   */
+  sound?(name: string, path: string | null, volume: number, at: [number, number, number] | null): void;
   /** A program's `PARTICLE_SOURCE`, at its root. */
   particles?(source: ParticleSource, path: string | null): void;
   /**
    * A program's `DESTRUCTION_SOURCE`, at its node: the node alone (`GLASS_FRAGMENTS_PLACEHOLDER` -- the command's payload
-   * beyond its node byte is undecoded, so no fragment is thrown).
+   * is decoded, `op.debris`, research 210 s6.1, but no fragment is thrown from it yet).
    */
   destruction?(path: string | null): void;
   /**
@@ -65,6 +70,12 @@ export interface WorldHooks {
    * the bases' pulse outlines. Drawing only: the room lends none.
    */
   opacity?(path: string, opacity: number): void;
+  /**
+   * LATER 782 (`SCROLL_MOTION_PLACEHOLDER`): a program's `SCROLL_MOTION` on a placed node -- the texture offset now of
+   * every visual at or under `path`, in texture repeats (`WorldView.setNodeUvOffset`): Fish Hook's washes and water.
+   * Drawing only: the room lends none.
+   */
+  scroll?(path: string, u: number, v: number): void;
   /**
    * Research 386 §3.2 (LATER 63): a program's `FIRE_WEAPON` (`FUN_0025ccb0` D:L107153-107326) -- the round started at the
    * command's node (`path`; null for none, D:L107229-107244), its fuse and second timer the command's floats
@@ -82,9 +93,9 @@ export interface WorldHooks {
 
 /**
  * GLASS_FRAGMENTS_PLACEHOLDER (SUP-02; research 210 s6, 176 s4.2): what a `DESTRUCTION_SOURCE` throws -- Frostfire's
- * `breakapane` emits one at its root `pane1` -- is not decoded past its node byte (`@s2u/scene` `effects.ts`: `{ op:
- * 'destruction', node }`), and no capture shows a pane break: a broken pane plays its `.GLS_BRK_VSMALL` and goes off,
- * and nothing more is drawn. The page's `destruction` hook logs the node once.
+ * `breakapane` emits one at its root `pane1` -- is decoded (`@s2u/scene` `effects.ts`: `{ op: 'destruction', node,
+ * debris }`, research 210 s6.1; LATER 850) but not thrown, and no capture shows a pane break: a broken pane plays its
+ * `.GLS_BRK_VSMALL` and goes off, and nothing more is drawn. The page's `destruction` hook logs the node once.
  */
 export const GLASS_FRAGMENTS_PLACEHOLDER = 'sound-and-pane-off' as const;
 
@@ -114,12 +125,56 @@ export const GLASS_FRAGMENTS_PLACEHOLDER = 'sound-and-pane-off' as const;
 export const SCENE_DEATH_ON_WIRE_READING = 'targetOffOrTold' as const;
 
 /**
- * SCENE_SOUND_PLACE_READING (SUP-02; research 210 s6): a scene program's `SOUND` at a node is placed at the centre of
- * the box of the node's polygons as they stand now (a pane in a swinging leaf where the leaf is) -- `MapMeta` carries no
- * node's world origin; null for a node with no polygons, played unplaced [reading: the game plays it at the node's
- * position, `FUN_002659c0` (D:L112363-112416); a pane's own origin is not read].
+ * SCENE_SOUND_PLACE_READING (research 210 s7; the v0.4.18 gulls, 2026-11-10): where a scene program's `SOUND` plays --
+ * `FUN_002659c0`'s new play (D:L112411-112462): the place starts at 0; flag 4 adds the command's offset (+0x14,
+ * `FUN_00309240`, D:L112423-112426); flag 8 the context's point (D:L112427-112445: a scene run's context holds none);
+ * flag 2 resolves the node (+0x10, `FUN_0026f4e0`) and, when it resolves, carries the place through the node's matrices
+ * up to the world (`FUN_00310980`, D:L112446-112450, D:L212139-212147): the node's world origin plus the offset in its
+ * frame (`MapMeta.worlds`; a node under a moved one -- a door's leaf, `nodeMoved` -- where it stands now). Any of the
+ * three places the sound, played through the bank's +0x14 play with that point (D:L112458-112462: `FUN_00342670`'s
+ * RANGE and pan, D:L241907-241950); none plays it unplaced (+0x18, D:L112463-112475). Was `'polygonBoxCentre'`: the
+ * centre of the node's polygons' box, unplaced for a node with none -- MP71's four gulls at full volume over the whole
+ * map. [reading: transcribed, pending review; the moves of gates, cranes and turrets are not carried (only the doors'),
+ * `SCENE_SOUND_MOVING_NODE_PLACEHOLDER`; a node held at the camera plays unplaced, `SCENE_SOUND_CAMERA_NODE_PLACEHOLDER`]
  */
-export const SCENE_SOUND_PLACE_READING = 'polygonBoxCentre' as const;
+export const SCENE_SOUND_PLACE_READING = 'nodeOrigin' as const;
+
+/**
+ * SCENE_SOUND_CAMERA_NODE_PLACEHOLDER: a placed `SOUND` (flag 2) at the camera, or at a node the camera carries, plays
+ * as before the place was read -- without a place, at its volume:
+ * (1) A node named `camera` that no placement of the map carries, rather than at its bare offset. Desert Glory's
+ * `mp6_battlesounds` and Sandstorm's `mp73_battlesounds` place their near gunfire (`incoming`) at `camera` + (+-200,
+ * 100, 0); whether `FUN_0026f4e0`'s lookup finds the game's own camera node by that name (then the sound plays 200 u
+ * beside the listener, through its RANGE) or nothing (then at the bare offset by the map's corner, out of range) is not
+ * read.
+ * (2) A node a scene program holds at the camera -- the target (+6) of an `OBJECT_TRANSLATE_STATE` (18; tick
+ * `FUN_00263890`, D:L111263ff) whose reference node (+7) is `camera`, or a node under one (`cameraFollowers`): every
+ * offered map's sky (`translate_sky`, MP82's `move_sky`, MP52's `translate_dustfollow`; research 175 s5.1.1), looped
+ * in an autostart, so the node stands at the camera each frame. `FUN_00310980` carries the place through the node's
+ * matrix as it stands (D:L112446-112450, D:L212139-212147), so the original plays Sandstorm's `.EXP_DISTANT` (0x86) at
+ * `skydome` + (300, 0, 1000), (-800, 0, -120), (-600, 0, -120) that far from the LISTENER; the port's node stands at its
+ * rest (`SCENE_NODE_TRANSFORM_PLACEHOLDER`), where the place would be on the ground in the playable area ((640, 0, 1320)
+ * and two more on MP73). Only MP73's and MP6's battle sounds sit at such a node (MP6's run by the effect runner, `./effects`).
+ * [placeholder: (1) the node lookup's scope at run time; (2) the place at the listener plus the offset in the node's
+ * frame, as the original's moving node gives it (LATER 894) -- settled by a closer reading of `FUN_00310980` with the
+ * node's live matrix (the camera's frame or its position only, by `OBJECT_TRANSLATE_STATE`'s flags) and a capture of
+ * Sandstorm's and Desert Glory's battle sounds.]
+ */
+export const SCENE_SOUND_CAMERA_NODE_PLACEHOLDER = 'unplaced' as const;
+
+/**
+ * SCENE_SOUND_MOVING_NODE_PLACEHOLDER: a placed `SOUND` (flag 2) at a node a scene program moves -- a gate's
+ * `gate_moveN` (`~FENCE_GATE`, `.WOOD_DR_SLD_*` on MP11 and MP62; `./gates`), a crane's hook (`~CRANE` on MP81;
+ * `./cranes`) -- plays at the node's REST origin plus its offset (`SCENE_SOUND_PLACE_READING`): only a door's move
+ * reaches the world (`nodeMoved`). `FUN_00310980` reads the node's matrix as it stands (D:L112446-112450), so the
+ * original's sound follows the moving gate or hook; until `agent/fh-seagulls` the port's followed the node's polygons as
+ * the hull moved them (`placeOf`). [placeholder: the gates' and cranes' translation handed to `nodeMoved` (LATER 895);
+ * a capture of an MP81 crane swing or an MP11 gate's slide, the sound's pan across the travel, settles it.]
+ */
+export const SCENE_SOUND_MOVING_NODE_PLACEHOLDER = 'restOrigin' as const;
+
+/** `SOUND`'s flag 2: the command names its node at +0x10 (`FUN_002659c0` D:L112446). */
+const SOUND_NODE = 0x2;
 
 /**
  * DEBRIS_NODE_READING (XR-04, ruling PF.R29; research 213 s2.1, s2.3, s4): a node whose zAnim reference saves its parent
@@ -227,27 +282,21 @@ export const SCENE_NODE_MOTION_PLACEHOLDER = 'fadeOverLifetime' as const;
 export const BOAT_ROCK_PLACEHOLDER = 'still' as const;
 
 /**
- * WASHUP_MOTION_PLACEHOLDER (DF-9, research 387 §12): a scene program's `OBJECT_MOTION_FROM_TO` translation on a placed
- * node -- the rate form, or the speed profile (flags 0x800 / 0x1000, `@s2u/scene` `fromTo.profile`) -- is not run here.
- * Fish Hook's `washup1..6` and `water` (autostarts, flags 0x21) move `water_node`, `water_node1..6` -- empty markers,
- * no visual and no collision -- out along their x and back, 1, 0.5 or 0.75 u a stroke by a `RANDOM_WEIGHT` of 0.333
- * (the water always 0.5), 2.75 s a stroke (accelerate 1 s, cruise 1.25 s, slow 0.5 s; `FUN_002606f0`
- * D:L109348-109434). Nothing drawn moves with them; what the travel drives is the scroll
- * (`SCROLL_MOTION_PLACEHOLDER`). Settled with it: the motion run on the page's world (the node's place, no drawing).
+ * SCROLL_MOTION_PLACEHOLDER (DF-9, research 387 §12; narrowed by LATER 782, §12.7): what of `SCROLL_MOTION` (command 24,
+ * `@s2u/scene` op `scroll`) the port does not draw. Since LATER 782 the page's world runs the travel form (flag 8 clear;
+ * `./sceneScroll` `scrollTick`: `FUN_00260fb0` D:L109681-109703, `FUN_00260b40` D:L109635-109674, the 1/4096 steps of
+ * `FUN_003bfee0` D:L313770-313839) on the moving node's place (`WorldState.nodePlace`), and hands the offset to the
+ * drawing (`WorldHooks.scroll`), which moves the texture of the scrolled node's world chunks (`MapMeta.motion.scrolled`,
+ * `LoadedMesh.scrollPath`, `WorldView.setNodeUvOffset`): Fish Hook's six washes and its water, on MP71 and M71. Still
+ * not drawn: (1) the projected form (flag 8, `FUN_00260b40` D:L109576-109631) -- MP52's `reflect_test`, whose mover is
+ * its `camera`; (2) the scroll table's two other walks (flags 2 and 4, `FUN_003bfee0`'s `FUN_003bae40` / `FUN_003bada0`,
+ * unread); (3) a scrolled node drawn as a prop rather than a world chunk -- M71's and M72's `tank_wheels` treads (which
+ * nothing moves in the port), the common `bullet_advance` belt (no viewer source runs it); (4) a world chunk's detail and
+ * environment passes, which keep the unscrolled coordinates where the original's re-run the scrolled vertices; (5) the
+ * coordinate's 16-bit wrap on the vertex (the offset is kept whole; the shore's stays within a repeat). Settled by a
+ * read of the walks and the projected form, and a capture of the shore (H226).
  */
-export const WASHUP_MOTION_PLACEHOLDER = 'still' as const;
-
-/**
- * SCROLL_MOTION_PLACEHOLDER (DF-9, research 387 §12): `SCROLL_MOTION` (command 24, `@s2u/scene` op `scroll`) draws no
- * scroll: the texture coordinates of the visuals under its node stay as the disc has them. In the original
- * (`FUN_00260fb0` D:L109681-109703, `FUN_00260b40` D:L109507-109676) they move by `uv` times the signed distance its
- * `mover` travels along `axis` -- on Fish Hook the six `water_washN` (`water_washup.tif`) by (-0.2, 1) .. per unit
- * of their `water_node`'s stroke and `water` by (0, 1): the wash slides up the beach and back with each stroke, one
- * texture repeat for a 1 u stroke. The port draws the washes and the water still. Settled by a texture offset per
- * visual on the page's world (the material system holds none for a scene program today) driven by the washup motion,
- * and a capture of the shore (H226).
- */
-export const SCROLL_MOTION_PLACEHOLDER = 'none' as const;
+export const SCROLL_MOTION_PLACEHOLDER = 'travelOnWorldChunks' as const;
 
 /**
  * SCENE_NODE_TRANSFORM_PLACEHOLDER (DF-6; research 237 §6, 175 §5.1.1): a run's `OBJECT_TRANSLATE_STATE` (18),
@@ -299,6 +348,9 @@ type WorldRunContext = SceneRunContext & {
   tree?: object;
 };
 
+/** LATER 782: a node's frame where the meta holds none (a map built by hand). */
+const IDENTITY16: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
 /** A map with no metadata (a hull built by hand): no actions, no instances, nothing initially inactive. */
 export function bareMeta(stem = ''): MapMeta {
   return { stem, actions: [], instances: [], instanceByPath: new Map(), initial: [], diagnostics: [] };
@@ -325,6 +377,10 @@ export class WorldState {
   private readonly valves = new Map<string, number>();
   private readonly used = new Set<number>();
   private readonly hooks: WorldHooks[] = [];
+  /** The moved nodes (`nodeMoved`): a path's move from its rest, row-major. */
+  private readonly moves = new Map<string, number[]>();
+  /** The nodes a program holds at the camera (`SCENE_SOUND_CAMERA_NODE_PLACEHOLDER` (2)); built at the first sound. */
+  private followers: readonly string[] | null = null;
   /** MAP-06: the scene programs running (a death's sequence, an action's animation), with the action each runs for. */
   private runs: { run: EffectRun; action: number }[] = [];
   /** MAP-06: the map's destructibles and programs (`MapMeta.scene`; none on a map built by hand). */
@@ -343,6 +399,21 @@ export class WorldState {
   private fading: { path: string; t: number; lifetime: number }[] = [];
   /** PB-9b: each node's last opacity a program wrote (the `opacity` hook's, `WorldView.setNodeOpacity`'s): `basePulse`. */
   private readonly opacities = new Map<string, number>();
+  /**
+   * LATER 782 (`SCENE_PROFILE_MOTION_READING`): each node's own translation as a program's stroke set it, by path; a path
+   * not here stands at its own matrix's (`MapMeta.motion.frames`). Kept across the reset: no reference of the shore saves
+   * a transform (research 387 §12.7).
+   */
+  private readonly translations = new Map<string, Vec3>();
+  /**
+   * LATER 782 (`SCROLL_MOTION_PLACEHOLDER`): each scrolled node's texture offset, in 1/4096ths (the steps `FUN_003bfee0`
+   * adds to its visuals' vertices). Kept across the reset: the round's reset (`FUN_002ac0e0` D:L151976-151991) restores a
+   * node only through what a reference saved (`FUN_0026c4f0`, `FUN_0026b430` D:L115690-115721; research 209): its
+   * active state, parent, translation and rotation, as `FUN_0026b5e0` D:L115740-115807 saves them -- never a visual's
+   * vertices, so the stepped texture coordinates stand [reading, under research 209's `WORLD_RESET_SAVED_READING`: the
+   * rest of `FUN_002ac0e0`'s calls are not read for a vertex rebuild; research 387 s12.7].
+   */
+  private readonly uvOffsets = new Map<string, [number, number]>();
   /** P8's review F2: per predicted press (`WorldRunContext.tree`), each node's opacity before its runs first wrote it. */
   private readonly treeOpacity = new WeakMap<object, Map<string, number | undefined>>();
   /**
@@ -706,6 +777,24 @@ export class WorldState {
     for (const h of [...this.hooks]) h.opacity?.(path, opacity);
   }
 
+  /** LATER 782: the node's own translation as a stroke last set it (`SCENE_PROFILE_MOTION_READING`), or null (none ran). */
+  nodeTranslation(path: string): Vec3 | null {
+    const t = this.translations.get(path);
+    return t ? [...t] : null;
+  }
+
+  /** LATER 782: the scrolled node's texture offset, in texture repeats (`WorldHooks.scroll`), or null (no scroll moved it). */
+  scrollOffset(path: string): [number, number] | null {
+    const o = this.uvOffsets.get(path);
+    return o ? [o[0] / 4096, o[1] / 4096] : null;
+  }
+
+  /** LATER 782: the node's frame (`MapMeta.motion.frames`), the identity at the origin for a node the meta has none of. */
+  private frameOf(path: string): NodeFrame {
+    const f = this.meta.motion?.frames.get(path);
+    return f ? new NodeFrame(f.own, f.world) : new NodeFrame(IDENTITY16, IDENTITY16);
+  }
+
   /** Whether a program of the name (case aside) is running. */
   running(name: string): boolean {
     const n = name.toLowerCase();
@@ -855,7 +944,20 @@ export class WorldState {
         }
         case 'sound':
           if (this.ambientOwned(ctx)) return;
-          if (op.newPlay !== false) for (const h of [...this.hooks]) h.sound?.(op.sound, at(op.node) ?? ctx.root, op.volume);
+          // An autostart's `~` loop is the audio's emitter's (`@s2u/sound` `zanimEmitters`: placed, looped, with RANGE),
+          // as the effect runner's ambient runs leave theirs (`./effects`); played here too, it sounded once, unplaced, at
+          // the match's start (MP71's dogs, chimes and waves). The skip mirrors `zanimEmitters`: a program that starts with
+          // its set (`AUTOSTART_INITIAL_READING`), however its run is reached -- its own, or another autostart's call. The
+          // world no longer suppresses the `~` of a called program that is not one (MP81's `sound_hook_N`): no emitter holds
+          // it. Whether the crane's `~CRANE` is played at all stays `CRANE_SOUND_PLACEHOLDER`'s question (`./cranes`).
+          if (ctx.autostart && AUTOSTART_INITIAL_READING.startsWithSet(run.program.flags) && op.sound.startsWith('~')) return;
+          if (op.newPlay === false) return;
+          {
+            // Flag 2 names the node (a hand-built op, with no flags, names it when it names one).
+            const node = op.flags === undefined || (op.flags & SOUND_NODE) !== 0 ? at(op.node) : null;
+            const place = this.soundPlace(op, node, op.flags !== undefined && (op.flags & SOUND_NODE) !== 0 ? run.program.nodes[op.node] : undefined);
+            for (const h of [...this.hooks]) h.sound?.(op.sound, at(op.node) ?? ctx.root, op.volume, place);
+          }
           return;
         case 'particles':
           if (this.ambientOwned(ctx)) return;
@@ -872,8 +974,20 @@ export class WorldState {
         }
         // DF-6 (INVALIDATE_ANIMATION_READING): the named animation, or this one, refuses its later starts this round.
         case 'invalidate': this.invalidated.add((op.anim ?? run.program.name).toLowerCase()); return;
-        // DF-6 (SCENE_NODE_TRANSFORM_PLACEHOLDER): a placed node's translate, rotate or from-to draws nothing.
-        case 'translate': case 'rotate': case 'fromTo': return;
+        // DF-6 (SCENE_NODE_TRANSFORM_PLACEHOLDER): a placed node's translate, rotate or from-to draws nothing -- but
+        // (LATER 782, SCENE_PROFILE_MOTION_READING) a speed-profile stroke from a given start moves the node's own
+        // translation here, which a SCROLL_MOTION reads (Fish Hook's `water_node*`). BOAT_ROCK_PLACEHOLDER: a rotation
+        // is not run.
+        case 'translate': case 'rotate': return;
+        case 'fromTo': {
+          const p = at(op.node);
+          if (p === null || !runsProfileStroke(op)) return;
+          const rest = this.frameOf(p).rest;
+          return profileStrokeTick(op, {
+            get: () => [...(this.translations.get(p) ?? rest)],
+            set: (t) => { this.translations.set(p, [...t]); },
+          });
+        }
         // SCENE_NODE_MOTION_PLACEHOLDER (V13-3c): a page's presentation run of a death draws, in the flight's stead, the
         // node fading over the motion's lifetime and gone at its end -- unless its program turns that node off itself.
         // The command still ends at once, as every motion did before: what follows it in the sequence is not held.
@@ -891,10 +1005,23 @@ export class WorldState {
           for (const h of [...this.hooks]) h.opacity?.(p, 1);
           return;
         }
-        // DF-9: a placed node's rotation (BOAT_ROCK_PLACEHOLDER) or translation (WASHUP_MOTION_PLACEHOLDER) and the
-        // texture scroll (SCROLL_MOTION_PLACEHOLDER): none run here, each done in the tick it begins, as before ('fromTo'
-        // is DF-6's case above; the two branches met at the lane's merge, and one case per label stands).
-        case 'scroll': return;
+        // LATER 782 (SCROLL_MOTION_PLACEHOLDER): the travel form, its node's visuals moved by its mover's travel -- a
+        // node not placed ends it at once, as `FUN_00260b40` does (D:L109562-109570); the projected form ends at once.
+        case 'scroll': {
+          const node = at(op.node), mover = at(op.mover);
+          if (node === null || mover === null || !runsScroll(op)) return;
+          const frame = this.frameOf(mover);
+          const axis = frame.direction(op.axis);
+          return scrollTick(op, {
+            place: () => frame.place(this.translations.get(mover) ?? frame.rest),
+            axis: () => axis,
+          }, (su, sv) => {
+            const o: [number, number] = this.uvOffsets.get(node) ?? [0, 0];
+            o[0] += su; o[1] += sv;
+            this.uvOffsets.set(node, o);
+            for (const h of [...this.hooks]) h.scroll?.(node, o[0] / 4096, o[1] / 4096);
+          });
+        }
         // SI_SCRIPT_MOTION_PLACEHOLDER (AS-1): `OBJECT_MOTION_SI_SCRIPT` (command 26) falls here too -- no motion, done
         // in the tick it begins (its begin and tick unread).
         default: return;
@@ -947,8 +1074,60 @@ export class WorldState {
   }
 
   /**
-   * Where a program's sound at `path` plays (`SCENE_SOUND_PLACE_READING`): the centre of the box of the polygons at or
-   * under it, where they stand now in the hull; null when none are.
+   * Where a program's `SOUND` plays (`SCENE_SOUND_PLACE_READING`): the command's offset (flag 4), through `path`'s world
+   * matrix (`MapMeta.worlds`) and the move of the nearest moved node at or above it (`nodeMoved`) when `path` is placed;
+   * the bare offset when it is not; null -- no place -- with neither. `name` is the node's name in the program when the
+   * command names one by flag 2 (`SCENE_SOUND_CAMERA_NODE_PLACEHOLDER`). A node at or under one the camera carries
+   * (`cameraFollowers`) has no place (the same placeholder).
+   */
+  private soundPlace(op: { offset?: readonly number[] }, path: string | null, name?: string): [number, number, number] | null {
+    if (path !== null && this.cameraFollowers().some((f) => under(path, f))) return null; // SCENE_SOUND_CAMERA_NODE_PLACEHOLDER
+    const world = path === null ? undefined : this.meta.worlds?.get(path);
+    if (!world) {
+      if (name?.toLowerCase() === 'camera') return null;                // SCENE_SOUND_CAMERA_NODE_PLACEHOLDER
+      return op.offset ? [op.offset[0]!, op.offset[1]!, op.offset[2]!] : null;
+    }
+    const [x, y, z] = op.offset ?? [0, 0, 0];
+    let p = apply4(world as number[], x!, y!, z!);
+    let mover: string | null = null;
+    for (const m of this.moves.keys()) if (under(path!, m) && (mover === null || m.length > mover.length)) mover = m;
+    if (mover !== null) p = apply4(this.moves.get(mover)!, p[0], p[1], p[2]);
+    return p;
+  }
+
+  /**
+   * The placed nodes the map's scene programs hold at the camera: each `OBJECT_TRANSLATE_STATE` whose reference node
+   * (+7) is `camera` (`FUN_00263890`: the node takes the reference's world position), its node (+6) placed as the
+   * program's autostart run places it (`placeRefs`, no scope). Found from the data on every map: MP6/MP71/MP83's
+   * `skydome`s, MP73's `skydome` and `flashes`, MP8's `skydome` and `stars`, MP9/MP12/MP82's `sky`, MP51's
+   * `mp51_skydome`, MP52's `mp52_dustfollow`, MP53's `sky` and `thesun`, MP72's `mp72_sky` and `dust`, MP81's `skyplane`.
+   */
+  private cameraFollowers(): readonly string[] {
+    if (this.followers) return this.followers;
+    const out = new Set<string>();
+    for (const lib of this.scene.programs) {
+      const p = lib.program;
+      const moves = p.sequences.flatMap((q) => q.ops).filter((o) => o.op === 'translate' && p.nodes[o.ref]?.toLowerCase() === 'camera');
+      if (!moves.length) continue;
+      const nodes = placeRefs(this.meta, p.nodes, lib.search, p.root, null, lib.parents);
+      for (const o of moves) if (o.op === 'translate' && nodes[o.node]) out.add(nodes[o.node]!);
+    }
+    return (this.followers = [...out]);
+  }
+
+  /**
+   * A node moved from its rest -- a door's leaf (`DoorPage`'s `move`, the `DoorSet`'s `inv(W0) W`, row-major): every
+   * placement at or under `path` stands moved by `delta` (`soundPlace`; `FUN_00310980` reads each node's matrix as it is
+   * now). The latest move a path, kept until the next.
+   */
+  nodeMoved(path: string, delta: ArrayLike<number>): void {
+    this.moves.set(path, Array.from(delta));
+  }
+
+  /**
+   * The centre of the box of the polygons at or under `path`, where they stand now in the hull; null when none are: a
+   * common-set effect's place (the `call` hook, `COMMON_EFFECT_CALL_READING`). Was also the sound's place, until
+   * `SCENE_SOUND_PLACE_READING` read the node's origin.
    */
   placeOf(path: string): [number, number, number] | null {
     const polys = groundPolygons(this.ground);

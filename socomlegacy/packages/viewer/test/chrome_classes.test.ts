@@ -38,8 +38,12 @@ const OWN = ['row', 'checks', 'section', 'touch-lift', 'ps2-look', 'chrome-hidde
  * also be one `./src/projectSite/site.css` declares (the leaderboard's module sits under `leaderboard/`, outside this scan).
  */
 const PROJECT_PAGES = ['matchPage.ts', 'playerPage.ts'];
-/** The stats pages' own hooks, which no stylesheet styles: a bot's or an empty name's span (`playerName`), and a match row's K / D figure. */
-const PROJECT_OWN = ['project-name-text', 'project-match-row-kd'];
+/**
+ * The stats pages' own hooks, which no stylesheet styles: a bot's or an empty name's span (`playerName`), and a match
+ * row's K / D and score figures (styled as `.project-match-row .project-figure`; the score's phone rule went with LCM
+ * batch 1's shoot, which keeps it beside the K/D).
+ */
+const PROJECT_OWN = ['project-name-text', 'project-match-row-kd', 'project-match-row-score'];
 const siteCss = readFileSync(resolve(here, '../src/projectSite/site.css'), 'utf-8');
 const SRC = resolve(here, '../src');
 const tsSources = (): { file: string; text: string }[] => [...readdirSync(SRC), ...readdirSync(resolve(SRC, 'net')).map((f) => `net/${f}`)]

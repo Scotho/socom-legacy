@@ -113,7 +113,7 @@ describe('the dead cycle through living teammates (FUN_001f97b0, research 91 sec
 
 describe('the rules on the wire and on the page', () => {
   it('protocol 4 carries the rules (5: the cone eye and aim; 6: the blast event and knock codes; 8: the orphan kill and `abandoned` with the loadout request and the item id of a body; 9: the character type; 10: the environment and the round epoch; 11: the slimmed snapshot and the facing); anything else is not rules', () => {
-    expect(PROTOCOL_VERSION).toBe(14);                           // ER-2's bump (the command's raise bit); 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules); 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(parseRules('classic')).toBe('classic');
     expect(parseRules('respawn')).toBe('respawn');
     for (const v of [undefined, null, '', 'CLASSIC', 'deathmatch', 3]) expect(parseRules(v), String(v)).toBeNull();

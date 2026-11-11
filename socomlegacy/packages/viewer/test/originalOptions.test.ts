@@ -513,7 +513,7 @@ describe.skipIf(!HAVE_DISC)('OPTIONS on the dev disc, over a front-end session (
     chosen.length = 0;
     const mode = s.opener.valves.find('video_mode')?.value;
     focus('video_mode');
-    // B206 ML-6 (ML.R11, R12; OT.R110): the strip draws MODERN and PS2 only -- the HD (GoE Soul) box is removed.
+    // B206 ML-6 (ML.R11, R12; OT.R110): the strip draws MODERN and PS2 only -- the HD (GoE SouL) box is removed.
     const drawn = (name: string): boolean => {
       type D = { name: string; children: D[] };
       const find = (n: D): boolean => n.name === name || n.children.some(find);

@@ -1,13 +1,17 @@
 // @vitest-environment node
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FsAssetSource } from '@s2u/archive/node';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
 import { decodeEffectProgram, flattenScene, parseAnimSets, parseSceneGraph, type EffectOp, type EffectProgram, type SceneNode } from '@s2u/scene';
 import { loadSimMap } from '../src/simMap';
+import { loadMap, mergeWorld, type LoadedMap } from '../src/loadMap';
+import { buildWorld } from '../src/world';
+import { Mesh, type Material } from 'three';
 import type { SimMap } from '../src/sim';
-import { BOAT_ROCK_PLACEHOLDER, SCROLL_MOTION_PLACEHOLDER, WASHUP_MOTION_PLACEHOLDER, WorldState } from '../src/worldState';
+import { runsProfileStroke, runsScroll, SCENE_PROFILE_MOTION_READING } from '../src/sceneScroll';
+import { BOAT_ROCK_PLACEHOLDER, SCROLL_MOTION_PLACEHOLDER, WorldState } from '../src/worldState';
 
 /**
  * DF-9 (research 387 §12): Fish Hook's boats and shoreline, read off the disc (`RUN/MP71.ZDB`: `MZANIM.ZAR`'s set
@@ -15,7 +19,7 @@ import { BOAT_ROCK_PLACEHOLDER, SCROLL_MOTION_PLACEHOLDER, WASHUP_MOTION_PLACEHO
  * (DF-2 adds it): this file reads `SOCOM_DISC` (or `SOCOM_PC_ROOT`'s `game/disc`) and SKIPS without it -- a skip is
  * said, never a pass.
  *
- * - The boats: `boat_rocker1` / `boat_rocker2` (flags 0x821) wait 1 s plus a 1 s range, then loop a 4 s rotation slerp
+ * - The boats: `boat_rocker1` / `boat_rocker2` (flags 0x821) wait 1 s plus a 2 s range (1-3 s), then loop a 4 s rotation slerp
  *   (`OBJECT_MOTION_FROM_TO` flags 0x60; begin `FUN_0025fe70` D:L109293-109297, tick `FUN_0025f9b0` D:L109016-109017)
  *   between two absolute quaternions 1.36 and 1.31 degrees off no turn (a 2.67 degree swing); the setter writes the rocker's rotation whole
  *   (`FUN_00315790` -> `FUN_00307170` D:L206170ff), and the rockers' disc rotations are yaws of 26.9 and 147.0 degrees.
@@ -23,7 +27,10 @@ import { BOAT_ROCK_PLACEHOLDER, SCROLL_MOTION_PLACEHOLDER, WASHUP_MOTION_PLACEHO
  * - The shore: `washup1..6` and `water` (flags 0x21) scroll their `water_wash*` / `water` by the travel of an empty
  *   `water_node*` (`SCROLL_MOTION`, `FUN_00260fb0` / `FUN_00260b40`) and stroke that node out along x and back on the
  *   speed profile (`FUN_002606f0` D:L109348-109434); the profile's three phases cover the stroke's distance in its
- *   time. The port runs neither (`SCROLL_MOTION_PLACEHOLDER`, `WASHUP_MOTION_PLACEHOLDER`).
+ *   time. LATER 782: the page's world runs both (`./sceneScroll`; `SCENE_PROFILE_MOTION_READING`, and
+ *   `SCROLL_MOTION_PLACEHOLDER` narrowed to the travel form on world chunks): the nodes stroke and the washes' and the
+ *   water's offsets follow them. The sweep: every `SCROLL_MOTION` and every speed profile on the disc, and which the
+ *   world runs -- the fix is the command's, on every map that holds it.
  */
 const DISC = [process.env.SOCOM_DISC, process.env.SOCOM_PC_ROOT ? join(process.env.SOCOM_PC_ROOT, 'game/disc') : undefined]
   .find((d) => !!d && existsSync(join(d, 'RUN/MP71.ZDB')));
@@ -56,7 +63,9 @@ describe.skipIf(!DISC)(`DF-9: Fish Hook's boats and shoreline${SKIP}`, () => {
       expect(p.flags).toBe(0x821);
       expect(p.nodes).toEqual(['NA', name]);
       expect(ops(p, 0).map((o) => o.op)).toEqual(['wait', 'callSequence']);
-      expect(ops(p, 0)[0]).toEqual({ op: 'wait', seconds: 1, range: 1, frames: null });
+      // The random WAIT (flags 0x29): base +12 1, range +16 2 (`FUN_0025ed50` D:L108436-108447) -- 1-3 s. Was {1, 1}:
+      // the range read at +12, which holds the base again.
+      expect(ops(p, 0)[0]).toEqual({ op: 'wait', seconds: 1, range: 2, frames: null });
       expect(ops(p, 1)[0]).toEqual({ op: 'while', forever: true });
       const [there, back] = fromTos(p);
       expect(fromTos(p).length).toBe(2);
@@ -138,19 +147,127 @@ describe.skipIf(!DISC)(`DF-9: Fish Hook's boats and shoreline${SKIP}`, () => {
     }
   });
 
-  it('the port today: the nine run on the page\'s world, and no boat polygon moves (the three placeholders)', async () => {
-    expect(BOAT_ROCK_PLACEHOLDER).toBe('still');
-    expect(WASHUP_MOTION_PLACEHOLDER).toBe('still');
-    expect(SCROLL_MOTION_PLACEHOLDER).toBe('none');
+  it("the meta: the washes and the water are drawn apart (scrolled), the seven nodes' frames identity under the identity world", async () => {
     const map = await simMap();
-    const world = new WorldState(map.meta!, map.ground, map.grid);
+    const motion = map.meta!.motion!;
+    expect([...motion.scrolled].sort()).toEqual(['water', 'water_wash', 'water_wash1', 'water_wash2', 'water_wash3', 'water_wash4', 'water_wash5'].map((n) => `worldmodel/${n}`));
+    const id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    expect([...motion.frames.keys()].sort()).toEqual(['water_node', ...[1, 2, 3, 4, 5, 6].map((n) => `water_node${n}`)].map((n) => `worldmodel/${n}`));
+    for (const f of motion.frames.values()) { expect(Array.from(f.own)).toEqual(id); expect(Array.from(f.world)).toEqual(id); }
+  });
+
+  it("the port now: the nine run on the page's world; the seven nodes stroke and each wash's offset follows its node; no boat polygon moves", async () => {
+    expect(BOAT_ROCK_PLACEHOLDER).toBe('still');
+    expect(SCENE_PROFILE_MOTION_READING).toBe('givenStartNodeOnly');
+    expect(SCROLL_MOTION_PLACEHOLDER).toBe('travelOnWorldChunks');
+    const map = await simMap();
+    const offsets = new Map<string, [number, number]>();
+    const world = new WorldState(map.meta!, map.ground, map.grid, { scroll: (path, u, v) => { offsets.set(path, [u, v]); } });
     world.runAutostartPrograms = true;
+    let draw = 0;
+    world.autostartRandom = () => [0.1, 0.5, 0.9][draw++ % 3]!;      // the strokes' RANDOM_WEIGHT branches, in turn
     const before = Float32Array.from(map.ground.points);
     world.applyInitial();
-    for (let i = 0; i < 100; i++) world.step(0.1);           // 10 s: past the boats' wait and two of their strokes
+    const shore: [string, string, number][] = [
+      ['water_wash', 'water_node', -0.2], ['water_wash1', 'water_node2', 0.3], ['water_wash2', 'water_node3', -0.2],
+      ['water_wash3', 'water_node4', 0.3], ['water_wash4', 'water_node5', -0.2], ['water_wash5', 'water_node6', 0.3], ['water', 'water_node1', 0],
+    ];
+    const seen = new Map<string, number[]>(shore.map(([, node]) => [node, []]));
+    for (let i = 0; i < 100; i++) {
+      world.step(0.1);                                                   // 10 s: past the waits and three strokes
+      for (const [wash, node, u] of shore) {
+        const x = world.nodeTranslation(`worldmodel/${node}`)?.[0] ?? 0;
+        seen.get(node)!.push(x);
+        const o = world.scrollOffset(`worldmodel/${wash}`) ?? [0, 0];
+        // The offset is the node's travel through (u, 1) along the axis -x: v = -x, u = -u x -- a tick behind (the scroll
+        // ticks before the stroke) and less the 1/4096ths each tick truncates.
+        expect(Math.abs(o[1] + x)).toBeLessThan(0.08);
+        expect(Math.abs(o[0] + u * x)).toBeLessThan(0.08);
+      }
+    }
     for (const name of ['boat_rocker1', 'boat_rocker2', 'washup1', 'washup2', 'washup3', 'washup4', 'washup5', 'washup6', 'water']) {
       expect(world.running(name)).toBe(true);
     }
+    for (const [, node] of shore) {
+      const xs = seen.get(node)!;
+      expect(Math.max(...xs)).toBeGreaterThan(0.4);                      // out at least half a unit
+      expect(Math.min(...xs.slice(30))).toBeLessThan(0.1);               // and back
+      // The stroke's steps at 0.1 s carry it a little past its end before the end's target is set (1.0025 for 1 u).
+      expect(xs.every((x) => x >= -0.01 && x <= 1.01)).toBe(true);
+    }
+    expect([...offsets.keys()].sort()).toEqual(shore.map(([w]) => `worldmodel/${w}`).sort());
     expect(Array.from(map.ground.points)).toEqual(Array.from(before));
+  });
+
+  it("the page's loader: 27 world parts tagged with their scrolled path (`LoadedMesh.scrollPath`), each of the seven; the cost +0 draws, +5 materials", async () => {
+    const map: LoadedMap = await loadMap(new FsAssetSource(DISC!), 'RUN/MP71.ZDB');
+    const scrolled = ['water', 'water_wash', 'water_wash1', 'water_wash2', 'water_wash3', 'water_wash4', 'water_wash5'].map((n) => `worldmodel/${n}`);
+    const tagged = map.world.filter((p) => p.scrollPath !== undefined);
+    expect(tagged.length).toBe(27);
+    expect([...new Set(tagged.map((p) => p.scrollPath!))].sort()).toEqual(scrolled);
+    // The cost (the review's line, world.ts `materialFor`): what the tags add to the drawing -- the world's draws and its
+    // materials, built with the tags and with the same parts untagged. The loader keeps the scrolled pieces as the disc
+    // draws them (`worldPiecePlanFor`'s keep), so the draws are the same; a tagged chunk takes a material of its path's.
+    const count = (m: LoadedMap): { draws: number; materials: number; offsets: number } => {
+      const view = buildWorld(m);
+      for (const task of [...view.revealWorld, ...view.revealProps]) task();
+      const mats = new Set<Material>();
+      let draws = 0;
+      view.group.traverse((o) => { if (o instanceof Mesh) { draws++; mats.add(o.material as Material); } });
+      const offsets = [...mats].filter((x) => x.userData.uvOffset !== undefined).length;
+      view.dispose();
+      return { draws, materials: mats.size, offsets };
+    };
+    const untagged: LoadedMap = { ...map, world: map.world.map(({ scrollPath: _drop, ...p }) => p) };
+    // The merge's side: re-merging the loaded draws keeps them as they are, tagged or not -- no tagged chunk would have
+    // joined another draw without its tag (`mergeWorld`'s `|x` key adds no draw on MP71).
+    expect(mergeWorld(map.world, map.textureFlags, map.detail).length).toBe(map.world.length);
+    expect(mergeWorld(untagged.world, map.textureFlags, map.detail).length).toBe(map.world.length);
+    const withTags = count(map), without = count(untagged);
+    expect(withTags.draws - without.draws).toBe(0);
+    expect(withTags.materials - without.materials).toBe(5);
+    expect(without.offsets).toBe(0);
+  }, 120_000);
+
+  it('every SCROLL_MOTION and speed profile on the disc, and what the world runs (the travel form; given-start strokes)', () => {
+    const run = join(DISC!, 'RUN');
+    const scrolls = new Set<string>();
+    const profiles = new Map<string, number>();
+    let belts = 0;
+    for (const f of readdirSync(run).filter((n) => /\.ZDB$/i.test(n)).sort()) {
+      const stem = f.replace(/\.ZDB$/i, '');
+      const b = new Uint8Array(readFileSync(join(run, f)));
+      for (const e of parseZdb(b).filter((t) => /ZANIM\.ZAR$/i.test(t.name))) {
+        for (const a of parseAnimSets(Zar.parse(b.subarray(e.offset, e.offset + e.size))).sets.flatMap((s) => s.anims)) {
+          for (const o of decodeEffectProgram(a).sequences.flatMap((s) => s.ops)) {
+            if (o.op === 'scroll') {
+              if (a.name === 'bullet_advance' && /CZANIM/i.test(e.name)) {
+                belts++;
+                expect(o).toMatchObject({ flags: 1, seconds: expect.closeTo(0.1, 6) });
+              } else scrolls.add(`${stem} ${a.name} ${runsScroll(o) ? 'runs' : 'projected'}`);
+            }
+            if (o.op === 'fromTo' && o.profile) {
+              const k = `${stem} ${a.name} ${runsProfileStroke(o) ? 'runs' : 'not run'}`;
+              profiles.set(k, (profiles.get(k) ?? 0) + 1);
+            }
+          }
+        }
+      }
+    }
+    // The common turret belt is in every map's CZANIM (the vehicle gun's; no viewer source runs it).
+    expect(belts).toBe(34);
+    const shore = (stem: string, n: number) => [...Array.from({ length: n }, (_, i) => `${stem} washup${i + 1} runs`), `${stem} water runs`];
+    expect([...scrolls].sort()).toEqual([
+      ...shore('M71', 8), 'M71 tank_wheels runs', 'M72 tank_wheels runs', 'MP52 reflect_test projected', ...shore('MP71', 6),
+    ].sort());
+    // The strokes: out and back, three branches a wash (one for the water), every one run; obj_crane (no node, no time) not.
+    const expected = new Map<string, number>([
+      ...shore('M71', 8).map((k): [string, number] => [k, k.includes('water ') ? 2 : 6]),
+      ...shore('MP71', 6).map((k): [string, number] => [k, k.includes('water ') ? 2 : 6]),
+    ]);
+    const cranes = [...profiles].filter(([k]) => k.includes(' obj_crane '));
+    expect(cranes.length).toBe(12);
+    expect(cranes.every(([k, n]) => k.endsWith('not run') && n === 1)).toBe(true);
+    expect(new Map([...profiles].filter(([k]) => !k.includes(' obj_crane ')))).toEqual(expected);
   });
 });

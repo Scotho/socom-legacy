@@ -2,9 +2,12 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { SEAL_TUNING } from '@s2u/scene';
+import { GAME_FRAME_DT, SEAL_TUNING } from '@s2u/scene';
 import { OptionGlobals, STICK_PRESETS, stickGainOfSensitivity, UiVarManager, ValveStore, VALVE_TYPE } from '@s2u/ui';
-import { LOOK_GAIN, LookLaw, lookStickOf, MAX_YAW_RATE, maxPitchRateOf, maxYawRateOf, RIGHT_STICK, type StickConfig } from '../src/look';
+import {
+  LOOK_GAIN, LookLaw, lookStickOf, MAX_YAW_RATE, maxPitchRateOf, maxYawRateOf, RAMP_PER_SECOND, rampPerSecondOf, rampStep, RIGHT_STICK,
+  type StickConfig,
+} from '../src/look';
 import { moveStick } from '../src/moveStick';
 import { LOOK_RATE_MAX_ADAPTATION, lookAllowance } from '../src/net/lookGate';
 import { playOptionsOf } from '../src/originalOptions';
@@ -73,6 +76,37 @@ describe('the look law at the stick\'s words', () => {
   it('the move stick takes the same dead zone (its watcher writes both sticks)', () => {
     expect(moveStick(0.2, 0)[0]).toBe(0);
     expect(moveStick(0.2, 0, lookStickOf(2, null).deadZone)[0]).toBeGreaterThan(0);
+  });
+});
+
+describe('ACCELERATION drives the look\'s ramp (LATER 317, issue #449)', () => {
+  // STICK_INERTIA's watcher (0x389f10, re-read from the disc's ELF: `lui $v1, 0x3f80` ... `sub.s $f0, $f0, $f1` ...
+  // `swc1 $f0, 0x2a4($v1)`, $v1 = pad + stick x 0x28) writes +0x2a4 = 1.0 - v, the look stick's (1) at +0x2cc; the pad
+  // reader `FUN_002da930` grows the stick's push at most dt + (1 - dt) x (1 - (r x 0.13 + 0.87)), x 1 / (r + 0.5) above
+  // 0.5, a frame (D:L179772-179780), r that word.
+  const ends = [0, 0.25, 0.5, 0.75, 1];
+
+  it('the slider v reaches the look stick\'s ramp word as 1 - v (f32) at its ends and between', () => {
+    for (const v of ends) expect(lookStickOf(3, vars(0.5, v, 0.58)).ramp, `v ${v}`).toBe(Math.fround(1 - v));
+  });
+
+  it('the law\'s first frame of a full push grows by rampStep(dt, 1 - v): the slider changes the ramp, not the top', () => {
+    const first = (v: number): number => {
+      const law = new LookLaw();
+      law.setOptions({ stick: lookStickOf(3, vars(0.5, v, 0.58)) });
+      return Math.abs(law.frame(GAME_FRAME_DT, 1, 0).yaw);
+    };
+    for (const v of ends) {
+      const expected = SEAL_TUNING.turnMaxRate * rampStep(GAME_FRAME_DT, Math.fround(1 - v)) * LOOK_GAIN;
+      expect(first(v), `v ${v}`).toBeCloseTo(expected, 9);
+    }
+    // More ACCELERATION, a faster ramp: each step up the slider grows the first frame's turn.
+    const turns = ends.map(first);
+    for (let k = 1; k < turns.length; k++) expect(turns[k]!).toBeGreaterThan(turns[k - 1]!);
+    // RECRUIT's 0.25 is the dump's ramp 0.75, the law's default (`RAMP_PER_SECOND`).
+    expect(rampPerSecondOf(lookStickOf(3, vars(0.5, 0.25, 0.58)))).toBe(RAMP_PER_SECOND);
+    // The top is the gain's, whatever the slider: a held push reaches the same turn at both ends.
+    for (const v of [0, 1]) expect(fullTurn(lookStickOf(3, vars(0.5, v, 0.58)))).toBeCloseTo(fullTurn(lookStickOf(3, vars(0.5, 0.25, 0.58))), 6);
   });
 });
 

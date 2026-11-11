@@ -13,6 +13,10 @@ char_dyn.cpp:21-35`, `zSeal/zseal.h:448-452`). It stands on [research 80](80-the
 value below is transcribed from the decompilation and the table and held by unit tests; none is measured against the
 original running (§7 says what would).
 
+Amended 2026-11-11 (FALL-DEATH-LAND, §3.6) for the owner's v0.4.18 report: "when players fall to their death their
+character just crouches where they fell instead of being a dead body on the ground". **Confidence: reading, pending
+review.**
+
 ## 0. Answers
 
 - **What the original measures**: the landing's **contact speed** (units a second, downward) -- the value `FUN_005af590`
@@ -32,7 +36,11 @@ original running (§7 says what would).
   learns its health from the `hurt` event alone -- so the owner heard the voice (the page's own landing, the same
   speed) and saw a full bar. Fixed: the room sends `hurt` (part 3), reports it, and reads a blast knock's landing at
   x 1.2 as the game does (§3).
-- **Placeholders added**: none. One gate not read (§5), registered as `owed`.
+- **Placeholders added**: none. One gate not read (§5), registered as `owed`. FALL-DEATH-LAND (§3.6) adds one reading,
+  `REMOTE_FALL_DEATH_POSE_READING` (§5).
+- **The landing that kills** (FALL-DEATH-LAND, §3.6): `FUN_005af590` runs the damage BEFORE it picks the clip
+  (D:L466656), so a body the fall kills -- a wounded one from a light or heavy drop as well as anyone from a deadly one --
+  is class 3: `Land forward` in the death state 8, no coin, held (D:L466658-466664).
 
 ## 1. The defect and its cause
 
@@ -166,6 +174,45 @@ sound's (`landSpeeds`) and the mover's (`landingClass`) exactly, and that over a
 hurt (`landingClass(v) >= 1`; until 2026-10-04 `landingHurts`, voiced hurt, removed with the voice moved to the damage
 reaction, research 205 §2.2) exactly when `applyFall` takes health.
 
+### 3.6 The landing that kills (FALL-DEATH-LAND, 2026-11-11)
+
+**The defect.** The owner, v0.4.18: "when players fall to their death their character just crouches where they fell
+instead of being a dead body on the ground". The mover's `land` picked the clip from the speed alone; the room's
+`fallDamage` ran after the command's step and killed. A wounded player killed by a light drop (62-91 units) landed
+`Jump land hard` (`seal_land_hard`, a crouch), by a heavy one (91-120) `Hit` or `Hit stomach`; the `dead` setter turned
+only a get-up into the held `Land forward`, so when the clip ran out the corpse went back to the ground state. The kill
+names no clip for a fall (`deaths.ts` `deathClip`), so every viewer drew that pose: the page's own body (its own mover),
+the others (the room's mover through the snapshots) and the replays (`replay/fold.ts` holds only `Land forward` /
+`Land backwards`).
+
+**The original's order.** `FUN_005af590` calls `FUN_005ac1f0(speed, actor)` first (D:L466656); on the victim's console
+it lays the damage and runs the reaction `FUN_005a54d0(actor, 3, 7)` (D:L464954), which kills a body left at 0. Back in
+`FUN_005af590` a body whose alive bit (`+0xe1` bit 4) is clear is forced to class 3 (D:L466658-466660), and over the
+hard rate class 3 pushes `Land forward` (`DAT_003deee8`) in state 8 (D:L466663-466664) -- the coin of class 2
+(D:L466667-466669) is never drawn. Cause 7 plays no death clip of its own (D:L461387).
+
+**The port.** The order is kept on the console that applies the damage: the mover asks `Walker.fallKills(speed)` before
+its pick, and a yes is a corpse's class 3 (`Land forward`, no coin); the room answers it on every living player's mover
+(`p.sim.walker.fallKills ??=`, beside `lookContext`) with `damage.ts` `fallKills` -- `applyFall` on a copy of the same
+health, the deathless seat never -- and `fallDamage` then lays the damage and the kill as before, on the same command.
+The landing's `cls` stays the speed's class: it is `FUN_005ac1f0`'s, the one the sound is picked by (D:L464896-464925);
+only the clip follows the forced class. The kill sets `Walker.dead` on that command, so `Land forward` holds its last key
+and the stick never cuts it (`runClocks`, `interrupted`). The page has no `fallKills` (its health is the room's word,
+heard after the landing): its own mover lands as the living do, and the `kill` (how 'fall') reaches it through
+`WalkMode.setDead(true, { fall: true })` -> `Walker.diedOfFall`, which turns a `Jump land hard`, `Hit` or `Hit stomach`
+still playing into `Land forward` at the phase reached (both started on the same command) and holds it. A kill heard
+once that clip is off -- run out (`Jump land hard` 0.9025 s, the hits 2.8-3.5 s) or cut by the stick past its
+NoInterrupt (`Jump land hard` from 0.3325 s; the review's F1) -- finds the ground state: while that hard landing is
+still the mover's latest (on the floor since, no landing after it) the body lies in `Land forward` at its last key, as
+the room's has by then (`Land forward` runs 0.33 s). The others' copies and the replays follow the room's mover
+unchanged (`bodyOf`'s action; `heldLanding`).
+
+**Why the hook and not the `dead` setter alone.** Turning the clip in the setter when the room's kill arrives would draw
+the same pose, but after the pick: the room's landing record would name the living's clip, and the class-2 coin would be
+drawn for a body the original never draws it for. The hook keeps `FUN_005af590`'s order -- the damage's answer, then the
+pick -- on the console that applies the damage; the page's `diedOfFall` is the round trip's correction, not a second
+rule.
+
 ## 4. Tests and the registry
 
 | test | holds | data |
@@ -173,6 +220,9 @@ reaction, research 205 §2.2) exactly when `applyFall` takes health.
 | `packages/viewer/test/fallDamage.test.ts` | the three speeds from the table, equal in the sound, the mover and the damage; the landing's class and the damage share the light speed; `f`'s shape; the six parts, no armour, the clamp; the knock factor | none |
 | `packages/match/test/roomFall.test.ts` | the room: a landing over the light speed takes `max x f` and sends `hurt` (part 3, no flinch) to the victim alone; one under sends nothing; the deadly one kills as a fall (-2); one `hurt` a landing; the knock's x 1.2; the combat report | none |
 | `packages/match/test/roomFall.test.ts`, "a fall on Frostfire" | on the MP2 fixture's own ground: a SEAL stood at (531, 202, 905) on the 202 level and walked west leaves its edge at the 15th tick and lands on the 100 floor 102 lower (219-223 a second, class 2, `Hit stomach`): the room takes `max x f` (f 0.72-0.79) and sends one `hurt`. The ledge comes from a scan of the fixture's collision for walkable edges over a 62-unit drop (2026-10-03; the probe was not kept): the 202 level's west edge at x ~525 over z 885-1065, and its east edge at x ~675 (z 885-1115) over the 142 deck or the 100 floor; the 230 level at x 771-945, z 805-989 falls 130 to the floor (deadly) | fixture |
+| `packages/match/test/roomFall.test.ts`, "a wounded player killed by a light (class 1) / heavy (class 2) drop" (FALL-DEATH-LAND) | a wounded player (30 % / 50 % of every part) dropped 85 / 100 units: the speed's class 1 / 2, killed as a fall with no clip, the landing's clip `Land forward`, held on its last key, still held after 120 commands with the stick forward | none |
+| `packages/viewer/test/walk.test.ts`, "a landing whose fall damage kills" and "told of its fall's death" (FALL-DEATH-LAND) | `fallKills` answering yes lands `Land forward` from a light and a heavy drop with no coin drawn, no as before; `diedOfFall` turns `Jump land hard`, `Hit` and `Hit stomach` into `Land forward` at the phase reached, held, the feet still | none |
+| `packages/viewer/test/netClient.test.ts`, "its own fall's kill tells the walk it was a fall" (FALL-DEATH-LAND) | the own body's `kill` how 'fall' passes `fall: true` to the walk; a weapon's does not | none |
 | `packages/viewer/test/roundDamage.parity.test.ts`, `netDamage.test.ts` (existing) | `applyFall`'s formula and speeds (loosened to 0.1 of the rounded values) | none |
 
 Registry: [`../parity/registry/round.json`](../parity/registry/round.json) `round.fall.speeds`, `round.fall.damage-fraction`,
@@ -181,16 +231,26 @@ last with an `owed`: §5), all **reading**.
 
 ## 5. Placeholders and readings
 
-None added by this task. One value is applied without its gate read:
+None added by the 2026-10-03 task, one reading by FALL-DEATH-LAND (2026-11-11); one value is applied without its gate read:
 
 | name | value | why | what settles it |
 |---|---|---|---|
+| `REMOTE_FALL_DEATH_POSE_READING` (`packages/viewer/src/net/deaths.ts`; FALL-DEATH-LAND) | every viewer's copy of a body that fell to its death is drawn from the room's mover, the victim's console's: `Land forward`, held (§3.6) | on another console `FUN_005ac1f0` lays no damage (D:L464929-464933) and returns class 0, so unless the death has already cleared the alive bit there the landing pushes clip 0xb, `Jump land hard` (D:L466674); how the death's state 8 then reaches that copy (whether it lies down, in what) is not read | **capture spec**: two consoles in one LAN game (PCSX2 x 2 or the recomp, PLAT-36) on Frostfire (MP2); the victim wounded first (one 85-unit drop, about 38 % off), then walked west off the 202 level at (531, 202, 905) onto the 100 floor (102 units, class 2, lethal at that health); record the OBSERVER's screen from the landing to 3 s after, and read the victim's actor on the observer's RDRAM at the landing and each frame after: the animation stack's top clip (the `FUN_00588bc0` push), the state word `+0x174` and `+0xe1` bit 4. Settled by the observer's clip sequence and when (if) state 8 lands; a `Jump land hard` that stands back up would retire this reading for a remote-copy rule |
 | `KNOCK_LANDING_GATE_READING` (*note only*: no constant; the port applies x 1.2 to every knock's landing) | body `+0x105c` bit 3 clear (D:L441921) before `FUN_00580360` reads the knock's landing at x 1.2 | the bit's writer was not found in this task (research 84 §8 reads bit 2 of the same byte as the aim-point flag); every knock landing the port has is read at x 1.2 | the bit's writer in the decompilation, or a trace of a knock-down's landing on the recomp (PLAT-36) |
 
 Named stand-ins this rule touches, owned elsewhere: `LANDING_HIT_DRAW_READING` and `DEATH_LANDING_GETUP_PLACEHOLDER`
 (`mover.ts`; research 86 §7.2, research 80 §6c and §7) -- the class-2 coin and the offline death landing; unchanged here.
 
 ## 6. Not done, and owed
+
+- **FALL-DEATH-LAND: which class the reporter saw** is not known. The report says "crouches", which reads most like
+  `Jump land hard`'s pose (class 1, a 62-91 unit drop from a wounded body), but a heavy drop (91-120) ended the same way
+  once its hit ran out; the fix covers both, and the owner's run is its acceptance. The report names no map or ledge.
+- **FALL-DEATH-LAND: the page's own body after a slow kill.** A `kill` heard after the hard landing's clip is off
+  (`Jump land hard` 0.9025 s, or 0.3325 s with the stick held) lays the page's mover in `Land forward` at its last key
+  where it stands: a stick held through the round trip has walked the page's body on from the landing point the
+  room's corpse lies at (the review's F1; the place is the own-body correction's, not this task's). Recordings made
+  before the fix keep the old pose (their snapshots carry the room's mover as it was).
 
 - **A browser spec** (a fall from a known ledge lowering the bar): not written this task. The ledge is now known (§4:
   Frostfire's 202 level at (531, 202, 905), west; the deck `walk.test.ts` uses is 42 over the floor and free), but in

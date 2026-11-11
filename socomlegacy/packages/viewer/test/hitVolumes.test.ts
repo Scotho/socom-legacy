@@ -7,7 +7,8 @@ import { readSkeleton, transformPoint, type MotionClip } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { PART } from '../src/net/damage';
 import {
-  bodyVolumes, boneCentre, placeholderVolumes, rayBody, skeletonVolumes, stanceVolumes, type Capsule, type V3,
+  bodyPointToWorld, bodyVolumes, boneCentre, NO_PART, placeholderVolumes, rayBody, rayRecords, skeletonVolumes, stanceVolumes,
+  type BoneBox, type Capsule, type HitBody, type V3,
 } from '../src/net/hitVolumes';
 import { loadSimSkeleton, type SimSkeleton } from '../src/simMap';
 import { BODY_TOP as TRAVERSAL_BODY_TOP } from '../src/traversal';
@@ -17,9 +18,13 @@ import { rootTiltStart, stepRootTilt } from '../src/rootTilt';
 import { PRONE_HEIGHT } from '../src/stature';
 
 /**
- * The server's hit volumes off the SEAL's own skeleton (web sprint 3, M6; research 91 section 1.3): each damage bone a
- * capsule from its joint to the next joint of its chain, posed at the stance's idle clip, in the body's frame (x right,
- * y up, z behind, the soles at the origin), then placed at the feet and the facing.
+ * The server's hit volumes off the SEAL's own skeleton (web sprint 3, M6; research 91 section 1.3), and since BONE-BOXES
+ * (owner ruling OT.R119; research 398 s1; research 217 s3.6b) the original's: each bone from `skel_root` down a box --
+ * its `nparams` bbox in the bone's frame (`FUN_0058b960` D:L447559-447593, `FUN_0031aec0` D:L218167-218192) -- posed at
+ * the stance's idle clip, in the body's frame (x right, y up, z behind, the soles at the origin), then placed at the feet
+ * and the facing. Every check that held the capsules (each damage bone's, joint to joint) holds the boxes now: the
+ * same parts at the same heights, the boxes' corners where the capsules' ends and radii were; a line's part is the first
+ * record that applies one (a scapula's or a hand's box, `NO_PART`, applies nothing: research 398 s0, rule 4).
  */
 
 const FIXTURES = resolve(process.env.S2U_TEST_FIXTURES || resolve(dirname(fileURLToPath(import.meta.url)), '../../../test-fixtures'));
@@ -36,17 +41,35 @@ function fromFront(x: number, y: number): { o: V3; d: V3 } {
   const r = (YAW * Math.PI) / 180;
   return { o: world([x, y, -30]), d: [Math.sin(r), 0, Math.cos(r)] };
 }
-const centre = (c: Capsule): V3 => [(c.a[0] + c.b[0]) / 2, (c.a[1] + c.b[1]) / 2, (c.a[2] + c.b[2]) / 2];
 const lo = (c: Capsule): number => Math.min(c.a[1], c.b[1]) - c.r;
 const hi = (c: Capsule): number => Math.max(c.a[1], c.b[1]) + c.r;
-const of = (vs: readonly Capsule[], part: number): Capsule[] => vs.filter((c) => c.part === part);
-/** LEAN-HIT: the idle sets' digest before the change, and the standing leans' head offsets, measured (below). */
-const IDLE_DIGEST = '4ab61bf4', STAND_R_HEAD_DX = 3.736285, STAND_L_HEAD_DX = -3.384332;
+/** A box's point at corner fractions `f` (0..1 on each axis of its own frame), in the body frame. */
+const boxAt = (b: BoneBox, f: readonly number[]): V3 => {
+  const p = [0, 1, 2].map((k) => b.box[k]! + (b.box[3 + k]! - b.box[k]!) * f[k]!), w = b.w;
+  return [0, 1, 2].map((r) => p[0]! * w[r]! + p[1]! * w[4 + r]! + p[2]! * w[8 + r]! + w[12 + r]!) as V3;
+};
+const CORNERS = [0, 1].flatMap((x) => [0, 1].flatMap((y) => [0, 1].map((z) => [x, y, z])));
+const centre = (b: BoneBox): V3 => boxAt(b, [0.5, 0.5, 0.5]);
+const low = (b: BoneBox): number => Math.min(...CORNERS.map((f) => boxAt(b, f)[1]));
+const high = (b: BoneBox): number => Math.max(...CORNERS.map((f) => boxAt(b, f)[1]));
+/** The damage parts' boxes (`NO_PART` left out: the bones the capsules stood for). */
+const of = (vs: readonly BoneBox[], part: number): BoneBox[] => vs.filter((c) => c.part === part);
+const damage = (vs: readonly BoneBox[]): BoneBox[] => vs.filter((c) => c.part !== NO_PART);
+/** The first record that applies a part, a line's part: `NO_PART` records passed. */
+const firstPart = (o: V3, d: V3, reach: number, body: HitBody): number | null => {
+  const rs: { part: number; t: number }[] = [];
+  rayRecords(o, d, reach, body, (part, t) => { rs.push({ part, t }); });
+  return rs.sort((a, b) => a.t - b.t).find((r) => r.part !== NO_PART)?.part ?? null;
+};
+/** A placed body's box's world middle. */
+const placedCentre = (body: HitBody, b: BoneBox): V3 => bodyPointToWorld(body, centre(b));
 
 describe('the placeholder stays the fallback', () => {
   it('bodyVolumes without skeleton volumes is placeholderVolumes', () => {
     for (const posture of ['stand', 'crouch', 'prone'] as const) {
-      expect(bodyVolumes(FEET, YAW, posture)).toEqual(placeholderVolumes(FEET, YAW, posture));
+      const body = bodyVolumes(FEET, YAW, posture);
+      expect(body.boxes).toBeNull();
+      expect(body.caps).toEqual(placeholderVolumes(FEET, YAW, posture));
     }
   });
   // PF-21 (research 180 s1.4, research 217 s4; ruling PF.R45): the original has no prone height -- its prone body is the
@@ -63,6 +86,12 @@ describe('the placeholder stays the fallback', () => {
       expect(hi(c) - FEET[1]).toBeLessThanOrEqual(6);
       expect(c.a[1] - FEET[1]).toBeCloseTo(3, 9);                 // the class's half: its probe's height
     }
+  });
+  it('the placeholder gives one record a body, at its nearest capsule (a stand-in with no bones)', () => {
+    const { o, d } = fromFront(0, 12);
+    const rs: number[] = [];
+    rayRecords(o, d, 100, bodyVolumes(FEET, YAW, 'stand'), (_p, t) => { rs.push(t); });
+    expect(rs).toHaveLength(1);
   });
 });
 
@@ -94,23 +123,27 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`Frostfire's SEAL hit volumes${MP2 &&
   it('standing: the head at 16-20, the body over about 9-16, the legs down to 1-3', async () => {
     const s = await get();
     const v = skeletonVolumes(s.skeleton, s.idles.stand);
+    // BONE-BOXES: the 25 bones from skel_root down, each its box; the thirteen damage bones among them
+    expect(v).toHaveLength(25);
+    expect(damage(v)).toHaveLength(13);
     const head = of(v, PART.HEAD), body = of(v, PART.BODY);
-    expect(head.length).toBeGreaterThan(0);
     const top = head.reduce((a, c) => (centre(c)[1] > centre(a)[1] ? c : a));
     expect(centre(top)[1]).toBeGreaterThan(16);
     expect(centre(top)[1]).toBeLessThan(20);
-    expect(Math.min(...body.map(lo))).toBeGreaterThan(7.5);
-    expect(Math.min(...body.map(lo))).toBeLessThan(10.5);
-    expect(Math.max(...body.map(hi))).toBeGreaterThan(15);
-    expect(Math.max(...body.map(hi))).toBeLessThan(18);
+    const live = body.filter((b) => b.box.some((x) => x !== 0));   // spinelo's empty box aside
+    console.log(`BONE-BOXES standing: head top ${centre(top)[1].toFixed(3)}, body ${Math.min(...live.map(low)).toFixed(3)} to ${Math.max(...live.map(high)).toFixed(3)}, legs' bottoms ${[PART.RLEG, PART.LLEG].map((l) => Math.min(...of(v, l).map(low)).toFixed(3)).join(', ')}`);
+    expect(Math.min(...live.map(low))).toBeGreaterThan(7.5);
+    expect(Math.min(...live.map(low))).toBeLessThan(10.5);
+    expect(Math.max(...live.map(high))).toBeGreaterThan(15);
+    expect(Math.max(...live.map(high))).toBeLessThan(18);
     for (const leg of [PART.RLEG, PART.LLEG]) {
-      const bottom = Math.min(...of(v, leg).map(lo));
+      const bottom = Math.min(...of(v, leg).map(low));
       expect(bottom).toBeGreaterThan(0.5);
       expect(bottom).toBeLessThan(3);
     }
     expect(of(v, PART.RARM).length).toBe(2);
     expect(of(v, PART.LARM).length).toBe(2);
-    // Right is +x: the right thigh's capsule sits right of the left's.
+    // Right is +x: the right thigh's box sits right of the left's.
     expect(centre(of(v, PART.RLEG)[0]!)[0]).toBeGreaterThan(centre(of(v, PART.LLEG)[0]!)[0]);
     expect(skeletonVolumes(s.skeleton, s.idles.stand)).toBe(v);    // cached
   });
@@ -119,31 +152,37 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`Frostfire's SEAL hit volumes${MP2 &&
     const s = await get();
     const stand = skeletonVolumes(s.skeleton, s.idles.stand), crouch = skeletonVolumes(s.skeleton, s.idles.crouch);
     const prone = skeletonVolumes(s.skeleton, s.idles.prone);
-    const headY = (v: readonly Capsule[]): number => Math.max(...of(v, PART.HEAD).map((c) => centre(c)[1]));
+    const headY = (v: readonly BoneBox[]): number => Math.max(...of(v, PART.HEAD).map((c) => centre(c)[1]));
     expect(headY(crouch)).toBeLessThan(headY(stand) - 4);
-    expect(Math.max(...crouch.map(hi))).toBeLessThan(Math.max(...stand.map(hi)));
-    expect(Math.max(...prone.map(hi))).toBeLessThan(6);
+    expect(Math.max(...damage(crouch).map(high))).toBeLessThan(Math.max(...damage(stand).map(high)));
+    console.log(`BONE-BOXES prone: the damage boxes' top ${Math.max(...damage(prone).map(high)).toFixed(3)}, every box's ${Math.max(...prone.map(high)).toFixed(3)}`);
+    expect(Math.max(...damage(prone).map(high))).toBeLessThan(6);
   });
 
-  it('a ray at the head hits HEAD, at the chest BODY, at the knee a leg; beside the arm at the hand, nothing', async () => {
+  it('a ray at the head hits HEAD, at the chest BODY, at the knee a leg; a line into the hand, a record that applies nothing', async () => {
     const s = await get();
     const vols = stanceVolumes(s);
     const placed = bodyVolumes(FEET, YAW, 'stand', vols);
     const shoot = (x: number, y: number): number | null => {
       const { o, d } = fromFront(x, y);
-      return rayBody(o, d, 100, placed)?.part ?? null;
+      return firstPart(o, d, 100, placed);
     };
     expect(shoot(0.5, 17.8)).toBe(PART.HEAD);
     expect(shoot(0, 14)).toBe(PART.BODY);
     expect([PART.RLEG, PART.LLEG]).toContain(shoot(-0.7, 6));
-    // The right hand, clear of the forearm: straight down through its middle the round meets no damage part.
+    // The right hand: a line from in front of it, back to its middle, meets the hand's box (a record: research 398 s0 --
+    // it cuts the round) and no part that takes damage. (The capsules' test went down through it from 0.3 over its
+    // middle -- inside its box now, where a line enters nothing.)
     const hand = boneCentre(s.skeleton, s.idles.stand, 'rhand');
     expect(hand[1]).toBeGreaterThan(10);
     expect(hand[1]).toBeLessThan(14);
-    expect(rayBody(world([hand[0], hand[1] + 0.3, hand[2]]), [0, -1, 0], 100, placed)).toBeNull();
+    const r = (YAW * Math.PI) / 180, back: V3 = [Math.sin(r), 0, Math.cos(r)];
+    const o = world([hand[0], hand[1], hand[2] - 6]);
+    expect(rayBody(o, back, 6, placed)?.part).toBe(NO_PART);
+    expect(firstPart(o, back, 6, placed)).toBeNull();
   });
 
-  // PRONE-TILT (research 217 s7; reading, pending review): the room's capsules turn with the skeleton root's tilt
+  // PRONE-TILT (research 217 s7; reading, pending review): the room's boxes turn with the skeleton root's tilt
   // (`TILT_HIT_TEST_READING` 'posed'), about the posed root, as the page's skeleton turns under the same quaternion.
   const slopeY = (n: V3, x: number, z: number): number => -(n[0] * x + n[2] * z) / n[1];
   const UP20: V3 = [0, Math.cos((20 * Math.PI) / 180), Math.sin((20 * Math.PI) / 180)];
@@ -152,8 +191,9 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`Frostfire's SEAL hit volumes${MP2 &&
     for (let i = 0; i < 200; i++) st = stepRootTilt(st, { normal: n, yaw, span: [0, 0], phase: 0.5, prone: true, proneTransition: false, diving: false, airborne: false });
     return st.q!;
   };
-  const clearance = (caps: readonly Capsule[], n: V3): number =>
-    Math.min(...caps.flatMap((c) => [c.a, c.b].map((p) => p[1] - c.r - slopeY(n, p[0], p[2]))));
+  /** The lowest of a placed body's part's boxes' corners over the slope (the body's feet at the origin, yaw 0). */
+  const clearance = (body: HitBody, part: number, n: V3): number =>
+    Math.min(...of(body.boxes!, part).flatMap((b) => CORNERS.map((f) => { const p = bodyPointToWorld(body, boxAt(b, f)); return p[1] - slopeY(n, p[0], p[2]); })));
 
   it('PRONE-TILT: facing up a 20-degree slope the tilted prone head sits above the ground, where the level one sinks into it', async () => {
     const s = await get();
@@ -162,16 +202,16 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`Frostfire's SEAL hit volumes${MP2 &&
     const feet: V3 = [0, 0, 0], yaw = 0;                                                  // yaw 0 faces -z: uphill here
     const q = settledTilt(UP20, yaw);
     const tilted = bodyVolumes(feet, yaw, 'prone', v, q), level = bodyVolumes(feet, yaw, 'prone', v);
-    const headUp = clearance(of(tilted, PART.HEAD), UP20), headLevel = clearance(of(level, PART.HEAD), UP20);
-    console.log(`PRONE-TILT: head capsule clearance over a 20-degree uphill, tilted ${headUp.toFixed(3)}, level ${headLevel.toFixed(3)}`);
+    const headUp = clearance(tilted, PART.HEAD, UP20), headLevel = clearance(level, PART.HEAD, UP20);
+    console.log(`PRONE-TILT: head box clearance over a 20-degree uphill, tilted ${headUp.toFixed(3)}, level ${headLevel.toFixed(3)}`);
     expect(headUp).toBeGreaterThan(0);
     expect(headLevel).toBeLessThan(headUp);
-    // no tilt given, or a level one: the capsules as before
+    // no tilt given, or a level one: the boxes as before
     expect(bodyVolumes(feet, yaw, 'prone', v, null)).toEqual(level);
     expect(bodyVolumes(feet, yaw, 'prone', v, [0, 0, 0, 1])).toEqual(level);
   });
 
-  it("PRONE-TILT A = B: the page's posed body (the animator under the walker's tilt) and the room's capsules move the hips alike", async () => {
+  it("PRONE-TILT A = B: the page's posed body (the animator under the walker's tilt) and the room's boxes move the hips alike", async () => {
     const s = await get();
     const page = await loadSimSkeleton(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     const table = motionTableFromArchive(READERC!)!;
@@ -188,13 +228,9 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`Frostfire's SEAL hit volumes${MP2 &&
     const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
     const pageMove = sub(hipsOf(q), hipsOf(null));
     const v = stanceVolumes(s);
-    const hips = (caps: readonly Capsule[]): V3 => {                                     // DAMAGE_BONES' first BODY: hips
-      const body = of(caps, PART.BODY)[0];
-      expect(body).toBeDefined();
-      if (!body) throw new Error('no BODY capsule');
-      return centre(body);
-    };
-    // the room's capsules are in the body frame turned by the yaw: bring the move back into the body frame
+    const hipsIndex = s.skeleton.indexOf('hips');
+    const hips = (body: HitBody): V3 => placedCentre(body, body.boxes!.find((b) => b.bone === hipsIndex)!);
+    // the room's boxes are in the body frame turned by the yaw: bring the move back into the body frame
     const roomWorld = sub(hips(bodyVolumes([0, 0, 0], yaw, 'prone', v, q)), hips(bodyVolumes([0, 0, 0], yaw, 'prone', v)));
     const r = (yaw * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
     const roomMove: V3 = [roomWorld[0] * c - roomWorld[2] * sn, roomWorld[1], roomWorld[0] * sn + roomWorld[2] * c];
@@ -217,18 +253,8 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`LEAN-HIT: the hit body under the hel
     }
     return sim;
   };
-  /** The `head` bone's capsule (DAMAGE_BONES' second HEAD: the bbox's own axis, centred on the bbox's middle). */
-  const headCap = (caps: readonly Capsule[]): Capsule => of(caps, PART.HEAD)[1]!;
-  /** A short, stable digest of a capsule set (FNV-1a over each number's float64 bytes): the byte-for-byte pin. */
-  const digest = (sets: readonly (readonly Capsule[])[]): string => {
-    let h = 0x811c9dc5;
-    const f = new Float64Array(1), b = new Uint8Array(f.buffer);
-    for (const caps of sets) for (const c of caps) for (const x of [c.part, ...c.a, ...c.b, c.r]) {
-      f[0] = x;
-      for (const y of b) h = Math.imul(h ^ y, 0x01000193) >>> 0;
-    }
-    return h.toString(16).padStart(8, '0');
-  };
+  /** The `head` bone's box (its middle is where the head's capsule's middle was: the bbox's own middle). */
+  const headBox = (s: SimSkeleton, boxes: readonly BoneBox[]): BoneBox => boxes.find((b) => b.bone === s.skeleton.indexOf('head'))!;
 
   it('reads the six lean clips (`seal_<stance>2<l|r>lean`, the names `leanClip` gives)', async () => {
     const s = await get();
@@ -238,38 +264,38 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`LEAN-HIT: the hit body under the hel
     }
   });
 
-  it("peek 0 is today's capsules, byte for byte (the idle sets' digest pinned before LEAN-HIT)", async () => {
+  it('peek 0 is the idle sets (BONE-BOXES: the idle sets are the boxes now; the capsules\' byte pin of LEAN-HIT retired with them)', async () => {
     const s = await get();
     const v = stanceVolumes(s);
-    expect(digest([v.stand, v.crouch, v.prone])).toBe(IDLE_DIGEST);
     for (const posture of ['stand', 'crouch', 'prone'] as const) {
       expect(bodyVolumes(FEET, YAW, posture, v, null, 0)).toEqual(bodyVolumes(FEET, YAW, posture, v));
+      expect(bodyVolumes(FEET, YAW, posture, v, null, 0).boxes).toBe(v[posture]);
     }
   });
 
   it("the standing right lean's head sits to the body's right of the idle's by the clip's held-key offset; the left to its left", async () => {
     const s = await get();
     const v = stanceVolumes(s);
-    const idle = centre(headCap(v.stand));
+    const idle = centre(headBox(s, v.stand));
     for (const [side, key] of [[1, 'r'], [-1, 'l']] as const) {
       const clip = s.leans.stand[key]!;
       const held = clip.frameCount - 1;
       // The clip's own head displacement at its held key, read off the clip (the bone's bbox middle, posed).
       const want = boneCentre(s.skeleton, clip, 'head', held)[0] - boneCentre(s.skeleton, s.idles.stand, 'head')[0];
-      const got = centre(headCap(v.lean!.stand[key]))[0] - idle[0];
+      const got = centre(headBox(s, v.lean!.stand[key]))[0] - idle[0];
       console.log(`LEAN-HIT: standing ${key} lean head dx ${got.toFixed(6)} (clip ${want.toFixed(6)}), held key ${held}`);
       expect(got).toBeCloseTo(want, 6);
       expect(side * got).toBeGreaterThan(2);
       expect(side * got).toBeLessThan(6);
     }
-    expect(centre(headCap(v.lean!.stand.r))[0] - idle[0]).toBeCloseTo(STAND_R_HEAD_DX, 3);
-    expect(centre(headCap(v.lean!.stand.l))[0] - idle[0]).toBeCloseTo(STAND_L_HEAD_DX, 3);
+    // the head capsule's offsets measured before BONE-BOXES: its middle was the bbox's, so the box's middle moves alike
+    expect(centre(headBox(s, v.lean!.stand.r))[0] - idle[0]).toBeCloseTo(3.736285, 3);
+    expect(centre(headBox(s, v.lean!.stand.l))[0] - idle[0]).toBeCloseTo(-3.384332, 3);
   });
 
-  it('crouch and prone each produce a lean set (13 capsules a side, not the idle), each capsule within 25% of its idle length and radius', async () => {
+  it('crouch and prone each produce a lean set (25 boxes a side, not the idle), each its idle box\'s bone and bbox, posed by the clip', async () => {
     const s = await get();
     const v = stanceVolumes(s);
-    const len = (c: Capsule): number => Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1], c.b[2] - c.a[2]);
     for (const stance of ['stand', 'crouch', 'prone'] as const) {
       for (const key of ['l', 'r'] as const) {
         const lean = v.lean![stance][key];
@@ -279,8 +305,8 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`LEAN-HIT: the hit body under the hel
         lean.forEach((c, i) => {
           const idle = v[stance][i]!;
           expect(c.part).toBe(idle.part);
-          expect(Math.abs(c.r - idle.r), `${stance} ${key} ${i} radius`).toBeLessThanOrEqual(0.25 * idle.r + 1e-9);
-          expect(Math.abs(len(c) - len(idle)), `${stance} ${key} ${i} length`).toBeLessThanOrEqual(0.25 * Math.max(len(idle), 2 * idle.r) + 1e-9);
+          expect(c.bone).toBe(idle.bone);
+          expect(c.box).toBe(idle.box);
         });
       }
     }
@@ -289,18 +315,18 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`LEAN-HIT: the hit body under the hel
   it('bodyVolumes: peek 1 places the right lean, -1 the left, at the feet and yaw; volumes without a lean set keep the idle', async () => {
     const s = await get();
     const v = stanceVolumes(s);
-    const placed = (caps: readonly Capsule[]): Capsule[] => bodyVolumes(FEET, YAW, 'stand', { stand: caps, crouch: v.crouch, prone: v.prone });
+    const placed = (boxes: readonly BoneBox[]): HitBody => bodyVolumes(FEET, YAW, 'stand', { stand: boxes, crouch: v.crouch, prone: v.prone });
     expect(bodyVolumes(FEET, YAW, 'stand', v, null, 1)).toEqual(placed(v.lean!.stand.r));
     expect(bodyVolumes(FEET, YAW, 'stand', v, null, -1)).toEqual(placed(v.lean!.stand.l));
     expect(bodyVolumes(FEET, YAW, 'stand', { stand: v.stand, crouch: v.crouch, prone: v.prone }, null, 1)).toEqual(placed(v.stand));
     // A round from the front at the leaned head's height and its x: HEAD on the leaning body, not on the upright one.
-    const head = centre(headCap(v.lean!.stand.r));
+    const head = centre(headBox(s, v.lean!.stand.r));
     const { o, d } = fromFront(head[0], head[1]);
-    expect(rayBody(o, d, 100, bodyVolumes(FEET, YAW, 'stand', v, null, 1))?.part).toBe(PART.HEAD);
-    expect(rayBody(o, d, 100, bodyVolumes(FEET, YAW, 'stand', v, null, 0))?.part ?? null).not.toBe(PART.HEAD);
+    expect(firstPart(o, d, 100, bodyVolumes(FEET, YAW, 'stand', v, null, 1))).toBe(PART.HEAD);
+    expect(firstPart(o, d, 100, bodyVolumes(FEET, YAW, 'stand', v, null, 0))).not.toBe(PART.HEAD);
   });
 
-  it("A = B: the page's drawn body (the animator at the lean's held key) and the room's lean capsules put the head alike over the root", async () => {
+  it("A = B: the page's drawn body (the animator at the lean's held key) and the room's lean boxes put the head alike over the root", async () => {
     const s = await get();
     const page = await loadSimSkeleton(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
     const table = motionTableFromArchive(READERC!)!;
@@ -321,9 +347,9 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`LEAN-HIT: the hit body under the hel
     };
     const gap = (a: V3, b: V3): number => Math.hypot(...sub(a, b));
     // The idle's own page-to-room gap (the two posers' difference before any lean: the animator's blended locals).
-    const idleGap = gap(sub(centre(headCap(v.stand)), v.pivot!.stand), drawnHead(null));
+    const idleGap = gap(sub(centre(headBox(s, v.stand)), v.pivot!.stand), drawnHead(null));
     for (const key of ['l', 'r'] as const) {
-      const drawn = drawnHead(s.leans.stand[key]!), room = sub(centre(headCap(v.lean!.stand[key])), v.leanPivot!.stand[key]);
+      const drawn = drawnHead(s.leans.stand[key]!), room = sub(centre(headBox(s, v.lean!.stand[key])), v.leanPivot!.stand[key]);
       console.log(`LEAN-HIT A = B: ${key} head over the root, page ${drawn.map((x) => x.toFixed(4)).join(', ')}; room ${room.map((x) => x.toFixed(4)).join(', ')}; gap ${gap(room, drawn).toFixed(4)} (idle ${idleGap.toFixed(4)})`);
       expect(gap(room, drawn)).toBeLessThan(Math.min(0.1, idleGap));
     }

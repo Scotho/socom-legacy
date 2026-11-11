@@ -23,6 +23,8 @@
  * research note goes through `derive-from-desktop` first.
  */
 
+import { RAISE_ADDRESSES, RAISE_RECORDS_MAX, readRaise, type PcsxRaise, type RaiseColumn } from './raise';
+
 /** The builds the table has a column for: the disc as shipped (r0001) and the online update (r0004). */
 export type Revision = 'r0001' | 'r0004';
 export const REVISIONS: readonly Revision[] = ['r0001', 'r0004'];
@@ -658,6 +660,10 @@ export interface SamplerOptions {
   readonly nearRefreshRows?: number;
   /** The floor probe's origin columns (ORIGIN_ADDRESSES), off by default. */
   readonly origin?: boolean;
+  /** The enemy-raise columns (./raise RAISE_ADDRESSES), off by default. */
+  readonly raise?: boolean;
+  /** The records the raise columns walk, 1..RAISE_RECORDS_MAX (default RAISE_RECORDS_MAX; probe.ts --raise-records). */
+  readonly raiseRecords?: number;
 }
 
 /** The longest list walk: a guard against a broken list, never reached by the game's own (adaptation). */
@@ -677,7 +683,7 @@ export interface PineReads {
 }
 
 /** A row: the probe's fields, then the tilt (EPH-TILT; optional in the type so a row built before it still fits). */
-export interface PcsxSample extends Partial<PcsxTilt>, Partial<PcsxStick>, Partial<PcsxExtra>, Partial<PcsxPadProbe>, Partial<PcsxOrigin> {
+export interface PcsxSample extends Partial<PcsxTilt>, Partial<PcsxStick>, Partial<PcsxExtra>, Partial<PcsxPadProbe>, Partial<PcsxOrigin>, Partial<PcsxRaise> {
   /** Review F2: 1 when the guest clock moved during the extra reads, 0 when not, null when unread; absent without --extra. */
   readonly extraTorn?: number | null;
   /**
@@ -836,6 +842,33 @@ export class Sampler {
       probeOriginStale: stale,
     };
   }
+  private readonly raiseCol: RaiseColumn | null;
+  private readonly raiseRecords: number;
+  /** Raise reads refused or failed, and target pointers not followed (each one null). */
+  raiseErrors = 0;
+  /** Rows whose raise reads straddled a guest frame (`raiseTorn`). */
+  raiseTorn = 0;
+  /** Rows whose perception record count passed the walk cap (raiseRecords; records past it unread; probe.json). */
+  raiseBeyondCap = 0;
+  /** ctrl+0x22c and +0x230 (the idle countdown's base and spread), read once from the first controller (probe.json). */
+  raiseIdleConfig: { ctrl: string; idleBase: number; idleSpread: number } | null = null;
+
+  /** The raise columns, after the origin's, with their own clock read (`raiseTorn`); ./raise readRaise. */
+  private async raiseOf(c0: number): Promise<Partial<PcsxRaise>> {
+    if (!this.raiseCol) return {};
+    const o = this.raiseCol;
+    const g = new SafeReads(this.pine);
+    const r = await readRaise(g, o, this.col.guestClock, c0, this.raiseRecords);
+    if (r.beyondCap) this.raiseBeyondCap++;
+    if (r.row.raiseTorn === 1) this.raiseTorn++;
+    if (this.raiseIdleConfig === null && r.ctrl !== null) {
+      const idleBase = await g.float(r.ctrl + o.ctrlIdleBase);
+      const idleSpread = await g.float(r.ctrl + o.ctrlIdleSpread);
+      if (idleBase !== null && idleSpread !== null) this.raiseIdleConfig = { ctrl: `0x${(r.ctrl >>> 0).toString(16)}`, idleBase, idleSpread };
+    }
+    this.raiseErrors += g.errors;
+    return r.row;
+  }
   private near: { obj: number; type: number }[] = [];
   private rowsSinceWalk = Infinity;
 
@@ -845,6 +878,11 @@ export class Sampler {
     this.stickCol = STICK_ADDRESSES[revision];
     this.extraCol = opts.extra ? EXTRA_ADDRESSES[revision] : null;
     this.originCol = opts.origin ? ORIGIN_ADDRESSES[revision] : null;
+    this.raiseCol = opts.raise ? RAISE_ADDRESSES[revision] : null;
+    this.raiseRecords = opts.raiseRecords ?? RAISE_RECORDS_MAX;
+    if (!Number.isInteger(this.raiseRecords) || this.raiseRecords < 1 || this.raiseRecords > RAISE_RECORDS_MAX) {
+      throw new RangeError(`EPH sampler: raiseRecords takes 1..${RAISE_RECORDS_MAX}, not ${this.raiseRecords}`);
+    }
   }
 
   /** The extra words for the row (one read at a time, SafeReads: a failure is null, never the row). */
@@ -913,7 +951,7 @@ export class Sampler {
     // EPH-TILT: after the base row's own clock check, through SafeReads, so no tilt or stick read can cost the row; a
     // third clock read says whether they straddled a frame (`tiltTorn`).
     if (!this.tiltCol && !this.stickCol) {
-      return { ...(await this.extraOf(actor, [x, y, z], c0)), ...(await this.originOf(actor, [x, y, z], c0)), clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...noTilt(), stickTurn: null, stickForward: null, stickLateral: null,
+      return { ...(await this.extraOf(actor, [x, y, z], c0)), ...(await this.originOf(actor, [x, y, z], c0)), ...(await this.raiseOf(c0)), clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...noTilt(), stickTurn: null, stickForward: null, stickLateral: null,
         padRaw0: null, padRaw1: null, padRaw2: null, padRaw3: null, padMoveA: null, padMoveB: null, padFlag0: null, ctlForward: null, ctlLateral: null, ctlTurn: null, tiltTorn: null };
     }
     const g = new SafeReads(this.pine);
@@ -940,8 +978,9 @@ export class Sampler {
     this.tiltErrors += g.errors;
     const extra = await this.extraOf(actor, [x, y, z], c0);
     const origin = await this.originOf(actor, [x, y, z], c0);
+    const raise = await this.raiseOf(c0);
     return {
-      ...extra, ...origin, clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...tilt, stickTurn, stickForward, stickLateral,
+      ...extra, ...origin, ...raise, clockBits: c0, t: f32(c0), x, y, z, rootY, moveScale, stanceRequest, ...tilt, stickTurn, stickForward, stickLateral,
       padRaw0: b(0), padRaw1: b(1), padRaw2: b(2), padRaw3: b(3), padMoveA, padMoveB,
       padFlag0: flagW === null ? null : flagW & 0xff, ctlForward, ctlLateral, ctlTurn, tiltTorn,
     };

@@ -34,7 +34,7 @@ const video = (): DialogDesign => ({
 } as never);
 const subs = (d: DialogDesign) => (d.controls.find((c) => c.name === 'video_mode')!.widget as { subordinates: DialogSubordinate[] }).subordinates;
 // B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110 -- the owner: "we're going to remove the actual in game
-// setting"): the HD (GoE Soul) picture is gone with HD-HOLD -- the strip is MODERN and PS2, two boxes, and the HD pack is
+// setting"): the HD (GoE SouL) picture is gone with HD-HOLD -- the strip is MODERN and PS2, two boxes, and the HD pack is
 // a texture pack chosen in Home > Experiments > Mods.
 const OFFERED = 2;
 const cmd = (arg: string): ZAnimUiCommand => ({ anim: 'Initialize_Options_Stuff', sequence: 'NA', nodeIndex: 0, node: null, opcodeByte: 0, fn: 'CheckVideoMode', arg, loc: 0, bytes: new Uint8Array(0x10) });
@@ -44,7 +44,7 @@ describe('OT.R79: VIDEO MODE is the page\'s picture (VIDEO_PICTURE_ADAPTATION)',
     expect(VIDEO_PICTURE_ADAPTATION).toContain('OT.R79');
     expect(VIDEO_PICTURE_ADAPTATION).not.toMatch(/EXPERIMENTAL/);
     expect(VIDEO_PICTURES).toEqual(['modern', 'ps2']);
-    expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2']);                     // ML-6 (OT.R110): "HD (GoE Soul)" removed
+    expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2']);                     // ML-6 (OT.R110): "HD (GoE SouL)" removed
     expect(VIDEO_PICTURE_BOXES).toEqual(['PictureModern', 'PicturePS2']);
     expect(VIDEO_PICTURE_ANIMATIONS).toEqual(['picture_modern', 'picture_ps2']);
     expect(VIDEO_PICTURE_DEFAULT).toBe('modern');

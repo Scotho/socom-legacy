@@ -1,4 +1,5 @@
 import { createForgeLighting, liftForgeFog, type ForgeLightingOptions } from './forge/lighting';
+import { FrameGuard } from './frameGuard';
 import { Scene, type Object3D } from 'three';
 import { freezeSceneMatrix } from './sceneMatrix';
 import { probeFloor, probeGround, selectFloor, type Side } from '@s2u/scene';
@@ -106,6 +107,10 @@ import { pageDeviceClass } from './deviceClass';
 import { pageFrameSampler } from './frameSampler';
 import { pageVideoReading } from './perfLine';   // VS-10 F3: the perf report's video reading, taken at the mount
 import { beaconMatchBegan, beaconMatchEnded } from './clientErrorBeacon';   // CLIENT_ERROR_BEACON_ADAPTATION: the match's own lifecycle for its reports
+import { pageMatchDiag } from './matchDiagPage';   // XBOX-DIAG: the loss's ring and the match's input, on the beacon
+import { hidePadHint, PadHint, showPadHint } from './padHint';   // XBOX-PAD-HINT: the Xbox browser's browsing controls named
+import { setInputPhase } from './inputSources';
+import { loadPhaseReached } from './loadMarks';
 import { wantsTouchControls } from './touch';
 import { resolveRules } from './rules';
 import { ScoreboardKeys } from './scoreboardKeys';
@@ -638,7 +643,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     feet: () => walk.feet(),
     aim: () => walk.fireAim(),
     sound: (name, at, volume) => { sound.audio.play(name, at, 'play', volume); },   // the command's flag-0x10 volume
-    move: (path, delta) => { view?.moveNode(path, delta); },
+    // The leaf drawn moved, and the world told: a scene sound at a node under it plays where it stands now (SCENE_SOUND_PLACE_READING).
+    move: (path, delta) => { view?.moveNode(path, delta); world?.world.nodeMoved(path, delta); },
     net: () => (net && net.client.state === 'open' ? net.client : null),
     press: () => traversal.actionPress(),          // LATER 362: the action button's chased press, the kick's pick
     // DOORS (research 92 section 2): `./main`'s own-press clip, line for line, on the mount's clips.
@@ -705,6 +711,16 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
    */
   let spawned = false;
   let renderer: MatchRenderer | null = null;
+  // XBOX-DIAG (`./matchDiag`): the ring's source -- three's `renderer.info` read, never copied; off outside a match.
+  const matchDiag = pageMatchDiag();
+  const padHint = new PadHint();                       // XBOX-PAD-HINT: no pad for 10 s on an Xbox-marked page
+  const diagSource = {
+    info: () => renderer?.renderer.info,
+    scale: () => ratioTargetOf(renderer)?.pixelRatio() ?? null,
+    buffer: () => (canvas ? { w: canvas.width, h: canvas.height } : null),
+    phase: loadPhaseReached,
+    links: () => (renderer as { links?: { total?: number } } | null)?.links?.total ?? null,
+  };
   let endedDialog: number | null = null;
   let gone = false;
   let frameId = 0;
@@ -986,7 +1002,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     renderer?.setPresentation?.(ps2 ? 'ps2' : 'native');
     renderer?.setExperimental?.(MATCH_EXPERIMENTAL_OFF);
     // B206 ML-3 / ML-6 (ML.R11, OT.R110): the HD pack follows the MODS choice (`packs` above), not the picture; the HD
-    // (GoE Soul) picture is removed, so the experimental renderer is off under both.
+    // (GoE SouL) picture is removed, so the experimental renderer is off under both.
     applyFiltering();                                  // VS-6: the keeper's Texture filtering under this picture
     fit();
   };
@@ -1141,6 +1157,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       world = buildPageWorld(m, {
         setNodeActive: (path, on) => { view?.setNodeActive(path, on); },
         setNodeOpacity: (path, f) => { view?.setNodeOpacity(path, f); },   // PB-9b: `./main`'s, the bases' pulse
+        setNodeUvOffset: (path, u, v) => { view?.setNodeUvOffset(path, u, v); },   // LATER 782: the shore's scroll
         sound: (name, at, volume) => { sound.sceneSound(name, at, volume); },   // OBF-31: none under the round screens
         effect: (name, at) => { firearm.effects.play(name, { position: at, normal: [0, 1, 0] }); },
         log: (line) => { console.info(line); },
@@ -1243,6 +1260,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (!nav) return;
     pads.poll(nav);                                    // ACT-3: `./main`'s `pads.poll` (main.ts:1184) -- a pad gone cancels the hold
     const polled = gamePad.poll(nav);
+    matchDiag.pads(gamePad.input.devices, now, held);   // XBOX-DIAG: the pads the match's reader found, and the hold's frames
+    const hintChange = padHint.frame(now, gamePad.input.devices.length);   // XBOX-PAD-HINT: shown at 10 s with no pad, hidden at a pad
+    if (hintChange === 'show') { matchDiag.input.hintShown = true; showPadHint(doc, () => { padHint.dismiss(); }); } else if (hintChange === 'hide') hidePadHint(doc);
     touch.padConnected(readsPad(gamePad));            // MP-1 (FI.R4): hidden, on its root, while the pad read is a connected one
     if (normalInput) { const own = padInput(polled); humanHeld = { fire: own.fire || touch.input.fire, stance: own.stance || touch.input.stance }; }
     const pad = normalInput ? mergeInput(padInput(polled), agent) : padInput(polled);
@@ -1254,6 +1274,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // after the FIRE RATE swap, so they target actions (`./padExtras`), never while the hold or a menu holds the pad.
     const padMenu = held || armory.isOpen() || startMenu.isOpen() || taunts.isOpen() || exchange.isOpen() || throws.inventory.isOpen();
     Object.assign(pad, gamePad.extras(pad, padMenu));
+    matchDiag.gameInput(pad);                          // XBOX-DIAG: the game's lanes this frame, with input or not
     if (held || !flushed) {
       exchange.hold(new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]));   // `./main`'s: WEAPON EXCHANGE's edges against the pad as it is; MP-1 F2: the touch pad's too
       armoryPart.stick(polled, new Set(), false);    // AM-2's review F1: the stick armed through the hold, as the buttons' edges are -- no flick at the release
@@ -1316,9 +1337,11 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let lastOverlays: number | null = null;             // CPS H10 (a dev instrument): the effect-light overlays shown at the frame's tail
   let lastOverlaysCulled: number | null = null;       // CPS overlay cull (a dev instrument): of those, the ones the frame's render left out
   let gpuTimer: GpuTimer | null = null;                // CPS GPU time (a dev instrument): three's timestamps resolved at the frame's tail, the last kept
-  const frame = (now: number): void => {
-    frameId = 0;
-    if (gone) return;
+  // FRAME-LOOP-GUARD (LATER 859, `./frameGuard`; a browser adaptation): the frame's body is `step` -- true asks for the
+  // next frame -- run through the guard, so a throw inside it (shadow's X3: a failed WebGPU upload out of the render)
+  // costs that frame, not the match; after a few throwing frames in a row the Reload notice shows.
+  const step = (now: number): boolean => {
+    if (gone) return false;
     packOverlay.refresh();                             // ML-4: the strip in live play, the panel otherwise (nothing when none shows)
     const dt = Math.min(frameTime.frame(now), 0.1);   // a backgrounded tab must not teleport the camera (PAR-24: the real seconds kept)
     const drawFrame = drawGate.shouldDraw(now);        // VS-4: the frame cap's gate -- the draws below wait for it, nothing else
@@ -1427,14 +1450,20 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (import.meta.env.DEV && devStats && renderer?.renderer.info) lastDraws = frameCountsOf(renderer.renderer.info);   // CPS H9: after the frame's last render (the armory's), its counts copied
     if (import.meta.env.DEV && devStats) lastOverlays = frameOverlaysOf(firearm.effects.lights); if (import.meta.env.DEV && devStats) lastOverlaysCulled = frameOverlaysCulledOf(firearm.effects.lights);   // CPS H10: the overlays the frame drew from (a state: `./renderStats`); the overlay cull: of those, the ones its render left out
     if (import.meta.env.DEV && devStats && renderer) (gpuTimer ??= new GpuTimer(renderer.renderer as unknown as TimestampRendererLike)).frame();   // CPS GPU time: the frame's passes resolved, never awaited
+    matchDiag.frame(now);                              // XBOX-DIAG: the ring's sample every 2 s, the input report at 45 s
     if (adaptiveRatio.frame(dt, now, ratioTargetOf(renderer), (o.blocked?.() ?? false) || picture === 'ps2')) fpsReadout?.tick();   // PAR-12: `./main`'s frame tail; the PS2 frame's size is the point; cq41E0VR's readout on its tick
     pageFrameSampler().frame(frameTime.real() * 1000, 'match', renderer, canvas, map, net);   // CPS-5 (a browser adaptation): the performance line's sampler, the frame's real ms
     if (autoProbe && videoV2.get().preset !== 'auto') { autoProbe.dispose(); autoProbe = null; }   // VS-10 F2: Automatic left -- the probe fed nothing more
     if (autoProbe && firstDrawn && worldDrawn && picture !== 'ps2' && !(o.blocked?.() ?? false)) autoProbe.frame(frameTime.real() * 1000, (ratioTargetOf(renderer)?.pixelRatio() ?? 0) >= adaptiveRatio.ratioCap());   // VS-7: drawn frames only, after the first world frame -- `worldDrawn` waits for the scene's warm (`warmEffects`) only, not `warmThrows` / `warmShadow` (review F1)
     if (firstWorldFrame) { firstDrawn = true; markLoad('first-frame'); loadOver = true; sound.audio.endLoad(); o.firstFrame?.(); }   // BLACK-GAP (`./loadingHold`): the front end's loading screen let go
     if (readyDraws >= 2) tellReady(true);             // IP3: stage 1's end -- the same gate, "prepared" as `firstFrame` means drawn
-    if (gone || (!attached && readyTold)) return;      // IP3: a prepared match's frames stopped until its attach
-    frameId = win.requestAnimationFrame(frame);
+    if (gone || (!attached && readyTold)) return false;   // IP3: a prepared match's frames stopped until its attach
+    return true;
+  };
+  const frameGuard = new FrameGuard();
+  const frame = (now: number): void => {
+    frameId = 0;
+    if (frameGuard.frame(() => step(now), () => !gone && (attached || !readyTold))) frameId = win.requestAnimationFrame(frame);
   };
   frameId = win.requestAnimationFrame(frame);
 
@@ -1464,6 +1493,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     normalInput?.end('The private match ended');
     gone = true;
     beaconMatchEnded({ seats: net?.rows.length ?? null, map: map?.archive ?? null, scaleAtEnd: ratioTargetOf(renderer)?.pixelRatio() ?? null, video: videoAtStart });   // CLIENT_ERROR_BEACON_ADAPTATION: no elapsed outside a match; VS-8: the match's perf report; VS-10 F3: the mount's video
+    if (attached) { matchDiag.end(globalThis.performance?.now() ?? 0); setInputPhase('menu'); }   // XBOX-DIAG: the input report if it never went; the menus' counts again (review F5: never a prepared match's that never attached)
+    if (attached) { padHint.end(); hidePadHint(doc); }   // XBOX-PAD-HINT: never past its match (the notice is the page's: never a prepared match's teardown)
     tellReady(false);                                  // IP3: a prepare still waiting on this mount ends with it
     offHeard();
     offPicture();                                      // OT.R79: the picture no longer followed
@@ -1772,6 +1803,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     attached = true;                                   // the hand-off's parts in: the frame and `padFrame` reach them from here
     applyTierAndFilter(videoV2.get());                 // VS-5 review F3: the page's one map at this mount's tier (another's teardown resets it)
     beaconMatchBegan();                                // CLIENT_ERROR_BEACON_ADAPTATION: a report's matchElapsedMs counts from here
+    setInputPhase('match'); matchDiag.begin(globalThis.performance?.now() ?? 0, diagSource);   // XBOX-DIAG: from the same instant
+    padHint.begin(globalThis.performance?.now() ?? 0, matchDiag.xboxConsole);   // XBOX-PAD-HINT: its 10 s from the same mount
     if (placed) { gameLines(placed.map); soundLines(placed); }   // `place`'s hand-off lines, when the world came first
     reseat();                                          // the hand-off's client's side, should the lobby's last read differ
 

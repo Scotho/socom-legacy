@@ -1,4 +1,4 @@
-import { TICK_HZ, type Command } from '../../../viewer/src/net/protocol';
+import { Button, TICK_HZ, type Command } from '../../../viewer/src/net/protocol';
 import type { MoverSim } from '../../../viewer/src/net/moverSim';
 import { MAX_YAW_RATE } from '../../../viewer/src/look';
 import { shortTurn, wrapYaw } from '../../../viewer/src/yaw';
@@ -59,9 +59,13 @@ export class BotLadderDrive {
         right = Math.abs(error) <= LADDER_INPUT_ADAPTATION.alignDegrees ? stick(rx,rz) : 0;
       }
     }
+    // LC-2 (a bot adaptation, OT.R81's input policy): the ladder mounts only on the action press with CLIMB offered (LC-1,
+    // `FUN_00550ef0` D:L418120-418155), so the bot presses Action while the traversal offers this ladder and it is not yet
+    // on it -- never on the rungs, where the press is LADDER SLIDE.
+    const press = !this.mounted && !busy && sim.moves instanceof Traversal && sim.moves.climbPrompt()?.kind === 'ladder';
     return { done:false, failed:false, command: {
       seq: sim.seq + 1, yaw: wrapYaw(s.yaw + turn), pitch: 0, turn: turn * Math.PI / 180 * TICK_HZ,
-      buttons:0, stance: 0, weapon: sim.weapon, forward, right,
+      buttons: press ? Button.Action : 0, stance: 0, weapon: sim.weapon, forward, right,
     } };
   }
 }

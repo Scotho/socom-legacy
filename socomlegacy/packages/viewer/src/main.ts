@@ -380,7 +380,8 @@ const doors = new DoorPage({
   feet: () => walk.feet(),
   aim: () => walk.fireAim(),
   sound: (name, at, volume) => { audio.play(name, at, 'play', volume); },   // the command's flag-0x10 volume
-  move: (path, delta) => { view?.moveNode(path, delta); },
+  // The leaf drawn moved, and the world told: a scene sound at a node under it plays where it stands now (SCENE_SOUND_PLACE_READING).
+  move: (path, delta) => { view?.moveNode(path, delta); pageWorld?.nodeMoved(path, delta); },
   net: () => (net && net.client.state === 'open' ? net.client : null),
   press: () => traversal.actionPress(),          // LATER 362: the action button's chased press, the kick's pick
   // DOORS (research 92 section 2): the own press with no room -- the program's `Open door` on the own body, as the
@@ -597,7 +598,7 @@ const drops = new WorldDrops(dropModels(scene, () => loadouts.tables(), (m) => v
 const firearm = mountFirearm({
   scene, fly, walk, play, hud, loadouts,
   // The others are made further down (their footfalls are the sound's): lent through closures, read at a round.
-  remote: { aimDistance: (eye, ray, reach) => remote.aimDistance(eye, ray, reach), weaponFrame: (id) => remote.weaponFrame(id), aimBodies: (eye, dir, reach) => remote.aimBodies(eye, dir, reach), teamOf: (id) => remote.teamOf(id), feet: (id) => remote.feet(id), neckAt: (id) => remote.neckAt(id) },
+  remote: { aimDistance: (eye, ray, reach) => remote.aimDistance(eye, ray, reach), weaponFrame: (id) => remote.weaponFrame(id), aimBodies: (eye, dir, reach) => remote.aimBodies(eye, dir, reach), aimRecords: (eye, dir, reach) => remote.aimRecords(eye, dir, reach), teamOf: (id) => remote.teamOf(id), feet: (id) => remote.feet(id), neckAt: (id) => remote.neckAt(id) },
   view: () => view, map: () => loaded, body: () => body, net: () => net,
   // The loading hold and the ARMORY hold the input (web sprint 5 S3); WEAPON EXCHANGE open holds the trigger too (Chris's
   // fa657438, research 300 §3: no consumed press becomes a shot; its held buttons after the close are `ExchangeInput`'s).
@@ -1463,7 +1464,9 @@ worker.addEventListener('message', (event: MessageEvent<ViewerResponse | ModDisc
     // LATER 440: each for the load it was asked for -- a superseded load's late failure never answers for the wanted one.
     loadedSound = soundLane.answers(message.id) ?? loadedSound;
     loadedEffects = effectsLane.answers(message.id) ?? loadedEffects;
-    loadedArmory = armoryLane.answers(message.id) ?? loadedArmory;
+    // LATER 781: the ARMORY's failed read hands on its empty data, as the data reply and the no-library branch do -- a
+    // seat waiting on it is released and the solo match starts (`soloAfterArmory`), a mod reload's reopen told.
+    { const armoryFor = armoryLane.answers(message.id); if (armoryFor !== null) { loadedArmory = armoryFor; armoryData(null); if (reopenArmory) reopenArmoryData = true; tryReopenArmory(); } }
     if (message.id !== wantedIndex && message.id !== wantedMap) return;
     if (message.id === wantedMap) { loadingJoin.failed(wantedMap); loadingScreen.panel.hide(); reopenArmory = false; reopenArmoryData = false; }
     // A disc that will not open changes nothing, and its chosen mark is taken back (research 100).
@@ -2713,13 +2716,14 @@ function show(map: LoadedMap): void {
   // just placed, or at spawn A's (x, z) on the stand's floor (A's recorded y where the probe found none).
   // MAP-02 (`./worldState`): the page's world on the walk's hull and grid, drawn by the view; zAnim's opening state.
   const hullGrid = map.ground ? groundGrid(map.ground) : null;
-  // SUP-02: a scene program's SOUND at its node's place (SCENE_SOUND_PLACE_READING) through the audio catalogue by name,
+  // SUP-02: a scene program's SOUND where the world places it (SCENE_SOUND_PLACE_READING) through the audio catalogue by name,
   // as the doors' are; DESTRUCTION_SOURCE logged once a node (GLASS_FRAGMENTS_PLACEHOLDER: no fragment is drawn).
   const debrisSeen = new Set<string>();
   pageWorld = map.ground && hullGrid ? new WorldState(map.meta ?? bareMeta(), map.ground, hullGrid, {
     visible: (path, on) => { view?.setNodeActive(path, on); },
     opacity: (path, f) => { view?.setNodeOpacity(path, f); },   // PB-9b (research 284 s8): a program's opacity, the bases' pulse
-    sound: (name, path, volume) => { sound.sceneSound(name, path !== null ? pageWorld?.placeOf(path) ?? null : null, volume); },   // OBF-31: none under the round screens
+    scroll: (path, u, v) => { view?.setNodeUvOffset(path, u, v); },   // LATER 782: a program's SCROLL_MOTION, the shore's wash
+    sound: (name, _path, volume, at) => { sound.sceneSound(name, at, volume); },   // OBF-31: none under the round screens
     // XR-04 (research 213 s4): a program's common-set effect (COMMON_EFFECT_CALL_READING) -- the call strike's fire and
     // dust -- played at the calling program's root (an arch's `worldmodel/seal_demo_1`), on a presentation run.
     call: (name, path) => {

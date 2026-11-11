@@ -4,7 +4,7 @@ import type { MotionTable } from '../motionTable';
 import { leanClip, TRAVERSAL_CLIPS } from '../traversal';
 import { snapshotOf } from './body';
 import { quantiseBody } from './codec';
-import { capturedVolumes, capturePose, LEAN_HIT_POSE_READING, leanHeldKey, POSE_FLOATS, posedVolumes, type Capsule } from './hitVolumes';
+import { boneTable, keepBounds, LEAN_HIT_POSE_READING, leanHeldKey, posedBoxes, type BoneBox } from './hitVolumes';
 import type { BodyState } from './protocol';
 
 /**
@@ -19,12 +19,12 @@ import type { BodyState } from './protocol';
  * `../remotePlayers`) on its own instance of the player's skeleton, stepped once a room tick by the tick's `dt` on the
  * `PlaySnapshot` the room builds for the wire (`hitPoseSnapshot`: `./body` `snapshotOf` of the room's `BodyState` as the
  * codec carries it, `./codec` `quantiseBody` -- the same snapshot a page's copy takes), and keeps the pose it leaves on
- * the tick's rewind entry: the damage bones' matrices in the poser's ring (`HitPoser.keep`), the capsules fitted from
- * them (`./hitVolumes` `capturedVolumes`, `posedVolumes`' numbers) only for a body a round's ray reaches -- the perf
- * fold, research 217 s3.6a. The pose carries the root tilt (the animator writes `MoverSnapshot.rootTilt` on the root,
- * `FUN_00548090`'s write) and the lean (the traversal's clip, `../traversal` `Traversal.pose`): `placedVolumes` turns
- * neither again. Without the motion (no `motion.rdr`, no pack: `../simMap` `SimSkeleton.motion` absent) the room keeps
- * the idle sets, and without a skeleton the placeholder capsules.
+ * the tick's rewind entry: every boxed bone's matrix in the poser's ring (`HitPoser.keep`; BONE-BOXES, research 217
+ * s3.6b: the original's box on every bone, research 398 s1), read as boxes (`HitPoser.boxesAt`: views on the ring, no
+ * copy) only for a body a round's ray reaches -- the perf fold, research 217 s3.6a. The pose carries the root tilt (the
+ * animator writes `MoverSnapshot.rootTilt` on the root, `FUN_00548090`'s write) and the lean (the traversal's clip,
+ * `../traversal` `Traversal.pose`): `placedVolumes` turns neither again. Without the motion (no `motion.rdr`, no pack:
+ * `../simMap` `SimSkeleton.motion` absent) the room keeps the idle sets, and without a skeleton the placeholder capsules.
  *
  * What is not the page's (each named, research 217 s6):
  * - `HIT_POSE_CLOCK_READING`: the two clocks' phase.
@@ -83,7 +83,7 @@ const LEAN_CLIPS: ReadonlySet<string> = new Set((['stand', 'crouch', 'prone'] as
 /**
  * HIT-POSE: a mounted gunner's hit body [reading]. 'idle': while the room's seat holds a turret (`Player.mounted`) the
  * round meets the stance's idle set (`./hitVolumes` `bodyVolumes`), in the room and in the page's aim alike
- * (`../remotePlayers` `aimCapsules`), as both judged every body before HIT-POSE -- the page draws the gunner on the turret
+ * (`../remotePlayers` `aimBody`), as both judged every body before HIT-POSE -- the page draws the gunner on the turret
  * anim set's mount or hold clip (`../turretPage` `turretPose`, MAP-10b), which the room's poser is not fed
  * (`HIT_POSE_CLIPS` holds no `TURRET_CLIPS`, and the clip's frame is the seat's steer). The room's poser keeps stepping on
  * the body's snapshot meanwhile, so its clock runs on through a mount. 'posed' would feed the poser the turret clip at
@@ -117,9 +117,10 @@ export function hitPoseSnapshot(body: BodyState, rootTilt: MoverSnapshot['rootTi
 /**
  * One body's live pose in the room: the page's `Animator` on its own `Skeleton` instance (a skeleton is never shared:
  * the animator writes its matrices), stepped once a tick (`step`, `stepBody`). The perf fold (research 217 s3.6a): the
- * pose a step leaves is kept as floats (`keep`: the damage bones' matrices, `./hitVolumes` `capturePose`) in a ring of
- * `ticks` poses allocated once, and its capsules fitted only when asked (`capsulesAt`, `capturedVolumes`) -- for a body
- * a round's ray reaches; `capsules` fits the live pose at once (the eager path: the tests').
+ * pose a step leaves is kept as floats (`keep`: every boxed bone's matrix, `./hitVolumes` `boneTable`; BONE-BOXES, s3.6b)
+ * in a ring of `ticks` poses allocated once, with each slot's boxes made once over it (`boxesAt`: views on the ring, no
+ * allocation a call) -- read only for a body a round's ray reaches; `boxes` copies the live pose at once (the eager
+ * path: the tests').
  */
 export class HitPoser {
   private readonly skeleton: Skeleton;
@@ -128,6 +129,12 @@ export class HitPoser {
   private readonly wire = wireScratch();
   private readonly ring: Float32Array;
   private readonly stamps: Float64Array;
+  /** Each ring slot's boxes, made once: their matrices are views on the slot's floats. */
+  private readonly slots: readonly (readonly BoneBox[])[];
+  /** Each ring slot's bounds (body frame, `./hitVolumes` `boxBounds`), rewritten as the slot is kept: the cull's widening. */
+  private readonly bounds: readonly Float64Array[];
+  private readonly bones: Int16Array;
+  private readonly floats: number;
   private kept = 0;
 
   /** `ticks`: how many poses `keep` holds (the room's rewind history), the oldest written over. */
@@ -136,8 +143,16 @@ export class HitPoser {
     this.animator = new Animator(this.skeleton, motion.clips, motion.table, { random: () => HIT_POSE_RANDOM_READING });
     for (const c of motion.clips) if (LEAN_CLIPS.has(c.name)) this.keys.set(c.name, c);
     const n = Math.max(1, Math.floor(ticks));
-    this.ring = new Float32Array(n * POSE_FLOATS);
+    const table = boneTable(this.skeleton.parts);
+    this.bones = table.index;
+    this.floats = table.index.length * 16;
+    this.ring = new Float32Array(n * this.floats);
     this.stamps = new Float64Array(n);
+    this.slots = Array.from({ length: n }, (_, k) => Array.from(table.index, (bone, b): BoneBox => {
+      const at = k * this.floats + b * 16;
+      return { part: table.part[b]!, bone, box: table.box[b]!, w: this.ring.subarray(at, at + 16) };
+    }));
+    this.bounds = Array.from({ length: n }, () => new Float64Array(6));
   }
 
   /** One tick of `dt` seconds on the room's `BodyState` of the body as the wire carries it (`hitPoseSnapshot` into the poser's own `wire`). */
@@ -156,26 +171,39 @@ export class HitPoser {
     this.animator.step(dt, lean && t ? { ...snap, traversal: { ...t, frame: leanHeldKey(lean) } } : snap);
   }
 
-  /** The body-frame capsules of the pose the last step left (x right, y up, z behind, the soles at the origin). */
-  capsules(): Capsule[] {
-    return posedVolumes(this.skeleton);
+  /**
+   * JUMP-AIM-ROOT (research 80 s7): the skeleton root's height over the feet as the last step posed it (`Animator.rootY`,
+   * the clips' root blended -- the root the page's camera stands on, `play.ts` `setPosedRoot`), or null.
+   */
+  rootY(): number | null {
+    return this.animator.rootY();
   }
 
-  /** Keeps the pose the last step left (its damage bones' matrices; no capsule fitted) and returns its stamp, from 1. Allocates nothing. */
+  /** The body-frame bone boxes of the pose the last step left (x right, y up, z behind, the soles at the origin), copied. */
+  boxes(): BoneBox[] {
+    return posedBoxes(this.skeleton);
+  }
+
+  /**
+   * Keeps the pose the last step left (every boxed bone's matrix, and the slot's bounds for the cull: `./hitVolumes`
+   * `keepBounds`, `BODY_CULL_FRAME_READING`) and returns its stamp, from 1. Allocates nothing.
+   */
   keep(): number {
-    const stamp = ++this.kept, slot = stamp % this.stamps.length;
-    capturePose(this.skeleton, this.ring, slot * POSE_FLOATS);
+    const stamp = ++this.kept, slot = stamp % this.stamps.length, base = slot * this.floats, world = this.skeleton.world;
+    for (let b = 0; b < this.bones.length; b++) this.ring.set(world[this.bones[b]!]!, base + b * 16);
+    keepBounds(this.slots[slot]!, this.bounds[slot]!);   // BONE-BOXES' fold: the cull reads the pose's own bounds
     this.stamps[slot] = stamp;
     return stamp;
   }
 
   /**
-   * The body-frame capsules of the pose kept as `stamp` (`keep`), fitted now: `capsules()`' numbers at that tick; null
-   * once the ring has written over it. A new array each call.
+   * The body-frame bone boxes of the pose kept as `stamp` (`keep`): `boxes()`' numbers at that tick (the matrices are
+   * float32 either way, so the copy is exact); null once the ring has written over it. The slot's own boxes, views on the
+   * ring: shared, valid until the ring writes the slot again, never mutated. Allocates nothing.
    */
-  capsulesAt(stamp: number): Capsule[] | null {
+  boxesAt(stamp: number): readonly BoneBox[] | null {
     const slot = stamp % this.stamps.length;
     if (stamp < 1 || this.stamps[slot] !== stamp) return null;
-    return capturedVolumes(this.skeleton, this.ring, slot * POSE_FLOATS);
+    return this.slots[slot]!;
   }
 }

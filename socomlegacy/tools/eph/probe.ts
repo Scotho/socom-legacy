@@ -1,3 +1,5 @@
+import { PCSX2_VK } from './keys';
+import { YAW_TURN_GIVE_UP_MS, parseYawTurns, turnKey, type YawTurn, wrap180, yawTapMs, yawTarget } from './yawTurn';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
@@ -9,6 +11,7 @@ import {
 } from './run';
 import { PCSX2_WINDOW_TITLE } from './keys';
 import { Sampler, detectRevision, describeReadings, f32, GUEST_ADDRESSES, ORIGIN_ADDRESSES, ORIGIN_EVIDENCE, ORIGIN_INFERRED, PAD_PROBE_ADDRESSES } from './sampler';
+import { RAISE_ADDRESSES, RAISE_EVIDENCE, RAISE_INFERRED, RAISE_RECORDS_MAX } from './raise';
 import { parseBuild, type Build } from './build';
 import { parseScript, type ScriptEvent } from './script';
 import { runTimeline } from './timeline';
@@ -23,11 +26,18 @@ import { runTimeline } from './timeline';
  * never changing the game.
  *
  *   node --import tsx tools/eph/probe.ts --build r0004 --state 5 --trials 3 --script a.txt [--script b.txt ...] --out <dir>
- *     [--tail-ms 2500] [--shots] [--save-after <slot>] [--origin]
+ *     [--tail-ms 2500] [--shots] [--save-after <slot>] [--origin] [--raise [--raise-records <1..8>] [--yaw-turns t_ms:deg[:tol],...]]
  *
  * `--origin` adds the floor probe's origin columns (./sampler ORIGIN_ADDRESSES: the record FUN_005b0840 queues, its
  * origin over the feet; probeOriginStale when the queue skipped the player this frame), for the jump-air trace of
  * 2026-11-08. probe.json's `origin` holds their addresses, evidence, inferred list and overflow count (originBeyondCap).
+ *
+ * `--raise` adds the enemy-raise columns (./raise: the local body, its controller's identified-enemy count, the raise word
+ * body+0xf74 decoded, the first RAISE_RECORDS_MAX perception records and their targets, the gate, multiplayer and freeze
+ * globals; agent-mail/evidence/enemy-raise/SCOPE.md s2.1). probe.json's `raise` holds their addresses, evidence,
+ * inferred list, overflow count (raiseBeyondCap), its record cap and the idle words ctrl+0x22c/+0x230 read once;
+ * ./analyzeRaise reads the rows. Each raise row is up to ~110 sequential PINE reads with 8 live records: run
+ * scripts/raise-idle.txt first and read raise.torn against the row count; `--raise-records <n>` walks fewer records.
  */
 
 /** Guest ms the state runs after its load before a case starts (an adaptation: the load settles). */
@@ -53,6 +63,12 @@ export interface ProbeArgs {
   readonly wallClock: boolean;
   /** The floor probe's origin columns (./sampler ORIGIN_ADDRESSES). */
   readonly origin: boolean;
+  /** The enemy-raise columns (./raise RAISE_ADDRESSES). */
+  readonly raise: boolean;
+  /** The records the raise columns walk a row, 1..RAISE_RECORDS_MAX (default 8): fewer when the rows tear. */
+  readonly raiseRecords: number;
+  /** `--yaw-turns t_ms:deg[:tol],...`: closed-loop right-stick turns against raiseYaw (./yawTurn; needs --raise). */
+  readonly yawTurns: readonly YawTurn[];
 }
 
 export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
@@ -60,6 +76,9 @@ export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
   let saveAfter: number | null = null;
   let wallClock = false;
   let origin = false;
+  let raise = false;
+  let raiseRecords = RAISE_RECORDS_MAX;
+  let yawTurns: YawTurn[] = [];
   const scripts: string[] = [];
   const int = (n: string, v: string | undefined, min: number): number => {
     const x = Number(v);
@@ -78,7 +97,13 @@ export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
       case '--shots': shots = true; break;
       case '--wall-clock': wallClock = true; break;
       case '--origin': origin = true; break;
+      case '--raise': raise = true; break;
+      case '--raise-records':
+        raiseRecords = int(a, v, 1); i++;
+        if (raiseRecords > RAISE_RECORDS_MAX) throw new RunArgsError(`--raise-records takes at most ${RAISE_RECORDS_MAX}, not ${raiseRecords}`);
+        break;
       case '--save-after': saveAfter = int(a, v, 0); i++; break;
+      case '--yaw-turns': yawTurns = parseYawTurns(v ?? ''); i++; break;
       default: throw new RunArgsError(`EPH probe: unknown switch ${a}`);
     }
   }
@@ -86,7 +111,8 @@ export function parseProbeArgs(argv: readonly string[]): ProbeArgs {
   if (state === null) throw new RunArgsError('EPH probe: --state <slot> is required');
   if (scripts.length === 0) throw new RunArgsError('EPH probe: at least one --script');
   if (out === null) throw new RunArgsError('EPH probe: --out <dir> is required');
-  return { build, state, trials, scripts, out, tailMs, shots, saveAfter, wallClock, origin };
+  if (yawTurns.length && !raise) throw new RunArgsError('--yaw-turns reads raiseYaw: it needs --raise');
+  return { build, state, trials, scripts, out, tailMs, shots, saveAfter, wallClock, origin, raise, raiseRecords, yawTurns };
 }
 
 /** A PINE client that can also load a state (./pine PineClient fits). */
@@ -135,6 +161,11 @@ export async function probeRun(a: ProbeArgs, host: HostPlan, d: ProbeDeps): Prom
   let pcsx2: ChildLike | null = null;
   let pine: ProbePine | null = null;
   let injector: InjectorLike | null = null;
+  // A case's background loops (the yaw turns, the sampling): on a throw mid-case (the timeline, a read) they are told to
+  // stop and awaited before the injector and PINE close, so none presses a key or reads the guest after (review of
+  // fb1a34b4c, F6). Each is caught here as it starts, so a loop's own failure is never an unhandled rejection.
+  const stopped = { v: false };
+  const background: Promise<unknown>[] = [];
   try {
     pcsx2 = d.spawnPcsx2(pcsx2Argv(host.layout.exe, host.iso, a.state));
     if (pcsx2.pid === undefined) throw new Error('EPH probe: PCSX2 did not start');
@@ -148,7 +179,7 @@ export async function probeRun(a: ProbeArgs, host: HostPlan, d: ProbeDeps): Prom
     if (det.revision !== a.build) throw new Error(`EPH probe: --build ${a.build} asked, but PCSX2 runs ${det.revision} (${describeReadings(det.readings)})`);
     d.log(`PCSX2 runs ${det.revision}`);
     const p = pine;
-    const sampler = new Sampler(p, det.revision, { padProbe: true, extra: true, nearRadius: 30, nearRefreshRows: 1_000_000, origin: a.origin });
+    const sampler = new Sampler(p, det.revision, { padProbe: true, extra: true, nearRadius: 30, nearRefreshRows: 1_000_000, origin: a.origin, raise: a.raise, raiseRecords: a.raiseRecords });
     const clock = async (): Promise<number> => f32(await p.read32(GUEST_ADDRESSES[det.revision].guestClock)) * 1000;
     const rows: Record<string, unknown>[] = [];
     for (let trial = 1; trial <= a.trials; trial++) {
@@ -179,17 +210,58 @@ export async function probeRun(a: ProbeArgs, host: HostPlan, d: ProbeDeps): Prom
         }
         const end = (c.events.length ? c.events[c.events.length - 1]!.t : 0) + a.tailMs;
         let sampling = true;
+        const yaw = { last: null as number | null, start: null as number | null };
+        // --yaw-turns: hold the right stick toward start + rel until raiseYaw is within tol, then taps for any overshoot,
+        // each held in proportion to the error left (./yawTurn yawTapMs; rleft raises raiseYaw). Each turn gives up after
+        // YAW_TURN_GIVE_UP_MS and says so; a held key is always let go, a stop included.
+        const keyPath = injector!;
+        const turned = (async () => {
+          for (const tr of a.yawTurns) {
+            while (!stopped.v && (await ms()) < tr.t) await d.sleep(2, signal);
+            if (stopped.v) return;
+            const w = d.now();
+            while (!stopped.v && yaw.start === null && d.now() - w < 3000) await d.sleep(5, signal);
+            if (stopped.v) return;
+            if (yaw.start === null || yaw.last === null) { d.log(`trial ${trial} ${c.name}: yaw turn at ${tr.t} ms skipped, no untorn raiseYaw`); continue; }
+            const target = yawTarget(yaw.start, tr.rel);
+            const t0w = d.now(); let taps = 0;
+            for (;;) {
+              if (stopped.v) return;
+              const k = turnKey(yaw.last, target, tr.tol);
+              if (k === null) break;
+              if (d.now() - t0w >= YAW_TURN_GIVE_UP_MS) { d.log(`trial ${trial} ${c.name}: yaw turn to ${target.toFixed(1)} gave up at ${yaw.last.toFixed(1)}`); break; }
+              const vk = PCSX2_VK[k];
+              await keyPath.batch([{ action: 'down', vk }]);
+              try {
+                if (taps === 0) { while (!stopped.v && turnKey(yaw.last, target, tr.tol) === k && d.now() - t0w < YAW_TURN_GIVE_UP_MS) await d.sleep(1, signal); }
+                else await d.sleep(yawTapMs(wrap180(target - yaw.last)), signal);
+              } finally {
+                await keyPath.batch([{ action: 'up', vk }]);
+              }
+              taps++;
+              await d.sleep(180, signal);
+            }
+            d.log(`trial ${trial} ${c.name}: yaw turn at ${tr.t} ms to ${target.toFixed(1)} (start ${yaw.start.toFixed(1)} ${tr.rel >= 0 ? '+' : ''}${tr.rel}): at ${yaw.last.toFixed(1)} after ${taps} press(es), ${Math.round(d.now() - t0w)} ms`);
+          }
+        })();
+        background.push(turned.catch(() => undefined));
         const sampled = (async () => {
-          while (sampling) {
+          while (sampling && !stopped.v) {
             const r = await sampler.sample();
-            if (r) rows.push({ trial, case: c.name, ms: r.t * 1000 - t0, ...r });
+            if (r) {
+              rows.push({ trial, case: c.name, ms: r.t * 1000 - t0, ...r });
+              const y = (r as { raiseYaw?: number | null; raiseTorn?: number | null }).raiseYaw;
+              if (typeof y === 'number' && (r as { raiseTorn?: number | null }).raiseTorn === 0) { yaw.last = y; if (yaw.start === null) yaw.start = y; }
+            }
             else await d.sleep(1, signal);
           }
         })();
+        background.push(sampled.catch(() => undefined));
         await runTimeline(moments, ms, async (m) => {
           await injector!.batch(m.events.flatMap((e) => keys.push(e)).map((k) => ({ action: k.action, vk: k.vk })));
         }, { signal, wait: () => d.sleep(1, signal) });
         while ((await ms()) < end) await d.sleep(5, signal);
+        await turned;
         sampling = false;
         await sampled;
         if (a.shots) await d.shot(`${a.out}/t${trial}-${c.name}.png`);
@@ -205,8 +277,15 @@ export async function probeRun(a: ProbeArgs, host: HostPlan, d: ProbeDeps): Prom
       scripts: a.scripts, tailMs: a.tailMs, settleMs: PROBE_SETTLE_MS, padProbe: PAD_PROBE_ADDRESSES[det.revision],
       torn: sampler.torn, nullActor: sampler.nullActor, readErrors: sampler.tiltErrors + sampler.extraErrors, savedTo: a.saveAfter,
       origin: a.origin ? { addresses: ORIGIN_ADDRESSES[det.revision], evidence: ORIGIN_EVIDENCE[det.revision], inferred: ORIGIN_INFERRED[det.revision], readErrors: sampler.originErrors, originBeyondCap: sampler.originBeyondCap } : null,
+      raise: a.raise ? {
+        addresses: RAISE_ADDRESSES[det.revision], evidence: RAISE_EVIDENCE[det.revision], inferred: RAISE_INFERRED[det.revision],
+        recordsMax: a.raiseRecords, readErrors: sampler.raiseErrors, torn: sampler.raiseTorn, raiseBeyondCap: sampler.raiseBeyondCap,
+        idleConfig: sampler.raiseIdleConfig,
+      } : null,
     }, null, 2));
   } finally {
+    stopped.v = true;
+    await Promise.all(background);
     try { injector?.close(); } catch { /* gone */ }
     try { pine?.close(); } catch { /* gone */ }
     if (pcsx2) d.killTree(pcsx2);

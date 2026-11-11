@@ -712,7 +712,13 @@ describe.skipIf(!MP2)(`HF2-slim's cost cut leaves every walker state as it was${
     // JUMP-AIR (2026-11-08, research 80 s7): `AIR_SEGMENT_DIRECTION_READING` alone moves it -- the airborne records slant
     // with the vertical speed every tick (reverting it alone restores c2b30349..., review 1 F4); the launches and stands
     // are unchanged, the airborne states move, so the hash re-measured.
+    // AIR-PROBE (2026-11-10, research 399; `AIR_FLOOR_PROBE_READING` 'frame-end'): the airborne move is taken whole and the
+    // floor probed once a game frame. Of the 144 walkers, 143 differ only in the last bits (one add of the move instead of
+    // two halves, ~1e-13); walker 135 meets a floorless column near MP2's shed at (292.9, 145.6, 1122.7) on tick 174: the
+    // base refused its sub-steps and the segments' depth push then threw it 10 units along +z (`di_shed01`), while the
+    // frame-end probe puts it back 0.5 at the last hit and it lands. The launches and stands are unchanged; the
+    // 'sub-step' arm restores a27ba877... exactly (measured headless, the owner's host, the same walk).
     expect([launched, stood]).toEqual([383, 116]);
-    expect(digest).toBe('a27ba877bb86307968bf51a528a3ca522a4cca785c9b9fc8667277570579a06b');
+    expect(digest).toBe('d7a59742eb6ca139339fce7aa077be2157d5c8980a0d6766b1fca433d55d4754');
   }, 120_000);
 });

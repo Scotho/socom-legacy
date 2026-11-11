@@ -1,4 +1,5 @@
 import { mountMenuSampling, parseMenuSampling, type UiSamplingSettings } from './experimentalUiSampling';
+import { FrameGuard } from './frameGuard';
 import { pageCloseReport } from './net/closeReport';
 import { Zar, parseRdr, readZarMembers, type AssetSource } from '@s2u/archive';
 import { assetSourceFor } from './discSource';
@@ -36,7 +37,7 @@ import { connectPersona, readsUniverseFirst, restoreCardUiVars, type PersonaConn
 import { withMenuArt, type MenuArt } from './menuArt';
 import { fetchUniverseService, universeServiceBase } from './universeHost';
 import { fetchUsagePolicyService } from './usagePolicyHost';
-import { connectClanInvitations, fetchClanInvitationsService, fetchClanMembershipService, type ClanMembershipTransport } from './clanInvitationsHost';
+import { connectClanInvitations, fetchClanInvitationsService, fetchClanMembershipService, withClanInvitationNotice, type ClanMembershipTransport } from './clanInvitationsHost';
 import { connectClanMessages, fetchClanMessagesService, type ClanMessagesTransport } from './clanMessagesHost';
 import { connectManageRoster, fetchManageRosterService, type ManageRosterTransport } from './manageRosterHost';
 import { connectWorldOfSocom, fetchAnnouncementService, fetchOwnerFieldsService, fetchPlayerInfoService, fetchRoomListService, type WorldOfSocomConnection, type WorldOfSocomMount } from './worldOfSocomHost';
@@ -69,10 +70,13 @@ import type { ServerEvent } from './net/protocol';
 import { CreateGameOfferRead, fetchCreateGameService, offerWithRooms, missionsFromReaderc, sessionCreateGame, type CreateGameTransport } from './createGameHost';
 import { attachMenuInput } from './menuInput';
 import { connectMenuRoutes } from './menuRoutes';
+import { LOBBY_LINK_DIRECT_HOLD_SECONDS_ADAPTATION } from './lobbyLinkDirect';
+import { showLobbyLinkCover } from './lobbyLinkCover';
 import { MoviePlayerHost } from './moviePlayerHost';
 import type { MovieSoundOut } from './movieSound';
 import { connectSoftKeyboard, readUiParams } from './softKeyboardKeys';
 import type { RasterOptions, UiCanvasTarget, UiTextures } from './uiCompositorView';
+import { releasePageQuadCache } from './uiCompositorView';   // QUAD-CACHE-RELEASE (LATER 859): the menus' cache let go under a match
 import { CpuUiPresenter, isUiPresenter, type UiPresenter } from './uiPresenter';
 import { FrontEndGpu, uiGpuFrontFrameOptions } from './uiGpuFront';
 import { uiGpuSurfaceLoader, uiGpuSurfaceWiring } from './uiGpuSurfaceMount';
@@ -519,8 +523,9 @@ export class FrontEndSession<P = BlackPicture> {
     desktop.hooks.unregister('dlgMenu.rdr', 'options_button', 'CROSS');
     initSystemTuners(this.uiVars);   // `InitSystemTuners` (FUN_0038a7a0) at the game's start: the volumes, the brightness, the sticks (longevity 2)
     const universe = o.universe;                                                       // ONL-04 (research 147): GetServerList's worker over the session's list
-    new DnasCommands({ valves: () => this.machine.valves, getServerList: universe ? () => this.universes.job(universe) : undefined }).register(this.host);   // ONL-03's five rows (research 146): the DNAS bypass, the stand-in workers
-    this.netLogin = connectNetLogin(this.host, { machine: () => this.machine, uiVars: this.uiVars, libmc });   // ONL-01's NetCnf rows over the same libmc (`./netLoginHost`)
+    const hidden = o.invite?.direct ? LOBBY_LINK_DIRECT_HOLD_SECONDS_ADAPTATION : undefined;   // OT.R121: OT.R20's holds behind the cover
+    new DnasCommands({ valves: () => this.machine.valves, getServerList: universe ? () => this.universes.job(universe) : undefined, ...(hidden !== undefined ? { holdSeconds: hidden } : {}) }).register(this.host);   // ONL-03's five rows (research 146): the DNAS bypass, the stand-in workers
+    this.netLogin = connectNetLogin(this.host, { machine: () => this.machine, uiVars: this.uiVars, libmc, ...(hidden !== undefined ? { connectHoldSeconds: hidden } : {}) });   // ONL-01's NetCnf rows over the same libmc (`./netLoginHost`)
     new UniverseCommands({ valves: () => this.machine.valves, uiVars: this.uiVars, list: this.universes, lobbyDisconnect: () => this.lobby?.disconnect() }).register(this.host);
     if (o.universeReply) { for (const e of o.universeReply.universes) this.universes.entry(e); for (const n of o.universeReply.news) this.universes.newsChunk(n); }
     if (o.usagePolicy) new UsagePolicyCommands({ uiVars: this.uiVars, service: o.usagePolicy, lobbyUp: () => this.lobby?.up ?? true, lobbyState: () => this.lobby?.state() ?? 0, lobbyLogout: () => { this.lobby?.logout(); } }).register(this.host);   // ONL-08 (research 156): GetUsagePolicy, LobbyLogout's stub
@@ -558,9 +563,11 @@ export class FrontEndSession<P = BlackPicture> {
     this.persona = connectPersona(this.host, { machine: () => this.machine, uiVars: this.uiVars, libmc, menu, universes: this.universes, parts: this.parts, standing: this.opener.stubs.entries(), lobby: this.connect?.lobby });   // ONL-06 (research 153 §5): after the boot's stubs
     this.world = connectWorldOfSocom(this.host, { uiVars: this.uiVars, valves: () => this.opener.valves, event: (kind) => { this.machine.shell()?.event(kind); }, announcement: o.announcement, invitations: o.clanInvitations, lobby: this.connect?.lobby,   // ONL-09 (research 158 §4); ONL-10's lobby (research 160 §4)
       roomList: o.roomList, roomListPing: {}, ownerFields: o.ownerFields, playerInfo: o.playerInfo, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); } });   // ONL-11 (research 161 §3); OPT-15 (research 265 §1); SVC-15a (research 268 §1.7)
+    let clanInvitesLive: (() => void) | null = null;   // CLAN-INVITES (CLAN_INVITE_LIVE_ADAPTATION): connectClanInvitations' live, bound below
     this.briefing = connectBriefingRoom(this.host, { uiVars: this.uiVars, valves: () => this.opener.valves, lobby: this.connect?.lobby ?? null, rooms: () => this.world.commands.rooms(),   // ONL-12 (research 162 §4)
       inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, event: lobbyEventInto(() => this.machine, this.parts),
-      service: o.briefingRoom && withSays(o.briefingRoom, (says, ticket) => { if (ticket !== this.lobby?.ticket()) return; const f = saysFor(says, this.currentGameId()); for (const id of f.withdraw) this.sayToast?.withdraw(id); for (const x of f.show) this.sayToast?.show(x); }),   // OA-3: the poll's `says` to the toast only (OA.R1)
+      service: o.briefingRoom && withClanInvitationNotice(withSays(o.briefingRoom, (says, ticket) => { if (ticket !== this.lobby?.ticket()) return; const f = saysFor(says, this.currentGameId()); for (const id of f.withdraw) this.sayToast?.withdraw(id); for (const x of f.show) this.sayToast?.show(x); }),   // OA-3: the poll's `says` to the toast only (OA.R1)
+        (ticket) => { if (ticket === this.lobby?.ticket()) clanInvitesLive?.(); }),   // CLAN-INVITES: the poll's mark asks the received list again (CLAN_INVITE_LIVE_ADAPTATION)
       ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, clanId: () => this.world.commands.clan.clanId,   // CLAN-ID-WIRE: AUTOPLAY's FUN_002e9940 (DAT_0044f59c)
       missions: o.missions, found: (g) => { this.gameLobby.commands.randomGameFound(g); }, now: () => this.frameNow,   // ONL-15 (research 265 §2): the type filter, AUTOPLAY's pick; ONL-23: the chat's poll on the page's clock
       currentGame: () => this.gameLobby.commands.currentGame(),   // GetGameInfo('CurrentGame'): the lobby's play list (+0x84) and 0x414e00 (research 154 §7.1)
@@ -576,7 +583,8 @@ export class FrontEndSession<P = BlackPicture> {
       inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, event: lobbyEventInto(() => this.machine, this.parts), lobby: this.connect?.lobby ?? null,
       line: (text, name, flag, kind) => { this.briefing.chat.screenLine(text, name, flag, kind); }, now: () => this.frameNow });   // the forward's line on ONL-23's screen line; the pushes polled on the page's clock
     connectCreateClan(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, service: o.createClan, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), lobby: this.connect?.lobby ?? null });   // ONL-26 (research 271)
-    connectClanInvitations(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, invitations: this.world.invitations, service: o.clanMembership, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null });   // ONL-28 (research 273)
+    const clanInvites = connectClanInvitations(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, invitations: this.world.invitations, service: o.clanMembership, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null, dialog: () => this.machine.shell()?.currentName ?? null });   // ONL-28 (research 273); CLAN-INVITES F2: the live mark's dialogs
+    clanInvitesLive = clanInvites.live;   // CLAN-INVITES (CLAN_INVITE_LIVE_ADAPTATION): the chat poll's mark, above
     const clanMessages = connectClanMessages(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, service: o.clanMessages, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null });   // ONL-29 (research 274)
     const ladder = connectLadderLobby(this.host, { uiVars: this.uiVars, valves: () => this.opener.valves, service: o.ladder, ticket: () => this.lobby?.ticket() ?? null,   // ONL-30a (research 269 §2): one client ladder for SOCOM II ONLINE's top ten and PLAYER RANKING
       sessionLost: (t) => { this.lobby?.sessionLost(t); }, inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null,
@@ -768,15 +776,17 @@ export class FrontEndSession<P = BlackPicture> {
    */
   private menuFrame(dt: number): void {
     const host = this.lobbyArmory;
-    if (!host && !this.menusHeld) { this.last = this.opener.frame(dt); return; }
+    // OT.R121 (`./lobbyLinkDirect`): behind a lobby link's cover the menus read no pad, as while a match holds them.
+    const muted = (): boolean => this.menusHeld || this.invite.covering();
+    if (!host && !muted()) { this.last = this.opener.frame(dt); return; }
     // OBF-2 (OBF.R2): one listener per read. The frame's source stands in for the page's for this frame only; one kept
     // past it and handed back (once: the match's hold, taken inside this frame by a late joiner's ReadyToLoad) is the
     // page's source again, never a second wrapper around it -- which handed the screen every read twice, the pad's then
     // NO_PAD, so a held press stepped it once per read.
     const real = FRAME_SOURCES.get(this.input.source) ?? this.input.source;
-    const off = (): boolean => this.menusHeld || (host?.hosting() ?? false);
+    const off = (): boolean => muted() || (host?.hosting() ?? false);
     const frame: MenuInputSource = {
-      read: () => { const snap = this.menusHeld ? NO_PAD : real.read(); host?.pad(snap); return off() ? NO_PAD : snap; },
+      read: () => { const snap = muted() ? NO_PAD : real.read(); host?.pad(snap); return off() ? NO_PAD : snap; },
       ...(real.usbKey ? { usbKey: () => (off() ? null : real.usbKey!()) } : {}),
     };
     FRAME_SOURCES.set(frame, real);
@@ -790,7 +800,7 @@ export class FrontEndSession<P = BlackPicture> {
 
   /**
    * The last frame onto a canvas target (PLAT-14's drawer); what it could not draw comes back. `hd` (HD-3, a browser
-   * adaptation under HD (GoE Soul), `./hdMenuTextures`): the frame's scale and the HD pack's lookup; absent, the original.
+   * adaptation under HD (GoE SouL), `./hdMenuTextures`): the frame's scale and the HD pack's lookup; absent, the original.
    */
   render(target: UiCanvasTarget | UiPresenter, uiSampling?: UiSamplingSettings, hd?: Pick<RasterOptions, 'scale' | 'hd' | 'quadCache'>): { undrawn: string[] } {
     const textures = this.lobbyArmory?.hosting() ? this.lobbyArmory.textures : this.textures;
@@ -982,7 +992,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   let audio: FrontEndAudio | null = null;
   let keys: { detach(): void } | null = null;
   let session_: FrontEndSession<MovieFrame> | null = null;
-  let hdMenus: HdMenus | null = null;                              // HD-3: the menus' HD pack, once HD (GoE Soul) is chosen
+  let hdMenus: HdMenus | null = null;                              // HD-3: the menus' HD pack, once HD (GoE SouL) is chosen
   // The flip's review F2: the front's GPU surface down for the session (L4: no WebGL2, a software adapter, ...; L3: the loss
   // limit) -- the menus' HD images could never show, so the pack is let go and not asked again this session.
   let frontGpuDown = false;
@@ -1023,6 +1033,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
    * session now and the reloaded page's login is never -997 for their `SESSION_SILENT_MS_READING`. A browser
    * adaptation.
    */
+  let lobbyCover: { hide(): void } | null = null;               // OT.R121: a lobby link's cover while its login path runs behind it
   let screenOriginStop: (() => void) | null = null;            // SCREEN POSITION's resize listener, set once the keeper is made
   const pictureOff: (() => void)[] = [];                        // HD-4: the page's picture keeper outlives a mount; its observers do not
   const onPageHide = (e: PageTransitionEvent): void => { if (!e.persisted) mount.stop(); };
@@ -1041,6 +1052,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
       mount.music?.stop();                                           // the music's streams stopped (MENU-MUSIC)
       screenOriginStop?.();                                          // SCREEN POSITION's resize listener off
       for (const off of pictureOff.splice(0)) off();                 // HD-4: this mount's picture observers off
+      lobbyCover?.hide(); lobbyCover = null;                         // OT.R121: the cover off with its page
       closeSession();                                                // the lobby's keep-alive stopped, its session logged out (review (5)); GM-12a: the GPU surface let go
       matchLoading?.release();                                       // ONL-18c: the match's worker ended
       gpuFront?.remove();                                            // GM-12b: #front-end-gpu off the page
@@ -1200,7 +1212,10 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     const panel = (): LoadingPanel => (loadingPanel ??= ((w) => new LoadingPanel(doc, w.hd, w.gpu))(uiGpuSurfaceWiring('loading', pageDeviceClass(), () => hdMenus?.options() ?? { scale: 1 }, () => ({ resolveAt: (s: number) => uiGpu.resolve('loading', s), load: uiGpuSurfaceLoader({ surface: 'loading', transparent: false, sw: uiGpu, win, hdKeys: () => hdMenus?.keys() ?? null }), dev: uiGpuDevBuild() }))));
     // BLACK-GAP (`./loadingHold` `LOADING_UNTIL_FIRST_FRAME_ADAPTATION`, a browser adaptation): at the match's start the
     // screen stays up until the mounted match draws its first world frame (or the fallback), not taken down at begin.
-    const loadingHide = loadingHold(() => { loadingPanel?.hide(); });
+    // QUAD-CACHE-RELEASE review F1: the panel draws through the load after `leave` (its software frames fill the page's
+    // quad cache), so the caches go again when it hides at the match's first frame. The in-match Options overlay's draws
+    // refill it too; that refill (within the cache's 32 MiB) waits for the next match's `leave`.
+    const loadingHide = loadingHold(() => { loadingPanel?.hide(); hdMenus?.releaseQuadCache(); releasePageQuadCache(); });
     const matchScreen = pageLobbyMatchScreen({ cover: () => { loadingHide.show(); panel().cover(); }, show: (s) => panel().show(s), hide: () => { loadingHide.hide(); } }, assets);
     const menuHold = matchMenuHold(() => session_);
     const banks = pageUiTextures(assets);                                          // ONL-01: the banks from the tree (`./frontEndAssets`)
@@ -1306,7 +1321,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
         // `./frontEndSleep` (a browser adaptation): the menus' raster skipped while the match is up under every preset
         // (H397 / C14; PR #631 began it under the Xbox preset) and, under the Xbox preset or the Xbox class (VS-10 F1), the
         // movie worker ended when no movie is open.
-        leave: () => { matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); uiGpuFront?.release(); gpuFront?.commit(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); else movies?.sound.keep.clear(); },   // GM-32 review F1: the kept movie sound let go for the match
+        leave: () => { hdMenus?.releaseQuadCache(); releasePageQuadCache(); matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); uiGpuFront?.release(); gpuFront?.commit(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); else movies?.sound.keep.clear(); },   // GM-32 review F1: the kept movie sound let go for the match
         settled: (r) => { matchSound.settled(r); },
         // PR #631 (`./matchLoaderSlot`): under the Xbox preset the match's worker and decoded mission let go at the return.
         returned: () => { roundLine = null; if (releasesMatchOnReturn(readGraphicsBackend()) || pageDeviceClass() === 'xbox') matchLoading?.release(); matchSound.returned(); canvas.hidden = false; screenOrigin.layLater(); menuHold.returned(); uiGpuFront?.returned(); matchUp = false; loadingHide.release(); },
@@ -1344,18 +1359,22 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     }
     mount.status = `front end on ${router.plan.stack.length ? s.machine.menu.startDialog : 'the opener (the loader screens, then dlgIntroScreen.rdr)'}`;
     menuInput?.connect(s.input);                                   // PLAT-11: the keys, pad and taps are the menus'
+    if (s.invite.covering()) lobbyCover = showLobbyLinkCover(doc);   // OT.R121: the login path behind the cover, to the GAME LOBBY or a reveal
     // PLAT-17: UiParams.rdr, the physical typing -- in a release build too, but only while the soft keyboard's text entry
     // is open (the original takes a USB keyboard there; research 301 §6): no gameplay key (OT.R29, `keyboardGate.test.ts`).
     keys = connectSoftKeyboard(s.keyboard, win, () => readUiParams(assets), true);
-    const loop = (now: number): void => {
-      if (!running) return;
+    // FRAME-LOOP-GUARD (LATER 859, `./frameGuard`; a browser adaptation): the menus' body is `step`, run through the
+    // guard, so a throw inside a tick costs that tick, not the menus.
+    const step = (now: number): boolean => {
+      if (!running) return false;
       movies?.sound.refreshVolume();                             // PCM group 2 follows Dialog, including the MENULOOP soundtrack.
       music?.refreshVolume();                                      // OPTIONS' MUSIC VOLUME on the music playing (research 302 §4)
       setBrightness(brightnessOfVars(session_?.uiVars));         // OPT-11 (research 358): OPTIONS' BRIGHTNESS on the picture
-      const chosen = hdMenus?.options() ?? { scale: 1 };              // HD-3: 640 x 448 unless HD (GoE Soul)'s pack is on
+      const chosen = hdMenus?.options() ?? { scale: 1 };              // HD-3: 640 x 448 unless HD (GoE SouL)'s pack is on
       // The session advances every tick (the lobby and the match tick through it); the raster rests under a match (H397 / C14).
       perf?.begin(now);                                              // GM-02: the instrument's frame (null on every player's page)
       const ticks = s.advance(now);
+      if (lobbyCover && !s.invite.covering()) { lobbyCover.hide(); lobbyCover = null; }   // OT.R121: the reveal
       perf?.advanced(ticks);
       const gpu = gpuFront?.drawsOn(chosen.scale) ?? false;          // GM-12b: the front end's GPU surface draws this scale (never at L4 or L3: review F3)
       // GM-28 (GM.R19): the HD options to the surface only (1x there too unless it presents); the page's own software
@@ -1371,7 +1390,11 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
       }
       gpuFront?.commit();                                            // GM-12b: the canvas swap at the tick boundary, after the frame is on its canvas
       perf?.end(s.clock.lostSeconds, s.last, (hd as { version?: number }).version ?? -1, hd.scale, s.machine.shell()?.currentName ?? '');
-      frameId = win.requestAnimationFrame(loop);
+      return true;
+    };
+    const frontGuard = new FrameGuard();
+    const loop = (now: number): void => {
+      if (frontGuard.frame(() => step(now), () => running)) frameId = win.requestAnimationFrame(loop);
     };
     frameId = win.requestAnimationFrame(loop);
     // GM-29 (`./frontEndAssets` `UI_TEXTURE_PREFETCH_ADAPTATION`, a browser adaptation): after a frame, at idle, every

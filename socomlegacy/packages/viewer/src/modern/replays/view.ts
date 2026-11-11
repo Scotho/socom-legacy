@@ -264,6 +264,11 @@ export interface ReplayViewerOptions {
    * where the replay was opened from (the console's row).
    */
   onClose: () => void;
+  /**
+   * LCM-RP's render fold (`../../console/render/replayPublic`): the word Back says -- where `onClose` goes. Absent,
+   * "Replays" (the launcher's Watch). A browser adaptation.
+   */
+  backLabel?: string;
 }
 
 export interface ReplayViewer {
@@ -514,14 +519,15 @@ export function mountReplayViewer(host: HTMLElement, entry: ReplayEntry, o: Repl
     // RV2.R7's hook for the crumb's Back (the RV2 batch review's F8): `data-back`, not a `data-action` -- those are the
     // transport's, whose `back` is the step back
     backBtn.dataset['back'] = '';
-    backBtn.setAttribute('aria-label', 'Back to Replays');   // the visible word kept in the name
+    const backWord = o.backLabel ?? 'Replays';
+    backBtn.setAttribute('aria-label', `Back to ${backWord}`);   // the visible word kept in the name
     // MODAL-CLOSE's fold (MISSION OT.R62, the owner, 2026-10-17): Escape closes the viewer in every build -- the console's
     // own Escape (`../../console/input`) when the viewer is open over it -- so Back names it whatever `keys` says. Circle
     // is the console's Close, named by its legend.
     backBtn.setAttribute('aria-keyshortcuts', 'Escape');
-    backBtn.title = 'Back to Replays';
+    backBtn.title = `Back to ${backWord}`;
     // RB-32: "‹ REPLAYS / REPLAY" (`D:251-253`): the chevron and the word, no mark between
-    backBtn.append(ico('left', 'cx-back__chevron'), el('span', 'cx-back__label', 'Replays'));
+    backBtn.append(ico('left', 'cx-back__chevron'), el('span', 'cx-back__label', backWord));
     backBtn.addEventListener('click', back);
     const here = el('span', 'cx-crumb__here', ' / Replay');
     here.setAttribute('aria-hidden', 'true');

@@ -2009,18 +2009,19 @@ describe('LkPaioX5 (a): the action list beside the prompt', () => {
     hud.setNearbyAction([{ prompt: 'c4' }, { prompt: 'door' }, { prompt: 'lever' }]);   // a record more: rebuilt
     expect(hud.timing().actionAlpha).toEqual([28 / 128, 19 / 128, 19 / 128]);
   });
-  // Review fold F2: the sides are the list turned to the head the HUD shows. A bomb carrier at a site with a ledge in
-  // reach: the list [bomb, climb], the climb feed's head `climb` -- the bomb beside it, the climb never twice, and the
-  // head ramping to its own cap (90), not a side's (28).
+  // Review fold F2: the sides are the list turned to the head the HUD shows. LATER 636: with the picker's list fed, its
+  // head is the head (`FUN_0021f210` D:L73945 draws the head `FUN_0021d9d0` D:L73401 fires) -- a bomb carrier at a site
+  // with a ledge in reach, the list [bomb, climb]: the bomb the head, the climb beside it, never twice, the head ramping
+  // to its own cap (90), not a side's (28). Was: the climb feed's `climb` took the head over the list's.
   it('Hud: the sides follow the head shown -- the list turned to it, none twice; a head not in the list has none', () => {
     const hud = new Hud();
     hud.setNearbyAction([{ prompt: 'bomb' }, { prompt: 'climb' }]);
     hud.setClimbPrompt({ visible: true, kind: 'low' });
-    expect(hud.state().model).toMatchObject({ action: 'climb', actionSides: [{ prompt: 'bomb', colour: 'green' }] });
+    expect(hud.state().model).toMatchObject({ action: 'bomb', actionSides: [{ prompt: 'climb', colour: 'green' }] });
     hud.step(4 * GAME_FRAME_DT);
     expect(hud.timing().actionAlpha).toEqual([90 / 128, 28 / 128]);
     hud.setNearbyAction([{ prompt: 'door' }, { prompt: 'c4' }, { prompt: 'bomb_drop' }]);   // the climb not in the list
-    expect(hud.state().model).toMatchObject({ action: 'climb', actionSides: [] });
+    expect(hud.state().model).toMatchObject({ action: 'door' });
     hud.setClimbPrompt(null);
     hud.setAction('c4');                                                                   // a caller's head in the list
     expect(hud.state().model.actionSides).toEqual([{ prompt: 'bomb_drop', colour: 'green' }, { prompt: 'door', colour: 'green' }]);

@@ -76,7 +76,8 @@ export function liveAdapters(doc: Document, win: Window): Adapters & { dispose()
   // (`./launch`); it is not registered at the START boundary, whose `end()` cannot be undone if the mount then fails.
   const launch = liveLaunch(doc, { session, ...(disc.start ? { start: disc.start } : {}) });
   // INVITE-START (FI.R8): an invite address's auto-START, and the invite channel answered while the session holds a sign-in.
-  const invite = liveInvite(win, { session, disc, notify });
+  // LOBBY-LINK-DIRECT: a lobby link's auto-START waits for the load's quick sign-in, and its START decides the direct path.
+  const invite = liveInvite(win, { session, disc, notify, quickPending: () => signIn.quickPending() });
   // Only a START press marks the keyboard or the mouse for START (`../input`: the START keys, a click on START; the
   // merge controller's call on #400, 2026-10-20), so an invite address's auto-START waits for one, or for a pad.
   const controls = liveControls(pad, { touch: touchDevice });   // LR-31: Play needs a pad or a touch screen; a key or a click seen no longer counts

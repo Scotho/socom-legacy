@@ -284,6 +284,12 @@ rules); no second trigger engine. FCW-20..23 keep their ids, order and owners.
 Each ships as a creator-editable, versioned pack; its README states which parts are pack data and which are
 engine-owned handler capabilities.
 
+The community-mods starter (issue #766) is a further example on this same vocabulary, not a change to it:
+`packages/creator-contracts/examples/zombie-waves/`. Three waves are phases, the rest between them is a timer, and the
+horde is `spawner.release` with `behaviour.npc.patrol`. The Crossroads test map is
+`packages/creator-contracts/examples/zombie-waves.crossroads.json`. How to open it, and what each wave does, is that
+pack's README and the modding wiki's "Testing a pack locally".
+
 Where issue #532's other checks live: save and reload of a layout with its rules -- FCW-32; repeatability,
 duplicate-event protection, disable and rollback, malicious and stale requests, retail parity -- FCW-31; two clients
 agreeing when hosting is authorised -- FCW-19 (S5); pack dependencies while authoring -- FCW-32; the simulated tests

@@ -119,7 +119,11 @@ export function chatLinesOf(raw: unknown): ChatFwdLine[] {
  * `says` beside `system` -- an operator's say or a say's withdrawal, for the page's toast (`./operatorToast`) only;
  * `@s2u/ui`'s chat (`BriefingRoomChat`) reads `lines` and `system` and never this key.
  */
-export type ChatLinesReplyWithSays = ChatLinesReply & { says?: readonly (Say | SayWithdrawn)[] };
+export type ChatLinesReplyWithSays = ChatLinesReply & {
+  says?: readonly (Say | SayWithdrawn)[];
+  /** CLAN-INVITES (`CLAN_INVITE_LIVE_ADAPTATION`, a browser adaptation): central's mark -- the caller's received clan invitations changed (`./clanInvitationsHost` `withClanInvitationNotice`). */
+  clanInvitations?: true;
+};
 
 /** OA-3: one entry of `says` checked field by field -- a withdrawal `{ id, withdrawn: true }`, or a say (no `kind`, or `'say'`); unknown fields dropped; null when not of the shape. */
 function sayOf(x: unknown): Say | SayWithdrawn | null {
@@ -139,13 +143,15 @@ function sayOf(x: unknown): Say | SayWithdrawn | null {
  * the lines as `chatLinesOf` reads them and each system message checked field by field, one not of the shape skipped (the
  * lines are never lost for it); a reply without the key (an older central's) is the lines alone, as before. OA-3: with
  * central's optional `says` kept as given (`sayOf`, an entry not of the shape skipped); a reply with neither key is the
- * lines alone, as before.
+ * lines alone, as before. CLAN-INVITES: central's `clanInvitations` kept when it is `true` (`CLAN_INVITE_LIVE_ADAPTATION`),
+ * any other value dropped.
  */
 export function chatReplyOf(raw: unknown): ChatFwdLine[] | ChatLinesReplyWithSays {
   const lines = chatLinesOf(raw);
   const list = record(raw)['system'];
   const sayList = record(raw)['says'];
-  if (list === undefined && sayList === undefined) return lines;
+  const invites = record(raw)['clanInvitations'] === true;                     // CLAN_INVITE_LIVE_ADAPTATION
+  if (list === undefined && sayList === undefined && !invites) return lines;
   const system: ServerSystemMessage[] = [];
   for (const x of Array.isArray(list) ? list : []) {
     const m = x !== null && typeof x === 'object' ? x as Record<string, unknown> : {};
@@ -153,7 +159,7 @@ export function chatReplyOf(raw: unknown): ChatFwdLine[] | ChatLinesReplyWithSay
   }
   const says: (Say | SayWithdrawn)[] = [];
   for (const x of Array.isArray(sayList) ? sayList : []) { const e = sayOf(x); if (e) says.push(e); }
-  return { lines, ...(list !== undefined ? { system } : {}), ...(sayList !== undefined ? { says } : {}) };
+  return { lines, ...(list !== undefined ? { system } : {}), ...(sayList !== undefined ? { says } : {}), ...(invites ? { clanInvitations: true as const } : {}) };
 }
 
 /**

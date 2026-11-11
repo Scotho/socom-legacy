@@ -80,6 +80,13 @@ function optRowHtml(row: OptRow, i: number, catId: string, focused: boolean, v: 
   // LR-13 (LR.R16 (6)): a toggle's click flips it, as Cross does -- an action for the pointer.
   const extra = [lock ? 'is-locked' : '', changed ? 'is-changed' : '', kind.kind === 'action' || kind.kind === 'pick' || kind.kind === 'toggle' || kind.kind === 'link' ? 'is-action' : ''].filter(Boolean).join(' ');
   if (extra) html = html.replace(/^(<\w+ [^>]*?class=")cx-r /, `$1cx-r ${extra} `);
+  // SEP-ROWS (a browser adaptation): a row's warning -- the console's alert mark in the warning tone before its control,
+  // its words the mark's title (the pointer's tooltip) and part of the row's name for a reader.
+  if (row.warn) {
+    const w = esc(row.warn);
+    html = html.replace(/ aria-label="([^"]*)"/, ` aria-label="$1. ${w}"`)
+      .replace('<span class="cx-r__ctl">', `<span class="cx-r__warn" title="${w}" aria-hidden="true">${ico('alert')}</span><span class="cx-r__ctl">`);
+  }
   // The info kind carries no act of its own (LR-10): the grammar's, a tab stop for the frame's focus, and the focus key.
   const hooks = kind.kind === 'info' ? ` tabindex="-1" data-act="optrow" data-i="${i}"` : '';
   return html.replace(`data-row="${i}"`, `data-row="${i}"${hooks} data-fk="opt-${esc(catId)}-${i}"`);
@@ -90,6 +97,7 @@ function asideHtml(r: OptRow | undefined, a: Adapters, signedIn: boolean): strin
   return r ? `<aside class="cx-aside" aria-label="About this option">
         <div class="cx-readout__head">${esc(r.label)}</div>
         <p>${esc(r.about)}</p>
+        ${r.tip ? `<p class="cx-aside__tip${r.warn ? ' is-warn' : ''}">${r.warn ? ico('alert') : ''}${esc(r.tip)}</p>` : ''}
         <p class="cx-aside__note">${r.needsSignIn && !signedIn ? 'Sign in to change this.' : esc(r.locked ?? r.note)}${r.values && r.def !== undefined && a.options.value(r.id) !== r.def ? ' Default: ' + esc(r.values[r.def]) + '.' : ''}</p>
       </aside>` : '';
 }

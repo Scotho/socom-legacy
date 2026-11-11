@@ -50,7 +50,7 @@ const MAPS = { name: 'Ghostline', maps: [{ map: 'MP72', mapName: 'Crossroads', m
 const res = (status: number, body: unknown): PageResponse => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 
 /** A stub of central's stats routes for one player; every URL asked recorded. */
-function central(o: { career?: unknown; status?: number; fail?: boolean; pages?: number } = {}) {
+function central(o: { career?: unknown; status?: number; fail?: boolean; pages?: number; tracked?: boolean } = {}) {
   const asked: string[] = [];
   const pages = o.pages ?? 2;
   const fetch = async (url: string): Promise<PageResponse> => {
@@ -63,7 +63,8 @@ function central(o: { career?: unknown; status?: number; fail?: boolean; pages?:
     if (path!.endsWith('/matches')) {
       const page = q.get('before') === null ? 0 : Number(q.get('before')!.replace('C', ''));
       const limit = Number(q.get('limit'));
-      const rows = Array.from({ length: limit }, (_, i) => matchRow(page * limit + i + 1));
+      const rows = Array.from({ length: limit }, (_, i) => matchRow(page * limit + i + 1))
+        .map((r) => (o.tracked === undefined ? r : { ...r, match: { ...r.match, assistsTracked: o.tracked } }));
       return res(200, { name: 'Ghostline', matches: rows, ...(page + 1 < pages ? { next: `C${page + 1}` } : {}) });
     }
     if (path!.endsWith('/weapons')) return res(200, WEAPONS);
@@ -176,6 +177,22 @@ describe('LCM-12 / LCM-16: the page renders each section from the stats routes, 
     expect(rows[0]!.querySelector('.project-match-row-chev')?.getAttribute('aria-hidden')).toBe('true');
     // the map's still through site.css's custom property, no inline background (chrome_classes.test.ts)
     expect(rows[0]!.querySelector<HTMLElement>('.project-match-row-thumb')!.style.getPropertyValue('--project-match-row-still')).toBe(`url("/api/maps/${first.map}/still.png")`);
+  });
+
+  // Assists everywhere, gap D (product track; LCM-6b's STATS_ASSISTS_TRACKED_ADAPTATION): a match whose assists are counts
+  // shows K / D / A; one whose are not (an older host's, or a header without the flag) keeps K / D -- never a 0 that is no count
+  it('assists everywhere D: the row of a tracked match reads K / D / A and says the assists; an untracked one K / D, no 0', async () => {
+    const tracked = await mount('Ghostline', central({ tracked: true }));
+    const row = tracked.querySelector<HTMLAnchorElement>('a.project-match-row')!;
+    expect(text(row.querySelector('.project-match-row-kd'))).toBe('14 / 5 / 2 K / D / A');
+    expect(row.getAttribute('aria-label')).toMatch(/14 kills 5 deaths 2 assists, score 42$/);
+    for (const c of [central({ tracked: false }), central()]) {
+      document.body.replaceChildren();
+      const root = await mount('Ghostline', c);
+      const r = root.querySelector<HTMLAnchorElement>('a.project-match-row')!;
+      expect(text(r.querySelector('.project-match-row-kd'))).toBe('14 / 5 K / D');
+      expect(r.getAttribute('aria-label')).not.toMatch(/assist/);
+    }
   });
 
   it('paging: "Older matches" asks before=<next>, appends, focuses the first new row and says how many came', async () => {

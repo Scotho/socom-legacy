@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { remapAdapter } from '../../src/console/adapters/remap';
 import { prompts } from '../../src/console/render/legend';
-import { REMAP_ACTION_ROW, REMAP_SAME_THUMB_WARNING } from '../../src/console/render/remap';
+import { remapActionRow, REMAP_SAME_THUMB_WARNING } from '../../src/console/render/remap';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { REMAP_ROW, type Adapters } from '../../src/console/state';
 import { PadBinding } from '../../src/padBinding';
@@ -117,7 +117,7 @@ describe('h59U9CLb: making, showing and removing an extra', () => {
     expect(stored(p)).toEqual({ version: 1, doubles: [{ button: SQUARE, action: 'fireMode' }], combos: [] });
     expect(titles()).toContain('Square adds Fire mode');
     expect(ctl.S.toast).toBe('Square now also does Fire mode.');
-    expect(titles()[REMAP_ACTION_ROW + SQUARE]).toBe('Square');
+    expect(titles()[remapActionRow() + SQUARE]).toBe('Square');
   });
   it('a combo: Cross, the modifier held, then the button with it; a same-thumb pair kept with its one-line warning', () => {
     const { ctl, p } = opened();

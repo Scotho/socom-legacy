@@ -1,5 +1,6 @@
 import { bootFailure } from './bootFailure';
 import { installClientErrorBeacon, pageClientErrorBeacon } from './clientErrorBeacon';
+import { installInputSources } from './inputSources';
 import { bootPage } from './pageEntry';
 import { startPwa } from './pwa/boot';
 
@@ -15,5 +16,6 @@ import { startPwa } from './pwa/boot';
 // for, so a failed import (`chunkload`) and every error or graphics event of the front end or the test room has its
 // listener; the pages' own installs after this are no-ops (one install a window).
 installClientErrorBeacon(window, pageClientErrorBeacon());
+installInputSources(window);   // XBOX-DIAG (`./inputSources`): which input drove the menus and the match, counts only
 startPwa(window);
 void bootPage(location.pathname + location.search).catch(bootFailure);

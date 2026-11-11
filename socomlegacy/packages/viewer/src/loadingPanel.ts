@@ -133,7 +133,7 @@ export function loadingDrawList(
 }
 
 /**
- * HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE Soul)): the frame's scale, the HD pack's lookup and its
+ * HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE SouL)): the frame's scale, the HD pack's lookup and its
  * raster cache -- the page's (the front end hands it `./hdMenuTextures` `HdMenus.options`: one pack, one budget; which
  * scale it hands is the page's, GM-28). Under a whole scale over 1 the compositor draws the frame at 640 x 448 times it
  * (HD-3: every quad's place in the frame unchanged) and a bitmap the pack replaces is sampled from its HD image; the

@@ -3,6 +3,7 @@ import { createAssetTooltip, type AssetTooltip } from '../forge/assetTooltip';
 import { ASSET_DRAG_MIME, createAssetDrag } from '../forge/assetDrag';
 import { agentCodeWords } from '../agent/codes';
 import type { LocalPackApi } from '../agent/localPacks';
+import { DROPZONE_BLOCKED_BUILD } from '../agent/fileDropzone';
 import { mountAssetFileStaging } from './assetFileStaging';
 import type { ForgeAgentCatalogue } from '../forge/agent/api';
 import type { ForgeEditor, ForgePanelContext, StagedPiece } from '../forge/shell/context';
@@ -334,8 +335,13 @@ export function assetsForgePanel(options: AssetsForgePanelOptions = {}): ForgePa
         const state = ctx.state();
         return state.surface === 'build' && state.canPlace;
       };
+      // LATER 799: in Build behind another tab the panel is only hidden, so the words name its tab, not Build.
+      const blockedReason = (): string => {
+        const state = ctx.state();
+        return !visible && state.surface === 'build' && state.canPlace ? 'Open Content to add local files.' : DROPZONE_BLOCKED_BUILD;
+      };
       const files = options.packs ? mountAssetFileStaging(root, {
-        packs: options.packs, allowed, refresh: () => ctx.forge.refreshExternalState(), signal: ctx.signal,
+        packs: options.packs, allowed, blockedReason, refresh: () => ctx.forge.refreshExternalState(), signal: ctx.signal,
       }) : null;
       if (!files) { const none = doc.createElement('p'); none.className = 'fx-empty'; none.textContent = 'Local files are not available here.'; root.append(none); }
       const update = (): void => { if (!disposed) files?.refresh(); };

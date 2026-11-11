@@ -30,8 +30,8 @@ export function findExchangePlacement(map: Pick<SimMap, 'grid' | 'slots'> & Part
     // Product-track fixture adaptation (no original): the place is judged where the body comes to rest, not only where
     // it is put. A standing walker is settled there a second (SETTLE_TICKS, still stick) and the candidate is refused
     // unless it stays (within SETTLE_DRIFT, on the ground) and is dry at its rest: the standing lift (LATER 785) can put a
-    // record on a face the body slides off at once (MP64 respawn 181 onto `inv_di`, resting under 0.66 of water), and a
-    // fixture wants a place a player stands on.
+    // record on a face the body leaves at once (MP64 respawn 181 onto `inv_di`, resting 6.42 under water since LATER 833;
+    // research 80 s7), and a fixture wants a place a player stands on.
     for (let i = 0; i < SETTLE_TICKS; i++) walker.tick({forward: 0, right: 0, boost: false});
     const rest: Position = [walker.state.x, walker.state.y, walker.state.z];
     if (walker.airborne || Math.hypot(rest[0] - feet[0], rest[1] - feet[1], rest[2] - feet[2]) > SETTLE_DRIFT

@@ -194,9 +194,11 @@ Frostfire's class (research 210 §6, SUP-02): `wframe` carries the same flags as
 clear, so no guard) and a 1 / 0 / 0 block on its own `wglass` (health reference 2), two polygons a pane; its sequence
 `CALL_ANIMATION breakapane`; `breakapane` (flags 0x22, root `wglass`): `SOUND .GLS_BRK_MD` at -7 (flags 0x82, volume
 1), `DESTRUCTION_SOURCE` at -7, `OBJECT_ACTIVE_STATE` -7 off -- research 386 §2's window sequence with the medium glass
-sound. The four placements, their boxes' centres (`SCENE_SOUND_PLACE_READING`): (2497.076, 198, 599.265),
+sound. The four placements, their boxes' centres: (2497.076, 198, 599.265),
 (2190, 198, 839.265), (2130, 241, 839.265), (2159.265, 198, 630) -- each pane 0.08 u thick, research 175 §5.4's places
-offset by the frame. One round (2.3 + 0.3) breaks one pane: its sound once at its box centre, its two polygons out of a
+offset by the frame; the sound plays at each `wglass`'s world origin (`SCENE_SOUND_PLACE_READING`, since 2026-11-10;
+was the box's centre): (2490.076, 189.5, 598), (2183, 189.5, 838), (2123, 232.5, 838), (2158, 189.5, 637). One round
+(2.3 + 0.3) breaks one pane: its sound once at its origin, its two polygons out of a
 witness segment, the other three standing (`SCENE_INSTANCE_SCOPE_READING`: the called `breakapane` runs at its caller's
 root). While it stands a pane is a C4 target (health 1, shield 0); broken, not. Flag bit 11 (0x800) is on both maps'
 pane blocks and its meaning is not read (`ANIM_FLAG_0X800_READING`, *note only*).
@@ -239,7 +241,8 @@ are marked.
 - **`BLAST_REACH_LINE_SIDES_READING`** (research 386 §8): the blast's line to a destructible held two-sided; the
   barriers' and the planks' reach is measured on it.
 - **LATER 776**: the port's death check skipped after a refused shield (§2.2).
-- **LATER 782**: the boats' rock, the wash strokes and the shore's texture scroll built (§12).
+- **LATER 782**: the boats' rock, the wash strokes and the shore's texture scroll built (§12); the strokes and the
+  scroll since built (§12.7), the rock still owed.
 - **H226 / research 330** (the water) and the boats and shore (DF-9): not this note's.
 
 ## 9. Tests
@@ -317,7 +320,7 @@ reverted (the task's report holds both runs).
 
 | # | What | The original (the reading) | The port at `68ecb7316` | This task |
 |---|---|---|---|---|
-| B1 | The boats' rock | `boat_rocker1` / `boat_rocker2` (autostarts) wait 1 s plus a random 1 s, then loop for ever a 4 s slerp of the rocker's rotation between two absolute quaternions, 1.36 and 1.31 degrees off no turn (a 2.67 degree swing), and back | the two programs run on the page's world (AS-1), their `fromTo` ends at once and moves nothing: the boats stand still | decoded and pinned; `BOAT_ROCK_PLACEHOLDER` |
+| B1 | The boats' rock | `boat_rocker1` / `boat_rocker2` (autostarts) wait 1 s plus a random 2 s (1-3 s; the WAIT's base +12 and range +16, `FUN_0025ed50` D:L108436-108447 -- was "a random 1 s", the range misread at +12, corrected 2026-11-10), then loop for ever a 4 s slerp of the rocker's rotation between two absolute quaternions, 1.36 and 1.31 degrees off no turn (a 2.67 degree swing), and back | the two programs run on the page's world (AS-1), their `fromTo` ends at once and moves nothing: the boats stand still | decoded and pinned; `BOAT_ROCK_PLACEHOLDER` |
 | B2 | The boats' heading | the rotation setter writes the rocker's own rotation whole, so the first begin replaces each rocker's disc yaw -- 26.86 degrees (`boat_rocker1`) and 147.03 (`boat_rocker2`) -- with the rock about no turn: both boats end up headed one way, about the world's x (§12.3) | each boat drawn and collided at its disc yaw | read; `BOAT_ROCK_PLACEHOLDER`'s first evidence to settle |
 | B3 | Does the hull follow? | each rocker holds `boat_red` (identity under it) with 57 collision polygons; the doors' leaves turn by the same command and the same setter and their collision is the node's (research 92 §2), so the deck would turn with the rocker -- the transform the collision query reads is **not traced** here | the 57 polygons stand where the disc places them, in two owners per boat, `boat_red` and `boat_red=boat_red`, 57 each: `worldDi`'s documented double (`scene/src/buildScene.ts:340-356`; reCOM `zNode/node_io.cpp:46-51`; research 24 §1.1) -- the instance node keeps the prototype's `di` and the realised model root under it (`=`) holds the same, both in the world the engine holds -- so the build turns BOTH with the rocker; players stand on a still deck at the disc yaw | named inside `BOAT_ROCK_PLACEHOLDER`, with what settles it |
 | B4 | The wash's motion | `washup1..6` and `water` (autostarts) stroke an empty node (`water_node*`: no visual, no collision) out along x and back, 2.75 s a stroke on a speed profile: 1, 0.5 or 0.75 u by a 0.333 `RANDOM_WEIGHT` twice (the water always 0.5) | not run; the nodes draw nothing, so nothing visible differs by it alone | decoded and pinned; `WASHUP_MOTION_PLACEHOLDER` |
@@ -330,7 +333,7 @@ Read through the readers (dev-disc pins, `packages/viewer/test/fishHookMotion.de
 
 | Program (flags) | Nodes | Commands |
 |---|---|---|
-| `boat_rocker1`, `boat_rocker2` (0x821) | `NA`, `boat_rockerN` | sequence 0: `WAIT` 1 s, range 1 (flags 0x29), `CALL_SEQUENCE` 2; sequence 1: `WHILE` for ever, `OBJECT_MOTION_FROM_TO` on -7 (the root), flags 0x60, 56 bytes, 4 s, from (0.00606, -0.00876, 0.00529, 0.99993) to (-0.00528, 0.00870, -0.00519, 0.99993), then the same back, `END_WHILE` |
+| `boat_rocker1`, `boat_rocker2` (0x821) | `NA`, `boat_rockerN` | sequence 0: `WAIT` 1 s, range 2 (flags 0x29: +8 1, +12 1, +16 2; was "range 1", corrected 2026-11-10), `CALL_SEQUENCE` 2; sequence 1: `WHILE` for ever, `OBJECT_MOTION_FROM_TO` on -7 (the root), flags 0x60, 56 bytes, 4 s, from (0.00606, -0.00876, 0.00529, 0.99993) to (-0.00528, 0.00870, -0.00519, 0.99993), then the same back, `END_WHILE` |
 | `washup1`, `washup3`, `washup5` (0x21) | `NA`, `water_wash` / `water_wash2` / `water_wash4`, `water_node` / `water_node3` / `water_node5` | sequence 0: `SCROLL_MOTION` node 1, mover 2, flags 0, axis (-1, 0, 0), uv (-0.2, 1); sequence 1: `WAIT` 0.07 / 0.07 / 1.07 s, `WHILE` for ever: `IF` random 0.333 a 1 u stroke out and back, `ELSEIF` random 0.333 a 0.5 u one, `ELSE` a 0.75 u one |
 | `washup2`, `washup4`, `washup6` (0x21) | `NA`, `water_wash1` / `water_wash3` / `water_wash5`, `water_node2` / `water_node4` / `water_node6` | the same with uv (0.3, 1); `washup6` waits 1 s first, the other two not at all |
 | `water` (0x21) | `NA`, `water`, `water_node1` | `SCROLL_MOTION` uv (0, 1); `WHILE` for ever a 0.5 u stroke out and back; `WAIT` 2 s after the loop (never reached) |
@@ -373,7 +376,8 @@ one node of each rocker's name, so one run each, as the port's AS-1 start.
   (D:L109659), which moves each registered visual's vertex texture coordinates by it (`FUN_003bfee0` D:L313770ff, in
   1/4096ths of a repeat, the fraction carried). Flag 8 measures the travel projected through the node's matrix instead
   (the point at +0x20, the axis at +0x2c with flag 0x10, else up; D:L109576-109631); flags 2 and 4 pick the table's
-  walk (unread); flag 1 ends it after +0x44 s (D:L109663-109674), else it runs until its animation stops. On MP71 the
+  walk (`FUN_003bfee0` D:L313783-313796: `FUN_003baf70` by default, `FUN_003bae40` or `FUN_003bada0` under its two
+  arguments; the walks themselves unread); flag 1 ends it after +0x44 s (D:L109663-109674), else it runs until its animation stops. On MP71 the
   mover moves along its x and the axis is its -x, so a stroke out moves v by -d (and u by 0.2 d or -0.3 d) and the
   stroke back undoes it.
 
@@ -382,8 +386,9 @@ one node of each rocker's name, so one run each, as the port's AS-1 start.
 | Name | Value / gap | Settled by | Status |
 |---|---|---|---|
 | `BOAT_ROCK_PLACEHOLDER` | `'still'` (viewer `worldState.ts`): a scene program's `OBJECT_MOTION_FROM_TO` rotation on a placed node is not run -- Fish Hook's two boats drawn and collided at their disc yaws (26.86, 147.03 degrees), still, where the original (B1-B3) replaces the yaw with a 4 s rock about no turn and, by the doors' structure, turns the 57 deck polygons with it; the command ends at once (the loop spins to the effect runner's guard each tick) | a capture of both boats from the shore over 8 s (their headings and the rock) and a stand on a boat in PCSX2 (whether the body rides the tilt) -- H431's shape, filed by the controller; the collision query's polygon transform read (what reads the node's +0xa1 change); then a `fromTo` case in the world's host, the node's rotation drawn (the world's drawing has no per-node transform today) and the owners turned in the hull as `DoorSet` turns a leaf | open |
-| `WASHUP_MOTION_PLACEHOLDER` | `'still'` (viewer `worldState.ts`): a scene program's `OBJECT_MOTION_FROM_TO` translation (the rate form or the speed profile) on a placed node is not run -- the seven `water_node*` stand; nothing drawn moves by it alone (B4) | the motion run on the page's world (the node's place only), with `SCROLL_MOTION_PLACEHOLDER`; a capture of the shore (H226) | open |
-| `SCROLL_MOTION_PLACEHOLDER` | `'none'` (viewer `worldState.ts`): `SCROLL_MOTION` draws no scroll -- the six washes and the water drawn still (B5) | a texture offset per visual on the page's world (the material system holds none for a scene program today), driven by the washup motion; a capture of the shore (H226) | open |
+| `WASHUP_MOTION_PLACEHOLDER` | was `'still'` (viewer `worldState.ts`): a scene program's `OBJECT_MOTION_FROM_TO` translation on a placed node not run -- the seven `water_node*` stood (B4) | built by LATER 782 (§12.7): the speed-profile stroke from a given start runs on the page's world | retired 2026-11-10, replaced by `SCENE_PROFILE_MOTION_READING` |
+| `SCENE_PROFILE_MOTION_READING` | `'givenStartNodeOnly'` (viewer `sceneScroll.ts`): the world runs an `OBJECT_MOTION_FROM_TO` speed profile (0x800 / 0x1000) as a stroke of its node's own translation when its start is given (flag 2) and it moves the node (flag 8), without a rotation, scale block, start from the context or target from elsewhere (4, 0x10, 0x40, 0x200, 0x400) -- every MP71 and M71 shore stroke (§12.7); the position block's first byte read as 0 (not decoded; its bits take the start, target or time from a node); the node's translation only, no hull moved (no profile's node carries collision) | the shore capture (H226) for the stroke's shape; the block's first byte decoded and pinned 0 over the disc | reading, pending review |
+| `SCROLL_MOTION_PLACEHOLDER` | `'travelOnWorldChunks'` (viewer `worldState.ts`; was `'none'`, narrowed by LATER 782, §12.7): the travel form runs and moves the texture of the scrolled node's world chunks; not drawn: the projected form (flag 8, MP52's `reflect_test`), the table's walks under flags 2 and 4 (unread), a scrolled node drawn as a prop (M71/M72's `tank_wheels` treads, the common `bullet_advance` belt), the chunks' detail and environment passes (unscrolled), the vertex coordinate's 16-bit wrap | the walks and the projected form read; a capture of the shore (H226) for the scroll's look | open (narrowed) |
 
 ### 12.5 Tests
 
@@ -392,7 +397,14 @@ one node of each rocker's name, so one run each, as the port's AS-1 start.
 - `packages/viewer/test/fishHookMotion.devdisc.test.ts` (dev-disc; **skips** without `SOCOM_DISC` / `SOCOM_PC_ROOT`):
   the boats' programs (B1), the rockers' yaws and the 57-polygon owners (B2, B3), the seven shore programs with every
   stroke's profile covering its distance (B4, B5), and the port today -- the nine programs running on a page's world
-  after 10 s, no hull polygon moved, the three placeholders' values.
+  after 10 s, no hull polygon moved, the three placeholders' values. LATER 782 replaced the last with the port now: the
+  motion meta of MP71's shore, its seven nodes stroking on the page's world with each wash's offset following its node
+  (v = -x, u = -u x, within a tick's travel), no hull polygon moved; and the disc-wide sweep of command 24 and the speed
+  profile (§12.7).
+- `packages/viewer/test/sceneScroll.test.ts` (unit; LATER 782): `FUN_002606f0`'s phases and split steps, the stroke's
+  begin, ticks and end, the travel's sign, `FUN_003bfee0`'s steps and carry, a node's frame, the world running a shore of
+  the disc's shape (the offset exact at 0.25 s ticks: -1 in v, 815/4096 in u), the reset, the loader's merge by
+  `scrollPath` and `setNodeUvOffset` on a built world (the offset's value; unrendered).
 
 ### 12.6 Log
 
@@ -403,3 +415,50 @@ one node of each rocker's name, so one run each, as the port's AS-1 start.
   placeholders (§12.4; research 101's DF-9 rows). Not built: the rock, the wash and the scroll (H434's default; the
   build is owed: LATER 782). Evidence kinds: unit, dev-disc, source inspection; no rendered
   browser run, no capture.
+- **2026-11-10T16:40Z** -- LATER 782's water part (`agent/pt-782-fh-water`, base `841270596`, the owner's mega
+  playtest: Fish Hook's water still). Built: the strokes and the scroll (§12.7). Evidence kinds: unit, dev-disc, source
+  inspection; no rendered browser run, no capture.
+
+### 12.7 The shore built (LATER 782)
+
+- Date: 2026-11-10. Branch `agent/pt-782-fh-water`. Track: simulation. Status: **reading, pending review**. The boats'
+  rock (B1-B3, `BOAT_ROCK_PLACEHOLDER`) is not this build: they still stand at their disc yaws.
+- **The stroke** (viewer `sceneScroll.ts` `profileStrokeTick`, `profileAdvance`; `SCENE_PROFILE_MOTION_READING`): the
+  begin sets the node's translation to the given start (`FUN_0025fe70` D:L109141-109143) and the profile's phase, speed
+  and unit direction (D:L109263-109289); each tick, until the elapsed time plus the tick passes 2.75 s
+  (D:L108911-108919), moves the node by `FUN_002606f0` from where it stands (D:L108981-108999) -- phase 1 the speed
+  raised by the acceleration before the move, a step across a phase's end split there and the rest taken on; then the
+  target is set and the tick's rest handed on (D:L108958-108977). At 0.25 s a tick a 1 u stroke lands exactly on 1; at
+  0.1 s it passes it by 0.25 % before the target is set (the dev-disc test's bound).
+- **The scroll** (`scrollTick`, `uvStep`): the begin keeps the mover's world place (`FUN_00260fb0`); each tick the travel
+  since the last -- its length, negative when its x and z run against the axis carried through the mover's world
+  matrix (`FUN_00260b40` D:L109635-109655) -- times `uv` is stepped onto the scrolled visuals in 1/4096ths truncated
+  toward zero, the sub-step carry kept only until a step is taken (`FUN_003bfee0` D:L313770-313839). The scroll ticks
+  before the stroke (sequence 0 before 1), so it reads the stroke a tick late, as the original's order has it. The
+  offset is kept across the round's reset, as the original's vertices keep theirs: the reset (`FUN_002ac0e0`
+  D:L151976-151991) restores a node only through what a reference saved (`FUN_0026c4f0`, `FUN_0026b430`
+  D:L115690-115721; research 209 -- the active state, the parent, the translation, the rotation, as `FUN_0026b5e0`
+  D:L115740-115807 saves them), and none of that is a visual's vertex [reading, under research 209's
+  `WORLD_RESET_SAVED_READING`: the rest of `FUN_002ac0e0`'s calls are not read for a vertex rebuild]; no reference of
+  the shore saves a
+  transform (every init bit clear on the shore programs of MP71 and M71, read through `parseAnimSets`), so the nodes stay where they
+  stood, and the next begin's jump back to the start is scrolled.
+- **The scene's part** (`MapMeta.motion`, viewer `mapMeta.ts`): every placement of a node a travel-form scroll scrolls
+  (MP71: `water`, `water_wash`, `water_wash1..5`) and the own and world matrices of every node it measures or a stroke
+  moves (MP71: `water_node`, `water_node1..6`, all the identity under an identity `worldmodel`).
+- **The drawing** (viewer `loadMap.ts` `LoadedMesh.scrollPath`, `world.ts` `setNodeUvOffset`; wired in `main.ts` and
+  `matchWorld.ts` / `matchMount.ts`): the scrolled nodes' world chunks are merged by path apart from the rest, each drawn
+  with a material of its own whose texture coordinate takes the node's offset beside any band scroll -- the same
+  addition the band's `TextureScroll_Object` takes (`SKY_SCROLL_TICKS_READING`), since both are `FUN_003bfee0`'s.
+  The loader tags 27 of MP71's world parts with their scrolled path, each of the seven (dev-disc). The cost on MP71
+  (dev-disc, the same parts built tagged and untagged): +0 draws (848 both; re-merging joins none), +5 materials (81
+  against 76; seven carry an offset). **Unrendered**: unit tests read the offset's value on the material; no browser
+  run has drawn it.
+- **Every map** (the dev-disc sweep over the disc's 34 map archives): the travel form is MP71's seven (`washup1..6`,
+  `water`) and M71's nine (`washup1..8`, `water`), run; M71's and M72's `tank_wheels` (not an autostart; its treads are
+  props, which nothing moves in the port); MP52's `reflect_test` in the projected form, not run; the common
+  `bullet_advance` in every map's `CZANIM` (no viewer source runs it). The speed profiles are those shores' strokes
+  (six a wash, two for the water, all run) and twelve missions' `obj_crane` (no node, no time: not run).
+- **Open**: what a capture of the shore (H226) would show -- the wash sliding up the beach and back with each stroke,
+  v by the stroke's length and u by -0.2 or 0.3 of it, the water by 0.5 u in v every 2.75 s; and the residue of
+  `SCROLL_MOTION_PLACEHOLDER` (§12.4).

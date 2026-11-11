@@ -12,7 +12,7 @@ import { readPreference, savePreference } from './startupSettings';
  * - PS2: the test room's PS2 -- the 640 x 448 frame (`Renderer.setPresentation('ps2')`, the HUD's), its projection from the
  *   map's own half-angles, letterboxed on a 4:3 box (the match's canvas's `s2u-picture-ps2` class, `styles.css`);
  *
- * The third, EXPERIMENTAL -- captioned "HD (GoE Soul)" by HD.R8 (OT.R92) and held by HD-HOLD -- is removed by B206 ML-6
+ * The third, EXPERIMENTAL -- captioned "HD (GoE SouL)" by HD.R8 (OT.R92) and held by HD-HOLD -- is removed by B206 ML-6
  * (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD pack is a texture pack chosen in Home > Experiments > Mods,
  * applied under either picture (`./packs/pagePacks`), and a stored `experimental` reads MODERN.
  *
@@ -29,7 +29,7 @@ export { VIDEO_PICTURE_DEFAULT, type VideoPicture };
 
 /**
  * What the front end's match hands the renderer under either picture: the experimental renderer off, exactly as before
- * (the OFF pins). B206 ML-6 (ML.R11) removed HD.R8's `pictureExperimentalSettings`, whose HD (GoE Soul) branch was the
+ * (the OFF pins). B206 ML-6 (ML.R11) removed HD.R8's `pictureExperimentalSettings`, whose HD (GoE SouL) branch was the
  * only one that turned it on; the HD pack rides with no renderer settings (`hdPack` here stays false: the match's pack
  * is the MODS choice's, `./packs/pagePacks`).
  */

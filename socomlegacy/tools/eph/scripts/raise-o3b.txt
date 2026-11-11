@@ -1,0 +1,11 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE diagnostics (30, 2026-11-09, after the timed set), r0004 M51 --state 5 (count 1, rifle up, the marking post 0x13419a0 at bearing ~170.3, acc 2.0).
+# O3' (30's redesign): from the HELD count (no turn), the MARK141 taken up at ~2 s (R2 held 1 s, Up, Up, Cross; the rig's kit has no M67). Expect the rifle down on the take-up and kept down while the count stays 1 (the class-'y' override). --raise-records 1, no --yaw-turns.
+2000 r2 1
+3000 r2 0
+3300 up 1
+3420 up 0
+3700 up 1
+3820 up 0
+4100 cross 1
+4220 cross 0
+16000 lup 0

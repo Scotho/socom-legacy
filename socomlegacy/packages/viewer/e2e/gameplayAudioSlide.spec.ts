@@ -26,13 +26,22 @@ test('Frostfire: original local slide loop starts once and stops at landing', as
   await page.mouse.click(610, 420);
   await expect.poll(() => page.evaluate(() => window.__viewer.audio().unlocked)).toBe(true);
   expect(await page.evaluate(() => window.__viewer.setMode('walk'))).toBe(true);
-  const mounted = await page.evaluate(() => {
-    window.__viewer.setCamera({ x: 547.5, y: 115.4, z: 869, yaw: 0, pitch: -5 });
-    for (let i = 0; i < 90; i++) { window.__viewer.walkFor(1 / 60, { forward: 1 }); if (window.__viewer.traversal()?.kind !== 'none') break; }
-    return { traversal: window.__viewer.traversal(), feet: window.__viewer.feet() };
+  // LC-1: walked into, the ladder is offered (CLIMB), not grabbed; the action press mounts it -- the original's
+  // FUN_00550ef0 calls FUN_005b4b40 only under the press bit (D:L418120-418155). As `e2e/traversal.spec.ts` (1a683d59b):
+  // the offer, then X -- here the pad's Cross, pressed and released (the living action fires on the release).
+  const offered = await page.evaluate(() => {
+    const v = window.__viewer;
+    v.setCamera({ x: 547.5, y: 115.4, z: 869, yaw: 0, pitch: -5 });
+    for (let i = 0; i < 90; i++) { v.walkFor(1 / 60, { forward: 1 }); if (v.traversal()?.prompt?.kind === 'ladder') break; }
+    return { prompt: v.traversal()?.prompt, kind: v.traversal()?.kind, feet: v.feet() };
   });
-  console.log('Slide mount setup', mounted);
-  expect(mounted.traversal?.kind).toBe('ladderMount');
+  console.log('Slide mount setup', offered);
+  expect({ prompt: offered.prompt, kind: offered.kind }).toEqual({ prompt: { visible: true, kind: 'ladder', automatic: false }, kind: 'none' });
+  await page.evaluate(() => { const b = (window as any).slideTestPad.buttons[0]; b.pressed = true; b.value = 1; });
+  await page.waitForTimeout(200);
+  await page.evaluate(() => { const b = (window as any).slideTestPad.buttons[0]; b.pressed = false; b.value = 0; });
+  await expect.poll(() => page.evaluate(() => window.__viewer.traversal()?.kind), { intervals: [16, 50, 100] }).not.toBe('none');
+  expect(['ladderMount', 'ladder']).toContain(await page.evaluate(() => window.__viewer.traversal()?.kind));
   await page.evaluate(() => window.__viewer.walkFor(3, { forward: 1 }));
   await expect.poll(() => page.evaluate(() => window.__viewer.traversal()?.kind)).toBe('ladder');
   const before = await page.evaluate(() => window.__viewer.audio().byName['~LADDER_SLIDE'] ?? 0);

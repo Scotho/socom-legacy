@@ -106,8 +106,19 @@ export const MATCH_PAGE_SEGMENT = 'match';
  */
 export const PLAYER_PAGE_SEGMENT = 'player';
 
+/**
+ * LCM-RP (the replay batch's RB-12; the LCM plan, LCM.R20 overturned by the owner 2026-11-10): the replay page
+ * `/replay/<id>[?match=<matchId>]` -- the launcher's document, its head central's (`replayLinkHttp.ts` injects the
+ * replay's link preview), so a server prefix as the lobby link's is. Never `/replays/<id>`, the recording's fetch
+ * (`SERVER_FIRST`'s `replays`). The launcher's table never writes it (reserved): the launcher's entry boots the page by
+ * its path (`console/main.ts`, `console/render/replayPublic.ts`), and the table leaves the address alone (RB-12).
+ */
+export const REPLAY_PAGE_SEGMENT = 'replay';
+
 /** Server paths below a page's or the launcher's segment: the lobby link's page (central injects its head) and its card. */
-export const SERVER_PREFIXES: readonly string[] = [`/${LOBBY_LINK_SEGMENTS.join('/')}/`, '/api/lobby/', `/${MATCH_PAGE_SEGMENT}/`, `/${PLAYER_PAGE_SEGMENT}/`];
+export const SERVER_PREFIXES: readonly string[] = [
+  `/${LOBBY_LINK_SEGMENTS.join('/')}/`, '/api/lobby/', `/${MATCH_PAGE_SEGMENT}/`, `/${PLAYER_PAGE_SEGMENT}/`, `/${REPLAY_PAGE_SEGMENT}/`,
+];
 
 /** Every first segment the launcher's table may never write: the game's, the pages', the server's and the files'. */
 export function reservedFirstSegments(): string[] {
@@ -119,5 +130,6 @@ export function reservedFirstSegments(): string[] {
     ...STATIC_FIRST,
     MATCH_PAGE_SEGMENT,   // LCM-8: the match page's, the server's head
     PLAYER_PAGE_SEGMENT,  // LCM-12: the player page's, the server's head
+    REPLAY_PAGE_SEGMENT,  // LCM-RP: the replay page's, the server's head; the launcher's document boots it by its path
   ])];
 }

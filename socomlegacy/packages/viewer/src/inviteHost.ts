@@ -1,10 +1,11 @@
 import {
-  appendGameLobbyChat, drawnGameName, GAME_LOBBY, inviteButtonGate, INVITE_JOIN_ANIMATION, INVITE_UNIVERSE_ANIMATION, INVITE_UNIVERSE_DIALOG,
-  InviteSearch, inviteHref, inviteOf, inviteUniverse, lobbyInviteOf, locTextOf, uiCommandFold, withInviteButton as designWithInviteButton, withoutInvite, WORLD_OF_SOCOM,
+  appendGameLobbyChat, DIALOG_EVENTS, drawnGameName, GAME_LOBBY, inviteButtonGate, INVITE_JOIN_ANIMATION, INVITE_UNIVERSE_ANIMATION, INVITE_UNIVERSE_DIALOG,
+  InviteSearch, inviteHref, inviteOf, inviteUniverse, isLobbyId, lobbyInviteOf, locTextOf, uiCommandFold, widgetPad, withInviteButton as designWithInviteButton, withoutInvite, WORLD_OF_SOCOM,
   type AutoplayService, type BriefingRoomCommands, type CaptionSource, type ChannelListEntry, type DialogDesign, type GameLobbyCommands, type InviteLink,
-  type LobbyService, type UiCommandHost, type UiVarManager, type ValveStore, type ZAnimUiCommand,
+  type LobbyService, type UiCommandHost, type UiScreen, type UiVarManager, type ValveStore, type WidgetHost, type WidgetPad, type ZAnimUiCommand,
   INVITE_ROUTE,
 } from '@s2u/ui';
+import { directUniverse, LobbyLinkDirect, takeLobbyLinkDirect } from './lobbyLinkDirect';
 import { routeSegmentsOfPath } from './menuRoutes';
 
 /**
@@ -196,7 +197,10 @@ export function answerInvites(o: InviteAnswerOptions): { close(): void } {
     if (m.type === 'ping') {
       if (o.holds()) ch.postMessage({ v: 1, type: 'held', to: m.from, from: o.id, nonce: m.nonce, busy: o.busy() } satisfies Message);
     } else if (m.type === 'offer' && m.to === o.id && linkOk(m.invite) && o.holds() && o.busy() === null) {
-      if (o.take({ mediusWorldId: m.invite.mediusWorldId, game: m.invite.game, universe: m.invite.universe }) === false) return;   // declined: the asker ends busy
+      // LINK-2's lobby id carried with the three (LOBBY-LINK-DIRECT found it dropped: a lobby link handed to another tab
+      // became world id 0 and an empty name, refused #528 there or lost at the launcher's address).
+      const lobbyId = typeof m.invite.lobbyId === 'string' && isLobbyId(m.invite.lobbyId) ? { lobbyId: m.invite.lobbyId } : {};
+      if (o.take({ mediusWorldId: m.invite.mediusWorldId, game: m.invite.game, universe: m.invite.universe, ...lobbyId }) === false) return;   // declined: the asker ends busy
       ch.postMessage({ v: 1, type: 'taken', to: m.from, from: o.id, nonce: m.nonce } satisfies Message);
     }
   };
@@ -211,6 +215,12 @@ export interface InviteMount {
   link: InviteLink | null;
   /** This page took the address's invite from another tab before it mounted (INVITE_TAKEN_MARK_ADAPTATION): no offer; a ping only before the login. */
   took?: boolean;
+  /**
+   * LOBBY_LINK_DIRECT_ADAPTATION (`./lobbyLinkDirect`, OT.R121): the launcher's START on this lobby link found the disc kept
+   * whole and its session signed in as `account`, so the login path runs behind the cover, its presses made for the player,
+   * until the GAME LOBBY or a screen where he must act. Absent: today's flow.
+   */
+  direct?: { account: string } | null;
   id: string;
   open: InviteChannelOpen;
   wait?: (ms: number) => Promise<void>;
@@ -287,10 +297,12 @@ export function pageInvite(search: string, win: InviteWindow, o: { base?: string
   const base = o.base ?? String((import.meta.env as Record<string, unknown> | undefined)?.['BASE_URL'] ?? '/');
   // The old query wins when both are present (LINK-2: `?invite=` keeps working for one release).
   const link = inviteOf(search) ?? lobbyInviteOf(routeSegmentsOfPath(win.location.pathname, base));
-  const took = tookMarked(link, (o.now ?? Date.now)());
+  const now = (o.now ?? Date.now)();
+  const took = tookMarked(link, now);
+  const direct = takeLobbyLinkDirect(link, now);                      // LOBBY_LINK_DIRECT_ADAPTATION: the launcher's START, once
   let used = false;
   return {
-    link, took, id: randomId(), open: pageInviteChannel(win),
+    link, took, ...(direct ? { direct } : {}), id: randomId(), open: pageInviteChannel(win),
     pending: () => link !== null && !used,
     consumed: () => {
       if (used) return;
@@ -385,7 +397,8 @@ interface MachineView {
   states: { top(): unknown };
   menu: unknown;
   queue: { count: number };
-  shell(): { currentName: string | null; switchState: number } | null;
+  /** `inputTimer` (+0x900, `SuspendMenuInput`) and the popups LOBBY_LINK_DIRECT_ADAPTATION's presses wait on. */
+  shell(): { currentName: string | null; switchState: number; inputTimer?: number; screen?: UiScreen | null; popups?: { shown(screen: UiScreen | null): boolean } } | null;
 }
 
 export interface InviteSessionOptions {
@@ -397,7 +410,15 @@ export interface InviteSessionOptions {
   match: () => { readonly blocked: boolean; roundClock(): number | null };
   lobby: () => { up: boolean; state(): number; ticket(): string | null } | null;
   machine: () => MachineView;
-  parts: { current: { widgetHost: { animation(name: string | null, argument: string | null): boolean }; nodeCommand(cmd: ZAnimUiCommand): unknown } | null; o: { captions?: CaptionSource | null } };
+  parts: {
+    current: {
+      widgetHost: { animation(name: string | null, argument: string | null): boolean };
+      nodeCommand(cmd: ZAnimUiCommand): unknown;
+      /** PLAT-15's set (LOBBY_LINK_DIRECT_ADAPTATION's presses): a control's spec, its enabled bit, a pad record to it. */
+      widgets?: { specOf(name: string): unknown; enabled(spec: never): boolean; input(name: string, pad: WidgetPad, host: WidgetHost, focus?: number): boolean };
+    } | null;
+    o: { captions?: CaptionSource | null };
+  };
   universes: { entriesEnded: boolean; find(name: string): { universeStatus: number } | null };
   uiVars: UiVarManager;
   valves: () => ValveStore;
@@ -415,6 +436,8 @@ export interface InviteSession {
   /** The channel's answer: this tab holds a session, and what it is busy with. */
   holds(): boolean;
   busy(): InviteBusy | null;
+  /** LOBBY_LINK_DIRECT_ADAPTATION (OT.R121): the login path runs behind the cover now -- nothing drawn, no pad read. */
+  covering(): boolean;
   /** An invite taken from another tab: false when declined (this tab's own invite join armed or under way; defence in depth, LATER 89/70). */
   take(link: InviteLink): boolean;
   close(): void;
@@ -430,10 +453,20 @@ export function connectInvite(host: Pick<UiCommandHost, 'setBindingGate'>, o: In
   let sawJoin = false;
   /** The frames since the invite's join_random_game started (`INVITE_ARM_WAIT_FRAMES_ADAPTATION`). */
   let armedFor = 0;
+  /**
+   * LOBBY_LINK_DIRECT_ADAPTATION: the game socket's client seen while the link's join runs (`gameLobby.socket.link()`: held
+   * from its connect, let go only at the seat's end -- a refused hello, a final close). Seen and then gone before the GAME
+   * LOBBY, the join is over whatever the disc's waits still count: the cover goes at once.
+   */
+  let sawSocket = false;
+  /** LOBBY_LINK_DIRECT_ADAPTATION: the login path's presses, for the address's own lobby link only. */
+  let direct: LobbyLinkDirect | null = o.mount?.direct && o.mount.link?.lobbyId ? new LobbyLinkDirect(o.mount.direct.account) : null;
   const locText = locTextOf(o.parts.o.captions ?? null);
   const search = new InviteSearch({
     ...(o.briefing.service ? { service: o.briefing.service } : {}),
-    rooms: () => o.world.commands.rooms(), event: o.event, found: (g) => { o.gameLobby.commands.randomGameFound(g); },
+    rooms: () => o.world.commands.rooms(),
+    // OT.R121: a refusal (MP_MEDIUS_JOIN_ROOM_FAILURE, the original's line) is the player's to read: the cover goes with it.
+    event: (kind, text) => { if (kind === DIALOG_EVENTS['MP_MEDIUS_JOIN_ROOM_FAILURE']) direct?.reveal('refused'); o.event(kind, text); }, found: (g) => { o.gameLobby.commands.randomGameFound(g); },
     joinRoom: (n) => o.briefing.commands.joinRoomForRandomGame(n), clanId: () => o.world.commands.clan.clanId, locText,
   });
   const string = (name: string): string | null => { const v = o.uiVars.find(name)?.value; return v?.type === 'string' ? v.value : null; };
@@ -466,7 +499,7 @@ export function connectInvite(host: Pick<UiCommandHost, 'setBindingGate'>, o: In
   // An offer while this tab's own invite join is armed or under way is declined (the review's 6): its answer is busy --
   // `busy()` above is 'lobby' then, so `answerInvites` refuses the offer before `take`, and this decline is defence in
   // depth (LATER 89/70).
-  function take(l: InviteLink): boolean { if (armed || search.joining) return false; link = l; universeTried = true; settle = 0; return true; }
+  function take(l: InviteLink): boolean { if (armed || search.joining) return false; link = l; universeTried = true; settle = 0; direct = null; return true; }   // a taken invite: no presses (they are the address's link's)
 
   /** The dialog the menu state shows with nothing switching or queued, else null. */
   const idleDialog = (): string | null => {
@@ -485,6 +518,22 @@ export function connectInvite(host: Pick<UiCommandHost, 'setBindingGate'>, o: In
     });
   };
   const start = (anim: string, arg: string | null): boolean => o.parts.current?.widgetHost.animation(anim, arg) ?? false;
+  /** LOBBY_LINK_DIRECT_ADAPTATION: the frame's view of the screen, and the pad's CROSS on a control (its own input, as the player's). */
+  const directView = (dialog: string | null): Parameters<LobbyLinkDirect['step']>[0] => {
+    const sh = o.machine().shell(), widgets = o.parts.current?.widgets;
+    return {
+      dialog: widgets ? dialog : null,
+      popup: sh?.popups?.shown(sh.screen ?? null) ?? false,
+      suspended: (sh?.inputTimer ?? 0) > 0,
+      enabled: (c) => { const spec = widgets?.specOf(c); return spec !== undefined && (widgets?.enabled(spec as never) ?? false); },
+      playerName: () => string('PLAYERNAMEVAR'),
+      joining: armed || search.joining,                                   // the join's own time is not a stall
+    };
+  };
+  const cross = (control: string): void => {
+    const parts = o.parts.current;
+    parts?.widgets?.input(control, widgetPad({ CROSS: 'FALLING' }), parts.widgetHost as WidgetHost, 0);
+  };
 
   return {
     searchArmed: () => {
@@ -506,17 +555,26 @@ export function connectInvite(host: Pick<UiCommandHost, 'setBindingGate'>, o: In
         else if (JOINING.has(lobby.state())) sawJoin = true;
         else if (lobby.state() === LOGGED_IN && sawJoin && dialog !== null) { search.done(); sawJoin = false; }
       }
+      // LOBBY_LINK_DIRECT_ADAPTATION: the game socket seen and then gone while the link's join still runs -- the seat ended
+      // before the lobby (a refused hello, a final close): revealed at once, not after the disc's waits.
+      if (search.joining && direct?.covering) {
+        if (o.gameLobby.socket?.link()) sawSocket = true;
+        else if (sawSocket) direct.reveal('refused');
+      } else sawSocket = false;
       // The re-review's B: an arming that never reached JoinMPGame(RANDOM) ends with the session, with SOCOM II ONLINE left,
       // or past its wait (the invite then dropped: no second start); `busy` never answers 'lobby' for it after.
       if (armed) {
         if (!lobby?.up || lobby.ticket() === null || (dialog !== null && !same(dialog, WORLD_OF_SOCOM))) { armed = false; settle = 0; }
-        else if (++armedFor > INVITE_ARM_WAIT_FRAMES_ADAPTATION) { armed = false; link = null; o.mount?.consumed(); }
+        else if (++armedFor > INVITE_ARM_WAIT_FRAMES_ADAPTATION) { armed = false; link = null; o.mount?.consumed(); direct?.reveal('refused'); }
       }
+      // LOBBY_LINK_DIRECT_ADAPTATION (OT.R121): behind the cover, LOGIN's CROSS, the persona form's CONNECT and USER
+      // AGREEMENT's ACCEPT, once each; to the GAME LOBBY, past the join's start, or a reveal.
+      if (direct?.covering) { const c = direct.step(directView(dialog)); if (c) cross(c); }
       if (link === null) return;
       // INVITE_FLOW_ADAPTATION: SELECT UNIVERSE, once per invite, when its list has come.
       if (!universeTried && same(dialog, INVITE_UNIVERSE_DIALOG) && o.universes.entriesEnded) {
         universeTried = true;
-        const name = inviteUniverse(link, listed());
+        const name = inviteUniverse(link, listed()) ?? (direct?.covering ? directUniverse(listed()) : null);   // OT.R121: the launcher's rule
         if (name !== null) start(INVITE_UNIVERSE_ANIMATION, name);
       }
       // INVITE_JOIN_ADAPTATION: SOCOM II ONLINE, logged in, its rooms answered, settled: the screen's own join_random_game, once.
@@ -528,6 +586,7 @@ export function connectInvite(host: Pick<UiCommandHost, 'setBindingGate'>, o: In
       armedFor = 0;
     },
     holds, busy, take,
+    covering: () => direct?.covering ?? false,
     close: () => { answers.close(); },
   };
 }

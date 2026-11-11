@@ -1,10 +1,12 @@
 import type { LocalPackApi } from '../agent/localPacks';
-import { mountFileDropzone } from '../agent/fileDropzone';
+import { DROPZONE_BLOCKED_BUILD, mountFileDropzone } from '../agent/fileDropzone';
 
 /** Browser adaptation: a host-mounted, abortable staging view over the existing pack API's byte/path admission. */
 export interface AssetFileStagingOptions {
   packs: Pick<LocalPackApi, 'stage'>;
   allowed(): boolean;
+  /** The blocked sentence for the case the owner is in (LATER 799); the Build sentence when absent. */
+  blockedReason?(): string;
   refresh(): void;
   signal: AbortSignal;
 }
@@ -12,10 +14,11 @@ export function mountAssetFileStaging(host: HTMLElement, options: AssetFileStagi
   const doc = host.ownerDocument, reads = new Set<AbortController>();
   let disposed = false;
   const allowed = (): boolean => !disposed && !options.signal.aborted && doc.visibilityState !== 'hidden' && options.allowed();
+  const blockedReason = (): string => options.blockedReason?.() ?? DROPZONE_BLOCKED_BUILD;
   const zone = mountFileDropzone(host, {
-    allowed,
+    allowed, blockedReason,
     stage: async files => {
-      if (!allowed()) throw new Error('Return to Build to add local files.');
+      if (!allowed()) throw new Error(blockedReason());
       const read = new AbortController(); reads.add(read);
       try {
         await options.packs.stage(files, { signal: read.signal });

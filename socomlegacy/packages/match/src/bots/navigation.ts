@@ -10,7 +10,7 @@ import { SEAL_TUNING_DEFAULTS } from '../../../viewer/src/physics';
 import { Traversal } from '../../../viewer/src/traversal';
 import { MoverSim } from '../../../viewer/src/net/moverSim';
 import { WEAPON_LINE_BOTS_READING } from '../../../viewer/src/weaponLine';
-import { TICK_HZ } from '../../../viewer/src/net/protocol';
+import { Button, TICK_HZ } from '../../../viewer/src/net/protocol';
 import { wrapYaw } from '../../../viewer/src/yaw';
 import type { SimMap,SimClips } from '../../../viewer/src/simMap';
 import {BotClimbDiscovery} from './climbDiscovery';
@@ -307,7 +307,9 @@ export class WalkingNavigation {
         const yaw = wrapYaw(Math.atan2(ladder.nx,ladder.nz) * 180 / Math.PI);
         walker.state.yaw = yaw;
         for (let tick = 0; tick < LADDER_ROUTE_ADAPTATION.mountProbeTicks; tick++) {
-          sim.apply({seq:sim.seq + 1, yaw, pitch:0, turn:0, buttons:0, stance:0, weapon:0, forward:up ? 1 : -1, right:0});
+          // LC-2 (a bot adaptation): the press with the ladder's CLIMB offered, as `BotLadderDrive` presses (LC-1: no touch mount).
+          const press = moves.climbPrompt()?.kind === 'ladder' ? Button.Action : 0;
+          sim.apply({seq:sim.seq + 1, yaw, pitch:0, turn:0, buttons:press, stance:0, weapon:0, forward:up ? 1 : -1, right:0});
           if (moves.state().ladder === ladder.path && moves.state().kind.startsWith('ladder')) return true;
         }
         return false;

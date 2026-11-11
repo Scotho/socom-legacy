@@ -319,6 +319,19 @@ export const SCENE_BOUNDS_MIDPOINT_READING = 'polygon-box' as const;
 export const ROUND_SCENE_FALLOFF_READING = 'shot-start' as const;
 
 /**
+ * GRENADE_CONTACT_RANGE_READING (LATER 851): the point a thrown projectile's contact hit (`HandleBounce` `FUN_003c8f50`
+ * -> the node's handler, D:L319747-319750 -> `FUN_00273a50` -> `FUN_003c7490`) measures its range falloff from. The
+ * round branch measures from the projectile's own node (`+0x20`, its `+0x30..+0x38`, D:L318741-318749). The frame's
+ * order is the source of 'frame-start': the projectile tick `FUN_003c9fb0` runs `HandleIntersections` (`FUN_003c9b70`,
+ * D:L320162), whose contact loop calls the node's handler before the frame's end is written back (`+0x54..+0x5c`,
+ * D:L320059-320061) and before `FUN_003c63d0` (D:L320062); only then does `FUN_003c9fb0` hand `+0x54` on
+ * (`FUN_003cabe0`, D:L320164-320174) -- so the node is taken where the frame began (the room's `sceneContact`)
+ * [reading: what `FUN_003c63d0`'s callbacks and `FUN_003cabe0` do to the node's `+0x30..+0x38` is not traced; the two
+ * points differ by one frame's travel, under the M67's `Effective_Range` 400 at any throw].
+ */
+export const GRENADE_CONTACT_RANGE_READING = 'frame-start' as const;
+
+/**
  * C4_ACCEPT_DAMAGE_READING (ruling PF.R14): the damage `FUN_002739b0` compares the shield with is the charge's ZWEAPON
  * `Explosion_Damage` (C4 18: Vigilance's shield-17 barriers accept it, Crossroads' shield-21 bases refuse it) -- never a
  * literal 18 [reading: the accept's operands are read (research 203 s7), the plant path's argument is not traced (the

@@ -24,6 +24,9 @@ import { armGraphicsDemotion } from './graphicsDemotion';
 import { glowGain, glowHalfSize } from './flash';
 import { GlowFrame, mainPassOf, type RendererLike } from './glowTarget';
 import { skipFreedCompiles, type FreedAttachmentsBackend } from './freedAttachments';
+import { holdDestroysToSubmit, type HeldDestroysBackend } from './heldDestroys';
+import { guardOrphanAttributeDestroys, type OrphanAttributesBackend } from './orphanAttributes';
+import { restoreRenderStateOnThrow, type RenderDepthRenderer } from './renderDepth';
 import { GLOW_FRAME_WINDOW_ADAPTATION, glowScale, glowScaleLine, glowScaleOverride, readGlowScale, softwareAdapterOf, type AdapterBackend } from './glowScale';
 import { pageFrameSampler } from './frameSampler';
 import { bindVisualPostSeam, createPostSlot, type VisualPostPass } from './visualPostSeam';
@@ -223,6 +226,15 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   // disposed after it was queued is not built (WebGPU refused it: no attachment format); a draw builds its own. WebGPU
   // only, after init (the backend three settled on), over the link log's watch (a skipped pipeline links nothing).
   skipFreedCompiles(renderer.backend as unknown as FreedAttachmentsBackend);
+  // WEBGPU-HELD-DESTROY (LATER 856, a renderer adaptation, `./heldDestroys`): a uniform buffer three frees while a pass
+  // is open is destroyed right after that pass's submit, not before it (WebGPU refused the frame: red #17). WebGPU only.
+  holdDestroysToSubmit(renderer.backend as unknown as HeldDestroysBackend);
+  // XBOX-SRAKMD (2) (a renderer adaptation, `./orphanAttributes`): an attribute whose upload made no GPU buffer (the
+  // device lost under it) is let go without three's unguarded `buffer.destroy()`, which threw in the match's close.
+  guardOrphanAttributeDestroys(renderer.backend as unknown as OrphanAttributesBackend);
+  // RENDER-DEPTH-RESTORE (LATER 859, a renderer adaptation, `./renderDepth`): a throw inside a render puts the renderer's
+  // depth and per-call state back, so later frames keep their render objects (three r186 has no try/finally there).
+  restoreRenderStateOnThrow(renderer as unknown as RenderDepthRenderer);
   let ratio = Math.min(globalThis.devicePixelRatio, 2);
   let mode: Presentation = 'native';
   let cssWidth = 1;
@@ -515,21 +527,25 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     }
     if (mode !== 'ps2' && !glowing) { renderer.render(scene, camera); return; }
     const previous = renderer.getRenderTarget();
+    // RENDER-FINALLY (a renderer adaptation): the caller's target goes back in a finally, as the path above does, so a
+    // throwing render never leaves `frame` or the glow target set for the next frame's blit; the error still goes on.
     if (mode === 'ps2') {
-      renderer.setRenderTarget(frame);
-      renderer.render(scene, camera);
-      if (glowing) glowOver(frame, downPs2);
-      renderer.setRenderTarget(previous);
+      try {
+        renderer.setRenderTarget(frame);
+        renderer.render(scene, camera);
+        if (glowing) glowOver(frame, downPs2);
+      } finally { renderer.setRenderTarget(previous); }
       renderer.render(blitScene, blitCamera);
       return;
     }
     renderer.getDrawingBufferSize(drawingSize);
     // The flash's first size, to its end; its scale decided once, at the flash's first glowing frame (GLOW-STEPDOWN).
     const target = glowFrame.acquire(drawingSize.x, drawingSize.y, glowFrame.held() ? 1 : glowTargetScale());
-    renderer.setRenderTarget(target);
-    renderer.render(scene, camera);
-    glowOver(target, downNative);
-    renderer.setRenderTarget(previous);
+    try {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+      glowOver(target, downNative);
+    } finally { renderer.setRenderTarget(previous); }
     renderer.render(glowBlit, blitCamera);
   };
   /**
@@ -652,38 +668,40 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     warm: async (scene, camera, extras = []) => {
       const previous = renderer.getRenderTarget();
       if (mode === 'ps2') renderer.setRenderTarget(frame);
-      // Everything in the scene, the live objects in their own scene -- a program is specific to more than the
-      // material and the geometry, and a stand-in in a scene of its own linked a different one (the SEAL's gear, the
-      // jungle's trees). Shown for the call and the frustum test off: compileAsync gathers its list synchronously
-      // before its first await, so the flags are put back before any frame can draw a hidden object.
-      const live = shown(scene, () => renderer.compileAsync(scene, camera));
-      // What is not in the scene at all -- the fading twins (`extras`) -- through stand-ins in a scene of their own.
-      const proxies = new Scene();
-      proxies.fog = scene.fog;
-      proxies.fogNode = scene.fogNode;
-      const add = (o: Object3D): void => {
-        let proxy: Object3D | null = null;
-        if (o instanceof SkinnedMesh) {
-          const m = new SkinnedMesh(o.geometry, o.material);
-          m.bind(o.skeleton, o.bindMatrix);
-          proxy = m;
-        } else if (o instanceof InstancedMesh) {
-          const m = new InstancedMesh(o.geometry, o.material, o.count);
-          m.instanceMatrix = o.instanceMatrix;
-          proxy = m;
-        } else if (o instanceof Mesh) proxy = new Mesh(o.geometry, o.material);
-        else if (o instanceof LineSegments) proxy = new LineSegments(o.geometry, o.material);
-        if (!proxy) return;
-        o.updateWorldMatrix(true, false);
-        proxy.matrixAutoUpdate = false;
-        proxy.matrix.copy(o.matrixWorld);
-        proxy.matrixWorld.copy(o.matrixWorld);
-        proxy.frustumCulled = false;
-        proxies.add(proxy);
-      };
-      for (const e of extras) e.traverse(add);
-      let stand: Promise<void>;
+      // RENDER-FINALLY (a renderer adaptation): the finally covers everything after the PS2 frame is set, so a throw here
+      // never leaves it set for the next frame; the error still goes on.
+      let live: Promise<void>, stand: Promise<void>;
       try {
+        // Everything in the scene, the live objects in their own scene -- a program is specific to more than the
+        // material and the geometry, and a stand-in in a scene of its own linked a different one (the SEAL's gear, the
+        // jungle's trees). Shown for the call and the frustum test off: compileAsync gathers its list synchronously
+        // before its first await, so the flags are put back before any frame can draw a hidden object.
+        live = shown(scene, () => renderer.compileAsync(scene, camera));
+        // What is not in the scene at all -- the fading twins (`extras`) -- through stand-ins in a scene of their own.
+        const proxies = new Scene();
+        proxies.fog = scene.fog;
+        proxies.fogNode = scene.fogNode;
+        const add = (o: Object3D): void => {
+          let proxy: Object3D | null = null;
+          if (o instanceof SkinnedMesh) {
+            const m = new SkinnedMesh(o.geometry, o.material);
+            m.bind(o.skeleton, o.bindMatrix);
+            proxy = m;
+          } else if (o instanceof InstancedMesh) {
+            const m = new InstancedMesh(o.geometry, o.material, o.count);
+            m.instanceMatrix = o.instanceMatrix;
+            proxy = m;
+          } else if (o instanceof Mesh) proxy = new Mesh(o.geometry, o.material);
+          else if (o instanceof LineSegments) proxy = new LineSegments(o.geometry, o.material);
+          if (!proxy) return;
+          o.updateWorldMatrix(true, false);
+          proxy.matrixAutoUpdate = false;
+          proxy.matrix.copy(o.matrixWorld);
+          proxy.matrixWorld.copy(o.matrixWorld);
+          proxy.frustumCulled = false;
+          proxies.add(proxy);
+        };
+        for (const e of extras) e.traverse(add);
         stand = renderer.compileAsync(proxies, camera);
       } finally {
         renderer.setRenderTarget(previous);

@@ -231,7 +231,7 @@ SOCOM Legacy is a community project, built and supported by a growing team of pa
 - **[@firehuge](https://github.com/firehuge)**: server funding, setup, maintenance, monitoring and networking.
 - **Acidragon**: Community Moderator.
 - **Machete**: Competitive Scene Moderator.
-- **GoE Soul**: for letting us use his HD texture pack.
+- **GoE SouL**: for letting us use his HD texture pack.
 - **[SOCOM Unzipped](https://socomunzipped.com)**: our sister project, SOCOM II recompiled for the desktop.
 - And everyone who plays, tests and reads the original with us.
 

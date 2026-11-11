@@ -387,8 +387,8 @@ describe('SEP-POP: the command carries the mode (the room\'s mover resolves it a
     }
   });
 
-  it('the bit came with protocol 12 (B1: a per-tick binary field bumps the version, PF.R33) and stays in 13 (PLANT-AIM bumped it for the JSON alone) and 14 (ER-2: the raise in bit 7 of the same byte)', () => {
-    expect(PROTOCOL_VERSION).toBe(14);
+  it('the bit came with protocol 12 (B1: a per-tick binary field bumps the version, PF.R33) and stays in 13 (PLANT-AIM bumped it for the JSON alone) and 14 (ER-2: the raise in bit 7 of the same byte) and 15 (PROTO-15: the rules of the mover, the frames of 14)', () => {
+    expect(PROTOCOL_VERSION).toBe(15);
   });
 
   it('N1: a SEPARATE command\'s pop code (3) is ignored -- SEPARATE has no pop (STM.R2a); COMBINED\'s still pops', () => {

@@ -88,7 +88,7 @@ export class BotClimbDiscovery {
    if(active.engaged&&!moves?.busy()&&!active.sim.walker.airborne){
     const s=active.sim.walker.state;active.link.exit=[s.x,s.y,s.z];
    }
-   const prompt=active.sim.moves instanceof Traversal?active.sim.moves.climbPrompt():null;if(prompt)active.link.kind=prompt.kind;
+   const prompt=active.sim.moves instanceof Traversal?active.sim.moves.climbPrompt():null;if(prompt&&prompt.kind!=='ladder')active.link.kind=prompt.kind;   // LC-1: a ladder's CLIMB is no crate climb
    const result=active.drive.step(active.sim,active.tick++);
    if(result.command)active.sim.apply(result.command);
    if(result.done){if(!result.failed)this.admit(active.node,active.link);this.active=null;break;}

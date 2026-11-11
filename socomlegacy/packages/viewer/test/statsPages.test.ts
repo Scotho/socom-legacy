@@ -330,9 +330,20 @@ describe('LCM-16: the site css on ds tokens, the phone width and motion', () => 
     expect(css).not.toMatch(/thead th \{[^}]*vertical-align: bottom/);
     const lb = read('src/leaderboard/leaderboard.css');
     expect(lb).not.toMatch(/vertical-align: (bottom|top)/);
-    // the sort button centres its label in its tap height; the mark rides the label's baseline beside it
-    expect(lb).toMatch(/\.lb-table \.lb-sort \{[^}]*align-items: center/);
-    expect(lb).toMatch(/\.lb-sort-mark \{[^}]*display: inline-block/);
+    // the sort button centres its label (and an Assists' "since" line under it, LCM-LB) in its tap height; LCM-LB (the
+    // polish review's item 2): the mark rides the middle of the cell's right padding and takes no width of its own
+    expect(lb).toMatch(/\.lb-table \.lb-sort \{[^}]*flex-direction: column;[^}]*justify-content: center/);
+    expect(lb).toMatch(/\.lb-sort-mark \{[^}]*position: absolute;[^}]*top: 50%;[^}]*transform: translateY\(-50%\)/);
+  });
+  it('LCM batch 1 (the shoot): at phone width a recent match keeps its result, K/D and score side by side on one row, as at 1440', () => {
+    const phone = css.slice(css.lastIndexOf('@media (max-width: 640px)'));
+    // the text, then the three figures: four columns, so the score never drops under the K/D
+    expect(phone).toMatch(/\.project-match-row \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto auto auto;/);
+    const clean = phone.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const m of clean.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (/display: none/.test(m[2]!)) expect(m[1], 'a phone rule hides the score').not.toMatch(/project-match-row-score/);
+    }
+    expect(phone).toMatch(/\.project-match-row-thumb, \.project-match-row-chev \{ display: none; \}/);
   });
   it('LCM-20: at phone width the award cards go two to a row, an odd last card across both', () => {
     const phone = css.slice(css.lastIndexOf('@media (max-width: 640px)'));

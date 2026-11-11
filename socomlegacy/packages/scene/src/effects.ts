@@ -191,7 +191,12 @@ export const NODE_ROOT = -7, NODE_CALLER = -6;
 export type EffectOp =
   | { op: 'if' | 'elseif'; conditions: EffectCondition[] }
   | { op: 'else' | 'endif' }
-  /** `WAIT` (15; begin `FUN_0025ed50`): `frames` when flag 0x10 (the i32 at +8), else `seconds` (the f32 at +8); flag 0x20 a random range. */
+  /**
+   * `WAIT` (15; begin `FUN_0025ed50` D:L108436-108447): `frames` when flag 0x10 (the i32 at +8), else `seconds` (the f32
+   * at +8). Flag 0x20 is the random form: the begin writes base + range x U[0,1) over +8, the base the f32 at +12 and the
+   * range at +16 -- a word on, +16 / +20, with 0x10 -- so `seconds` is that base and `range` that range (the disc's +8
+   * repeats the base: MP71's `seagull_squak` +8 4, +12 4, +16 9, a 4-13 s wait).
+   */
   | { op: 'wait'; seconds: number; range: number; frames: number | null }
   /** `LOOP` (14; tick `FUN_0025ede0`): back to the sequence's start until `count` passes (flag 1; -1 forever) or `seconds` (flag 2). */
   | { op: 'loop'; count: number | null; seconds: number | null }
@@ -227,7 +232,7 @@ export type EffectOp =
    * time is up, the node moved by the speed along the direction -- and sets the target at the end unless flag 0x2000
    * (D:L108958-108972). The begin recomputes the times from the distance (`FUN_00260910` D:L109438-109505, called at D:L109259) only when it
    * also took the start or the target from a node; MP71's washups take neither (flag 2, P+0's bits clear), so the disc's
-   * times stand. Nothing runs it yet (`WASHUP_MOTION_PLACEHOLDER`, viewer `worldState.ts`).
+   * times stand. The world runs it from a given start (LATER 782: viewer `sceneScroll.ts`, `SCENE_PROFILE_MOTION_READING`).
    */
   | {
     op: 'fromTo'; node: number; flags: number; seconds: number; from: Vec3; to: Vec3;
@@ -245,7 +250,8 @@ export type EffectOp =
    * Flag 8 measures the travel projected through `node`'s matrix instead (`projected`: the point at +0x20, the axis at
    * +0x2c with flag 0x10, else up; D:L109576-109631); flags 2 and 4 pick the scroll table's walk (`FUN_003bfee0`'s
    * last two arguments, D:L109627-109629, unread); flag 1 ends it after `seconds` (+0x44, D:L109663-109674), else it runs until its
-   * animation stops. Was decoded as `other`. Nothing runs it yet (`SCROLL_MOTION_PLACEHOLDER`, viewer `worldState.ts`).
+   * animation stops. Was decoded as `other`. The world runs the travel form (LATER 782: viewer `sceneScroll.ts`;
+   * what is not drawn is `SCROLL_MOTION_PLACEHOLDER`, viewer `worldState.ts`).
    */
   | {
     op: 'scroll'; node: number; mover: number; flags: number; axis: Vec3; uv: [number, number]; seconds: number | null;
@@ -271,8 +277,10 @@ export type EffectOp =
    * unplaced through the bank's +0x1c play (decomp 245406, 245416), a higher priority fading the voice there first
    * (245386-245398), a taken slot keeping it pending (245424-245444); the viewer does not model the slot and its runners drop those (`SOUND_PRIORITY_SLOT_READING`).
    * `flags` is the command's u16 at +4. Both absent on a hand-built op: a new play.
+   * `offset`: flag 4's vector at +0x14, added to the place before the node's matrices carry it to the world
+   * (`FUN_00309240`, D:L112423-112426; `mp6_battlesounds`' distant guns at (300, 0, 1000) from the skydome).
    */
-  | { op: 'sound'; sound: string; node: number; volume: number; flags?: number; newPlay?: boolean }
+  | { op: 'sound'; sound: string; node: number; volume: number; flags?: number; newPlay?: boolean; offset?: Vec3 }
   /** `LIGHT` (32): a dynamic light (`ZAnimLight`). */
   | { op: 'light'; light: ZAnimLight }
   /**
@@ -327,11 +335,11 @@ export type EffectOp =
    */
   | { op: 'executeAction'; anim: string }
   /**
-   * `DESTRUCTION_SOURCE` (29): the node the debris leaves from, the i8 at +4 (Frostfire's `breakapane`: 0xf9, `NODE_ROOT`)
-   * -- read from the one sample; the payload after it (a name index at +5, the fragments' floats) is not decoded
-   * (SUP-02's glass fragments).
+   * `DESTRUCTION_SOURCE` (29; 80 bytes; tick `FUN_002678f0`, D:L113383-113421, the 29th registration of `FUN_0025bc20`
+   * D:L106893): the node the debris leaves from, the byte at +4 (Frostfire's and Fish Hook's `breakapane`: 0xf9,
+   * `NODE_ROOT`), and -- on a command of the full 80 bytes -- what its fragments are made of (`debris`; LATER 850).
    */
-  | { op: 'destruction'; node: number }
+  | { op: 'destruction'; node: number; debris?: DestructionDebris }
   /**
    * `FIRE_WEAPON` (57; 44 bytes; begin `FUN_0025ccb0`, D:L107197-107316, the 57th registration of `FUN_0025bc20`):
    * a weapon's round made at a node -- the u8 at +6 the weapon's name (a name index, looked up in the weapon table
@@ -415,6 +423,8 @@ function f32Short(v: number): number {
 
 /** `SOUND`'s flag 0x10: the command carries its own volume at +8 (`FUN_002659c0` 112363-112416). */
 const SOUND_VOLUME = 0x10;
+/** `SOUND`'s flag 4: the command carries an offset at +0x14, the place's start (`FUN_002659c0` D:L112423-112426). */
+const SOUND_OFFSET = 0x4;
 
 /**
  * `SOUND`'s flags 0x400 / 0x800: the sound goes to the game's one-voice priority slot (`FUN_002659c0` 112460,
@@ -473,6 +483,56 @@ function conditions(c: CmdBytes, names: readonly string[]): EffectCondition[] {
   return out;
 }
 
+/**
+ * `DESTRUCTION_SOURCE`'s payload past its node (LATER 850; research 210 §6.1). `FUN_002678f0` reads the command in place
+ * and calls `FUN_00322580` with every field below (its registers at 0x2678f0-0x2679c4: f12 +0x18, f13 +0x4c, a1 the name,
+ * a2 cmd+8, a3/t0 the velocity's two ends, t1 +0x34, t2 +0x40, t3 +6); `FUN_00322580` (D:L222612-222678) keeps +0x3c and
+ * +0x40..+0x48 on the fragments' shared descriptor (D:L222654-222658; made by `FUN_00328e90` D:L226243-226277) and,
+ * for mode 0, hands the rest to `FUN_00322800` (D:L222681-222831), which throws the node's triangles (`./glassFragments`).
+ */
+export interface DestructionDebris {
+  /**
+   * The name at +5 (a name index), formatted `%s` (0x3ed110) and looked up as a texture (`FUN_001ec940`), else
+   * `null_xmas.bmp` (0x3f6ec8); neither found, nothing is thrown (D:L222634-222641).
+   */
+  texture: string;
+  /** +6: 0 the triangles are thrown (`FUN_00322800`); 1 the descriptor alone is made; any other, nothing (D:L222660-222672). */
+  mode: number;
+  /**
+   * +8..+0x14, four f32: each fragment's vertex colour, each rounded to a byte (+0.5; `FUN_00322df0` D:L223268-223298).
+   * The fourth is never read as stored: `FUN_00322800` writes 100.0 over +0x14 before each triangle (D:L222777; 0x322a40).
+   */
+  colour: [number, number, number, number];
+  /**
+   * +0x18 (f12): the measure a triangle is split by -- `0.6 x size / |2 x area|` against 0.3 and a draw (`FUN_00322df0`
+   * D:L223084-223101).
+   */
+  size: number;
+  /** +0x1c, +0x24, +0x2c: one end of each axis's velocity draw (`lo + (hi - lo) x r`, `FUN_00322800` D:L222784-222792). */
+  velocityFrom: Vec3;
+  /** +0x20, +0x28, +0x30: the other end. */
+  velocityTo: Vec3;
+  /** +0x34, +0x38: the life's draw, seconds (D:L222799-222801, the lerp at D:L222821). */
+  life: [number, number];
+  /** +0x3c: the descriptor's +0x2c, the drag toward the world's wind (`FUN_003271d0` D:L225243-225279); 0, none. */
+  drag: number;
+  /** +0x40..+0x48: the descriptor's +0x30, added to the velocity times the step each tick (D:L225219-225224). */
+  acceleration: Vec3;
+  /** +0x4c (f13): each fragment's +0x54, written to its visual's +0x9c each tick (D:L225240); its meaning is not read. */
+  visual9c: number;
+}
+
+/** `DESTRUCTION_SOURCE`'s payload (`DestructionDebris`), or null for a command shorter than the 80 bytes `FUN_002678f0` reads. */
+function destructionDebris(c: CmdBytes, names: readonly string[]): DestructionDebris | null {
+  if (c.length < 0x50) return null;
+  return {
+    texture: NAME(names, c.u8(5)), mode: c.u8(6),
+    colour: [c.f32(8), c.f32(0xc), c.f32(0x10), c.f32(0x14)], size: c.f32(0x18),
+    velocityFrom: [c.f32(0x1c), c.f32(0x24), c.f32(0x2c)], velocityTo: [c.f32(0x20), c.f32(0x28), c.f32(0x30)],
+    life: [c.f32(0x34), c.f32(0x38)], drag: c.f32(0x3c), acceleration: c.vec3(0x40), visual9c: c.f32(0x4c),
+  };
+}
+
 /** One command's bytes to what it does; `names` is the animation's name table. */
 export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>, names: readonly string[]): EffectOp {
   const c = new CmdBytes(cmd.bytes);
@@ -488,7 +548,11 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.WAIT: {
       const flags = c.u16(4);
       const frames = (flags & 0x10) !== 0 ? c.i32(8) : null;
-      return { op: 'wait', seconds: frames === null ? c.f32(8) : 0, range: (flags & 0x20) !== 0 ? c.f32(12) : 0, frames };
+      if ((flags & 0x20) !== 0) {
+        const at = 8 + 4 * ((flags & 0x10) !== 0 ? 2 : 1);           // FUN_0025ed50: iVar2 = 2 with 0x10, else 1
+        return { op: 'wait', seconds: c.f32(at), range: c.f32(at + 4), frames };
+      }
+      return { op: 'wait', seconds: frames === null ? c.f32(8) : 0, range: 0, frames };
     }
     case ZCMD.LOOP: {
       const flags = c.u32(4);
@@ -526,7 +590,10 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.PARTICLE_SOURCE: return { op: 'particles', source: decodeParticleSource(c, names) };
     case ZCMD.SOUND: {
       const flags = c.u16(4);
-      return { op: 'sound', sound: NAME(names, c.u16(6)), node: c.i8(16), volume: (flags & SOUND_VOLUME) !== 0 ? c.f32(8) : 1, flags, newPlay: SOUND_NEW_PLAY(flags) };
+      return {
+        op: 'sound', sound: NAME(names, c.u16(6)), node: c.i8(16), volume: (flags & SOUND_VOLUME) !== 0 ? c.f32(8) : 1, flags, newPlay: SOUND_NEW_PLAY(flags),
+        ...((flags & SOUND_OFFSET) !== 0 ? { offset: c.vec3(0x14) } : {}),
+      };
     }
     case ZCMD.LIGHT: return { op: 'light', light: decodeLight(c) };
     case ZCMD.CALL_ANIMATION: {
@@ -551,7 +618,10 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
     case ZCMD.FAIL: return { op: 'fail' };
     case ZCMD.VALVE: return { op: 'valve', ...valveOf(c, names) };
     case ZCMD.EXECUTE_ACTION: return { op: 'executeAction', anim: NAME(names, c.u16(4)) };
-    case ZCMD.DESTRUCTION_SOURCE: return { op: 'destruction', node: c.i8(4) };
+    case ZCMD.DESTRUCTION_SOURCE: {
+      const debris = destructionDebris(c, names);
+      return { op: 'destruction', node: c.i8(4), ...(debris ? { debris } : {}) };
+    }
     case ZCMD.FIRE_WEAPON:
       return { op: 'fireWeapon', weapon: NAME(names, c.u8(6)), ammo: NAME(names, c.u8(5)), node: c.i8(8), f1: f32Short(c.f32(0xc)), f2: f32Short(c.f32(0x10)),
         ...(c.u8(4) & 1 ? { offset: [c.f32(0x14), c.f32(0x18), c.f32(0x1c)] as [number, number, number] } : {}),

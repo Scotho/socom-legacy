@@ -22,9 +22,9 @@ import type { ContentPlacement } from './matchMap';
 import type { ForgeLobbyHandOff } from './lobbyClient';
 import { matchHandOff } from './lobbyPage';
 import { forgeMatchSounds, setForgeMatchSounds } from './matchState';
-import { ForgeNpcs, soloSideOption } from './npcs';
+import { ForgeNpcs, forgePlayNpcSeats, soloSideOption } from './npcs';
 import type { ForgePlayPort } from './agent/play';
-import { brainFor, fetchNpcNavigation, type NpcBrain } from './npcBrain';
+import { brainFor, fetchNpcNavigation, NpcBrain } from './npcBrain';
 import type { RuleHost, RuleLayout } from '../../../match/src/creator/rules';
 import { forgeRuleHost, ruleMapNames } from './matchRules';
 import type { RulesCueAudio } from './rulesCues';
@@ -220,7 +220,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
    * own `maxRounds`, `roundSeconds`, `allowFriendlyFire` and `maxPlayers`, passed through to the page's room unchanged.
    * `onRoundStart` is the page's (FG-50 puts the layout's slot back after round 1 has spawned).
    */
-  room?: Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers' | 'onRoundStart'>;
+  room?: Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers' | 'onRoundStart' | 'beforeRoundStart'>;
   /** FG-24: the match's brighten for the layout's light (`./settings` `matchBrightenOf`); unset, the match's own. */
   brighten?: number;
   /** Saved Forge lighting adaptation, with the editor base world calibration. */
@@ -259,19 +259,40 @@ export async function startForgeMatch(target: HTMLElement, o: {
   player?: PageMatchDeps;
 }): Promise<ForgeMatch> {
   const markers = o.npcs ?? [];
-  const ruleHost: RuleHost | null = o.rules ? forgeRuleHost({ layout: {}, params: {}, ...o.rules }, o.rules.names ?? ruleMapNames(o.map)) : null;
-  const simMap = simMapOfLoaded(o.map);
   // NPB-5: the brain steps with the room (`RoomOptions.beforeStep`, the lobby's own hook), once it is ready.
   let brain: NpcBrain | null = null;
-  const loop = new LoopbackMatch(simMap, simClipsOfPlay(o.clips), {
+  // A rules release seats on this room (`forgePlayNpcSeats`), the same hello a marker NPC uses. No rules: the match
+  // is the one it was, marker NPCs only. The host is built before the hull is read, so a pack the map cannot satisfy
+  // is refused before `no hull`. Marker NPCs take the first seats; a release starts after them.
+  let loop!: LoopbackMatch;
+  let stemName = '';
+  const releaseNpcs = (o.rules?.layout?.spawners ?? []).some((s) => s.source === 'npc');
+  const playSeats = o.rules ? forgePlayNpcSeats({
+    room: () => loop.room, stem: () => stemName, baseSide: soloSideOption(markers, o.side).soloSide, brain: () => brain,
+    reserved: markers.length,
+  }) : null;
+  const ruleHost: RuleHost | null = o.rules ? forgeRuleHost({ layout: {}, params: {}, ...o.rules }, o.rules.names ?? ruleMapNames(o.map), playSeats ? { npcs: playSeats.npcs } : {}) : null;
+  const simMap = simMapOfLoaded(o.map);
+  // A test's stand-in map is null (`simMapOfLoaded` mocked). The room's own map always has a stem.
+  stemName = simMap?.stem ?? '';
+  loop = new LoopbackMatch(simMap, simClipsOfPlay(o.clips), {
     // NPB-8: the map's own kit tables, as the test room and the lobby's rooms hold them: every seat carries its type's kit
     // and the brain issues its NPCs the lobby bots' role kits. A map without them (a mission, the blank floor) keeps the baked pair.
     kits: o.map.arsenal ?? null,
-    ...(o.room ?? {}), ...soloSideOption(markers, o.side), beforeStep: () => brain?.step(),
+    ...(o.room ?? {}),
+    ...(playSeats ? { soloSide: playSeats.sideOf } : soloSideOption(markers, o.side)),
+    beforeStep: () => { playSeats?.flush(); brain?.step(); },
+    beforeRoundStart: (newMatch) => { playSeats?.beforeRound(); o.room?.beforeRoundStart?.(newMatch); },
     ...(ruleHost ? { ruleHost } : {}),
   });
   let npcs: ForgeNpcs | null = null;
   const stem = o.map.archive;
+  // A rules NPC spawner and no marker NPCs: the patrol brain before the player is seated, so a round-start release
+  // can adopt it. A map with no graph stands the release where the spawner put it (the marker path's own fallback).
+  if (!markers.length && releaseNpcs) {
+    const nav = await fetchNpcNavigation(import.meta.env.BASE_URL, stem);
+    if (nav) { try { brain = await NpcBrain.create(loop.room, [], nav); } catch { brain = null; } }
+  }
   const client = new NetClient({ url: 'loopback:', map: stem, name: o.name, socket: loop.socket }, IDLE_WALK);
   const events: ServerEvent[] = [];
   // FCW-32 round 2: the rules' wires, outside `ServerEvent` (the room's additive types), handed to the page as they come.
@@ -289,6 +310,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     offRules();
     o.player?.stop();   // RB-10: a handed set of settings is the match's to stop
     client.close();
+    brain?.close();
     loop.stop();
     throw e;
   }
@@ -301,6 +323,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
     brain = await brainFor(behaviour, loop.room, npcs.npcs, behaviour === 'patrol' ? await fetchNpcNavigation(import.meta.env.BASE_URL, stem) : null);
     npcs.start();
   }
+  playSeats?.flush();
   // A development build's readout for checking a layout's match from the console (no original; never in a release):
   // each seat's side, feet, facing and health, and the room's round.
   if (import.meta.env.DEV) {

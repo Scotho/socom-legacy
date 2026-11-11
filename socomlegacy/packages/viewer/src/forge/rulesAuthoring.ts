@@ -1,5 +1,5 @@
 import {
-  checkCreatorRecord, checkPackRef, checkReport, diagnostic, ENGINE_CONTRACT_VERSION, forgeModeChoices, layoutEntityIds, layoutOfRecord,
+  behaviourCatalogue, checkCreatorRecord, checkPackRef, checkReport, diagnostic, ENGINE_CONTRACT_VERSION, forgeModeChoices, layoutEntityIds, layoutOfRecord,
   PACK_FORMAT, PACK_FORMAT_VERSION, PACK_MANIFEST_FILE, PACK_TARGET_US, parseLayout, readCreatorRecord, recordOfLayout, rulesCatalogue,
   rulesModeCatalogue, sha256Hex, validatePack, validateRules,
   type AnyLayoutRecord, type CheckReport, type CreatorLayoutRecord, type Diagnostic, type ForgeModeChoice, type InstalledRulesPack, type Layout, type PackManifest,
@@ -202,10 +202,18 @@ export class RulesPackError extends Error {
 }
 
 /**
+ * The pack check the Forge's import, export and seal share. Handler claims are checked against the behaviour catalogue
+ * the room publishes (`behaviourCatalogue`: patrol, sentry, the bomb authority and the extraction authority). A
+ * reserved capability is absent from that catalogue, so a claim on it is refused by name.
+ */
+function rulesPackContext() {
+  return { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, handlers: behaviourCatalogue() };
+}
+
+/**
  * A spec as a v2 rules pack (spec §7): `s2u-pack.json` and one `rules`-role member under a `new-behaviour` intent, its
  * claims the spec's capabilities, `contract` `^0.1.1`, for this disc; checked by the pack framework's own validator
- * (`validatePack`, handler claims skipped there: no handler catalogue is passed, the rules validator checks them), and
- * its reference the validator's (`packDigest`).
+ * (`validatePack` with `rulesPackContext`), and its reference the validator's (`packDigest`).
  */
 export async function buildRulesPack(pack: Pick<PackRef, 'id' | 'version'>, spec: RulesSpec): Promise<BuiltRulesPack> {
   const member = JSON.stringify(spec);
@@ -220,7 +228,7 @@ export async function buildRulesPack(pack: Pick<PackRef, 'id' | 'version'>, spec
     ...(spec.capabilities?.length ? { handlers: json(spec.capabilities) } : {}),
   };
   const files: RulesPackFile[] = [{ path: PACK_MANIFEST_FILE, text: JSON.stringify(manifest, null, 1) }, { path: RULES_MEMBER_PATH, text: member }];
-  const checked = await validatePack(files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+  const checked = await validatePack(files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), rulesPackContext());
   if (!checked.ok) throw new RulesPackError(checked.report, refusalWords(checked.report) ?? 'The pack does not validate.');
   return { ref: { id: checked.ref.id, version: checked.ref.version, hash: checked.ref.hash }, manifest: checked.manifest, files, report: checked.report };
 }
@@ -230,7 +238,7 @@ export async function buildRulesPack(pack: Pick<PackRef, 'id' | 'version'>, spec
  * `rules` member whose spec validates (`validateRules`, without a layout: the layout's check is the adoption's).
  */
 export async function importRulesPack(files: readonly RulesPackFile[]): Promise<ForgeRulesDraft> {
-  const checked = await validatePack(files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+  const checked = await validatePack(files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), rulesPackContext());
   if (!checked.ok) throw new RulesPackError(checked.report, refusalWords(checked.report) ?? 'The pack does not validate.');
   const members = checked.manifest.files.filter((m) => m.role === 'rules');
   const one = (code: string, text: string): RulesPackError => {
@@ -254,7 +262,7 @@ export async function importRulesPack(files: readonly RulesPackFile[]): Promise<
  */
 export async function exportRulesPack(draft: ForgeRulesDraft): Promise<{ ref: PackRef; files: RulesPackFile[] }> {
   if (!draft.files) { const built = await buildRulesPack(draft.pack, draft.spec); return { ref: built.ref, files: built.files }; }
-  const checked = await validatePack(draft.files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+  const checked = await validatePack(draft.files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), rulesPackContext());
   if (!checked.ok) throw new RulesPackError(checked.report, refusalWords(checked.report) ?? 'The kept pack does not validate.');
   if (!sameRef(checked.ref, draft.pack)) {
     const report = checkReport([diagnostic({ source: 'pack', severity: 'error', code: 'forge.rules.PACK_CHANGED', field: 'files',
@@ -289,7 +297,7 @@ export async function sealForgeRules(l: ForgeLayout): Promise<ForgeLayout> {
   if (keptPackIsDraft(l.rules)) {
     // The round-2 re-look's F2: the kept files must give the reference they keep (an envelope through forge.import or a
     // hand-edited download may carry any 64-hex hash); else they go and the Forge's own pack is sealed below.
-    const checked = await validatePack(l.rules.files!.map((f) => ({ path: f.path, bytes: utf8(f.text) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+    const checked = await validatePack(l.rules.files!.map((f) => ({ path: f.path, bytes: utf8(f.text) })), rulesPackContext());
     if (checked.ok && sameRef(checked.ref, l.rules.pack)) return l;
   }
   const old = l.rules.pack;

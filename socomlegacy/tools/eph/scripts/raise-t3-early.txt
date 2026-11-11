@@ -1,0 +1,4 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE diagnostics (30, 2026-11-09, after the timed set), r0004 M51 --state 5 (count 1, rifle up, the marking post 0x13419a0 at bearing ~170.3, acc 2.0).
+# T3 early-back: turn away at 1 s, back at 7 s (after the 6.6 s lower), --raise-records 5; the mark expected ~8.5 s. If it holds, then fails ~13 s, it is time:
+# --yaw-turns "1000:+70:3,7000:0:0.5".
+20000 lup 0

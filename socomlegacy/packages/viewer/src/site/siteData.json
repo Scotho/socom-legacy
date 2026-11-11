@@ -1,5 +1,5 @@
 {
-  "commit": "a76722c04",
+  "commit": "26f833fac",
   "sprints": [
     {
       "number": 6,
@@ -245,8 +245,8 @@
   "inFlight": [
     {
       "title": "The mega sprint (MEGA; the main controller's seat 99, c3 the stand-in, the shadow PC; plan; simulation + product)",
-      "state": "in-flight",
-      "summary": "opened 2026-11-09T05:10Z on the owner's word (MEGA.R1), in flight until its pull request; integration branch agent/mega (cut from agent/v0417 2916dc88f; main merged in after v0.4.17), each task merged on its fresh review, each lane on its…"
+      "state": "landed",
+      "summary": "opened 2026-11-09T05:10Z on the owner's word (MEGA.R1), landed 2026-11-10 as v0.4.18 (PR #781, the merge commit 6343231f0f, the tag on it); integration branch agent/mega (cut from agent/v0417 2916dc88f; main merged in after v0.4.17), each…"
     },
     {
       "title": "Web sprint 19, the second half (WATCH GAME and leaving a game) -- CLOSED 2026-10-14: every row merged on agent/online, each after a fresh review, and on main through checkpoints 14-16 (PR #209, PR #211 and the checkpoint 16 landing PR of 2026-10-14): adopted 2026-10-14 on the merge controller's word (W19.R1, W19.R8-R12)",
@@ -1264,6 +1264,11 @@
       "id": "2026-11-09-shadow-pc",
       "date": "2026-11-09",
       "title": "The shadow PC (SPC) -- plan"
+    },
+    {
+      "id": "2026-11-11-v0419-release",
+      "date": "2026-11-11",
+      "title": "v0.4.19 -- the release batch after mega -- plan"
     }
   ],
   "issues": {
@@ -1351,6 +1356,14 @@
     }
   },
   "news": [
+    {
+      "date": "2026-11-11",
+      "id": "2026-11-11-v0419-release",
+      "title": "v0.4.19 -- the release batch after mega",
+      "summary": "release v0.4.19 on the owner's word in his morning of 2026-11-12: the first batch after mega -- the mega playtest's fixes, the night's player reports, the reviewed LATER heads, and the emergencies central's log review found -- gated once o…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-11-v0419-release.md, ## Log, 2026-11-11"
+    },
     {
       "date": "2026-11-09",
       "id": "2026-11-07-match-stats-tracking",

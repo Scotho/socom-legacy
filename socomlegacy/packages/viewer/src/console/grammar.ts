@@ -6,14 +6,16 @@ import { MOBILE_LAYOUT_ROW } from '../mobileLayout';
 import { STANCE_MODE_WORDS, controllerStanceMode, defaultController, setControllerStanceMode } from '../startupSettings';
 import { extractPress } from './render/extract';
 import { senderButtons } from './render/discShare';
-import { SENDER_TITLE, SHARE_CODE_BAD, SHARE_TITLE } from '../discShareWords';
-import { DEAD_VALUES, PAD_DEAD_ZONE_LABEL, REMAP_ACTION_ROW, REMAP_FINISH_TOAST, REMAP_DEAD_ROW, REMAP_STANCE_ROW, extraAddedWords, remapActionOfRow, remapBindOfRow, remapExtraAt, remapLock, remapRowCount, rowOfPhysical, secondsLeft } from './render/remap';
+import { SEND_LINK_COPIED, SEND_TITLE, SENDER_TITLE, SHARE_CODE_BAD, SHARE_TITLE } from '../discShareWords';
+import { hostBusy } from '../discShareView';
+import { DEAD_VALUES, PAD_DEAD_ZONE_LABEL, REMAP_FINISH_TOAST, REMAP_STANCE_ROW, extraAddedWords, remapActionOfRow, remapActionRow, remapBindOfRow, remapDeadRow, remapExtraAt, remapLock, remapRowAcrossModes, remapRowCount, rowOfPhysical, secondsLeft } from './render/remap';
 import { PAD_EXTRA_ACTIONS } from '../padExtras';
 import {
   CATS, DISC_SOURCES, HOME_CATEGORY, INSTALL_APP_ROW, KEPT_DISC_ROW, SHARE_SEND_ROW, LOADOUT_SAVE_ROW, OVERLAY_LOCK_WORDS, PERSONA_DELETE_ROW, PERSONA_EDIT_ROWS, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW,
   MODS_DROP_ROW, MODS_FIRST_PACK_ROW, MODS_TEXTURE_ROW, modsRowCount, modsTestHdRow, PERSONA_NEW_GENDER_ROW, PERSONA_NEW_ROWS, PERSONA_PHRASE_ROW, PERSONA_TOWN_ROW, REMAP_ROW, canChangeRow, canResetRow, cardNames, deployChecks, discSource, homeItems, isToggleRow, loadoutRows, optRowsNow, THEME_PANEL_ROW, themePicks, loadoutSideItems, serverItems,
   optCategories, optTabs, overGame, personaEditLock, replayRows, replayStatus, roomFull, normalize, playNeed, roundRunning, selectedRoom, sessionLock, signInFresh, startReady, visibleRooms, browseRows, BROWSE_KINDS, BROWSE_CLASSIC, BROWSE_CUSTOM, customShown,
-  inputReady, launchCheckRows, launchCheckStart, launchCheckTitle, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW,
+  inputReady, launchCheckRows, launchCheckStart, launchCheckTitle, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SEND_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW,
+  SEND_MENU_ROW, SEND_PAGE, sendAt, sendInMenu, sendState, sendTargets, sourceMenuRows,
   type Adapters, type Button, type ConsoleState, type FieldTarget, type LoadoutLocked, type LoadoutOutcome, type LoadoutSide, type PersonaOutcome,
   type QuickSignIn, type ReplaysMore,
 } from './state';
@@ -370,11 +372,109 @@ export class ConsoleController {
   }
 
   closeShare(): void {
+    this.endReceiverArea();
+    this.cue('back');
+  }
+
+  /**
+   * DSH-5 (the disc share review's N3): the receiver's area shut, a request no device has answered (requesting or
+   * waiting) withdrawn; a copy under way goes on. The review of agent/disc-send-row (F1): also before the send area takes
+   * the panel's state (`openSendArea`), so SEND DISC over a waiting request leaves nothing live at central.
+   */
+  private endReceiverArea(): void {
     const share = this.A.discShare;
     this.S.chk.share = false;
     const phase = share?.receiver().phase;
     if (phase === 'requesting' || phase === 'waiting') share!.cancel();
+  }
+
+  /**
+   * DSH-10 (the disc share plan, DSH.R17; RB-27's host screen): the "Send Game Files" row's Cross -- only where
+   * `sendState` allows (the adapter's `complete()`, DSH.R7); otherwise nothing opens and the legend's line says why. Open:
+   * the panel widens on the send area (`chk.send`, its focus on the first target) and the share opens once (`openHost`).
+   * The cursor's one move to Deploy counted as made (`auto`), so a pad waking does not take the area away. DSH-11:
+   * `fromMenu`, the disc mark's "SEND DISC" -- the menu shut and Play's panel opened on Home's category, as a host's link
+   * opens the receiver's area (`syncHostLink`). A browser adaptation, product track.
+   */
+  openSendArea(fromMenu = false): void {
+    const S = this.S;
+    const share = this.A.discShare;
+    if (!share || S.mode === 'overlay') return;
+    const st = sendState(this.A);
+    if (!st.ok) { this.legendError(st.line); return; }               // DSH-11: the menu left open
+    if (!share.openHost) return;
+    if (S.chk.share) this.endReceiverArea();                          // the review's F1: Request's area ends first
+    S.src.open = false;
+    S.thm.open = false;
+    if (fromMenu) { S.cat = HOME_CATEGORY; S.chk = { open: true, row: LAUNCH_SEND_ROW, auto: true, send: true, ix: 0 }; }
+    else S.chk = { ...S.chk, open: true, row: LAUNCH_SEND_ROW, auto: true, send: true, share: false, at: undefined, ix: 0, copy: undefined };
+    share.openHost();
+    this.cue('open');
+    this.host.announce(SEND_TITLE);
+  }
+
+  /** DSH-10 (Q10's default): Circle or the crumb's Back -- the send area shut and the share ended (`closeHost`); the rows again. */
+  closeSendArea(): void {
+    const S = this.S;
+    S.chk.send = false;
+    S.chk.copy = undefined;
+    this.A.discShare?.closeHost?.();
     this.cue('back');
+  }
+
+  /**
+   * DSH-10: Copy link -- the share's link written to the clipboard; where the browser refuses it (a pad's Cross is no user
+   * gesture to it) or has none, the area's note says to select the link written above it (CPS-5's pattern).
+   */
+  private copySendLink(): void {
+    const link = this.A.discShare?.host?.().link;
+    if (!link) return;
+    const S = this.S;
+    const done = (k: 'copied' | 'refused'): void => {
+      if (!S.chk.send) return;
+      S.chk.copy = k;
+      if (k === 'copied') this.toast(SEND_LINK_COPIED);
+      this.render();
+    };
+    const clip = (globalThis.navigator as { clipboard?: { writeText(t: string): Promise<void> } } | undefined)?.clipboard ?? null;
+    if (!clip) { done('refused'); return; }
+    try { void clip.writeText(link).then(() => { done('copied'); }, () => { done('refused'); }); } catch { done('refused'); }
+  }
+
+  /**
+   * DSH-10 (RB-27's map): the send area holds the pad -- Up / Down walk its targets (the link, the copy, the requests; the
+   * ends kept), L2 / R2 a page of them, Cross copies the link or says Yes to the request, Square says No to it, Triangle
+   * stops the copy under way, Circle closes the area (the share ends, Q10).
+   */
+  private pressSend(b: Button): void {
+    const S = this.S;
+    const share = this.A.discShare;
+    const v = share?.host?.();
+    if (!share || !v) { this.closeSendArea(); return; }
+    if (b === 'circle') {
+      // The review's F2: while a copy runs, closing stops it -- asked first, as Deploy asks (Q11); else at once (Q10).
+      if (v.active) { S.overlay = 'confirm'; S.confirmKind = 'share-close'; S.confirmRow = 0; this.cue('open'); }
+      else this.closeSendArea();
+      return;
+    }
+    const t = sendTargets(v);
+    const at = sendAt(S, v);
+    const i = at === null ? -1 : t.indexOf(at);
+    const go = (n: number): void => {
+      if (!t.length) return;
+      const j = Math.max(0, Math.min(t.length - 1, n));
+      S.chk.at = t[j];
+      S.chk.ix = j;
+    };
+    const req = at?.startsWith('req:') ? v.pending.find((r) => `req:${r.id}` === at) : undefined;
+    if (b === 'up') go(i - 1);
+    else if (b === 'down') go(i + 1);
+    else if (b === 'l2') go(i - SEND_PAGE);
+    else if (b === 'r2') go(i + SEND_PAGE);
+    else if (b === 'cross' && at === 'link') this.copySendLink();
+    else if (b === 'cross' && req?.state === 'asked') { share.approveReq?.(req.id); this.cue('confirm'); }
+    else if (b === 'square' && req) share.declineReq?.(req.id);
+    else if (b === 'triangle' && v.active) share.stopActive?.();
   }
 
   /** MU2-14e: the replays list's failed page last said (`sayReplaysFailure`), by identity; null, none standing. */
@@ -536,7 +636,8 @@ export class ConsoleController {
     else { const at = Math.max(0, CATS.findIndex((c) => c.id === 'profile')); this.S.screen = 'home'; this.S.cat = at; this.S.item[at] = 0; }
   }
 
-  start(): void {
+  /** `force`: Q11's question already answered Yes (DSH-10). */
+  start(force = false): void {
     if (this.S.accountOpen) return;
     const S = this.S;
     if (S.mode === 'overlay') return;                                 // OVERLAY-CONSOLE: no START over a game page
@@ -550,6 +651,14 @@ export class ConsoleController {
       return;
     }
     if (S.start !== 'idle') return;
+    // DSH-10 (RB-26's Q11 default): launching ends the share, so while it is busy -- a copy under way, or requests waiting
+    // -- Deploy asks first (`SHARE_DEPLOY_CONFIRM`); No leaves the send area as it was, Yes launches (`force`).
+    if (!force && S.chk.send && hostBusy(this.A.discShare?.host?.())) {
+      S.overlay = 'confirm'; S.confirmKind = 'share-deploy'; S.confirmRow = 0;
+      this.cue('open');
+      this.render();
+      return;
+    }
     S.start = 'arming';
     S.chk.open = false;                                               // LR-36: the launch check shuts as the launch arms
     this.A.disc.hold?.(true);                                         // the image START was pressed for stays the one
@@ -741,12 +850,14 @@ export class ConsoleController {
     } else if (row === LAUNCH_PADSET_ROW) {
       S.chk.open = false;
       this.doAct('opt:controller');
-    } else if (row === LAUNCH_SHARE_ROW) this.openShare();   // DSH-5 (DSH.R12)
+    } else if (row === LAUNCH_SEND_ROW) this.openSendArea();   // DSH-10 (DSH.R17)
+    else if (row === LAUNCH_SHARE_ROW) this.openShare();   // DSH-5 (DSH.R12)
   }
 
   /** LR-36: the panel holds the pad -- Up / Down walk its rows (the ends kept), Cross does the row, Circle shuts it; nothing behind it moves. */
   private pressCheck(b: Button): void {
     const c = this.S.chk;
+    if (c.send) { this.pressSend(b); return; }                      // DSH-10: the send area holds the pad
     // DSH-5: the share's area holds the pad -- Cross its Try again after a failure (RB-26: Ask again after a host's No),
     // Circle back to the rows.
     if (c.share) {
@@ -1231,7 +1342,7 @@ export class ConsoleController {
     m.frame();
     this.rmKey = '';
     this.S.screen = 'remap';
-    this.S.rm = { row: REMAP_ACTION_ROW };                        // STANCE-TOP, DEAD-UP: on the first binding, the Stance mode and the dead zone above it
+    this.S.rm = { row: remapActionRow(), mode: controllerStanceMode() };   // STANCE-TOP, DEAD-UP, SEP-ROWS: on the first binding, the rows above it
   }
 
   /** Circle on the screen (no listen): the machine closed, Options again on the Button mapping row it was opened from. */
@@ -1369,7 +1480,7 @@ export class ConsoleController {
     if (!m) return;
     const r = this.S.rm.row;
     const lock = remapLock(m);
-    if (r === REMAP_DEAD_ROW) return;
+    if (r === remapDeadRow()) return;
     // OBF-10b's review (1): Teach again, a row the pad reaches. OBF-13: Finish closes the screen, with its confirmation
     // (no lock: it closes with no controller too).
     const extra = remapExtraAt(m, r);
@@ -1402,8 +1513,20 @@ export class ConsoleController {
     if (to === controllerStanceMode()) return;
     // SEP-SHOW: a touchpad pad's unbound Crouch bound to a free touchpad on the way in, said.
     if (to === 'separate' && this.binding()?.enterSeparate()) this.toast(TOUCHPAD_CROUCH_TOAST);
-    setControllerStanceMode(to);
+    this.setRemapStance(to);
     this.toggled();
+  }
+
+  /**
+   * SEP-ROWS: the Stance mode saved from the mapping screen, the focus moved with its row at once (`remapRowAcrossModes`:
+   * the switch keeps it; `normalize` does the same for a mode changed anywhere else), so no press between this and the
+   * next draw lands on a row by its old number.
+   */
+  private setRemapStance(to: 'pop' | 'separate'): void {
+    const from = this.S.rm.mode ?? controllerStanceMode();
+    setControllerStanceMode(to);
+    this.S.rm.row = remapRowAcrossModes(this.S.rm.row, from, to);
+    this.S.rm.mode = to;
   }
 
   /** Left / Right on a tuner row: the dead zone by 1 % (0-40 %), the Stance mode, clamped. */
@@ -1420,7 +1543,7 @@ export class ConsoleController {
       m.addAction[kind] = PAD_EXTRA_ACTIONS[Math.max(0, Math.min(PAD_EXTRA_ACTIONS.length - 1, at + d))]!;
       return;
     }
-    if (r === REMAP_DEAD_ROW) {
+    if (r === remapDeadRow()) {
       const at = Math.round(m.deadZone() * 100);
       const to = Math.max(0, Math.min(DEAD_VALUES.length - 1, at + d));
       if (to !== at) m.setDeadZone(to / 100);
@@ -1449,13 +1572,13 @@ export class ConsoleController {
     else if (b === 'cross') this.remapAct();
     else if (b === 'left' || b === 'right') this.remapStep(b === 'left' ? -1 : 1);
     else if (b === 'square' && S.rm.row === REMAP_STANCE_ROW) {
-      if (controllerStanceMode() !== 'pop') { setControllerStanceMode('pop'); this.toast(`Stance mode reset to ${STANCE_MODE_WORDS.pop}`); }
+      if (controllerStanceMode() !== 'pop') { this.setRemapStance('pop'); this.toast(`Stance mode reset to ${STANCE_MODE_WORDS.pop}`); }
     } else if (b === 'square' && !lock && remapExtraAt(m, S.rm.row) === 'extras') {
       if (m.extraList().length > 0) { m.clearExtras(); this.toast('Extra binds cleared.'); }   // h59U9CLb
     } else if (b === 'square' && !lock) {
       const def = defaultController();
       const bind = remapBindOfRow(S.rm.row);                     // STM.R1: SEPARATE's rows only
-      if (S.rm.row === REMAP_DEAD_ROW) { m.setDeadZone(def.deadZone); this.toast(`${PAD_DEAD_ZONE_LABEL} reset to ${Math.round(def.deadZone * 100)}%`); }
+      if (S.rm.row === remapDeadRow()) { m.setDeadZone(def.deadZone); this.toast(`${PAD_DEAD_ZONE_LABEL} reset to ${Math.round(def.deadZone * 100)}%`); }
       else if (bind !== undefined) {
         if (bind === CROUCH_BIND) m.setCrouch(def.crouch); else m.setProne(def.prone);
         this.toast(`${m.bindName(bind)} unbound`);
@@ -1961,7 +2084,7 @@ export class ConsoleController {
    */
   private focusKey(source = true): string {
     const S = this.S;
-    return [S.screen, S.cat, S.item[S.cat] ?? 0, S.thm.open ? `t${S.thm.row}` : '-', S.chk.open ? `c${S.chk.row}` : '-', S.opt.panel ?? '-', source && S.src.open ? S.src.row : '-', S.rooms.row, S.rooms.kind, S.rp.row, S.opt.cat, S.opt.zone, S.opt.row, S.rm.row, S.lo.row, S.lo.edit, S.pf.row, S.pf.edit, S.pf.nw.row, S.pf.rec, S.lb.row, S.lb.grow, S.lb.crow, S.sv.row, S.md.row].join('|');   // RB-5: Server's and Mods' rows
+    return [S.screen, S.cat, S.item[S.cat] ?? 0, S.thm.open ? `t${S.thm.row}` : '-', S.chk.open ? `c${S.chk.row}${S.chk.send ? `:${S.chk.at ?? ''}` : ''}` : '-', S.opt.panel ?? '-', source && S.src.open ? S.src.row : '-', S.rooms.row, S.rooms.kind, S.rp.row, S.opt.cat, S.opt.zone, S.opt.row, S.rm.row, S.lo.row, S.lo.edit, S.pf.row, S.pf.edit, S.pf.nw.row, S.pf.rec, S.lb.row, S.lb.grow, S.lb.crow, S.sv.row, S.md.row].join('|');   // RB-5: Server's and Mods' rows
   }
 
   /**
@@ -2053,6 +2176,8 @@ export class ConsoleController {
         else if (S.confirmKind === 'loadout-leave') this.leaveLoadoutEditor();        // CX-LOADOUTS: the edits dropped
         else if (S.confirmKind === 'loadout-defaults') this.loadoutOutcome(this.A.loadouts?.defaults() ?? null);
         else if (S.confirmKind === 'persona-delete') this.deletePersona();             // CX-PERSONA
+        else if (S.confirmKind === 'share-deploy') { this.start(true); return; }       // DSH-10 (Q11): deploy; the share ends
+        else if (S.confirmKind === 'share-close') this.closeSendArea();                // the DSH-10 review's F2: the share ends
         else if (!this.signOutLocked()) this.signOutNow();          // OVERLAY-CONSOLE: a lock met while it was asked
       } else if (b === 'cross' || b === 'circle') S.overlay = decline ? 'agreement' : null;   // No, first and focused
       this.render();
@@ -2143,6 +2268,8 @@ export class ConsoleController {
     // B206 ML-2: the MODS screen (OPTIONS stays START there).
     if (S.screen === 'mods' && b !== 'options') { this.pressMods(b); this.render(); return; }
     if (b === 'options') { this.start(); return; }
+    // DSH-10: the send area's Triangle is its Stop, not the account (RB-27's map).
+    if (S.screen === 'home' && S.chk.open && S.chk.send && !S.overlay) { this.pressCheck(b); this.render(); return; }
     // OVERLAY-CONSOLE: Circle at the top of the overlay's console (Home, nothing open over it) is the way back to the game.
     if (b === 'circle' && S.screen === 'home' && S.mode === 'overlay' && !S.src.open && !S.thm.open) { this.host.close?.(); return; }
     if (b === 'triangle' && S.screen !== 'rooms') { this.account(); this.render(); return; }
@@ -2155,7 +2282,8 @@ export class ConsoleController {
       // Right stay the crossbar's, the design's one axis per direction): Up / Down walk its two options, Cross picks one,
       // Circle or Square closes it; any other press closes it and does its own work.
       if (S.src.open) {
-        if (b === 'up' || b === 'down') { S.src.row = Math.max(0, Math.min(DISC_SOURCES.length - 1, S.src.row + (b === 'up' ? -1 : 1))); this.render(); return; }
+        if (b === 'up' || b === 'down') { S.src.row = Math.max(0, Math.min(sourceMenuRows(S, A) - 1, S.src.row + (b === 'up' ? -1 : 1))); this.render(); return; }   // DSH-11: SEND DISC the third
+        if (b === 'cross' && S.src.row === SEND_MENU_ROW && sendInMenu(S, A)) { this.openSendArea(true); this.render(); return; }   // DSH-11
         if (b === 'cross') { this.pickSource(S.src.row, S.input === 'pointer' || this.keyGesture); this.render(); return; }
         S.src.open = false;
         if (b === 'circle' || b === 'square') { this.cue('close'); this.render(); return; }   // LR-37 (2)
@@ -2491,8 +2619,17 @@ export class ConsoleController {
     else if (act === 'themeopt') { if (S.screen !== 'home' || S.overlay || !S.thm.open) return false; S.thm.row = i; this.pickTheme(i); }   // LR-13
     // LR-36: a row of Play's launch check -- its click focuses it and is its Cross (the disc's chooser in the click's own event).
     // Setup onboarding (ZjCZXTTW): a source on the launch check's Disc row -- the row focused, then the source menu's option.
-    else if (act === 'chksrc') { if (S.screen !== 'home' || S.overlay || !S.chk.open || S.chk.share || !(i >= 0 && i < DISC_SOURCES.length)) return false; S.chk.row = LAUNCH_DISC_ROW; this.pickSource(i); }
-    else if (act === 'chkrow') { if (S.screen !== 'home' || S.overlay || !S.chk.open || S.chk.share || !(i >= 0 && i < launchCheckRows(A))) return false; S.chk.row = i; this.checkAct(i, true); }
+    else if (act === 'chksrc') { if (S.screen !== 'home' || S.overlay || !S.chk.open || S.chk.share || S.chk.send || !(i >= 0 && i < DISC_SOURCES.length)) return false; S.chk.row = LAUNCH_DISC_ROW; this.pickSource(i); }
+    else if (act === 'chkrow') { if (S.screen !== 'home' || S.overlay || !S.chk.open || S.chk.share || S.chk.send || !(i >= 0 && i < launchCheckRows(A))) return false; S.chk.row = i; this.checkAct(i, true); }
+    // DSH-10: the send area's buttons -- Copy link, a request's Yes and No (by its id), Stop; each focuses its target.
+    else if (act === 'sendcopy' || act === 'sendyes' || act === 'sendno' || act === 'sendstop') {
+      if (S.screen !== 'home' || S.overlay || !S.chk.open || !S.chk.send) return false;
+      const id = d.id ?? '';
+      if (act === 'sendcopy') { S.chk.at = 'link'; this.copySendLink(); }
+      else if (act === 'sendyes') { S.chk.at = `req:${id}`; A.discShare?.approveReq?.(id); }
+      else if (act === 'sendno') { S.chk.at = `req:${id}`; A.discShare?.declineReq?.(id); }
+      else { S.chk.at = 'active'; A.discShare?.stopActive?.(); }
+    }
     // DSH-5: the share area's Try again (its failed phase).
     else if (act === 'sharerx') { const ph = A.discShare?.receiver().phase; if (S.screen !== 'home' || S.overlay || !S.chk.share || (ph !== 'failed' && ph !== 'declined')) return false; A.discShare!.request(); }
     // LATER 291: the phone row is an anchor. Move the focus and let the click follow the href — do not also open it.
@@ -2609,7 +2746,7 @@ export class ConsoleController {
       if (act === 'markpad') this.openSettings('controller');
       else this.openSettings('communication', ['mic-on', 'voice']);
     }
-    else if (act === 'srcopt') this.pickSource(i);
+    else if (act === 'srcopt') { if (i === SEND_MENU_ROW && sendInMenu(S, A)) { S.src.row = i; this.openSendArea(true); } else this.pickSource(i); }   // DSH-11: SEND DISC
     else if (act === 'start') { this.start(); return false; }
     else if (act === 'persona') { S.si.persona = Math.max(0, Math.min(this.another(), i)); S.si.zone = 'personas'; S.si.target = S.si.persona >= this.another() && A.data !== 'sample' ? 'name' : 'password'; }
     else if (act === 'agree') { S.ag.row = i; this.press('cross'); return false; }

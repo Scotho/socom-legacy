@@ -121,6 +121,20 @@ export function controllerStanceMode(): StanceMode {
 }
 export function setControllerStanceMode(mode: StanceMode): void { savePreference(STANCE_MODE_KEY, mode); }
 /**
+ * SEP-ROWS (the owner, 2026-11-11: "that alias should now show a tooltip when viewing that setting and a warning icon when
+ * separate is on and crouch and prone are not set. the tooltip saying they must be mapped in controller bindings"): the
+ * Options > Controller Stance mode row's tip, and its warning mark's words. A browser adaptation.
+ */
+export const STANCE_SEPARATE_BINDS_TIP = 'SEPARATE needs Crouch and Prone mapped in Button mapping.';
+/**
+ * SEP-ROWS: whether SEPARATE leaves a stance out of reach on this profile -- Prone unbound, or Crouch unbound and not
+ * reached by the light press of Prone's button on a pressure pad (PS2P: `./padBinding` `pressureLight`). Either one is
+ * enough: a stance with no button is one the player cannot take. A browser adaptation.
+ */
+export function stanceBindsMissing(c: Pick<ControllerConfig, 'crouch' | 'prone'>, pressureCapable: boolean): boolean {
+  return c.prone < 0 || (c.crouch < 0 && !pressureCapable);
+}
+/**
  * The picture's preset: the view, and the detail pass -- on under both. The PS2 picture draws it because the original does
  * (research 232 §4, PF-30: `FUN_003b6e10` D:L308360-308392, gated per visual by vparams bit 14 and its own range;
  * DETAIL_SWITCH_READING, DETAIL_BIT14_READING); the 2026-10-03 plan's "Detail textures off" for PS2 rested on research

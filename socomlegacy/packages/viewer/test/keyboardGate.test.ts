@@ -70,6 +70,8 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // to the session service's inactivity clock. Neither reaches the game.
   ['playtestSession.ts', "doc.addEventListener('keydown', onKey)"],   // F8 marks the moment
   ['playtestSession.ts', "doc.addEventListener('keydown', onInput)"], // a key is human input: the heartbeat
+  // XBOX-DIAG's input sources (an instrument, every build): a key press counted, passive, its key never read; no game input.
+  ['inputSources.ts', "win.addEventListener('keydown', key, opts);"],
   // The test room's bar map dropdown (TR-1, the test room's maps plan TR.R2): a native <select> whose own keys move it;
   // these mark the key's task so a closed select's key-driven change is undone (no reload), and read no key as input.
   ['testroomMapBar.ts', "this.select.addEventListener('keydown'"],  // marks a key that moves the closed select

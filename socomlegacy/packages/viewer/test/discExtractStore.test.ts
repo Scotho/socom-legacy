@@ -88,4 +88,27 @@ describe('the IndexedDB store', () => {
     await expect(idbExtractStore(insecure, 'D').size('X')).rejects.toMatchObject({ reason: 'denied' });
     await deleteExtractDb(() => null);                           // none: no error
   });
+
+  // LATER 578: another tab holding EXTRACT_DB open blocks the delete (`onblocked`); it used to wait forever, so a
+  // receiver's `prepare` (a disc share) or a removal never settled. Now it says so, in words that name the cure.
+  it('a delete another tab blocks rejects at once, unavailable, saying to close the other tab', async () => {
+    const idb = new FakeFactory() as unknown as IDBFactory;
+    await idbExtractStore(() => idb, 'D').write('X', new Blob(['x']));
+    const held = await new Promise<IDBDatabase>((resolve, reject) => {
+      const r = idb.open(EXTRACT_DB);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });                                                         // "another tab": a connection that never closes on versionchange
+    const hung = Symbol('hung');
+    const outcome = await Promise.race([
+      deleteExtractDb(() => idb).then(() => 'resolved', (e: unknown) => e),
+      new Promise<symbol>((resolve) => setTimeout(() => resolve(hung), 2_000)),
+    ]);
+    held.close();
+    expect(outcome).not.toBe(hung);
+    expect(outcome).toBeInstanceOf(ExtractStoreError);
+    expect(outcome).toMatchObject({ reason: 'unavailable' });
+    expect((outcome as Error).message).toMatch(/another tab/);
+    expect((outcome as Error).message).toMatch(/close it and try again/);
+  });
 });

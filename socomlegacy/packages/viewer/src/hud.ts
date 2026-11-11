@@ -1383,6 +1383,15 @@ export function timerText(seconds: number): string {
 }
 
 /**
+ * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation): `hudLayout`'s per-call constants -- the text's two passes,
+ * its read options and the empty options -- made once, where each string and each glyph made them anew (13 MB of its own
+ * in 10 s of shadow's X2c profile, with the glyphs' colour and texel temporaries below). Read only.
+ */
+const TEXT_PASSES = ['shadow', 'text'] as const;
+const READ_PLAIN: { special: boolean } = { special: false }, READ_SPECIAL: { special: boolean } = { special: true };
+const NO_TEXT_OPTS: { special?: boolean; shadow?: number } = {};
+
+/**
  * The HUD's quads on a frame of `frame` pixels: pure, for the tests and the pass. `sizes` gives each bitmap's texel
  * size; a bitmap missing from it is not drawn. `rects` is each element's bounding box on the frame.
  */
@@ -1398,42 +1407,61 @@ export function hudLayout(
   const C = (x: number): number => frame.width / 2 + (x - PS2_W / 2) * s;
   const Y = (y: number): number => y * s;
   const alpha = (rgba: Rgba4, a: number): Rgba4 => [rgba[0], rgba[1], rgba[2], rgba[3] * a];
+  // PAGE-ALLOC-A: the quad made with its texels as numbers and its layer set only when one (the keys in the same order).
+  const push = (
+    element: HudElement, texture: string, x: number, y: number, w: number, h: number, rgba: Rgba4, turn: number,
+    u0: number, v0: number, u1: number, v1: number, layer: number,
+  ): void => {
+    const q: HudQuad = { element, texture, x: x + w / 2, y: y + h / 2, w, h, turn, u0, v0, u1, v1, rgba };
+    if (layer) q.layer = layer;
+    quads.push(q);
+  };
   const bitmap = (
     element: HudElement, texture: string, x: number, y: number, w: number, h: number, rgba: Rgba4,
     turn = 0, src?: [number, number, number, number], layer = 0,
   ): void => {
     const size = sizes[texture];
     if (!size || rgba[3] <= 0) return;
-    const [u0, v0, u1, v1] = src ?? [0, 0, size.width, size.height];
-    quads.push({ element, texture, x: x + w / 2, y: y + h / 2, w, h, turn, u0, v0, u1, v1, rgba, ...(layer ? { layer } : {}) });
+    if (src) push(element, texture, x, y, w, h, rgba, turn, src[0], src[1], src[2], src[3], layer);
+    else push(element, texture, x, y, w, h, rgba, turn, 0, 0, size.width, size.height, layer);
+  };
+  /** A glyph's quad: `bitmap` with its texels as numbers, no turn, no layer. */
+  const glyph = (
+    element: HudElement, texture: string, x: number, y: number, w: number, h: number, rgba: Rgba4,
+    u0: number, v0: number, u1: number, v1: number,
+  ): void => {
+    if (!sizes[texture] || rgba[3] <= 0) return;
+    push(element, texture, x, y, w, h, rgba, 0, u0, v0, u1, v1, 0);
   };
   // PAR-48: `opts.special` reads the pad glyphs (`./hudFont`), drawn from their atlas in their own colour with no shadow;
   // `opts.shadow` is the shadow's alpha when not the HUD's (`FUN_003625e0`: min(the string's, 96), as `./weaponSelect`).
   const text = (
     element: HudElement, line: string, spot: TextSpot, anchor: (x: number) => number, a = 1, rgb?: readonly number[], opacity = HUD_COLOURS.text[3],
-    opts: { special?: boolean; shadow?: number } = {},
+    opts: { special?: boolean; shadow?: number } = NO_TEXT_OPTS,
   ): void => {
     const font = FONT_TEXT_01.texture;
     if (!sizes[font] || a <= 0) return;
-    const read = { special: opts.special === true };
+    const read = opts.special === true ? READ_SPECIAL : READ_PLAIN;
     const width = textWidth(line, spot.scale, read);
     const pen = spot.align === 'right' ? spot.x - width : spot.align === 'centre' ? spot.x - width / 2 : spot.x;
     const { glyphs } = layoutText(line, pen, spot.y, spot.scale, read);
     const [dx, dy] = FONT_TEXT_01.dropShadow.pixels;
-    for (const pass of ['shadow', 'text'] as const) {
-      const [ox, oy] = pass === 'shadow' ? [dx * spot.scale, dy * spot.scale] : [0, 0];
+    for (const pass of TEXT_PASSES) {
+      const ox = pass === 'shadow' ? dx * spot.scale : 0, oy = pass === 'shadow' ? dy * spot.scale : 0;
       for (const g of glyphs) {
         if (g.texture) {
           if (pass === 'text' && g.rgb) {
-            bitmap(element, g.texture, anchor(g.x), Y(g.y), g.w * s, g.h * s, alpha([g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, opacity], a), 0, [g.u0, g.v0, g.u1, g.v1]);
+            glyph(element, g.texture, anchor(g.x), Y(g.y), g.w * s, g.h * s, [g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, opacity * a], g.u0, g.v0, g.u1, g.v1);
           }
           continue;
         }
-        const base: Rgba4 = pass === 'text' && g.rgb ? [g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, opacity]
-          : pass === 'text' && rgb ? [rgb[0]!, rgb[1]!, rgb[2]!, opacity]
-          : pass === 'shadow' && opts.shadow !== undefined ? [0, 0, 0, opts.shadow] : HUD_COLOURS[pass];
-        bitmap(element, font, anchor(g.x + ox), Y(g.y + oy), g.w * s, g.h * s, alpha(base, a),
-          0, [g.u0, g.v0, g.u1, g.v1]);
+        // PAGE-ALLOC-A: the colour made once, as `alpha(base, a)` made it (base's alpha times `a`), not twice.
+        let rgba: Rgba4;
+        if (pass === 'text' && g.rgb) rgba = [g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, opacity * a];
+        else if (pass === 'text' && rgb) rgba = [rgb[0]!, rgb[1]!, rgb[2]!, opacity * a];
+        else if (pass === 'shadow' && opts.shadow !== undefined) rgba = [0, 0, 0, opts.shadow * a];
+        else { const c = HUD_COLOURS[pass]; rgba = [c[0], c[1], c[2], c[3] * a]; }
+        glyph(element, font, anchor(g.x + ox), Y(g.y + oy), g.w * s, g.h * s, rgba, g.u0, g.v0, g.u1, g.v1);
       }
     }
   };
@@ -1701,8 +1729,10 @@ export function hudLayout(
     const x0 = q.x - hw, y0 = q.y - hh, x1 = q.x + hw, y1 = q.y + hh;
     if (!r) rects[q.element] = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
     else {
+      // PAGE-ALLOC-A: the element's rect grown in place (each number from the rect as it stood), not made again.
       const nx0 = Math.min(r.x, x0), ny0 = Math.min(r.y, y0);
-      rects[q.element] = { x: nx0, y: ny0, width: Math.max(r.x + r.width, x1) - nx0, height: Math.max(r.y + r.height, y1) - ny0 };
+      const width = Math.max(r.x + r.width, x1) - nx0, height = Math.max(r.y + r.height, y1) - ny0;
+      r.x = nx0; r.y = ny0; r.width = width; r.height = height;
     }
   }
   return { scale: s, quads: kept, rects };
@@ -2209,7 +2239,10 @@ export class Hud {
     this.manualAllowed = allowed;
     this.showPrompt();
   }
-  /** The traversal's ledge prompt: the game's climb icon while visible, unless another prompt holds the slot. */
+  /**
+   * The traversal's ledge prompt: the game's climb icon while visible, unless a caller's prompt or the picker's list
+   * holds the slot (LATER 636: the list's own climb entry is then the climb drawn).
+   */
   setClimbPrompt(state: ClimbPrompt | null): void {
     this.climbing = state?.visible === true;
     this.showPrompt();
@@ -2235,12 +2268,20 @@ export class Hud {
   private manualAllowed = true;
   private nearbyAllowed = true;
   /**
-   * The prompt shown -- a caller's `setAction` over the traversal's ledge over the map's own action -- and its colour:
-   * its record's (`ACTION_PROMPT_COLOUR`), grey for a map action the player may not use.
+   * The prompt shown -- a caller's `setAction` over the picker's list's head (`setNearbyAction`'s list) over the
+   * traversal's ledge over the map's own single action -- and its colour: its record's (`ACTION_PROMPT_COLOUR`), grey for
+   * a map action the player may not use.
+   *
+   * LATER 636 (reading, pending review): with the picker's list fed, its head is the head -- the original keeps one list
+   * (`DAT_0040d558`), whose head `FUN_0021f210` draws (D:L73945-73950) and `FUN_0021d9d0` fires (D:L73398-73401); the
+   * climb is one of its entries (bit 0x4), so the climb feed draws only for a page that feeds no list. Was: the climb
+   * feed over the list's head, so a bomb carrier at a site with a ledge in reach saw CLIMB while the press planted.
    */
   private showPrompt(): void {
-    const action = this.manual ?? (this.climbing ? 'climb' : this.nearby);
-    const allowed = this.manual ? this.manualAllowed : this.climbing ? true : this.nearbyAllowed;
+    const listed = this.nearbyList.length > 0;
+    const climb = this.climbing && !listed;
+    const action = this.manual ?? (climb ? 'climb' : this.nearby);
+    const allowed = this.manual ? this.manualAllowed : climb ? true : this.nearbyAllowed;
     const colour = (p: ActionPrompt, ok: boolean): keyof typeof ACTION_COLOURS => (!ok && MAP_ACTION_PROMPTS.has(p) ? 'grey' : ACTION_PROMPT_COLOUR[p]);
     this.model.action = action;
     if (action) this.model.actionColour = colour(action, allowed);

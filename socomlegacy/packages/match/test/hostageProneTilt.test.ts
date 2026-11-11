@@ -108,8 +108,10 @@ describe('PRONE-TILT-2 review F2: the room turns a knocked hostage\'s capsules b
     const room = new Room(map, null, { now: () => 0, random: () => 0.5, launchCountdownS: 0 }, null, null);
     room.hello(1, { send() {}, close() {} } as Conn, { type: 'hello', version: PROTOCOL_VERSION, name: '', map: 'MP99' });
     room.step();
-    // one hostage at the origin, a standing column of a body (one BODY capsule, y 1..15) about its root at the feet
-    const column = [{ part: 1, r: 1, a: [0, 1, 0] as V3, b: [0, 15, 0] as V3 }];
+    // one hostage at the origin, a standing column of a body (one box, x and z -1..1, y 1..15; BONE-BOXES, research 217
+    // s3.6b: the volumes are bone boxes, this one a hand-made bone at the identity, where it was one capsule of radius 1)
+    // about its root at the feet
+    const column = [{ part: 1, bone: 0, box: Float32Array.of(-1, 1, -1, 1, 15, 1), w: Float32Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }];
     const vols = { stand: column, crouch: column, prone: column, pivot: { stand: [0, 0, 0] as V3, crouch: [0, 0, 0] as V3, prone: [0, 0, 0] as V3 } };
     const tilt = [Math.sin(Math.PI / 6), 0, 0, Math.cos(Math.PI / 6)];   // 60 degrees about x: the top swung along z
     const hostage = { id: 9000, at: [0, 0, 0] as V3, yaw: 0, motion: { rootTilt: tilt as unknown } };

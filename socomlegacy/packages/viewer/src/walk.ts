@@ -9,6 +9,7 @@ import { offlineRoomLookRate } from './net/loopback';
 import { applyKnock, mountFallRefuses, mountPop, type Knock } from './net/blast';
 import { fireCapability } from './net/fireCapability';
 import type { StartBody } from './net/startLine';
+import { aimRoot } from './net/shotCone';
 import { flinchRefused, pushPopped } from './net/deaths';
 import type { MotionTable } from './motionTable';
 import { quantiseCommand } from './net/codec';
@@ -1954,14 +1955,15 @@ export class WalkMode {
    * Dead or alive, as the match server has it (the net client's `kill` and `spawn`): a dead mover's death landing stays
    * down (`Walker.dead`, `DEATH_LANDING_GETUP_PLACEHOLDER` is the free walk's alone (`&nomatch`, `&fly`)).
    */
-  setDead(on: boolean, opts: { keepDeath?: boolean } = {}): void {
+  setDead(on: boolean, opts: { keepDeath?: boolean; fall?: boolean } = {}): void {
     this.dead = on;
     const w = this.walker;
     // The death drops a move: `FUN_005af590` on state 8 (L466696-466699) and the blast's death (L440992-440993) call
     // `FUN_005a5da0`, the hang and ladder detach -- the corpse falls from the rungs or the ledge. A death with no move
     // leaves the mover as it is (a knock's fall goes on).
     if (on && w && this.moves?.busy()) { this.moves.reset(w); w.setAirborne(true); }
-    if (w) w.dead = on;
+    // FALL-DEATH-LAND: the fall's death heard after the landing the walk predicted alive lies down in `Land forward`.
+    if (w) { if (on && opts.fall) w.diedOfFall(); else w.dead = on; }
     // The death camera from the death (`FUN_00297410` 140900-140913: mode 1 at state 8) to the respawn's new camera
     // (`FUN_00299150`): mode 6 until a killer is named (`setDeathKiller`). LATER 496's review F1 (the page's own case: a
     // spawn the walk refused, `NetClient.retrySpawn`): the client's spawn alone asks to keep the camera (`keepDeath`), so
@@ -2685,13 +2687,16 @@ export class WalkMode {
 
   /**
    * LATER 366 (OT.R80): the body the room measures a round's start from (`./net/startLine`, `room.ts` `startBody`): the
-   * simulated feet and yaw, the stance, the move's root and peek -- the stance's root, not the posed one, as the room's.
-   * Null off the walk.
+   * simulated feet and yaw, the stance, the move's root and peek. The root by the room's rule (`./net/shotCone`
+   * `aimRoot`; JUMP-AIM-ROOT, research 80 s7): the move's, else a crouched body's posed root in the jump or above the
+   * crouch root -- here this page's own `Play` animator's (`setPosedRoot`, the camera's root), the room's `HitPoser` there
+   * -- else the stance's. Null off the walk.
    */
   startBody(): StartBody | null {
     const w = this.walker;
     if (!this.walking || !w) return null;
-    return { feet: [w.state.x, w.state.y, w.state.z], yaw: w.state.yaw, posture: w.posture, moveRoot: this.moves?.rootY() ?? null, peek: this.moves?.peek() ?? 0, groundNormalY: w.floorNormal[1] };
+    const moveRoot = aimRoot(this.moves?.rootY() ?? null, { action: w.action?.name ?? null, posture: w.posture }, () => this.posedRoot);
+    return { feet: [w.state.x, w.state.y, w.state.z], yaw: w.state.yaw, posture: w.posture, moveRoot, peek: this.moves?.peek() ?? 0, groundNormalY: w.floorNormal[1] };
   }
 
   /**

@@ -119,8 +119,8 @@ export interface InvitedPlayersService {
   /**
    * AccountGetID by name (Lobby 0x17, 0x46 bytes: the session key at +0x15, the name at +0x26:32; `FUN_00649e28`,
    * D:L187034-187038): its reply's status (+0x1c, "MediusGetPlayerForInvitation", S:0x3f4200) and account (+0x18), which
-   * `FUN_002e7850` (D:L187049-187083) reads. NU-14: the services' own (`/lobby/account-id`, a logged-in account of the
-   * name, in a room or not: `ACCOUNT_GET_ID_PRESENCE_READING`, the server's); it was SVC-18's FindPlayer, which finds only a
+   * `FUN_002e7850` (D:L187049-187083) reads. NU-14: the services' own (`/lobby/account-id`, any account of the name,
+   * logged in or not since CLAN-INVITES: `ACCOUNT_GET_ID_PRESENCE_OWNER`, the server's); it was SVC-18's FindPlayer, which finds only a
    * player in a room or a game, so a known player in neither was MP_PLAYER_NOT_FOUND (#390) -- the owner's playtest of
    * 2026-10-15.
    */

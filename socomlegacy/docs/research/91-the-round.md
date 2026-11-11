@@ -15,7 +15,7 @@ Vocabulary. **Part** = the 6-slot hit location, 0 HEAD, 1 RARM, 2 LARM, 3 BODY, 
 | bullet damage | (ammo `ImpactDamage` + weapon `Damage_Modifier`) x 14, after falloff | `FUN_003c7600` L318738-318740, L318767; `FUN_003c5950`; loaders `FUN_003d45a0` L322675, `FUN_003d2060` L322476 |
 | falloff | full to `Effective_Range` x10, linear to 0 at `Maximum_Range` x10; beyond it the round is ignored | L318752-318760 (`FUN_003d27e0`, `FUN_003d27f0`); `FUN_003c8920` L319410 |
 | armour step | `eff = max(0, dmg - A x (10-P)/10)`; `A = max(0, A - (dmg-eff)/4)`; `H = max(0, H - eff)` | `FUN_003c7400` L318568-318590 |
-| hit location | the skeleton node the round's collision hit (§1.3); hands, feet, scapulas: no damage; one hit per actor per round | `FUN_005abbc0` L464672-464803; `FUN_003c8920` L319390-319405 |
+| hit location | the skeleton node the round's collision hit (§1.3); hands, feet, scapulas: no damage; ~~one hit per actor per round~~ (amended 2026-11-10, research 398, research 217 §3.6b: one record a bone box the round enters, each limb record damaged, the first head or trunk hit remembering the round and sparing the rest of that body) | `FUN_005abbc0` L464672-464803; `FUN_005ab850` L464597; `FUN_003c8920` L319390-319405 (the effects' guard only) |
 | headshot | head node hit: part 0, death cause 3 | L464739-464743 |
 | limb rules | limbs never kill; a hit on a zeroed limb goes to BODY as `dmg x DAT_006508a8` (placeholder); a body hit caps each limb at `limb max x body/bodyMax` | `FUN_005a5830` L461469-461547 |
 | explosion damage | `(Explosion_Damage + Dmg_Mod) x falloff x 14` per fragment, random part; M67 140 to 75 units, 0 at 150 | `FUN_005a0e70` L459235-459256; `FUN_005a18b0` L459394-459460; zweapon.rdr |
@@ -110,6 +110,15 @@ The kits are in §14; no kit sets `ammo_count`/`mag_count`, so the weapon record
 
 The round's hit polygon must carry the flesh material (`DAT_003e14f8`); its owner is walked up to the actor, and `projectile+0x78` remembers it so a round hits an actor once (`FUN_003c8920` L319390-319405).
 
+**Amended 2026-11-10 (BONE-BOXES; research 398, a reading re-read by a fresh reviewer; research 217 §3.6b, reading,
+pending review).** `+0x78` gates only the impact's effects -- the same-body flag skips `FUN_003d0ba0`, the noise and the
+scene programs -- never the handler or the range cut (research 398 s2, s12.1). The hit volumes are the bones' boxes,
+one a bone (`FUN_0058b960` D:L447559-447593), a record for each box the round's line enters from outside; every record
+cuts the range and reaches the victim's handler; the damage guard is the victim's memory of the round (`+0x1048`,
+`FUN_005ab850` D:L464597), armed by a head or trunk hit only (`FUN_005abbc0` D:L464741-464757). So a limb then the
+trunk is two hits, the trunk then a limb one, two bones of one limb two, the head then anything one. "A round hits an
+actor once" above is that guard misread; the port builds research 398's rule (`match/src/bodyWalk.ts`).
+
 **Each side its own body (2026-09-30, the owner's play test of e373be70).** The game hits the actor's own skeleton
 nodes, so a Terrorist is hit on the Terrorist model's bones. The room had built one set of capsules from the SEAL's
 skeleton for every player, and the page put the SEAL's body on its own player whatever its side. Now the server reads
@@ -136,6 +145,22 @@ on its last key, not on his stance's idle. The room's and the page's capsules no
 | arm/leg already at 0: the hit goes to BODY as `dmg x DAT_006508a8` with piercing `DAT_006508b0` (placeholders); head at 0: nothing | L461487-461490 |
 | BODY hit: armour step on body, then each limb's health capped at `limb max x body/bodyMax` (head not capped) | L461492-461526 |
 | all parts clamp at 0 | L461528-461545 |
+
+**2026-11-11: the BODY-hit limb cap is PROVEN** (shadow's capture of the original, PCSX2 r0004, PINE; the gate-runner
+`shadow/out/2026-11-11/belly-shot/SPREAD-EVIDENCE.txt`). The rule of the third row -- after a BODY hit each limb's
+health is capped at `limb max x body/bodyMax`, the head uncapped (`FUN_005a5830` L461492-461526; the port's viewer
+`net/damage.ts` `applyHit`, its BODY branch) -- measured: A, a terrorist with its default rifle (SIG 552-style, a single
+projectile, one press a round), fires at B, a standing SEAL with its default rifle in hand, 54.1-59.0 u away. Clean:
+16 rounds on fresh lives with NO health write (files `seal-front-yawcol2-*`, `seal-front-belly-col-*`,
+`seal-front-belly-p-3`/`-2.7`/`-3.3-*`, `seal-front-vscale-*`, about 10:50-11:00Z). The cleanest chain, one fresh life,
+no writes (`seal-front-belly-col-*`), as head/rarm/larm/body/rleg/lleg: 8/30/30/50/30/30 -> r0 8/21.3/15.5/35.5/21.3/21.3
+-> r1 8/5.0/0.0/8.3/5.0/5.0 -> r2 8/0/0/0/0/0. After each BODY hit the uninjured limbs sit at the body's fraction of
+their maximum (35.5/50 = 21.3/30; 8.3/50 = 5.0/30): the cap. The other clean lives' pairs agree (body/limb 17.6/10.5,
+the pitch -3.0 and -2.7 lives). Not counted as clean: 108 rounds whose health was RESTORED by a PINE write before the
+round (`seal-front-fine-fp-*`, the left side, and `seal-FRONT-fine-fp-*`, the third-person front). Levels kept apart:
+the cap is proven; the rest of this section stays a reading -- `larm` took its own damage in the same rounds (it was on
+the line), consistent with research 398's limb-then-trunk but not measured here as a rule; the head never changed, as
+the table's "head not capped" reads; the damage amounts themselves are not scored here.
 
 ## 2. Health and armour
 
@@ -608,7 +633,7 @@ holds the two lists in step).
 | `VOTE_BAN_SCOPE_PLACEHOLDER` (`room.ts` `banned`, `VOTE_BAN_MS`) | how long a removed player is refused: the original refuses a rejoin to "that game" (section 17); a dedicated room never ends | open (10 minutes, two of the original's matches); 2026-10-10 (SVC-23): kept on H-next d's default -- the original's account refused that game with -972 (`FUN_002edba0` D:L190430) on its own ban request (`FUN_002f95f0` D:L197800-197804), the lobby's `banFromGame` not yet called, and what settles it (the owner; ONL-32's rejoin transcript): web research 263 sections 5.3 and 6 |
 | `DEATH_NAME_PLACEHOLDER` (`net/deaths.ts`) | four `damanim.rdr` names with no clip of their own name -- "Die", "Death02", "Crawl death01", "Crawl death02"; searched `MOTION_P.ZAR`'s keys | retired 2026-10-05 (web sprint 28, PF-21): `animset.rdr`'s `GLOBAL` names them -- Die `death_stand_chest01`, Death02 `_chest02`, Crawl death01 `death_stand_groin02`, Crawl death02 `death_stand_groin01`: the order read here had the crawls swapped (research 179 §11.2, research 217 §4) |
 | `HIT_VOLUMES_PLACEHOLDER` (`net/hitVolumes.ts` `placeholderVolumes`) | the hit volumes without a skeleton: the game hits the skeleton node the round meets (`FUN_005abbc0`, section 1.3) | fallback only: hand-laid capsules on the stances' heights, used when a map's skeleton did not load; `skeletonVolumes` poses the SEAL's own skeleton otherwise |
-| `SPINELO_RADIUS_PLACEHOLDER` (`net/hitVolumes.ts`) | `spinelo`'s capsule radius: its `nparams` bbox is empty (it moves no vertex most; research 78 section 3), so none is measured | open (2.0, between the hips' 1.65 and `spinehi`'s 2.1) |
+| `SPINELO_RADIUS_PLACEHOLDER` (`net/hitVolumes.ts`) | `spinelo`'s capsule radius: its `nparams` bbox is empty (it moves no vertex most; research 78 section 3), so none is measured | retired 2026-11-10 (BONE-BOXES, research 217 §3.6b): the hit volume is the bone's box, `spinelo`'s an empty one nothing enters; was open (2.0, between the hips' 1.65 and `spinehi`'s 2.1) |
 | `QUEUE_TEXT_PLACEHOLDER` (`netPage.ts` `queueLine`) | the words for a spectator's place in line: the game has no queue (its 17th joiner is refused, section 7) | open (the viewer's words, in the game's message style) |
 | `BODY_FADE_PLACEHOLDER` (`remotePlayers.ts`) | a dead body's fade (alpha 0.1 a second, `FUN_00552780`): the skinned material has no opacity yet | open (drawn whole, hidden at 10 s, when the fade would end) |
 | `RADIO_MENU_PLACEHOLDER` (`netPage.ts`) | the radio menu's own look (TEAMMATES > a player > "VOTE RETAIN:REMOVE", section 17) | deferred (sprint 3): K opens the page's list in the message window, with the game's words |
@@ -1006,6 +1031,18 @@ replays it on the copy (`FUN_002be150` D:L162310-162312). The page sends its own
 its own envelope from it. A protocol-13 page is refused at the hello ("protocol 13, this server speaks 14"); a 13 `.s2r`
 plays on the live decoders (no 13 command set bit 7, no 13 room set bit 16), its copies on the old inference
 (`REMOTE_HAND_RAISE_READING`).
+
+Protocol 15 (PROTO-15, 2026-11-11; V19.R10, the main controller under the owner's authority, from v0.4.19's
+version-skew review): no frame, field or event changed; the mover's rules did, protocols 12 and 13's class. The room runs
+each page's commands through the page's own mover, and three of v0.4.19's mover changes make a 14 side and a 15 side
+take different steps from the same commands: LADDER-CLIMB LC-1 (the ladder offered as CLIMB at its contact, mounted
+only on the Action press; research 86 s2.3, s2.5), AIR-PROBE (the airborne floor probe once a game frame at the move's
+end; research 399) and STEEP-LAUNCH (the steep floor's push a displacement, not a velocity; research 217 s2.8, LATER
+833). Reconciliation carries the feet and the facing only, so a ladder one side mounted and the other did not is never
+healed: a protocol-14 page is refused at the hello ("protocol 14, this server speaks 15"), and SA-49's grace gives no
+v0.4.18 host to a release that changes the page's wire. A 14 `.s2r` plays on the live decoders (the bytes are 15's).
+This paragraph changes no reading of the original: it records the port's version (a product-track record of the
+simulation-track changes it names, each at its own level in its own note).
 
 The owner's rulings of 2026-10-01 add, without a new version (both additive): the launch countdown's `countdown` event (`{ seconds }`, null when called off) and the welcome's and promotion's `countdown` (the seconds left); see the table's "launch countdown" row. The same play test found that the room's shape check took a `fire`'s `viewTick` for an integer while the page sends its interpolation clock, a fraction of a tick (`NetClient.viewTick`): every page's round was dropped unread. The check is now a finite number (`room.ts` `text`), which the rewind interpolates (`past`).
 

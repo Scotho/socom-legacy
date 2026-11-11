@@ -36,6 +36,8 @@ const POLYS = [
   quad(DI, 2, [130, 0, 150, 130, 0, 250, 130, 60, 250, 130, 60, 150]),
   quad(HIDDEN, 2, [0, 0, 400, 20, 0, 400, 20, 40, 400, 0, 40, 400]),
 ];
+/** The barrier node's world matrix (row-major): its origin (130, 0, 150), a corner of its polygon, not the box's centre. */
+const DI_WORLD = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 130, 0, 150, 1];
 const owners = (): CollisionOwner[] => POLYS.map((q, i) => ({ modelName: 'worldmodel', path: q.path, first: i, count: 1, flags: 0x1001 }));
 /** A death that plays a sound, throws its debris and turns the barrier off (`breakapane`'s shape, research 209 s13). */
 const breaks: EffectProgram = {
@@ -57,6 +59,7 @@ function barrierMeta(): MapMeta {
     stem: 'SYN', actions: [], instances, instanceByPath: new Map(instances.map((i) => [i.path, i.id])), diagnostics: [],
     initial: [{ path: HIDDEN, deactivate: true, saveActive: false, saveTransform: false, saveParent: false }],
     scene: { destructibles: [barrier], programs: [] },
+    worlds: new Map([[DI, DI_WORLD]]),
   } as unknown as MapMeta;
 }
 const map = (o: { ground?: boolean; meta?: boolean } = {}): LoadedMap => ({
@@ -92,13 +95,14 @@ describe('buildPageWorld: the page\'s world from the map, as /testroom\'s show b
     expect(world.health.c4TargetAt(DI, 16)).toBeNull();               // FUN_002739b0: the shield above the charge
   });
 
-  it('a death\'s program through the page\'s hooks: the sound at the node\'s place, the debris logged once per node, the node hidden', () => {
+  it('a death\'s program through the page\'s hooks: the sound at the node\'s world origin, the debris logged once per node, the node hidden', () => {
     const h = hooks();
     const { world } = buildPageWorld(map(), h)!;
-    const at = world.placeOf(DI);
     expect(world.health.hitAt(DI, { kind: 'explosion', rating: 18, modifier: 0, point: [130, 30, 200] }).died).toBe(true);
     world.step(0.1);
-    expect(h.sound).toHaveBeenCalledWith('.GLS_BRK_VSMALL', at, 0.5);
+    // SCENE_SOUND_PLACE_READING: FUN_002659c0 through FUN_00310980 (D:L112446-112462) -- the node's origin, not the
+    // centre of its polygons' box (130, 30, 200), which the page took before.
+    expect(h.sound).toHaveBeenCalledWith('.GLS_BRK_VSMALL', [130, 0, 150], 0.5);
     expect(h.log).toHaveBeenCalledTimes(1);
     expect(h.log.mock.calls[0]![0]).toContain(`DESTRUCTION_SOURCE at ${DI}`);
     expect(h.log.mock.calls[0]![0]).toContain(GLASS_FRAGMENTS_PLACEHOLDER);
@@ -138,6 +142,7 @@ function blinkMap(): LoadedMap {
     initial: [{ path: FLASH, deactivate: true, saveActive: false, saveTransform: false, saveParent: false }],
     autostart: [{ path: FLASH, on: false }],
     scene: { destructibles: [], programs: [{ program: blink, search: [0, 0] }] },
+    worlds: new Map([[FLASH, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 600, 1]]]),
   } as unknown as MapMeta;
   const own = polys.map((q, i): CollisionOwner => ({ modelName: 'worldmodel', path: q.path, first: i, count: 1, flags: 0x1001 }));
   return { ground: packGround(params, polys, own), meta } as unknown as LoadedMap;
@@ -235,7 +240,7 @@ describe('LATER 409 F1: an autostart the effect runner plays (a library call tha
     const h = hooks();
     const { world } = buildPageWorld(torchMap(), h, [])!;
     world.step(0.1);
-    expect(h.sound).toHaveBeenCalledWith('.TORCH', world.placeOf(FLASH), 1);
+    expect(h.sound).toHaveBeenCalledWith('.TORCH', [0, 0, 600], 1);   // the node's origin (SCENE_SOUND_PLACE_READING)
     expect(h.effect).toHaveBeenCalledWith('torch_fire', world.placeOf(FLASH));
   });
 });

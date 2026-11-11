@@ -4,6 +4,7 @@ import {
   LineBasicMaterial, LineSegments, Points, PointsMaterial, Quaternion, type Material, type Object3D, type Texture,
 } from 'three';
 import type { Rgba } from '@s2u/gs';
+import { passingSound } from '@s2u/sound';
 import {
   actorToWorldDir, actorToWorldPoint, AN_M8, CLAYMORE, CLAYMORE_RULES, claymoreCone, countsTowardClaymoreLimit, explosionDamage, GAME_FRAME_DT, GameFrameAccumulator, ITEM,
   BOUNCE_LIFT, GRENADE_BLAST, gridCast, handAnim, heldPower, HE, surfaceMaterial,
@@ -286,6 +287,11 @@ export interface GrenadeSource {
    */
   actors?(): readonly V3[];
   /**
+   * LATER 645 (research 81 s5): the page's player's feet, the actor `FUN_00598000` takes another's rocket against
+   * (`+0x1c`, D:L454629) -- `WalkMode.feet()`, as LATER 644's bullets; null or absent, no rocket is tested.
+   */
+  listenerFeet?(): V3 | null;
+  /**
    * The item's node under the right hand (`Play.itemNode`: the `grenade` node `FUN_00553290` makes for class 3 under
    * `rhand`, D:L419036-419038): the grenade or the charge rides it while it is up. The firearm stays on its own mount.
    */
@@ -457,6 +463,12 @@ export interface GrenadeEvents {
    * its projectile (`FUN_003caf60` D:L320608-320613); `./matchThrow` hears both.
    */
   remoteLaunch: (info: { item: string; id: number; fireAnim: string; from: V3; owner?: number }) => void;
+  /**
+   * LATER 645 (research 81 s5): another's rocket (class 0xb9) passed the page's feet -- one game frame's segment, `from`
+   * -> `to`, came strictly under `ROCKET_BY_DISTANCE` of `actor` at a point inside it (`passingSound`); told once a
+   * rocket (`FUN_00598000` D:L454640-454646). `./matchThrow` plays `.ROCKET_BY` (`GameAudio.onRoundPast`, rocket).
+   */
+  rocketPast: (info: { from: V3; to: V3; actor: V3 }) => void;
   /** A bounce (audio: the material's `grenade_hit_*` zAnim when `sound`). */
   bounce: (info: BounceInfo) => void;
   /** The explosion (audio `.GREN_MED`; the look workstream's screen shake by distance). */
@@ -561,6 +573,8 @@ interface Live {
    * undefined until the first step (drawn where it is).
    */
   from?: { pos: V3; tumble: V3 };
+  /** LATER 645: another's rocket has passed the page's feet (`FUN_00598000`'s `+6` bit 4, D:L454641/D:L454646): told no more. */
+  rocketBy?: true;
   /** Research 209 §18: game frames an online C4 has waited past Timer1 for the room's `detonate`, when no room tick is wired. */
   serverFuseWait?: number;
   /** Research 209 §18: the room tick when that wait started (`simTick`). */
@@ -687,7 +701,7 @@ export class GrenadeThrower {
   /** FUN_005c0020's +0x828 marker: only the Action shortcut restores its prior slot (research 361 §2). */
   private actionReturn: { item: KitItem; slot: number | null } | null = null;
   /** SUP-03: the page's scene health, whose destructibles are C4's targets (`setWorld`); null: none, C4 refused. */
-  private world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> } | null = () => null;
+  private world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> & Partial<Pick<SceneHealth, 'hitAt'>> } | null = () => null;
   /** M7: a C4 plant's placing in progress (the kit goes back to the firearm after it, `FUN_005c4b10`). */
   private plantingC4 = false;
   /** PF-13: the settle on the target under the reticle (kit `+0x8a4`; `./equipment` `C4Settle`), stepped each frame. */
@@ -742,7 +756,7 @@ export class GrenadeThrower {
   private readonly bounceLog: BounceInfo[] = [];
   private readonly explosionLog: ExplosionInfo[] = [];
   private trail = false;
-  private readonly listeners: Listeners = { equip: [], throwStart: [], place: [], throw: [], cut: [], mountTaken: [], mountHandedBack: [], remoteRelease: [], remoteLaunch: [], bounce: [], explode: [], refuse: [], detonate: [] };
+  private readonly listeners: Listeners = { equip: [], throwStart: [], place: [], throw: [], cut: [], mountTaken: [], mountHandedBack: [], remoteRelease: [], remoteLaunch: [], rocketPast: [], bounce: [], explode: [], refuse: [], detonate: [] };
   private readonly scorchGeometry = new PlaneGeometry(1, 1);
   /** `grenade_mark.tif` as decoded (`GrenadeAssets.bitmaps`), for the scorch's material; null: the dark stand-in. */
   private scorchBitmap: Rgba | null = null;
@@ -919,7 +933,7 @@ export class GrenadeThrower {
    * SUP-03: the page's world (`./worldState`), whose scene destructibles are C4's targets (`SceneHealth.c4TargetAt`; the
    * type-less actions retired: research 210 s8).
    */
-  setWorld(world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> } | null): void {
+  setWorld(world: () => { health: Pick<SceneHealth, 'c4TargetAt' | 'blastAt'> & Partial<Pick<SceneHealth, 'hitAt'>> } | null): void {
     this.world = world;
   }
 
@@ -2385,8 +2399,29 @@ export class GrenadeThrower {
   private stepLive(l: Live, cast: HullCast): void {
     this.holdOnlineC4(l);
     l.from = { pos: [...l.g.pos], tumble: [...l.g.tumble] };    // MISSION R8: what the drawing runs from
+    const flying = l.g.state === 'flight';
     for (const e of stepGrenade(l.g, GAME_FRAME_DT, cast)) this.handle(l, e);
+    if (flying) this.rocketPast(l, l.from.pos);
     if (this.trail && l.g.state === 'flight') l.trail.push([...l.g.pos]);
+  }
+
+  /**
+   * LATER 645 (research 81 s5; reading, pending review): `FUN_00598000`'s rocket branch on the page's player. Each tick
+   * the projectile's segment is its last position to its new one (`FUN_003ca5a0` copies `+0x54` into `+0x48`,
+   * D:L320297-320299, then writes the stepped point to `+0x54`, the rocket's at D:L320305-320342); a rocket (the ID's
+   * category 0xb9, `FUN_003d1e10` D:L454625-454627, here `weaponCategory`) not yet heard (`+6` bit 4, D:L454641) whose
+   * segment's nearest point, inside it, is strictly under 100 from the feet (D:L454640, `passingSound`) is heard and
+   * marked, whether or not a sound plays (the mark is set past the play, D:L454646). The console's own rocket is skipped
+   * (`+4` bit 3, D:L454627): `remote` only. Every flying step, `startAged`'s catch-up among them, as its bounces are.
+   */
+  private rocketPast(l: Live, from: V3): void {
+    if (!l.remote || l.rocketBy || weaponCategory(l.g.record.id) !== 0xb9) return;
+    const feet = this.source.listenerFeet?.();
+    if (!feet) return;
+    const to: V3 = [...l.g.pos];
+    if (!passingSound(feet, from, to, true)) return;
+    l.rocketBy = true;
+    this.emit('rocketPast', { from: [...from], to, actor: [feet[0], feet[1], feet[2]] });
   }
 
   /**
@@ -2412,6 +2447,7 @@ export class GrenadeThrower {
   }
 
   private handle(l: Live, e: GrenadeEvent): void {
+    if ((e.kind === 'bounce' || e.kind === 'pass') && e.owner !== undefined) this.contact(l, e.owner, e.point);
     if (e.kind === 'bounce') {
       const info: BounceInfo = { material: e.material, pos: e.point, speed: e.speed, sound: e.sound, anim: materialAnim(l.g.record.hitAnim, e.material) };
       this.bounceLog.push(info);
@@ -2510,6 +2546,22 @@ export class GrenadeThrower {
 
   private keepSmokeRun(ran: EffectHandle | boolean | null): void {
     if (ran && typeof ran === 'object') this.smokeRuns.push(ran);
+  }
+
+  /**
+   * LATER 851 (research 85 §5.2): a contact of the page's own copy, offline -- a bounce or a pass on the hull polygon
+   * of `owner` -- is a hit on the struck node (`FUN_003c8f50` D:L319747-319750 -> `FUN_00273a50` -> `FUN_003c7490`'s
+   * impact branch), as the room's `sceneContact`: the record's `ImpactDamage` and `Damage_Modifier`, its range falloff
+   * from where the frame began (`GRENADE_CONTACT_RANGE_READING`: `l.from`, `stepLive`), its round's `Piercing`. Remote
+   * and online copies stay presentation: the room applies theirs (as `explode`'s blast).
+   */
+  private contact(l: Live, owner: string, point: V3): void {
+    if (l.remote || this.source.online?.()) return;
+    const r = l.g.record;
+    this.world()?.health.hitAt?.(owner, {
+      kind: 'impact', rating: r.impactDamage ?? 0, modifier: r.damageModifier ?? 0, point: [...point], piercing: this.piercings.get(r.id) ?? 0,
+      range: { from: [...(l.from?.pos ?? l.g.pos)], effective: r.effectiveRange, maximum: r.maximumRange },
+    });
   }
 
   private explode(pos: V3, material: string | null, record: ThrowableRecord, l: Live): void {

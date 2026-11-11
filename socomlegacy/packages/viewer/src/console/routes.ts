@@ -1,5 +1,6 @@
-import { GAME_FIRST, isLobbyLinkPath, LAUNCHER_FIRST as SITE_LAUNCHER_FIRST, reservedFirstSegments } from '@s2u/ui';
+import { GAME_FIRST, isLobbyLinkPath, LAUNCHER_FIRST as SITE_LAUNCHER_FIRST, REPLAY_PAGE_SEGMENT, reservedFirstSegments } from '@s2u/ui';
 import { routeSegmentsOfPath } from '../menuRoutes';
+import { replayQueryPairs } from '../replay/query';
 import {
   CATS, optCategories, REMAP_ROW,
   type Adapters, type ConsoleState, type LoadoutSide, type Screen,
@@ -43,6 +44,30 @@ export function classifyLauncherPath(pathname: string, base: string, state: unkn
   if (segs.length > 0 && RESERVED.has(segs[0]!)) return 'skip';
   if (segs.length === 0 || OURS.has(segs[0]!)) return 'ours';
   return 'unknown';
+}
+
+/**
+ * LCM-RP (the replay batch's RB-12; `./render/replayPublic` `REPLAY_PUBLIC_PAGE_ADAPTATION`): the replay page's address,
+ * `/replay/<id>[?match=<matchId>]` -- a segment the table never writes (`@s2u/ui` `REPLAY_PAGE_SEGMENT`, reserved, so
+ * `classifyLauncherPath` skips it) and the launcher's entry boots by its path (`./main`). The id is the route's 16
+ * lower-case hex; anything else under `/replay/` is `malformed` (the page goes Home). `match` is the query's, a
+ * non-empty one of at most `REPLAY_PAGE_MATCH_MAX` characters (central's own bound), else none. Null: not this page.
+ */
+export type ReplayPageRoute = { kind: 'replay'; id: string; match: string | null } | { kind: 'malformed' };
+
+/** LCM-RP: the longest `match` the page passes on (central's `MATCH_ID_MAX`, `packages/central/src/replay/http.ts`). */
+const REPLAY_PAGE_MATCH_MAX = 128;
+
+export function replayPageOf(pathname: string, search: string, base: string): ReplayPageRoute | null {
+  const b = base.endsWith('/') ? base : `${base}/`;
+  // the first segment read raw: a later one that does not decode (`%zz`) leaves the whole path unreadable, and the page
+  // is still this one -- malformed
+  if (!pathname.startsWith(b) || pathname.slice(b.length).split('/')[0] !== REPLAY_PAGE_SEGMENT) return null;
+  const segs = routeSegmentsOfPath(pathname, base);
+  if (segs[0] !== REPLAY_PAGE_SEGMENT || segs.length !== 2 || !/^[0-9a-f]{16}$/.test(segs[1]!)) return { kind: 'malformed' };
+  let match: string | null = null;
+  match = replayQueryPairs(search)?.find(([k]) => k === 'match')?.[1] ?? null;
+  return { kind: 'replay', id: segs[1]!, match: match !== null && match !== '' && match.length <= REPLAY_PAGE_MATCH_MAX ? match : null };
 }
 
 const catAt = (id: string): number => Math.max(0, CATS.findIndex((c) => c.id === id));

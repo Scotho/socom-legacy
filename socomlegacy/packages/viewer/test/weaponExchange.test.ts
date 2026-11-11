@@ -6,6 +6,7 @@ import {
   compactPicks, frameOfPoint, menuTap, padButtonsDown, WeaponExchange, type MatchGate,
 } from '../src/weaponExchange';
 import { WEAPON_SELECT_ELEMENT } from '../src/weaponSelect';
+import { SPECTATE_KIT_CHANGE_OWNER } from '../src/weaponSelectState';
 
 /**
  * WEAPON EXCHANGE in the match (web sprint 4, M8's wiring; research 94 §B2-§B4): the menu's gate -- the pad's R2, the
@@ -30,6 +31,8 @@ const terrorist: MenuContext = { arsenal, valves, side: 'terrorist' };
 const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
 const SEAL_KIT = kit(54, 15, 121, 151, 194);
 const DEAD: MatchGate = { inMatch: true, alive: false, cameraOnSelf: true, spectator: false };
+/** Dead and following a teammate (the dead's cycle, S6): SPECTATE_KIT_CHANGE_OWNER's case. */
+const WATCHING: MatchGate = { ...DEAD, cameraOnSelf: false };
 
 function exchange(ctx: MenuContext = seal, opensOn: Loadout = SEAL_KIT) {
   let now = 0;
@@ -44,7 +47,8 @@ describe('the gate: what opens the menu in the match (FUN_001f7ff0 L56648-56661)
     // [what, the gate, opens]
     ['dead, in the match, on oneself', DEAD, true],
     ['alive (R2 is the in-hand inventory then)', { ...DEAD, alive: true }, false],
-    ['following a teammate (the camera off oneself)', { ...DEAD, cameraOnSelf: false }, false],
+    // SPECTATE_KIT_CHANGE_OWNER (the owner, 2026-11-11): the original refuses here (D:L56659-56660); the port opens it.
+    ['following a teammate (the camera off oneself; SPECTATE_KIT_CHANGE_OWNER)', WATCHING, SPECTATE_KIT_CHANGE_OWNER],
     ['a spectator', { ...DEAD, spectator: true }, false],
     ['no match (&nomatch, the free walk)', { ...DEAD, inMatch: false }, false],
   ] as const)('%s: the pad\'s R2, the key I and the touch button', (_what, gate, opens) => {
@@ -53,6 +57,35 @@ describe('the gate: what opens the menu in the match (FUN_001f7ff0 L56648-56661)
       const taken = how === 'pad' ? x.pad(new Set(['R2']), gate) : how === 'key' ? x.key('KeyI', gate) : x.touchButton(gate);
       expect(x.isOpen(), how).toBe(opens);
       expect(taken, how).toBe(opens);
+    }
+  });
+
+  it('SPECTATE_KIT_CHANGE_OWNER: watching a teammate, a change is made and handed on exactly as from one\'s own body', () => {
+    expect(SPECTATE_KIT_CHANGE_OWNER).toBe(true);
+    const run = (gate: MatchGate) => {
+      const { x, confirmed } = exchange();
+      const taken = [x.pad(new Set(['R2']), gate)];
+      for (const b of ['Cross', 'Down', 'Cross'] as const) taken.push(x.pad(new Set([b]), gate));   // the picker, the M4A1 SD, confirm
+      for (const code of ['ArrowRight', 'ArrowLeft', 'Space', 'KeyW']) taken.push(x.key(code, gate));  // open: every key the menu's
+      taken.push(x.pad(new Set(['Right', 'Left']), gate));              // the d-pad the dead's cycle reads: the menu's while open
+      const open = x.isOpen();
+      taken.push(x.pad(new Set(['R2']), gate));                        // Inventory closes the list
+      return { confirmed, taken, open, closed: !x.isOpen(), state: x.state() };
+    };
+    const watching = run(WATCHING), own = run(DEAD);
+    expect(watching.confirmed).toEqual([{ slot: 0, id: 62 }]);
+    expect(watching.taken.every(Boolean)).toBe(true);
+    expect([watching.open, watching.closed]).toEqual([true, true]);
+    expect(watching).toEqual(own);
+  });
+
+  it('SPECTATE_KIT_CHANGE_OWNER: alive, a spectator or out of the match, the camera off oneself still opens nothing', () => {
+    for (const gate of [{ ...WATCHING, alive: true }, { ...WATCHING, spectator: true }, { ...WATCHING, inMatch: false }]) {
+      const { x } = exchange();
+      expect(x.pad(new Set(['R2']), gate)).toBe(false);
+      expect(x.key('KeyI', gate)).toBe(false);
+      expect(x.touchButton(gate)).toBe(false);
+      expect(x.isOpen()).toBe(false);
     }
   });
 

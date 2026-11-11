@@ -36,12 +36,14 @@ function frostfire() {
   const map = simMapFromBytes(MP2!, 'RUN/MP2.ZDB');
   const ground = forkGround(map.ground);
   const grid = groundGrid(ground);
-  const sounds: [string, string | null][] = [], debris: (string | null)[] = [];
-  const world = new WorldState(map.meta!, ground, grid, { sound: (name, path) => { sounds.push([name, path]); }, destruction: (path) => { debris.push(path); } });
+  const sounds: [string, string | null][] = [], debris: (string | null)[] = [], places: (readonly number[] | null)[] = [];
+  const world = new WorldState(map.meta!, ground, grid, {
+    sound: (name, path, _volume, at) => { sounds.push([name, path]); places.push(at ?? null); }, destruction: (path) => { debris.push(path); },
+  });
   world.applyInitial();
   // The probe's filter: the movement's skip surfaces (the frames' camera polygons) passed over.
   const witness = (i: number): string[] => segmentHits(grid, WITNESS[i]![0], WITNESS[i]![1], (q) => (surfaceWord(q) & SURFACE_SKIP) === 0).map((h) => h.owner.path);
-  return { map, ground, grid, world, sounds, debris, witness };
+  return { map, ground, grid, world, sounds, debris, places, witness };
 }
 
 describe(`Frostfire's breakable panes (SUP-02)${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
@@ -123,10 +125,13 @@ describe(`Frostfire's breakable panes (SUP-02)${MP2 ? '' : ` (${FIXTURES_ABSENT}
     page.world.applyWire(env, false);
     expect(page.sounds).toEqual([['.GLS_BRK_VSMALL', PANES[0]]]);
     expect(page.debris).toEqual([PANES[0]]);
-    // The sound's place (SCENE_SOUND_PLACE_READING): the pane's box centre -- x 580.269..584.245, y 155.843..158.782,
-    // z 1117..1117.525 (its two stored polygons, research 176 s4.1).
-    const at = page.world.placeOf(PANES[0]!)!;
-    [582.257, 157.3125, 1117.2625].forEach((v, k) => expect(at[k]).toBeCloseTo(v, 2));
+    // The sound's place (SCENE_SOUND_PLACE_READING): `pane1`'s world origin, `flattenScene`'s (588.757, 142, 1117) --
+    // `FUN_002659c0` through `FUN_00310980` (D:L112446-112462). Was its polygons' box centre (582.257, 157.3125,
+    // 1117.2625: x 580.269..584.245, y 155.843..158.782, z 1117..1117.525, research 176 s4.1), now `placeOf` alone.
+    expect(page.places).toHaveLength(1);
+    [588.757, 142, 1117].forEach((v, k) => expect(page.places[0]![k]).toBeCloseTo(v, 3));
+    const box = page.world.placeOf(PANES[0]!)!;
+    [582.257, 157.3125, 1117.2625].forEach((v, k) => expect(box[k]).toBeCloseTo(v, 2));
     joiner.world.applyWire(env, true);
     expect(joiner.world.isActive(PANES[0]!)).toBe(false);
     expect(joiner.sounds).toEqual([]);

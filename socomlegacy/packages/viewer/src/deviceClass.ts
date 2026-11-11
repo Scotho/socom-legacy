@@ -10,7 +10,20 @@ import { wantsTouchControls } from './touch';
  *
  * - **xbox**: the saved "Request Game Files (XBOX)" pick (`./graphicsBackend` `selectXboxGraphics`), or -- **VS.R1**
  *   (2026-11-07, the owner's word: "when certain") -- the user agent's `/\bXbox\b/` token **and** a Direct3D11 WebGL
- *   renderer string, both (the Series X reads ANGLE D3D11). The token alone, or D3D11 alone, is not an Xbox.
+ *   renderer string, both (the Series X reads ANGLE D3D11). The token with a string that is not D3D11, or D3D11 alone,
+ *   is not an Xbox (and since XBOX-TOKEN-NOSTRING, below, the token with no string at all is one).
+ *   **XBOX-SRAKMD** (2026-11-10; VS.R1 widened, the owner's word chosen in the main controller's seat: "Treat the
+ *   Xbox kernel driver name in the GPU string as a certain Xbox signal; every Xbox defaults to WebGL2 again as v0.4.18
+ *   intended."):
+ *   or the renderer string naming the console's own graphics driver (`XBOX_DRIVER_TOKEN_ADAPTATION`), on its own. b0's
+ *   read of central's client_errors: v0.4.18 pages whose renderer string read "ANGLE (Microsoft, SraKmd_arden ...
+ *   Direct3D11 ...)" drew WebGPU on Automatic and lost the device, so their agent carried no `Xbox` token and the
+ *   two-signal bar missed them.
+ *   **XBOX-TOKEN-NOSTRING** (2026-11-11; VS.R1 read by the main controller under the owner's delegated authority: a
+ *   fresh review of the release's renderer slice found an Xbox page whose WebGL probe names no renderer -- a refused
+ *   context, a masked debug name -- left off the class, so Automatic asked WebGPU): the agent's token with NO renderer
+ *   string is an Xbox too. No string contradicts nothing; a string that is not Direct3D11 still does (the token alone
+ *   with a Metal renderer is not an Xbox).
  * - **software**: the WebGL probe's renderer string names a software rasteriser (`./softwareRenderer`).
  * - **touch**: `./touch` `wantsTouchControls`.
  * - **lowMemory**: `navigator.deviceMemory` known and under `LOW_MEMORY_GB_ADAPTATION`.
@@ -38,6 +51,12 @@ export interface DeviceSignals {
 export const XBOX_AGENT_TOKEN_ADAPTATION = /\bXbox\b/;
 /** VS.R1's renderer signal (a browser adaptation): the console's Edge draws WebGL through ANGLE's Direct3D11 back end. */
 export const XBOX_RENDERER_TOKEN_ADAPTATION = /Direct3D11/i;
+/**
+ * XBOX-SRAKMD's driver signal (a browser adaptation): the console's kernel graphics driver as ANGLE names it ("SraKmd_arden",
+ * the Series X's GPU, seen on central's beacons; the Series S's under the same driver name is assumed, not seen). A word
+ * with its underscore: no PC, Mac or phone part is named so.
+ */
+export const XBOX_DRIVER_TOKEN_ADAPTATION = /\bSraKmd_/i;
 /** The device memory under which a browser is low-memory, GB (a browser adaptation; `./lobbyPrepare`'s 4 GB likewise). */
 export const LOW_MEMORY_GB_ADAPTATION = 4;
 /** The device memory at or above which a discrete part is the high class, GB (a browser adaptation). */
@@ -52,7 +71,9 @@ export const DISCRETE_GPU_HINTS_ADAPTATION: readonly RegExp[] = [/NVIDIA GeForce
 /** The class (pure): the first of xbox, software, touch, lowMemory, high that holds, else standard. */
 export function detectDeviceClass(s: DeviceSignals): DeviceClass {
   if (s.xboxPick) return 'xbox';
-  if (XBOX_AGENT_TOKEN_ADAPTATION.test(s.userAgent) && XBOX_RENDERER_TOKEN_ADAPTATION.test(s.renderer ?? '')) return 'xbox';
+  // XBOX-TOKEN-NOSTRING: the token with no renderer string at all (a refused context, a masked debug name) is an Xbox too.
+  if (XBOX_AGENT_TOKEN_ADAPTATION.test(s.userAgent) && (!s.renderer || XBOX_RENDERER_TOKEN_ADAPTATION.test(s.renderer))) return 'xbox';
+  if (XBOX_DRIVER_TOKEN_ADAPTATION.test(s.renderer ?? '')) return 'xbox';   // XBOX-SRAKMD: the driver alone
   if (s.software) return 'software';
   if (s.touch) return 'touch';
   const memory = typeof s.deviceMemory === 'number' && Number.isFinite(s.deviceMemory) ? s.deviceMemory : null;

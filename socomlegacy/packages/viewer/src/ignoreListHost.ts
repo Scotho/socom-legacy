@@ -65,7 +65,7 @@ export function fetchIgnoreListService(base: string, fetchFn: typeof fetch = (..
   };
   return {
     list: (t) => post('ignore-list', {}, t, ignoreListOf),
-    // NU-14: AccountGetID's answer, the two fields `FUN_00300db0` reads (a logged-in account of the name, `ACCOUNT_GET_ID_PRESENCE_READING`).
+    // NU-14: AccountGetID's answer, the two fields `FUN_00300db0` reads (any account of the name, logged in or not, `ACCOUNT_GET_ID_PRESENCE_OWNER`).
     accountId: (q, t) => post('account-id', { accountName: q.name }, t, (r) => ints(r, ['status', 'accountId'] as const)),
     add: (q, t) => post('ignore-add', { ignoreAccountId: q.ignoreAccountId }, t, (r) => ints(r, ['status'] as const)),
     remove: (q, t) => post('ignore-remove', { ignoreAccountId: q.ignoreAccountId }, t, (r) => ints(r, ['status'] as const)),

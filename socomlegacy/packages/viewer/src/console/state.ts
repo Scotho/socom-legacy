@@ -5,7 +5,9 @@ import type { PadBinding } from '../padBinding';
 import type { IconName } from './icons';
 import type { PadLike } from './input';
 import type { ExtractAct, ExtractView } from './render/extract';
-import type { DiscShareAdapter } from '../discShareView';
+import type { ExtractBackend } from '../discExtractStore';
+import type { DiscShareAdapter, HostView } from '../discShareView';
+import { SEND_WORDS, type SendWhy } from '../discShareWords';
 import { gamePingBand } from '../gamePing';
 import { GRAPHICS_BACKEND_APPLY_NOTE } from '../graphicsBackend';
 
@@ -31,6 +33,13 @@ export const DISC_SOURCES: readonly { id: DiscSource; label: string }[] = [
   { id: 'image', label: 'DISC ISO' },        // the owner's words, 2026-10-20 (DISC-LABELS)
   { id: 'folder', label: 'RETAIL DISC' },
 ];
+/**
+ * DSH-11 (the disc share plan, DSH.R17, the owner, 2026-11-10: "i once requested it to be in the bottom left disc area (and
+ * it still should be)"): the disc mark's menu's trailing "SEND DISC" row, after the two sources -- never one of
+ * `DISC_SOURCES`, which the Disc row's source choice reads. Drawn on the launcher page where it has a disc share adapter
+ * (`sendInMenu`); `sourceMenuRows` is the menu's pad bound.
+ */
+export const SEND_MENU_ROW = DISC_SOURCES.length;
 /** A ping band as the lobby reports one (0-3), when it gives no milliseconds. */
 export type PingBand = 0 | 1 | 2 | 3;
 
@@ -128,6 +137,13 @@ export interface OptRow {
    * (Detected, "Not right?", Restore defaults; a video schema row without the `overlay` surface) -- `optCategories`.
    */
   launcherOnly?: boolean;
+  /**
+   * SEP-ROWS (a browser adaptation): a line the row's aside always carries under its `about` -- the row's tooltip, shown
+   * while it is focused or hovered (Options > Controller's Stance mode: what SEPARATE needs).
+   */
+  tip?: string;
+  /** SEP-ROWS (a browser adaptation): the row's warning now -- the alert mark drawn on the row, these its words. */
+  warn?: string;
 }
 /** Which Settings door a tab belongs to. Absent, the tab sits in the one strip (the sample adapters). */
 export type OptFamily = 'game' | 'launcher';
@@ -488,6 +504,11 @@ export interface Adapters {
     note?(): string;
     /** INVITE-START (FI.R8 b): the disc's extraction is running, from the pick until it ends (its popover up, or about to be). */
     extracting?(): boolean;
+    /**
+     * DSH-10 (the disc share plan, DSH.R17): the extraction kept in this browser (`KeptDisc`: `whole` once every file of the
+     * read set is in, DSH.R7) or null with none (`./adapters/disc`'s). Absent: none. Read by `sendState`.
+     */
+    kept?(): KeptDisc | null;
   };
   pad: {
     connected(): boolean;
@@ -963,7 +984,8 @@ export interface ConsoleState {
   md: { row: number };
   /** CX-14: the button mapping screen's focused row (the Stance mode, the dead zone, the sixteen actions, then the binds). */
   /** CX-14's focused row; LATER 380: `teachDeclined`, Not now chosen (or the pass let go), so no press begins it again. */
-  rm: { row: number; teachDeclined?: boolean };
+  /** SEP-ROWS: `mode`, the Stance mode the rows were last drawn in (a change under the screen moves `row` with its row). */
+  rm: { row: number; teachDeclined?: boolean; mode?: StanceMode };
   /**
    * CX-LOADOUTS: the Armory's loadouts screens -- the side open, the mission list's focused row, and the editor's focused
    * row (0 the type, 1-5 the slots, `LOADOUT_SAVE_ROW` Save). `slot` is the `/profile/armory/<side>/<slot>` segment a
@@ -990,9 +1012,12 @@ export interface ConsoleState {
    * LR-36 (LR.R30): Play's "Before you deploy" panel over the launcher page's Home -- open or not, its focused row
    * (`LAUNCH_DISC_ROW` .. `LAUNCH_SHARE_ROW`), and whether the cursor has already moved to Deploy once the launch was ready
    * (the mockup's `autoF`). DSH-5 (DSH.R12): `share`, the "Request Game Files (XBOX)" row's larger area expanded (the QR,
-   * the code, the steps, the receiver's phases); absent, shut.
+   * the code, the steps, the receiver's phases); absent, shut. DSH-10 (DSH.R17): `send`, the "Send Game Files" row's send
+   * area (the host's link, the copy, the requests; RB-27) -- open, the share open (`openHost`); `at` its focused target
+   * (`sendTargets`: `link`, `active`, `req:<id>`, kept by id as the list reorders) and `ix` where it was (the fallback when
+   * its request goes); `copy`, how Copy link last ended (a refusal shows the note).
    */
-  chk: { open: boolean; row: number; auto: boolean; share?: boolean };
+  chk: { open: boolean; row: number; auto: boolean; share?: boolean; send?: boolean; at?: string; ix?: number; copy?: 'copied' | 'refused' };
   /**
    * DSH-5 (DSH.R12): the sender's dialog the pairing link opens (the overlay `share`, `./render/discShare`) -- its focused
    * button, and whether the player has closed it (it is not drawn back over the page then).
@@ -1004,9 +1029,11 @@ export interface ConsoleState {
   /**
    * What the confirm asks: sign out (#793), Decline's question over the agreement (#763), (DX-3) Options' "Delete the
    * kept disc", or (CX-14) on the button mapping screen a conflict's Swap / Replace / Cancel and Restore defaults, or
-   * (CX-LOADOUTS) on the loadout editor leaving with unsaved changes and its Defaults, or (CX-PERSONA) a persona's Delete.
+   * (CX-LOADOUTS) on the loadout editor leaving with unsaved changes and its Defaults, or (CX-PERSONA) a persona's Delete,
+   * or (DSH-10, RB-26's Q11) Deploy while the send area's share is busy (`SHARE_DEPLOY_CONFIRM`), or (the DSH-10 review's
+   * F2) closing the send area while a copy runs (`SHARE_CLOSE_CONFIRM`).
    */
-  confirmKind: 'signout' | 'decline' | 'kept' | 'conflict' | 'restore' | 'loadout-leave' | 'loadout-defaults' | 'persona-delete';
+  confirmKind: 'signout' | 'decline' | 'kept' | 'conflict' | 'restore' | 'loadout-leave' | 'loadout-defaults' | 'persona-delete' | 'share-deploy' | 'share-close';
   /** The USER AGREEMENT: Accept (0) or Decline (1) focused, the text's scroll in CSS pixels, its text. */
   ag: { row: number; scroll: number; text: string };
   start: 'idle' | 'arming' | 'launching';
@@ -1126,16 +1153,71 @@ export const LAUNCH_DEPLOY_ROW = 2;
 export const LAUNCH_SKIP_ROW = 3;
 export const LAUNCH_PADSET_ROW = 4;
 /**
- * DSH-5 (the disc share plan, DSH.R12, the owner, 2026-10-29: "the ui for it should be placed in the right aligned pre
- * launch window at the bottom below controller settings with a new component. \"Request Game Files (XBOX)\""): the row
- * below "Controller settings", drawn where the page has a disc share adapter (`Adapters.discShare`; the launcher page's,
- * never the overlay's or the sample's). `LAUNCH_CHECK_ROWS` counts it; `launchCheckRows` is the rows drawn now.
+ * DSH-10 (the disc share plan, DSH.R17, the owner, 2026-11-10: "please also add it to the deploy screen above request
+ * files, enabled when you have a disc added already"): "Send Game Files", below "Controller settings" and directly above
+ * "Request Game Files (XBOX)", drawn where the page has a disc share adapter, enabled by `sendState`.
  */
-export const LAUNCH_SHARE_ROW = 5;
-export const LAUNCH_CHECK_ROWS = 6;
+export const LAUNCH_SEND_ROW = 5;
+/**
+ * DSH-5 (the disc share plan, DSH.R12, the owner, 2026-10-29: "the ui for it should be placed in the right aligned pre
+ * launch window at the bottom below controller settings with a new component. \"Request Game Files (XBOX)\""): the
+ * panel's last row, drawn where the page has a disc share adapter (`Adapters.discShare`; the launcher page's, never the
+ * overlay's or the sample's). `LAUNCH_CHECK_ROWS` counts it and DSH-10's; `launchCheckRows` is the rows drawn now.
+ */
+export const LAUNCH_SHARE_ROW = 6;
+export const LAUNCH_CHECK_ROWS = 7;
 
-/** DSH-5: the panel's rows drawn now -- the share row only with a disc share adapter. */
-export const launchCheckRows = (a: Adapters): number => (a.discShare ? LAUNCH_CHECK_ROWS : LAUNCH_SHARE_ROW);
+/** DSH-5, DSH-10: the panel's rows drawn now -- the send and share rows only with a disc share adapter. */
+export const launchCheckRows = (a: Adapters): number => (a.discShare ? LAUNCH_CHECK_ROWS : LAUNCH_SEND_ROW);
+
+/**
+ * The extraction kept in this browser as the disc adapter reports it (`./adapters/disc` `kept`) and Settings' "Remove
+ * downloaded content" row reads it (`./adapters/options` `kept.info`): its bytes, its store, and whether it is whole
+ * (DSH.R7). One shape for every reader (DSH-10's `sendState` too).
+ */
+export interface KeptDisc { bytes: number; backend: ExtractBackend; whole: boolean }
+
+/** DSH-10: whether the page can send its disc now, why (`SendWhy`), and the row's line and tooltip (`SEND_WORDS`). */
+export interface SendState { ok: boolean; why: SendWhy; line: string; tip: string }
+
+/**
+ * DSH-10 and DSH-11 (DSH.R17; DSH.R7): the one rule for "Send Game Files" and the disc mark's "SEND DISC" -- enabled only
+ * when the share adapter's `complete()` answers true (a complete extraction kept in this browser); else the reason: the
+ * extraction saving now, an extraction kept but not whole, or none. A browser adaptation.
+ */
+export function sendState(a: Adapters): SendState {
+  const why: SendWhy = a.discShare?.complete?.() === true ? 'ready'
+    : a.disc.extracting?.() === true ? 'saving'
+      : a.disc.kept?.() ? 'part' : 'none';
+  return { ok: why === 'ready', why, ...SEND_WORDS[why] };
+}
+
+/**
+ * DSH-10 (RB-27's pad map): the send area's targets, in the pad's order -- the link (Copy link) once the share is open,
+ * the copy under way (Stop), then each request by id (Yes, No).
+ */
+export function sendTargets(v: HostView): string[] {
+  return [...(v.phase === 'open' && v.link ? ['link'] : []), ...(v.active ? ['active'] : []), ...v.pending.map((r) => `req:${r.id}`)];
+}
+
+/**
+ * DSH-10: the send area's focused target now -- `chk.at` while it stands (a request kept by its id as the list reorders),
+ * else the one now at `chk.ix` (its request gone: the next in its place), clamped; null with none.
+ */
+export function sendAt(s: ConsoleState, v: HostView): string | null {
+  const t = sendTargets(v);
+  if (!t.length) return null;
+  if (s.chk.at && t.includes(s.chk.at)) return s.chk.at;
+  return t[Math.max(0, Math.min(t.length - 1, s.chk.ix ?? 0))]!;
+}
+
+/** DSH-10: L2 / R2 in the send area move this many targets (RB-27: "L2/R2 page a long list"). */
+export const SEND_PAGE = 5;
+
+/** DSH-11: whether the disc mark's menu draws "SEND DISC" -- the launcher page's, with a disc share adapter. */
+export const sendInMenu = (s: ConsoleState, a: Adapters): boolean => !!a.discShare && s.mode !== 'overlay';
+/** DSH-11: the disc mark's menu's rows (its pad bound): the two sources, and "SEND DISC" where it is drawn. */
+export const sourceMenuRows = (s: ConsoleState, a: Adapters): number => DISC_SOURCES.length + (sendInMenu(s, a) ? 1 : 0);
 
 /** LR-36: the panel's title, the mockup's `checkTitle`: "Ready to deploy" once Play launches, else "Before you deploy". */
 export const launchCheckTitle = (s: ConsoleState, a: Adapters): string => (startReady(s, a) ? 'Ready to deploy' : 'Before you deploy');
@@ -1558,27 +1640,43 @@ export function serverItems(a: Adapters): HomeItem[] {
 
 /**
  * CX-14: the mapping screen's rows: the Stance mode (PP-5, OT.R67; first since STANCE-TOP, the owner, 2026-11-02: "move
- * stance mode to the top"), the dead zone directly under it (DEAD-UP, the owner, 2026-11-03: "can we move stick dead
- * zone up below stance mode"), the sixteen logical buttons (`../startupSettings` `PAD_BUTTON_NAMES`, from
- * `REMAP_ACTION_ROW` to `REMAP_ACTION_END`), then the Crouch and Prone binds -- STM-1 (STM.R1, the owner, 2026-10-30:
- * "only when SEPARATE is selected should the two separate bindings show for prone and crouch"; STM.R1a: in COMBINED
- * kept, hidden) in SEPARATE only; then the extra rows (`remapExtras`). The rows a mode shows are `remapOwnRows`: the
- * focus, the d-pad's steps, a click and the extras all count from it (OBF-11's flag and its fixed 19 retired with STM.R1).
+ * stance mode to the top"); in SEPARATE only, the Crouch and Prone binds directly under it -- STM-1 (STM.R1, the owner,
+ * 2026-10-30: "only when SEPARATE is selected should the two separate bindings show for prone and crouch"; STM.R1a: in
+ * COMBINED kept, hidden), under the switch since SEP-ROWS (the owner, 2026-11-11: "please open them directly under the
+ * special setting switch"); then the dead zone (DEAD-UP, the owner, 2026-11-03: "can we move stick dead zone up below
+ * stance mode"), the sixteen logical buttons (`../startupSettings` `PAD_BUTTON_NAMES`, from `remapActionRow` to
+ * `remapActionEnd`), then the extra rows (`remapExtras`). A row's number is its place on the screen in the mode drawn, so
+ * every row under the binds' is a function of the mode; the rows a mode shows are `remapOwnRows`: the focus, the d-pad's
+ * steps, a click and the extras all count from it (OBF-11's flag and its fixed 19 retired with STM.R1). A mode changed
+ * under the screen keeps the focus on the same row (`normalize`, `remapRowAcrossModes`). A browser adaptation (OT.R28).
  */
 export const REMAP_STANCE_ROW = 0;
-/** DEAD-UP: the Pad dead zone (this browser) row, directly under the Stance mode. */
-export const REMAP_DEAD_ROW = REMAP_STANCE_ROW + 1;
-/** STANCE-TOP, DEAD-UP: the first action's row (Cross); action `i` is row `REMAP_ACTION_ROW + i`. The screen opens on it. */
-export const REMAP_ACTION_ROW = REMAP_DEAD_ROW + 1;
-/** The row past the sixteenth action (Right): the first of SEPARATE's binds, or of the extras in COMBINED. */
-export const REMAP_ACTION_END = REMAP_ACTION_ROW + 16;
-/** The action a row binds (0-15), or -1 for a row that is not an action's. */
-export const remapActionOfRow = (row: number): number => (row >= REMAP_ACTION_ROW && row < REMAP_ACTION_END ? row - REMAP_ACTION_ROW : -1);
-/** STM.R1: the Crouch and Prone binds' rows, shown in SEPARATE only, after the actions. */
-export const REMAP_CROUCH_ROW = REMAP_ACTION_END;
+/** STM.R1, SEP-ROWS: the Crouch and Prone binds' rows, directly under the Stance mode, in SEPARATE only. */
+export const REMAP_CROUCH_ROW = REMAP_STANCE_ROW + 1;
 export const REMAP_PRONE_ROW = REMAP_CROUCH_ROW + 1;
+/** DEAD-UP, SEP-ROWS: the Pad dead zone (this browser) row -- under the Stance mode in COMBINED, under Prone in SEPARATE. */
+export const remapDeadRow = (mode: StanceMode = controllerStanceMode()): number => (mode === 'separate' ? REMAP_PRONE_ROW + 1 : REMAP_STANCE_ROW + 1);
+/** STANCE-TOP, DEAD-UP: the first action's row (Cross); action `i` is row `remapActionRow() + i`. The screen opens on it. */
+export const remapActionRow = (mode: StanceMode = controllerStanceMode()): number => remapDeadRow(mode) + 1;
+/** The row past the sixteenth action (Right): the first of the extras. */
+export const remapActionEnd = (mode: StanceMode = controllerStanceMode()): number => remapActionRow(mode) + 16;
+/** The action a row binds (0-15), or -1 for a row that is not an action's. */
+export const remapActionOfRow = (row: number, mode: StanceMode = controllerStanceMode()): number => {
+  const first = remapActionRow(mode);
+  return row >= first && row < first + 16 ? row - first : -1;
+};
 /** The screen's own rows in `mode` (the saved one by default): 18 in COMBINED, 20 in SEPARATE (STM.R1). */
-export const remapOwnRows = (mode: StanceMode = controllerStanceMode()): number => (mode === 'separate' ? REMAP_PRONE_ROW + 1 : REMAP_ACTION_END);
+export const remapOwnRows = (mode: StanceMode = controllerStanceMode()): number => remapActionEnd(mode);
+/**
+ * SEP-ROWS: the row that stands for `row` once the mode has changed from `from` to `to` -- the same row (the Stance mode,
+ * the dead zone, an action, an extra) at its new number; a bind's row that `to` hides gives the switch it hangs from.
+ */
+export function remapRowAcrossModes(row: number, from: StanceMode, to: StanceMode): number {
+  if (from === to || row <= REMAP_STANCE_ROW) return row;
+  const shift = remapDeadRow(to) - remapDeadRow(from);
+  if (from === 'separate' && row < remapDeadRow(from)) return REMAP_STANCE_ROW;
+  return row + shift;
+}
 /**
  * OBF-10b's review (1; players use a controller only): the rows after the screen's own, each an action the pad reaches
  * with the d-pad and Cross (and a click): Teach again, for a pad of another layout read through a layout (taught, or
@@ -1645,6 +1743,18 @@ function dropShare(s: ConsoleState, a: Adapters): void {
   if (phase === 'requesting' || phase === 'waiting') a.discShare!.cancel();
 }
 
+/**
+ * DSH-10 (RB-26's Q10 default; DSH.R9: no standing listener): the send area shut by any path (the panel shut, another
+ * category, a Home item clicked behind it, the launch arming) ends the share as Circle does (`closeHost`). Shut first,
+ * so the adapter's change notice finds it shut.
+ */
+function dropSend(s: ConsoleState, a: Adapters): void {
+  if (!s.chk.send) return;
+  s.chk.send = false;
+  s.chk.copy = undefined;
+  a.discShare?.closeHost?.();
+}
+
 /** Clamps the focus indices to what is on screen (the prototype did this inside `renderHome` / `renderRooms`). */
 export function normalize(s: ConsoleState, a: Adapters): void {
   if (!CATS[s.cat]) s.cat = HOME_CATEGORY;
@@ -1665,12 +1775,22 @@ export function normalize(s: ConsoleState, a: Adapters): void {
     // LR-36 (LR.R30): Play's "Before you deploy" panel stands only over the launcher page's Home, on its Home category,
     // with nothing over the page; its cursor on one of its rows. Once the launch is ready while it is open (a pad woke),
     // the cursor moves to Deploy, once (the mockup's `autoF`, S2 Launcher v2.dc.html `componentDidUpdate`).
-    if (s.chk.open && !(s.screen === 'home' && !s.overlay && s.mode !== 'overlay' && cat.id === 'home')) s.chk.open = false;
-    if (!s.chk.open) dropShare(s, a);
+    // DSH-10 (Q11): the question Deploy asks while the send area's share is busy stands over the panel, which stays; so
+    // does the one Circle asks while a copy runs (the review's F2).
+    const asking = s.overlay === 'confirm' && (s.confirmKind === 'share-deploy' || s.confirmKind === 'share-close');
+    if (s.chk.open && !(s.screen === 'home' && (!s.overlay || asking) && s.mode !== 'overlay' && cat.id === 'home')) s.chk.open = false;
+    if (!s.chk.open) { dropShare(s, a); dropSend(s, a); }
     if (s.chk.open) {
       s.chk.row = Math.max(0, Math.min(launchCheckRows(a) - 1, s.chk.row));
       // DSH-5: the share area stands only on its row, with an adapter to read.
       if (s.chk.share && !(a.discShare && s.chk.row === LAUNCH_SHARE_ROW)) dropShare(s, a);
+      // DSH-10: the send area likewise on its own row; its focus kept on its target (by id), else on the place it held.
+      if (s.chk.send && !(a.discShare?.host && s.chk.row === LAUNCH_SEND_ROW)) dropSend(s, a);
+      if (s.chk.send && a.discShare?.host) {
+        const v = a.discShare.host();
+        const at = sendAt(s, v);
+        if (at !== null) { s.chk.at = at; s.chk.ix = sendTargets(v).indexOf(at); }
+      }
       if (!s.chk.auto && startReady(s, a)) { s.chk.auto = true; s.chk.row = LAUNCH_DEPLOY_ROW; }
     }
   }
@@ -1679,7 +1799,14 @@ export function normalize(s: ConsoleState, a: Adapters): void {
   if (s.screen === 'replays' && a.replays.view?.()?.kind !== 'loading') s.rp.row = Math.max(0, Math.min(s.rp.row, replayRows(a).length - 1));
   // CX-14: the mapping screen stands only over an open binding machine; its focus on one of its rows.
   if (s.screen === 'remap' && !a.remap?.current()) s.screen = 'options';
-  if (s.screen === 'remap') s.rm.row = Math.max(0, Math.min(s.rm.row, remapRowCount(a.remap?.current() ?? null) - 1));
+  if (s.screen === 'remap') {
+    // SEP-ROWS: the rows under the switch move with the mode, so a mode changed under the screen (its own switch, the
+    // pressure default, Restore) keeps the focus on the row it was on, never on whatever row took that number.
+    const mode = controllerStanceMode();
+    if (s.rm.mode && s.rm.mode !== mode) s.rm.row = remapRowAcrossModes(s.rm.row, s.rm.mode, mode);
+    s.rm.mode = mode;
+    s.rm.row = Math.max(0, Math.min(s.rm.row, remapRowCount(a.remap?.current() ?? null) - 1));
+  }
   // CX-LOADOUTS: the loadouts screens stand only over a loadouts adapter; an editor whose mission the list no longer holds
   // (a new offer relisted it) goes back to the list; each screen's focus on one of its rows.
   const lo = a.loadouts;

@@ -182,6 +182,14 @@ export function applyFall(h: Health, speed: number, speeds: readonly [number, nu
 }
 
 /**
+ * FALL-DEATH-LAND: whether `applyFall` at `speed` would kill `h`, `h` untouched -- the answer the landing's pick needs
+ * before the damage is laid (`Walker.fallKills`; `FUN_005af590` D:L466656-466660).
+ */
+export function fallKills(h: Health, speed: number, speeds: readonly [number, number, number] = FALL_SPEEDS): boolean {
+  return applyFall({ ...h, hp: [...h.hp], armour: [...h.armour] }, speed, speeds);
+}
+
+/**
  * `FUN_00580360` L441929 (from the landing's `FUN_005af930` L466914 with the contact speed): a blast knock's landing --
  * on the ground in `Fall forward` / `Fall backwards` (research 85 §12) -- reaches `FUN_005ac1f0` at the speed x 1.2,
  * so a knock-down hurts at a lower drop than a walk-off does. Its gate on body `+0x105c` bit 3 (L441921) is not read:

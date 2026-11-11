@@ -3,7 +3,7 @@ import type { ExtraAction } from '../../padExtras';
 import { TEACH_STEPS } from '../../padLayout';
 import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, controllerStanceMode, defaultController } from '../../startupSettings';
 import { GLYPH, P, btn, dpad, esc, ico, shoulder, type FaceButton } from '../icons';
-import { REMAP_ACTION_ROW, REMAP_CROUCH_ROW, REMAP_DEAD_ROW, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapActionOfRow, remapExtraAt, remapExtras, remapOwnRows, type Adapters, type ConsoleState, type RemapExtra } from '../state';
+import { REMAP_CROUCH_ROW, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapActionOfRow, remapActionRow, remapDeadRow, remapExtraAt, remapExtras, remapOwnRows, type Adapters, type ConsoleState, type RemapExtra } from '../state';
 import { screenHead } from './head';
 import { PAD_ART } from './padArt';
 
@@ -21,9 +21,9 @@ export const PAD_DEAD_ZONE_LABEL = 'Pad dead zone (this browser)';
  * Controller view (retired with CX-26) -- in the console's own parts only: the ScreenHead (with the pad's line,
  * the Readout's check), an ActionList item per logical button with its bound button's glyph on the right (`../icons`
  * `btn` for the face buttons, the shoulder key for L1 / R1 / L2 / R2, the d-pad's glyph, the button's name otherwise),
- * the OptionRows' rollers for the Stance mode and the stick dead zone (the first two rows: STANCE-TOP, DEAD-UP), the
- * Crouch and Prone binds' rows in SEPARATE (STM.R1), and the aside. A listened row says what it
- * waits for and the seconds left; the conflict's question and Restore defaults are the console's Confirm (`./overlay`);
+ * the OptionRows' rollers for the Stance mode and the stick dead zone (STANCE-TOP, DEAD-UP), the Crouch and Prone binds'
+ * rows between them in SEPARATE (STM.R1; SEP-ROWS: under the switch, sliding open and shut with it), and the aside. A
+ * listened row says what it waits for and the seconds left; the conflict's question and Restore defaults are the console's Confirm (`./overlay`);
  * the legend's prompts are `./legend`'s. The rows sit in their own scroll container (`data-scroll`, CX-11).
  *
  * LATER 380 (the owner's word, 2026-10-23: "more visual and cohesive ... the ps4 controller the socom2legacy-teaser had
@@ -35,8 +35,11 @@ export const PAD_DEAD_ZONE_LABEL = 'Pad dead zone (this browser)';
  * ring. A browser adaptation with no original (OT.R28): nothing of the game's behaviour.
  */
 
-/** The rows round the sixteen actions (`../state`'s, by mode: STM.R1; the Stance mode first, STANCE-TOP, the dead zone under it, DEAD-UP). */
-export { REMAP_ACTION_ROW, REMAP_CROUCH_ROW, REMAP_DEAD_ROW, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapActionOfRow, remapOwnRows } from '../state';
+/**
+ * The rows round the sixteen actions (`../state`'s, by mode: STM.R1; the Stance mode first, STANCE-TOP; SEPARATE's Crouch
+ * and Prone under it, SEP-ROWS; the dead zone under them, DEAD-UP).
+ */
+export { REMAP_CROUCH_ROW, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapActionEnd, remapActionOfRow, remapActionRow, remapDeadRow, remapOwnRows, remapRowAcrossModes } from '../state';
 /** The bind rows and what each listens for (PP-5), shown in SEPARATE only (STM.R1). */
 const BIND_ROWS: readonly (readonly [row: number, bind: number])[] = [[REMAP_CROUCH_ROW, CROUCH_BIND], [REMAP_PRONE_ROW, PRONE_BIND]];
 /**
@@ -142,7 +145,7 @@ export function rowPhysical(b: PadBinding, row: number): number {
 /** LATER 380, the drawing's way back: the first row a physical button drives (an action's, then a bind's shown: STM.R1), or -1. */
 export function rowOfPhysical(b: PadBinding, physical: number): number {
   const action = b.actions().findIndex((x) => x.physical === physical);
-  if (action >= 0) return REMAP_ACTION_ROW + action;
+  if (action >= 0) return remapActionRow() + action;
   if (controllerStanceMode() !== 'separate') return -1;
   for (const [row, bind] of BIND_ROWS) if (bindButton(b, bind) === physical) return row;
   return -1;
@@ -164,11 +167,14 @@ function listenLine(b: PadBinding, lock: { line: string } | null, listening: boo
   return lock ? lock.line : '';
 }
 
-/** A bind's row (Crouch, Prone): listened for as an action's (`PadBinding.listen`). */
-function bindRow(s: ConsoleState, b: PadBinding, i: number, lock: { line: string } | null, live: ReadonlySet<number>): string {
+/**
+ * A bind's row (Crouch, Prone): listened for as an action's (`PadBinding.listen`). SEP-ROWS: drawn in COMBINED too, folded
+ * (`shown` false) -- no row of the screen's then: no act, no focus key, never focused -- so its group can slide shut.
+ */
+function bindRow(s: ConsoleState, b: PadBinding, i: number, lock: { line: string } | null, live: ReadonlySet<number>, shown = true): string {
   const bind = remapBindOfRow(i, 'separate')!;
   const name = b.bindName(bind);
-  const focused = s.rm.row === i;
+  const focused = shown && s.rm.row === i;
   const listening = b.listening() === bind;
   const physical = bindButton(b, bind);
   // PS2P: Crouch and Prone on one pressure button -- its light and its firm press (`PadBinding.pressureSplit`).
@@ -176,18 +182,19 @@ function bindRow(s: ConsoleState, b: PadBinding, i: number, lock: { line: string
   // PS2P fold (seat 5d, 2026-11-01): Crouch unbound while pressure is active is still crouched by the light press of
   // Prone's button -- the row says so instead of Unbound, so the screen tells the truth.
   const light = bind === CROUCH_BIND && physical < 0 ? b.pressureLight() : -1;
-  const shown = light >= 0 ? `Light press (${b.label(light)})` : b.label(physical);
-  const label = `${name}: ${shown}${listening ? ', listening' : ''}`;
-  return `<li><button type="button" class="cx-item ${focused ? 'is-focused' : ''} ${lock ? 'is-disabled' : ''} ${physical >= 0 && live.has(physical) ? 'is-live' : ''}" data-act="remaprow" data-i="${i}" data-fk="remap-${i}" aria-label="${esc(label)}">
+  const drawn = light >= 0 ? `Light press (${b.label(light)})` : b.label(physical);
+  const label = `${name}: ${drawn}${listening ? ', listening' : ''}`;
+  const hooks = shown ? `data-act="remaprow" data-i="${i}" data-fk="remap-${i}"` : 'tabindex="-1"';
+  return `<li><button type="button" class="cx-item ${focused ? 'is-focused' : ''} ${lock ? 'is-disabled' : ''} ${physical >= 0 && live.has(physical) ? 'is-live' : ''}" ${hooks} aria-label="${esc(label)}">
           <span class="cx-item__text"><span class="cx-item__title">${esc(name)}</span>${sub ? `<span class="cx-item__sub">${esc(sub)}</span>` : ''}</span>
-          <span class="cx-item__state" data-glyph="${physical}">${light >= 0 ? esc(shown) : buttonGlyph(b, physical)}</span>
+          <span class="cx-item__state" data-glyph="${physical}">${light >= 0 ? esc(drawn) : buttonGlyph(b, physical)}</span>
         </button></li>`;
 }
 
-/** Action `i`'s row (`REMAP_ACTION_ROW + i`: STANCE-TOP). */
+/** Action `i`'s row (`remapActionRow() + i`: STANCE-TOP, SEP-ROWS). */
 function actionRow(s: ConsoleState, b: PadBinding, i: number, lock: { line: string } | null, live: ReadonlySet<number>): string {
   const x = b.actions()[i]!;
-  const row = REMAP_ACTION_ROW + i;
+  const row = remapActionRow() + i;
   const focused = s.rm.row === row;
   const listening = b.listening() === i;
   // The seat's fold (OVERLAY-CONSOLE): while the conflict's Confirm asks, the listen is held (`PadBinding.step` waits for
@@ -198,6 +205,18 @@ function actionRow(s: ConsoleState, b: PadBinding, i: number, lock: { line: stri
           <span class="cx-item__text"><span class="cx-item__title">${esc(x.name)}</span>${sub ? `<span class="cx-item__sub">${esc(sub)}</span>` : ''}</span>
           <span class="cx-item__state ${x.physical < 0 ? 'is-alert' : ''}" data-glyph="${x.physical}">${buttonGlyph(b, x.physical)}</span>
         </button></li>`;
+}
+
+/**
+ * SEP-ROWS (the owner, 2026-11-11; a browser adaptation): SEPARATE's Crouch and Prone as one group under the Stance mode
+ * switch -- open in SEPARATE; in COMBINED folded to no height, inert and hidden from a reader, its rows no rows of the
+ * screen's (`bindRow`'s `shown`). Always drawn, keyed, so the in-place patch keeps it and the class change slides it
+ * (`../console.css` `.cx-remap__sep`: the design system's base duration and ease, none under reduced motion).
+ */
+function sepGroupHtml(s: ConsoleState, b: PadBinding, open: boolean, lock: { line: string } | null, live: ReadonlySet<number>): string {
+  return `<li class="cx-remap__sep ${open ? 'is-open' : ''}" data-key="remap-sep"${open ? '' : ' inert aria-hidden="true"'}><div class="cx-remap__sep-clip"><ul class="cx-remap__seplist" role="list" aria-label="Stance binds">
+          ${bindRow(s, b, REMAP_CROUCH_ROW, lock, live, open)}${bindRow(s, b, REMAP_PRONE_ROW, lock, live, open)}
+        </ul></div></li>`;
 }
 
 function rollerRow(s: ConsoleState, i: number, label: string, value: string, changed: boolean, lock: { word: string } | null): string {
@@ -239,7 +258,7 @@ function asideHtml(s: ConsoleState, b: PadBinding, lock: { line: string } | null
         : x
           ? [extraName(b, x), x.warning === 'same-thumb' ? `${REMAP_SAME_THUMB_WARNING} Cross removes it.` : 'Cross removes it.', EXTRAS_NOTE]
           : extra ? [EXTRA_WORDS[extra as FixedExtra].title, EXTRA_WORDS[extra as FixedExtra].about, EXTRA_WORDS[extra as FixedExtra].note]
-    : r === REMAP_DEAD_ROW
+    : r === remapDeadRow()
     ? [PAD_DEAD_ZONE_LABEL, 'How far the stick moves before anything happens. Raise it if your aim drifts on its own.', 'Saved to this browser, for this controller.']
     : r === REMAP_STANCE_ROW
       ? ['Stance mode', STANCE_MODE_ABOUT, 'Saved to this browser, for every controller.']
@@ -415,17 +434,20 @@ export function remapHtml(s: ConsoleState, a: Adapters): string {
   const dz = Math.round(b.deadZone() * 100);
   const def = defaultController();
   // STM.R1: the Stance mode (the browser's, never locked) -- the first row since STANCE-TOP (the owner, 2026-11-02: "move
-  // stance mode to the top") -- then the dead zone directly under it (DEAD-UP, the owner, 2026-11-03: "can we move stick
-  // dead zone up below stance mode"), then the actions, Crouch and Prone after them in SEPARATE only (STM.R1a: kept in
-  // the profile, hidden, in COMBINED), then the extras from the mode's last own row.
+  // stance mode to the top") -- then, in SEPARATE only, Crouch and Prone directly under it (SEP-ROWS, the owner,
+  // 2026-11-11: "please open them directly under the special setting switch with a nice slide down or up animation";
+  // STM.R1a: kept in the profile, hidden, in COMBINED), then the dead zone (DEAD-UP, the owner, 2026-11-03: "can we move
+  // stick dead zone up below stance mode"), then the actions, then the extras from the mode's last own row.
+  // SEP-ROWS: the two binds are one group (`sepGroupHtml`), drawn in both modes and only opened or folded, so the page's
+  // in-place patch (`../morph`) keeps the element and its class change runs the slide (`../console.css` `.cx-remap__sep`).
   const mode = controllerStanceMode();
   const body = teaching
     ? teachHtml(b, s.rm.teachDeclined === true)
     : `<ul class="cx-list" role="list" aria-label="Bindings" data-scroll data-key="remap-rows">
         ${rollerRow(s, REMAP_STANCE_ROW, 'Stance mode', STANCE_MODE_WORDS[mode], mode !== 'pop', null)}
-        ${rollerRow(s, REMAP_DEAD_ROW, PAD_DEAD_ZONE_LABEL, DEAD_VALUES[dz] ?? `${dz}%`, dz !== Math.round(def.deadZone * 100), lock)}
+        ${sepGroupHtml(s, b, mode === 'separate', lock, live)}
+        ${rollerRow(s, remapDeadRow(mode), PAD_DEAD_ZONE_LABEL, DEAD_VALUES[dz] ?? `${dz}%`, dz !== Math.round(def.deadZone * 100), lock)}
         ${b.actions().map((_, i) => actionRow(s, b, i, lock, live)).join('')}
-        ${mode === 'separate' ? `${bindRow(s, b, REMAP_CROUCH_ROW, lock, live)}${bindRow(s, b, REMAP_PRONE_ROW, lock, live)}` : ''}
         ${remapExtras(b).map((k, j) => extraRow(s, b, remapOwnRows(mode) + j, k)).join('')}
       </ul>`;
   return `<section class="cx-screen cx-remap" aria-label="Button mapping" data-key="remap">

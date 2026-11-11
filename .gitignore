@@ -156,6 +156,7 @@ dist/
 /socomlegacy/test-fixtures/replay/**
 !/socomlegacy/test-fixtures/replay/mp2-classic-two-rounds.s2r
 !/socomlegacy/test-fixtures/replay/mp2-classic-two-rounds-p13.s2r
+!/socomlegacy/test-fixtures/replay/mp2-classic-two-rounds-p14.s2r
 # FP-4's creator fixture (the manifest's creator/ entry: the modder's synthetic CC0 test package, no game data):
 # creator/ walked, its files ignored but this one, by name.
 !/socomlegacy/test-fixtures/creator/

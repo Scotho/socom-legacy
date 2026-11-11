@@ -2,6 +2,7 @@ import { parseRdr, rdrGet, Zar, zdbMember, type RdrNode, type ZdbEntry } from '@
 import { decodeEffectProgram, flattenScene, missionNameOf, NODE_ROOT, parseAnimSets, type EffectProgram, type SceneNode, type ZAnimArchive, type ZAnimNodeRef } from '@s2u/scene';
 import { readMapActions, type MapAction } from './mapActions';
 import { sceneOf, type SceneMeta } from './sceneHealth';
+import { runsProfileStroke, runsScroll } from './sceneScroll';
 
 export { actionAtPick } from './mapActions';
 
@@ -77,6 +78,24 @@ export interface MapMeta {
    * offset through it. Absent where no program fires one.
    */
   fireNodes?: Map<string, readonly number[]>;
+  /**
+   * Every placement's world matrix (row-major, row vectors: `flattenScene`'s `world`), by path -- a path's first
+   * placement, as `instanceByPath`: where a scene program's `SOUND` at a node plays (`WorldState`'s
+   * `SCENE_SOUND_PLACE_READING`: `FUN_002659c0` carries the place through the node's matrices to the world,
+   * `FUN_00310980` D:L112446-112450, D:L212139-212147) -- MP71's gulls, whose nodes hold no polygon. Absent on a map built
+   * by hand: its sounds play unplaced.
+   */
+  worlds?: Map<string, readonly number[]>;
+  /**
+   * LATER 782 (`./sceneScroll`, research 387 §12.7): what the world's shore motions need of the scene. `scrolled`: every
+   * placement of a node a program's `SCROLL_MOTION` scrolls (+6) in the travel form the world runs (`runsScroll`) --
+   * the loader draws its world chunks apart (`LoadedMesh.scrollPath`) so each takes its own texture offset. `frames`:
+   * every placement of a node such a scroll measures (+7) or a speed-profile stroke moves (`runsProfileStroke`), with
+   * its own matrix and its world matrix (row-major, `flattenScene`'s `node.matrix` and `world`) -- where its translation
+   * puts it in the world, and how the scroll's axis turns with it (`FUN_00310980`, D:L109635-109641). Absent where no
+   * program has either.
+   */
+  motion?: { scrolled: string[]; frames: Map<string, { own: readonly number[]; world: readonly number[] }> };
 }
 
 /** Whether `path` is `root` or lies under it: a child after `/`, the realised prototype after `=`. The one subtree test. */
@@ -199,6 +218,8 @@ export function readMapMeta(bytes: Uint8Array, toc: ZdbEntry[], stem: string, mo
   const instances = flat.map((f, id): MapInstance => ({ id, path: f.path, node: f.node.name, modelName: f.modelName, root: rootOf(f.path) }));
   const instanceByPath = new Map<string, number>();
   for (const i of instances) if (!instanceByPath.has(i.path)) instanceByPath.set(i.path, i.id);
+  const worlds = new Map<string, readonly number[]>();
+  for (const f of flat) if (!worlds.has(f.path)) worlds.set(f.path, Array.from(f.world));
 
   let archive = anims;
   if (!archive) {
@@ -293,16 +314,39 @@ export function readMapMeta(bytes: Uint8Array, toc: ZdbEntry[], stem: string, mo
   // Research 386 §3.2: where the programs' FIRE_WEAPON rounds start -- each placement of a node one names (DF-5: the
   // program's own root for a round at -7, `fireNodeNames`).
   const fired = new Set<string>();
+  // LATER 782: the names the shore's motions scroll, and measure or move (`MapMeta.motion`).
+  const scrolledNames = new Set<string>(), framedNames = new Set<string>();
   for (const anim of archive?.sets.flatMap((s) => s.anims) ?? []) {
-    let program;
+    let program: EffectProgram;
     try { program = decodeEffectProgram(anim); } catch { continue; }
     for (const name of fireNodeNames(program)) fired.add(name);
+    const named = (node: number): string | null => {
+      const n = program.nodes[node === NODE_ROOT ? program.root : node > 0 ? node : -1];
+      return n && n !== 'NA' ? n.toLowerCase() : null;
+    };
+    for (const seq of program.sequences) for (const op of seq.ops) {
+      if (op.op === 'scroll' && runsScroll(op)) {
+        const scrolled = named(op.node), mover = named(op.mover);
+        if (scrolled) scrolledNames.add(scrolled);
+        if (mover) framedNames.add(mover);
+      } else if (op.op === 'fromTo' && runsProfileStroke(op)) {
+        const moved = named(op.node);
+        if (moved) framedNames.add(moved);
+      }
+    }
   }
   const fireNodes = new Map<string, readonly number[]>();
   for (const f of flat) if (fired.has(f.node.name.toLowerCase()) && !fireNodes.has(f.path)) fireNodes.set(f.path, Array.from(f.world));
+  const scrolled: string[] = [];
+  const frames = new Map<string, { own: readonly number[]; world: readonly number[] }>();
+  for (const f of flat) {
+    const name = f.node.name.toLowerCase();
+    if (scrolledNames.has(name) && !scrolled.includes(f.path)) scrolled.push(f.path);
+    if (framedNames.has(name) && !frames.has(f.path)) frames.set(f.path, { own: Array.from(f.node.matrix), world: Array.from(f.world) });
+  }
   return {
     stem, actions, instances, instanceByPath, initial, diagnostics, ...(scene ? { scene } : {}), ...(autostart.length ? { autostart } : {}),
-    ...(fireNodes.size ? { fireNodes } : {}),
+    ...(fireNodes.size ? { fireNodes } : {}), ...(worlds.size ? { worlds } : {}), ...(scrolled.length || frames.size ? { motion: { scrolled, frames } } : {}),
   };
 }
 

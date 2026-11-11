@@ -31,7 +31,7 @@ export interface NativeSettingsOptions {
   /** The match's document; absent in unit tests. */
   doc?: Document;
   /**
-   * HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE Soul)): the frame's scale and the HD pack's lookup,
+   * HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE SouL)): the frame's scale and the HD pack's lookup,
    * asked each frame -- the front end's menus' own (`./hdMenuTextures` `HdMenus.options`), so one pack, one budget and
    * one set of kept images serve the menus and this overlay. Absent, or scale 1: the original 640 x 448 frame.
    * `version` (`HdMenuTextures.version`) changes whenever the lookup's answer for a bitmap changes (a replacement landed).
@@ -70,7 +70,7 @@ export interface NativeSettingsGpu {
 export const NATIVE_SETTINGS_GPU_ATTRIBUTE = 'nativeSettingsGpu';
 
 /**
- * The owner, 2026-11-01 ("Cap overlay at 2x"; a browser adaptation under HD (GoE Soul), not a game value): the in-match
+ * The owner, 2026-11-01 ("Cap overlay at 2x"; a browser adaptation under HD (GoE SouL), not a game value): the in-match
  * Settings overlay draws at the menus' scale capped at 2 -- 1280 x 896 under the pack's 4x, still sampled from the HD
  * images through the menus' lookup -- since its software frame is drawn over a running match. The menus and the
  * loading screen keep the pack's scale.

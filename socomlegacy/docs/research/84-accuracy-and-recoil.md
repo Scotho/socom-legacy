@@ -182,9 +182,17 @@ at 26 -- the look is the biggest term; a round +7, closing again in 0.14 s; auto
   The run-down sits inside the fire tick (D:L476643-476647), which runs only while the kit's other timer `+0x820` is 0
   and `FUN_005c1970` passes (D:L476549-476568): a bolt's or a pump's lock sets `+0x820` in the round's frame
   (`FUN_005be9a0` -> `FUN_005c5340` D:L475604 -> `FUN_005c32b0` D:L479320, D:L479342; set D:L477666-477675), so the
-  timer is *held* through the lock and runs on after it (the review's F2); the page runs it down through the lock (its
-  `timed` frame skips only the dry branch): LATER 330. That other timer (`+0x820`, the reload and after-shot:
-  D:L476550-476560, ended on the frame it goes below 0) the page also runs on its browser frames: LATER 330.
+  timer is *held* through the lock and runs on after it (the review's F2). LATER 330 (2026-11-10; reading, pending
+  review): that other timer (`+0x820`, a reload's delay and a bolt's or a pump's lock) runs down by the frame's dt once a
+  game frame, in float32, and ends on the frame it goes below 0, the reload (`FUN_005c2a90`) or the after-shot
+  (`FUN_005c3000`) begun then (D:L476550-476560): 0.01 s is 1 frame, 0.5 s 15 (0.5005 s), 1 s 30 (1.0010 s). The page's
+  kit steps it at its game-frame steps (`fire.ts` `kitTimerStep`), and a frame it runs in -- the frame it ends in
+  included -- has no fire tick (`frameTimed`): no gate and no run-down of `+0x81c`, so a held M40A1 fires every 15 + 15
+  frames (1.001 s), the M87ELR every 15 + 21, the 870 every 1 + 23 -- the bots' count (`botFireFrames`, LATER 588 (c)).
+  Was: both timers on the page's browser frames, the lock's end and a reload's up to a game frame early on a fast page,
+  and `+0x81c` run down through the lock (a held M40A1 every 15 frames). The press's own frame against the kit's frame
+  is `RELOAD_PRESS_FRAME_READING` (s11). The clips that follow (`reloadLeft`, `afterShotLeft`: `FUN_005a7ab0`'s lock, the
+  pose's clip) stay on the page's time.
 - **Every weapon's rate, the original's against the port's** (OBF-19, Trello cFOg4UJu, 2026-10-30; reading, pending
   review). `FireWait` is seconds (the record's `+0x50`, research 94 C1; default 0.1, `FUN_005c09f0` D:L476324), and the
   game frame 525/15734 s (research 180 s0, 208), so the original's rate is 1 / (ceil(wait / frame) x frame): the timer
@@ -721,6 +729,7 @@ a PEEK of `body+0x200` and `cam+0xd8`).
 | the room's schedule window (`FIRE_SCHEDULE_WINDOW_ADAPTATION`, `net/fireGate.ts`; LATER 588 (a)) | 7 ticks | an adaptation, no original: a page frame under the 0.1 s clamp (6 ticks) and a tick of naming, inside which a late round keeps its chain's schedule; §6 |
 | the page's mirror of the room's gate (`ROOM_GATE_MIRROR_ADAPTATION`, `fire.ts`; LATER 587's second fold) | online, no round the room's gate refuses at its named command | an adaptation, no original; replaces the first fold's `PRESS_TICK_FLOOR_ADAPTATION`; §6. The page and the room can drift after a refusal only the room makes (cone, muzzle or early through `refuseRound`, nofire): the room is the more lenient side on every path found, so no honest round is wrongly refused, but that is unproven and has no test |
 | the fire mode a weapon comes up in (`DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION`, `accuracy.ts` `defaultFireMode`, `fullAutoDefault`; OT.R100, the owner, 2026-11-03) | automatic for every weapon whose modes include 3, at spawn, the page's mount and a pickup | a browser adaptation on the owner's ruling, no original: the original's spawn default is burst where enabled, else the first mode (`originalSpawnFireMode`, `FUN_005c0250` D:L476181-476192, §6), and a pickup's the highest mode in the hand, the first at a swap (`pickupFireMode`, research 323 R323.11). It moves the spawn default of 20 weapons: off burst, the 15 with single, burst and automatic (M4A1, M4A1 SD, M4A1-M203, 552, 552SD, AK-47, AKS-74, AK-105, KBP OTs-14 Groza, HK5, HK5SD, F90, 9mm Sub, MP5K, F2000); off single, the 5 with single and automatic (Model 18, M14, JACKHAMMER, SA-80 A2, Steyr Aug); the automatic-only M60E3, M63A and .PKM already come up on it (`weapons.parity.test.ts`). The player's in-game L3 switch (`FUN_005c4600`) overrides it, kept per slot across respawns while the weapon is unchanged (`matchFirearm.ts` `spawnKit`) |
+| the reload press's game frame (`RELOAD_PRESS_FRAME_READING`, `fire.ts`; LATER 330) | `'next'`: the press's own frame keeps its fire tick, the delay's first run-down the next game frame's | reading, pending review: R arms `+0x820` in `FUN_00594cf0` (D:L453460-453463), whose caller is not read; `FUN_005506a0` runs a virtual update (vtable `+0x3c`, D:L417905) before the kit's frame (D:L417907), so `'same'` (the timer run down in the press's frame, the reload a game frame sooner) is not ruled out. Settled by resolving that slot or by a capture of a press and its reload's first frame |
 | the tracer's start without a muzzle (`MUZZLE_READING`, `fire.ts`) | (1.2, -1.5, 3) units in the view's right, up, ahead | a reading, no source: an offset from the eye drawn only when the shot has no muzzle point (no held weapon's muzzle, or the aim point too near it: `fire.ts` `drawTracer`'s `fromMuzzle` false) |
 
 ## 12. Evidence

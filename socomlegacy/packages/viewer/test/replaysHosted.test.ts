@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { liveReplays } from '../src/console/adapters/replays';
-import { askReplayGrant, httpReplaySource, replayKey, replaysOf, type ReplayEntry } from '../src/modern/replays/data';
+import { askReplayGrant, httpReplaySource, publicReplayAddress, replayKey, replaysOf, type ReplayEntry } from '../src/modern/replays/data';
 import type { ReplayStage, ReplayStageContext } from '../src/modern/replays/stage';
 import { segmentFor } from '../src/modern/replays/worldStage';
 import * as load from '../src/replay/load';
@@ -186,5 +186,38 @@ describe('SA-9b: Watch\'s segment (worldStage segmentFor)', () => {
     const e = await segmentFor(hosted(), ctx(r.fetch), load).then(() => null, (x: unknown) => x as load.ReplayLoadError);
     expect(e?.kind).toBe('unavailable');
     expect(r.seen.map((s) => s.method)).toEqual(['POST', 'GET']);
+  });
+});
+
+describe('LCM-RP (RB-11): a signed-out hosted Watch opens (the replay page\'s visitor)', () => {
+  const followed = (url: string): Response => {
+    const r = new Response(fixtureBytes() as BodyInit);
+    Object.defineProperty(r, 'url', { value: url });
+    Object.defineProperty(r, 'redirected', { value: true });
+    return r;
+  };
+
+  it('no ticket: no grant asked -- central\'s public fetch with the match named, followed to its door, plays', async () => {
+    const withMatch: ReplayEntry = { ...hosted(), matchId: 'MP2/classic-3-1762652460000' };
+    const asked = `${BASE}/replays/${ID}?match=${encodeURIComponent('MP2/classic-3-1762652460000')}`;
+    const r = routes({ [`GET ${asked}`]: () => followed(`${PROD}?grant=${GRANT}`) });
+    const seg = await segmentFor(withMatch, ctx(r.fetch, null), load);
+    expect(seg.header.map).toBe('MP2');
+    expect(r.seen.map((s) => `${s.method} ${s.url}`)).toEqual([`GET ${asked}`]);
+    expect(r.seen[0]!.auth).toBeNull();
+    expect(r.seen[0]!.init?.redirect).toBe('follow');
+  });
+
+  it('no ticket and no match named: the bare public fetch; a foreign end refuses, never a grant', async () => {
+    const r = routes({ [`GET ${BASE}/replays/${ID}`]: () => followed(`https://elsewhere.test/replays/${ID}?grant=${GRANT}`) });
+    const e = await segmentFor(hosted(), ctx(r.fetch, null), load).then(() => null, (x: unknown) => x as load.ReplayLoadError);
+    expect(e?.kind).toBe('unavailable');
+    expect(r.seen.map((s) => s.method)).toEqual(['GET']);
+  });
+
+  it('publicReplayAddress: the id checked, the match encoded, nothing else', () => {
+    expect(publicReplayAddress(BASE, ID, null)).toBe(`${BASE}/replays/${ID}`);
+    expect(publicReplayAddress(BASE, ID, 'a b/c')).toBe(`${BASE}/replays/${ID}?match=a%20b%2Fc`);
+    expect(() => publicReplayAddress(BASE, 'nope', null)).toThrow();
   });
 });

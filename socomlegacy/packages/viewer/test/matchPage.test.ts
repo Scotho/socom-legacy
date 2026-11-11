@@ -15,8 +15,8 @@ import {
  * LCM-8 (the LCM plan, `docs/plans/2026-11-09-live-cards-and-match-pages.md`; the design's Part 8, the mockup
  * `docs/specs/assets/live-cards/match-page.html` for its content and `pages.html` v9 for the page language, LCM.R11;
  * product track, OT.R53 -- the project site's page, no original): the match page `/match/<id>` from the stats route's
- * JSON -- the head (the map's still, map, mode, the score, date, length, the region, never the host's name), no Watch replay (RPM-1)
- * and Copy link, the awards, the scoreboard, the rounds, the kill feed, weapons and hit locations; LIVE while the match
+ * JSON -- the head (the map's still, map, mode, the score, date, length, the region, never the host's name), ▶ Watch replay to
+ * the replay page when the match has one (LCM-RP) and Copy link, the awards, the scoreboard, the rounds, the kill feed, weapons and hit locations; LIVE while the match
  * runs, polled; an old unranked match whose events are gone says so. LCM-16: the page is built as DOM (`textContent`)
  * inside the project site's shell, every state designed. Names and data invented.
  */
@@ -35,7 +35,8 @@ function fixture(over: Partial<MatchPageData['match']> = {}, rest: Partial<Omit<
       id: '41-3-1762652460000', map: 'MP2', mapName: 'Frostfire', mode: 'DEMOLITION',
       settings: { roundSeconds: 300, maxRounds: 7, lobbyName: 'Friday Night Scrims', respawn: false, password: false },
       startedAt: STARTED, endedAt: STARTED + 31 * 60_000, ended: 'complete', host: 'HostNamePersona', counted: true, reason: null,
-      replay: '/replays/abcdef0123456789?match=41-3-1762652460000', assistsTracked: true, live: false, region: 'us-central', ...over,
+      replay: '/replays/abcdef0123456789?match=41-3-1762652460000', replayPage: '/replay/abcdef0123456789?match=41-3-1762652460000',
+      assistsTracked: true, live: false, region: 'us-central', ...over,
     },
     players: [
       player({ name: 'Ghostline', side: 0, kills: 14, deaths: 5, headShots: 6, hits: 31, shots: 100, score: 42, bombsPlanted: 2, medal: 5, tag: '[NSW]', assists: 3 }),
@@ -114,16 +115,35 @@ describe('LCM-8 / LCM-16: the page renders each section from the stats route\'s 
     expect(el.querySelector('.project-badge[data-tone="live"]')).toBeNull();
   });
 
-  it('RPM-1: no Watch replay, even with a recording -- central\'s raw recording fetch plays nothing in a page; Copy link a tertiary action', () => {
-    expect(MATCH_PAGE_WATCH_REPLAY_ADAPTATION).toMatch(/replay page/);
-    const el = page(fixture());                                         // the fixture carries a replay URL
-    expect(el.querySelector('a.project-match-watch')).toBeNull();
+  it('LCM-RP (LCM.R20 overturned): ▶ Watch replay beside Copy link, to the replay page /replay/<id>?match=<matchId> -- never the raw /replays/ fetch', () => {
+    expect(MATCH_PAGE_WATCH_REPLAY_ADAPTATION).toMatch(/\/replay\/<id>\?match=<matchId>/);
+    const el = page(fixture());
+    const watch = el.querySelector<HTMLAnchorElement>('.project-match-actions a.s2u-action');
+    expect(watch).not.toBeNull();
+    expect(text(watch)).toBe('▶ Watch replay');
+    expect(watch!.getAttribute('href')).toBe('/replay/abcdef0123456789?match=41-3-1762652460000');
+    expect(watch!.classList.contains('s2u-action--primary')).toBe(true);
+    // it sits before Copy link, in the hero's actions
+    const actions = [...el.querySelectorAll('.project-match-actions > *')];
+    expect(actions.indexOf(watch!)).toBeLessThan(actions.indexOf(el.querySelector('button.project-match-copy')!));
     expect([...el.querySelectorAll('a')].some((a) => (a.getAttribute('href') ?? '').includes('/replays/'))).toBe(false);
-    expect(el.textContent).not.toMatch(/Watch replay/);
     const copy = el.querySelector<HTMLButtonElement>('button.project-match-copy')!;
     expect(copy.classList.contains('s2u-action--tertiary')).toBe(true);
     expect(text(copy)).toBe('Copy link');
-    expect(page(fixture({ replay: null })).querySelector('a.project-match-watch')).toBeNull();
+  });
+
+  it('LCM-RP: no Watch replay without a recording, or with a replay page that is not the replay page\'s shape', () => {
+    for (const over of [{ replay: null, replayPage: null }, { replayPage: null }, { replay: null }, { replayPage: '/replays/abcdef0123456789?match=x' },
+      { replayPage: 'https://elsewhere.test/replay/abcdef0123456789?match=x' }, { replayPage: '/replay/ABC?match=x' }, { replayPage: '/replay/abcdef0123456789' }]) {
+      const el = page(fixture(over as Partial<MatchPageData['match']>));
+      expect(el.textContent, JSON.stringify(over)).not.toMatch(/Watch replay/);
+      expect(el.querySelector('.project-match-actions a'), JSON.stringify(over)).toBeNull();
+    }
+  });
+
+  it('LCM-RP: the match id in the replay page\'s link is the match\'s own, encoded', () => {
+    const el = page(fixture({ id: 'MP2/classic-3-1', replayPage: '/replay/abcdef0123456789?match=MP2%2Fclassic-3-1' }));
+    expect(el.querySelector('.project-match-actions a')!.getAttribute('href')).toBe('/replay/abcdef0123456789?match=MP2%2Fclassic-3-1');
   });
 
   it('the sections, in order, each under the house section heading', () => {
@@ -132,9 +152,21 @@ describe('LCM-8 / LCM-16: the page renders each section from the stats route\'s 
 
   it('the awards: MVP, top fragger, sharpshooter, most assists, first blood, best round -- each with its identity', () => {
     const tiles = [...page(fixture()).querySelectorAll('.project-award')];
-    expect(tiles.map((t) => t.querySelector('.project-award-label')?.textContent)).toEqual(['MVP', 'Top fragger', 'Sharpshooter', 'Most assists', 'First blood', 'Best round']);
+    expect(tiles.map((t) => t.querySelector('.project-award-label')?.textContent)).toEqual(['MVP', 'Top fragger', 'Sharpshooter', 'Most assists', 'First blood', 'Best round · R1']);
     expect(tiles[2]!.querySelector('.project-award-value')?.textContent).toBe('43% HS');
     expect(text(tiles[0]!.querySelector('.project-ident-name'))).toBe('Ghostline');
+  });
+
+  it('the render fold: Best round counts a kill in the singular and kills in the plural', () => {
+    const value = (d: ReturnType<typeof fixture>): string | null | undefined => [...page(d).querySelectorAll('.project-award')]
+      .find((t) => t.querySelector('.project-award-label')?.textContent?.startsWith('Best round'))?.querySelector('.project-award-value')?.textContent;
+    // LCM batch 1 (the shoot, merged into v0419): the round rides the label ("Best round · R3"), the value the kills alone
+    const one = fixture();
+    one.awards = { ...one.awards, bestRound: { name: 'Cinder', value: 1, round: 3 } };
+    expect(value(one)).toBe('1 kill');
+    const three = fixture();
+    three.awards = { ...three.awards, bestRound: { name: 'Cinder', value: 3, round: 2 } };
+    expect(value(three)).toBe('3 kills');
   });
 
   it('LCM-20: an award card\'s identity keeps no empty medal slot (its name on the card\'s label line); a table row keeps its slot', () => {
@@ -268,6 +300,19 @@ describe('LCM-8 / LCM-16: the page renders each section from the stats route\'s 
     const weapons = [...el.querySelectorAll('.project-match-weapons .project-bar')].map((w) => text(w));
     expect(weapons).toEqual(['AK-47 2', 'M4A1 1']);
     expect(el.querySelectorAll('.project-match-cols > .s2u-panel')).toHaveLength(2);
+  });
+
+  it('LCM batch 1 (the shoot): the best round names its round on the label line, its value the kills alone -- no wrap in a sixth-wide card', () => {
+    const best = (bestRound: MatchPageData['awards']['bestRound']): [string, string] => {
+      const d = fixture();
+      d.awards = { ...d.awards, bestRound };
+      const tile = [...page(d).querySelectorAll('.project-award')].at(-1)!;
+      return [text(tile.querySelector('.project-award-label')), text(tile.querySelector('.project-award-value'))];
+    };
+    expect(best({ name: 'Cinder', value: 5, round: 5 })).toEqual(['Best round · R5', '5 kills']);
+    expect(best({ name: 'Cinder', value: 1, round: 2 })).toEqual(['Best round · R2', '1 kill']);
+    expect(best({ name: 'Cinder', value: 3 })).toEqual(['Best round', '3 kills']);         // no round told: no "R"
+    for (const v of [...page(fixture()).querySelectorAll('.project-award-value')]) expect(v.textContent).not.toMatch(/·/);
   });
 
   it('LCM-20: the award list carries its count, so a wide row holds every card (no orphan)', () => {

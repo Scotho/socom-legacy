@@ -235,8 +235,19 @@ penetration's exit, a ricochet -- are excluded with it: the viewer's own rounds 
   (`effects` reads it only for a tracer), so the path past the first body is the round's (P12b, research 219 s3.2).
   Tests: `matchFirearm.test.ts`, `matchSound.test.ts`, `confirmedBlood.test.ts` "LATER 644"; the ends, `sound.test.ts`
   "plays nothing when the nearest point is an end of the segment".
-- **Not built** (§13): the other bodies' passing sounds (`PASSING_REMOTE_BODIES_READING`); where the bullet's segment
-  ends (`PASSING_SEGMENT_END_READING`); a remote rocket's `.ROCKET_BY` (LATER 645).
+- **Built, LATER 645** (2026-11-10, `agent/later-645`; reading, pending review; source inspection and unit tests): a
+  rocket's segment is each tick's -- `FUN_003ca5a0` copies `+0x54` into `+0x48` (D:L320297-320299) and writes the
+  stepped point to `+0x54` (the rocket's thrust branch, D:L320305-320342) -- so the 0xb9 branch (D:L454640-454646) tests
+  the rocket's last position to its new one, every tick, until `+6` bit 4 is set: strictly under 100, inside the
+  segment, `.ROCKET_BY` (`FUN_003d37b0`'s handle) at the nearest point, and the bit set whether or not the handle
+  played (D:L454646, past the play). The class is the ID's category (`FUN_003d1e10` D:L454625, 0xb9: LAW HEAT 185,
+  RPG 186; `weaponCategory`); a launched round (0xab) is neither a bullet class nor 0xb9 (D:L454627) and passes
+  silently. The page: `GrenadeThrower.stepLive` tests another's (`remote`) copy each flying game frame against
+  `GrenadeSource.listenerFeet` (`walk.feet()`, as the bullets'), marks it (`Live.rocketBy`) and tells `rocketPast`;
+  `./matchThrow` asks `GameAudio.onRoundPast(.., true)`, none under a round screen (OBF-31). The page's own rocket is
+  never tested (the `+4` bit 3 skip, D:L454627). Tests: `grenade.test.ts`, `matchThrow.test.ts` "LATER 645".
+- **Not built** (§13): the other bodies' passing sounds (`PASSING_REMOTE_BODIES_READING`, the rockets' too); where the
+  bullet's segment ends (`PASSING_SEGMENT_END_READING`).
 
 ### 5.1 Suppressed rifles: missing reports and the 9 m boundary (2026-11-02)
 

@@ -108,8 +108,9 @@ stays clear, and its two-faced control stays stopped -- by `worldmodel/b1_wc05`'
 an INVISIBLE_DI face; `crossroadsBaseRound.spec.ts`'s planted bomb (the base's site 10 u east, the plant hand within
 7 u, the floor at 14.3, lifts 0.1-5) over a 21 x 21 u square, 2247 points, gives the same outcome under `blastExposed`
 as under `blastSeen` at every one, its only cover `warehouse=warehouse/di_intwalls_wh` (ASPHALT). Neither spec's
-assertions nor its recorded outcome change; the crossroads spec's prose still names the line `blastSeen`, which the
-room's players now take as `blastExposed` (the same verdict there). The specs are owed a run at the batch's
+assertions nor its recorded outcome change; the crossroads spec's prose named the line `blastSeen`, which the room's
+players now take as `blastExposed` (the same verdict there) -- its comment re-worded to `blastExposed` by DOCS-A1
+(2026-11-10), the code untouched. The specs are owed a run at the batch's
 `gate.sh --e2e`.
 
 ## 4. The census: polygons the change touches, per MP map
@@ -171,6 +172,7 @@ the most). PERSON's 78 faces are all under MP61's `g1895` (a node not identified
 | name | listed at | kind | status |
 |---|---|---|---|
 | `BLAST_EXPOSURE_TIE_READING` (*note only*) | R388 §5 | gap | *note only*: each pass of `FUN_005a0e70` takes the nearest hit **strictly** beyond the last (D:L459149-459150), so a hit at exactly the distance of the one just seen through is never classified -- a cover face coincident with a see-through face, behind it in the hit list, does not shelter. The port keeps every admitted cover face (it has no hit-list order to follow), so on such a pair it shelters where the original may not. The disc's maps place one bar set per state, so the pair arises only from the port's own both-sets grid (`BARS_SWAP_PLACEHOLDER`), where under r0004 both faces are see-through and the question vanishes. Owed: the batch's hit-list order (`FUN_0031dd40`'s fill) read, or a capture of coincident faces; nothing names it in code. |
+| `BLAST_EXPOSURE_HIT_CAP_READING` (*note only*) | R388 §5 | gap | *note only*: the queued ray's hit list holds at most 64 hits -- the body's ray record is made with room for 0x40 entries of 0x20 bytes (`FUN_00553ea0` D:L419892-419897 through `FUN_002dc6e0` D:L180515-180533: the capacity at `+0x38`, the count `FUN_005a0e70` walks at `+0x34`, D:L459126, the entries at `+0x48`); r0001's, r0004's twin not re-read. What the fill (`FUN_0031dd40`'s batch) does past the 64th hit -- drops the rest, keeps the nearest, or wraps -- is not read. **The assumption:** the port's `blastExposed` walks every hit `segmentHits` returns, uncapped, so it is assumed to agree with the original only while a blast's line to a head meets 64 hits or fewer; past that the answer turns on the unread overflow. Not measured over the maps (the census, §4, counts faces per material, not hits per line); no line of more than 64 admitted faces is expected inside a blast radius on the disc's maps, but that is unchecked. Owed: the fill's overflow read at `FUN_0031dd40`, or the largest hit count of a blast line over every MP map (a dev-disc census); nothing names it in code. |
 | `BLAST_EXPOSURE_NO_POLY_HIT_READING` (*note only*) | R388 §5 | gap | *note only*: a hit with no polygon (`+0xc` null) reads index 0 (`FUN_002dc1d0`), the default's copy, and so shelters unless the default is see-through; such hits come from bodies and objects, which the port's grid does not hold (the bodies' volumes are not on the blast's line). Owed: which objects the queued ray's class meets (`FUN_005ac070`'s query) -- not needed until the port puts any in the grid. |
 
 The material-less test (the null entry) is moot (§1).

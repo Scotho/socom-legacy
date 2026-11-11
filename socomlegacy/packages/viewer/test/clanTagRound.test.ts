@@ -69,7 +69,7 @@ const score = (rows: ScoreRow[]): ServerEvent => ({ type: 'score', rows, timeLef
 
 describe('the protocol: ScoreRow.clan is additive (COLLABORATION, "Protocol N") -- no version bump', () => {
   it('the version is 12 (SEP-POP; the tag rode 11 additively); a row with no tag is the older shape exactly; a tagged row read for the older fields gives the same values', () => {
-    expect(PROTOCOL_VERSION).toBe(14);                           // ER-2's bump (the command's raise bit); 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(15);                           // PROTO-15's bump (V19.R10: the mover's rules); 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(Object.keys(JSON.parse(JSON.stringify(LIMA)) as object).sort()).toEqual(['alive', 'deaths', 'id', 'kills', 'name', 'ping', 'score', 'team']);
     const older = ({ id, name, team, kills, deaths, score: s, alive, ping }: ScoreRow) => ({ id, name, team, kills, deaths, score: s, alive, ping });
     const { clan, ...rest } = JSON.parse(JSON.stringify(KILO)) as ScoreRow;

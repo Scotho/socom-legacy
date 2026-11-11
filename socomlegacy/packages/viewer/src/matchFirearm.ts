@@ -162,6 +162,21 @@ export interface FirearmHands {
 }
 
 /**
+ * LATER 792 (research 211 §10.7; reading, pending review): the controller's trigger edge `+0x118` at which the kit's swap
+ * gate refuses -- 1, held. `FUN_005a8cb0`'s last clause takes the body's controller (`body+0xc0`, set with its back
+ * pointer by `FUN_002a26f0` D:L146774-146781) and passes only when there is none or its edge is not 1 (D:L463174-463181);
+ * every swap passes the gate -- L1 and L2 (`FUN_00594cf0` D:L453290, D:L453302) and the inventory's (D:L72691, D:L72830).
+ * The edge is read where the page steps it, the rifle's raise (`Play.triggerEdge`, `./weaponRaise` `WeaponRaise`:
+ * `FUN_00594cf0` D:L453543-453567, a press 2 on its own update and 1 after; a hand grenade with one left in its slot
+ * remaps a press 2 -> 3 -> 0, D:L453633-453661, and its wind-up leaves the edge there, D:L453507-453518), and the swap's
+ * test runs before that update's step in `FUN_00594cf0` (D:L453288-453312 before D:L453543), so it reads the edge the
+ * last update left. Measured (research 326 §7.3, `agent/last-grenade` 58cbcf94d; r0004, 3/3 a leg; upload pending): with
+ * R1 held L1 was not taken from the empty MARK141 nor from the pistol, and with R1 up it was taken from both; under the
+ * re-armed wind-up (the edge 0) it was taken. That the edge clause is what refuses stays the code's reading.
+ */
+export const SWAP_HELD_EDGE_READING = 1;
+
+/**
  * PAR-56: `FUN_005bc300` (D:L473775-473806): the fire-mode row is hidden for the hand's item of the classes
  * (`FUN_003d1a60`, `@s2u/scene` `itemClass`) 121 grenade, 151 explosive, 190 gear, 201 armour and 230 -- the
  * MGL FRAG TURRET's (D:L473799-473803) -- and shown for every other, PKM's and LMG's turret class 205 among them.
@@ -196,7 +211,7 @@ export interface MatchFirearmDeps {
    * The others: a body under the reticle is the aim point (INT-NET-2); another's round's muzzle. NU-3b C4: the bodies the
    * eye's pick ray meets, a player's side and feet -- the reticle's target (`FUN_005aa690`); absent, no target.
    */
-  remote: Pick<RemotePlayers, 'aimDistance' | 'weaponFrame'> & Partial<Pick<RemotePlayers, 'aimBodies' | 'teamOf' | 'feet' | 'neckAt'>>;
+  remote: Pick<RemotePlayers, 'aimDistance' | 'weaponFrame'> & Partial<Pick<RemotePlayers, 'aimBodies' | 'aimRecords' | 'teamOf' | 'feet' | 'neckAt'>>;
   hud: Hud;
   loadouts: PlayerLoadout;
   view(): WorldView | null;
@@ -261,7 +276,7 @@ export interface MatchFirearm {
   heldRounds(): readonly { slot: number; id: number; rounds: number }[];
   /** The fire mode's name (`FIRE_MODE_NAMES`). */
   fireModeName(): string;
-  /** The page's half of `FUN_005a8cb0`: walking, not reloading, no throw held or thrown. */
+  /** The page's half of `FUN_005a8cb0`: walking, not reloading, no throw held or thrown, the trigger's edge not 1 (LATER 792). */
   kitFree(): boolean;
   /** `FUN_00594cf0`'s four tests for a shoulder press on `slot` (research 201 §1). */
   shoulderGate(slot: number): boolean;
@@ -401,8 +416,10 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     startBody: () => walk.startBody?.() ?? null,                              // LATER 366 (OT.R80): the room's start lines
     muzzle: () => play.muzzle(), reloadSeconds:(family, reloadTime) => play.reloadSeconds(family ?? null, reloadTime ?? 0),   // WEAPON: the rifle in hand (`./play`)
     targetDistance: (eye, ray, reach) => remote.aimDistance(eye, ray, reach),   // INT-NET-2: a body under the reticle is the aim point
-    // P12 (SW-2): every body on the round's line, each a surface the round goes on past (`./fire` `BODY_PENETRATION`).
-    ...(remote.aimBodies ? { bodyDistances: (from: Vec3, ray: Vec3, reach: number) => remote.aimBodies!(from, ray, reach).map((b) => b.distance) } : {}),
+    // P12 (SW-2): every body on the round's line, each a surface the round goes on past (`./fire` `BODY_PENETRATION`);
+    // BONE-BOXES (research 398 s1): every bone box it enters, as the room's walk cuts its range at each (`aimRecords`).
+    ...(remote.aimRecords ? { bodyDistances: (from: Vec3, ray: Vec3, reach: number) => remote.aimRecords!(from, ray, reach) }
+      : remote.aimBodies ? { bodyDistances: (from: Vec3, ray: Vec3, reach: number) => remote.aimBodies!(from, ray, reach).map((b) => b.distance) } : {}),
     // AD-1 (research 232 section 8): the eye's aim ray's cap, the camera's +0xec -- the map's MID with the view's extension.
     aimCap: () => cameraAimCap(d.map()?.camera?.mid, zoom.renderView().farExtra),
     launchPoint: () => play.launchPoint(),                                    // M4: a round mode's `firepoint_203`
@@ -632,8 +649,13 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
   const fireModes: Record<Firearm, number> = { rifle: defaultFireMode(kitRecs[0], kitRounds.held()), pistol: defaultFireMode(kitRecs[1]) };
   /** The walk's tick count the zoom last marked its tick at (`Zoom.markTick`). */
   let zoomTicks = -1;
-  /** The page's half of `FUN_005a8cb0`: walking, not reloading, not while a throw is held or thrown. */
-  const kitFree = (): boolean => walk.mode() === 'walk' && !fire.state().magazine.reloading && !(hands?.busy() ?? false);
+  /**
+   * The page's half of `FUN_005a8cb0`: walking, not reloading, not while a throw is held or thrown -- and (LATER 792,
+   * `SWAP_HELD_EDGE_READING`) not while the controller's trigger edge reads 1, held (D:L463174-463181): from a firearm,
+   * an emptied throwable, the launcher or a placing with R1 held, no slot is taken until it is let go.
+   */
+  const kitFree = (): boolean => walk.mode() === 'walk' && !fire.state().magazine.reloading && !(hands?.busy() ?? false)
+    && play.triggerEdge() !== SWAP_HELD_EDGE_READING;
   /**
    * NU-3a's fold F1: the selected slot `+0x824` -- a swap's target from its press (`FUN_005c4b10` D:L478842), else the firearm
    * in the hand -- whose record the kit's tick runs (`FUN_005c2670` D:L477280) and whose set the reticle asks (`FUN_005be300`
@@ -692,6 +714,7 @@ export function mountFirearm(d: MatchFirearmDeps): MatchFirearm {
     // the trigger (+0x118) and the pull count (+0x818), zeroing only +0x810 (D:L478836-478839, D:L478926-478929) and the
     // throw's power (`FUN_00592d40`, D:L478915); `Fire.setWeapon` keeps the count and the rate's timer, so a held trigger
     // fires the drawn firearm once its swap and raise allow. Was: `fire.release()` here (SWAP_HELD_TRIGGER_READING).
+    // LATER 792: a swap starts under a pressed trigger only at its edge 2 -- held (1), `kitFree` refuses the swap itself.
     started: (to) => { switchZoom(to); accuracy.setWeapon(kitRecord(to)); stillReload.end(); },
   });
   showFireMode();

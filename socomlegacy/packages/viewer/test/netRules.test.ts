@@ -8,6 +8,9 @@ import { PROTOCOL_VERSION, type Rules, type ServerEvent } from '../src/net/proto
 import type { RemotePlayers } from '../src/remotePlayers';
 import type { WalkMode } from '../src/walk';
 import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
+import { noInput } from '../src/gamepad';
+import { voteRowsOpen } from '../src/spectatorVote';
+import { canOpen, SPECTATE_KIT_CHANGE_OWNER } from '../src/weaponSelectState';
 
 /**
  * The page in a match, by its rules: the round-start banner driven from the server's round (`FUN_001fb420`), the
@@ -218,6 +221,51 @@ describe('the classic round on the page', () => {
     open = false;
     globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
     expect(modes).toContain('fly');
+    net.close();
+  });
+
+  // SPECTATE_KIT_CHANGE_OWNER (the owner, 2026-11-11, verbatim: "Spectating another player on your team should still
+  // allow you to bring up the weapon change menu."): the page's gate is unchanged -- the camera is off oneself, so the
+  // vote rows stay shut (`voteRowsOpen`, D:L83641-83644) -- and `canOpen` opens the menu on it; open, the menu holds the
+  // dead's cycle and the spectator camera's keys and pad (HUD mode 1, DEAD_CYCLE_WHILE_MENU_READING), so the teammate
+  // watched is the one watched when it closes.
+  it('SPECTATE_KIT_CHANGE_OWNER: watching a teammate the menu opens; open, the cycle holds the same teammate', () => {
+    let open = false;
+    const { net, server, welcome, bodies } = page('classic', false, { menuOpen: () => open });
+    const walk = { mode: () => 'walk', isDead: () => false };
+    const watching = (): string | null => spectatorHudView(net, walk)?.followed?.name ?? null;   // the teammate followed
+    welcome();
+    server({ type: 'joined', id: 2, name: 'Mate', team: 'seal' });
+    server({ type: 'joined', id: 4, name: 'Pal', team: 'seal' });
+    bodies.push({ id: 2, flags: 64, feet: [100, 0, 0], yaw: 0 }, { id: 4, flags: 64, feet: [500, 0, 0], yaw: 0 });
+    server({ type: 'kill', killer: 3, victim: 1, weapon: '552', how: 'weapon', clip: null });
+    globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+    net.frame(0.016, {} as never, false);
+    const watched = watching();
+    expect(watched).not.toBeNull();
+    const gate = net.gate();
+    expect(gate).toEqual({ inMatch: true, alive: false, cameraOnSelf: false, spectator: false });
+    expect(voteRowsOpen(gate)).toBe(false);
+    expect(canOpen(gate)).toBe(SPECTATE_KIT_CHANGE_OWNER);
+    expect(canOpen(gate)).toBe(true);
+    open = true;                                                  // WEAPON EXCHANGE open over the watched teammate
+    for (const code of ['Space', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'KeyX', 'KeyC']) {
+      globalThis.dispatchEvent(new KeyboardEvent('keydown', { code }));
+      globalThis.dispatchEvent(new KeyboardEvent('keyup', { code }));
+    }
+    for (const lane of ['leanRight', 'leanLeft', 'action', 'stance'] as const) {
+      net.spectatorPad({ ...noInput(), [lane]: true });
+      net.spectatorPad(noInput());
+    }
+    net.frame(0.016, {} as never, false);
+    expect(watching()).toBe(watched);
+    expect(net.gate()).toEqual(gate);
+    open = false;                                                 // closed: the same teammate's view
+    net.frame(0.016, {} as never, false);
+    expect(watching()).toBe(watched);
+    globalThis.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));   // the cycle runs again
+    net.frame(0.016, {} as never, false);
+    expect(watching()).not.toBe(watched);
     net.close();
   });
 });

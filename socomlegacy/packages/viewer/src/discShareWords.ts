@@ -220,3 +220,95 @@ export const shareHostedSteps = (code: string): readonly string[] => [
 export const SHARE_ASK_AGAIN = 'Ask again';
 /** The host's queue place, as the panel says it. */
 export const shareQueued = (place: number): string => `Queued #${place}`;
+
+/*
+ * DSH-10 and DSH-11 (the disc share plan, DSH.R17, the owner, 2026-11-10: "the "send disc" feature that works like our
+ * xbox request game files but provides a shareable link of YOUR iso ... enabled when you have a disc added already
+ * (hoverable tooltip for context)"): the sender's words -- the "Send Game Files" row of Play's "Before you deploy" panel,
+ * the disc mark's "SEND DISC", and the send area both open (RB-27's host screen, RB-26's host mode). Product track, the
+ * launcher's words: the owner may change any.
+ */
+
+/** The panel's row (directly above `SHARE_ROW_LABEL`), and the send area's head. */
+export const SEND_ROW_LABEL = 'Send Game Files';
+export const SEND_TITLE = SEND_ROW_LABEL;
+/** The disc mark menu's row, in the menu's capitals (DISC-LABELS: DISC ISO, RETAIL DISC). */
+export const SEND_MENU_LABEL = 'SEND DISC';
+/** The legend's Cross on the enabled row (and the menu's row). */
+export const SEND_ROW_VERB = 'Send';
+
+/**
+ * Why the row is enabled or not (`../console/state` `sendState`): `ready`, a complete extraction kept in this browser
+ * (DSH.R7); `saving`, the extraction running now; `part`, an extraction kept but not whole; `none`, nothing kept.
+ */
+export type SendWhy = 'ready' | 'none' | 'saving' | 'part';
+/** Each state's line (the row's hint; the legend's line on a disabled press) and tooltip (the row's `title` and description). */
+export const SEND_WORDS: Record<SendWhy, { line: string; tip: string }> = {
+  ready: {
+    line: 'Make a link that copies your game files to another device',
+    tip: 'Makes a link to the game files saved in this browser. Whoever opens it, on this network or anywhere else, asks you for a copy, and you say Yes beside the code they show. One copy at a time; keep this open while you share. Deploying stops sharing.',
+  },
+  none: {
+    line: 'Add your disc first',
+    tip: 'Needs your disc saved in this browser. Choose your disc with the disc mark (bottom left) and let it finish saving; then Send Game Files makes a link others can open to copy it.',
+  },
+  saving: {
+    line: 'Your disc is still saving in this browser',
+    tip: 'Send Game Files opens once your disc has finished saving in this browser: only a complete copy can be sent.',
+  },
+  part: {
+    line: 'Only part of your disc is saved here',
+    tip: 'Only part of your disc is saved in this browser. Choose your disc again to finish saving it, then send.',
+  },
+};
+
+/** The send area: its lead, the line under the link, and its link's words. */
+export const SEND_LEAD = 'Send this link to whoever needs the game files. When they open it, their code shows below: say Yes beside it if it matches the code on their screen.';
+export const SEND_KEEP_OPEN = 'Keep this open while you share.';
+export const SEND_OPENING = 'Making your link…';
+export const SEND_COPY_LINK = 'Copy link';
+export const SEND_LINK_COPIED = 'Link copied';
+/** CPS-5's pattern: the browser refused the clipboard (a pad's Cross is no user gesture to it), so the link is selected by hand. */
+export const SEND_COPY_REFUSED = 'Select the link above and copy it: the browser refused the clipboard.';
+/** The QR's accessible name. */
+export const sendQrLabel = (link: string): string => `Send link: ${link}`;
+/** The requests' list. */
+export const SEND_REQUESTS = 'Requests';
+export const SEND_NO_REQUESTS = 'No requests yet. When someone opens your link, their code shows here.';
+export const SEND_YES = 'Yes';
+export const SEND_NO = 'No';
+export const SEND_STOP = 'Stop';
+/** Circle in the area: it closes the area, which ends the share (Q10). */
+export const SEND_CLOSE = 'Stop sharing';
+/** The review of agent/disc-send-row (F2): Circle where nothing is shared (needs-extract, failed): back to the rows. */
+export const SEND_BACK = 'Back';
+/** The review's F2: Circle while a copy runs asks first, in the words of Deploy's question (`SHARE_DEPLOY_STOPS`). */
+export const SHARE_CLOSE_STOPS = 'Closing stops sharing: the copy under way stops and the requests waiting are turned away.';
+/** A request's age, as the list says it. */
+export const sendAge = (ms: number): string => (ms < 60_000 ? 'just now' : `${Math.floor(ms / 60_000)} min ago`);
+/** The copy under way's head. */
+export const sendCopying = (code: string): string => `Sending to ${code}`;
+/** The last copy's outcome. */
+export function sendLast(last: { code: string; outcome: 'done' | 'failed' | 'stopped'; reason?: string }): string {
+  if (last.outcome === 'done') return `Sent to ${last.code}.`;
+  if (last.outcome === 'stopped') return `Stopped the copy to ${last.code}.`;
+  return `The copy to ${last.code} did not finish.${last.reason ? ` ${last.reason}` : ''}`;
+}
+/** The host's `needs-extract` (DSH.R7: nothing opened at central). */
+export const SEND_NEEDS_EXTRACT = 'This browser does not hold a complete copy of your disc, so there is nothing to send. Choose your disc with the disc mark (bottom left) and let it finish saving.';
+/** The host's `failed`: the head; its reason follows. */
+export const SEND_FAILED = 'Could not make a link';
+/** Q11's question (Deploy while the share is busy): `SHARE_DEPLOY_STOPS` its lead; No first and focused. */
+export const SHARE_DEPLOY_CONFIRM = {
+  title: 'Stop sharing and deploy?',
+  lead: SHARE_DEPLOY_STOPS,
+  no: 'No, keep sharing',
+  yes: 'Yes, deploy',
+} as const;
+/** The review's F2: Circle (or the crumb's Back) while a copy runs; No first and focused. */
+export const SHARE_CLOSE_CONFIRM = {
+  title: 'Stop sharing?',
+  lead: SHARE_CLOSE_STOPS,
+  no: 'No, keep sharing',
+  yes: 'Yes, stop sharing',
+} as const;

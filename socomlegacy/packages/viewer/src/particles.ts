@@ -132,6 +132,24 @@ export const PARTICLE_BATCH_RENDER_ORDER = 0.9375;
 export const PARTICLE_BUCKETS_PER_TEXTURE_ADAPTATION = 16;
 
 const lerp = (r: readonly [number, number], u: number): number => r[0] + (r[1] - r[0]) * u;
+
+/**
+ * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation): the draw's scratch, owned by the module -- the eye and its
+ * axes, a streak's travel, view, side, head and tail and its tick-back point, and the corner tables -- where each frame
+ * made them anew (5 vectors, 4 clones and a corner list a streaked particle a frame; 27 MB of `fill`'s own in 10 s of
+ * shadow's X2c profile). The same float operations in the same order, so the batches' buffers are the same bits; the
+ * draw is not re-entered (nothing it calls draws particles), and nothing it writes keeps a scratch object.
+ */
+const EYE = new Vector3(), RIGHT = new Vector3(), UP = new Vector3();
+const TRAVEL = new Vector3(), VIEW = new Vector3(), SIDE = new Vector3(), HEAD = new Vector3(), TAIL = new Vector3();
+const PREV: Vec3 = [0, 0, 0];
+/** A square's corners, as signs along the eye's right and up. */
+const SQUARE_CORNERS: readonly (readonly [number, number])[] = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+/** A rotated particle's corners' uvs (`rotatedCorners`). */
+const ROTATED_UVS: readonly (readonly [number, number])[] = [[0, 0], [0, 1], [1, 1], [1, 0]];
+/** A particle in a draw's list, with its range squared from the eye; reused from frame to frame (`draw`). */
+interface DrawEntry { p: Particle; d2: number }
+const byFarthest = (a: DrawEntry, b: DrawEntry): number => b.d2 - a.d2;
 /** A number an owner (a run) keys its sources by. */
 const ownerIds = new WeakMap<object, number>();
 
@@ -146,6 +164,10 @@ export class ParticleSystem {
   private alphaPass: AlphaPassSource | null = null;
   /** Particles emitted so far, for the hook. */
   emitted = 0;
+  /** PAGE-ALLOC-A: the draw's map of this frame's textures, each texture's list, and the entries (`draw`). */
+  private readonly byTexture = new Map<string, DrawEntry[]>();
+  private readonly lists = new Map<string, DrawEntry[]>();
+  private readonly entries: DrawEntry[] = [];
 
   constructor(private readonly random: () => number = Math.random) {
     this.object.name = 'particles';
@@ -363,27 +385,32 @@ export class ParticleSystem {
    * `h x streak[0]` back, the tail's alpha times `streak[1]` -- the sparks' look. False when it has not moved (drawn as
    * a square).
    */
-  private streak(p: Particle, h: number, eye: Vector3, rgba: [number, number, number, number], pos: Float32Array, uv: Float32Array, col: Float32Array, q: number): boolean {
-    const prev = tickBack(p);
-    const d = new Vector3(p.position[0] - prev[0], p.position[1] - prev[1], p.position[2] - prev[2]);
-    const view = new Vector3(p.position[0] - eye.x, p.position[1] - eye.y, p.position[2] - eye.z).normalize();
+  private streak(
+    p: Particle, h: number, eye: Vector3, r: number, g: number, b: number, a: number,
+    pos: Float32Array, uv: Float32Array, col: Float32Array, q: number,
+  ): boolean {
+    // PAGE-ALLOC-A: the module's scratch (`TRAVEL` .. `TAIL`), each set as the vector it stands for was made.
+    const prev = tickBackInto(p, PREV);
+    const d = TRAVEL.set(p.position[0] - prev[0], p.position[1] - prev[1], p.position[2] - prev[2]);
+    const view = VIEW.set(p.position[0] - eye.x, p.position[1] - eye.y, p.position[2] - eye.z).normalize();
     d.addScaledVector(view, -d.dot(view));                // the travel as the screen sees it
     if (d.lengthSq() < 1e-8) return false;
     d.normalize();
-    const side = new Vector3().crossVectors(view, d).normalize().multiplyScalar(h);
-    const [reach, tailAlpha] = p.source.streak ?? STREAK_DEFAULT;
-    const head = new Vector3(...p.position).addScaledVector(d, h);
-    const tail = new Vector3(...prev).addScaledVector(d, -h * reach);
-    const corners: [Vector3, number][] = [
-      [tail.clone().sub(side), tailAlpha], [tail.clone().add(side), tailAlpha], [head.clone().add(side), 1], [head.clone().sub(side), 1],
-    ];
-    corners.forEach(([v, k], i) => {
+    const side = SIDE.crossVectors(view, d).normalize().multiplyScalar(h);
+    const streak = p.source.streak ?? STREAK_DEFAULT;
+    const reach = streak[0], tailAlpha = streak[1];
+    const head = HEAD.set(p.position[0], p.position[1], p.position[2]).addScaledVector(d, h);
+    const tail = TAIL.set(prev[0], prev[1], prev[2]).addScaledVector(d, -h * reach);
+    // The corners tail - side, tail + side, head + side, head - side: the clones' `sub` / `add`, written straight out.
+    for (let i = 0; i < 4; i++) {
+      const v = i < 2 ? tail : head, k = i < 2 ? tailAlpha : 1;
       const o = q * 4 + i;
-      pos[o * 3] = v.x; pos[o * 3 + 1] = v.y; pos[o * 3 + 2] = v.z;
+      if (i === 0 || i === 3) { pos[o * 3] = v.x - side.x; pos[o * 3 + 1] = v.y - side.y; pos[o * 3 + 2] = v.z - side.z; }
+      else { pos[o * 3] = v.x + side.x; pos[o * 3 + 1] = v.y + side.y; pos[o * 3 + 2] = v.z + side.z; }
       uv[o * 2] = i === 1 || i === 2 ? 1 : 0;
       uv[o * 2 + 1] = i >= 2 ? 1 : 0;
-      col[o * 4] = rgba[0]; col[o * 4 + 1] = rgba[1]; col[o * 4 + 2] = rgba[2]; col[o * 4 + 3] = rgba[3] * k;
-    });
+      col[o * 4] = r; col[o * 4 + 1] = g; col[o * 4 + 2] = b; col[o * 4 + 3] = a * k;
+    }
     return true;
   }
 
@@ -431,23 +458,35 @@ export class ParticleSystem {
   private draw(camera: Camera | null): void {
     for (const pool of this.meshes.values()) for (const { mesh } of pool) mesh.visible = false;
     if (!camera || this.particles.length === 0) return;
-    const eye = new Vector3().setFromMatrixPosition(camera.matrixWorld);
-    const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-    const up = new Vector3().setFromMatrixColumn(camera.matrixWorld, 1).normalize();
-    const byTexture = new Map<string, { p: Particle; d2: number }[]>();
+    const eye = EYE.setFromMatrixPosition(camera.matrixWorld);
+    const right = RIGHT.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const up = UP.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    // PAGE-ALLOC-A: the map cleared and refilled in this frame's order of first sight (as a new map was), each texture's
+    // list kept from frame to frame and emptied at its first particle, the entries reused.
+    const byTexture = this.byTexture;
+    byTexture.clear();
+    let used = 0;
     for (const p of this.particles) {
       const d2 = (p.position[0] - eye.x) ** 2 + (p.position[1] - eye.y) ** 2 + (p.position[2] - eye.z) ** 2;
       const texture = p.texture ?? (particleTextureAt(p.source, p.age / p.life) ?? '').toLowerCase();
       let list = byTexture.get(texture);
-      if (!list) byTexture.set(texture, (list = []));
-      list.push({ p, d2 });
+      if (!list) {
+        list = this.lists.get(texture);
+        if (list) list.length = 0;
+        else this.lists.set(texture, (list = []));
+        byTexture.set(texture, list);
+      }
+      let entry = this.entries[used];
+      if (entry) { entry.p = p; entry.d2 = d2; } else this.entries.push((entry = { p, d2 }));
+      used++;
+      list.push(entry);
     }
     // LATER 593: the alpha pass's keys from this eye, far to near; a particle's key is its plain range squared (`d2`,
     // `FUN_00327910` D:L225490-225494), drawn before every item whose key is below it (`./alphaInterleave`).
     const keys = this.alphaPass?.keys(eye) ?? null;
     const n = keys?.length ?? 0;
     for (const [texture, list] of byTexture) {
-      list.sort((a, b) => b.d2 - a.d2);                  // back to front (`FUN_00326c30`)
+      list.sort(byFarthest);                             // back to front (`FUN_00326c30`)
       // The runs of one slot, far to near: the list and the keys both descend, so a run's slot never falls.
       let bucket = 0;
       for (let i = 0; i < list.length;) {
@@ -465,10 +504,10 @@ export class ParticleSystem {
 
   /** Writes `list[from..to)` into the texture's `bucket`-th batch at `renderOrder`; false when none of them is drawn. */
   private fill(
-    texture: string, bucket: number, list: readonly { p: Particle; d2: number }[], from: number, to: number, renderOrder: number,
+    texture: string, bucket: number, list: readonly DrawEntry[], from: number, to: number, renderOrder: number,
     eye: Vector3, right: Vector3, up: Vector3,
   ): boolean {
-    const CORNERS: readonly (readonly [number, number])[] = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    const CORNERS = SQUARE_CORNERS;
     const g = this.groupFor(texture, bucket, to - from);
     const pos = g.pos.array as Float32Array, uv = g.uv.array as Float32Array, col = g.col.array as Float32Array;
     let q = 0;
@@ -479,13 +518,24 @@ export class ParticleSystem {
       if (fade <= 0.01) continue;
       const [r, gg, b, a] = particleColour(c, t);
       const h = p.size * particleScale(c, t);
-      if (c.type === 3 && this.streak(p, h, eye, [r, gg, b, a * fade], pos, uv, col, q)) { q++; continue; }
+      if (c.type === 3 && this.streak(p, h, eye, r, gg, b, a * fade, pos, uv, col, q)) { q++; continue; }
       if (c.type === 1 || c.type === 2) {
-        const corners = c.type === 1 ? rotatedCorners(p.position, h, p.angle, right, up) : flatCorners(p.position, h);
+        // PAGE-ALLOC-A: `rotatedCorners` / `flatCorners` written straight into the buffers, the same numbers.
+        const cp = p.position;
         for (let k = 0; k < 4; k++) {
-          const v = q * 4 + k, [x, y, z, u, w] = corners[k]!;
-          pos[v * 3] = x; pos[v * 3 + 1] = y; pos[v * 3 + 2] = z;
-          uv[v * 2] = u; uv[v * 2 + 1] = w;
+          const v = q * 4 + k;
+          if (c.type === 1) {
+            const t = p.angle + (k * Math.PI) / 2, cx = Math.cos(t) * h, sy = -Math.sin(t) * h;   // screen y runs down
+            pos[v * 3] = cp[0] + right.x * cx + up.x * sy;
+            pos[v * 3 + 1] = cp[1] + right.y * cx + up.y * sy;
+            pos[v * 3 + 2] = cp[2] + right.z * cx + up.z * sy;
+            uv[v * 2] = ROTATED_UVS[k]![0]; uv[v * 2 + 1] = ROTATED_UVS[k]![1];
+          } else {
+            pos[v * 3] = k === 0 || k === 3 ? cp[0] - h : cp[0] + h;
+            pos[v * 3 + 1] = cp[1];
+            pos[v * 3 + 2] = k < 2 ? cp[2] - h : cp[2] + h;
+            uv[v * 2] = k < 2 ? 0 : 1; uv[v * 2 + 1] = k === 0 || k === 3 ? 0 : 1;
+          }
           col[v * 4] = r; col[v * 4 + 1] = gg; col[v * 4 + 2] = b; col[v * 4 + 3] = a * fade;
         }
         q++;
@@ -557,11 +607,18 @@ export function commandVelocities(config: ParticleSource, ctx: EffectContext): {
  * the one now -- and no further back than the time it has moved since its spawn (`moved`: the spawn place, D:L225673).
  */
 export function tickBack(p: Pick<Particle, 'position' | 'velocity' | 'moved' | 'source'>): Vec3 {
+  return tickBackInto(p, [0, 0, 0]);
+}
+
+/** `tickBack` written into `out` (PAGE-ALLOC-A: the draw's scratch), the same numbers. */
+function tickBackInto(p: Pick<Particle, 'position' | 'velocity' | 'moved' | 'source'>, out: Vec3): Vec3 {
   const c = p.source, t = p.moved;
-  if (t <= 0) return [p.position[0], p.position[1], p.position[2]];
+  if (t <= 0) { out[0] = p.position[0]; out[1] = p.position[1]; out[2] = p.position[2]; return out; }
   const d = c.friction !== 0 ? frictionFactor(c.friction, t) : 1;
-  const v = (i: 0 | 1 | 2): number => p.velocity[i] / d - c.accel[i] * t;
-  return [p.position[0] - v(0) * t, p.position[1] - v(1) * t, p.position[2] - v(2) * t];
+  out[0] = p.position[0] - (p.velocity[0] / d - c.accel[0] * t) * t;
+  out[1] = p.position[1] - (p.velocity[1] / d - c.accel[1] * t) * t;
+  out[2] = p.position[2] - (p.velocity[2] / d - c.accel[2] * t) * t;
+  return out;
 }
 
 /**

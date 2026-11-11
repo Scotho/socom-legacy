@@ -193,8 +193,34 @@ export const PLAYER_INDOORS_FEET_READING = 'feetFloorInside' as const;
  */
 export { CAMERA_FLOOR_ABOVE, cameraFloor } from './floorPick';
 
-/** One live instance of an effect model (a casing, a flash), made for a run and dropped with it. */
-interface Instance { object: Object3D; model: string }
+/**
+ * EFFECT_INSTANCE_POOL_ADAPTATION (LATER 870; a browser adaptation, the renderer's -- the original's zAnim instances are
+ * its own pools', nothing here reads them): the most spare copies of one effect model kept for the next run. three r186
+ * holds a render object -- its node build, its pipeline's use and its own uniform buffers -- until its object or material
+ * is disposed (a geometry's dispose only drops its attributes); a copy only taken out of the scene was held for the session (shadow's census, 2026-11-11:
+ * ~27 uniform buffers a second in a 16-seat match, none destroyed, the muzzle flashes' copies). A finished run's copy
+ * goes back to its model's pool, put back as the model left it, and the next run takes it with its render objects
+ * built. A copy past the room is disposed, its objects only (`Object3D.dispose`): the material and the geometry are
+ * the model's, shared with every copy. Not one dispose a run: the last render object of a kind takes its node build
+ * and its pipeline with it, and the next flash would build both again in the frame (research 90's first-use cost).
+ * 64 is over the most flashes of one model a 16-seat match draws at once by far (a flash lives about 0.05 s).
+ */
+export const EFFECT_INSTANCE_POOL_ADAPTATION = 64;
+
+/** One live instance of an effect model (a casing, a flash), made for a run and pooled after it (`release`). */
+interface Instance { object: Object3D; model: string; rest?: NodeRest[] }
+
+/** A copy's node as the model left it: what a run moves (`active`, `translate`, `rotate`, `fromTo`, a motion, a tracer's pose). */
+interface NodeRest { node: Object3D; position: Vector3; quaternion: Quaternion; scale: Vector3; visible: boolean; matrixAutoUpdate: boolean; matrix: Matrix4 }
+
+const restOf = (root: Object3D): NodeRest[] => {
+  const out: NodeRest[] = [];
+  root.traverse((node) => out.push({
+    node, position: node.position.clone(), quaternion: node.quaternion.clone(), scale: node.scale.clone(),
+    visible: node.visible, matrixAutoUpdate: node.matrixAutoUpdate, matrix: node.matrix.clone(),
+  }));
+  return out;
+};
 
 /**
  * The tracer object's scale: the round builds its matrix as an identity scaled by 7.5 (`0x40f00000`, `FUN_003cabe0`
@@ -284,6 +310,8 @@ export class Effects {
   readonly object = new Group();
   private programs = new Map<string, EffectProgram>();
   private readonly models = new Map<string, Group>();
+  /** EFFECT_INSTANCE_POOL_ADAPTATION: the finished runs' copies by model, for the next run (`instanceOf`, `release`). */
+  private readonly spare = new Map<string, Instance[]>();
   private textures = new Map<string, EffectTexture>();
   private readonly materials = new Map<string, MeshBasicNodeMaterial | LineBasicNodeMaterial>();
   private runs: EffectRun[] = [];
@@ -426,6 +454,9 @@ export class Effects {
     // The models' packet geometries are the map's own (`buildEffectModel`: one per packet); the runs' clones share them.
     for (const model of this.models.values()) model.traverse((o) => { if (o instanceof Mesh || o instanceof LineSegments) o.geometry.dispose(); });
     this.models.clear();
+    // The pooled copies share those geometries and the materials below: the materials' disposes free the copies' render
+    // objects (a geometry's only drops its attributes).
+    this.spare.clear();
     for (const m of this.materials.values()) { m.map?.dispose(); m.dispose(); }
     this.materials.clear();
     this.data = data;
@@ -767,6 +798,10 @@ export class Effects {
   private retireTracer(t: LiveTracer): void {
     const i = this.tracers.indexOf(t);
     if (i >= 0) this.tracers.splice(i, 1);
+    // LATER 870: a run that ended while the flight held it has left the list (`sweepRuns`) with its node still in the
+    // scene; the flight was its last hold. A run still listed is the sweep's, when it ends.
+    const ctx = t.run.context as RunContext;
+    if (t.run.finished && ctx.instance && !this.runs.includes(t.run)) { this.release(ctx.instance); ctx.instance = null; }
   }
 
   /** The object at the flight's place, turned along the shot and scaled (`TRACER_ORIENTATION_READING`, `TRACER_OBJECT_SCALE`). */
@@ -847,7 +882,7 @@ export class Effects {
       if (!run.finished) { alive.push(run); continue; }
       const ctx = run.context as RunContext;
       // A tracer that draws the run's own model keeps it until the flight retires (`tracerHolds`).
-      if (ctx.instance && !this.tracerHolds(run)) this.object.remove(ctx.instance.object);
+      if (ctx.instance && !this.tracerHolds(run)) this.release(ctx.instance);
     }
     this.runs = alive;
   }
@@ -934,7 +969,7 @@ export class Effects {
     for (const run of this.runs) {
       run.stop();
       const ctx = run.context as RunContext;
-      if (ctx.instance) this.object.remove(ctx.instance.object);
+      if (ctx.instance) this.release(ctx.instance);
     }
     this.runs = [];
     this.ambientRuns = [];
@@ -1004,12 +1039,44 @@ export class Effects {
     if (ctx.instance) return ctx.instance;
     const name = run.program.nodes[run.program.root] ?? '';
     const model = run.program.root > 0 ? this.models.get(name) : undefined;
+    const pooled = model ? this.spare.get(name)?.pop() : undefined;   // LATER 870: a finished run's copy, put back
+    if (pooled) {
+      this.object.add(pooled.object);
+      ctx.instance = pooled;
+      return pooled;
+    }
     const object = model ? model.clone(true) : new Group();
     if (!model) object.name = run.program.name;      // a bare node carries its animation's name (the tests find it so)
     object.visible = false;
     this.object.add(object);
-    ctx.instance = { object, model: model ? name : '' };
+    ctx.instance = { object, model: model ? name : '', ...(model ? { rest: restOf(object) } : {}) };
     return ctx.instance;
+  }
+
+  /**
+   * A run's copy leaves the scene (EFFECT_INSTANCE_POOL_ADAPTATION): back to its model's pool as the model left it, or,
+   * past the pool's room, disposed -- its objects, which frees their render objects, never the shared material or
+   * geometry. A bare node (no model) is an empty group: nothing drawn, nothing held.
+   */
+  private release(inst: Instance): void {
+    this.object.remove(inst.object);
+    if (!inst.rest || !this.models.has(inst.model)) return;
+    let pool = this.spare.get(inst.model);
+    if (!pool) this.spare.set(inst.model, (pool = []));
+    if (pool.length >= EFFECT_INSTANCE_POOL_ADAPTATION) {
+      inst.object.traverse((o) => o.dispose());
+      return;
+    }
+    for (const r of inst.rest) {
+      r.node.position.copy(r.position);
+      r.node.quaternion.copy(r.quaternion);
+      r.node.scale.copy(r.scale);
+      r.node.visible = r.visible;
+      r.node.matrixAutoUpdate = r.matrixAutoUpdate;
+      r.node.matrix.copy(r.matrix);
+      r.node.matrixWorldNeedsUpdate = true;
+    }
+    pool.push(inst);
   }
 
   /** A node of a run: its instance's root (`NODE_ROOT`, or the root's own name), a named sub-node of it, or null. */

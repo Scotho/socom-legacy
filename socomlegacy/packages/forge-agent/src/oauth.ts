@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { basename, dirname, join } from "node:path";
 import type { Response, Express } from "express";
 import type {
@@ -88,7 +89,32 @@ export function canonicalResource(
   const canonical = `${origin}/mcp`;
   return href === canonical || href === `${canonical}/` ? canonical : null;
 }
-/** Browser adaptation (gateway policy): the per-address budgets on registered clients and live tokens (LATER 429). */
+/**
+ * Browser adaptation (gateway policy; LATER 482): the key of every per-address budget. An IPv6 client is keyed by its
+ * /64 -- one subscriber's usual allocation, so one client cannot rotate through its /64 to fill a store; an
+ * IPv4-mapped IPv6 address (a dual-stack socket's IPv4 client) by its IPv4 address; IPv4 and anything that is not an
+ * address ("unknown", "in-process") unchanged.
+ */
+export function budgetAddress(address: string): string {
+  const bare = address.trim().split("%")[0]!;
+  if (isIP(bare) !== 6) return address;
+  let text = bare.toLowerCase();
+  const dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(2).map(Number) as [number, number, number, number];
+    text = `${dotted[1]}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = text.split("::") as [string, string | undefined];
+  const left = head ? head.split(":") : [],
+    right = tail ? tail.split(":") : [];
+  const groups = (
+    tail === undefined ? left : [...left, ...Array<string>(8 - left.length - right.length).fill("0"), ...right]
+  ).map((g) => parseInt(g, 16));
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff)
+    return [groups[6]! >> 8, groups[6]! & 255, groups[7]! >> 8, groups[7]! & 255].join(".");
+  return `${groups.slice(0, 4).map((g) => g.toString(16)).join(":")}::/64`;
+}
+/** Browser adaptation (gateway policy): the per-address budgets on registered clients, live tokens, pending consents and codes (LATER 429, 482). */
 export interface GuestBudget {
   /** The client address of the request in progress; in-process callers share one budget. */
   address?: () => string;
@@ -96,6 +122,10 @@ export interface GuestBudget {
   clientsPerAddress?: number;
   /** Live bootstrap tokens one address may hold (default 32). */
   tokensPerAddress?: number;
+  /** LATER 482: pending consents one address may hold (default 32, an eighth of the 256 global). */
+  consentsPerAddress?: number;
+  /** LATER 482: unexchanged authorization codes one address may hold (default 32, an eighth of the 256 global). */
+  codesPerAddress?: number;
 }
 /**
  * AX-11 (a browser adaptation, gateway policy): the opt-in file that keeps the OAuth state across a restart. Unset, the
@@ -137,6 +167,7 @@ export class GuestOAuth implements OAuthServerProvider {
       client: string;
       params: AuthorizationParams;
       principal: string;
+      address: string;
       expires: number;
     }
   >();
@@ -150,6 +181,7 @@ export class GuestOAuth implements OAuthServerProvider {
       client: OAuthClientInformationFull;
       params: AuthorizationParams;
       csrfHash: string;
+      address: string;
       expires: number;
     }
   >();
@@ -205,8 +237,9 @@ export class GuestOAuth implements OAuthServerProvider {
   ) {
     if (persistence.stateFile) this.load(persistence.stateFile);
   }
+  /** LATER 482: keyed by budgetAddress, an IPv6 client by its /64. */
   private address() {
-    return this.budget.address?.() ?? "in-process";
+    return budgetAddress(this.budget.address?.() ?? "in-process");
   }
   private held(map: Map<string, { address: string }>, address: string) {
     let n = 0;
@@ -255,12 +288,16 @@ export class GuestOAuth implements OAuthServerProvider {
     this.validate(client, params);
     if (this.consents.size >= 256)
       throw new InvalidRequestError("Consent capacity");
+    const address = this.address();
+    if (this.held(this.consents, address) >= (this.budget.consentsPerAddress ?? 32))
+      throw new InvalidRequestError("Consent address capacity");
     const id = random(),
       csrf = random();
     this.consents.set(id, {
       client,
       params,
       csrfHash: digest(csrf),
+      address,
       expires: this.now() + LIMITS.invitationMs,
     });
     res.cookie("s2u_guest_consent", csrf, {
@@ -325,11 +362,15 @@ export class GuestOAuth implements OAuthServerProvider {
     this.sweep();
     this.validate(client, params);
     if (this.codes.size >= 256) throw new InvalidRequestError("Code capacity");
+    const address = this.address();
+    if (this.held(this.codes, address) >= (this.budget.codesPerAddress ?? 32))
+      throw new InvalidRequestError("Code address capacity");
     const code = random();
     this.codes.set(digest(code), {
       client: client.client_id,
       params,
       principal: random(),
+      address,
       expires: this.now() + 60000,
     });
     return code;
@@ -501,8 +542,9 @@ export class GuestOAuth implements OAuthServerProvider {
       perClient = this.budget.clientsPerAddress ?? 32,
       perToken = this.budget.tokensPerAddress ?? 32;
     const counts = new Map<string, number>();
+    // LATER 482: a file written before the /64 key counts its entries by the same key.
     const admit = (kind: string, address: string, limit: number) => {
-      const key = `${kind}\u0000${address}`,
+      const key = `${kind}\u0000${budgetAddress(address)}`,
         n = counts.get(key) ?? 0;
       if (n >= limit) return false;
       counts.set(key, n + 1);
@@ -529,7 +571,7 @@ export class GuestOAuth implements OAuthServerProvider {
       }
       this.clients.set(c.client.client_id, {
         client: c.client as OAuthClientInformationFull,
-        address: c.address,
+        address: budgetAddress(c.address),
         expires: c.expires,
       });
     }
@@ -563,7 +605,7 @@ export class GuestOAuth implements OAuthServerProvider {
           resource: this.resource,
           extra: { principalId: t.principalId },
         },
-        address: t.address,
+        address: budgetAddress(t.address),
         expires: t.expires,
       });
     }

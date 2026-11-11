@@ -1,5 +1,6 @@
 import { decodeRecords, readReplayHeader, REPLAY_FORMATS, REPLAY_PROTOCOLS, type ReplayHeader, type ReplayRecord } from '../../../match/src/replay/format';
-import { isPinnedReplayDoor, replayDoorShaped, type PinnedReplayDoor } from '../connectHost';
+import { replayQueryPairs } from './query';
+import { isPinnedReplayDoor, pinnedReplayDoor, replayDoorShaped, type PinnedReplayDoor } from '../connectHost';
 import { universeServiceBase } from '../universeHost';
 import type { ReplayLoadKind } from './refusalKind';
 
@@ -34,6 +35,9 @@ import type { ReplayLoadKind } from './refusalKind';
  * any, or a body that does not decode, `missing` (a recording of another version stays `version`, in fixed words).
  * An address on a door's host (`replayDoorShaped`) without its pinned door is never fetched, and `checkReplayUrl` -- the
  * development `?replay=` mode's -- never takes one.
+ *
+ * LCM-RP (RB-11; `REPLAY_PUBLIC_FETCH_ADAPTATION`): a fourth, for a page with no sign-in -- `loadPublicSegment`, central's
+ * public fetch followed to the door it names, only that one end read.
  */
 
 export interface LoadedSegment {
@@ -247,8 +251,6 @@ export interface LoadSegmentDeps extends ReplayServerOptions {
 /** SA-9b: a door's segment (the module's doc): the grant its bearer, the bounds while it streams. */
 async function loadFromDoor(url: string, door: { door: PinnedReplayDoor; grant: string }, deps: LoadSegmentDeps): Promise<LoadedSegment> {
   const get = deps.fetch ?? globalThis.fetch.bind(globalThis);
-  const bounds = deps.bounds ?? { body: REPLAY_DOOR_BODY_MAX_BYTES_ADAPTATION, inflated: REPLAY_DOOR_INFLATED_MAX_BYTES_ADAPTATION };
-  const records = bounds.records ?? REPLAY_DOOR_RECORDS_MAX_ADAPTATION;
   let res: Response;
   try {
     res = await get(url, { cache: 'no-store', redirect: 'error', credentials: 'omit', headers: { authorization: `Bearer ${door.grant}` } });
@@ -266,6 +268,13 @@ async function loadFromDoor(url: string, door: { door: PinnedReplayDoor; grant: 
       ? 'The server that kept the recording is busy; try again in a moment.'
       : `The recording could not be fetched from the server that kept it (HTTP ${res.status}).`, 'unavailable');
   }
+  return readDoorBody(res, deps);
+}
+
+/** SA-9b: a door's body read under its bounds and decoded (`loadFromDoor`; LCM-RP: `loadPublicSegment`'s too). */
+async function readDoorBody(res: Response, deps: Pick<LoadSegmentDeps, 'bounds' | 'meter'>): Promise<LoadedSegment> {
+  const bounds = deps.bounds ?? { body: REPLAY_DOOR_BODY_MAX_BYTES_ADAPTATION, inflated: REPLAY_DOOR_INFLATED_MAX_BYTES_ADAPTATION };
+  const records = bounds.records ?? REPLAY_DOOR_RECORDS_MAX_ADAPTATION;
   const declared = res.headers.get('content-length');
   try {
     if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > bounds.body) {
@@ -311,4 +320,87 @@ export async function loadSegment(url: string, deps: LoadSegmentDeps = {}): Prom
   if (hosted && res.status === 404) throw new ReplayLoadError(REPLAY_NOT_FOUND_OR_NOT_YOURS, 'missing');
   if (!res.ok) throw new ReplayLoadError(`The recording could not be fetched (HTTP ${res.status}).`, 'unavailable');
   return decodeSegment(new Uint8Array(await res.arrayBuffer()));
+}
+
+/**
+ * LCM-RP (the replay batch's RB-11, Q4 option (a); the LCM plan, LCM.R20 overturned by the owner 2026-11-10): a page with
+ * no sign-in -- the replay page's visitor (`../console/render/replayPublic`) -- fetches a public replay through central's
+ * own `GET /replays/<id>[?match=<matchId>]` (MS-6's public fetch, `packages/central/src/replay/http.ts`: a 302 to the
+ * host's door with a public grant in its query, any Origin, CORS `*`), no bearer, no cookie, the redirect followed by
+ * the platform. No new central route. A browser adaptation of the transport (OT.R27): nothing of the game.
+ */
+export const REPLAY_PUBLIC_FETCH_ADAPTATION = "a signed-out page's replay: central's GET /replays/<id>[?match=], no bearer, its 302 followed to the door it names for that id (*.play.socom2legacy.com/replays/<id>?grant=<public grant>; the devmode loopback under devDoors); an answer from any other address is not read" as const;
+
+/** LCM-RP: central's 404 to the public fetch -- no such replay, not public, or its host not updated -- in one sentence. */
+export const REPLAY_PUBLIC_NOT_FOUND = 'This replay was not found: it is not public, or it is no longer kept.';
+/** LCM-RP: an answer that ended anywhere but the door central names for this id. */
+const REPLAY_PUBLIC_ELSEWHERE = 'The replay service sent this recording on to an address that is not a replay server, so it was not read.';
+/** LCM-RP: the address asked is not central's public replay route. */
+const REPLAY_PUBLIC_NOT_ROUTE = "A public replay opens only through the replay service's own address for it.";
+
+/** LCM-RP: central's public route: `/replays/<id>` (research 245 §2's id), `match` its one query. */
+const PUBLIC_REPLAY_PATH = /\/replays\/([0-9a-f]{16})$/;
+
+export interface PublicSegmentDeps {
+  fetch?: typeof fetch;
+  /** Whether the devmode loopback door is followed: a development build's ?devmode only (`connectHost` `replayDevDoors`). */
+  devDoors?: boolean;
+  /** The door's bounds (the tests' smaller ones); absent, SA-9b's adaptations. */
+  bounds?: LoadSegmentDeps['bounds'];
+  meter?: ReplayMeter;
+}
+
+/** LCM-RP: whether `raw` is the door pinned for `id` with central's grant alone in its query -- the chain's one allowed end. */
+function publicDoorEnd(raw: string, id: string, devDoors: boolean): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.hash !== '' || u.username !== '' || u.password !== '') return false;
+  const q = replayQueryPairs(u.search);
+  if (q === null || q.length !== 1 || q[0]![0] !== 'grant' || q[0]![1] === '') return false;
+  return pinnedReplayDoor(`${u.origin}${u.pathname}`, id, devDoors) !== null;
+}
+
+/**
+ * LCM-RP (`REPLAY_PUBLIC_FETCH_ADAPTATION`): the public replay at `address` -- central's `<base>/replays/<id>`, `?match=`
+ * its only query -- fetched with no header, no cookie and no cache, the redirect followed. A page sees only the chain's
+ * end (`Response.redirected`, `Response.url`; the Fetch standard keeps the hops from it), so what is held is that end:
+ * central's own answer at the very address asked (a recording central keeps itself, or its refusal), or the door pinned
+ * for this id (`pinnedReplayDoor`) carrying the grant alone -- the one hop central makes. An end anywhere else -- another
+ * host, another id, a door without central's grant or with more than it, central again -- is not read: a second hop is
+ * refused wherever it leaves that shape. The door's body is read under SA-9b's bounds (`readDoorBody`); a throw (no
+ * answer, or a door's refusal, which carries no CORS) reads `missing`, as the door branch's does.
+ */
+export async function loadPublicSegment(address: string, deps: PublicSegmentDeps = {}): Promise<LoadedSegment> {
+  let asked: URL | null = null;
+  try { asked = new URL(address); } catch { asked = null; }
+  const m = asked ? PUBLIC_REPLAY_PATH.exec(asked.pathname) : null;
+  if (!asked || !m || (asked.protocol !== 'http:' && asked.protocol !== 'https:') || asked.hash !== '' || asked.username !== '' || asked.password !== ''
+    || (replayQueryPairs(asked.search) ?? [['', '']]).some(([k]) => k !== 'match') || replayDoorShaped(`${asked.origin}${asked.pathname}`)) {
+    throw new ReplayLoadError(REPLAY_PUBLIC_NOT_ROUTE, 'unavailable');
+  }
+  const id = m[1]!;
+  const get = deps.fetch ?? globalThis.fetch.bind(globalThis);
+  let res: Response;
+  try {
+    res = await get(asked.href, { cache: 'no-store', redirect: 'follow', credentials: 'omit' });
+  } catch {
+    throw new ReplayLoadError(REPLAY_DOOR_REFUSED, 'missing');
+  }
+  const end = res.url === '' ? asked.href : res.url;
+  const central = !res.redirected && end === asked.href;
+  if (!central && !publicDoorEnd(end, id, deps.devDoors === true)) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ReplayLoadError(REPLAY_PUBLIC_ELSEWHERE, 'unavailable');
+  }
+  if (res.status === 404) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ReplayLoadError(central ? REPLAY_PUBLIC_NOT_FOUND : REPLAY_DOOR_REFUSED, 'missing');
+  }
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ReplayLoadError(res.status === 503 || res.status === 429
+      ? 'The replay service is busy; try again in a moment.'
+      : `The recording could not be fetched (HTTP ${res.status}).`, 'unavailable');
+  }
+  return readDoorBody(res, deps);
 }

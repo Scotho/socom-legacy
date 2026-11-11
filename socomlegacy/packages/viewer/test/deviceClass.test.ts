@@ -8,8 +8,9 @@ import { GRAPHICS_BACKEND_KEY } from '../src/graphicsBackend';
 
 /**
  * VS-7 (the video settings plan, product track; VS.R1, the owner's word 2026-11-07: Automatic may detect an Xbox "when
- * certain"): the device class Automatic starts from -- a browser adaptation, no original. The Xbox bar needs both
- * signals: the user agent's `Xbox` token and a Direct3D11 WebGL renderer string.
+ * certain"): the device class Automatic starts from -- a browser adaptation, no original. The Xbox bar: the user
+ * agent's `Xbox` token and a Direct3D11 WebGL renderer string, or the token with no renderer string at all
+ * (XBOX-TOKEN-NOSTRING, 2026-11-11), or the `SraKmd_` driver alone (XBOX-SRAKMD, 2026-11-10).
  */
 
 const SERIES_X_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox One) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.70 Safari/537.36 Edg/130.0.2849.56';
@@ -28,14 +29,32 @@ describe('VS-7: the device class (VS.R1: the Xbox only when certain)', () => {
     expect(detectDeviceClass(signals({ userAgent: SERIES_X_AGENT, renderer: D3D11 }))).toBe('xbox');
   });
 
-  it('the Xbox token alone is not xbox: the same agent with a Metal renderer, or no renderer string, is standard', () => {
+  it('the Xbox token with a renderer string that is not Direct3D11 is not xbox: the same agent with a Metal renderer is standard', () => {
     expect(detectDeviceClass(signals({ userAgent: SERIES_X_AGENT, renderer: METAL }))).toBe('standard');
-    expect(detectDeviceClass(signals({ userAgent: SERIES_X_AGENT, renderer: null }))).toBe('standard');
+  });
+
+  it('XBOX-TOKEN-NOSTRING (VS.R1 under the main controller\'s call, 2026-11-11): the Xbox token with NO renderer string is xbox -- no string contradicts nothing', () => {
+    expect(detectDeviceClass(signals({ userAgent: SERIES_X_AGENT, renderer: null }))).toBe('xbox');
+    expect(detectDeviceClass(signals({ userAgent: SERIES_X_AGENT, renderer: '' }))).toBe('xbox');
+    expect(detectDeviceClass(signals({ renderer: null }))).not.toBe('xbox');                  // no token, no string: not an Xbox
   });
 
   it('Direct3D11 alone is not xbox: a Windows Edge agent with D3D11 is standard', () => {
     expect(detectDeviceClass(signals({ userAgent: EDGE_WINDOWS_AGENT, renderer: D3D11 }))).toBe('standard');
     expect(detectDeviceClass(signals({ userAgent: 'Mozilla/5.0 (XboxLike) Edg/130', renderer: D3D11 }))).toBe('standard');   // the token as a word only
+  });
+
+  it('XBOX-SRAKMD: the console\'s own driver in the renderer string is xbox on its own, whatever the agent', () => {
+    // b0's read of central's client_errors (2026-11-10): v0.4.18 pages on this renderer string drew WebGPU on Automatic and
+    // lost the device, so their agent carried no `Xbox` token. The Series S's name is the same driver's (an assumption).
+    const ARDEN = 'ANGLE (Microsoft, SraKmd_arden (0x0000D000) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    expect(detectDeviceClass(signals({ userAgent: EDGE_WINDOWS_AGENT, renderer: ARDEN }))).toBe('xbox');
+    expect(detectDeviceClass(signals({ userAgent: SERIES_X_AGENT, renderer: ARDEN }))).toBe('xbox');
+    expect(detectDeviceClass(signals({ renderer: 'ANGLE (Microsoft, SraKmd_lockhart (0x0000D001) Direct3D11 vs_5_0 ps_5_0, D3D11)' }))).toBe('xbox');
+    expect(detectDeviceClass(signals({ renderer: ARDEN, software: true, touch: true, deviceMemory: 2 }))).toBe('xbox');   // before the rest
+    // Only the driver's name as a word with its underscore: another part's string is not an Xbox.
+    expect(detectDeviceClass(signals({ renderer: 'ANGLE (Microsoft, NotSraKmd_x Direct3D11, D3D11)' }))).toBe('standard');
+    expect(detectDeviceClass(signals({ renderer: 'ANGLE (Microsoft, SraKmd Direct3D11, D3D11)' }))).toBe('standard');
   });
 
   it('the saved Xbox pick alone is xbox, whatever the agent and the renderer', () => {

@@ -1,6 +1,7 @@
 import { ControllerInput, connectedPads, padKey } from './controllerInput';
 import { PAD_BUTTON, PAD_PRESS, type Input, type PadLike, type PadSource } from './gamepad';
 import { readPreference, SETUP_KEY } from './startupSettings';
+import { noteInput, padHasInput } from './inputSources';
 
 /**
  * This browser's device choice: "auto" (Automatic selection) or one pad's `index:id` -- the console's Options >
@@ -95,7 +96,9 @@ export class GamePad {
     const present = wanted !== 'auto' && (pads.some((p) => padKey(p) === wanted) || pads.filter((p) => p.id === id).length === 1);
     const selection = present ? wanted : 'auto';
     if (this.input.selection !== selection) this.input.select(selection);
-    return crossThroughSeam(this.input.poll(source), this.ownsCross);   // OA-3 fold F2: a Cross the toast took, up for the game
+    const read = crossThroughSeam(this.input.poll(source), this.ownsCross);   // OA-3 fold F2: a Cross the toast took, up for the game
+    if (padHasInput(this.input.raw)) noteInput('pad');   // XBOX-DIAG (`./inputSources`): the Gamepad API's pad with input, menus or match
+    return read;
   }
   /** The crouch shortcut's button held this frame (the profile's `crouch`, -1 off). */
   get crouch(): boolean { return this.input.crouch; }

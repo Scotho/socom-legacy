@@ -666,6 +666,56 @@ either side) the body is off it and on the canal (n_y over 0.9) in one tick; fac
 pushes nothing); the bot's own case -- held facing its patrol leg (1529.8, 696.1), freed the tick it faces its
 recovery leg (1492.3, 686.1).
 
+**The push is a displacement, never a velocity (LATER 833, 2026-11-10).** *Reading, pending review* (seat 00's research
+workflow: two readers -- r0001 by its decompilation, r0004 by disassembly -- and two independent re-readers at the
+source who tried to refute them and could not; the fix's fresh review re-reads it again; nothing measured on the
+original running). **The report:** server recordings of 2026-11-09/10 (80 matches, build 8882b74b5) hold 15 launches of
+250.5-251.7 u/s from 18-65 u/s in one snapshot, every one a human body at a floor under n_y 0.1: 10 a one-tick 3-5 u
+step, 5 walk-offs that flew 46-282 u (Night Stalker's ledge at (2167, 150, 1554): 209 u of flight and 72 u of skid,
+82 down). The built push wrote `s.vx = dx / dt`: 4.2 u in a 1/60 s tick is 252 u/s, which the walk-off's `takeOff`
+(`this.carried = [vx, vz]`) or a running jump on the next command carried into the air. **What the original does**, in
+both builds:
+- The driver `FUN_0054d9a0` fixes the velocity first: `+0x64` = the clip's local velocity `+0x2c` turned by the
+  orientation `+0x70` (`FUN_00306fd0`, D:L416515) plus the controller's `+0x1a4` (D:L416516-416519), and only then the
+  frame's displacement from it, `+0xf44` = dt `+0x64` (`FUN_00309180`, D:L416520). The slide (D:L416558-416561;
+  `FUN_0054edf0` writes `+0x1340`, `+0xf44`, `+0xf4c` and `+0x2e4`, never `+0x64` or `+0x38`, D:L417052-417186) and the
+  push (`FUN_0054a6d0` from D:L416580-416614, its stores `+0xf44` / `+0xf4c` alone, D:L414441-414462) come after.
+- The move `FUN_005483d0` takes the displacement (wall-cut, D:L413532-413611) and, at its tail, copies `+0x38..+0x40` =
+  `+0x64..+0x6c` (D:L413963-413965), the frame's last write of the velocity: the clip's, from before the slide, the
+  push and the walls (section 2.9's r0004 ditch capture holds the same, proven: a jammed body moving 0 with `+0x38` =
+  `+0x64` = (-65, 0, 0)).
+- The walk-off -- `FUN_005af930` (entity tick, D:L418169, before the driver), its else branch -- copies
+  `+0x1350..+0x1358` = `+0x38..+0x40` (D:L466972-466974; `FUN_0057e050` D:L440729-440731 the same), so the carry is the
+  push frame's clip velocity, never the push over dt (which would be about 126 u/s at the 30 Hz frame, 252 only in the
+  port's 60 Hz tick). Whether a 4.2 u step over an edge is a walk-off at all is `FUN_0059ad30`'s 3.0 (`DAT_0044c264`,
+  D:L328372; r4 0x44f5f4, stored at r4 0x42d9a8-0x42d9b0).
+- r0004 keeps the order and the copies: the velocity and its displacement r4 0x552b00-0x552b50 (`FUN_0054d9a0`'s twin
+  0x552790), the airborne carry r4 0x552bb8-0x552bc4 (r0004's carry is at `+0x1354..+0x135c`), the pushes after them
+  (jal 0x54f3a0 at r4 0x552ed8 and 0x552f04; `FUN_0054a6d0`'s twin, word for word, its actor stores `+0xf44` /
+  `+0xf4c` at 0x54f4d8, 0x54f4fc, 0x54f52c, 0x54f54c), the move's tail r4 0x54e644-0x54e65c, the walk-off's copy r4
+  0x5b5a28-0x5b5a40 (`FUN_005af930`'s twin 0x5b5660). r0004's contact block zeroing the carry does not reach a walk-off,
+  which writes the carry anew from `+0x38`.
+- New in r0004 and not modelled: the `Jump fall` start's twin (r4 0x5832ec-0x583344) zeroes `+0x2c..+0x34` and
+  `+0x38..+0x40` before the carry when `+0x105f` bit 2 is set (the turn and step actions, whose velocity is a root
+  delta over dt) -- a further guard against carrying a positional delta; moot in the port, which gives those actions
+  no such velocity.
+
+**Built** (LATER 833): a pushed tick keeps the clip's velocity -- `slideOrMove` writes `s.vx` / `s.vz` (and the slide
+reading's `bodyVelocity_`) from `dx / dt` only when no push was taken (`t` < 1). A contact tick whose push is not
+taken (`t` >= 1) keeps the slide's `dx / dt` as every slide tick does: the original keeps the clip's there too, but
+that is LATER 841's, not changed here (the fresh review's finding, 2026-11-10). Held by `viewer/test/steepPushCarry.test.ts`
+(disc-backed): four reported walk-offs (MP72's medical crates, MP7's ledge and its +x lip, MP51's lip at (1302, 721)),
+each from its recording's row, are pushed (3 u or more in a grounded tick) and walk off with every speed and carry
+under 70; and The Ruins' (MP12) jump pressed after a grounded push carries the clip's velocity and lands within 30 u
+(the push's 252 flew it 113). RED on `agent/mega` ef502986c: all five at 251.2-251.7. `steepFloorContact.test.ts`
+unchanged (the MP51 sliver's push still frees the bot). **Readings on this:** (a) `+0x1a4`'s writer is unread (likely 0
+for a player); (b) on a push frame that ends in a walk-off, `FUN_0059ad30` clears bit 0 before the take tests it, so
+the record outlives the frame and the next frame's driver can push once more, as a displacement only (r0001 and r0004
+alike) -- the port's one push does not model that second push (a further 1.26 u at most); (c) the port's slide frames
+still write `s.vx = dx / dt` and its walls cut `s.vx`, where the original's `+0x38` is the clip's on every frame --
+LATER 841, not changed here. Owed for **proven**: an r0004 capture of a SEAL pushed off a near-vertical lip and walking
+off it, `+0x38`, `+0x64`, `+0x1354` and the position over the push frame and the next two (MP7 (2167, 150, 1554) +z).
+
 **Not built (owed).** (1) The prone block: it needs the persisting contact record (a prone body's is not cleared by the
 probe, D:L467119-467121) and the driver's prone distance, and changes every prone body on every slide; with it, the
 walk-off's `FUN_0054a8b0` record, which the port lacks in r0001 too. (2) r0004's other changes to `FUN_0054edf0` (r4
@@ -1514,6 +1564,215 @@ the idle sets in the process's first room, 2.90 against 1.92 ms in its second --
 about 1 ms. Owed (the controller's): its own bench on the 2 vCPU c7a.large at this head; the steady state's remaining
 cost is the shared `Animator`'s step (above).
 
+*HIT-ALLOC (2026-11-10; a product-track adaptation, no new reading, no value, operation order or rounding changed).*
+Why the fold: the controller's bench on the 2 vCPU c7a.large (MP2, 16 bots) at HIT-POSE's head measured the room's step
+mean 0.98 ms before HIT-POSE against 1.76 at its head, and with two rooms in one central process the step's p99 8.9 ->
+14.3 ms and its worst 16.65 ms -- at the bots' leave, against the 16.667 ms of a tick at `TICK_HZ` 60 -- with 5-9 ms
+incremental collections inside the step: the shared `Animator`'s ~539 kB a tick for 16 bodies (above) is what the
+collector was paying for. The cut (`animator.ts`, `motion.ts` `sampleClipInto`): the step runs on scratch the
+`Animator` owns -- a clip sample per node into reused parts, the slerp, Hamilton product, rotation and matrix-to-quaternion
+written into owned quaternions, the per-part rotation entries pooled, the merge without closures, the pose built and
+the held locals owned, `aim`'s temporaries owned; the pose shown is copied from the pose built instead of aliasing it.
+`test/animatorBitPin.test.ts` holds every output bit for bit against digests recorded at dd00e82c6 (before the cut): a
+scripted run plus every clip of the SEAL's motion through the traversal seam, each step every part's local and world
+matrix, the held locals, `rootY`, `stats()` and the events -- 42 segments, 1674 steps, 109 clips, 1814000 words hashed.
+Unit-test evidence, the fixture disc, seat box job halloc-verify at 37328f70e: the pin 2 of 2; red under three
+mutations each run on the box and checked out again (a 1e-6 added to `copy4`'s w: segment 0 "stand idle, the look"; to
+`sampleClipInto`'s slerp w: segment 0; the animator's slerp threshold 0.95 -> 0.9499: segment 21 "fall"); A = B 0 u
+over 210 ticks, `hitPoseAnimated.test.ts` 7 of 7 (lazy = eager and the whole rewind history among them),
+`twoRoundsFixture.test.ts` green. The cost, before (job halloc-before at 8990c22c6, dd00e82c6's sources) -> after (job
+halloc-verify), one host, separate runs: the animator's step alone 0.270 ms and 539.2 kB a tick -> 0.207 ms and
+112.0 kB (16 bodies); `stepBody` and `keep` 0.290 ms and 550.9 kB -> 0.228 ms and 125.5 kB; the full room
+(`hitPoseRoomCost.test.ts`, posed) step mean 0.694 / 0.681 ms -> 0.627 / 0.619, heap rise 962 / 947 kB a tick -> 542 /
+529, collections 28 / 27 (19.8 / 18.4 ms) -> 16 / 16 (12.6 / 11.9 ms); its p99 1.66 / 1.66 -> 1.78 / 1.87 ms and worst
+2.21 / 1.99 -> 2.68 / 2.37 ms, within the runs' spread (the idle sets' p99 and worst moved alike, 1.08 -> 1.24 and 1.44
+-> 1.85 ms, with nothing of theirs changed). Owed (the controller's): the two-room bench on the c7a.large at this head.
+
+### 3.6b The bone boxes (BONE-BOXES, 2026-11-10; reading, pending review)
+
+The owner's ruling OT.R119 (2026-11-10: "players are used to the original game ... follow the source"); the main
+controller's order the same day: a post-mega task on HIT-POSE's head (stacked on HIT-ALLOC d50c2601e) moving the room's
+and the page's hit volumes to the original's oriented bone boxes and building research 398's rule with them, tests
+first. Research 398 ("One bullet across several parts of one body"; on PR #778's branch `agent/fable-findings`,
+9ac55e9c8, not in this tree when this was written) is the source; each line below that it gives was re-read at the
+decompilation for this build. It retires `BODY_ONE_SURFACE_READING` (one surface a body, its nearest capsule) and
+`SPINELO_RADIUS_PLACEHOLDER`, and builds research 398 s12.3 (the volume is the box) with the rule.
+
+**The boxes** (reading: the code, and the disc's bboxes through the repository's reader). The actor's constructor
+`FUN_00553ea0` calls `FUN_0058b960` (D:L419726), which gives every bone whose index is under the bone count less four
+one collision polygon of the box class on that bone's node pointing at the node's own bounding box, its material
+`PERSON` (`FUN_0058b960` D:L447559-447593; `FUN_0031aec0` D:L218167-218192, the box pointer the node's `+0x40` while
+its `+0x5f` bit 6 is clear, which it still is at D:L419726), and then holds `spinehi`'s box's fourth float (its maximum
+x) to 3.01 (D:L447580-447591; the word 0x4040a3d7). The index rule leaves out the weapon slots (28-32) and keeps the
+root and every named bone (`FUN_0058cc30` D:L448354-448403, `FUN_0058cb30` D:L448317-448349; research 398 s1). In the
+port (`viewer/src/net/hitVolumes.ts` `boneTable`): the mesh skeleton's 25 nodes from `skel_root` down (research 78
+s3.1: `character.rdr`'s `body_items`), each its `nparams` bbox (`scene/src/skeleton.ts` `nparamsOf`, research 78 s3),
+in the bone's frame, posed by the skeleton's world matrix and placed at the body's feet and yaw; `body`, the model's
+sibling slot, is not a bone; the gear nodes are not in the mesh skeleton (`BONE_BOX_GEAR_READING`). On the fixture
+disc's MP2 `seal_A_scuba` (`match/test/boneBoxes.test.ts` logs all 26): `spinehi`'s maximum x is 3.0108, held to
+3.01; `skel_root`, `aimnodes` and `spinelo` carry all-zero bboxes (they move no vertex most), boxes nothing enters
+(`entry`: the original's rectangle test would pass only a line through that one point, measure zero); the other 21
+are the live boxes, the thirteen damage bones and the root's chain's others (feet, toes, hands, scapulas, shoulder
+weights).
+
+**`spinelo`'s band** (SPINELO-FALLBACK, 2026-11-11; a placeholder for an unmeasured outcome,
+`SPINELO_BAND_PLACEHOLDER`; the main controller's ruling, 2026-11-11: it ships in v0.4.19 as that). What is proven and
+what is not is "The scuba SEALs' belly band" below: the SEAL's live `spinelo` PERSON polygon keeps `node+0x40` with six
+zero floats (shadow's live node read of the original, PCSX2 r0004, PINE, 2026-11-11 -- near, and on the shooter's
+console for a remote SEAL at 59 u and 300 u), and the terrorist's (`al_gman01`) box is real and equals the disc's
+decode; whether a rifle round through that standing band takes trunk health on the original is NOT measured (the
+shooting legs so far had unreliable heights -- a written pitch reverted within 250 ms -- and settle nothing). Read as
+the disc and the live node have it, the standing idle's trunk has a band -- the hips' box tops near y 11.9, `spinehi`'s
+starts near 13.1 -- where a level round meets a forearm (an arm's damage, the round not remembered), a hand (nothing)
+or nothing at all: the v0.4.19 hit-registration review's probe (a 0.1 grid of level lines on the fixture SEAL's idles
+against v0.4.18's capsules) measured about 6% of v0.4.18's front BODY area and about 15% from the side and behind no
+longer damaging the trunk; the crouch no gap, the prone a narrow side-on slit. The placeholder stands in for that
+unmeasured outcome; it is not a reading that the original strikes the trunk there. `boneTable` gives an all-zero box of
+a BODY bone with a next joint (on the SEAL `spinelo` alone, as the worker sends the parts' boxes) a band box in the
+bone's own frame: along the largest axis of the next joint's bind translation from the joint to it, across the segment
+grown by 2.0 each way (v0.4.18's spinelo capsule, joint to joint, its radius the retired `SPINELO_RADIUS_PLACEHOLDER`),
+BODY, `spinelo`'s index -- so research 398's rule (nearest first, a strict tie, a BODY record remembers the round) takes
+it unchanged, the body's cull bounds (`boxBounds`) widen to it, and every other box is the disc's
+(`viewer/test/spineloBand.test.ts`: a line off the band makes the base's records to the bit, every idle and lean set;
+the kept bounds hold the band's eight corners, computed apart from `boxBounds`). The rule is not "spinelo alone" by
+construction: a page body whose parts arrive without boxes (viewer `play.ts` `bodySkeleton` fills six zeros) would give
+`spinehi` (next joint `neck`) a band box too; today the worker sends the boxes, so that case does not arise, but nothing
+guarantees it.
+
+**The band's width** (the main controller, 2f, 2026-11-11: the +-2.0 square cross-section is kept; the shape is his to
+weigh). The band stands between two of the original's own boxes whose cross-sections are that size or larger --
+`hips` x -2.003..2.001, `spinehi` x -0.695..3.010 and z about +-2.07, by shadow's live read -- so a +-2.0 band continues
+the boxes around it, corners and all, where a narrower one would leave a waist the original's neighbours do not have.
+Of the two errors open to a placeholder for an unmeasured outcome, a body hit up to 0.8 u outside v0.4.18's round
+capsule at the corners (the square's corners about 2.83 from the axis against the capsule's 2.0) is the smaller one,
+beside centre-mass rounds that do nothing. It does go beyond v0.4.18's area, in every stance: the review counted, on the
+0.1 grid of level lines on the fixture SEAL's idles, the lines v0.4.18's capsules missed that now record BODY, from 0,
+45, 90, 180 and 270 degrees -- stand 29/114/192/29/192, crouch 151/136/179/151/179, prone 43/188/284/59/284 -- so the
+crouch and the prone change too, not only the standing band. It settles with the same-team / first-person shooting
+legs on the original, which settle both the band and its width: a rifle round with recorded aim points, near and far, a
+scuba SEAL the target and a terrorist the control. If the original leaves the band, the placeholder goes and
+`spinelo`'s box is empty again.
+
+**The box's test** (reading of research 398 s1, its E1 evidence: the box class's slot `+0x14`, r0001 0x2dcda0-0x2dd01c,
+and the VU0 microprogram's entry 0x30; not in the decompilation, not re-read here at the machine code). The line in the
+box's frame; the faces tried in the order +y, +z, +x, -z, -x, -y, each only when the line's start lies strictly outside
+its plane (a bone node is one-sided: `FUN_00316e30` clears `+0x80` bit 1, D:L215828); the first face whose crossing
+lies in its rectangle (edges included) within the reach is the record. So a start outside gives one record at the entry
+face; a start inside none; no exit record (`hitVolumes.ts` `entry`, `rayBox`; `viewer/test/boneBox.test.ts`). The line
+is put in the bone's frame by the bone's matrix inverted (its 3x3 by its adjugate), so a distance along it is the
+world's.
+
+**The body's cull** (reading). `FUN_00553ea0` gives the node above the skeleton's root one fixed box, min (-12, 0, -14),
+max (12, 20, 14) -- the words 0xc1400000, 0, 0xc1600000, 0x41400000, 0x41a00000, 0x41600000 at D:L419737-419742 --
+after `FUN_00314100` (D:L214104-214161, called D:L419728) has set `+0x5f` bit 6 on the root and every node under it
+and D:L419730 has cleared it on that one node; `FUN_003124f0` (D:L213172-213244) refuses a line whose two ends lie
+outside one face of a node's box and never refuses a node with bit 6 set (D:L213184), so a body is culled once, by
+this box, and never bone by bone. What it is in the port's units and frame (`BODY_CULL_FRAME_READING` 'feet and yaw,
+widened to the posed boxes'; the widening below):
+y from 0 to 20 over the soles stands on the standing body's 19.6 (`stature.ts` `STANDING_HEIGHT`; the bind pose's
+crown 19.431, research 78 s3.2) -- the world's units, the origin at the soles, y up; x across (24) and z along (28: a
+prone body's length) -- the body frame the skeleton hangs in, placed at the feet and the yaw. The node's own matrix is
+not read. The test is `FUN_003124f0`'s (both ends past one face), not an intersection: a line wide of the box but
+across two of its planes passes the cull and meets no bone (`hitVolumes.ts` `bodyCulled`). It replaces the room's
+`nearRay` (a 12-unit cylinder of the port's own) in the round's read, the order pick and the launched round's cast.
+
+**The cull, widened** (the review's finding 1, 2026-11-10; reading, pending review). Measured
+(`viewer/test/boneBoxCull.test.ts`, unit-test evidence on the fixture disc, seat box jobs bb-fold-probe3 and
+bb-fold-red1): the room's own poser (`HitPoser`, stepped on the room's `BodyState` of a walker driven through the
+traversal moves on synthetic hulls -- every climb height from 10.5 to 31.5, the hang held, pulled up and let go, the
+ladder up and off its top, down from its top, the slide; 2848 poses with the idle and lean sets) puts boxes outside this
+box: the hands over its top by up to 8.16 on the ladder, 7.57 pulling up a 27.5 ledge, 5.08 hanging from 31.5 and 10.14
+letting go of it, and a toe, a foot or a thigh under the soles by up to 3.23 (a 10.5 climb's toe; the crouch's thigh
+0.95, the crouched right lean's 1.54, the prone's 1.39); across and along, every pose inside (x -6.78 to 11.08, z
+-10.68 to 12.11). At 1cf34048a every one of 7694 level lines through a box centred outside the box was refused, and a
+level shot through a hanging body's raised hand met nothing. The port's feet are the mover's and its root over them
+the traversal's (`clipPath.ts` `ClipPath.at`, `traversal.ts` `ladderRoot`, `hangRootY`); the original's box is on its
+own node, whose matrix is not read, and the original never refuses a bone by its own box (`FUN_00314100`). So the frame
+is in doubt where the pose leaves the box, and the port keeps every bone the line enters: the cull refuses a line only
+when it lies past one face of this box and past one face of the posed boxes' own bounds (`hitVolumes.ts` `boxBounds`,
+body frame, every non-empty box, grown by 0.001; `bodyCulled`'s `posed`, `rayRecords`) -- for a pose inside the box,
+the box alone, as read. The bounds are kept where the matrices are made: each idle and lean set once
+(`skeletonVolumes`), each poser ring slot at its `keep` (`keepBounds`, no allocation); a set kept nowhere has them made
+into a scratch only for a line the box refuses. Settles with the node's matrix read off a live actor climbing a ladder
+and hanging, or a capture of a shot through a hanging body's raised hands.
+
+**The walk** (reading, research 398 s0-s5, s13). The room (`match/src/room.ts` `rewoundBodies`) gives every record of
+every body -- the damage bones' and the others' (`NO_PART`) alike -- and returns them nearest first, a record at
+exactly the distance of the one before it dropped (`match/src/bodyWalk.ts` `walkOrder`: `FUN_003c9b70`
+D:L319966-320014, the strict test D:L319990, the shooter's own skipped D:L319997-320008;
+`BODY_RECORD_TIE_READING`). Each record is a PERSON surface the round's walk (`viewer/src/round.ts` `roundPath`)
+cuts the range at, `min(range, (range + range x piercing x 0.1) x 0.97)` (`FUN_003c8920` D:L319506-319517; the
+0.97 is the table's PERSON, `BODY_PENETRATION`), and goes on past. The damage (`bodyWalk.ts` `bodyApplications`): the
+handler runs for every record (D:L319417-319418); `FUN_005ab850` returns at once when the victim remembers this round
+(`+0x1048`, D:L464597); `FUN_005abbc0`'s branch damages the bone's part and remembers the round after the head pair
+(D:L464741-464743) or the trunk three (D:L464755-464757), never after a limb (D:L464740-464766); a bone with no branch
+damages and remembers nothing. The shotgun's 'Q' branch (D:L464703-464737) applies on a body's first record whatever
+the bone and remembers -- one application a body a ray, the port's volley set and `shotgunGuard` as they were. The
+damage number of each application stays the port's own (`bulletDamage` / `quantiseHit` at the struck distance; research
+398 s12.5 is a question, not built). What is not built: the bounce hand-off of a firearm whose `+0x68` is above 0
+(`FUN_003d2030` D:L324588-324593; D:L319439-319471 hands the record to `FUN_003c8f50`; `BULLET_BOUNCE_HANDOFF_READING`
+'never'); a tie between a body record and a world polygon (`BODY_RECORD_TIE_READING`).
+
+**The launched round** (research 398 s13.1). A round that goes off leaves the walk at its first record
+(D:L319477-319485: its range 0, the result 4): `bodyCast` gives each body its nearest box, any bone's, and the flight
+takes the nearest of all -- one body hit, as before. Its direct hit on a bone with no damage part gives nothing
+(`IMPACT_NO_PART_READING` 'nothing': `FUN_005ab850` sends an exploding round to `FUN_005ac070`, D:L464600-464620,
+not read).
+
+**The placeholder.** Without a skeleton the hand-laid capsules stay (HIT_VOLUMES_PLACEHOLDER): a stand-in with no
+bones gives one record a body, its nearest capsule -- so a skeleton-less room meets a body as it did.
+
+**The consumers moved together.** The room: `rewoundBodies` (the round's read and NCW-1's twin probe), `liveVolumes`
+(the order pick, `bodyCast`), the hostages' rays (their own skeleton's boxes, `hostageVolumes`), `pastBoxes` and the
+poser (`HitPoser.keep` copies every boxed bone's float32 matrix into the ring; `boxesAt` answers the slot's boxes,
+views made once over the ring -- no allocation a read; HIT-ALLOC's per-tick cut untouched). The page (prediction only;
+the room decides): `Play.drawnBody` (the drawn copy's boxes), `RemotePlayers.aimBody` / `aimDistance` / `aimBodies`
+(the nearest box, any bone's) and `aimRecords` (every record, the page's own walk of its round past the bodies through
+`matchFirearm.ts` `bodyDistances`, as the room cuts its range at each). The bots: `botAim.ts` `torsoPoint` keeps the
+point it aimed at (the mean of the BODY bones' middles as the capsules were fitted, `StanceVolumes.torso`; a browser
+adaptation, no original); `bots/shot.ts`' ally check keeps the placeholder's widened capsules (an AI decision).
+
+**The cost** (unit-test evidence, seat box job bb-green1 at 4f46b7bd6, one run): `hitPoseAnimated.test.ts`'s 16 posers,
+`stepBody` and `keep` (now every boxed bone's matrix, 25 a pose) 0.242 ms and 125.5 kB of heap rise a tick -- HIT-ALLOC's
+0.228 ms and 125.5 kB (job halloc-verify): the keep's wider copy, no new allocation; a body's boxes are read from the
+ring as views (`boxesAt`), so the round's read allocates only its records.
+
+**The review's fold** (2026-11-10). Beside the cull's widening above: (2) the combat report (INT.R5, a playtest
+instrument with no original; nothing the round does changes) writes, for a body the round met whose every record was a
+bone that takes nothing (a hand, a foot, a scapula alone), one `miss` on that body, reason 'no damage', at its first
+record -- before, no part routine ran and the round was not a miss, so the log had no entry (`room.ts` `fire`;
+`boneBoxes.test.ts`, "a hand only"). (3) The room's idle-set path (`rewoundBodies` without a live pose: a knocked or
+prone body's tilted set, a hostage) reads through `hitVolumes.ts` `bodyRecords`: the cull first -- for a tilted set
+against the set's kept bounds turned about the pivot, their eight corners' bounds -- and only past it each bone's
+tilted matrix, built into one owned scratch (`tiltInto`, `rotateByQuat`'s operations in its order: the same doubles),
+where `bodyVolumes` built 25 new matrices a ray, culled or not. `boneBoxCull.test.ts` pins the records equal to
+`bodyVolumes`' over 3 postures x 3 peeks x 217 rays and no `Float64Array` made on the lazy path, culled or not.
+
+**The two-round recording** (`test-fixtures/replay/mp2-classic-two-rounds.s2r`, `e2e/roomRecordings.ts`
+`twoRoundsRecording`) shoots a still victim at its feet plus 12: each shot's first record is now the first box on its
+line (a hand's or a forearm's before the chest), so the six `shot` events' `to` moved nearer the shooter (the first,
+tick 624, by about 1.5 u) -- the record count (2836), the events' count by kind and their ticks unchanged. Re-recorded
+at BONE-BOXES' head (seat box jobs bb-rerec2, bb-rerec3) and its protocol-13 copy remade the same way HIT-POSE's fold
+remade it (the way checked first: it gives the replaced files' copy from their protocol-14 file); `MANIFEST.json`.
+
+**What changes in play.** A round through a limb into the trunk damages both (research 398 s7 A: RARM 30 -> 10, then
+BODY 50 -> 30 and every limb capped at 18); through the trunk into an arm, the trunk only (B); along one arm, that arm
+twice (C: 30 -> 10 -> 0, its armour 25 -> 20 -> 16); through the head into the trunk, the head only (D); through both
+thighs, both legs (E); a hand, a foot or a scapula alone is a record that damages nothing but cuts the range; a muzzle
+inside a limb's box makes no record of that limb. Above a piercing of 0.31 the range cuts change nothing.
+
+Tests (unit-test evidence on the fixture disc's MP2, `MOTION_P.ZAR`, `READERC.ZAR`; no capture, no rendered run):
+`match/test/boneBoxes.test.ts` (research 398 s7's A-E with its worked numbers, D = 40 and P = 2; point blank; a hand
+alone; a no-damage bone before the trunk -- each ray found on the posed boxes by the test's own transcription,
+`helpers/boneRays.ts`, and judged by the room's own read and damage), `match/test/bodyWalk.test.ts` (the order, the
+strict tie, the memory rule, pure), `viewer/test/boneBox.test.ts` (the box's test, the cull, the box list, pure);
+`hitVolumes.test.ts`, `remoteAim.test.ts`, `hitPoseAnimated.test.ts`, `simMap.test.ts`, central `room.test.ts` and
+`helpers/boundsProbe.ts` moved from the capsules to the boxes, each saying so. RED at f36331926 (seat box job bb-red1:
+15 failed, 2 passed of 17 -- the point-blank case and the box list passed there, the old capsule also leaving the
+muzzle's own limb unmet); GREEN at this section's head (the jobs named in the pull request).
+
+**The scuba SEALs' belly band (2026-11-11; the box PROVEN, the shot's outcome reading).** `spinelo` is a BODY bone (`FUN_005abbc0` D:L464740-464766), and its box is its node's nparams bbox (`FUN_0058b960` D:L447559-447593 makes each bone's PERSON polygon through `FUN_0031aec0` (D:L218167-218192), which takes the node's own `+0x40` while `+0x5f` bit 6 (use-parent) is clear, else the parent's through `FUN_00262550` (D:L218184-218187); the loaders copy that bit from the disc (D:L212629, D:L216097) and `FUN_00314100` sets it on every bone only after, D:L419726 then D:L419728 -- so the box is the node's own wherever the disc leaves the bit clear, which the decode shows for every `spinelo` on MP2 and MP6 (flags bit 30 clear; the other maps' bits not printed); the loaders copy nparams verbatim, `FUN_00311520` D:L212622-212629, `FUN_00311880` D:L212689-212700, `FUN_00317060` D:L215970-215983; no recompute runs on the person's path). Where that box is all zero, the standing body has no trunk box between `hips`' top (about y 11.9) and `spinehi`'s bottom (about 13.1): a level round there meets an arm, or a no-damage record, and no BODY. **Proven by shadow's live node read of the original** (PCSX2, r0004, PINE, 2026-11-11; the gate-runner `shadow/out/2026-11-11/` evidence): the SEAL (`seal_A_scuba`) body's spinelo PERSON polygon keeps `node+0x40` with six zero floats -- its own body near, and the same node and polygon on the shooter's console for a remote SEAL at 59 u and at 300 u (no LOD swap for the hit test, though `seal_A_scuba_1`/`_2` carry real spinelo boxes); the terrorist (`al_gman01`) body's is a real box, `[-0.912, 0.000, -2.153, 2.122, 2.422, 2.157]`, equal to the port's decode of its nparams (so the live box is the disc's, on both sides). The room and the page test each body on its own model's boxes (`room.ts` `volumesOf`, `hitBodyOf`; viewer `teamBody.ts`), pinned by `match/test/perModelBoxes.test.ts` (al_gman01's box against the live read; seal_A_scuba's zero; RED when `volumesOf` hands every body the SEAL's). **Which models (the port's decode, reading; jobs belly-2 and belly-3 at agent/v0419 558e6d47f, every multiplayer map on the disc, 22 maps, the room's own stand-idle volumes, level rays through the axis at the bots' torso height, front, side and behind):** no BODY at that height ONLY on the scuba SEALs -- MP2's `seal_A_scuba`, `seal_E_scuba`, `seal_D_scuba` (spinelo box zero) and `seal_C_scuba` (a thin one), and MP81's `seal_A_scuba` and `seal_E_scuba`; every other SEAL (arctic, jungle, desert, woodland, tiger-jungle, `SAS_01`, `Spetsnaz`, `rus_specialist`, `seal_Marcela`) and every terrorist model (the `al_`, `alg_`, `afg_`, `alban_`, `braz_`, `con_`, `rus_`, `thai_` sets) is struck in the BODY there. **Not measured:** whether a round through the band takes trunk health on the original (the same-team shooting leg, a scuba SEAL the target and a terrorist the control), and whether the original's box test can strike a zero-extent box at all (the test itself is not in the decompilation). Until those legs are run, this head's `SPINELO_BAND_PLACEHOLDER` ("`spinelo`'s band" above) covers the band with a BODY box: a placeholder for the unmeasured outcome, not a reading that the original strikes the trunk there; the band itself, as the disc and the live node have it, has no trunk box.
+
 ## 4. The bodies (PF-21)
 
 Ruling PF.R45. Seven small facts research 179 C1-E and 180 §1 read; each built on the page and in the room, the room
@@ -1705,6 +1964,14 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `PEEK_REPUSH_KEY_READING` (`traversal.ts`) | `'held'`: the re-peek the tick after the press resumes the lean clip at its held key; the press's tick drawn from it | `FUN_00594cf0` D:L453431-453458, `FUN_005b4340` (180 §1.12; §3.1) | a reading: whether the original's re-push replays the rise (the flicker) is owed the capture of 180 §1.12 |
 | `PEEK_HOLD_CONTINUES_READING` (`traversal.ts`) | true: the lean's toss and a reload, still or not, play over the held peek, state 3 kept | `FUN_005b4340` 469345; `GetThrowAnim` D:L441773-441796; `FUN_005a82e0` D:L462925-462928 with `FUN_0057dc20` D:L440540 (cVar7 never 3: no pop) (§3.2) | a reading, restored by PF-20's review (2026-10-05); not read: whether `FUN_00588bc0`'s mapped-type pops (D:L446070-446240) catch a reload's type; owed a capture of R mid-peek, crouched |
 | `LEAN_HIT_POSE_READING` (`net/hitVolumes.ts`) | `'held'`: under a held peek the hit body is the lean clip's held key (`frameCount - 1`) from the press, the rise included; `'clip'` (the clip's key of the moment) not built | `FUN_0057d810` D:L440437-440510, the pushes D:L440476-440505 (the clip pushed and held), `FUN_005abbc0` D:L464672-464803 with `FUN_00553ea0` D:L419606-419652 (the live nodes) (§3.6) | a reading, pending review (LEAN-HIT, 2026-11-08): the rise (0.4 / 0.5 / 0.8 / 0.65 s) is judged at the held pose; settles with a sample of the clip at the room's lean clock and a capture of a hit on a leaning target |
+| `BONE_BOX_GEAR_READING` (`net/hitVolumes.ts`) | `'none'`: the port boxes the mesh skeleton's 25 bones from `skel_root` down and no gear node; the original's list may give `character.rdr`'s gear nodes the last of its 27 names, each a no-damage box | `FUN_0058cb30` D:L448317-448349, `FUN_0058cc30` D:L448354-448403 (§3.6b; research 398 s10) | a reading, pending review: owed the order `FUN_0058cb30` meets the names in on a live actor and the gear nodes' bboxes |
+| `BODY_CULL_FRAME_READING` (`net/hitVolumes.ts`) | `'feet and yaw, widened to the posed boxes'`: the 24 x 20 x 28 cull box in the body frame (x right, y up, z behind, the soles at the origin), the world's units, at the feet and yaw; the line the caller's (`reach`); a line is refused only when the posed boxes' own bounds refuse it too (the room's ladder, climb and hang poses raise the hands up to 10.14 over its top, a toe dips 3.23 under the soles: measured, `boneBoxCull.test.ts`) | `FUN_00553ea0` D:L419737-419742, `FUN_003124f0` D:L213172-213244, `FUN_00314100` D:L214104-214161 (§3.6b) | a reading, pending review: its height 0-20 against the standing 19.6; owed a memory read of the node above a live actor's root (its matrix) climbing a ladder and hanging, or a capture of a shot through a hanging body's raised hands |
+| `BODY_RECORD_TIE_READING` (`match/src/bodyWalk.ts`) | `'bodies only, list order'`: a body record at the distance of the one before it dropped (the players' order, then the hostages', each body's bones in its skeleton's order); a body record tied with a world polygon both kept | `FUN_003c9b70` D:L319990 (§3.6b; research 398 s13.3) | a reading, pending review: owed the query's list order for two actors in one cell, or a capture of two coincident entries |
+| `BULLET_BOUNCE_HANDOFF_READING` (`match/src/bodyWalk.ts`) | `'never'`: every firearm's body record goes through the range cut and the handler | `FUN_003c8920` D:L319439-319471, `FUN_003d2030` D:L324588-324593 (§3.6b; research 398 s13.2) | a reading, pending review: owed `+0x68` read off every firearm record of `ZWEAPON.ZAR`, and `FUN_003c8f50` read for a PERSON record |
+| `IMPACT_NO_PART_READING` (`match/src/room.ts`) | `'nothing'`: a launched round's first record on a no-damage bone gives no direct hit (it still goes off there) | `FUN_003c8920` D:L319477-319485, `FUN_005ab850` D:L464600-464620 -> `FUN_005ac070` (§3.6b; research 398 s13.1) | a reading, pending review: owed `FUN_005ac070` read for a record whose node is none of the thirteen |
+| `BODY_ONE_SURFACE_READING` (`room.ts`, retired 2026-11-10) | was `'per body'`: one PERSON surface a body at its nearest capsule, the range cut once, a body damaged once a round | research 398; §3.6b | retired by BONE-BOXES: a record a bone box, research 398's memory rule |
+| `SPINELO_BAND_PLACEHOLDER` (`net/hitVolumes.ts`) | 2.0: an all-zero disc box of a BODY bone with a next joint (the SEAL's `spinelo`) is a band box in the bone's frame, its joint to `spinehi`'s bind translation along the larger axis, the segment +-2.0 across (v0.4.18's spinelo capsule), BODY; every other box the disc's | `FUN_005abbc0` D:L464740-464766 (BODY), `FUN_0031aec0` D:L218167-218192 (the node's `+0x40` box), `FUN_0058b960` D:L447559-447593; shadow's live node read, 2026-11-11 (§3.6b, "`spinelo`'s band", "The scuba SEALs' belly band") | placeholder for an unmeasured outcome (the main controller's ruling, 2026-11-11): the box is PROVEN empty live -- `FUN_0031aec0` D:L218167-218192 takes `node+0x40` unless `node+0x5f` bit 6 is set, in which case the box is `FUN_00262550(*(node+100))`, the parent's; shadow's live read (2026-11-11) found the SEAL's polygon at `node+0x40` itself, six zeros, near and for a remote SEAL at 59 u and 300 u -- and whether a round there takes trunk health is NOT measured; owed: a rifle-round shooting leg with recorded aim points, near and far, a scuba SEAL the target and a terrorist the control (it settles the band and its +-2.0 width); if the original leaves the band, `spinelo`'s box is empty again |
+| `SPINELO_RADIUS_PLACEHOLDER` (`net/hitVolumes.ts`, retired 2026-11-10) | was 2.0: `spinelo`'s capsule radius, its bbox empty | §3.6b | retired by BONE-BOXES: the volume is the bone's box, `spinelo`'s an empty one nothing enters |
 | `HIT_POSE_CLOCK_READING` (`net/hitPose.ts`) | `'tick'`: the room's animator steps once a room tick by `1 / TICK_HZ` on that tick's snapshot of the body; a shooter's page steps its copy each drawn frame on snapshots at `SNAPSHOT_HZ`, `INTERP_DELAY_MS` behind, its copy built at its first snapshot -- nothing aligns the two loops' phases | `FUN_005abbc0` D:L464672-464803 meets the shooter console's own copy (its phase that console's); one judge here (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): settles with a capture of the drawn body's phase on two consoles at once, or the room's phase sent to the pages (a wire change, not made) |
 | `HIT_POSE_RANDOM_READING` (`net/hitPose.ts`) | `0`: every random number the room's animator draws (the crouch's three idles, the first at 0; the head look's turns); a page's copy draws `Math.random` | each console's copy draws its own; nothing on the wire aligns them (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): a still crouched body's idle and a looking head can differ between the room and a page |
 | `HIT_POSE_LAYERS_READING` (`net/hitPose.ts`) | `'none'`: the room's animator takes the snapshot alone -- no pose layer (the Fire set and the reloads, the binoculars, the throw's hands, the flinch, the victory dance), no pistol version, no launcher set, no `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`) | the page's `Play` lays them over its copy's animator (`play.ts`, `remotePlayers.ts`) (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): each moves the arms and the spine more than the head; settles with each layer fed from what the room holds (the reload's lock, the hold code, the raise), one at a time, each against its capture |

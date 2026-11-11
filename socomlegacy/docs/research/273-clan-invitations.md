@@ -155,7 +155,11 @@ root: the services answer AccountGetID (`packages/central/src/accountGetId.ts`, 
 `ignoreListHost.ts`). *(The review's F1, 2026-10-15: first built on Horizon's reading -- any account, logged in or not,
 `desktop@be557831` `MLS.cs:468-497`, `DbController.cs:159-182` -- then ruled for the disc's #376; Horizon's is the other
 reading, §7. The route moved from `/clan/account-id` to `/lobby/account-id`, shared with the ignore list's add.)* So an
-invitee whose session had ended is #390 still, as the original's text has it. The rows' refusals before any request
+invitee whose session had ended is #390 still, as the original's text has it. *[2026-11-10, CLAN-INVITES: no longer --
+the owner's word, "ensure clan invites are sent to accounts that exist but are offline" (2026-11-10 ~20:35Z, after a player's report),
+overturned the 2026-10-15 ruling: AccountGetID answers any account of the name, logged in or not (Horizon's lookup; the
+invite's own #390 names no logged-off case), so a logged-off invitee is invited and reads it at his next CheckMyInvites
+(§7).]* The rows' refusals before any request
 (#390 empty, #391, #392, #393, #384) were each already shown; none returned silently. Tests:
 `packages/central/test/accountGetId.test.ts` (the service, the path and its auth, the owner's case through
 `createServices` with `@s2u/ui`'s rows: a player logged in in no room invited and listed, a logged-off one #390 until he
@@ -304,7 +308,7 @@ ticket.
 1. **The invite's lookup** (`INVITE_NAME_LOOKUP_PLACEHOLDER`): AccountGetID asked as SVC-18's FindPlayer, which finds
    only a player on the lobby -- a player off line is #390 where the console's server would have found his account.
    *[2026-10-15, NU-14: gone -- the services answer AccountGetID (`/lobby/account-id`, research 262 §4.1), a logged-in
-   account of the name in a room or not (`ACCOUNT_GET_ID_PRESENCE_READING`, §7); the owner's case (§2.2, after the table).]*
+   account of the name in a room or not (`ACCOUNT_GET_ID_PRESENCE_READING` then; `ACCOUNT_GET_ID_PRESENCE_OWNER` since 2026-11-10, §7); the owner's case (§2.2, after the table).]*
 2. **The roster unheld** (`CLAN_ROSTER_UNHELD_READING`): no roster refusal (#392, #393) is raised and the seat rule
    counts the invitations sent alone, until ONL-27's GetClanRoster fills `LobbyClan.roster`. Inviting oneself goes to
    the server, which takes it (SVC-09's `invite` checks no target's clan; the accept is refused,
@@ -324,13 +328,15 @@ ticket.
 | name | value | what it stands in for | what would settle it | status |
 |---|---|---|---|---|
 | `INVITE_NAME_LOOKUP_PLACEHOLDER` (ui `screens/invitedPlayersCommands.ts`) | `'AccountGetID asked as FindPlayer: only a player on the lobby is found'` | the invite's AccountGetID by name (Lobby 0x17, `FUN_00649e28`; the reply `FUN_002e7850` D:L187049-187083), which our services do not serve (§2.2, §6 item 1) | an AccountGetID operation on the services (by name), as for the ignore list's (`IGNORE_NAME_LOOKUP_PLACEHOLDER`, research 269 §1.7); ONL-32's transcript of an invite of a player off line | retired 2026-10-15 (NU-14): the services' AccountGetID (`accountGetId.ts`, `/lobby/account-id`; `ACCOUNT_GET_ID_PRESENCE_READING`) asked by the page; the constant removed |
-| `ACCOUNT_GET_ID_PRESENCE_READING` (server `accountGetId.ts`) | `'an account of the name with a live session, in a room or not; else AccountNotFound'` | which accounts AccountGetID (Lobby 0x17; the invite's `FUN_002e7600` D:L187034-187038 and the ignore add's `FUN_00300c50` D:L202232-202236) finds: one logged in (`AccountService.loginAt`, the session the lobby already uses), in a room or not. The evidence: the disc's #376, IGNORE's caption for the same request's failure, "That player does not exist or is not currently logged in." (research 269 §1.1, §1.6). The other reading: Horizon's any account, logged in or not (`desktop@be557831` `MLS.cs:468-497`, `DbController.cs:159-182`); the original's text outranks it (the merge controller's ruling between readings, 2026-10-15) | ONL-32's transcript of an invite (or an ignore add) of a player off line | reading, pending review (NU-14, 2026-10-15) |
+| `ACCOUNT_GET_ID_PRESENCE_READING` (server `accountGetId.ts`) | `'any account of the name, logged in or not; else AccountNotFound'` *(2026-11-10, CLAN-INVITES; was `'an account of the name with a live session, in a room or not; else AccountNotFound'`)* | which accounts AccountGetID (Lobby 0x17; the invite's `FUN_002e7600` D:L187034-187038 and the ignore add's `FUN_00300c50` D:L202232-202236) finds. *Since CLAN-INVITES (2026-11-10): any account of the name, logged in or not -- Horizon's database lookup (`desktop@be557831` `MLS.cs:468-497`, `DbController.cs:159-182`); the invite's own failure caption #390 "That player does not exist." (§1) names no logged-off case, and the invitation is stored for the invitee's next CheckMyInvites (§4); the owner's word, "ensure clan invites are sent to accounts that exist but are offline" (2026-11-10 ~20:35Z), overturns the ruling below. The ignore add asks the same request, so a logged-off player can be ignored too.* Before it (NU-14): one logged in (`AccountService.loginAt`, the session the lobby already uses), in a room or not. The evidence: the disc's #376, IGNORE's caption for the same request's failure, "That player does not exist or is not currently logged in." (research 269 §1.1, §1.6). The other reading: Horizon's any account, logged in or not (`desktop@be557831` `MLS.cs:468-497`, `DbController.cs:159-182`); the original's text outranks it (the merge controller's ruling between readings, 2026-10-15) | ONL-32's transcript of an invite (or an ignore add) of a player off line | renamed 2026-11-10 (the review's F1): the value is the owner's ruling, not a reading -- `ACCOUNT_GET_ID_PRESENCE_OWNER`, the next row; this name retired |
+| `ACCOUNT_GET_ID_PRESENCE_OWNER` (server `accountGetId.ts`) | `'any account of the name, logged in or not; else AccountNotFound'` | which accounts AccountGetID finds -- **the owner's ruling against the best reading**. The best reading stays NU-14's (an account with a live session): the disc's #376, the ignore dialog's own wording for this request, "does not exist or is not currently logged in", and `FUN_002e7850` whispering the invitation's text to the account found (`FUN_002f4d60`). The owner ruled for any account, logged in or not (Horizon's, `MLS.cs:468-497`, `DbController.cs:159-182`): "ensure clan invites are sent to accounts that exist but are offline" (2026-11-10 ~20:35Z). The ignore add asks the same request, so a logged-off player can be ignored too (HUMAN_TASKS H441) | ONL-32's transcript of an invite (or an ignore add) of a player off line; the owner may overturn it | the owner's (2026-11-10) |
 | `CLAN_ROSTER_UNHELD_READING` (ui `screens/invitedPlayersCommands.ts`) | `'the roster is ONL-27\'s: none held, the cap counts the invitations sent, no roster refusal'` | the roster 0x44f740 that `CanInviteMorePlayersToClan` (ELF 0x2e5fe0) counts and `FUN_002e9460` searches (§2.2, §2.4) | ONL-27's GetClanRoster filling `LobbyClan.roster` | retired 2026-10-13: ONL-27's GetClanRoster holds the roster (research 272 §4) |
 | `CLAN_INVITE_TICKET_ADAPTATION` (ui `screens/invitedPlayersCommands.ts`; read by `respondToInvitesCommands.ts`) | `'an invite, a revoke or a response goes on only under the ticket it began with'` | no original: the console's chains die with its connection (§6 item 4) | nothing to settle: a labelled adaptation of the transport | adaptation |
 | `INVITED_PLAYERS_LATEST_REPLY_ADAPTATION` (ui `screens/invitedPlayersCommands.ts`) | `'a sent list reply taken only for the latest request, under the ticket still held'` | no original: the console's replies come in order on one connection (§6 item 5) | nothing to settle: a labelled adaptation of the transport | adaptation |
 | `CLAN_CAP_PLACEHOLDER` (server `clans.ts`, research 262 §6) | 16 | the original server's cap; the client's own rule now read (`CLAN_INVITE_SEATS`, §2.4) | the owner (H-next b, H34) or ONL-32's transcript | kept: listed in research 262, unchanged |
 | `INVITATION_LISTS_UNDECIDED_PLACEHOLDER` (server `clans.ts`, research 262 §6) | Horizon's model | which invitations the lists hold; the leader's AddPlayerToClan, transcribed here client-side (§2.1) and never sent against our services | ONL-32's transcript of an accept, or the owner (H174) | kept: listed in research 262, unchanged |
 | `GET_CLAN_STUB_READING` (ui `screens/worldOfSocomCommands.ts`, research 158) | the no-clan reply at once | GetMyClans; why an accept leaves `LobbyClan` empty (§3) and the respond page's clan branches are not taken (§6 item 3) | ONL-27 | retired 2026-10-13 (ONL-27's GetMyClans, research 272 §3) |
+| `CLAN_INVITE_LIVE_ADAPTATION` (server `clanInviteLive.ts`; read by ui `screens/clanInvitations.ts` `refresh`, viewer `clanInvitationsHost.ts` `withClanInvitationNotice`) | `'a changed received list marked on the invitee\'s /lobby/chat-lines reply; the page asks the list again'` | no original: the original asks the received list only at `init_screen`, RESPOND TO INVITES' `WAIT 30` loop and a respond's reply (§3, §4), so a new invitation never reaches a player resting on SOCOM II ONLINE; the owner asked for live arrival (§10); applied only on SOCOM II ONLINE and RESPOND TO INVITES (`CLAN_INVITE_LIVE_DIALOGS`, the review's F2) | nothing to settle: a labelled browser adaptation, the original's screens, requests and replies unchanged | adaptation (CLAN-INVITES, 2026-11-10) |
 
 ## 8. The tests, and the runs (unit tests, a dev-disc test and the pages over the machine; no browser, no capture)
 
@@ -393,3 +399,47 @@ ticket.
 - **The proven level**: ONL-32's capture of an invite and an accept by two personas (PC research 80 H1 "Clan: invite"),
   with the server's records checked through SVC-09, and its transcript of the invite's lookup, the invitation, the
   whisper and the response.
+
+## 10. CLAN-INVITES (2026-11-10): offline invitees, and live arrival
+
+The owner's request, 2026-11-10 ~20:35Z, after a player's report ("inviting ppl to clans isn't working?", "invites still
+dont work, unless maybe the player needs to be online?"): "ensure clan invites are sent to accounts that exist but are
+offline, and that clan invites come in live for a player that recieves one. Try to do this efficiently but i suppose a
+poll is acceptable if it's our only option".
+
+1. **Offline invitees** (simulation track, reading, pending review). The invite died at the lookup:
+   `accountGetId.ts`'s AccountGetID answered -998 for an account with no live session (`ACCOUNT_GET_ID_PRESENCE_READING`
+   as NU-14 ruled it, §7), so `FUN_002e7850` raised MP_PLAYER_NOT_FOUND (#390) and nothing was sent; SVC-09's `invite`
+   itself stores an invitation for any account. Re-ruled on the owner's word to Horizon's lookup -- any account of the
+   name, logged in or not (`ACCOUNT_GET_ID_PRESENCE_OWNER`, §7's row) -- **the owner's ruling against the best reading**:
+   the disc's #376 ("does not exist or is not currently logged in", the ignore dialog's wording for this request) and
+   `FUN_002e7850`'s whisper to the invitee read as a lookup of players on line; the invite's own #390 and the stored
+   invitation (§4) do not outweigh them. Named `_OWNER` at the review's F1 (2026-11-10). The whisper `FUN_002e7850` sends with the invitation reaches no one off line
+   (`chat.ts`, `WHISPER_REACH_READING`). The ignore list's add asks the same request -- the server cannot tell the two
+   apart -- so a logged-off player can now be ignored too (research 269 §1.6; HUMAN_TASKS H441, the owner's to confirm).
+2. **Live arrival** (`CLAN_INVITE_LIVE_ADAPTATION`, a browser adaptation, §7's row). The original has no push of an
+   invitation: the received list is asked at SOCOM II ONLINE's `init_screen` (`FUN_0027a3c0` D:L124390-124397 ->
+   `FUN_002e8650` D:L187564-187581), in RESPOND TO INVITES' `find_invited_players` loop (`WAIT 30`, §3) and after a
+   respond's reply (`FUN_002e8a60` D:L187710-187720). The channel chosen is one the page already holds: the briefing
+   room transport's `/lobby/chat-lines` poll (`CHAT_POLL_MS_ADAPTATION`, 1 s, running from login while the lobby is up,
+   on the menus too), which already carries central's `system` and `says`. Central (`clanInviteLive.ts`
+   `ClanInviteNotices`) marks a logged-in account whose received list changed -- SVC-09's `invite` to it, its `revoke`,
+   its clan's `disband` (`ClanService`'s `invitationsChanged`) -- and the account's next poll carries `clanInvitations:
+   true` once; a session's end forgets the mark, and an account off line is not marked (its login's `init_screen` asks).
+   The page (`withClanInvitationNotice` over `withSays`, `frontEnd.ts`) then asks CheckMyClanInvitations again under the
+   ticket the poll was sent with (`MyClanInvitations.refresh`): the same request, the list replaced only when the replies
+   are in so the INVITATIONS row never reads empty while one waits, and each reply handled as `FUN_002e86c0` handles it
+   -- so the original's own `TurnOnInvitations` lights the row, the list's MP_MEDIUS_HAS_INVITES is raised as at the
+   menu's entry (whether any dialog binds it is unread), and an open RESPOND TO INVITES shows the new row. **The cost**:
+   no new request, connection or period; one set lookup per poll on central; one CheckMyClanInvitations per change; a
+   change reaches the page up to one poll (1 s) late. *(The review's F2, 2026-11-10: the list is asked again only while the
+   page shows SOCOM II ONLINE or RESPOND TO INVITES -- `CLAN_INVITE_LIVE_DIALOGS`, viewer `clanInvitationsHost.ts` -- the
+   two menus the original asks it from, so MP_MEDIUS_HAS_INVITES reaches no other dialog; elsewhere the mark stays pending
+   and SOCOM II ONLINE's own `init_screen` CheckMyInvites asks the list on entry.)* A full push channel was not added: the page holds no socket to
+   central on the menus, and the 1 s poll is already paid for.
+3. **Tests** (written, not run on the authoring host, whose free memory was under the floor; the controller runs them):
+   `packages/central/test/accountGetId.test.ts` (the lookup, the path, the owner's invite of a logged-off player and the
+   ignore add), `packages/central/test/clanInviteLive.test.ts` (the marks; invite, revoke and disband through
+   `createServices`), `packages/ui/test/screens/clanInvitations.test.ts` (`refresh`),
+   `packages/viewer/test/clanInvitationsHost.test.ts` (`chatReplyOf`, the wrapper, `live`, the `frontEnd.ts` lines).
+   Not claimed: a rendered run, or ONL-32's transcript of an invite of a player off line (the proven level).

@@ -80,6 +80,11 @@ export type LoadedMesh = MeshData & {
    */
   switchPath?: string;
   /**
+   * LATER 782: a world chunk under a node a program's `SCROLL_MOTION` scrolls (`MapMeta.motion.scrolled`) -- the deepest
+   * such path. The merge keeps such chunks apart by it, so each takes its own texture offset (`WorldView.setNodeUvOffset`).
+   */
+  scrollPath?: string;
+  /**
    * The uv step per engine tick of a scrolling texture (`TextureScroll_Object` on the world root:
    * Frostfire's oceans and sky horizon), or null for the still majority.
    */
@@ -471,7 +476,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
   // the grid and the doors were already taken from the whole graph in `place` (`hull`); this loop does not touch them.
   // #432 (OT.R69): a piece that moves or breaks (an alternate state, a switch path) keeps the disc's draw; #337: so does
   // a piece that rides a crane.
-  const piecePlan = worldPiecePlanFor(placement.models, placement.world, options, (p) => placement.alternate(p) || placement.switchPath(p) !== null || ridesCrane(p));
+  const piecePlan = worldPiecePlanFor(placement.models, placement.world, options, (p) => placement.alternate(p) || placement.switchPath(p) !== null || placement.scrollPath(p) !== null || ridesCrane(p));
   const pieceOrder = new Map<number, number>();
   const pieceCells = new Map<number, number[]>();
   for (const [wi, p] of placement.world.entries()) {
@@ -500,6 +505,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
     const { meshes, lines } = decoded;
     const alternate = placement.alternate(p);
     const switchPath = placement.switchPath(p);
+    const scrollPath = placement.scrollPath(p);
     const scroll = placement.scroll(p);
     const cells = placement.cells(p);
     meshes.forEach((mesh, i) => {
@@ -511,6 +517,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
         ...(centre ? { centre } : {}),
         ...(mesh.detailOn ? {} : { detailOn: false }), ...(mesh.detailRange !== undefined ? { detailRange: mesh.detailRange } : {}),
         ...(switchPath !== null ? { switchPath } : {}),
+        ...(scrollPath !== null ? { scrollPath } : {}),
         ...(hasVertexAlpha(mesh) ? { vertexAlpha: true } : {}),
         ...(mesh.alphaPass ? { alphaPass: true } : {}),
       });
@@ -1077,7 +1084,7 @@ export function mergeWorld(
     // every draw is gated whole (`LoadedMesh.detailOn`, `detailRange`); a texture with no detail pass is not split.
     const bound = key !== '' && detail[key] !== undefined;
     const gate = bound ? `|d${part.detailOn === false ? 0 : 1}${part.detailRange !== undefined ? `:${part.detailRange}` : ''}` : '';
-    const group = `${key}|${part.fog ? 1 : 0}${part.lit ? 'L' : ''}${part.cull ? 'C' : ''}${part.alternate ? 'A' : ''}${part.vertexAlpha ? 'V' : ''}${part.alphaPass ? 'P' : ''}${scroll}|e${part.reflect ?? 0}|${blended ? `b${part.order}` : `r${run}`}${part.switchPath ? `|w${part.switchPath}` : ''}${gate}`;
+    const group = `${key}|${part.fog ? 1 : 0}${part.lit ? 'L' : ''}${part.cull ? 'C' : ''}${part.alternate ? 'A' : ''}${part.vertexAlpha ? 'V' : ''}${part.alphaPass ? 'P' : ''}${scroll}|e${part.reflect ?? 0}|${blended ? `b${part.order}` : `r${run}`}${part.switchPath ? `|w${part.switchPath}` : ''}${part.scrollPath ? `|x${part.scrollPath}` : ''}${gate}`;
     if (blended) run++;
     // PF-30: a detail-bound part brings its visual's centroid on every vertex (`MeshData.centroids`, kept through
     // `mergeMeshes`); the other draws spend nothing on it.
@@ -1096,6 +1103,7 @@ export function mergeWorld(
     cull: list[0]!.cull,
     alternate: list[0]!.alternate,
     ...(list[0]!.switchPath ? { switchPath: list[0]!.switchPath } : {}),
+    ...(list[0]!.scrollPath ? { scrollPath: list[0]!.scrollPath } : {}),
     scroll: list[0]!.scroll,
     reflect: list[0]!.reflect ?? 0,
     cells: unionCells(list.map((part) => part.cells ?? [])),
@@ -1292,6 +1300,8 @@ interface Placement {
   alternate: (p: PlacedModel) => boolean;
   /** MAP-02: the deepest path the map's zAnim references name that the placement lies under, or null (`switchPath`). */
   switchPath: (p: PlacedModel) => string | null;
+  /** LATER 782: the deepest scrolled path the placement lies under (`MapMeta.motion.scrolled`), or null (`scrollPath`). */
+  scrollPath: (p: PlacedModel) => string | null;
   /** The LOD band per model name (`lodBands`), for the copies the engine shows by camera range. */
   lod: Map<string, LodBand>;
   /** The texture scroll of a placement's node (`TextureScroll_Object`), or null. */
@@ -1381,6 +1391,12 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
       for (const e of meta.initial) if (under(p.path, e.path) && (best === null || e.path.length > best.length)) best = e.path;
       return best;
     };
+    /** LATER 782: the deepest scrolled path over a placement (`LoadedMesh.scrollPath`). */
+    const scrollPath = (p: PlacedModel): string | null => {
+      let best: string | null = null;
+      for (const e of meta.motion?.scrolled ?? []) if (under(p.path, e) && (best === null || e.length > best.length)) best = e;
+      return best;
+    };
     for (const p of [...placed, ...clutterPlaced]) {
       ranks.set(p, ranks.size);
       if (p.modelName === WORLD_MODEL && !turned(p)) continue;
@@ -1408,6 +1424,7 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
       rank: (p) => ranks.get(p) ?? 0,
       alternate,
       switchPath,
+      scrollPath,
       lod: lods(bytes, toc, notes),
       scroll,
       cells: (p) => placementCells(grid, p, clutterPlaced.has(p) ? 'clutter' : 'model').map((c) => c.index),
@@ -1424,7 +1441,7 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
     };
     return {
       world: [every], props: [], origin: worldOrigin(bytes, toc, stem, notes), collision: noCollision(),
-      rank: () => 0, alternate: () => false, switchPath: () => null, lod: new Map(), scroll: () => null,
+      rank: () => 0, alternate: () => false, switchPath: () => null, scrollPath: () => null, lod: new Map(), scroll: () => null,
       // No graph, no node bboxes: nothing to file the one modal placement by, so it is drawn after the walk.
       cells: () => [],
     };

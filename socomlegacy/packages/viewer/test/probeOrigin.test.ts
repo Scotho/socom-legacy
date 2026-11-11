@@ -157,8 +157,11 @@ describe.skipIf(!HAVE_MP64)(`MP64_RESPAWN_181_READING (research 80 s7): respawn 
   // The record (1386.04, 9.32, 2435) is under water; the standing lift's window (the record lifted a unit + 12.48) takes
   // `inv_di` at 18.16 (mat 3 INVISIBLE_DI, normal y 0.067) -- kept as read (`FUN_005b5d40` filters no normal); whether the
   // original's GetIntersect hits it is VU0 microcode (0x2dd130, vcallms 0x70), unread. The body leaves the face in its
-  // first tick (the steep slide and r0004's near-vertical push) and rests about 89 east, still under water.
-  it('placed on inv_di at 18.16, off the face in the first tick, at rest at (1474.96, 15.105, 2438.84) under water', async () => {
+  // first tick (r0004's near-vertical push, 4.19 units, a displacement only since LATER 833: research 217 s2.8), moves
+  // 2.30 more across in its second (velocity 0; not traced), then falls straight to the floor under the record, about
+  // 6.5 from it, still under water (research 80 s7). (Before LATER 833 the push was carried as 251 u/s and the body
+  // flew to a rest about 89 east, (1474.96, 15.105, 2438.84) -- the launch LATER 833 removed.)
+  it('placed on inv_di at 18.16, off the face in the first tick, at rest at (1391.30, 9.321, 2438.80) under water', async () => {
     const map = await loadSimMap(new FsAssetSource(DISC_DIR), 'RUN/MP64.ZDB');
     const r = map.respawns.find((q) => q.index === 181 && q.side === 0)!;
     expect(r.position[1]).toBeCloseTo(9.32, 2);
@@ -169,12 +172,11 @@ describe.skipIf(!HAVE_MP64)(`MP64_RESPAWN_181_READING (research 80 s7): respawn 
     expect(w.airborne).toBe(true);
     for (let i = 1; i < 240; i++) w.tick(STILL);
     expect(w.airborne).toBe(false);
-    expect(w.state.x).toBeCloseTo(1474.96, 1);
-    expect(w.state.y).toBeCloseTo(15.105, 2);
-    expect(w.state.z).toBeCloseTo(2438.84, 1);
-    // Wet either way: 0.47 under the water at 15.57 here (the room's own rest, (1472.73, 14.88, 2437.30) ticked by idle
-    // commands, under about 0.66; review 2).
-    expect(wadingDepth(map.grid, [w.state.x, w.state.y, w.state.z])).toBeCloseTo(0.469, 2);
+    expect(w.state.x).toBeCloseTo(1391.30, 1);
+    expect(w.state.y).toBeCloseTo(9.321, 2);
+    expect(w.state.z).toBeCloseTo(2438.80, 1);
+    // Wet either way: 6.42 under the water line here, on the floor the record names (y 9.32).
+    expect(wadingDepth(map.grid, [w.state.x, w.state.y, w.state.z])).toBeCloseTo(6.417, 2);
   }, 120_000);
 });
 

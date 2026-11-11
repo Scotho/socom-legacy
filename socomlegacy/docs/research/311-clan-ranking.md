@@ -41,7 +41,7 @@
 | R311.3 | **The rows**: a reply row (0x48 bytes kept, `FUN_002ebcf0` D:L189511-189537: the request's tag, the clan id +0x18, the name +0x1c, the position +0x3c, the status +0x40, the end +0x44) is kept unless one of its position is held. The podium (`FUN_002ea800` D:L188697-188727) draws `["%d" of the position, the name]` into CLAN_LADDER_LEADERS; the ranking (`FUN_002ea930` D:L188732-188787) `["%d" of the position, the name, the clan medal]` into CLAN_LADDER_RANKING, the row whose clan id is the client's (`DAT_0044f59c`) with its position and name as keyed cells in (91, 72, 36), then ON_LADDER_REFRESH. Both sort by position, ascending (`FUN_002ec7e0` D:L189844-189976, `FUN_002ed060` D:L190061-190088). **No clan tag**: the reply's "tag" is the request's MessageID. A row's end flag draws the list; a status not Success keeps nothing and frees the list's request, whatever its tag (D:L188671-188673). | §4 |
 | R311.4 | **The clan medal is computed and placed off the screen**: CLAN RANKING's `LadderList` puts its third column -- a 16 x 16 image over `null.tif` and the five medals -- at POSITION 820 (the disc's layout), 820 pixels right of a list whose left is at 305 on a 640-pixel frame; `FUN_0037ab90` places a cell at the list's left plus its column's POSITION (D:L273838-273841; the column's +4 is POSITION, `FUN_0037eab0` D:L276163-276164). The player sees the position and the clan's name only. | §4.3 |
 | R311.5 | **`FUN_002ead80`** (D:L188869-188895; ELF 0x2ead80-0x2eae1c): 0 while `TotalClans` is 0 or below; else `p = position x 1000 / TotalClans` -- the product in 32 bits (shifts and adds), the division signed and truncated -- **4 for p up to 50, 3 up to 300, 2 up to 850, else 1**; no top-ten rung and no small-ladder rule, so never 5. A position of -1 is replaced by `DAT_0044f868`, which no caller passes (its one caller hands each row's own position, D:L188755). One clan on the board draws 1; the first clan draws 4 only from 20 clans. | §5 |
-| R311.6 | **An off-board clan** (the port's ClanNotFound, research 310 §5): the position's reply changes nothing (`FUN_002eac70` D:L188840-188862 acts only on Success), so **the list around the clan is never asked** -- the page shows the podium, an empty list on the session's first visit (or the list it last drew), both arrows pulsing, no tint; on the empty list L1 and L2 do nothing (corrected at ONL-30's build, §11 item 9: an empty LISTBOX runs none of its bindings, `FUN_003745e0` D:L270328-270330). The stale position 310 §5 worried about reaches nothing visible (R311.5; `ClanLadderRanking` is drawn by no dialog of the disc). The page does nothing of its own: the server's answer is `CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER`'s open question, and the owner sees the consequence (§10). | §6 |
+| R311.6 | *(2026-11-10, H220 answered: every standing clan is on the board -- `CLAN_LADDER_ALL_CLANS_OWNER`, research 310 §5 -- so only a disbanded or unknown clan is off it; what follows still holds for those.)* **An off-board clan** (the port's ClanNotFound, research 310 §5): the position's reply changes nothing (`FUN_002eac70` D:L188840-188862 acts only on Success), so **the list around the clan is never asked** -- the page shows the podium, an empty list on the session's first visit (or the list it last drew), both arrows pulsing, no tint; on the empty list L1 and L2 do nothing (corrected at ONL-30's build, §11 item 9: an empty LISTBOX runs none of its bindings, `FUN_003745e0` D:L270328-270330). The stale position 310 §5 worried about reaches nothing visible (R311.5; `ClanLadderRanking` is drawn by no dialog of the disc). The page does nothing of its own: the server's answer is `CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER`'s open question, and the owner sees the consequence (§10). | §6 |
 | R311.7 | **SOCOM II ONLINE's clan podium** (`ClanLadderTop10` on CLAN_LADDER_LEADERS at (178, 138), columns 20 / 130 under #464 RANK and #774 CLAN NAME, its header #766 "TOP TEN SOCOM II ONLINE CLANS" over `BlueBack`; shown by the CLAN RANKING row's ONACTIVATE `ClanRankingAct`): filled by mode 7 at the menu's ONSTART (`get_ladder_top_10`, after mode 1), one ClanLadderLeaders 10 from 1 drawn by `FUN_002ea800`; no position, no total. | §7 |
 | R311.8 | **ONL-30 builds** the clans' half of the one client ladder in `LadderLobbyCommands` (modes 6-11, row 162 `GetClanRanking`, the replies applied in the order sent), the clans' transport in `ladderLobbyHost.ts`, the clan medal, and CLAN RANKING out of `PARKED_ROWS` -- five items, about 3 points (§8). `CLAN_LADDER_MODES_PLACEHOLDER` retired; two readings proposed (§9). The unparking meets H188's default's condition (W18.R13: "until ONL-30 merges"); what the owner sees is §10. | §8-§10 |
 
@@ -314,6 +314,12 @@ Sorted by position, ascending (`FUN_002ec7e0`: a quicksort on +0x3c, ranges unde
   clan off its board is `CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER`'s open question (server `ladder.ts`; H220's condition) and
   a server change if ever settled, not a page rule. The visible consequence -- a member of a clan under eight members
   opens CLAN RANKING onto an empty list -- is put before the owner with the unparking (§10).
+  *[2026-11-10, CLAN-INVITES: the consequence reached the players -- "does clan ranking work / its a blank page" (a
+  player's report): with no clan of eight on the server the board was empty, THE PODIUM and the list both drew nothing.
+  H220 answered (the owner, 2026-11-10, in seat 2f's session, relayed by it): "Clans under 8 members appear, ranked at the mean of the members they have. The page fills at once; labelled as a server choice, since the original's rule is unread." The server change is
+  made (`CLAN_LADDER_ALL_CLANS_OWNER`, server `ladder.ts`, research 310 §5; the placeholder retired): every
+  standing clan is ranked, so a member of any clan finds his clan's position and the list around it. The page is
+  unchanged.]*
 
 ## 7. SOCOM II ONLINE's clan podium (`ClanLadderTop10`, under #766)
 
@@ -419,7 +425,7 @@ In code since ONL-30's build (2026-10-14), both in ui `screens/ladderLobbyComman
 
 The names this note leans on are each listed where they live: `CLAN_LADDER_MODES_PLACEHOLDER` (ui `ladderLobbyCommands.ts`, research 269 §2.5) was retired by ONL-30's build (item 2 of §8.2).
 `LADDER_KEYED_CELL_READING` (ui `ladderLobbyCommands.ts`, research 269 §2.5) carries the clans' tinted cells unchanged.
-`CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER` (server `ladder.ts`, research 310 §5) holds the off-board answer's question (§6).
+`CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER` (server `ladder.ts`, research 310 §5) held the off-board answer's question (§6); retired 2026-11-10 (H220 answered), replaced by `CLAN_LADDER_ALL_CLANS_OWNER`.
 `PARKED_ROW_GATE_READING` (ui `worldOfSocomCommands.ts`, research 158) keeps its gate with an empty list (the seat's call at ONL-30).
 `CLAN_LADDER_POST_PLACEHOLDER` (ui `createClanCommands.ts`, research 271 §6) is unchanged by this row unless item 5's option re-files it (then replaced).
 
@@ -435,7 +441,9 @@ shows, and does not:
   own (from 1 when his is first or second), RANK and CLAN, his clan's position and name in the page's heading gold (91, 72, 36) where the
   others are grey (128); L1 / L2 page by fourteen, the pulsing arrows hidden at either end; TRIANGLE back. **No medal is visible on the rows**: the disc's layout places the clan
   medal off the right of the screen (§4.3) -- not a missing feature. A clan's row opens nothing (no CROSS on the list).
-- **Only clans of eight members or more are on the board** (H220's conditional default, `CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER`):
+- *[2026-11-10: no longer -- H220 answered, every clan is on the board, one under eight at the mean of its members
+  (`CLAN_LADDER_ALL_CLANS_OWNER`, a server choice); the page fills as soon as any clan exists. The rule as it was:]*
+  **Only clans of eight members or more are on the board** (H220's conditional default, `CLAN_LADDER_UNDER_EIGHT_PLACEHOLDER`):
   on a test server without a clan of eight both lists are empty and both arrows keep pulsing. A member of a clan under
   eight sees THE PODIUM and an empty list on entry, and L1 / L2 do nothing there (§6, §11 item 9: an empty list takes no
   pad) -- the consequence of the server's ClanNotFound, whose original counterpart is unread; a playtest needs a seeded

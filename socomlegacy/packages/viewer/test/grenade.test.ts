@@ -2584,3 +2584,48 @@ describe.skipIf(!ZWEAPON_ZAR)(`a scene round of MPBOMB on the disc's kit table${
     expect(g.stats().live).toEqual([]);
   });
 });
+
+/**
+ * LATER 645 (research 81 s5; reading, pending review): another's rocket passing the page's player. `FUN_00598000`'s 0xb9
+ * branch (D:L454640-454646) plays `.ROCKET_BY` when a rocket's segment `+0x48` -> `+0x54` -- each tick's, the last
+ * position to the new one (`FUN_003ca5a0` D:L320297-320299, D:L320305-320342) -- comes strictly under 100 of the
+ * actor's feet (`+0x1c`, D:L454629) at a point inside the segment (`FUN_00308b00`), once a rocket (`+6` bit 4,
+ * D:L454641, set D:L454646); the console's own rocket is skipped (`+4` bit 3, D:L454627). Class 0xb9 by the ID's
+ * category (`FUN_003d1e10` -> `FUN_003d1a60`, `weaponCategory`): LAW HEAT 185, RPG 186; a launched round (0xab) is not.
+ */
+describe("LATER 645: another's rocket passing the page's feet (GrenadeThrower 'rocketPast')", () => {
+  const rocket: ThrowableRecord = { ...M67, name: 'LAW HEAT', id: 185, muzzleVelocity: 200, gravity: 0, armingDistance: 0, impact: true, fuse: 10, removal: 10.1, explosionRadius: 150 };
+  const grenadeRound: ThrowableRecord = { ...rocket, name: 'M203 FRAG', id: 175 };
+  /** A thrower whose page's feet are `feet`; the 'rocketPast' events it tells, and 6 s of 60 Hz frames run. */
+  const flyPast = (feet: V3 | null, launch: (g: GrenadeThrower) => void): { from: V3; to: V3; actor: V3 }[] => {
+    const { g } = thrower({ listenerFeet: () => feet });
+    g.setRounds([rocket, grenadeRound]);
+    const told: { from: V3; to: V3; actor: V3 }[] = [];
+    g.on('rocketPast', (e) => told.push(e));
+    launch(g);
+    for (let i = 0; i < 360; i++) g.update(1 / 60);
+    return told;
+  };
+
+  it('another\'s LAW flying past 50 from the feet is told once, on the frame whose segment holds the nearest point', () => {
+    const told = flyPast([50, 100, -303], (g) => g.launchRemote('LAW HEAT', [0, 100, 0], [0, 0, -200], 7));
+    expect(told).toHaveLength(1);
+    const { from, to, actor } = told[0]!;
+    expect(actor).toEqual([50, 100, -303]);
+    expect(from[2]).toBeGreaterThan(-303);
+    expect(to[2]).toBeLessThan(-303);
+    expect(from[2] - to[2]).toBeCloseTo(200 * GAME_FRAME_DT, 4);    // one game frame's segment, not the whole flight
+  });
+
+  it('one passing at 100 or more is not told, nor one whose nearest point is an end of its flight', () => {
+    expect(flyPast([100, 100, -303], (g) => g.launchRemote('LAW HEAT', [0, 100, 0], [0, 0, -200], 7))).toEqual([]);
+    expect(flyPast([150, 100, -303], (g) => g.launchRemote('LAW HEAT', [0, 100, 0], [0, 0, -200], 7))).toEqual([]);
+    expect(flyPast([0, 100, 30], (g) => g.launchRemote('LAW HEAT', [0, 100, 0], [0, 0, -200], 7))).toEqual([]);   // behind its muzzle
+  });
+
+  it("the page's own rocket, another's launched round (class 0xab) and a page with no feet are told nothing", () => {
+    expect(flyPast([50, 100, -303], (g) => g.launchRound(rocket, [0, 100, 0], [0, 0, -200]))).toEqual([]);
+    expect(flyPast([50, 100, -303], (g) => g.launchRemote('M203 FRAG', [0, 100, 0], [0, 0, -200], 7))).toEqual([]);
+    expect(flyPast(null, (g) => g.launchRemote('LAW HEAT', [0, 100, 0], [0, 0, -200], 7))).toEqual([]);
+  });
+});

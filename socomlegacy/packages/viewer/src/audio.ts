@@ -391,6 +391,25 @@ export class WebAudioOut implements AudioOut {
     if (this.releaseLoopSamplesRead === null) this.releaseLoopSamplesRead = this.releaseLoopSamplesOf?.() ?? false;
     return this.releaseLoopSamplesRead;
   }
+  /**
+   * FF-AUDIO-HOLD (a browser adaptation): one sound's AudioParam scheduling, run so that a browser's refusal of it costs
+   * that sound's automation only, never the page's frame. Every refusal is counted (`automationRefused`); the first is
+   * warned at once, and the ones after it in one more line, `AUTOMATION_REFUSED_TALLY_SECONDS` later, with the count --
+   * once an output, so a recurrence is neither silent nor a line a frame.
+   */
+  private scheduled(run: () => void): void {
+    try { run(); } catch (e) {
+      if (++this.automationRefused_ > 1) return;
+      console.warn('[audio] a loop gain automation was refused; that sound\'s automation was dropped', e);
+      setTimeout(() => {
+        const n = this.automationRefused_;
+        if (n > 1) console.warn(`[audio] ${n - 1} more loop gain automations refused and dropped (${n} in all)`);
+      }, AUTOMATION_REFUSED_TALLY_SECONDS * 1000);
+    }
+  }
+  private automationRefused_ = 0;
+  /** FF-AUDIO-HOLD: the loop gain automations a browser refused (each dropped), since the output was made. */
+  get automationRefused(): number { return this.automationRefused_; }
   /** The statechange listener on the context (taken off again by `dispose`). */
   private changed: (() => void) | null = null;
   /**
@@ -795,31 +814,49 @@ export class WebAudioOut implements AudioOut {
     this.route(node, buffer.numberOfChannels, gains, group);
     node.start();
     return {
+      // FF-AUDIO-HOLD (a browser adaptation): a scheduling refusal costs this loop's automation for this call, never
+      // the frame that asked for it (`scheduled`).
       setGains: (left, right, seconds = 0.05) => {
         const now = ctx.currentTime;
-        gains.forEach((g, i) => {
+        gains.forEach((g, i) => this.scheduled(() => {
           hold(g.gain, now);
           g.gain.setTargetAtTime(i % 2 === 0 ? left : right, now, Math.max(0.005, seconds / 3));
-        });
+        }));
       },
       release: (curve, seconds) => {
         const now = ctx.currentTime;
-        for (const g of gains) {
+        for (const g of gains) this.scheduled(() => {
           hold(g.gain, now);
           const from = g.gain.value;
           if (seconds > 0 && curve.length >= 2 && from > 0) g.gain.setValueCurveAtTime(curve.map((c) => c * from), now, seconds);
           else g.gain.setValueAtTime(0, now);
-        }
+        });
       },
       stop: () => { try { node.stop(); } catch { /* already stopped */ } node.disconnect(); },
     };
   }
 }
 
-/** A param's automation stopped where it stands at `now` (a release's curve or a ramp still running), for a new one. */
+/**
+ * FF-AUDIO-HOLD (a browser adaptation, no original): how long after a first refused loop gain automation the output
+ * tallies the ones since in one console line (`WebAudioOut.scheduled`). A logging interval only; no sound depends on it.
+ */
+export const AUTOMATION_REFUSED_TALLY_SECONDS = 60;
+
+/**
+ * A param's automation stopped where it stands at `now` (a release's curve or a ramp still running), for a new one.
+ *
+ * FF-AUDIO-HOLD (a browser adaptation): without `cancelAndHoldAtTime` (Firefox), `cancelScheduledValues(now)` removes only
+ * the events timed at or after `now`, so a release's `setValueCurveAtTime` that started earlier stays, and the spec makes
+ * any event added inside a curve's span throw NotSupportedError ("Can't add events during a curve event"). So the value
+ * is read first -- `value` is the param's computed value at the present render quantum, at most one quantum (128
+ * frames) from the exact `now` -- and every event is cancelled, the running curve with them (`cancelScheduledValues(0)`),
+ * before the held value is set at `now`. Nothing scheduled earlier has to survive: a loop's gains take events only from
+ * `setGains` and `release`, and each starts with this hold at the present time.
+ */
 function hold(p: AudioParam, now: number): void {
   if (typeof p.cancelAndHoldAtTime === 'function') p.cancelAndHoldAtTime(now);
-  else { const v = p.value; p.cancelScheduledValues(now); p.setValueAtTime(v, now); }
+  else { const v = p.value; p.cancelScheduledValues(0); p.setValueAtTime(v, now); }
 }
 
 interface Loaded { bank: SoundBank; samples: SampleCache; borrowed: boolean }

@@ -52,7 +52,7 @@
 | # | r0004 (reading) | the port | this task | level |
 |---|---|---|---|---|
 | 3 | `FUN_005817d0`'s twin gains a default case: a state not 4/0/2 calls the actor's vtable +0x90 with 0, then takes the "from stand" case | r0001: a crouch press while peeking ends the peek, no transition (`PEEK_STANCE_ENDS_PEEK_READING`) | **not ported** (§2.1) | reading |
-| 4 | where `FUN_00552ec0`'s outer gate refuses, the obstacle slot is cleared, and a SEAL in a prone peek is made to leave it (water over 2 deep, or a non-local controller) | r0001's: returns 0 | **not ported** (§2.2) | reading |
+| 4 | where `FUN_00552ec0`'s outer gate refuses, the obstacle slot is cleared, and a SEAL in a prone peek is made to leave it (water over 2 deep; or when the controller's vtable +0x34 answers non-zero -- "a non-local controller" is an inference, not a reading: +0x34 is not read, §2.2) | r0001's: returns 0 | **not ported** (§2.2) | reading |
 | 5 | `FUN_0054aa30`: a prone peek counts as prone; `FUN_0058a720`'s 3 is mapped to 2 under it (the prone size class) | the peek holds the mover: no segment pass runs during a peek | **not ported** (§2.3): no path | reading |
 | 6 | the climb-contact store keeps no SEAL (research 385 §3) | the grid holds no body, so no SEAL is climbed | **not ported**: no change made, the pin backed out (§2.7) | reading |
 | 8 | the two class-2 (ladder) climb starts refuse while `FUN_005a7980(actor, 1)` answers, and while type 0x2c is on top | a move holds the mover (the 0x2c half's outcome); `FUN_005a7980` not asked | **not ported** (§2.4) | reading |
@@ -89,7 +89,8 @@ reading of the new case itself is unambiguous. It is not ported because:
    D:L442473, D:L442708, D:L442765, D:L442875, D:L443491, D:L443870); which one a crouch press mid-peek reaches is not
    read. This also bears on the r0001 reading the port holds: research 217 §3.1 has the crouch press reach
    `FUN_005817d0` with state 3; this read could not find that path through `FUN_00552ec0` (a finding for its reviewer,
-   not a change: `PEEK_STANCE_ENDS_PEEK_READING` stays as filed).
+   not a change: `PEEK_STANCE_ENDS_PEEK_READING` stays as filed; the doubt is filed beside that name in research 101's
+   ledger row, DOCS-A1 2026-11-10).
 2. **vtable +0x90's effect is not read.** `FUN_00581ed0` calls it with the asked stance and then still branches on the
    old `+0x174` (D:L442696-442697), so it is not a plain write of `+0x174`; the cluster's "set stance 0" is an
    inference.
@@ -112,11 +113,14 @@ deep (`FUN_00584c10` D:L444022-444031: the in-water bit `+0x105e` bit 7 and `+0x
 `+0x374 = 1`, leaves the peek (`FUN_0057dc80`'s twin) and returns 1, so `FUN_00552d60` then applies a crouch; if vtable
 +0x34 answers non-zero it leaves the peek unless `+0x374` is 2, and returns 1. `FUN_00552d60` runs every frame
 (D:L418606- 418611, unless the top's posture is 8), so this is **not a stance press's handling** (the cluster's reading)
-but a per-frame rule. Not ported: vtable +0x34's meaning (it also gates `FUN_0057f7d0`, D:L441506-441509) is not read;
+but a per-frame rule. Not ported: vtable +0x34's meaning (it also gates `FUN_0057f7d0`, D:L441506-441509) is not read -- §0 row 4's and §6.2's
+"non-local controller" for it is an inference from where it gates (here, and the queued blast ray's online return in
+`FUN_005ac070`, D:L464826-464834), not a reading;
 whether a prone peek's top fails the outer gate is not read (its type's flag 0x40, `FUN_00588080`); the obstacle-slot
 clear runs on every frame the gate refuses, in every state -- a contact-model effect beside the owner's held items 13
 and 14; and the port's peek has no water-forced stance. Closes it: vtable +0x34 named; the prone peek types' flags read
-off motion.rdr; a PCSX2 `--build r0004` prone peek held as the water rises past 2 (or a remote SEAL's prone peek),
+off motion.rdr; a PCSX2 `--build r0004` prone peek held as the water rises past 2 (or a remote SEAL's prone peek, if +0x34 is what the
+inference takes it for),
 `+0x174`, `+0x374`, `+0x1120` per frame.
 
 ### 2.3 Item 5: the prone peek's size class

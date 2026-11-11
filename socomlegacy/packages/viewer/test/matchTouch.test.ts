@@ -240,6 +240,42 @@ describe("PAR-5: WEAPON EXCHANGE's touch half (research 253 §4) in the part", (
     expect(x.log).toEqual(['refresh', 'inv']);
   });
 
+  it("OT.R120 (the review's F1): dead and watching a teammate, INV shows with no prompt (the fly camera's layer), 'is-inv-shown' on the root; a press is Inventory", () => {
+    // Watching, `prompt()` is null (the page is not walking), so INV followed only R2's gate's other half: a touch player
+    // had no way in but going back to his own body. INV now shows wherever `canOpen` lets the camera on a teammate open it.
+    const a = rootWithLayer();
+    let gate = { inMatch: true, alive: false, cameraOnSelf: false, spectator: false };
+    let covered = false;
+    const x = deps({ covered: () => covered });
+    const ta = mountTouch(a, { ...x.d, exchange: { ...x.d.exchange, gate: () => gate } });
+    const inv = q(a, 'tw-weapons');
+    ta.weaponsFrame();
+    expect(inv.hidden).toBe(false);
+    expect(a.classList.contains('is-inv-shown')).toBe(true);
+    ptr(inv, 'pointerdown', 9);
+    expect(x.log).toEqual(['refresh', 'inv']);
+    expect(x.ex.open).toBe(true);
+    ta.weaponsFrame();
+    expect(inv.hidden).toBe(false);                                          // open over the teammate, INV closes the list
+    x.ex.open = false;
+    covered = true;                                                          // another screen over the match
+    ta.weaponsFrame();
+    expect(inv.hidden).toBe(true);
+    expect(a.classList.contains('is-inv-shown')).toBe(false);
+    covered = false;
+    for (const shut of [{ alive: true }, { spectator: true }, { inMatch: false }]) {
+      gate = { inMatch: true, alive: false, cameraOnSelf: false, spectator: false, ...shut };
+      ta.weaponsFrame();
+      expect(inv.hidden, JSON.stringify(shut)).toBe(true);                     // alive, a spectator or out of the match: shut
+      expect(a.classList.contains('is-inv-shown'), JSON.stringify(shut)).toBe(false);
+    }
+    gate = { inMatch: true, alive: false, cameraOnSelf: true, spectator: false };
+    ta.weaponsFrame();
+    expect(inv.hidden).toBe(true);                                           // on his own body, the prompt still decides (as before)
+    ta.dispose();
+    expect(a.classList.contains('is-inv-shown')).toBe(false);
+  });
+
   it("PAR-5a: the open menu takes the screen -- 'is-exchange-open' on the root each frame, and both stick zones yield their taps to it", () => {
     // The rendered check (PAR-5's review F1, 2026-10-11): walking, the zones lay over every row WEAPON EXCHANGE draws, so
     // a tap on the open menu started a stick and never reached `exchangeTaps` on the canvas. jsdom hit-tests nothing, so
@@ -582,6 +618,38 @@ describe('FI.R4: the touch pad hides while the pad the game reads is a connected
     root.classList.remove('is-taunts-open');
     expect(visible('tw-r1')).toBe(true);
     expect(visible('aim-zone')).toBe(true);
+  });
+
+  it.each(['body', 'match'])("OT.R120 (the review's F1): flying with INV shown on the %s root, INV alone of the walk pad shows", (kind) => {
+    const root = kind === 'body' ? document.body : document.body.appendChild(document.createElement('div'));
+    root.innerHTML = TOUCH_LAYER_MARKUP;
+    const style = document.createElement('style'); style.textContent = src('styles.css'); document.body.append(style);
+    const visible = (id: string): boolean => {
+      let el: Element | null = root.querySelector(`#${id}`);
+      if (!el) return false;
+      while (el) { if (getComputedStyle(el).display === 'none') return false; el = el.parentElement; }
+      return true;
+    };
+    const inv = root.querySelector<HTMLElement>('#tw-weapons')!;
+    const walkPad = ['tw-up', 'tw-cross', 'tw-triangle', 'tw-l1', 'tw-r1', 'tw-r2', 'tw-select', 'tw-start', 'tw-l3'];
+    root.className = 'touch';                                                // flying, INV hidden: the walk pad stays gone
+    expect(visible('tw-weapons')).toBe(false);
+    inv.hidden = false;
+    root.className = 'touch is-inv-shown';                                   // flying (watching a teammate), INV shown
+    expect(visible('tw-weapons')).toBe(true);
+    for (const id of walkPad) expect(visible(id), id).toBe(false);
+    expect(visible('touch-lift')).toBe(true);                                // the fly camera's own layer stays
+    for (const over of ['is-taunts-open', 'pad-on', 'armory-open']) {
+      root.classList.add(over);
+      expect(visible('tw-weapons'), over).toBe(false);
+      root.classList.remove(over);
+    }
+    inv.hidden = true;
+    expect(visible('tw-weapons')).toBe(false);                               // hidden INV hides, the class or not
+    inv.hidden = false;
+    root.className = 'touch is-walking is-inv-shown';                        // walking: the whole pad, as before
+    expect(visible('tw-weapons')).toBe(true);
+    expect(visible('tw-cross')).toBe(true);
   });
 });
 

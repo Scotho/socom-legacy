@@ -1515,7 +1515,9 @@ export class NetPage {
 
   /**
    * WEAPON EXCHANGE's gate (`./weaponSelectState` `canOpen`; research 94 §B2): in the match, dead or a ghost, the camera
-   * on oneself (not following a teammate), not a spectator.
+   * on oneself (not following a teammate), not a spectator. `cameraOnSelf` stays the camera's own answer (the vote
+   * rows read it, `./spectatorVote`); `canOpen` opens the menu while following a teammate as well
+   * (SPECTATE_KIT_CHANGE_OWNER).
    */
   gate(): MatchGate {
     const player = this.client.role === 'player';
@@ -1642,7 +1644,8 @@ export class NetPage {
    * HX-4a (research 239 s3; ruling HX.R7): the action button's order to a hostage -- FOLLOW! (4) or HOLD POSITION (5) --
    * with the page's aim as `fire` carries it (the walk's eye, the unit direction to its far point: `WalkMode.fireAim`),
    * at the last command sent; a player's only, with an aim. The room runs the issuer's console's test
-   * (`./net/hostageOrder`) and answers in `hostageState`.
+   * (`./net/hostageOrder`) and answers in `hostageState`. LATER 853: with the page's playout clock (`viewTick`), the tick
+   * it draws the hostages at, so the room's pick meets them there (the room's `ORDER_REWIND_ADAPTATION`).
    */
   hostageOrder(hostage: number, cmd: 4 | 5): boolean {
     if (this.client.state !== 'open' || this.client.role !== 'player') return false;
@@ -1653,7 +1656,7 @@ export class NetPage {
     if (!(l > 0)) return false;
     this.client.send({
       type: 'hostageOrder', seq: this.client.lastSeq(), hostage, cmd,
-      eye: [aim.eye[0], aim.eye[1], aim.eye[2]], dir: [d[0]! / l, d[1]! / l, d[2]! / l],
+      eye: [aim.eye[0], aim.eye[1], aim.eye[2]], dir: [d[0]! / l, d[1]! / l, d[2]! / l], viewTick: this.client.viewTick(),
     });
     return true;
   }

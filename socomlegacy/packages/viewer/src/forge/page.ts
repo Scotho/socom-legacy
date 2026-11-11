@@ -135,7 +135,7 @@ import { padActuator } from '../rumble';
 import { CARD_SAFE_ATTR, createCardStack, type CardHandle } from './shell/cards';
 import { PAD_FOCUS_INPUT } from './shell/padFocus';
 import { holdEarlyPresses } from './shell/earlyPress';
-import { agentModeOf, FORGE_REFUSALS, forgeEditRefusal, forgeSurfaceState, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
+import { agentModeOf, FORGE_REFUSALS, forgeBusyRefusal, forgeEditRefusal, forgeSurfaceState, type ForgeBusyCause, type ForgeShellState, type ForgeSurfaceState } from './shell/state';
 import { buildInspector, inspectorPanel, dataRows, showInspectorData, type InspectorEditor } from './panels/inspectorPanel';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
 import { scrubAllNumbers, type ScrubDetail } from './scrub';
@@ -2771,6 +2771,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // The map's props draw themselves: their marks start switched off until the view keeps a choice.
   const billboardsOff = new Set<string>(['mapProps']);
   let busy = false;
+  /** LATER 819: what set `busy` last (set beside it), so a press refused meanwhile says why (`forgeBusyRefusal`). */
+  let busyCause: ForgeBusyCause = 'open';
   /**
    * Browser adaptation: the agent's revisions (`./agent/editorFacade` `createForgeAgentRevisions`, LATER 422): the LAYOUT
    * revision -- monotonic across human/agent edits, undo, selection, settings, saves and every base replacement, never an
@@ -6020,6 +6022,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const restore = (raw: string | null, word: string): void => {
     if (raw === null || busy) return;
     busy = true;
+    busyCause = 'undo';
     const step = decodeHistoryStep(raw);
     void placeAll(parseForgeLayout(step.text)).then(() => {
       applyPicked(step.picked);
@@ -6058,7 +6061,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * the layout open -- never the earlier, slower one committing over it (`test/forge/pageFirstOpen.test.ts` (B)).
    */
   let opensAsked: Promise<unknown> = Promise.resolve();
-  const openLayout = (l: Layout): Promise<void> => {
+  /**
+   * LATER 818: an open the player asked (a file, a save, New, a base chosen) -- set at the ask, so a press made before the
+   * boot asks its first open (while it reads the saves store or decodes a share code) is never replaced by the boot's.
+   */
+  let playerOpenAsked = false;
+  const openLayout = (l: Layout, by: 'page' | 'player' = 'page'): Promise<void> => {
+    if (by === 'player') playerOpenAsked = true;
     const run = opensAsked.then(() => openLayoutNow(l));
     opensAsked = run.catch(() => undefined);
     return run;
@@ -6066,6 +6075,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const openLayoutNow = async (l: Layout): Promise<void> => {
     const opening = bundleOfLayout.get(l) ?? null;                 // FP-6 item 3: this open's own bundle, or none
     busy = true;
+    busyCause = 'open';
     const stem = l.base.kind === 'map' ? l.base.archive : null;
     showLoading(`Loading ${stem ? entries.find((a) => a.stem === stem)?.label ?? stem : l.base.kind === 'content' ? `the authored map ${l.base.mapId}` : 'the blank floor'}`);
     try {
@@ -7161,6 +7171,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const startPlay = async (agentGuard?: () => void): Promise<void> => {
     if (playing || busy || !base) return;
     busy = true;
+    busyCause = 'walk';
     try {
       const c = await composeGround();
       if (!c) { say('this base has no hull to stand on', true); if (doc.pointerLockElement) doc.exitPointerLock(); return; }
@@ -7521,6 +7532,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (editsLocked()) { notifier.refused('Play waits while a lobby is open: the lobby\'s host launches its match'); return; }
     if (refuseMissingPacks('Play')) return;
     busy = true;
+    busyCause = 'play';
     showLoading('Starting the match');
     // Taken at the press, before the loads: the camera can still be gliding, and Play stands where the maker was.
     rememberPlace();
@@ -7803,6 +7815,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (let i = 0; busy && i < 100; i++) await new Promise((r) => setTimeout(r, 100));   // a load under way finishes first
     if (lobby !== l || match) return;
     busy = true;
+    busyCause = 'lobbyMatch';
     showLoading('Starting the lobby\'s match');
     try {
       const m = await composeForMatch(false);
@@ -7974,6 +7987,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (name === '') { say('a lobby needs a name', true); return; }
     if (!passwordField.ok()) { say('a lobby password is 1 to 32 letters, digits, spaces or signs', true); return; }
     busy = true;
+    busyCause = 'lobby';
     say('making the lobby…');
     try {
       const made = await createLobby(lobbyBase(), name, l, ticket, undefined, { listed: visibilityToggle.listed(), password: passwordField.password() });
@@ -8212,16 +8226,21 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         pop(`Saved ${name}`);
       }
     }
-    await openLayout(next).then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; say(String(e), true); });
+    await openLayout(next, 'player').then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; say(String(e), true); });
   })(); });
+  /**
+   * The layout renamed as a person's edit (`layout.name`): one undoable step, autosaved, refused (and said) where an edit
+   * is refused -- the name field's and Saves > Save as's one path (LATER 804). False when refused.
+   */
+  const renameLayout = (next: string): boolean => personEdit('layout.name', { name: next }, () => {
+    layoutNameIn.value = next;
+    if (next === layoutName) return;
+    layoutName = next;
+    edit();
+  });
   layoutNameIn.addEventListener('change', () => {
     const next = layoutNameIn.value.trim().slice(0, LAYOUT_NAME_MAX);
-    if (!personEdit('layout.name', { name: next }, () => {
-      layoutNameIn.value = next;
-      if (next === layoutName) return;
-      layoutName = next;
-      edit();
-    })) layoutNameIn.value = layoutName;
+    if (!renameLayout(next)) layoutNameIn.value = layoutName;
   });
   outlinerSearch.addEventListener('input', drawOutliner);
   outlinerFilter.addEventListener('change', drawOutliner);
@@ -8242,7 +8261,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if ((await persistNamed(next.saves)) !== 'written') return;
     const saved = named.find((x) => x.name === name);
     if (!saved) return;
-    await openLayout(layoutOfAuthoring(saved)).then(() => pop(`Saved ${name}`), (e: unknown) => say(e instanceof Error ? e.message : String(e), true));
+    await openLayout(layoutOfAuthoring(saved), 'player').then(() => pop(`Saved ${name}`), (e: unknown) => say(e instanceof Error ? e.message : String(e), true));
   };
   const layoutForSave = (): Layout | null => (lobby && lobby.role === 'joiner' && !lobby.ended && lobby.layout ? lobby.layout : layoutNow());
   /**
@@ -8252,7 +8271,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const layoutToSave = (): Layout | null => {
     const l = busy ? null : layoutForSave();
-    if (!l) notifier.refused(busy ? FORGE_REFUSALS.busy : FORGE_REFUSALS.noBase);
+    if (!l) notifier.refused(busy ? forgeBusyRefusal(busyCause) : FORGE_REFUSALS.noBase);   // LATER 819: the cause's own words
     return l;
   };
   /**
@@ -8341,7 +8360,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const s = named.find((x) => x.id === id);
         if (!s) return;
         closeSaves();
-        await openLayout(layoutOfAuthoring(s)).then(() => pop(`Opened ${s.name}`))
+        await openLayout(layoutOfAuthoring(s), 'player').then(() => pop(`Opened ${s.name}`))
           .catch((e: unknown) => say(e instanceof Error ? e.message : String(e), true));
       })(); },
       onRename: (id) => { void (async () => {
@@ -8367,7 +8386,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (!l) return;
         const name = await askText('Save this layout', 'A save with this name is replaced. It stays in this browser.', layoutName, RECORD_LIMITS.name, 'Save');
         if (!name) { openSaves(); return; }
-        if (!(lobby && lobby.role === 'joiner' && !lobby.ended)) { layoutName = name; layoutNameIn.value = name; }
+        // LATER 804: the rename is the page's own edit (`renameLayout`), never a bare assignment. A joiner's save names
+        // only its copy, as before; a rename refused (said) keeps the layout's name, and the copy is still saved by it.
+        if (!(lobby && lobby.role === 'joiner' && !lobby.ended) && name !== layoutName) renameLayout(name);
         const saved = layoutForSave() ?? l;
         const next = saveNamedRules(named, name, recordOfLayout(saved, name), (saved as ForgeLayout).rules);   // FCW-32: its rules beside it
         if (next.error) { say(next.error, true); openSaves(); return; }
@@ -8432,7 +8453,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     file.value = '';
     if (!f) return;
     void f.text().then((t) => {
-      return openLayout(layoutOfAuthoring(readForgeAuthoring(t, f.name.replace(/\.json$/i, '') || 'Layout')));   // FCW-32: a kept text's rules too
+      return openLayout(layoutOfAuthoring(readForgeAuthoring(t, f.name.replace(/\.json$/i, '') || 'Layout')), 'player');   // FCW-32: a kept text's rules too
     }).then(() => pop(`Opened ${f.name}`))
       .catch((e: unknown) => say(e instanceof Error ? e.message : String(e), true));
   });
@@ -8778,7 +8799,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     baseAsk.hidden = true;
     // A cancelled question (the empty map's library) leaves the layout as it was, the base list put back.
     void layoutForSelect(baseSel.value, blankLibrary()).then((l) => {
-      if (l) return openLayout(l).then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; throw e; });
+      if (l) return openLayout(l, 'player').then(sayCustomSwitch, (e: unknown) => { customSwitchWords = null; throw e; });
       baseQuiet = true; baseSel.value = baseValue(); baseQuiet = false;
       return undefined;
     }).catch((e: unknown) => say(String(e), true));
@@ -9767,6 +9788,19 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const words = asideWords(found);
     if (words) say(words, true);
   };
+  /**
+   * LATER 818: the boot's first open -- unless the player asked for an open first (`playerOpenAsked`, in the gap while
+   * the boot read its saves): then that open stands, and the boot's opens only if it left no base (it failed). False
+   * when the boot's open was not made, so its lines (said after its open) are not said over the player's.
+   */
+  const openFirst = async (l: Layout): Promise<boolean> => {
+    if (playerOpenAsked) {
+      await opensAsked;
+      if (base) return false;
+    }
+    await openLayout(l);
+    return true;
+  };
   if (entries.length === 0) {
     if (wantsDisc) { if (!listFailed) say('no SOCOM II maps on that disc', true); return; }
     const found = await savedLayout();
@@ -9785,7 +9819,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     baseSel.append(opt('blank', 'New Empty Map'));
     drawCustomMaps();                                              // FP-6: after the page's own row
     try {
-      await openLayout(saved ?? newLayout({ kind: 'blank', library: BLANK_LIBRARY }));
+      if (!(await openFirst(saved ?? newLayout({ kind: 'blank', library: BLANK_LIBRARY })))) return;
       // After the open, whose own line would replace it (the fold's review, low 3).
       if (sharedUnopened) say(`${sharedWords}, so your earlier layout is open`, true);
       else sayAside(found);
@@ -9867,7 +9901,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   keepEarlier = choice.keepEarlier || found.held;                  // LATER 193's review F1: held in place until an edit
   const fallback = entries.find((a) => a.stem === 'MP2') ?? entries[0]!;
   try {
-    await openLayout(first ?? emptyLayout({ kind: 'map', archive: fallback.stem }));
+    if (!(await openFirst(first ?? emptyLayout({ kind: 'map', archive: fallback.stem })))) return;
     if (choice.open === 'earlier') say(`${unheldWords(asked, 'This disc has no base for the shared layout')}, so your earlier layout is open`, true);
     else if (rejected) say([`${unheldWords(asked, 'This disc has no base for that layout')}, so another was opened${choice.keepEarlier ? '; your earlier layout is kept until you edit' : ''}`, asideWords(found)].filter(Boolean).join('. '), true);
     else sayAside(found);

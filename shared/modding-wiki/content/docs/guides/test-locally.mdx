@@ -2,7 +2,7 @@
 title: "Testing a pack locally"
 description: "Where you load a pack today: Home > Experiments > Mods for every earlier-format pack, the test room for mods and model packs, the Forge's Play for rules, and what a v2 import does."
 status: "Works"
-source: ["socomlegacy/packages/viewer/src/console/adapters/mods.ts", "socomlegacy/packages/viewer/src/console/render/mods.ts", "socomlegacy/packages/viewer/src/packs/classify.ts", "socomlegacy/packages/viewer/src/packs/pagePacks.ts", "socomlegacy/packages/viewer/src/packApplyOverlay.ts", "socomlegacy/packages/viewer/src/hdTexturePack.ts", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/viewer/src/mods/panel.ts", "socomlegacy/packages/viewer/src/modelPack.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts", "socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
+source: ["socomlegacy/packages/viewer/src/console/adapters/mods.ts", "socomlegacy/packages/viewer/src/console/render/mods.ts", "socomlegacy/packages/viewer/src/packs/classify.ts", "socomlegacy/packages/viewer/src/packs/pagePacks.ts", "socomlegacy/packages/viewer/src/packApplyOverlay.ts", "socomlegacy/packages/viewer/src/hdTexturePack.ts", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/viewer/src/mods/panel.ts", "socomlegacy/packages/viewer/src/modelPack.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts", "socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/examples/zombie-waves/README.md", "socomlegacy/packages/viewer/src/forge/npcs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
 ---
 
 **Status: Works.** Every earlier-format pack is loaded in one place, **Home > Experiments > Mods**, kept in your
@@ -46,7 +46,7 @@ On the launcher's Home, open **Experiments**, then **Mods**. The screen has, fro
 3. A line with the last outcome: "*name* added.", "*name* removed.", or a refusal in words.
 4. **Installed**: one row per pack -- its name, its kind, its number of files and its size, and where it applies
    ("Every page, every map" for the HD pack, "Every page, on *map*" for a map's texture pack, "The test room" for a mod
-   or a model pack). The HD pack's row credits its author: "HD texture pack by GoE Soul". Each row has a switch and **Remove**; a mod row also moves up or down in the order. A v2 pack has
+   or a model pack). The HD pack's row credits its author: "HD texture pack by GoE SouL". Each row has a switch and **Remove**; a mod row also moves up or down in the order. A v2 pack has
    no switch: its row says "Stored".
 5. **Add test HD texture pack** (temporary; see below).
 
@@ -88,8 +88,8 @@ counts it, which is several times the zip you downloaded. Every other pack's siz
 
 ### Add test HD texture pack (temporary)
 
-The last row, **Add test HD texture pack** ("HD textures by GoE Soul. Temporary: downloads our test HD pack into this
-list and chooses it, until the HD pack is on Thunderstore"), downloads the project's own test HD pack, GoE Soul's HD
+The last row, **Add test HD texture pack** ("HD textures by GoE SouL. Temporary: downloads our test HD pack into this
+list and chooses it, until the HD pack is on Thunderstore"), downloads the project's own test HD pack, GoE SouL's HD
 textures, adds it to the list as an HD texture
 pack, and chooses it. While it runs it counts **files**: "Downloading the test HD pack… *n* of *N* files, *x* MB
 downloaded" -- the files fetched of the files to fetch, beside the bytes so far. Where the project's server does not
@@ -216,6 +216,47 @@ round, and every hit at half damage. With no rules, the layout plays as before.
 Rules never travel with a share code, and a layout with rules cannot be played in a lobby: both are refused by name
 today.
 
+### Zombie waves on Crossroads
+
+Status: **Forge, local only.** The example pack `example.zombie-waves` is in the repository at
+`packages/creator-contracts/examples/zombie-waves/`. It is rules only: phases, one rest timer and one NPC spawner.
+It claims the engine's patrol brain. It does not claim the reserved zombie chase.
+
+Open it in a browser build:
+
+1. Go to `/forge`.
+2. Choose **Open** and pick `packages/creator-contracts/examples/zombie-waves.crossroads.json`.
+   The base is Crossroads (`MP72`). The file already holds the pack, imported the way `forge.rules.import` adopts a
+   rules pack: the layout's mode is `zombie-waves`, and Play reads that draft.
+3. Press **Play the layout**. The match stays on your machine. The map's own player spawns are the squad.
+
+To assemble it yourself: open Crossroads, place an NPC spawner whose authored id is `horde` (terrorist side, character
+type 0), then import `s2u-pack.json` and `rules/waves.json` with `forge.rules.import` from the Forge's Agent tab.
+Home > Experiments > Mods refuses this pack today (`pack.HANDLER_UNKNOWN`): that screen offers no behaviour
+handlers yet. Open it in the Forge as above.
+
+What each wave does, at the pack's defaults:
+
+| phase | what you see |
+|---|---|
+| Wave 1 (`wave-1`) | the round starts, the message is "Wave 1", and the horde spawner releases 4 patrol NPCs |
+| Rest (`rest-1`) | when that spawner is empty, the message is "Wave 1 cleared" and a ten-second timer runs |
+| Wave 2 (`wave-2`) | the timer fires, the message is "Wave 2", and the spawner releases 7 |
+| Rest (`rest-2`) | "Wave 2 cleared", then the same ten-second rest |
+| Wave 3 (`wave-3`) | the timer fires, the message is "Wave 3", and the spawner releases 10 |
+| Cleared (`cleared`) | the spawner is empty, the message is "All waves cleared", and the round ends with the SEALs as the winner |
+
+Each kill on the horde adds 100 cash to the attacker, awards 1 point, and lowers the `Left` HUD value by one. If no
+player is left alive, the message is "The squad is down" and the round ends with no winner.
+
+Play seats that release. Wave 1 puts 4 patrol NPCs on the map at the horde spawner, on its side. Shoot one and `Left`
+drops by one. When the last of them dies, the spawner is empty, "Wave 1 cleared" shows, and the ten-second rest runs
+into the next wave. A side holds 8 seats. A larger wave fills those and seats the rest as seats free up, so `Left`
+still reaches 0. Clearing the last wave is the pack's round end. A new round drops a horde still seated. Where the
+map has a navigation graph, the lobby's patrol brain drives released patrol NPCs, in every round, unless the
+layout's marker NPCs are set to sentry. With marker NPCs set to sentry, or with no nav graph, released patrol NPCs
+stand. The chase brain is still not claimed.
+
 ## A v2 pack's import: checked and stored, not applied
 
 Status: **Format only.**
@@ -258,7 +299,7 @@ files: switch it off or remove it in Mods, and the game is as it was.
     "players",
     "creators"
   ],
-  "summary": "The MODS screen walkthrough (Home > Experiments > Mods) and where each kind of pack loads and applies: texture and HD packs on every page, mods and model packs in the test room, rules packs in the Forge, v2 packs checked and stored.",
+  "summary": "The MODS screen walkthrough (Home > Experiments > Mods) and where each kind of pack loads and applies: texture and HD packs on every page, mods and model packs in the test room, rules packs in the Forge, v2 packs checked and stored. The zombie-wave example opens in the Forge on Crossroads; Home > Experiments > Mods refuses it (pack.HANDLER_UNKNOWN) because that screen offers no behaviour handlers yet.",
   "inputs": [
     "a pack zip, folder or loose files"
   ],
@@ -266,6 +307,7 @@ files: switch it off or remove it in Mods, and the game is as it was.
     "the pack installed, switched on or off, or a refusal in words"
   ],
   "see_also": [
+    "/kinds/",
     "/kinds/earlier-formats/",
     "/troubleshooting/",
     "/guides/first-pack/",

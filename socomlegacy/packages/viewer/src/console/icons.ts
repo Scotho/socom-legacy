@@ -33,6 +33,8 @@ export const P = {
   volume: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/>',
   news: '<rect x="4" y="4" width="16" height="16"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  /** DSH-10 (DSH.R17): "Send Game Files" and "SEND DISC" -- the download mark's line turned up (the files leave this device). */
+  upload: '<path d="M12 15V3m-5 5 5-5 5 5M4 16v5h16v-5"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
   lock: '<rect x="5" y="11" width="14" height="10"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   signout: '<path d="M10 4H4v16h6M15 8l4 4-4 4M19 12H9"/>',

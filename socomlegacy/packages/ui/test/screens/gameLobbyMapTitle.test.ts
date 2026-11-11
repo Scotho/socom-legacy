@@ -89,3 +89,82 @@ describe('LOBBY-ONE-BEHIND: a map moved under the standing lobby loads its varia
     expect([l.asked, l.title()]).toEqual([['mp72'], 'CROSSROADS']);
   });
 });
+
+/**
+ * LOBBY-MAP-STALE (Cobra89's report, relayed by the owner 2026-11-11: "name of last map played seems to still be showing
+ * in the lobby, correct map shows in armory"). The real order at a rotation: the returned view's `nextMap` (the room's
+ * `game.ts` sends it before it rotates) starts the next map's read -- the page's is asynchronous, the ARMORY's kept
+ * `armoryFromDisc` -- then the rotation's 4021 drops the seat, then the new room welcomes it on that same map. The
+ * original loads the mission it has just written, at once (`FUN_00279490` D:L123864-123881; `FUN_0027eb50` D:L126673-
+ * 126674): the mission held and its `mission_title` never come apart. A stub read only; no socket, no page, no browser.
+ */
+describe('LOBBY-MAP-STALE: the next map\'s title is not lost to the rotation\'s drop (FUN_00279490 D:L123864-123881)', () => {
+  function pendingLobby() {
+    const uiVars = new UiVarManager(); const valves = new ValveStore(); const host = new UiCommandHost();
+    const pending = new Map<string, { done: (e: readonly UiVarEntry[]) => void; fail: (e: unknown) => void }>();
+    const asked: string[] = [];
+    const missionVars = (m: string) => new Promise<readonly UiVarEntry[] | null>((done, fail) => { asked.push(m); pending.set(m, { done, fail }); });
+    const c = new GameLobbyCommands({ uiVars, valves: () => valves, games: () => [], missionVars });
+    c.register(host);
+    const row = (fn: string): void => {
+      host.dispatch({ anim: 'test', sequence: 'NA', nodeIndex: 0, node: null, opcodeByte: 0, fn, arg: 'NA', loc: 0, bytes: new Uint8Array(0x10) } as unknown as ZAnimUiCommand);
+    };
+    const title = (): unknown => { const v = uiVars.find('mission_title')?.value; return v?.type === 'string' ? v.value : v; };
+    const entry = (m: string) => [{ name: 'mission_title', value: { type: 'string', value: TITLES[m]! } }] as const;
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    /** MP2 welcomed, entered, loaded and played; the match returned; the returned view names MP72; check_loop again. */
+    const returnedToMp72 = async (): Promise<void> => {
+      c.welcomed(2, 'MP2'); row('JoinGameServer'); row('AdvanceMPMission');
+      pending.get('mp2')!.done(entry('mp2')); await flush();
+      c.gameLobby(view({ launched: true })); c.matchReturned();
+      c.gameLobby(view({ nextMap: 'MP72' }));                                     // the returned view (game.ts): MP72's read starts
+      row('AdvanceMPMission');                                                     // check_loop on re-entry
+    };
+    return { c, title, asked, pending, entry, flush, row, returnedToMp72 };
+  }
+
+  it("the next map's read resolving while the rotation's 4021 has the seat down is not lost: the welcome on that map draws it", async () => {
+    const l = pendingLobby();
+    await l.returnedToMp72();
+    expect(l.title()).toBe('FROSTFIRE');
+    l.c.dropped();                                                                 // the rotation's 4021 before the read lands
+    l.pending.get('mp72')!.done(l.entry('mp72')); await l.flush();
+    l.c.welcomed(2, 'MP72');                                                       // the new room's welcome, the same map
+    await l.flush();
+    expect(l.title()).toBe('CROSSROADS');
+  });
+
+  it("a next map whose entries never landed is asked for again at the welcome on that same map", async () => {
+    // The lobby's ask only: the stub makes a fresh read at each call. The page's kept read (`keepMissionRead`) hands back
+    // the same failed promise for the same mission, so a failed read stays failed there until the mission moves (open).
+    const l = pendingLobby();
+    await l.returnedToMp72();
+    l.pending.get('mp72')!.fail(new Error('read failed')); await l.flush();     // the read lost (refused, or the page's archive not held yet)
+    expect(l.title()).toBe('FROSTFIRE');
+    const n = l.asked.length;
+    l.c.dropped();
+    l.c.welcomed(2, 'MP72');
+    expect(l.asked.slice(n)).toEqual(['mp72']);                                    // asked for again
+    l.pending.get('mp72')!.done(l.entry('mp72')); await l.flush();
+    expect(l.title()).toBe('CROSSROADS');
+  });
+
+  it("a read started in a game the lobby has left adds nothing in the next game, though its mission is the same: that game's own read draws it", async () => {
+    const l = pendingLobby();
+    const stats = (map: number): string => [0x44, 0, 0, 0, 0, 0, 0, 0, map].map((b) => b.toString(16).padStart(2, '0')).join('').padEnd(512, '0');
+    const game = (id: number) => ({ mediusWorldId: id, gameName: 'g', maxPlayers: 8, rulesSet: 0, gameStats: stats(2) });
+    l.c.enterGameLobby(game(7));
+    l.c.welcomed(2, 'MP2'); l.row('JoinGameServer'); l.row('AdvanceMPMission');   // game 7's read of MP2, in flight
+    l.row('DisconnectFromGameServer');                                             // the game left
+    l.c.enterGameLobby(game(8));                                                   // another game on MP2
+    l.c.welcomed(3, 'MP2'); l.row('JoinGameServer');
+    const first = l.pending.get('mp2')!;
+    l.row('AdvanceMPMission');                                                     // game 8's own read
+    const second = l.pending.get('mp2')!;
+    expect(second).not.toBe(first);
+    first.done(l.entry('mp2')); await l.flush();
+    expect(l.title()).toBeUndefined();                                             // the left game's read adds none
+    second.done(l.entry('mp2')); await l.flush();
+    expect(l.title()).toBe('FROSTFIRE');
+  });
+});

@@ -102,6 +102,20 @@ export class MyClanInvitations {
     }, () => { /* never answered: the list stays empty and the variable as it was */ });
   }
 
+  /**
+   * CLAN-INVITES (`CLAN_INVITE_LIVE_ADAPTATION`, the server's `clanInviteLive.ts`; a browser adaptation, no original): the
+   * list asked again when central marks it changed -- `FUN_002e8650`'s request (start 0, page size 999), but the list
+   * is kept until the replies are in and only then replaced, so `HasClanInvitations` never reads an empty list while
+   * one waits (the INVITATIONS row, which `TurnOnInvitations` re-reads each second, never goes dark under the cursor);
+   * each reply then handled as `FUN_002e86c0` handles it. A request never answered changes nothing.
+   */
+  refresh(service: ClanInvitationsService): void {
+    service.check({ ...CLAN_INVITATIONS_QUERY }).then((rs) => {
+      this.items.length = 0;
+      for (const r of rs) this.reply(r);
+    }, () => { /* never answered: the list as it was */ });
+  }
+
   /** `FUN_002e86c0` (D:L187584-187610): one reply. */
   reply(r: ClanInvitationReply): void {
     if (r.status !== 0) { this.publish(); return; }

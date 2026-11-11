@@ -31,6 +31,10 @@
  * Such a replay is not at `<base>/replays/<id>`: Watch asks central for a grant (`askReplayGrant`, `POST
  * <base>/replays/grant` with the login's bearer) and fetches the door its answer names with the grant
  * (`../../replay/load`), the grant in memory for that Watch only.
+ *
+ * **LCM-RP (RB-6, RB-11): the public replay** (a browser adaptation, OT.R53). The replay page reads central's public
+ * entry (`fetchPublicReplayEntry`, `/api/stats/replay/<id>`) and, with no sign-in, Watch fetches it through central's
+ * public route with the match named (`publicReplayAddress`), followed to its door (`../../replay/load` `loadPublicSegment`).
  */
 
 import { pinnedReplayDoor, type PinnedReplayDoor } from '../../connectHost';
@@ -69,6 +73,11 @@ export interface ReplayEntry {
    * an empty string -- no chip. Additive: no route writes it yet. A browser adaptation's field (OT.R53).
    */
   mode?: string;
+  /**
+   * LCM-RP (RB-6, RB-11): the ended match central's public entry names for it (`/api/stats/replay/<id>?match=`'s
+   * `matchId`), sent back on the signed-out fetch (`publicReplayAddress`); absent -- the listing's entries, or none named.
+   */
+  matchId?: string;
 }
 
 /** Why the list failed: no answer, no replays kept on this server (404: `REPLAYS_DIR` unset), or another refusal. */
@@ -197,6 +206,52 @@ export function fixtureReplaySource(listing: unknown): ReplayListSource {
 export function replayAddress(base: string, id: string): string {
   if (!ID.test(id)) throw new Error('replays: not an id');
   return `${base}${MU_REPLAYS_PATH}/${id}`;
+}
+
+/**
+ * LCM-RP (RB-11): the signed-out fetch's address (`../../replay/load` `loadPublicSegment`) -- `replayAddress` with the
+ * ended match named (`?match=`, the entry's `matchId`), which central's public fetch reads to find the replay's host.
+ */
+export function publicReplayAddress(base: string, id: string, matchId: string | null): string {
+  const at = replayAddress(base, id);
+  return matchId ? `${at}?match=${encodeURIComponent(matchId)}` : at;
+}
+
+/** LCM-RP (RB-6): central's public replay entry (`packages/central/src/statsApiHttp.ts` `STATS_REPLAY_ENTRY_ADAPTATION`). */
+export const STATS_REPLAY_ENTRY_PATH = '/api/stats/replay/';
+
+/**
+ * LCM-RP (RB-6): central's public entry checked as a listing's entry is (`entryOf`), with its `matchId` -- a non-empty
+ * string kept, null or absent none; else throws.
+ */
+export function publicReplayEntryOf(raw: unknown): ReplayEntry {
+  const e = entryOf(raw);
+  const matchId = obj(raw)['matchId'];
+  if (matchId !== undefined && matchId !== null && !(isStr(matchId) && matchId !== '')) throw new Error('replays: not the shape');
+  return isStr(matchId) ? { ...e, matchId } : e;
+}
+
+/** LCM-RP: the public entry's answer -- the entry, `missing` (central's 404: unknown, not public, a match not naming it), or `unavailable`. */
+export type PublicReplayAnswer = { kind: 'ok'; entry: ReplayEntry } | { kind: 'missing' } | { kind: 'unavailable' };
+
+/**
+ * LCM-RP (RB-6, RB-12): `GET <base>/api/stats/replay/<id>[?match=<matchId>]`, no bearer, no cookie, no redirect followed;
+ * the answer checked (`publicReplayEntryOf`). Never throws; an id not of the route's form is asked nothing (`missing`).
+ */
+export async function fetchPublicReplayEntry(base: string, id: string, matchId: string | null, fetchFn?: typeof fetch): Promise<PublicReplayAnswer> {
+  if (!ID.test(id)) return { kind: 'missing' };
+  const get = fetchFn ?? globalThis.fetch.bind(globalThis);
+  let res: Response;
+  try {
+    res = await get(`${base}${STATS_REPLAY_ENTRY_PATH}${id}${matchId ? `?match=${encodeURIComponent(matchId)}` : ''}`, {
+      method: 'GET', credentials: 'omit', redirect: 'error', headers: { accept: 'application/json' },
+    });
+  } catch {
+    return { kind: 'unavailable' };
+  }
+  if (res.status === 404) return { kind: 'missing' };
+  if (!res.ok) return { kind: 'unavailable' };
+  try { return { kind: 'ok', entry: publicReplayEntryOf(await res.json()) }; } catch { return { kind: 'unavailable' }; }
 }
 
 /** SA-9b: central's grant route (`packages/central/src/replays.ts` `REPLAY_GRANT_PATH`). */

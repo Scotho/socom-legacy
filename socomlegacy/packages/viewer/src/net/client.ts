@@ -68,8 +68,11 @@ export interface NetWalk {
    * `after`. When the walk replays from that command it calls `replayed` with it (the predictions after it are the run's).
    */
   knock?(knock: Knock, after?: number, replayed?: (after: number) => void): boolean;
-  /** Dead as the server has it (`kill` or `deadAtLoad`) until the next `spawn`: the mover's death landing stays down. */
-  setDead?(on: boolean, opts?: { keepDeath?: boolean }): void;
+  /**
+   * Dead as the server has it (`kill` or `deadAtLoad`) until the next `spawn`: the mover's death landing stays down.
+   * `fall` (FALL-DEATH-LAND): the kill was the body's own fall (`Walker.diedOfFall`).
+   */
+  setDead?(on: boolean, opts?: { keepDeath?: boolean; fall?: boolean }): void;
   /**
    * OT.R59 (RECONNECT-GHOST, a labelled adaptation): the seat handed back alive -- the mover stood at `at` facing `yaw`
    * in `posture`, `weapon` in the hand, the launcher `held` (null: none on the body), with no spawn's reset. Absent: the
@@ -866,7 +869,7 @@ export class NetClient {
         else this.markSpawn(ev.id);                     // NU-12 B2: another seat's, counted on the bodies drawn
         break;
       case 'kill':
-        if (ev.victim === this.id) { this.loadDeathAt = null; this.loadDeathPose = null; this.alive = false; this.walk.setLocked(true); this.markedDead = true; this.walk.setDead?.(true); this.markDeathTick(); }
+        if (ev.victim === this.id) { this.loadDeathAt = null; this.loadDeathPose = null; this.alive = false; this.walk.setLocked(true); this.markedDead = true; this.walk.setDead?.(true, { fall: ev.how === 'fall' }); this.markDeathTick(); }
         break;
       case 'deadAtLoad':
         if (ev.id === this.id && this.role === 'player') {

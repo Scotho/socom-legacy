@@ -1,7 +1,6 @@
 import { discIdentity, type AssetSource } from '@s2u/archive';
 import type { DiscExtractRecord, ExtractEnv, ExtractionState } from '../../discExtract';
 import { extractionState, storedExtraction } from '../../discExtractRecord';
-import type { ExtractBackend } from '../../discExtractStore';
 import { canPickDiscFolder, pickDiscFolder, type PickerScope } from '../../discMemory';
 import { folderRequestFromInput, noteKeptDisc, openFrontEndDisc, openFrontEndImage, watchDiscPrompt } from '../../discPrompt';
 import { assetSourceFor, discLabel, discName, type DirRequest, type DiscRequest, type SourceRequest } from '../../discSource';
@@ -10,7 +9,7 @@ import { sameIdentity } from '../../discStored';
 import { publishDiscImage } from '../../modern/discImage';
 import { onDiscChange, publishDisc, readDisc } from '../../modern/discStore';
 import type { ExtractAct, ExtractView } from '../render/extract';
-import type { Adapters, DiscSource, DiscState } from '../state';
+import type { Adapters, DiscSource, DiscState, KeptDisc } from '../state';
 
 /**
  * The console launcher's disc (slice 2, part a): the visitor's own SOCOM II image, chosen by the Disc item or the
@@ -75,7 +74,7 @@ export type LiveDisc = Adapters['disc'] & {
   /** DX-3: whether START reads from storage now. */
   stored(): boolean;
   /** DX-3: what is kept (any extraction recorded, whole or not), for Options; null when nothing is. */
-  kept(): { bytes: number; backend: ExtractBackend; whole: boolean } | null;
+  kept(): KeptDisc | null;
   /** DX-3: deletes the kept disc (`deleteExtraction`); the disc open on this visit, if any, stays open. */
   forgetKept(): Promise<void>;
   /** DX-3: START's disc (`../../discStart` `discForStart`), or absent without `extraction`. */

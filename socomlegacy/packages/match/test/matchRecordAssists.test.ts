@@ -34,12 +34,13 @@ const SEATS = [
   { id: 1, name: 'A', team: 'seal' as const }, { id: 2, name: 'V', team: 'terrorist' as const },
   { id: 3, name: 'B', team: 'seal' as const }, { id: 4, name: 'T', team: 'terrorist' as const },
 ];
-function fake(gone: Set<number> = new Set()) {
+/** `gone`: room ids whose account is forgotten (a leaver); `alias`: a room id's account other than 100 + id (a takeover's new id). */
+function fake(gone: Set<number> = new Set(), alias: ReadonlyMap<number, string> = new Map()) {
   const sent: MatchRecordPart[] = [];
   const source: RoomStreamSource = {
     game: 7, match: () => ({ serial: 1, startedAt: 1_000 }), map: () => 'MP72', gameType: () => 2,
     settings: () => ({ roundSeconds: 60, maxRounds: 3, friendlyFire: true, maxPlayers: 8, teamSize: 8, eqLimit: 0 }),
-    lobbyName: () => 'Lobby', host: () => '101', accountOf: (id) => (gone.has(id) ? null : String(100 + id)), seats: () => SEATS, now: () => 9_000,
+    lobbyName: () => 'Lobby', host: () => '101', accountOf: (id) => (gone.has(id) ? null : alias.get(id) ?? String(100 + id)), seats: () => SEATS, now: () => 9_000,
   };
   const rec = matchRecording(source, (p) => sent.push(p), () => true);
   const ev = (tick: number, e: ServerEvent): void => rec.stream.event(tick, e);
@@ -50,8 +51,9 @@ function fake(gone: Set<number> = new Set()) {
     return sent.filter((p): p is MatchRecordRound => p.part === 'round').at(-1)!;
   };
   const close = (): MatchRecordClose => sent.find((p): p is MatchRecordClose => p.part === 'close')!;
+  const lastRound = (): MatchRecordRound => sent.filter((p): p is MatchRecordRound => p.part === 'round').at(-1)!;
   const seatOf = <T extends { seat: string }>(xs: readonly T[], id: number): T => xs.find((x) => x.seat === String(100 + id))!;
-  return { rec, ev, start, end, close, seatOf };
+  return { rec, ev, start, end, close, lastRound, seatOf };
 }
 
 describe('LCM-6a: assists and damage in the match record', () => {
@@ -176,5 +178,122 @@ describe('LCM-6a: assists and damage in the match record', () => {
     const broken = f.rec as unknown as { recorder: { combatApplied: () => void } };
     broken.recorder.combatApplied = () => { throw new Error('the record\'s own trouble'); };
     expect(() => f.rec.combatApplied(1, 2, 30)).not.toThrow();
+  });
+});
+
+/**
+ * Assists everywhere, gap E (the owner, 2026-11-10: "please ensure they do everywhere"; product track, LCM-6a's adaptation):
+ * the death's edges. The room tells enemies' hits only (`onCombatApplied`) and the hit's own side check stands, so a
+ * later score that puts the two on one side takes no assist away; and the killer is told by his record seat, so a
+ * takeover's kill under a new room id earns the killer no assist beside it, and one seat's two ids one assist.
+ */
+describe('assists everywhere E: the death\'s edges', () => {
+  it('a hit taken as an enemy\'s stands at the death, though the rows then put both on one side', () => {
+    const f = fake();
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);                                            // A (SEAL) hits V: an enemy's hit
+    f.ev(1_050, score([row(1, 'terrorist'), row(2, 'terrorist'), row(3, 'seal'), row(4, 'terrorist')]));   // A's row now V's side
+    f.rec.combatApplied(3, 2, 70);
+    f.ev(1_100, kill(3, 2));
+    const r = f.end(1, true);
+    expect(f.seatOf(r.seats, 1)).toMatchObject({ assists: 1, damage: 30 });
+  });
+
+  it('a takeover: A hits V under room id 1, takes his seat over as id 5 and kills V -- the kill, no assist beside it', () => {
+    const f = fake(new Set(), new Map([[5, '101']]));
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);
+    f.ev(1_050, score([row(5, 'seal'), row(2, 'terrorist'), row(3, 'seal'), row(4, 'terrorist')]));   // the takeover's new id carries the row
+    f.rec.combatApplied(5, 2, 70);
+    f.ev(1_100, kill(5, 2));
+    f.ev(1_500, roundOver(1, true)); f.ev(1_500, score([row(5, 'seal'), row(2, 'terrorist'), row(3, 'seal'), row(4, 'terrorist')])); f.rec.onRoundOver(report(1, true));
+    expect(f.seatOf(f.lastRound().seats, 1)).toMatchObject({ assists: 0, damage: 100 });
+    expect(f.seatOf(f.close().totals, 1)).toMatchObject({ assists: 0, damage: 100 });
+  });
+
+  it('a takeover: A hits V under ids 1 and 5, B kills V -- A one assist for the one death, never two', () => {
+    const f = fake(new Set(), new Map([[5, '101']]));
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);
+    f.rec.combatApplied(5, 2, 20);
+    f.rec.combatApplied(3, 2, 50);
+    f.ev(1_100, kill(3, 2));
+    const r = f.end(1, true);
+    expect(f.seatOf(r.seats, 1)).toMatchObject({ assists: 1, damage: 50 });
+    expect(f.seatOf(f.close().totals, 1)).toMatchObject({ assists: 1, damage: 50 });
+  });
+});
+
+/**
+ * Assists everywhere, gap C: a round part's seats are the room's rows at its end, which hold no leaver -- so a seat that
+ * took health or earned an assist this round and left before its end is added, once, with zero counts beside them (its
+ * kills, deaths and score are the room's rows', gone with it; its rounds as they stood, no result for a round it left).
+ */
+describe('assists everywhere C: a leaver\'s round assists and damage', () => {
+  it('A hits V, A leaves, B kills V: the round part names A with his assist and damage, zero counts, once', () => {
+    const gone = new Set<number>();
+    const f = fake(gone);
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);
+    gone.add(1);
+    const left = score(SEATS.filter((s) => s.id !== 1).map((s) => row(s.id, s.team)));
+    f.ev(1_050, left);
+    f.rec.combatApplied(3, 2, 70);
+    f.ev(1_100, kill(3, 2));
+    f.ev(1_500, roundOver(1, true)); f.ev(1_500, left); f.rec.onRoundOver(report(1, true));
+    const r = f.lastRound();
+    expect(f.seatOf(r.seats, 1)).toEqual({ seat: '101', kills: 0, deaths: 0, score: 0, rescued: 0, roundsWon: 0, roundsLost: 0, assists: 1, damage: 30 });
+    expect(r.seats.map((s) => s.seat).sort()).toEqual(['101', '102', '103', '104']);
+    expect(f.seatOf(r.seats, 3)).toMatchObject({ assists: 0, damage: 70 });
+    expect(f.seatOf(f.close().totals, 1)).toMatchObject({ assists: 1, damage: 30 });
+  });
+
+  it('a seated player with none this round is never added twice; a leaver with none is not added', () => {
+    const gone = new Set<number>();
+    const f = fake(gone);
+    f.start(1);
+    gone.add(4);
+    const left = score(SEATS.filter((s) => s.id !== 4).map((s) => row(s.id, s.team)));
+    f.ev(1_050, left);
+    f.rec.combatApplied(1, 2, 100);
+    f.ev(1_100, kill(1, 2));
+    f.ev(1_500, roundOver(1, true)); f.ev(1_500, left); f.rec.onRoundOver(report(1, true));
+    expect(f.lastRound().seats.map((s) => s.seat).sort()).toEqual(['101', '102', '103']);
+  });
+});
+
+/**
+ * Assists everywhere, review F1: the killer's own hits are dropped by his room id too, beside the record-seat check --
+ * his seat as his kill names it can differ from the one his hit kept (a leaver's grenade: his account forgotten; a CPU
+ * hit before the stream marked it one), and a killer never gets an assist beside his own kill.
+ */
+describe('assists everywhere F1: no assist beside the killer\'s own kill, whatever his seat reads now', () => {
+  it('A hits V seated, leaves, and his grenade in flight kills V: no assist for A (B, who hit V too, one)', () => {
+    const gone = new Set<number>();
+    const f = fake(gone);
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);
+    f.rec.combatApplied(3, 2, 20);
+    gone.add(1);
+    const left = score(SEATS.filter((s) => s.id !== 1).map((s) => row(s.id, s.team)));
+    f.ev(1_050, left);
+    f.ev(1_100, kill(1, 2));                                                  // the kill names room id 1, now `seat:1`
+    f.ev(1_500, roundOver(1, true)); f.ev(1_500, left); f.rec.onRoundOver(report(1, true));
+    const totals = f.close().totals;
+    expect(f.seatOf(totals, 1)).toMatchObject({ assists: 0, damage: 30 });
+    expect(f.seatOf(totals, 3)).toMatchObject({ assists: 1, damage: 20 });
+    expect(totals.filter((t) => (t.assists ?? 0) > 0).map((t) => t.seat)).toEqual(['103']);
+  });
+
+  it('a CPU hits V before the stream marks it one, then kills V: no assist beside its kill', () => {
+    const f = fake(new Set([6]));                                             // room id 6: no account
+    f.start(1);
+    f.rec.combatApplied(6, 2, 40);                                            // kept as `seat:6`: not yet known a CPU
+    f.ev(1_050, score([...SEATS.map((s) => row(s.id, s.team)), { ...row(6, 'seal'), bot: true }]));   // now `cpu:6`
+    f.ev(1_100, kill(6, 2));
+    f.ev(1_500, roundOver(1, true)); f.ev(1_500, score([...SEATS.map((s) => row(s.id, s.team)), { ...row(6, 'seal'), bot: true }])); f.rec.onRoundOver(report(1, true));
+    const totals = f.close().totals;
+    expect(totals.filter((t) => (t.assists ?? 0) > 0)).toEqual([]);
+    expect(f.lastRound().seats.filter((s) => (s.assists ?? 0) > 0)).toEqual([]);
   });
 });

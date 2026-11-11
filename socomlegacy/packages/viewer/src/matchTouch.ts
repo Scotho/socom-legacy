@@ -31,6 +31,7 @@ import { MobileTip, tipText, type TipStore } from './mobileTip';
 import type { GamePad } from './setupPad';
 import { attachTouchControls, attachWalkTouch, under, wantsTouchControls, type StanceTouch, type TouchTarget } from './touch';
 import { frameOfPoint } from './weaponExchange';
+import { canOpen } from './weaponSelectState';
 import type { InputDevice } from './weaponSelect';
 
 export { TOUCH_LAYER_MARKUP } from './touchMarkup';
@@ -39,7 +40,7 @@ export { TOUCH_LAYER_MARKUP } from './touchMarkup';
 export const TOUCH_TIP_MS = 12000;
 
 /** The classes the part may set on its root, every one taken off at `dispose` (`styles.css` reads them). */
-const ROOT_CLASSES = ['touch', 'pad-on', 'is-walking', 'is-taunts-open', 'tip-on', 'is-exchange-open'] as const;
+const ROOT_CLASSES = ['touch', 'pad-on', 'is-walking', 'is-taunts-open', 'tip-on', 'is-exchange-open', 'is-inv-shown'] as const;
 
 /**
  * FI.R4 ("A controller selected" is the pad the game reads): whether `GamePad`'s choice, after this frame's poll, resolved
@@ -101,7 +102,8 @@ export interface MatchTouch {
   endFrame(): void;
   /**
    * INV shown while the dead's prompt is up or the menu open, and no other screen over the match (`main.ts`'s
-   * `showWeaponsButton`); and PAR-5a: `is-exchange-open` on the root while the menu is open, so the stick zones yield its
+   * `showWeaponsButton`) -- and, by OT.R120, while the gate lets the camera on a teammate open the menu, with
+   * `is-inv-shown` on the root so the fly camera's layer shows it (`styles.css`); and PAR-5a: `is-exchange-open` on the root while the menu is open, so the stick zones yield its
    * rows' taps to the canvas (`styles.css`; research 222 §11.4).
    */
   weaponsFrame(): void;
@@ -244,8 +246,13 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
       const open = d.exchange.isOpen();
       if (root.classList.contains('is-exchange-open') !== open) root.classList.toggle('is-exchange-open', open);
       if (!weapons) return;
-      const show = !d.covered() && (open || d.exchange.prompt() !== null);
+      // OT.R120 (SPECTATE_KIT_CHANGE_OWNER; the review's F1): watching a teammate there is no prompt (the page is not
+      // walking), so INV also shows wherever the gate lets the camera on a teammate open the menu -- R2's and `I`'s way in.
+      const g = d.exchange.gate();
+      const show = !d.covered() && (open || d.exchange.prompt() !== null || (!g.cameraOnSelf && canOpen(g)));
       if (weapons.hidden === show) weapons.hidden = !show;
+      // Flying, the walk pad is hidden with INV in it: the class shows INV alone of it (`styles.css`).
+      if (root.classList.contains('is-inv-shown') !== show) root.classList.toggle('is-inv-shown', show);
     },
     weaponsShown: () => (weapons ? !weapons.hidden : null),
     pageState: (walking, chat) => {

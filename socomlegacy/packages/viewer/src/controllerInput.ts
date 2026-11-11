@@ -8,7 +8,7 @@ import { standardView, type PadLayout } from './padLayout';
 import { STANCE_FULL_PRESS_READING, STANCE_PRESS_ACTIVE_PLACEHOLDER, STANCE_PRESS_REARM_READING } from './stanceButton';
 import { readOverlayButton } from './overlayButtonSetting';
 import {
-  applyPadExtras, EMPTY_PAD_EXTRAS, PAD_EXTRAS_VERSION, PadExtrasState, padExtrasKeyOf, parsePadExtras, physicalPressed, type PadExtras,
+  applyPadExtras, EMPTY_PAD_EXTRAS, PAD_EXTRAS_VERSION, PadExtrasState, padExtrasKeyOf, parsePadExtras, physicalPressed, type ComboBind, type PadExtras,
   type PadExtrasContext,
 } from './padExtras';
 import {
@@ -308,6 +308,29 @@ export class ControllerInput {
    */
   extrasContext(separate = controllerStanceMode() === 'separate'): PadExtrasContext {
     return { overlayButton: readOverlayButton(), heldBinds: separate ? [this.config.crouch, this.config.prone].filter((b) => b >= 0) : [] };
+  }
+  /**
+   * SEP-ROWS's settings-loss fix (the owner, 2026-11-11: "don't lose existing settings"; the loss came from h59U9CLb,
+   * 80e60d8c2f): the combos to store for the `shown` ones -- with the stored combos this reader set aside only because
+   * their modifier is a SEPARATE stance bind's button (`parsePadExtras`'s 'held-bind'; valid otherwise, read again in
+   * COMBINED), each in its stored place (the review's F1). The stored list is walked: a set-aside combo is kept; a shown
+   * one is kept while `shown` still holds it (a removed one dropped); the shown combos not stored (an added one) follow.
+   */
+  combosToStore(shown: readonly ComboBind[]): ComboBind[] {
+    const plain = ({ modifier, button, action }: ComboBind): ComboBind => ({ modifier, button, action });
+    const { heldBinds } = this.extrasContext();
+    if (!this.profile || heldBinds.length === 0) return shown.map(plain);
+    const raw = readPreference(padExtrasKeyOf(this.profile));
+    const stored = parsePadExtras(raw, { overlayButton: readOverlayButton(), heldBinds: [] }).extras.combos;
+    const same = (a: ComboBind, b: ComboBind): boolean => a.modifier === b.modifier && a.button === b.button && a.action === b.action;
+    const rest = [...shown];
+    const out: ComboBind[] = [];
+    for (const c of stored) {
+      if (heldBinds.includes(c.modifier)) { out.push(plain(c)); continue; }
+      const at = rest.findIndex((x) => same(x, c));
+      if (at >= 0) out.push(plain(rest.splice(at, 1)[0]!));
+    }
+    return [...out, ...rest.map(plain)];
   }
   /** h59U9CLb: the profile holds an extras record (any, empty included). */
   hasStoredExtras(): boolean { return !!this.profile && readPreference(padExtrasKeyOf(this.profile)) !== null; }

@@ -69,7 +69,7 @@ The M67's `ZWEAPON` record and its `ZAMMO` round (`M67 Ammo`, `ID 11`), and what
 | `DecalSet` | `GRENADE_BLAST` | | `decals.rdr` (§7.3) |
 | `M67 Ammo` `Explosion_Damage` | 10 | raw (`ammo+0x18`) | §7.1 |
 | `M67 Ammo` `Explosion_Radius` | 15 | x10 = **150** (`ammo+0x1c`) | §7.1 |
-| `M67 Ammo` `ImpactDamage`, `Piercing` | 0.2, 4 | | not read here |
+| `M67 Ammo` `ImpactDamage`, `Piercing` | 0.2, 4 | | every contact's hit on the struck node (§5.2, LATER 851); `Piercing` the scene's armour step |
 
 The record's `Reticule_Modifiers` and `FireWait 0.1` are the rifles' shape carried along; nothing in the throw reads
 them. The HE grenade (`HE`, `ID 126`, `Explosion_Radius 10`, `Explosion_Damage 11`, model `HEgrenade`) is not in
@@ -322,6 +322,30 @@ Otherwise (LIQUID, or PENETRATION >= 0.99): `v x= ELASTICITY_COEFF`, and the pos
 No other term touches the velocity: **there is no friction and no rolling**. A grenade on flat ground loses
 `1 - e` of its speed at every hop; the hops shorten until one ends under 5 going up. The viewer's normal comes from
 the hull polygon, either side; it is turned to face the grenade [reading: the engine's intersect record's normal].
+
+**Every contact is a hit on the struck node** (LATER 851, 2026-11-10; reading, pending review). Both branches -- the
+bounce (answer 1) and the pass (answer 2) -- end by calling the `+0x94` handler of the intersect record's node (`+0x1c`)
+when both are set: `handler->vtable[+8](handler, node, intersect, projectile)` (`FUN_003c8f50` D:L319747-319750). A
+scene destructible's handler is `FUN_00273a50` (vtable 0x406090 slot +8, research 209): it takes the node's bounds
+midpoint (D:L120968-120976) and calls `FUN_003c7490` with the projectile (D:L120978). The projectile is in flight
+(state 1, `SetProjectile` D:L320744) or just stopped (2, D:L319683), never the blast's 5 or 6, so the impact branch
+runs: the ammo's `ImpactDamage` (`FUN_003d4530`; the M67's, the HE's, the AN-M8's and the Mark141's 0.2, the smoke
+rounds' 0.5, the charges' 0) plus the weapon's `Damage_Modifier` (none on these) against the shield (D:L318606-318622),
+then `FUN_003c7600`'s range falloff (D:L318737-318760: `Effective_Range` 400, `Maximum_Range` 100000) and x14
+(`FUN_003c5950`, D:L318767): **2.8**, then the armour step with `Piercing` 4 (D:L318624-318638). A health-1 shield-0 pane
+(Frostfire's `door_slab`, Fish Hook's `wframe`) dies and `breakapane` runs (`FUN_00273a50` D:L120980-120990); an HP-0
+block (Fish Hook's planks, Blizzard's windows) dies at any contact. So a frag thrown through a window breaks it as it
+passes and flies on; the blast does not wait for it. The port: `gridCast` hands each hit its polygon's collision owner
+(`HullHit.owner`), `stepGrenade`'s `bounce` and `pass` events carry it, and the room's `flyFrame` hands every such
+contact, in order, to `world.health.hitAt` (`Room.sceneContact`; the thrower scores a death's action points as the
+blast's does). Open: `GRENADE_CONTACT_NODE_READING` (which hits carry no node), `GRENADE_CONTACT_RANGE_READING` (where
+the projectile's node stands at the call: the frame's start, by `FUN_003c9fb0`'s order -- the contact inside
+`FUN_003c9b70`, D:L320162, before the `+0x54` write-back, D:L320059-320061). Not built: a launched round's contact
+(`HandleImpact` `FUN_003c8920`) calls the struck node's `+0x94` handler too (D:L319417-319418), and that scene hit is
+LATER 872. The page's own copy offline does the same (`viewer/src/grenade.ts`
+`contact`); online, and for another's copy, the room applies it (as `explode`'s blast, LATER 102).
+The panes' polygons read GLASS through the repository's reader on both maps (`materialsOn` in
+`match/test/roomGrenadeContact.test.ts`: Frostfire's `pane1` and Fish Hook's `wglass`, each witness line two GLASS hits).
 
 ### 5.3 The materials
 
@@ -926,6 +950,8 @@ What it found:
 | `PLACE_REST_LIFT_READING` (retired, AD-4) | was 0.1: the charge set over the surface found, the page's own | resolved 2026-10-16 (web sprint 40 AD-4; reading, research 202 §2.2): 0 -- `FUN_005bc730` sets the charge on the column entry's point (D:L477007-477010, D:L473998-474004); the room's hand path stops its drop `CHARGE_GROUND_SLACK_PLACEHOLDER` short of the point (`room.ts` `startRefused`) |
 | `CHARGE_GROUND_SLACK_PLACEHOLDER` (`net/placing.ts`) | 0.25 | the room's tolerance for a charge's point over its surface: a browser network check, no original (§9.7.2; Chris's value) |
 | `CLAYMORE_CONE_POINT_READING` (`room.ts`, `grenade.ts`) | feet (room), feet + 10 (page) | the point `GetDamage` tests the claymore's cone at, and the radius (§9.7.2) |
+| `GRENADE_CONTACT_NODE_READING` (`projectile.ts`) | `'polygon-owner'`: every hull hit names its polygon's collision owner (`HullHit.owner`) | the intersect record's `+0x1c`, whose `+0x94` handler a contact calls (`FUN_003c8f50` D:L319747-319750); `HandleIntersections` reads a record with `+0x1c` 0 as a hit with no node (D:L319983-319985), so some hits carry none -- which (where the projectile's query fills `+0x1c`) is not traced (§5.2, LATER 851; reading, pending review). Settles: the query's record fill traced, or an RDRAM read of a pane contact's record |
+| `GRENADE_CONTACT_RANGE_READING` (`sceneHealth.ts`) | `'frame-start'`: a contact's range falloff measured from where the frame began | the projectile node's position `FUN_003c7600` measures from (`+0x20`'s `+0x30..+0x38`, D:L318741-318749) while `HandleIntersections` runs: the projectile tick `FUN_003c9fb0` runs `HandleIntersections` (`FUN_003c9b70`, D:L320162), whose contact loop calls the handler before the frame's end is written back (`+0x54..+0x5c`, D:L320059-320061) and before `FUN_003c63d0` (D:L320062), and only then hands `+0x54` on (`FUN_003cabe0`, D:L320164-320174) -- that order is the source of 'frame-start'; what `FUN_003c63d0`'s callbacks and `FUN_003cabe0` do to the node's `+0x30..+0x38` is not traced -- one frame's travel either way, far under the M67's `Effective_Range` 400 (§5.2, LATER 851; reading, pending review) |
 | `ITEM_NODE_LOCAL_READING` (`heldItem.ts`) | identity | the `grenade` node's local matrix under `rhand`: `FUN_00553290`'s new node is given none before it is hung (D:L419019-419052); the node class's default and `FUN_005c6980`'s `aimnodes` model are not traced (§8.1) |
 | `PISTOL_ONESHOT_PARTS_READING` (`throwPose.ts`) | beneath (*since PAR-85: `{ throw: 'push', place: 'beneath' }`, research 251 §7*) | the parts an upper-body pistol one-shot (`seal_p_throwgrenade`, `seal_p_tossgrenade`, `seal_p_put_onwall`) does not carry keep the pose beneath it; how the action stack fills them is not traced (§8.1) |
 | `CROUCH_RUN_QUICK_THROW_READING` (`projectile.ts`) | the standing throw, 0.710 s, reach 300, no thrower velocity; the reported second applied nowhere | the crouch-run quick throw's "missing 1 sec" (Trello xNAdEL9i): every step read at the source agrees with the port (§4.1); settles: the clip measured frame by frame beside the port (OBF-8, reading, pending review) |

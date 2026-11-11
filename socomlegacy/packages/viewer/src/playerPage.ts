@@ -47,10 +47,13 @@ export interface PlayerCareer {
   hsPct: number; timePlayedText: string; deaths: number; games: number; rating: number; clanTag: string;
   ladder: { position: number; total: number; rating: number; medal: number } | null;
 }
-/** One row of `/matches`: the match's header and the player's seat. */
+/**
+ * One row of `/matches`: the match's header and the player's seat. Assists everywhere (gap D): `assistsTracked`, whether
+ * the match's `assists` are counts (central's STATS_ASSISTS_TRACKED_ADAPTATION; absent from an older central, read as not).
+ */
 export interface PlayerMatchRow {
-  match: { id: string; map: string | null; mapName: string | null; mode: string | null; startedAt: number; endedAt: number | null; counted: boolean };
-  player: { kills: number; deaths: number; score: number; roundsWon: number; roundsLost: number };
+  match: { id: string; map: string | null; mapName: string | null; mode: string | null; startedAt: number; endedAt: number | null; counted: boolean; assistsTracked?: boolean };
+  player: { kills: number; deaths: number; score: number; roundsWon: number; roundsLost: number; assists?: number };
 }
 interface MatchesAnswer { matches: PlayerMatchRow[]; next?: string }
 interface WeaponsAnswer { weapons: { weapon: string; kills: number }[] }
@@ -82,7 +85,10 @@ const pct = (v: number): string => `${v}%`;
 const stillOf = (map: string | null): string | null => (map !== null && /^MP\d{1,2}$/.test(map) ? `/api/maps/${map}/still.png` : null);
 const crumbsFor = (last: string): Crumb[] => [{ label: 'Home', href: BASE() }, { label: 'Leaderboard', href: `${BASE()}leaderboard` }, { label: last }];
 
-/** A recent match as one link: the map's thumbnail, the map and its line, the result, K / D and score; its name one sentence. */
+/**
+ * A recent match as one link: the map's thumbnail, the map and its line, the result, K / D and score; its name one sentence.
+ * Assists everywhere (gap D): K / D / A where the match's assists are counts (`assistsTracked`); else K / D, never a 0.
+ */
 function matchRowOf(r: PlayerMatchRow): HTMLElement {
   const m = r.match;
   const p = r.player;
@@ -101,7 +107,8 @@ function matchRowOf(r: PlayerMatchRow): HTMLElement {
   const result = word ? figure(word, `${p.roundsWon}–${p.roundsLost}`) : element('span', 'project-figure');
   result.classList.add('project-match-row-result');
   if (word) result.dataset['result'] = word.toLowerCase();
-  const kd = figure(`${p.kills} / ${p.deaths}`, 'K / D');
+  const assists = m.assistsTracked === true && typeof p.assists === 'number' ? p.assists : null;
+  const kd = assists === null ? figure(`${p.kills} / ${p.deaths}`, 'K / D') : figure(`${p.kills} / ${p.deaths} / ${assists}`, 'K / D / A');
   kd.classList.add('project-match-row-kd');
   const score = figure(int(p.score), 'Score');
   score.classList.add('project-match-row-score');
@@ -109,7 +116,7 @@ function matchRowOf(r: PlayerMatchRow): HTMLElement {
   chev.setAttribute('aria-hidden', 'true');
   a.append(thumb, words, result, kd, score, chev);
   const told = [`${map}, ${[m.mode ?? '', when].filter((x) => x !== '').join(', ')}:`, ...(word ? [`${word.toLowerCase()} ${p.roundsWon}–${p.roundsLost},`] : []),
-    `${p.kills} kills ${p.deaths} deaths, score ${int(p.score)}`];
+    `${p.kills} kills ${p.deaths} deaths${assists === null ? '' : ` ${assists} assists`}, score ${int(p.score)}`];
   a.setAttribute('aria-label', told.join(' '));
   return a;
 }

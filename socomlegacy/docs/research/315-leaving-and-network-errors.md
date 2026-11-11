@@ -872,3 +872,27 @@ original) open at once; so "a result older than the page opens at its start" hol
 when the page is built. The review's F3: `/testroom` (no `LobbyMatch`, so no LATER 241 abandon) now draws a fresh
 page's GAME COMPLETE result from its own start (FINAL ROUND first) where it drew GAME COMPLETE at once; the original
 abandons at the told 6, so neither matches it -- the test room's.
+
+## 17. OT.R122 (2026-11-11): the port departs from §12.1, §14 and §15 for a late seat
+
+**Product track, an adaptation on the owner's ruling** (`socomlegacy/docs/MISSION.md` OT.R122; ui `gameLobbyCommands.ts`
+`LATE_SEAT_MATCH_ENDING_OWNER`): §12.1's W5 / W6, §14 (LATER 238) and §15 (LATER 241) stay what the original does -- a
+late console READY in the last round's result or in GAME COMPLETE loads, and at its load's end leaves for
+`dlgNetError.rdr` or `dlgNetAbandoned.rdr` (#528, then SOCOM II ONLINE) -- and their readings are unchanged
+(`LATE_RETURN_RECORD_UPDATE_READING`). The owner ruled that path unacceptable even where it matches the original (a late
+seat booted to the main menu twice while the match ended). The port now departs from them for a late seat only: the
+game's end heard during its load (the room's last `roundOver`, or a welcome whose standing result ended the game)
+returns the page at once to the same game's lobby with its client kept -- no bye, no close, the seat and central's seat
+kept -- and the game over the hand-off already carried does the same at the told 6 (the screens' open), unless the load
+entered first (§15's fade window, unchanged). In the lobby, READY is held while the game ends -- set by that
+`roundOver` or welcome while the game is launched, cleared by a `roundStart`, the abandon or the room's view not
+launched -- drawn disabled with one line of the browser's own, and its late branch starts no load. A seat that was not
+late, the abandon, the final closes, 4007 and the host's update close are unchanged. The room's half (match
+`game.ts`, central `bridge.ts`, `onRoundOver`): LATER 64's keep of +0xcc through a READY late load (§12.1) is cleared
+at the game's end -- the page is back in the lobby then -- a `lateLoad` arriving after that end marks nothing, and the
+return clears every seat's marks, so the lobby's below-three leave closes no such seat 4007 and its next hello is not
+late; during the match (a round's result included) and for an abandon mid-match the keep stands; after the final
+`roundOver` nothing is kept. A late load past the
+told 6 whose socket has already dropped has no client to keep and takes §15's exit unchanged. Pinned by unit tests
+(`lobbyMatch.test.ts` "OT.R122", `gameLobbyScreen.test.ts` "OT.R122", match `matchGame.test.ts` and central
+`bridge.test.ts` "OT.R122"); no capture, no browser run.

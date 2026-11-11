@@ -424,8 +424,10 @@ a:is(.project-ident-name, .project-name):hover { text-decoration: underline; tex
   .project-award { padding: var(--s2u-space-3); }
   .project-award:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .project-award-value { overflow-wrap: anywhere; }
-  .project-match-row { grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--s2u-space-3); padding: var(--s2u-space-3) var(--s2u-space-4); }
-  .project-match-row-thumb, .project-match-row-score, .project-match-row-chev { display: none; }
+  /* LCM batch 1 (the shoot): the result, K/D and score side by side as at 1440 -- four columns; the score was never hidden
+     (`.project-match-row .project-figure` outranks a one-class rule) and dropped under the K/D in three */
+  .project-match-row { grid-template-columns: minmax(0, 1fr) auto auto auto; gap: var(--s2u-space-3); padding: var(--s2u-space-3) var(--s2u-space-4); }
+  .project-match-row-thumb, .project-match-row-chev { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .project-badge[data-tone="live"]::before { animation: none; }

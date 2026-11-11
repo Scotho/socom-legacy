@@ -22,7 +22,7 @@ import { Play, reloadCut, type PlayClips, type PlayEvent } from './play';
 import type { ReloadItem, ReloadStance } from './reloadClip';
 import { cloneHeld } from './sights';
 import { bodyForTeam, escorteeBody, hitBodiesOfPage, type HitBodyOfPage } from './teamBody';
-import { bodyVolumes, rayBody, stanceVolumes, type Capsule, type StanceVolumes, type V3 as Vec3 } from './net/hitVolumes';
+import { bodyNearest, bodyRecords, rayNearest, rayRecords, stanceVolumes, type HitBody, type RecordSink, type StanceVolumes, type V3 as Vec3 } from './net/hitVolumes';
 import { HIT_POSE_MOUNT_READING } from './net/hitPose';
 import { launcherCarryMatrix, type Mount } from './heldItem';
 import { handedAt, handOffOf, type Firearm } from './kit';
@@ -908,7 +908,8 @@ export class RemotePlayers {
   /**
    * INT-NET-2 (research 84 §19): the distance along the eye's unit `dir` to the nearest living body drawn, within `reach`,
    * or null -- the aim point `FUN_005aa6e0` takes on a body (`./fire` `FireSource.targetDistance`). Each body on the
-   * room's capsules (`./net/hitVolumes` `bodyVolumes` / `rayBody`, its type's stance volumes as `Room.volumesOf` picks
+   * room's bone boxes (BONE-BOXES, research 398 s1: the nearest box the line enters, any bone's; `./net/hitVolumes`
+   * `bodyVolumes` / `rayBody`, its type's stance volumes as `Room.volumesOf` picks
    * them, from the page's own bodies as the loopback's are: `./teamBody` `hitBodiesOfPage`) at its drawn feet, yaw and
    * posture: the page converges on the shape the room judges the hit by. Ported from Chris's browser-beta-v5 (d578f347,
    * `remotePlayers.ts` `aimDistance`), whose raycast against the skinned meshes (skinned on the CPU every shot) is not
@@ -919,27 +920,52 @@ export class RemotePlayers {
     for (const r of this.remotes.values()) {
       const s = r.snap;
       if (!s?.alive || !r.view.group.visible) continue;
-      const hit = rayBody(eye, dir, reach, this.aimCapsules(r, s));
-      if (hit && (best === null || hit.t < best)) best = hit.t;
+      const t = this.aimNearest(r, s, eye, dir, reach);           // PAGE-AIM-ALLOC: `rayBody(.., aimBody)`'s distance
+      if (t !== null && (best === null || t < best)) best = t;
     }
     return best;
   }
 
   /**
-   * The capsules `aimDistance` and `aimBodies` cast a body on. HIT-POSE (research 217 s3.6): a player's drawn skeleton's
-   * (`Play.drawnCapsules`: the copy's animator pose, as the room hits its own live pose of the body, `../../match`
+   * The volumes `aimDistance`, `aimBodies` and `aimRecords` cast a body on: its bone boxes (BONE-BOXES, research 398 s1).
+   * HIT-POSE (research 217 s3.6): a player's drawn skeleton's (`Play.drawnBody`: the copy's animator pose, as the room
+   * hits its own live pose of the body, `../../match`
    * `Room.hitPose`), so the aim point converges on the body drawn; a hostage's (it stays on its idle sets, as the room's
    * `hostageVolumes`), a body on a turret (`./net/hitPose` `HIT_POSE_MOUNT_READING` 'idle': the room meets a mounted
    * gunner on its idle set, its poser not fed the turret's clip), a copy not yet played, or a stand-in without it: the
    * type's stance volumes at the snapshot's feet, yaw and posture -- PRONE-TILT; LEAN-HIT (issue #752): the snapshot's held
-   * peek (the wire's -1 / 0 / 1) posing the lean set, as the room's idle path does.
+   * peek (the wire's -1 / 0 / 1) posing the lean set, as the room's idle path does. PAGE-AIM-ALLOC: the drawn body, or
+   * null for the stance volumes' cast (`aimVolumes`, through `bodyNearest` / `bodyRecords`, built only past the cull).
    */
-  private aimCapsules(r: Remote, s: NonNullable<Remote['snap']>): Capsule[] {
+  private aimBody(r: Remote): HitBody | null {
     const mounted = HIT_POSE_MOUNT_READING === 'idle' && (this.mountPose?.(r.id) ?? null) !== null;
-    const drawn = typeof r.escortee === 'number' || mounted ? null : r.play.drawnCapsules?.() ?? null;
-    if (drawn) return drawn;
-    const volumes = typeof r.escortee === 'number' ? this.escorteeVolumesOf(r.escortee) : this.volumesOf(r.team, r.type);
-    return bodyVolumes(s.feet, s.yaw, s.stance, volumes, s.rootTilt, s.peek ?? 0);
+    return typeof r.escortee === 'number' || mounted ? null : r.play.drawnBody?.() ?? null;
+  }
+
+  /**
+   * PAGE-AIM-ALLOC (a browser adaptation: no value of the game's changes): a body's stance volumes for the cast without a
+   * drawn body (`aimBody` null), as `aimBody` took them -- a hostage's own, else its type's.
+   */
+  private aimVolumes(r: Remote): StanceVolumes | null {
+    return typeof r.escortee === 'number' ? this.escorteeVolumesOf(r.escortee) : this.volumesOf(r.team, r.type);
+  }
+
+  /**
+   * PAGE-AIM-ALLOC: the nearest record the ray makes on `r`'s aim body -- `rayBody`'s, on the drawn body `Play` keeps
+   * (refreshed once a pose, `Play.drawnBody`), else on the stance volumes at the snapshot's feet, yaw, posture, tilt and
+   * peek through `bodyNearest`, which culls before it builds a tilted matrix (as the room's `bodyRecords`). Null: none.
+   */
+  private aimNearest(r: Remote, s: NonNullable<Remote['snap']>, eye: Vec3, dir: Vec3, reach: number): number | null {
+    const drawn = this.aimBody(r);
+    if (drawn) return rayNearest(eye, dir, reach, drawn);
+    return bodyNearest(eye, dir, reach, s.feet, s.yaw, s.stance, this.aimVolumes(r), s.rootTilt, s.peek ?? 0);
+  }
+
+  /** PAGE-AIM-ALLOC: every record the ray makes on `r`'s aim body, into `sink` (`aimNearest`'s two bodies). */
+  private aimCast(r: Remote, s: NonNullable<Remote['snap']>, eye: Vec3, dir: Vec3, reach: number, sink: RecordSink): void {
+    const drawn = this.aimBody(r);
+    if (drawn) rayRecords(eye, dir, reach, drawn, sink);
+    else bodyRecords(eye, dir, reach, s.feet, s.yaw, s.stance, this.aimVolumes(r), s.rootTilt, s.peek ?? 0, sink);
   }
 
   /**
@@ -950,16 +976,57 @@ export class RemotePlayers {
    * it was cast on SEAL type 0's, a shape the room never judges a hostage by).
    */
   aimBodies(eye: Vec3, dir: Vec3, reach: number): { id: number; distance: number }[] {
-    const out: { id: number; distance: number }[] = [];
-    for (const [id, r] of this.remotes) {
+    // PAGE-AIM-ALLOC: the list and its entries are this method's own, reused -- valid until the next call (every caller
+    // reads it at once: `crosshairPick`, the firearm's `bodyDistances`); never kept or written by a caller.
+    const out = this.aimBodiesOut, pool = this.aimBodiesPool;
+    let n = 0;
+    for (const r of this.remotes.values()) {
       const s = r.snap;
       if (!s?.alive || !r.view.group.visible) continue;
       // HIT-POSE; PRONE-TILT; LEAN-HIT: as `aimDistance` (a hostage's snapshot carries no peek: `escorteeSnapshot`)
-      const hit = rayBody(eye, dir, reach, this.aimCapsules(r, s));
-      if (hit) out.push({ id, distance: hit.t });
+      const t = this.aimNearest(r, s, eye, dir, reach);
+      if (t === null) continue;
+      const hit = pool[n] ?? (pool[n] = { id: 0, distance: 0 });
+      hit.id = r.id; hit.distance = t;
+      out[n++] = hit;
     }
+    out.length = n;
     return out;
   }
+  private readonly aimBodiesOut: { id: number; distance: number }[] = [];
+  private readonly aimBodiesPool: { id: number; distance: number }[] = [];
+
+  /**
+   * BONE-BOXES (research 398 s1, s2): the distance of every record the line makes on every living drawn body within
+   * `reach` -- one for each bone box it enters, the bodies' together, nearest first, a record at the distance of the one
+   * before it dropped (the walk's strict test, `FUN_003c9b70` D:L319990) -- each a surface the page's own walk of its
+   * round goes on past (`./fire` `FireSource.bodyDistances`), as the room's walk cuts its range at each. A prediction for
+   * the page's marks only: the room decides the hit.
+   */
+  aimRecords(eye: Vec3, dir: Vec3, reach: number): number[] {
+    // PAGE-AIM-ALLOC: the list is this method's own, reused -- valid until the next call (the firearm's walk copies it at
+    // once: `../fire` `bodySurfaces`); the same records, sorted the same way, each one past the one before it kept.
+    const out = this.aimRecordsOut;
+    this.aimRecordsCount = 0;
+    for (const r of this.remotes.values()) {
+      const s = r.snap;
+      if (!s?.alive || !r.view.group.visible) continue;
+      this.aimCast(r, s, eye, dir, reach, this.aimRecordsSink);
+    }
+    out.length = this.aimRecordsCount;
+    out.sort(ascending);
+    let kept = 0, before = 0;
+    for (let i = 0; i < out.length; i++) {
+      const t = out[i]!;
+      if (i === 0 || t > before) out[kept++] = t;
+      before = t;
+    }
+    out.length = kept;
+    return out;
+  }
+  private readonly aimRecordsOut: number[] = [];
+  private aimRecordsCount = 0;
+  private readonly aimRecordsSink: RecordSink = (_part, t) => { this.aimRecordsOut[this.aimRecordsCount++] = t; };
 
   /** Each side's types' stance volumes, built once a map and its clips (`Room`'s rule: the type's, its side's first's, the SEAL's). */
   private volumes: Record<Team | 'escortees', (StanceVolumes | null)[]> | null = null;
@@ -1654,6 +1721,11 @@ export class RemotePlayers {
     this.pendingAges.clear();
     this.pendingDeaths.clear();
   }
+}
+
+/** PAGE-AIM-ALLOC: `aimRecords`' order (was a comparator made per call): ascending, as `(a, b) => a - b`. */
+function ascending(a: number, b: number): number {
+  return a - b;
 }
 
 function sameKit(a: readonly number[] | null, b: readonly number[]): boolean {

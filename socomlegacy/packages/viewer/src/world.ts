@@ -1,11 +1,12 @@
 import { prepareWorldFrustum } from './worldFrustum';
+import { pageDeviceClass, type DeviceClass } from './deviceClass';
 import {
   Box3, BufferAttribute, BufferGeometry, ClampToEdgeWrapping, CustomBlending, DataTexture, DoubleSide, DstColorFactor,
-  FrontSide, Group, type Object3D, InstancedBufferAttribute, InstancedMesh, LessEqualDepth, LinearFilter, LinearMipmapLinearFilter, LineSegments, Matrix4, Mesh,
+  FrontSide, Group, type Object3D, InstancedBufferAttribute, InstancedMesh, InterleavedBufferAttribute, LessEqualDepth, LinearFilter, LinearMipmapLinearFilter, LineSegments, Matrix4, Mesh,
   NearestFilter, NoColorSpace, OneFactor, OneMinusSrcAlphaFactor, Quaternion, RGBAFormat, RepeatWrapping, SrcAlphaFactor,
   Texture, Vector2, Vector3, ZeroFactor,
 } from 'three';
-import type { Blending, BlendingDstFactor, BlendingSrcFactor, Camera, InterleavedBufferAttribute, Scene } from 'three';
+import type { Blending, BlendingDstFactor, BlendingSrcFactor, Camera, Scene } from 'three';
 import { LineBasicNodeMaterial, MeshBasicNodeMaterial, type Node } from 'three/webgpu';
 import {
   attribute, cameraPosition, float, log2, materialReference, modelViewMatrix, normalWorld, positionView, positionWorld,
@@ -152,6 +153,14 @@ export interface WorldView {
    */
   setNodeOpacity(path: string, opacity: number): number;
   /**
+   * LATER 782 (`SCROLL_MOTION_PLACEHOLDER`): the texture offset, in texture repeats, of every world chunk at or under the
+   * scene node `path` that a program's `SCROLL_MOTION` scrolls (`LoadedMesh.scrollPath`) -- added to its texture
+   * coordinates as `FUN_003bfee0` adds its steps to the visual's vertices (D:L313770-313839), beside a texture's own band
+   * scroll. What `WorldHooks.scroll` writes: Fish Hook's washes and water. Each such chunk is drawn with a material of its
+   * own (its path's). Returns how many materials it reached. Unrendered evidence only (unit tests of the offset's value).
+   */
+  setNodeUvOffset(path: string, u: number, v: number): number;
+  /**
    * LATER 165: every placement at or under the scene node `path` -- a mesh of its own or one instance of a shared draw --
    * not drawn (`cut`) or drawn again: the node's opacity (+0x9c) at 0, which the draw walk multiplies down the node's
    * subtree (`FUN_00336a10` / `FUN_00336980` D:L235028-235058) and under which a visual is not drawn at all (at or below
@@ -273,11 +282,26 @@ export interface WorldView {
   grenades: Record<string, Group>;
   dispose(): void;
   /**
-   * What `ViewerRenderer.warm` should compile besides the scene: a stand-in mesh per LOD copy's fading twin, made now
-   * rather than on the first fade (`fadeTo`), so a copy crossing its band does not pay a compile in that frame.
+   * What `ViewerRenderer.warm` should compile besides the scene: a stand-in mesh per fading twin -- a LOD copy's, and a
+   * mesh a scene program fades (`setNodeOpacity`; LATER 852) -- and geometry layout, made now rather than on the first
+   * fade (`fadeTo`, `drawFaded`), so a copy crossing its band or a destructible's first death does not pay a compile in
+   * that frame. On the `xbox` device class (`deviceClass`, default `./deviceClass` `pageDeviceClass()`) the LOD copies'
+   * twins alone, one per shared material, as v0.4.18 did (`XBOX_SKIPS_FADE_TWIN_WARM_ADAPTATION`).
    */
-  warmExtras(): Object3D[];
+  warmExtras(deviceClass?: DeviceClass): Object3D[];
 }
+
+/**
+ * A browser adaptation with no original (the renderer's warm-up has none): on the `xbox` device class the load's warm-up
+ * skips LATER 852's extra stand-ins -- the fading twins a scene program's fade draws (`setNodeOpacity`), and the key by
+ * geometry layout -- and compiles the LOD copies' twins alone, one per shared material, as v0.4.18 did; every other class
+ * keeps the fix. Why: the field shows the Xbox's WebGL2 context lost during the map load, inside the whole-scene warm (0
+ * of 15 Xbox page loads since v0.4.16 lasted five minutes in a match; the respawn-join report of 2026-11-11), so more
+ * warm-up work in that window on that one platform is a risk with no gain seen there. The cause (the load's warm-up
+ * load) is inferred from those reports, not proven. Revisited when v0.4.19's Xbox diagnostics (`contextdiag`'s load
+ * phase) report. Its cost there: the first fade of each shared material may hitch on the Xbox, as on v0.4.18.
+ */
+export const XBOX_SKIPS_FADE_TWIN_WARM_ADAPTATION = true;
 
 /**
  * BASE_PULSE_DRAW_READING (PB-9b; research 284 s1, s7): how a node's opacity f under 1 enters an alpha-pass visual's draw
@@ -558,6 +582,8 @@ export function buildWorld(map: LoadedMap): WorldView {
   const instancePuts: (() => void)[] = [];
   /** The scrolling materials beside their offsets, advanced every frame. */
   const scrolling: { offset: ReturnType<typeof vec2Uniform>; du: number; dv: number }[] = [];
+  /** LATER 782 (`setNodeUvOffset`): each scrolled path's materials' offsets (`LoadedMesh.scrollPath`), by path. */
+  const uvOffsets = new Map<string, ReturnType<typeof vec2Uniform>[]>();
   // Every drawn part beside the buffer its lit colours go into, so a rig change can rewrite them in place (a packed
   // attribute, or CPS H12's interleaved colour slots: `colourSlotsOf`).
   const lit: { part: Lightable; attribute: BufferAttribute | InterleavedBufferAttribute }[] = [];
@@ -661,6 +687,17 @@ export function buildWorld(map: LoadedMap): WorldView {
     twin.wireframe = shared instanceof MeshBasicNodeMaterial && shared.wireframe;
     twin.needsUpdate = true;
   };
+  /** The fading twin of a shared material: made once, the first time a draw needs it or the load's warm-up asks. */
+  const twinOf = (rest: Built): MeshBasicNodeMaterial => {
+    let twin = fades.get(rest.material);
+    if (!twin) {
+      twin = new MeshBasicNodeMaterial();
+      twin.name = 'lod fade';
+      fades.set(rest.material, twin);
+      applyFade(rest, twin);
+    }
+    return twin;
+  };
   /** Draws a LOD copy at `opacity`: with its shared material at rest (and hidden), its twin while fading. */
   const fadeTo = (object: Object3D, opacity: number): void => {
     if (!lodRest.has(object) || !(object instanceof Mesh)) return;
@@ -676,16 +713,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     if (!rest || !(object instanceof Mesh)) return;
     const opacity = opacityOf(object);
     let want: Basic = rest.material;
-    if (fadePhase(opacity) === 'fading' || (opacity <= 0 && nodeOpacityOf.has(object))) {
-      let twin = fades.get(rest.material);
-      if (!twin) {
-        twin = new MeshBasicNodeMaterial();
-        twin.name = 'lod fade';
-        fades.set(rest.material, twin);
-        applyFade(rest, twin);
-      }
-      want = twin;
-    }
+    if (fadePhase(opacity) === 'fading' || (opacity <= 0 && nodeOpacityOf.has(object))) want = twinOf(rest);
     if (object.material !== want) object.material = want;
   };
 
@@ -739,8 +767,8 @@ export function buildWorld(map: LoadedMap): WorldView {
    * be drawn in the walk and in the pass.
    */
   const materialCache = new Map<string, Basic>();
-  const materialFor = (name: string | null, fog: boolean, kind: 'mesh' | 'line', cull: boolean, scroll: [number, number] | null = null, receive = true, vertexAlpha = false, alphaPass = false): Basic => {
-    const cacheKey = `${kind}|${name ?? ''}|${fog ? 1 : 0}|${cull ? 1 : 0}|${scroll ? `${scroll[0]},${scroll[1]}` : ''}|${receive ? 'r' : ''}|${vertexAlpha ? 'v' : ''}|${alphaPass ? 'a' : ''}`;
+  const materialFor = (name: string | null, fog: boolean, kind: 'mesh' | 'line', cull: boolean, scroll: [number, number] | null = null, receive = true, vertexAlpha = false, alphaPass = false, scrollPath: string | null = null): Basic => {
+    const cacheKey = `${kind}|${name ?? ''}|${fog ? 1 : 0}|${cull ? 1 : 0}|${scroll ? `${scroll[0]},${scroll[1]}` : ''}|${receive ? 'r' : ''}|${vertexAlpha ? 'v' : ''}|${alphaPass ? 'a' : ''}${scrollPath !== null ? `|x${scrollPath}` : ''}`;
     const cached = materialCache.get(cacheKey);
     if (cached) return cached;
     const rgba = name === null ? undefined : map.textures[name];
@@ -770,7 +798,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     const entry: Built = { material, flags, fog, textured: !!texture, cull, shadow: name !== null && SHADOW_TEXTURE.test(name), scrollNode: null, receive, vertexAlpha, alphaPass };
     const mip = gsMipLod(flags?.gs);
     if (texture && mip && name && qualityNames.has(name) && kind === 'mesh') quality.add(texture);
-    if (texture && (scroll || mip)) {
+    if (texture && (scroll || mip || scrollPath !== null)) {
       // A scrolling texture gets a graph of its own: the same modulate, with the uv pushed along by an
       // offset that `frame` advances. So does a mipmapped one, whose level is the GS's, off the depth
       // (`gsTexel`). One program each, a handful per map at most.
@@ -779,6 +807,15 @@ export function buildWorld(map: LoadedMap): WorldView {
         const offset = vec2Uniform(0, 0);
         at = at.add(offset);
         scrolling.push({ offset, du: scroll[0], dv: scroll[1] });
+      }
+      // LATER 782: a scrolled node's own offset (`setNodeUvOffset`), beside the band's: both add to the coordinates.
+      // Its cost on MP71 (the dev-disc test `fishHookMotion.devdisc.test.ts`, the loader's case): +0 draws, +5 materials
+      // (81 against 76 with the same parts untagged; seven carry an offset) -- one program each, as the band's.
+      if (scrollPath !== null) {
+        const own = vec2Uniform(0, 0);
+        at = at.add(own);
+        uvOffsets.set(scrollPath, [...(uvOffsets.get(scrollPath) ?? []), own]);
+        material.userData.uvOffset = own;
       }
       const variants = new Map<number, ColorNode>();
       const graph = (): ColorNode => {
@@ -1134,8 +1171,10 @@ export function buildWorld(map: LoadedMap): WorldView {
   const faded: { path: string; object: Mesh }[] = [];
 
   for (const part of map.world) {
-    const mesh = new Mesh(geometryOf(part, lighting, lit), materialFor(part.textureName, part.fog, 'mesh', part.cull, part.scroll, true, part.vertexAlpha === true, part.alphaPass === true));
+    const mesh = new Mesh(geometryOf(part, lighting, lit), materialFor(part.textureName, part.fog, 'mesh', part.cull, part.scroll, true, part.vertexAlpha === true, part.alphaPass === true, part.scrollPath ?? null));
     mesh.name = part.textureName ?? 'untextured';
+    // LATER 782: the offset `setNodeUvOffset` writes, on the draw (unrendered evidence reads it here).
+    if (part.scrollPath && (mesh.material as Basic).userData.uvOffset) mesh.userData.uvOffset = (mesh.material as Basic).userData.uvOffset;
     if (!part.textureName) untexturedDraws++;
     prepareWorldFrustum(mesh);                           // conservative geometry bound, including large chunks
     // The marks' clip (`./markClip` `entryOf`) keys this draw as the world's one node; it read that off `frustumCulled`
@@ -1575,22 +1614,34 @@ export function buildWorld(map: LoadedMap): WorldView {
   const drawnOf = (o: Object3D): Drawn =>
     drawnByObject.get(o) ?? { object: o, order: 0, cells: [], alternate: false, off: false, shadow: false, alphaPass: false, centre: [0, 0, 0], line: false, lod: null };
 
-  const warmExtras = (): Object3D[] => {
+  // LATER 852: the twins a scene program's fade draws (`setNodeOpacity`: a death's flown part, `OBJECT_OPACITY_FROM_TO`)
+  // too, not the LOD copies' alone -- Desert Glory has no LOD copy, and the first crate, bottle, cup or ashtray of each
+  // texture built and linked its twin's program in the frame its fade began. One stand-in per twin and geometry layout
+  // (the attributes a program is built from: each one's name, item size, stride and offset -- CPS H12's interleaved
+  // part and the plain builder's carry the same names in two layouts, the review's F2); a renderer warm-up only: what is
+  // drawn, and when, is unchanged. Its own cost at the load (a compile per twin and layout, ahead) is not measured on a
+  // page yet (the review's F3; LATER 852).
+  // On the xbox class, v0.4.18's warm: the LOD copies' twins, one per shared material (XBOX_SKIPS_FADE_TWIN_WARM_ADAPTATION).
+  const warmExtras = (deviceClass: DeviceClass = pageDeviceClass()): Object3D[] => {
+    const xbox = XBOX_SKIPS_FADE_TWIN_WARM_ADAPTATION && deviceClass === 'xbox';
     const out: Object3D[] = [];
-    const seen = new Set<Basic>();
-    for (const d of drawn) {
-      const rest = d.lod ? lodRest.get(d.object) : undefined;
-      if (!rest || seen.has(rest.material) || !(d.object instanceof Mesh)) continue;
-      seen.add(rest.material);
-      let twin = fades.get(rest.material);
-      if (!twin) {
-        twin = new MeshBasicNodeMaterial();
-        twin.name = 'lod fade';
-        fades.set(rest.material, twin);
-        applyFade(rest, twin);
-      }
-      out.push(new Mesh(d.object.geometry, twin));
-    }
+    const seen = new Set<string>();
+    const add = (object: Object3D, rest: Built | undefined): void => {
+      if (!rest || !(object instanceof Mesh)) return;
+      const g = object.geometry;
+      const layout = Object.keys(g.attributes).sort().map((name) => {
+        const a = g.attributes[name]!;
+        return a instanceof InterleavedBufferAttribute
+          ? `${name}:${a.itemSize}:${a.data.stride}:${a.offset}`
+          : `${name}:${a.itemSize}:${a.itemSize}:0`;
+      });
+      const key = xbox ? rest.material.uuid : `${rest.material.uuid}|${layout.join(',')}|${g.index ? 1 : 0}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(new Mesh(g, twinOf(rest)));
+    };
+    for (const d of drawn) if (d.lod) add(d.object, lodRest.get(d.object));
+    if (!xbox) for (const f of faded) add(f.object, lodRest.get(f.object));
     return out;
   };
 
@@ -1813,6 +1864,14 @@ export function buildWorld(map: LoadedMap): WorldView {
       }
       return reached ? 1 : 0;
     },
+    setNodeUvOffset: (path, u, v) => {
+      let reached = 0;
+      for (const [at, offsets] of uvOffsets) {
+        if (!under(at, path)) continue;
+        for (const o of offsets) { o.value.set(u, v); reached++; }
+      }
+      return reached;
+    },
     setNodeOpacity: (path, opacity) => {
       let reached = 0;
       for (const f of opacityNodes.get(path) ?? []) {
@@ -1850,6 +1909,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     },
     dispose: () => {
       opacityNodes.clear();
+      uvOffsets.clear();
       texturePack.dispose();
       stopExperimentalUpdates();
       stopShadowSoft();

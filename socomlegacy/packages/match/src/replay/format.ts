@@ -114,6 +114,9 @@ const DECODERS: ReadonlyMap<number, WireDecoders> = new Map<number, WireDecoders
   // Protocol 13: the live decoders -- 14 (ENEMY-RAISE ER-2) added only the command's bit 7 (`raised`; a 13 weapon is 0 or
   // 1, so the bit was never set) and the body's `BodyFlag.Raised` (bit 16, never set by a 13 room).
   [13, { snapshot: decodeSnapshot, commands: decodeCommands }],
+  // Protocol 14: the live decoders -- 15 (PROTO-15, V19.R10) changed the mover's rules alone (LC-1's ladder on the press,
+  // AIR-PROBE, STEEP-LAUNCH), no frame: a 14 recording's bytes read exactly as a 15 one's (match `test/replayFormat.test.ts`).
+  [14, { snapshot: decodeSnapshot, commands: decodeCommands }],
   [PROTOCOL_VERSION, { snapshot: decodeSnapshot, commands: decodeCommands }],
 ]);
 /** The protocols whose recordings this build plays, oldest first. */

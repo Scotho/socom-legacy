@@ -47,7 +47,7 @@ export interface HdThunderstoreOptions {
   readonly websiteUrl?:string;
   /** `icon.png`'s bytes, a 256x256 PNG (default: `generatedIcon()`). */
   readonly icon?:Uint8Array;
-  /** The community pack's credit as the owner gives it, written into the README; absent, `HD_PACK_CREDIT` (GoE Soul). */
+  /** The community pack's credit as the owner gives it, written into the README; absent, `HD_PACK_CREDIT` (GoE SouL). */
   readonly credit?:string;
 }
 
@@ -103,7 +103,7 @@ export function hdReadme(m:HdManifest,store:ThunderstoreManifest,credit:string|u
     `Method: ${m.method}`,'',
     '| tier | textures |','|---|---|',rows,'',
     '## Credit','',
-    credit??`${HD_PACK_CREDIT}.`,''].join('\n');   // the owner, 2026-11-09: always credit GoE Soul (`--credit` replaces the line)
+    credit??`${HD_PACK_CREDIT}.`,''].join('\n');   // the owner, 2026-11-09: always credit GoE SouL (`--credit` replaces the line)
 }
 
 /** Thrown before anything is written: each finding of the store's rules, one a line. */

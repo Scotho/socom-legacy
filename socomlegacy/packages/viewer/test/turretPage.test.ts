@@ -1877,6 +1877,8 @@ describe("P37: no mount offered while the walk's traversal move holds the mover 
     w.driver = t;
     w.place(0, 10, 20);
     w.state.yaw = 0;                                                 // facing -z, at the ladder
+    for (let i = 0; i < 800 && t.climbPrompt()?.kind !== 'ladder'; i++) w.tick({ forward: 1, right: 0, boost: false });   // LC-1: CLIMB offered,
+    t.action();                                                                                                        // mounted on the press
     for (let i = 0; i < 800 && t.state().kind !== 'ladder'; i++) w.tick({ forward: 1, right: 0, boost: false });
     expect(t.state().kind, 'on the rungs').toBe('ladder');
     expect(t.busy(), "the room's test: the move holds the mover").toBe(true);

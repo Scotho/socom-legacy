@@ -137,8 +137,19 @@ import { isDead, MP_HEALTH, overall, PARTS, type Health } from './damage';
  * (`Room.hello`, the page's version text). The binary wire is otherwise 13's: a 13 command never set bit 7 and a 13
  * room never set bit 16, so a 13 `.s2r` plays on the live decoders (match `replay/format.ts` `DECODERS`), its copies on
  * the old inference (`../remotePlayers` `setRaiseField`).
+ * 15 (2026-11-11, PROTO-15; V19.R10, the main controller under the owner's authority, from v0.4.19's version-skew
+ * review): the mover's rules, 12's and 13's class -- a rule the two sides must run alike and one side cannot perform.
+ * The room runs each page's commands through the page's own mover (`./moverSim`), and three of v0.4.19's mover changes
+ * make a 14 side and a 15 side take different steps from the same commands: LADDER-CLIMB LC-1 (a ladder is offered as
+ * CLIMB at its contact and mounted only on the Action press, `../traversal`; research 86 s2.3, s2.5), AIR-PROBE (the
+ * airborne tick probes the floor once a game frame at the move's end, a miss putting x/z back, `../mover` `Walker.fall`,
+ * `AIR_FLOOR_PROBE_READING`; research 399) and STEEP-LAUNCH (a steep floor's push a displacement, never a velocity a
+ * walk-off carries; research 217 s2.8, LATER 833). Reconciliation carries the feet and the facing only, so a ladder one
+ * side mounted and the other did not is never healed: the two refuse each other at the hello (`Room.hello`, the page's
+ * version text). The wire's shape is 14's -- no frame, field or event changed -- so a 14 `.s2r` plays on the live
+ * decoders (match `replay/format.ts` `DECODERS`).
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 /** ENEMY-RAISE ER-2: the first protocol whose bodies carry their owners' raise state (`BodyFlag.Raised`). */
 export const RAISED_SINCE_PROTOCOL = 14;
@@ -926,9 +937,12 @@ export type ClientEvent =
    * or HOLD POSITION (5) -- with the page's aim (`eye`, `dir` unit, as `fire` carries them), at the command number it
    * was pressed on. The original forwards {issuer, hostage, cmd} to the host (`FUN_002bb970` D:L160726-160750, 8 bytes),
    * which applies it unchecked (`FUN_002bb8e0` D:L160706-160721); the room runs the issuer's console's test itself
-   * (`ORDER_VALIDATION_READING`: `./hostageOrder` `orderTestRefusal`) and tells the outcome as `hostageState`.
+   * (`ORDER_VALIDATION_READING`: `./hostageOrder` `orderTestRefusal`) and tells the outcome as `hostageState`. LATER 853
+   * (additive; the room's `ORDER_REWIND_ADAPTATION`): `viewTick`, the page's playout clock when it ordered
+   * (`NetClient.viewTick`, as a round carries it), so the room meets the hostages where the page drew them; absent, at
+   * their present.
    */
-  | { type: 'hostageOrder'; seq: number; hostage: number; cmd: 4 | 5; eye: [number, number, number]; dir: [number, number, number] }
+  | { type: 'hostageOrder'; seq: number; hostage: number; cmd: 4 | 5; eye: [number, number, number]; dir: [number, number, number]; viewTick?: number }
   /**
    * Protocol 7 (web sprint 4 M9; `PICK_WIRE_READING`): the weapon select's confirmed picks (`@s2u/scene` `Pick`: a slot
    * 0-4 and an item id), every one since the map's match began for the page's side, in order -- the room replays them

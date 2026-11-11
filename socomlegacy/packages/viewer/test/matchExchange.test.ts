@@ -22,6 +22,7 @@ import { StanceButton } from '../src/stanceButton';
 import type { WalkMode } from '../src/walk';
 import type { MatchGate } from '../src/weaponExchange';
 import { WEAPON_SELECT_ELEMENT, type InputDevice } from '../src/weaponSelect';
+import { SPECTATE_KIT_CHANGE_OWNER } from '../src/weaponSelectState';
 
 /**
  * PAR-1 (web research 253): WEAPON EXCHANGE and the dead's prompt as one part (`../src/matchExchange`), `main.ts`'s
@@ -107,7 +108,8 @@ describe('the gate and the dead\'s prompt (FUN_001f7ff0 D:L56648-56661, FUN_001f
     // [what, the gate, opens]
     ['dead, in a round, on oneself', DEAD, true],
     ['alive (R2 is the R2 inventory then)', { ...DEAD, alive: true }, false],
-    ['following a teammate', { ...DEAD, cameraOnSelf: false }, false],
+    // SPECTATE_KIT_CHANGE_OWNER (the owner, 2026-11-11): the original refuses here (D:L56659-56660); the port opens it.
+    ['following a teammate (SPECTATE_KIT_CHANGE_OWNER)', { ...DEAD, cameraOnSelf: false }, SPECTATE_KIT_CHANGE_OWNER],
     ['a spectator', { ...DEAD, spectator: true }, false],
     ['out of the match', { ...DEAD, inMatch: false }, false],
   ] as const)('R2 opens the menu through the page\'s gate: %s', (_what, gate, opens) => {

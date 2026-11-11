@@ -512,7 +512,10 @@ export function webAudioMusicOut(ctx: AudioContext, destination: AudioNode): Mus
         },
         fade(curve, seconds) {
           const now = ctx.currentTime;
-          stage.gain.cancelScheduledValues(now);
+          // FF-AUDIO-HOLD (a browser adaptation): every event cancelled, a fade's curve still running with them -- Firefox's
+          // `cancelScheduledValues(now)` keeps a curve begun before `now`, and a curve added inside its span throws. The
+          // stage takes events from `fade` alone, and the new curve sets its own start, so nothing earlier must survive.
+          stage.gain.cancelScheduledValues(0);
           stage.gain.setValueCurveAtTime(curve, now, Math.max(seconds, 1e-3));
         },
         stop() {

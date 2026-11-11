@@ -9,7 +9,7 @@ import {
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { LIMITS, object, type SignalToPage } from "@s2u/forge-agent-protocol";
-import { CONSENT_STYLE, CONSENT_STYLE_HASH, GuestOAuth } from "./oauth.js";
+import { budgetAddress, CONSENT_STYLE, CONSENT_STYLE_HASH, GuestOAuth } from "./oauth.js";
 import { GatewayState, refusal, type StateConfig } from "./sessions.js";
 import { createMcpServer, fullSchema } from "./mcp.js";
 export interface GatewayConfig extends StateConfig {
@@ -82,13 +82,17 @@ export function createGateway(config: GatewayConfig) {
     console.warn(
       "Forge agent gateway: FORGE_AGENT_TRUSTED_PROXIES is 0, so behind a TLS edge every client shares one per-address budget",
     );
-  /** Browser adaptation (gateway policy): the client address keying the per-address budgets, X-Forwarded-For only from trusted hops. */
+  /**
+   * Browser adaptation (gateway policy): the client address keying the per-address budgets, X-Forwarded-For only from
+   * trusted hops; an IPv6 client keyed by its /64 (LATER 482, budgetAddress), so every per-address store -- the rate
+   * buckets, the SDK's limiters, the targets and sessions, the OAuth clients, tokens, consents and codes -- shares it.
+   */
   const clientAddress = (req: IncomingMessage): string => {
     const socket = req.socket.remoteAddress ?? "unknown";
-    if (hops === 0) return socket;
+    if (hops === 0) return budgetAddress(socket);
     const header = req.headers["x-forwarded-for"],
       entries = (Array.isArray(header) ? header.join(",") : (header ?? "")).split(",");
-    return (entries.length >= hops ? entries[entries.length - hops]!.trim() : "") || socket;
+    return budgetAddress((entries.length >= hops ? entries[entries.length - hops]!.trim() : "") || socket);
   };
   /** The request's client address for the SDK's OAuth handlers, which do not see the request (LATER 429). */
   const requestAddress = new AsyncLocalStorage<string>();

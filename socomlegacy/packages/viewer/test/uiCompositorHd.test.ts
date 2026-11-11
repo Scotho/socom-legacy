@@ -4,7 +4,7 @@ import type { Rgba } from '@s2u/gs';
 import type { UiDrawItem, UiModelTriangle, UiModelVertex } from '@s2u/ui';
 import { rasterizeUiDrawList, type UiBitmap } from '../src/uiCompositorView';
 
-// HD-3 (OT.R92, HD.R8; plan 2026-10-31-hd-texture-pack-parity): the menus under HD (GoE Soul) -- a browser adaptation.
+// HD-3 (OT.R92, HD.R8; plan 2026-10-31-hd-texture-pack-parity): the menus under HD (GoE SouL) -- a browser adaptation.
 // The frame drawn at 640 x 448 times a scale, each bitmap the pack replaces sampled from its HD image. Off, the frame
 // is today's, byte for byte.
 

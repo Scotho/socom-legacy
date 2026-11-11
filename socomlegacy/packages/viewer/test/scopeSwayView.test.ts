@@ -90,16 +90,17 @@ describe('the scoped sway on the view (research 381)', () => {
    * (`MAP_FOV`, as `matchFirearm.ts` takes `baseFov` from the map's camera), the scope's FOV from `Zoom.fov`, the kit's
    * offset by `FlyCamera.setKitOffset` -- the direction the frame's centre (the scope's fixed cross) shows, against the
    * round's (`Accuracy.cone`). The original's projection puts a PS2 pixel across at tan(hfov) / 320 in tangent
-   * (`FUN_00294070` D:L138944-138945: the offset `cam+0x480` added to the centre, scaled by `cam+0x290` = 320 /
-   * tan(hfov), `FUN_002915f0`), and the round's factor is tan(tan(hfov)) / 320 (`FUN_005bd100`, `tangentPerPixel`):
+   * (`FUN_00294070` D:L138944-138945: the offset `cam+0x480` added to the centre, scaled by `cam+0x290` x `cam+0x470`
+   * = 320 / tan(hfov) x 1.0 walking, `look.ts` `viewOffset`'s cites), and the round's factor is tan(tan(hfov)) / 320 (`FUN_005bd100`, `tangentPerPixel`):
    * across, the round is tan(tan(hfov)) / tan(hfov) = 1.203 of the cross's shift. Down, the round's
-   * tan(tan(hfov) x 448/640) / 224 over the page's tan(vfov) / 224 = 1.168, as it was (left alone, pinned).
+   * tan(tan(hfov) x 448/640) / 224 over the page's tan(vfov) / 224 = 1.1709, as it was (left alone, pinned; e1fc55aea's
+   * subject says 1.168, a slip in the third decimal).
    */
-  it('the round is 1.203x the cross across (the original projection) and 1.168x down, at every aspect and power', () => {
+  it('the round is 1.203x the cross across (the original projection) and 1.171x down, at every aspect and power', () => {
     const across = Math.tan(Math.tan(MAP_FOV.hfov)) / Math.tan(MAP_FOV.hfov);
     const down = tangentPerPixel().y / (Math.tan(MAP_FOV.vfov) / 224);
     expect(across).toBeCloseTo(1.2035, 3);
-    expect(down).toBeCloseTo(1.168, 2);
+    expect(down).toBeCloseTo(1.1709, 3);
     const baseFov = (2 * MAP_FOV.vfov * 180) / Math.PI;               // matchFirearm.ts: baseFov from the map's vfov
     const zoom = new Zoom({ ...HELD_RIFLE, zoomModes: [1.5, 3, 5, 10] });
     for (const aspect of [4 / 3, 16 / 9, 21 / 9]) {

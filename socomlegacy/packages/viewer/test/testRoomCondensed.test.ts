@@ -15,7 +15,7 @@ import {Ui} from '../src/ui';
  * the test room's Experimental panel in a few collapsed categories with short labels, each group's explanation behind
  * an info button (a `title` for the mouse, a toggle-tip that focus or a tap reveals), the static sections' help lines
  * the same way, and the developer panel's own drawings shown only while that panel is open. The HD keys, defaults and
- * ids are pinned beside it (ac's constraint for HD (GoE Soul) in every match).
+ * ids are pinned beside it (ac's constraint for HD (GoE SouL) in every match).
  */
 const here=dirname(fileURLToPath(import.meta.url));
 const html=readFileSync(resolve(here,'../setup/index.html'),'utf8');

@@ -7,7 +7,8 @@ import {
  * LCM-8 (the LCM plan, `docs/plans/2026-11-09-live-cards-and-match-pages.md`; the design's Part 8; LCM.R3, LCM.R11,
  * LCM.R17 (f)): the match page `/match/<id>` -- one page of the project site, drawn from central's
  * `/api/stats/match/<id>` (`statsApiHttp.ts`): the head (the map's still, the map, the mode, the score, the date, the
- * length, the players, the region -- never the host's name -- and the lobby name), Copy link (no Watch replay yet: RPM-1), then
+ * length, the players, the region -- never the host's name -- and the lobby name), ▶ Watch replay when the match has a replay
+ * (LCM-RP: to the replay page, `MATCH_PAGE_WATCH_REPLAY_ADAPTATION`) and Copy link, then
  * the awards, the scoreboard, the rounds, the kill feed one round at a time, and kills by weapon and by hit location.
  * Its content is the mockup `docs/specs/assets/live-cards/match-page.html` (with Part 8's corrections); its page language
  * is `pages.html` v9's (a breadcrumb, a title and lede, sections under a heading and one rule, panels, 52 px table rows;
@@ -35,8 +36,12 @@ import {
 
 /** An adaptation: a live match's page reads the stats route again this often (ms); an ended one never again. */
 export const MATCH_PAGE_POLL_MS_ADAPTATION = 15_000;
-/** RPM-1 (mega's level-3 review): an adaptation -- the match page links no replay until the replay page exists; the stats route's `replay` is central's raw recording fetch, a download that plays nothing. */
-export const MATCH_PAGE_WATCH_REPLAY_ADAPTATION = 'no Watch replay on the match page until the replay page exists (the raw recording fetch plays nothing in a page)' as const;
+/**
+ * An adaptation (LCM-RP; LCM.R20, RPM-1's drop overturned by the owner 2026-11-10; the design's Part 8): ▶ Watch replay
+ * links the replay page central names (`match.replayPage`, `/replay/<id>?match=<matchId>`, set exactly when the match's
+ * `replay` is), never `replay` itself -- central's raw recording fetch, a download that plays nothing in a page.
+ */
+export const MATCH_PAGE_WATCH_REPLAY_ADAPTATION = 'Watch replay links the replay page /replay/<id>?match=<matchId> (match.replayPage) when the match has a replay; never the raw /replays/ fetch' as const;
 
 /** LCM-18d, an adaptation: after the 1st, 2nd, 3rd and later failed read in a row while live, the next read waits this long (ms); a good read resets it. */
 export const MATCH_PAGE_BACKOFF_MS_ADAPTATION: readonly number[] = [15_000, 30_000, 60_000];
@@ -96,6 +101,8 @@ export interface MatchPageData {
     id: string; map: string | null; mapName: string | null; mode: string | null; settings: Record<string, unknown> | null;
     startedAt: number; endedAt: number | null; ended: string | null; host?: string | null; counted: boolean; reason: string | null;
     replay: string | null; assistsTracked: boolean; live: boolean; region: string | null;
+    /** LCM-RP: the replay page's path (`/replay/<id>?match=<matchId>`), or null; absent in an older answer. */
+    replayPage?: string | null;
   };
   players: MatchPagePlayer[];
   rounds: { round: number; winner: number | null; reason: string; ms: number }[];
@@ -202,6 +209,22 @@ function stillImage(src: string): HTMLImageElement {
   return img;
 }
 
+/** LCM-RP: the replay page's form as central writes it (`statsApiHttp.ts` `replayPagePath`): the id, the match encoded. */
+const REPLAY_PAGE_PATH = /^\/replay\/([0-9a-f]{16})\?match=([^&#]+)$/;
+
+/**
+ * LCM-RP (`MATCH_PAGE_WATCH_REPLAY_ADAPTATION`): Watch replay's address under the base -- the match's `replayPage` read
+ * for its id and match, rebuilt (another shape, or no `replay`, is none) -- or null.
+ */
+function replayPageHref(m: MatchPageData['match']): string | null {
+  if (m.replay === null || typeof m.replayPage !== 'string') return null;
+  const hit = REPLAY_PAGE_PATH.exec(m.replayPage);
+  if (!hit) return null;
+  let match: string;
+  try { match = decodeURIComponent(hit[2]!); } catch { return null; }
+  return `${withSlash(BASE())}replay/${hit[1]!}?match=${encodeURIComponent(match)}`;
+}
+
 /** The head's nodes: the still, the breadcrumb, the title and the score, the facts, LIVE, the actions. */
 function heroNodes(d: MatchPageData, r: Result, now: number): HTMLElement[] {
   const m = d.match;
@@ -256,8 +279,14 @@ function heroNodes(d: MatchPageData, r: Result, now: number): HTMLElement[] {
   }
 
   const actions = element('div', 'project-match-actions');
-  // RPM-1 (MATCH_PAGE_WATCH_REPLAY_ADAPTATION): no Watch replay until the replay page exists -- `m.replay` is central's
-  // raw recording fetch, which a page cannot play (it reads as a download)
+  // LCM-RP (MATCH_PAGE_WATCH_REPLAY_ADAPTATION): the replay page, only when the match has a replay -- never `m.replay`,
+  // central's raw recording fetch, which a page cannot play (it reads as a download)
+  const watch = replayPageHref(m);
+  if (watch !== null) {
+    const a = link('▶ Watch replay', watch, 's2u-action s2u-action--primary');
+    a.dataset['focusKey'] = 'watch';
+    actions.append(a);
+  }
   const copy = element('button', 's2u-action s2u-action--tertiary project-match-copy', 'Copy link');
   copy.type = 'button';
   copy.dataset['focusKey'] = 'copy';
@@ -273,13 +302,15 @@ const breadcrumbOf = (last: string): HTMLElement => breadcrumb(crumbsFor(last));
 
 function awardsSection(d: MatchPageData, cells: Map<string, MatchPagePlayer>): HTMLElement | null {
   const a = d.awards;
-  const tiles: [string, MatchPageAward | null, (w: MatchPageAward) => string][] = [
-    ['MVP', a.mvp, (w) => String(w.value)],
-    ['Top fragger', a.topFragger, (w) => String(w.value)],
-    ['Sharpshooter', a.sharpshooter, (w) => `${w.value}% HS`],
-    ['Most assists', a.mostAssists, (w) => String(w.value)],
-    ['First blood', a.firstBlood, (w) => `${w.value}×`],
-    ['Best round', a.bestRound, (w) => `${w.value} kills · R${w.round ?? ''}`],
+  // LCM batch 1 (the shoot): the best round's round rides its label ("Best round · R5"), its value the kills alone, so the
+  // value fits a sixth-wide card at the ds stat size instead of wrapping
+  const tiles: [(w: MatchPageAward) => string, MatchPageAward | null, (w: MatchPageAward) => string][] = [
+    [() => 'MVP', a.mvp, (w) => String(w.value)],
+    [() => 'Top fragger', a.topFragger, (w) => String(w.value)],
+    [() => 'Sharpshooter', a.sharpshooter, (w) => `${w.value}% HS`],
+    [() => 'Most assists', a.mostAssists, (w) => String(w.value)],
+    [() => 'First blood', a.firstBlood, (w) => `${w.value}×`],
+    [(w) => (typeof w.round !== 'number' ? 'Best round' : `Best round · R${w.round}`), a.bestRound, (w) => `${w.value} ${w.value === 1 ? 'kill' : 'kills'}`],
   ];
   const shown = tiles.filter((t) => t[1] !== null);
   if (shown.length === 0) return null;
@@ -288,7 +319,7 @@ function awardsSection(d: MatchPageData, cells: Map<string, MatchPagePlayer>): H
   for (const [label, w, value] of shown) {
     const cell = cells.get(w!.name);
     const li = element('li', 'project-award');
-    li.append(element('p', 'project-award-label', label), element('p', 'project-award-value', value(w!)),
+    li.append(element('p', 'project-award-label', label(w!)), element('p', 'project-award-value', value(w!)),
       playerIdent(document, { name: w!.name, tag: cell?.tag, medal: cell?.medal, bot: cell?.bot }, 'sm', { medalSlot: 'fit' }));
     list.append(li);
   }

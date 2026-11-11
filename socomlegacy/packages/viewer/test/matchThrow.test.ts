@@ -1730,3 +1730,58 @@ describe('TRIGGER-SWAP fold: the hands and the slot changes', () => {
     expect(holdWait.mock.calls[0]![0]).toBeLessThanOrEqual(3);
   });
 });
+
+/**
+ * LATER 645 (research 81 s5; reading, pending review): another's rocket in flight on the page passes the page's
+ * player's feet (`walk.feet()`, the actor `FUN_00598000` reads, D:L454629) -- `.ROCKET_BY` asked through
+ * `GameAudio.onRoundPast(.., rocket = true)` (D:L454640-454646), once a rocket; none under the round screens (OBF-31,
+ * as LATER 644's bullets in `./matchSound`).
+ */
+describe("LATER 645: a remote rocket past the page's feet asks .ROCKET_BY once (mountThrowables)", () => {
+  const rocket: ThrowableRecord = { ...M67, name: 'LAW HEAT', id: 185, muzzleVelocity: 200, gravity: 0, armingDistance: 0, impact: true, fuse: 10, removal: 10.1, explosionRadius: 150 };
+  function pastRig(feet: [number, number, number] | null, screenUp = false) {
+    const base = rig();
+    const walk = { ...(base.deps.walk as unknown as Record<string, unknown>), feet: () => feet, gridOfGround: () => null } as never;
+    const net = { throwEvent: () => {}, client: { bodies: () => [] }, screenUp: () => screenUp };
+    const asked: { from: number[]; to: number[]; actor: number[]; rocket: boolean | undefined }[] = [];
+    const played: string[] = [];
+    const audio = {
+      onAnimCallback: () => null, onFire: () => null, play: () => false,
+      onRoundPast: (from: number[], to: number[], actor: number[], isRocket?: boolean) => {
+        asked.push({ from, to, actor, rocket: isRocket });
+        const hit = isRocket ? '.ROCKET_BY' : '.BUL_PASSING';
+        played.push(hit);
+        return hit;
+      },
+    } as never;
+    const { t } = rig({ walk, audio, net: () => net as never });
+    t.grenade.setRounds([rocket]);
+    return { t, asked, played };
+  }
+
+  it('another\'s LAW flying past 50 from the feet asks .ROCKET_BY once, on its frame\'s segment, against the feet', () => {
+    const { t, asked, played } = pastRig([50, 100, -303]);
+    t.netDeps().remoteGrenade('LAW HEAT', [0, 100, 0], [0, 0, -200], 8, 13, undefined);
+    for (let i = 0; i < 360; i++) t.grenade.update(1 / 60);
+    expect(played).toEqual(['.ROCKET_BY']);
+    expect(asked[0]!.rocket).toBe(true);
+    expect(asked[0]!.actor).toEqual([50, 100, -303]);
+    expect(asked[0]!.from[2]).toBeGreaterThan(-303);
+    expect(asked[0]!.to[2]).toBeLessThan(-303);
+  });
+
+  it('one at 100 or more, the page\'s own, or under the round screens asks nothing', () => {
+    const far = pastRig([100, 100, -303]);
+    far.t.netDeps().remoteGrenade('LAW HEAT', [0, 100, 0], [0, 0, -200], 8, 13, undefined);
+    for (let i = 0; i < 360; i++) far.t.grenade.update(1 / 60);
+    expect(far.asked).toEqual([]);
+    const own = pastRig([50, 100, -303]);
+    own.t.grenade.launchRound(rocket, [0, 100, 0], [0, 0, -200]);
+    for (let i = 0; i < 360; i++) own.t.grenade.update(1 / 60);
+    expect(own.asked).toEqual([]);
+    const screens = pastRig([50, 100, -303], true);
+    screens.t.netDeps().remoteGrenade('LAW HEAT', [0, 100, 0], [0, 0, -200], 8, 13, undefined);
+    for (let i = 0; i < 360; i++) screens.t.grenade.update(1 / 60);
+    expect(screens.asked).toEqual([]);
+  });
+});

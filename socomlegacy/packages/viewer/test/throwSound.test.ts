@@ -91,19 +91,19 @@ class Recorder implements AudioOut {
   loop(): LoopHandle | null { return null; }
 }
 
-interface Page { audio: Pick<GameAudio, 'onAnimCallback' | 'play' | 'onFire'>; asked: string[] }
+interface Page { audio: Pick<GameAudio, 'onAnimCallback' | 'play' | 'onFire' | 'onRoundPast'>; asked: string[] }
 
 /** A stub of the page's audio: each zAnim asked for, in order. */
 function stubAudio(): Page {
   const asked: string[] = [];
-  return { asked, audio: { onAnimCallback: (name: string) => { asked.push(name); return null; }, play: () => false, onFire: () => null } as never };
+  return { asked, audio: { onAnimCallback: (name: string) => { asked.push(name); return null; }, play: () => false, onFire: () => null, onRoundPast: () => {} } as never };
 }
 
 /**
  * The part on fakes (`./matchThrow.test.ts`'s rig) with the real thrower, the disc's throw clips under its pose, the
  * body `snap` and the view state `view` (`body+0x200`: 0 third person, 1 first person, 3 night vision).
  */
-function page(audio: Pick<GameAudio, 'onAnimCallback' | 'play' | 'onFire'>, o: { snap?: Partial<Snap>; view?: number; pistol?: boolean; records?: ThrowableRecord[]; warning?: MatchThrowDeps['warning'] } = {}) {
+function page(audio: Pick<GameAudio, 'onAnimCallback' | 'play' | 'onFire' | 'onRoundPast'>, o: { snap?: Partial<Snap>; view?: number; pistol?: boolean; records?: ThrowableRecord[]; warning?: MatchThrowDeps['warning'] } = {}) {
   const snap: Snap = {
     feet: [0, 0, 0], yaw: 0, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand', landing: null,
     jumps: 0, ...o.snap,

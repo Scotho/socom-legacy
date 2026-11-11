@@ -1169,8 +1169,11 @@ free camera: without `?devmode` a `fly` in the address is ignored); `e2e/soloMat
 specs (`weaponExchange*.spec.ts`: the menu is a match's) play it on purpose, and every other spec opens with one of the two. The rules and their sources: [research 91](docs/research/91-the-round.md)
 section 20.
 
-**Protocol 14** (`packages/viewer/src/net/protocol.ts`, `PROTOCOL_VERSION`, 2026-11-09): a page and a server of another
-version refuse each other at the hello, and the old page is told to update. Protocol 14 (ENEMY-RAISE ER-2) carries the
+**Protocol 15** (`packages/viewer/src/net/protocol.ts`, `PROTOCOL_VERSION`, 2026-11-11): a page and a server of another
+version refuse each other at the hello, and the old page is told to update. Protocol 15 (PROTO-15, V19.R10) changes no
+frame: the mover's rules moved -- LADDER-CLIMB's ladder mounted on the Action press, AIR-PROBE's frame-end floor probe,
+STEEP-LAUNCH's push -- and a 14 side and a 15 side would step differently from the same commands; a `.s2r` of protocol
+14 plays on the live decoders. Protocol 14 (ENEMY-RAISE ER-2, 2026-11-09) carries the
 owner's raise state, the original's byte +0x7e: the command's `raised` (bit 7 of its last byte) and the body's
 `BodyFlag.Raised` (bit 16), which the others' copies replay; a `.s2r` of protocol 13 plays on the live decoders, its
 copies inferring the raise as before. Protocol 13 (PLANT-AIM, since bc95941ba, 2026-11-02)

@@ -35,7 +35,11 @@ import {
  * the contact   FUN_005b4b40 (469562) each tick on the wall contact at seal+0x1090, the polygon walked into:
  *               in front, dot(normalize(seal - contact).xz, n) >= 0.3; facing it, dot(back axis, n) >= 0.02
  *               (the short quad: |dot| -- either facing); dropped past 24 across the ground, or feet more than
- *               10 under the short quad's bottom (FUN_005b3890, 469000). No button: walking into it mounts.
+ *               10 under the short quad's bottom (FUN_005b3890, 469000). It OFFERS CLIMB (FUN_00593500 ->
+ *               FUN_0059da60 -> FUN_005b3ce0(a, 2), D:L452294-452301); the mount runs only on the action button's
+ *               release with CLIMB selected (FUN_00592d50 sets +0x170 0x4, D:L452181-452183; FUN_00550ef0 calls
+ *               FUN_005b4b40 only under it, D:L418120-418155) -- LC-1. Was (research 86 s2.3, a misreading that
+ *               missed the gate around the call): "No button: walking into it mounts".
  * the mount     the tall quad: FUN_005b1c80 (468183) -> FUN_0057f880: aligned on the quad's horizontal edge's midpoint
  *               facing -normal, "Stand -> Ladder" (seal_stand2ladder, 0.9 s), the root to feet + 15.6 (0x4179999a)
  *               the short quad: FUN_0057f690: "Climb off ladder" backwards (a "180" first when facing away)
@@ -190,13 +194,6 @@ const STILL_V = 0.0005;
 /** `FUN_0054aa30`: the still centre segment's reach, 1.1 x 1.4 body radii -- 5.39 at r 3.5 (research 217 s2.1). */
 const STILL_AHEAD = 1.1 * 1.4;
 /**
- * LADDER_STICK_INTO_READING (LDR-1's review, research 86 s2.5): the mount asks a stick (`wish > DEAD`) pushing into the
- * contact's face (`(wish . n) <= -0.02`). `FUN_005b4b40` (D:L469562-469676) has no stick test; the port keeps one because
- * the contact holds up to 24 (`FUN_005b3890`), and without it a SEAL who brushed the rungs and backed off still facing
- * them would be snapped on. Settled by a capture of brushing a ladder and backing off.
- */
-export const LADDER_STICK_INTO_READING = 'pushing into the face' as const;
-/**
  * LADDER_STILL_CAST_ACTORS_READING (LDR-1's review, research 86 s2.5): `ladderHits`' still cast runs for every actor
  * (room bots and remotes included); the original casts a still body's segments for the local player only (the
  * controller vtable +0x30, bit 0 of +0x268 under the 0x44d4d0 flag, D:L415036-415055).
@@ -208,6 +205,36 @@ export const LADDER_STILL_CAST_ACTORS_READING = 'every actor' as const;
  * contact's own polygon and keeps no ladder list; 1 is `findLadders`' own merge tolerance (`SAME`, `@s2u/scene` ladder.ts).
  */
 export const LADDER_MATCH_READING = 1;
+/**
+ * LADDER_OCCUPANCY_READING (LC-1, research 86 s2.6; reading, pending review): `FUN_005b3ce0(a, 2)` offers no ladder
+ * another SEAL is on (its record's `+0x1c < 1`, D:L469167-469173) or one whose reservation is pending (`+0x1062`,
+ * D:L469166); online the mount is asked of the host (ClimbAsk / ClimbOK, `FUN_002b9f60` D:L468438-468481; research 193
+ * rows 14-15). The port keeps no per-ladder occupant and its wire no ladder claim: two SEALs may take one ladder.
+ * `'not modelled'` until LC-3 (a wire field, the main controller's to approve). Settled by a two-console capture: one
+ * SEAL on the ladder, whether CLIMB shows for the second at its foot.
+ */
+export const LADDER_OCCUPANCY_READING = 'not modelled' as const;
+/**
+ * LADDER_OFFER_CONTROLLER_READING (LC-1's review F3; research 86 s2.6; reading, pending review): for one controller
+ * kind (its vtable +0x30 answering true) `FUN_005b3ce0` also asks the +0x38 object's +0x3f4 == 7 and (+0x448 & 7) != 0
+ * (D:L469174-469189), and `FUN_0057f2a0`'s mount path reads that controller's +0x172 bit 0x2, not +0x170 0x4
+ * (D:L441303-441308). Which controllers those are is unread; the port asks neither. Settled by reading the vtables.
+ */
+export const LADDER_OFFER_CONTROLLER_READING = 'not modelled' as const;
+/**
+ * LADDER_OFFER_MOTION_READING (LC-1's review F3; research 86 s2.6; reading, pending review): `FUN_005b3ce0` refuses the
+ * offer while any of six motions plays (`FUN_00577e40` on 0x2a, 0x21, 0x2c and the three `DAT_003dec80/90/a0` ids,
+ * D:L469197-469210) -- beyond the common gates `climbOffered` asks. The ids' names are unread; the port asks none of
+ * them. Settled by naming the six (the motion table) and a capture of CLIMB during each.
+ */
+export const LADDER_OFFER_MOTION_READING = 'not modelled' as const;
+/**
+ * LADDER_AIRBORNE_OFFER_READING (LC-1's review F3; research 86 s2.6; reading, pending review): the port offers a ladder
+ * on the ground only (`step`, `w.airborne`), as its touch mount did; `FUN_00593500` offers CLIMB in a jump or landing
+ * too (D:L452279-452290) and `FUN_00550ef0` has a mount path under the motion flag 0x40. Settled by a capture: a jump
+ * into a ladder's rungs, Cross in the air.
+ */
+export const LADDER_AIRBORNE_OFFER_READING = 'ground only' as const;
 /** `FUN_005b4b40`: in front (`>= 0.3`) and facing (`>= 0.02`). */
 const IN_FRONT = 0.3, FACING = 0.02;
 /** `FUN_002a9260`'s split: a ladder quad at most this tall is the short one at the head. */
@@ -444,7 +471,7 @@ export function rippleAnimation(r: Pick<Ripple, 'size' | 'pace'>): string {
 }
 
 /** What the HUD's climb icon reads (`action_climb.tif`, research 86 section 3.4): shown, and for which climb. */
-export interface ClimbPrompt { visible: boolean; kind: ClimbClass; automatic: boolean }
+export interface ClimbPrompt { visible: boolean; kind: ClimbClass | 'ladder'; automatic: boolean }
 
 /**
  * `motion.rdr`'s `refPt` z of each climb: the ledge's edge this far ahead of the root at the clip's start -- the aligned
@@ -851,6 +878,11 @@ export class Traversal implements TraversalHooks {
   /** The climbable wall last touched (`actor+0x1090`), the plan a press would run, and the one running. */
   private contact: ClimbContact | null = null;
   private plan: ClimbPlan | null = null;
+  /**
+   * LC-1: the ladder the contact offers (`FUN_005b3ce0(a, 2)`, action 2 CLIMB), mounted only on the action press (`step`):
+   * which ladder, and from which end (the tall quad its foot, the short its head) and facing.
+   */
+  private ladderOffer: { ladder: Ladder; tall: boolean; facing: number; front: number } | null = null;
   private climbing: { plan: ClimbPlan; crouched: boolean; request: Stance | null } | null = null;
   /** The hang's root over the feet: where "Stand -> Hang" left the body, the steer's lift in it (`climbClip`). */
   private hangRoot: number | null = null;
@@ -1254,7 +1286,8 @@ export class Traversal implements TraversalHooks {
     this.actionPressed = false;
     this.water(w);
     // NoFire common-action gate during a dance. Keep water/peek bookkeeping and consume old presses.
-    if (w.victoryMotion) return false;
+    if (w.victoryMotion) { this.ladderOffer = null; return false; }
+    if (this.kind_ !== 'none' || this.running) this.ladderOffer = null;
     if (this.running) return this.advance(w, dt);
     switch (this.kind_) {
       case 'ladder': this.climbLadder(w, input, dt, pressed); return true;
@@ -1266,7 +1299,11 @@ export class Traversal implements TraversalHooks {
       default: break;
     }
     if (this.leanTick(w, input, dt)) return true;
-    if (!w.airborne && this.touchLadder(w, input)) return true;
+    // LC-1: the ladder is offered from its contact (CLIMB) and mounted only on the action press -- `FUN_00550ef0` calls the
+    // mount `FUN_005b4b40` only under the controller's one-frame bit +0x170 0x4 (D:L418120-418155), set by `FUN_00592d50`
+    // on the Action release with CLIMB selected (D:L452181-452183). The step-up below stays automatic (its own plan).
+    this.ladderOffer = w.airborne ? null : this.offerLadder(w);
+    if (this.ladderOffer && pressed && this.mountOffered(w, this.ladderOffer)) return true;
     this.keepContact(w);
     const plan = this.plan;
     const stepUp = plan?.automatic === true && !(AIR_STEP_UP_READING === 'not-in-launch' && w.airborne && w.action?.name === 'launch')
@@ -1401,8 +1438,10 @@ export class Traversal implements TraversalHooks {
 
   /** The HUD's climb icon (`action_climb.tif`): shown while a press would climb, and which climb; null when not. */
   climbPrompt(): ClimbPrompt | null {
+    if (this.kind_ !== 'none' || this.running) return null;
+    if (this.ladderOffer) return { visible: true, kind: 'ladder', automatic: false };   // LC-1: a ladder's CLIMB, on the press
     const p = this.plan;
-    return p && this.kind_ === 'none' ? { visible: true, kind: p.kind, automatic: p.automatic } : null;
+    return p ? { visible: true, kind: p.kind, automatic: p.automatic } : null;
   }
 
   /** Whether the stick pushes into the contact's wall (the step-up's, under `CLIMB_STEP_UP_STICK_READING` `'pushing'` only). */
@@ -1993,20 +2032,21 @@ export class Traversal implements TraversalHooks {
   // ---- the ladder ----
 
   /**
-   * `FUN_005b4b40` (D:L469562-469676; called D:L418132, D:L418155): the mount works on the stored wall contact
+   * LC-1: the ladder's OFFER (`FUN_005b3ce0(a, 2)`, D:L469088-469240, the CLIMB the HUD shows) from the stored wall
+   * contact, the mount (`mountOffered`) left to the action press (`step`). `FUN_005b4b40` (D:L469562-469676; called
+   * D:L418132, D:L418155, only under the press's bit +0x170 0x4) and the offer test the same contact
    * (the walk's own hits, `contactFromHits`), never on nearness to a ladder's plane (LDR-1, research 86 s2.5). The contact's polygon must be a
    * ladder's (`(poly[+0xA] & 0x7f) >> 4 == 2`, `APP_LADDER`); the mover in front of it, `dot(normalize(seal - contact).xz,
    * n) >= 0.3` against the stored hit point; and facing it, `dot(back axis, n) >= 0.02` (the short quad, at most 15 tall
    * by `FUN_002dbfb0`: `|.| >= 0.02`). `FUN_005b3890` drops a short quad's contact with the feet more than 10 under its
    * bottom. The tall quad takes the mover at its foot, the short one at its head.
-   * [Port's, kept for review: the stick must push into the face (`(wish . n) <= -0.02`); the original has no stick test
-   * and no button here (LDR-1's report).] *Was:* any ladder whose plane lay within the body's radius + 0.25, in front by
+   * The offer also asks the crate's common gates (`climbOffered`) and none prone -- the same function. *Was* (LC-1,
+   * 2026-11-11): the mount here on every grounded tick, with a stick into the face (`LADDER_STICK_INTO_READING`, retired)
+   * and no button. *Was before* (LDR-1): any ladder whose plane lay within the body's radius + 0.25, in front by
    * the ratio of the distance out to the distance off the quad, with no contact -- up to ~10 past a flush ladder's edge.
    */
-  private touchLadder(w: Walker, input: WalkInput): boolean {
+  private offerLadder(w: Walker): { ladder: Ladder; tall: boolean; facing: number; front: number } | null {
     const s = w.state;
-    const wish = Math.hypot(input.forward, input.right);
-    if (wish <= DEAD) return false;
     const a = axes(s.yaw);
     // The original's order: `FUN_005b3890` drops the kept contact (D:L413860), then the move's hit is stored (D:L413866),
     // and `FUN_005b4b40` reads it later in the tick (D:L418132) -- so a hit made this tick is tested before any drop.
@@ -2014,17 +2054,31 @@ export class Traversal implements TraversalHooks {
     const hits = this.ladderHits(w), touched = contactFromHits(hits, s.x, s.z);
     if (touched) this.contact = cornerDrop(hits, touched, s.x, s.z) ? null : touched;
     const c = this.contact;
-    if (!c || c.app !== APP_LADDER) return false;
+    if (!c || c.app !== APP_LADDER) return null;
     const tall = quadHeight(c.poly) > SHORT_QUAD;                // FUN_002a9260's split
     const dx = s.x - c.x, dz = s.z - c.z, d = Math.hypot(dx, dz);
-    if (d === 0 || (dx * c.nx + dz * c.nz) / d < IN_FRONT) return false;
-    const mx = (a.fx * input.forward + a.rx * input.right) / wish, mz = (a.fz * input.forward + a.rz * input.right) / wish;
-    if (mx * c.nx + mz * c.nz > -FACING) return false;           // LADDER_STICK_INTO_READING
+    // The offer's own "in front" (`FUN_005b3ce0` D:L469233-469240): the SEAL on the face's side, `(pos - point) . n > 0`;
+    // the mount's stricter `>= 0.3` is asked at the press (`mountOffered`, `FUN_005b4b40`). Review F2 of LC-1.
+    if (d === 0 || dx * c.nx + dz * c.nz <= 0) return null;
+    const front = (dx * c.nx + dz * c.nz) / d;
     const facing = -(a.fx * c.nx + a.fz * c.nz);                 // dot(back axis, n): into the quad
-    if (tall ? facing < FACING : Math.abs(facing) < FACING) return false;
+    if (tall ? facing < FACING : Math.abs(facing) < FACING) return null;
     const l = this.ladderOf(c);
-    if (!l) return false;
-    if (tall) this.mountBottom(w, l); else this.mountTop(w, l, facing > 0);
+    // The ladder's offer is the crate's function (`FUN_005b3ce0(a, 2)`): the same common gates (`climbOffered`,
+    // `CLIMB_OFFER_GATE_READING`) and none prone, as `keepContact`'s plan asks.
+    if (!l || w.stance === 'prone' || !climbOffered(w)) return null;
+    return { ladder: l, tall, facing, front };
+  }
+
+  /**
+   * LC-1: the press's mount of the offered ladder -- the foot's "Stand -> Ladder", the head's reversed climb-off -- under
+   * `FUN_005b4b40`'s own "in front", `>= 0.3` of the normalised offset (D:L469562-469676), stricter than the offer's: a
+   * SEAL offered CLIMB at a steep angle presses and nothing mounts. False when it did not mount.
+   */
+  private mountOffered(w: Walker, o: { ladder: Ladder; tall: boolean; facing: number; front: number }): boolean {
+    if (o.front < IN_FRONT) return false;
+    this.ladderOffer = null;
+    if (o.tall) this.mountBottom(w, o.ladder); else this.mountTop(w, o.ladder, o.facing > 0);
     return true;
   }
 
@@ -2272,6 +2326,7 @@ export class Traversal implements TraversalHooks {
     this.peekValue = 0;
     this.contact = null;
     this.plan = null;
+    this.ladderOffer = null;
     this.climbing = null;
     this.hangRoot = null;
     this.turn = null;

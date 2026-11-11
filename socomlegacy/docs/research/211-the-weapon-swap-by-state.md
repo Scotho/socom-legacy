@@ -421,7 +421,8 @@ Reading (the merge 604917dd1's review). The kit's three fields the switch leaves
   allow, refused at the count's limit (D:L476439-476441: a single already fired waits for the let-go). The bloom's count
   (`Accuracy.trigger`, `burst`) is left as its own rule has it: with no let-go at the swap it is not zeroed, and the
   command's trigger bit stays set on the wire, so the room's cone (`net/shotCone.ts`, zeroed on the bit's edge) agrees.
-  A spawn's kit is still `Fire.refill`'s (the trigger let go, the timer 0).
+  A spawn's kit is still `Fire.refill`'s (the trigger let go, the timer 0). *LATER 792 (§10.7):* a held trigger (the
+  edge 1) refuses the swap itself, so this case is reached only by a press on the swap's own update (the edge 2).
 - **An item up over a held firearm trigger**: the grenade's and the launcher's equip suspend the firearm
   (`MatchFirearm.suspendTrigger`): let go, the hold owed back with its count once the item is put away -- was "a slot
   change lets a held trigger go", the misreading. The items' own latches (the placing's `placingDown`, the launcher's
@@ -462,6 +463,9 @@ Reading (the merge 604917dd1's review). The kit's three fields the switch leaves
 - `SWAP_HELD_TRIGGER_READING`: resolved by the fold (§10.4).
 - `MOUNT_HELD_TRIGGER_DISMOUNT_READING`: resolved by the fold (§10.4).
 - `KIT_TIMER_TICK_READING`: the kit timer +0x81c run down on the page's clock through the launcher's lower (§10.4).
+- `SWAP_HELD_EDGE_READING`: 1 -- the controller's trigger edge `+0x118` at which the kit's swap gate `FUN_005a8cb0`
+  refuses (D:L463174-463181), read by the port off the raise's edge (`Play.triggerEdge`); the gate's clause the code's
+  reading, its outcomes measured, upload pending (§10.7, LATER 792).
 
 ### 10.6 GR-1, 2026-11-09: §10.3's case measured on the original
 
@@ -486,3 +490,61 @@ readings above.
 - **Not exercised by GR-1**: the firearm-to-firearm swap (`SWAP_HELD_TRIGGER_READING`'s own case), the dismount
   (`MOUNT_HELD_TRIGGER_DISMOUNT_READING`), and the launcher's timer through its lower (`KIT_TIMER_TICK_READING`) -- each
   stands as §10.4 files it.
+
+### 10.7 LATER 792, 2026-11-11: the swap refused under a held trigger
+
+Asked by the main controller after research 326 §7.3's isolation legs (`agent/last-grenade` 58cbcf94d) found the port
+taking L1 under a held R1 where the original does not. Simulation track; the code's reading **reading, pending review**,
+the outcomes measured (upload pending).
+
+- **The gate (reading).** Every swap passes `FUN_005a8cb0` (D:L463150-463189): L1 and L2 in the player control
+  (`FUN_00594cf0` D:L453288-453312, buttons 9 and 10 on the slots kept at `ctrl+0x224` / `+0x228`; refused, the denied
+  sound `FUN_003419c0`) and the inventory menu's take (`FUN_0021bda0` D:L72684-72693; `FUN_0021c6f0`'s at D:L72830). Its
+  last clause (D:L463174-463181): with `+0xeb8` 0 it passes only when the body has no controller (`body+0xc0`, set with
+  its back pointer `ctrl+4` by `FUN_002a26f0` D:L146774-146781) or the controller's edge `+0x118` is not 1; at 1, held, it
+  answers 0. The swap's test runs before the update's trigger step (D:L453288-453312 before D:L453543-453567), so it
+  reads the edge the last update left: a press is 2 on its own update -- passed -- and 1 from the next.
+- **Where a held R1 is not the edge 1 (reading; the primary leg measured).** A hand grenade up (the selected slot's class
+  'y', `FUN_005c8040` D:L480686-480696) with one in its slot (`FUN_005bdb00` D:L474543-474549) takes the press into the
+  wind-up and remaps it 2 -> 3 -> 0 (D:L453633-453661); the wind-up's chase (D:L453507-453518) does not step the edge.
+  So R1 held over a throwable that can still be thrown reads 0 -- research 326 §7.2 measured the edge 0 at the primary
+  leg's L1 (3.30) "under the double remap", and the swap was taken there (case (b) of the brief). Once the slot is empty
+  `FUN_005bdb00` finds none, the press stays 2 and then 1 (D:L453633-453634; measured 2 then 1 after the last launch,
+  research 326 §7.2). A firearm, the launcher (class 0x91) and a placing (0x97) are not 'y': held, 1.
+- **Measured** (research 326 §7.3: r0004 on PCSX2 2.8.2, PINE reads, 3 trials a leg, re-read by a fresh reader; proven
+  for those legs once the rows are uploaded, until then a live memory trace held on the owner's second PC):
+
+  | leg | the press at L1 | `+0x824` | the gate's edge |
+  |---|---|---|---|
+  | the empty MARK141, R1 held since before the last launch (16.15), L1 at 19.0 | held | 4 throughout: not taken | 1 |
+  | the same, R1 let go at 16.0 | up | 4 -> 0: taken | 0 |
+  | the pistol up, R1 up, L1 at 2.0 | up | 1 -> 0: taken | 0 |
+  | the pistol up, R1 held 1.0-5.0 (one round), L1 at 3.0 | held | 1 throughout: not taken | 1 |
+  | the rifle up, R1 up or held | -- | 0 throughout: L1 from the primary is no swap | 0 / 1 |
+  | a grenade left, R1 held since 2.00, the re-armed wind-up, L1 at 3.30 | held | 4 -> 0: taken, the rifle's rounds on the held R1 | 0 |
+
+  Among the logged columns the edge alone separates the grenade pair (research 326 §7.3); that the clause above is what
+  refuses stays the code's reading.
+- **The port before.** `kitFree` (the page's half of `FUN_005a8cb0`) had no edge clause, so L1 from the emptied grenade
+  under the held R1 put it away and drew the rifle, which took the held trigger (`triggerOwed`, §10.3) and fired -- one
+  round for a single, three for a burst; the pistol's L1 under its own held trigger swapped as well (§10.4's firearm
+  case); and any slot (L2, keys 1-5, the inventory) was taken under a held firearm trigger.
+- **The fix.** `kitFree` refuses while `Play.triggerEdge()` reads `SWAP_HELD_EDGE_READING` (1): the edge the port
+  already steps for the rifle's raise (`./weaponRaise` `WeaponRaise`, once a game frame, with the class 'y' remap, the
+  wind-up and the throw's release), the same `+0x118`. Every swap source passes it: `selectFirearm` (L1 / L2, keys 1 and
+  2), `takeSlot` (keys 3-5), the inventory's open (`kitChangeGate`) and take (`shoulderGate`), and `Kit.select`'s
+  `canSwap`. Tests: `throwAgain.test.ts` ("LATER 792", and the GRENADE-RETHROW fold's two last-grenade cases, whose
+  "the firearm taken" was the stand-in firearm's, corrected), on the page's assembly (the one firearm, a real `Play`).
+- **Consequences.** §10.4's firearm swap under a held button and an item taken up over a held firearm trigger
+  (`suspendTrigger`) are reached now only through a press on the swap's own update (the edge 2), as in the original.
+  The room (`packages/match/src/room.ts` `swapRefused`) has no edge clause and needs none here: the page is the authority
+  over the swap's ask (`Button.Swap` is sent only once `canSwap` passes), so under a held edge neither the swap nor the
+  drawn firearm's rounds reach it; the command's trigger bit is the firearm's alone (`./matchActions`), so the room could
+  not read a throwable's held press to mirror the clause.
+- **Open.** (1) The pop's remap: at a throw's pop with R1 held the original moves the edge 1 -> 3 (D:L453484-453501),
+  then 3 -> 2 -> 1 (measured, research 326 §7.2: "At the pop ... the edge 3, 2, 1"), so for the two updates after the last
+  grenade's pop it would take an L1; the port's raise runs that branch only for the pistol hand's ungated throw
+  (`lowerNext`), so its edge stays 1 and refuses there -- about 67 ms, not built (the same pop as
+  `THROW_LAST_GRENADE_RAISE_READING`). (2) The port counts the edge's updates on game frames, as its raise does
+  (`RAISE_ENVELOPE_STEP_READING`). (3) Route B (the Action quick-use of the charges, `+0x828`) and the M67's own pass are
+  not in the capture's rows.

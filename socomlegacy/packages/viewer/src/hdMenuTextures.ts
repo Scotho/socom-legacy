@@ -8,9 +8,10 @@ import {HD_MENU_SCALE_LIMIT,UiQuadRasterCache,type UiHdTextures} from './uiCompo
 import {UiGpuLoadBudget,hdLoadBytes} from './uiGpuLoadBudget';
 import {HD_UI_UPLOAD_BYTES_PER_FRAME_ADAPTATION} from './uiGpuTextures';
 import {decodePngAsync} from './png';
+import {pageDeviceClass,type DeviceClass} from './deviceClass';
 
 /**
- * HD-3 (OT.R92, HD.R8; plan 2026-10-31-hd-texture-pack-parity): the menus under HD (GoE Soul) -- a browser adaptation,
+ * HD-3 (OT.R92, HD.R8; plan 2026-10-31-hd-texture-pack-parity): the menus under HD (GoE SouL) -- a browser adaptation,
  * off unless the HD pack is on, changing only the texels the menus' CPU compositor samples and the resolution it draws
  * at, never what the menus do or where anything sits. The menus have no DataTexture for the pack's runtime to swap, so
  * each bitmap the compositor samples is looked up here: its HD image when the pack names it, at its own larger size.
@@ -41,6 +42,21 @@ export const HD_MENU_BYTES=384*1024*1024;
  * frame doubled the frame's time (measured in Node: 169 ms against 87 ms for a background, six panels and 200 glyphs).
  */
 export const HD_MENU_QUAD_CACHE_BYTES=384*1024*1024;
+/**
+ * QUAD-CACHE-RELEASE (LATER 859; a browser budget, not a game value): the HD quad cache on a device whose memory is tight
+ * -- the xbox and lowMemory classes (`./deviceClass`) -- the default cache's 32 MiB: there the frame time a full-frame
+ * background's re-sample costs is the lesser harm than 384 MiB of samples beside the match (the Xbox's GPU and script
+ * share one pool; v0.4.18's beacons: Series X pages losing the device 8-24 s into a match). Review F2: an entry over the
+ * budget is not cached at all, and a full-frame background already passes 32 MiB at 2x (1280 x 896 x 32 bytes, 35 MiB),
+ * so on those classes every HD menu frame re-samples it -- the Node figure above, 169 ms against 87 ms at 4x, is that
+ * cost's order; where the menus' surface draws on the GPU the raster cache is not in use. F3: the budget is read when HD is
+ * set on; an Xbox pick saved or cleared later takes effect at HD's next set.
+ */
+export const HD_MENU_QUAD_CACHE_TIGHT_BYTES_ADAPTATION=32*1024*1024;
+/** The HD quad cache's budget on a device class. */
+export function hdMenuQuadCacheBytes(deviceClass:DeviceClass):number{
+  return deviceClass==='xbox'||deviceClass==='lowMemory'?HD_MENU_QUAD_CACHE_TIGHT_BYTES_ADAPTATION:HD_MENU_QUAD_CACHE_BYTES;
+}
 
 /**
  * The runtime's `replacement`: a bitmap's whole replacement, or (HD.R9) its placements composited over it as the
@@ -325,7 +341,10 @@ export class HdMenus {
    * decode and alpha rescale too) and to each lookup
    * (the turn); ended when HD goes off. Null: today's main-thread decode.
    */
-  constructor(private make:(decoder:HdMenuDecoder|null)=>HdServedPack,private maxScale=HD_MENU_SCALE_LIMIT,private decoder:HdMenuDecoder|null=null){ }
+  constructor(private make:(decoder:HdMenuDecoder|null)=>HdServedPack,private maxScale=HD_MENU_SCALE_LIMIT,private decoder:HdMenuDecoder|null=null,
+    private quadCacheBytes:()=>number=()=>hdMenuQuadCacheBytes(pageDeviceClass())){ }
+  /** QUAD-CACHE-RELEASE: the HD quad cache emptied (a match took the screen); HD stays on, the cache refills as menus draw. */
+  releaseQuadCache():void{this.cache?.clear();}
   options():{scale:number;hd?:UiHdTextures;quadCache?:UiQuadRasterCache;version?:number}{
     return this.textures&&this.cache?{scale:this.scale,hd:this.textures.lookup,quadCache:this.cache,version:this.textures.version}:{scale:1};
   }
@@ -370,7 +389,7 @@ export class HdMenus {
     // the placements' scale, the runtime's composite, whatever the menus' scale).
     const textures=new HdMenuTextures(pack.runtime,HD_MENU_BYTES,()=>{if(this.textures===textures)pack.setMenuCount(textures.replaced);},
       {budget:new UiGpuLoadBudget(),cost:(key)=>hdLoadBytes(m,key)},this.decoder);
-    this.scale=scale;this.textures=textures;this.cache=new UiQuadRasterCache(HD_MENU_QUAD_CACHE_BYTES);
+    this.scale=scale;this.textures=textures;this.cache=new UiQuadRasterCache(this.quadCacheBytes());   // QUAD-CACHE-RELEASE: by device class
     pack.setMenuCount(0);
   }
 }

@@ -1,7 +1,8 @@
 import { performance } from 'node:perf_hooks';
 import { Skeleton, transformPoint, type CollisionOwner, type GridParams, type SpawnSlot, type WorldPoly } from '@s2u/scene';
 import {
-  Button, encodeCommands, groundGrid, packGround, PROTOCOL_VERSION, STANCE_CODES, TICK_HZ, type Command, type ServerEvent, type SimMap,
+  Button, cameraLook, centreClaim, encodeCommands, EYE_HEIGHT, groundGrid, packGround, PROTOCOL_VERSION, STANCE_CODES, TICK_HZ,
+  type Command, type ServerEvent, type SimKits, type SimMap,
 } from '../../../viewer/src/sim';
 import { Animator, PLAY_CLIPS, type MoverSnapshot } from '../../../viewer/src/animator';
 import { bodyOf, snapshotOf } from '../../../viewer/src/net/body';
@@ -70,12 +71,17 @@ export function toWorld(feet: V3, yaw: number, v: V3): V3 {
  * shooter's page draws it -- rebuilt when B's seat is rebuilt (a new `sim`, as the page's copy is at a spawn), stepped by
  * a tick after every room step while B lives.
  */
-export function hitPoseRoom(seal: SimSkeleton, clips: ReturnType<typeof clipsFromPack>, table: ReturnType<typeof motionTableFromArchive>) {
+export function hitPoseRoom(seal: SimSkeleton, clips: ReturnType<typeof clipsFromPack>, table: ReturnType<typeof motionTableFromArchive>,
+  extra: { kits?: SimKits; combatReport?: boolean } = {}) {
   let seed = 1;
   const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const room = new Room(map(), null, { now: () => 0, random }, { seal: [seal], terrorist: [seal] });
-  [0, 1].forEach((i) => {
-    room.hello(i + 1, new Client(), { type: 'hello', version: PROTOCOL_VERSION, name: `P${i + 1}`, map: 'MP99', session: tok(i + 1) }, `10.0.0.${i + 1}`);
+  // BONE-BOXES (`../boneBoxes.test.ts`): a kit table and the combat report, when asked; neither changes what the room does
+  const room = new Room(map(), null, { now: () => 0, random, ...(extra.combatReport ? { combatReport: true } : {}) },
+    { seal: [seal], terrorist: [seal] }, extra.kits ?? null);
+  const clients = [0, 1].map((i) => {
+    const c = new Client();
+    room.hello(i + 1, c, { type: 'hello', version: PROTOCOL_VERSION, name: `P${i + 1}`, map: 'MP99', session: tok(i + 1) }, `10.0.0.${i + 1}`);
+    return c;
   });
   let page: { sim: unknown; skeleton: Skeleton; anim: Animator } | null = null;
   const snap = (): MoverSnapshot => {
@@ -117,7 +123,9 @@ export function hitPoseRoom(seal: SimSkeleton, clips: ReturnType<typeof clipsFro
   };
   room.player(2)!.sim.allowSnap();
   run(30);
-  const stick = (forward: number): void => { held.set(2, { forward }); };
+  const stick = (forward: number): void => { held.set(2, { ...held.get(2), forward }); };
+  /** JUMP-AIM-ROOT: B's held look (or any command field but the stick's), kept beside the stick until changed. */
+  const hold = (c: Partial<Command>): void => { held.set(2, { ...held.get(2), ...c }); };
   const press = (stance: 'stand' | 'crouch' | 'prone'): void => run(1, { buttons: Button.Stance, stance: STANCE_CODES.indexOf(stance) });
   /** B's bone as the page draws it now: its bbox middle through the copy's pose, in the world at B's feet and yaw. */
   const drawn = (bone: string): V3 => {
@@ -125,20 +133,39 @@ export function hitPoseRoom(seal: SimSkeleton, clips: ReturnType<typeof clipsFro
     const v = transformPoint(sk.world[p.index]!, (p.bbox[0]! + p.bbox[3]!) / 2, (p.bbox[1]! + p.bbox[4]!) / 2, (p.bbox[2]! + p.bbox[5]!) / 2);
     return toWorld([s.x, s.y, s.z], s.yaw, v);
   };
-  /** The part of B a ray through `point` meets in the room's rewind at `at` (now by default): from B's front, or his left. */
+  /**
+   * The part of B a ray through `point` meets in the room's rewind at `at` (now by default): from B's front, or his left
+   * -- the first record of B that applies a part (BONE-BOXES, research 398 s0: a no-damage bone's record before it, a
+   * scapula's or a hand's, applies nothing).
+   */
   const part = (point: V3, from: 'front' | 'side', at = room.tick): number | null => {
     const y = (room.player(2)!.sim.walker.state.yaw * Math.PI) / 180;
     const fwd: V3 = [-Math.sin(y), 0, -Math.cos(y)], right: V3 = [Math.cos(y), 0, -Math.sin(y)];
     const d: V3 = from === 'front' ? [-fwd[0], -fwd[1], -fwd[2]] : right;
     const o: V3 = [point[0] - d[0] * 30, point[1] - d[1] * 30, point[2] - d[2] * 30];
-    const hits = (room as unknown as Rewind).rewoundBodies(room.player(1)!, o, d, 60, at).filter((h) => h.tag?.id === 2);
+    const hits = (room as unknown as Rewind).rewoundBodies(room.player(1)!, o, d, 60, at).filter((h) => h.tag?.id === 2 && h.tag.part >= 0);
     hits.sort((a, b) => a.distance - b.distance);
     return hits[0]?.tag?.part ?? null;
   };
+  /**
+   * BONE-BOXES: A's round at its last command down its cone's centre toward `point` (`roomDamage.test.ts`'s `shoot`),
+   * then one step: the room takes and judges it.
+   */
+  const shoot = (point: V3): void => {
+    const p = room.player(1)!, seq = p.sim.seq, f = p.cone.frame(seq)!;
+    const { eye } = cameraLook(f);
+    const c = centreClaim(f, [f.feet[0], f.feet[1] + EYE_HEIGHT, f.feet[2]], Math.hypot(point[0] - eye[0], point[1] - eye[1], point[2] - eye[2]));
+    room.text(1, { type: 'fire', seq, from: c.from, dir: c.dir, eye: c.eye, aim: c.aim, weapon: 0, viewTick: room.tick });
+    run(1);
+  };
+  /** The events seat `id`'s page was sent. */
+  const events = (id: number): ServerEvent[] => clients[id - 1]!.events;
   const clip = (): string => page?.anim.stats().clip ?? '(none)';
   /** B's copy's skeleton as last drawn (null before B lives), and the snapshot the copy was last fed. */
   const pageSkeleton = (): Skeleton | null => page?.skeleton ?? null;
-  return { room, run, stick, press, drawn, part, clip, pageSkeleton, snap };
+  /** JUMP-AIM-ROOT: B's copy's posed root over the feet as the page's `Animator` left it (`Animator.rootY`), or null. */
+  const pageRoot = (): number | null => page?.anim.rootY() ?? null;
+  return { room, run, stick, hold, press, drawn, part, clip, pageSkeleton, pageRoot, snap, shoot, events };
 }
 
 /**

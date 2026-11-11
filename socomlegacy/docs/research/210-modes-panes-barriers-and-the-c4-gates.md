@@ -175,8 +175,13 @@ door-leaf owners (`CollisionOwner.sweep`), turned in place with their door (`sin
   no program; a spent record whose target the room's state gives back is whole again (the offline room,
   `net/loopback.ts`, which follows the room's world without an epoch of its own). The room lends no hooks: it plays
   nothing. The page now steps its world (`main.ts`, beside the doors), so a death's sequence past its first tick runs.
-- The sound's place (`SCENE_SOUND_PLACE_READING`): the centre of the box of the node's polygons as they stand now
-  (`WorldState.placeOf`); `bdoor_4`'s pane plays at (582.257, 157.3125, 1117.2625).
+- The sound's place (`SCENE_SOUND_PLACE_READING`, corrected 2026-11-10 for the v0.4.18 Fish Hook gulls): the node's
+  world origin, carried by its door leaf's move when the leaf has swung (`WorldState.nodeMoved`), plus the command's
+  flag-4 offset in the node's frame -- `FUN_002659c0`'s new play through `FUN_00310980` (D:L112411-112462,
+  D:L212139-212147); `bdoor_4`'s pane plays at `pane1`'s origin (588.757, 142, 1117). Was the centre of the box of the
+  node's polygons as they stand now -- (582.257, 157.3125, 1117.2625) for that pane -- which left a node with no
+  polygon (MP71's `seagull1..4`) unplaced, at full volume over the whole map; `WorldState.placeOf` keeps that centre
+  for a common-set effect's place (the `call` hook) only.
 
 **The tests.** `viewer/test/panes.test.ts` (no data: the page's effects once and the joiner's none, the sound's place,
 the pane under a swinging leaf with the mover); `viewer/test/panes.parity.test.ts` (MP2: the initial state per
@@ -189,13 +194,138 @@ rifle round through `bdoor_4`'s pane, the door swung over it, all three panes ba
 (`GLASS_FRAGMENTS_PLACEHOLDER`; 176 s4.2 owes the capture). A bullet mark on a pane stays on the leaf when the pane
 breaks (`doorMarks.test.ts`): an owed capture. The door's kick animation is not run (research 92 s6).
 
+### 6.1 `DESTRUCTION_SOURCE`'s payload (LATER 850)
+
+- Date: 2026-11-10 (LATER 850, `agent/pt-850-glass`). **Reading, pending review**: transcribed from the decompilation and
+  the ELF's own instructions (`disc/socom2_game.elf`, the call sites' registers where the decompiler loses the floats);
+  nothing here is a capture.
+
+`DESTRUCTION_SOURCE` is command 29, 80 bytes (the header `1d 00 42 01`: 0x0142001d >>> 18 = 0x50). Its tick
+`FUN_002678f0` (D:L113383-113421; the 29th registration of `FUN_0025bc20`, D:L106893, begin only) reads the command in
+place and calls `FUN_00322580` (D:L222612-222678) with every field (its registers at 0x2678f0-0x2679c4):
+
+| offset | type | what `FUN_00322580` does with it | Frostfire / Fish Hook `breakapane` |
+|---|---|---|---|
+| +4 | u8 | the node (`FUN_0026f4e0`), its subtree's polygons gathered by `FUN_003245b0` (D:L223485-223518) | 0xf9, `NODE_ROOT` |
+| +5 | u8 | a name index, formatted `%s` (0x3ed110), looked up as a texture (`FUN_001ec940`); else `null_xmas.bmp` (0x3f6ec8); neither, nothing (D:L222634-222641) | `a_window.tif` / `window01.tif` |
+| +6 | u8 | the mode: 0 the triangles are thrown (`FUN_00322800`); 1 the descriptor alone; any other, nothing (D:L222660-222672; 0x32272c) | 0 |
+| +8..+0x14 | 4 x f32 | each fragment's vertex colour, rounded to bytes (`FUN_00322df0` D:L223268-223298); +0x14 is overwritten with 100.0 before each triangle (`FUN_00322800` D:L222777; 0x322a40), so the stored fourth is never read in mode 0 | (40, 40, 43, 0.5) |
+| +0x18 | f32 (f12) | the split measure (s6.2) | 13 |
+| +0x1c / +0x20, +0x24 / +0x28, +0x2c / +0x30 | f32 pairs | each axis's velocity drawn between the two (`FUN_00322800` D:L222784-222792): the ends are interleaved, x's at +0x1c and +0x20 | x 4..-4, y 1..-1, z 4..-4 |
+| +0x34 / +0x38 | f32 | the life drawn between them, seconds (D:L222799-222801, D:L222821) | 2..3 |
+| +0x3c | f32 | the descriptor's +0x2c (D:L222655): the drag toward the world's wind (s6.2) | 0 |
+| +0x40..+0x48 | 3 x f32 | the descriptor's +0x30 (D:L222656-222658): an acceleration (s6.2) | (0, -98, 0) |
+| +0x4c | f32 (f13) | each fragment's +0x54 (`FUN_00327800` D:L225388-225435, +0x54 at D:L225425), written to its visual's +0x9c each tick (`FUN_003271d0` D:L225240); its meaning is not read | 1 |
+| +7 | u8 | not read | 0 |
+
+The port decodes it as `{ op: 'destruction', node, debris }` (`@s2u/scene` `effects.ts`, `DestructionDebris`); a command
+shorter than 80 bytes keeps the node alone. Tests: `scene/test/effects.test.ts` (the 80 bytes, field by field);
+`scene/test/effects.parity.test.ts` (Frostfire's on the MP2 fixture; Fish Hook's on the disc, MP71, skipped without
+`SOCOM_DISC`). Frostfire's and Fish Hook's commands are byte for byte the same past the texture's name.
+
+**Every command 29 on the disc** (2026-11-11, the review of LATER 850; every `RUN/*.ZDB`'s `MZANIM.ZAR` and
+`CZANIM.ZAR`, and `MPZANIM.ZAR`, `EXTZANIM.ZAR`, `UIZANIM.ZAR`, read through the repository's readers -- `zdbMember`,
+`parseAnimSets`, `decodeEffectProgram`; reading): eleven programs on nine maps, every one mode 0, drag 0, acceleration
+(0, -98, 0) and +0x4c 1. Not two panes: Frostfire's and Fish Hook's values are not every map's.
+
+| map | program | node | texture | colour (+8..+0x14) | size | velocity x / y / z | life |
+|---|---|---|---|---|---|---|---|
+| MP1 Blizzard | `snow_window01`, `snow_window02`, `snow_window03` | -7 | `alaska4d_window01.tif` | (63, 63, 70, 20) | 10 | 2..-2 / 1..-1 / 2..-2 | 0.75..1.5 |
+| MP2 Frostfire | `breakapane` | -7 | `a_window.tif` | (40, 40, 43, 0.5) | 13 | 4..-4 / 1..-1 / 4..-4 | 2..3 |
+| MP71 Fish Hook | `breakapane` | -7 | `window01.tif` | (40, 40, 43, 0.5) | 13 | 4..-4 / 1..-1 / 4..-4 | 2..3 |
+| MP73 | `breakapane` | -7 | `window01.tif` | (40, 40, 43, 0.5) | 13 | 4..-4 / 1..-1 / 4..-4 | 2..3 |
+| M53 | `breakapane` | -7 | `windowglass.tif` | (40, 40, 43, 0.5) | 45 | 4..-4 / 1..-1 / 4..-4 | 2..3 |
+| M61 | `breakapane` | -7 | `window01.tif` | (40, 40, 43, 0.5) | 13 | 4..-4 / 1..-1 / 4..-4 | 2..3 |
+| M63 | `breakapane` | -7 | `window_inside.tif` | (55, 55, 50, 1) | 30 | 10..-10 / 1..-1 / 10..-10 | 2..3 |
+| M81 | `breakapane` | -6 (`NODE_CALLER`) | `windowglass.tif` | (43, 43, 45, 10) | 10 | 2..-2 / 1..-1 / 2..-2 | 0.75..1.5 |
+| M82 | `breakapane` | -7 | `window01.tif` | (30, 20, 35, 0.1) | 50 | 4..-4 / 1..-1 / 4..-4 | 2..3 |
+
+The colour's fourth is as stored (an f32; M82's 0.1 is 0x3dcccccd) and never read in mode 0 (the table above). M81's
+node is the caller's (`NODE_CALLER`, -6), every other one the root's.
+
+### 6.2 The fragments: which triangles, the split, the throw and the flight (LATER 850)
+
+- Date: 2026-11-10 (LATER 850). **Reading, pending review**, transcribed from the decompilation and, where the
+  decompiler loses the float and stack arguments, the ELF's instructions (0x322580-0x3227f4, 0x322800-0x322de0,
+  0x322df0-0x3234e0, 0x3271d0-0x327558). Built as pure logic in `@s2u/scene` `glassFragments.ts`; nothing draws it yet.
+
+**Which triangles.** `FUN_003245b0` (D:L223485-223518) gathers the polygons of the node and its whole subtree (and a
+type-2 node's referent, +0xb4); `FUN_00322800` (D:L222681-222831) puts each polygon's points (16 bytes each: x, y, z and
+the packed u, v / 4096, D:L222750-222751) through the node's world matrix (`FUN_003109f0`) and fans it from its first
+point: triangles (v0, vi, vi+1), i = 1 .. n-2, n the polygon's count (bits 2-9 of its u16 +8; D:L222758, D:L222828).
+Before each triangle it writes 100.0 over the command's +0x14 (s6.1). Each triangle goes to `FUN_00322df0`; a piece it
+hands back is thrown from the triangle's centroid, `(v0 + vi + vi+1) x 0x3eaaaaab`.
+
+**The split** (`FUN_00322df0` D:L222837-223482; the stack arguments read at 0x322e60-0x322e80 and the four recursive
+calls at 0x323334-0x3234dc). Its arguments past the triangle: the colour, the `fragment` model, the velocity's two ends,
+the life pair, the descriptor, a parent's centroid (+0x30) and three carried corner pieces (+0x38..+0x48).
+- Carrying no corner, the measure `0.6 x size / |A x B + B x C + C x A|` (twice the area; `FUN_001bfc78` is VU0's
+  outer product, D:L40450-40463; D:L223044-223084): at or under 0.3 it splits with no draw; over it, one draw `r`:
+  `r` under the measure keeps it, else it splits (D:L223086-223100). Carrying a corner, neither.
+- Split: one draw, `t = 0.4 + 0.2 r` (D:L223102); the edge points M0 = B + t(A - B), M1 = C + t(B - C), M2 = C + t(A - C),
+  their (u, v) alike (D:L223103-223120); the corners (A, M0, M2), (B, M0, M1), (C, M2, M1), each handed the middle's
+  centroid, and then the middle (M0, M1, M2) carrying the three corners' results (0x323334-0x3234dc). A piece the middle
+  hands back is thrown at its centroid with seven draws (D:L223142-223183); nothing is handed up (D:L223185).
+- A leaf: its origin is the parent's centroid when kept and given one, else its own (D:L223188-223210). The draw
+  `r <= 0.3` at D:L223212 is never reached: a leaf is kept or carries a corner. Its mesh is made (the points less the
+  origin, D:L223216-223267), then seven draws (D:L223428-223448). Carrying, it throws itself and each corner it carries
+  with those same draws from its origin (D:L223449-223474); kept, it hands the mesh back and the seven draws are spent.
+- The seven draws, in order: the velocity x, y, z, each `lo + (hi - lo) r` between s6.1's ends; the spin x, y, z,
+  `10 r - 5`; the life, `lo + (hi - lo) r` (D:L222784-222821; D:L223428-223448). `r` is newlib's `rand()` (`FUN_00197740`
+  D:L14524-14536) times 2^-31.
+- The made fragment (`FUN_00327620` D:L225323-225362, `FUN_00327800` D:L225388-225435): its place +0x20, velocity
+  +0x30, the shared descriptor +0x40, +0x4c's value +0x54, the life +0x48 (and its inverse +0x4c), the spin +0x5c, the
+  scale (1, 1, 1) +0x68, its age +0xc at 0; a visual from the pool (`FUN_00322470` D:L222585-222607).
+
+**The flight** (`FUN_003271d0` D:L225155-225284, the fragment's vtable 0x4069e0 slot +0xc; called by `FUN_00328170`
+D:L225803-225835 with the frame's step, which it also stores as `DAT_00488458`). In order: the age += step; at or past
+the life the visual is hidden and nothing moves (D:L225207-225211; freed at the next update); else the position += the
+velocity it had x step (D:L225213-225218); the velocity += the descriptor's acceleration x step (D:L225219-225224); the
+velocity's y -= 20 x step (D:L225227); the visual's rotation += spin x step, except on the first tick, when the age
+equals the step (D:L225228-225235); the visual's matrix from the scale and that rotation, its +0x9c = +0x54
+(D:L225236-225241). Last, with a drag (descriptor +0x2c, the command's +0x3c), the velocity is eased toward the wind
+(the world's +0xc0..+0xc8 x the descriptor's +0x40, 1.0 -- the descriptor made by `FUN_00328e90` D:L226243-226277, its +0x40 at D:L226262): with `x = -drag x step`, `|x|` halved until at most 0.5 (n
+halvings), `e = 1 + x(0.5 + x(0.333333 + x(0.25 + x(0.2 + x(0.166666 + x)))))`, squared n times, inverted for a
+negative x; the velocity = (velocity - wind) e + wind (D:L225243-225279). The series is kept as written, not `exp`.
+
+**On Frostfire's and Fish Hook's panes** (s6.1): velocity x and z in -4 .. 4, y in -1 .. 1; spin -5 .. 5 on each axis
+(the code's, every map); life 2 .. 3 s; the acceleration (0, -98, 0) plus gravity's 20, so 118 a second squared down;
+no drag (so the wind is never read); size 13. The vertex colour (40, 40, 43, 100), the texture `a_window.tif` /
+`window01.tif`. The other eight programs carry their own size, colour, velocity ranges and life (s6.1's table of every
+command 29: MP1's three windows, MP73, M53, M61, M63, M81, M82); the acceleration, the absent drag and the spin are
+every map's.
+
+**The port** (`@s2u/scene` `glassFragments.ts`): `shatterPane` (the throw and the split), `stepGlassFragment` (the
+flight), `glassDragFactor` (the series), `glassFragmentColour`, `NewlibRand` (`FUN_00197728` / `FUN_00197740`) and
+`GlassFragments` (a set thrown, flown and freed). Single precision in the instructions' order, each step rounded by
+`Math.fround` -- a round-to-nearest stand-in for the EE FPU's toward-zero rounding
+(`GLASS_FRAGMENT_F32_ROUNDING_READING`, s7). Tests:
+`scene/test/glassFragments.test.ts` (scripted draws: the fan, the keep's spent draws, the split's 32 draws and four
+pieces with one set of draws, the measure's draw, the (u, v) split, newlib's first three draws seeded 1; the flight's
+order, the expiry at equality, the first tick's rotation, the drag's series against `exp`).
+
+**Not done.** Nothing draws the fragments: the page's `destruction` hook still logs (`GLASS_FRAGMENTS_PLACEHOLDER`).
+Drawing them owes: the node's polygons as the page holds them (the hull's stored polygons under the node, as they stand
+-- the original's subtree through the node's own matrix -- and their (u, v), which the hull does not keep); the
+visual's Euler order for the rotation; the mesh's 1/16 fixed point less the mesh's +0x14 base (D:L223263-223267, not
+read); the `fragment` model's material and what +0x9c does; the page's step against the original's frame. Whether the
+`fragment` model (0x3f6ed8, `FUN_0031fd10`) has the mesh `FUN_00322df0` asks for (+0x88, +0x8c, D:L223226-223233) is
+not checked on the disc: without one nothing is thrown (`GLASS_FRAGMENT_MODEL_READING`, *note only*, s7).
+
 ## 7. Readings and placeholders (SUP-02)
 
 | name | value | what it stands in for | what would settle it |
 |---|---|---|---|
-| `GLASS_FRAGMENTS_PLACEHOLDER` (`viewer/src/worldState.ts`) | `'sound-and-pane-off'`: a broken pane plays `.GLS_BRK_VSMALL` and goes off; `DESTRUCTION_SOURCE` is logged at its node and draws nothing | what `breakapane`'s `DESTRUCTION_SOURCE` throws: its payload past the node byte is undecoded (`@s2u/scene` `effects.ts`), and no capture shows a pane break (176 s4.2) | decode command 29's payload (its tick and the debris it spawns) and one capture of a Frostfire pane shot out |
+| `GLASS_FRAGMENTS_PLACEHOLDER` (`viewer/src/worldState.ts`) | `'sound-and-pane-off'`: a broken pane plays `.GLS_BRK_VSMALL` and goes off; `DESTRUCTION_SOURCE` is logged at its node and draws nothing | what `breakapane`'s `DESTRUCTION_SOURCE` throws: its payload is decoded (s6.1, LATER 850: `{ op: 'destruction', node, debris }`) but the page throws no fragment from it, and no capture shows a pane break (176 s4.2) | the fragments thrown and flown (s6.2, `@s2u/scene` `glassFragments`, LATER 850) from the page's `destruction` hook and drawn; one capture of a Frostfire pane shot out |
+| `GLASS_FRAGMENT_SEED_PLACEHOLDER` (`scene/src/glassFragments.ts`) | 1: the page's own newlib stream (`NewlibRand`), seeded 1 | the state of the game's one `rand()` stream (`FUN_00197740`) when a pane breaks -- every earlier draw in the game moves it (s6.2; reconciliation chunk 17, C44) | not settled by a capture either: a capture shows the population and trajectories, not the state; the draws' rules are read (s6.2) |
+| `GLASS_FRAGMENT_WIND_PLACEHOLDER` (`scene/src/glassFragments.ts`) | (0, 0, 0) | the world's (`DAT_0045c380`) +0xc0..+0xc8, the wind a fragment's drag pulls toward (`FUN_003271d0` D:L225244-225247); its constructor (`FUN_00320310` D:L221283, `FUN_0031b130`) leaves it unset and no writer is read. Read only with a drag: no command 29 on the disc has one (all eleven, s6.1) | a read of the writer of the world's +0xc0..+0xc8 |
+| `GLASS_FRAGMENT_START_ROTATION_READING` (`scene/src/glassFragments.ts`) | (0, 0, 0): the mesh as the triangle stood | the rotation of the pooled visual a fragment takes (`FUN_00322470` D:L222585-222607, `FUN_00327130` D:L225138-225152), to which the spin is added (D:L225228-225235) | a read of `FUN_003164e0` and the pool's reset, or a capture of a pane shot out (176 s4.2) |
+| `GLASS_FRAGMENT_F32_ROUNDING_READING` (`scene/src/glassFragments.ts`) | `'nearest'`: each single-precision step rounded by `Math.fround` (to nearest, ties to even) | the R5900 FPU's rounding of every operation toward zero (research 200 s1.3; 111's `EE_FPU_ROUNDING_READING`): a round-to-nearest stand-in, a step's last bit may differ | the steps chopped as `ui/src/text/f32.ts` does, pinned against a trace of a pane's fragments |
+| `GLASS_FRAGMENT_MODEL_READING` | the `fragment` model (0x3f6ed8, `FUN_0031fd10`) taken to carry the mesh `FUN_00322df0` builds on (+0x88, +0x8c; D:L223226-223233) -- without one nothing is thrown | no constant stands in; the port throws as if it does | *note only*: a read of the `fragment` model on the disc |
 | `SCENE_DEATH_ON_WIRE_READING` (`viewer/src/worldState.ts`) | `'targetOffOrTold'` since V13-3c (research 386 §3.5): the room tells each death it runs (`sceneDeath`; a joiner's welcome, `sceneDead`) and the page takes it (spent, run for presentation) -- the limit below retired for every death the room runs; the rest of this row is the inference kept for a state with no told death. Was `'targetOff'`: a page takes a live destructible whose target the room's state turns off as dead -- one death a distinct target (the first record bound to it), none for a record whose target lies under another dead one's or whose animation another's death runs as a program -- runs its death's sequences once for their effects (none when silent) -- for presentation only (ruling PF.R26: sounds, particles and debris sources play; no node's flag and no valve changes, at once or after a wait), and takes a spent one whose target comes back as whole. **Its limit:** a death that does not switch its target off is never heard on the page -- 33 on MP6 (the beer bottles, tin cups, plates, lights), some on MP12, MP62, MP7 and MP73 (the SUP-02 review's measurement, 2026-10-05) -- since the wire carries no health | how the original tells another console a scene object died -- a damage message replayed on each console, or a valve (research 209 s11's valve replay to a joiner is the nearest read) | the network path of `FUN_00273a50`'s death (the replay contract `SCENE_DEATH_AUTHORITY_READING` names); a two-console capture of a pane broken by the other side; owed: a health (or death) field on the wire -- MAP-03's environment section or a later row -- which retires the inference |
-| `SCENE_SOUND_PLACE_READING` (`viewer/src/worldState.ts`) | `'polygonBoxCentre'`: a scene program's sound plays at the centre of its node's polygons' box as they stand now; unplaced when the node has none | the node's position the game plays it at (`FUN_002659c0` D:L112363-112416): `MapMeta` carries no node's world origin | carry each placement's world matrix in `MapMeta.instances` and play at its origin; a pane's centre and its origin differ by at most the window's half-size |
+| `SCENE_SOUND_PLACE_READING` (`viewer/src/worldState.ts`) | `'nodeOrigin'` since 2026-11-10 (reading, pending review): `FUN_002659c0`'s new play (D:L112411-112462) -- the place starts at 0, flag 4 adds the offset at +0x14 (`FUN_00309240`, D:L112423-112426), flag 2 resolves the node at +0x10 (`FUN_0026f4e0`) and carries the place through its matrices to the world (`FUN_00310980`, D:L112446-112450, D:L212139-212147; `MapMeta.worlds`, a door leaf's move carried by `nodeMoved`); any of these plays it placed (+0x14, D:L112458-112462, `FUN_00342670`'s RANGE and pan), none unplaced (+0x18). Was `'polygonBoxCentre'`: the centre of the node's polygons' box, unplaced for a node with none (MP71's gulls, full volume map-wide: the v0.4.18 report) | the moves of gates, cranes and turrets (only the doors' reach the world: `SCENE_SOUND_MOVING_NODE_PLACEHOLDER`); a node the camera carries (`SCENE_SOUND_CAMERA_NODE_PLACEHOLDER`); flag 8's context point (no scene run has one) | a capture at Fish Hook's shore by `seagull2` (2004.334, 50.6, 1733) -- the squawk heard there -- and inland by `chime2` (2155, 222, 564.855), 1138-1311 u from every gull, where none is heard |
+| `SCENE_SOUND_CAMERA_NODE_PLACEHOLDER` (`viewer/src/worldState.ts`) | `'unplaced'`: a placed `SOUND` at the camera or at a node the camera carries plays without a place, as before the place was read: (1) a node named `camera` that no placement carries, not at its bare offset; (2) since 2026-11-11 (agent/skydome-sound) a node at or under the target (+6) of an `OBJECT_TRANSLATE_STATE` (18, `FUN_00263890`) whose reference node (+7) is `camera` -- every offered map's sky (research 175 s5.1.1), found from the data (`WorldState.cameraFollowers`); the port's node stands at its rest, so `FUN_00310980`'s place through it would be on the ground (MP73's `.EXP_DISTANT` at `skydome` + its offsets: (1740, 0, 2440), (640, 0, 1320), (840, 0, 1320)) | (1) whether `FUN_0026f4e0` finds the game's own camera node by the name: Desert Glory's `mp6_battlesounds` and Sandstorm's `mp73_battlesounds` place their near gunfire at `camera` + (+-200, 100, 0) (flags 0x86); (2) the original's place, the listener plus the offset in the moving node's frame | the node lookup's scope at run time; the place at the listener plus the offset (LATER 894), by a closer reading of `FUN_00310980` with the node's live matrix; a capture of Desert Glory's and Sandstorm's battle sounds (heard beside the listener through their RANGE: the camera; never heard: the bare offset by the map's corner) |
+| `SCENE_SOUND_MOVING_NODE_PLACEHOLDER` (`viewer/src/worldState.ts`) | `'restOrigin'` (2026-11-11, agent/skydome-sound): a placed `SOUND` at a node a scene program moves -- MP11's and MP62's `gate_moveN` (`~FENCE_GATE`, `.WOOD_DR_SLD_*`), MP81's crane hook (`~CRANE`) -- plays at the node's rest origin plus its offset; only a door's move reaches the world (`nodeMoved`). Until agent/fh-seagulls the place followed the node's polygons as the hull moved them | the original follows the moving node (`FUN_00310980` reads its matrix as it stands, D:L112446-112450); the port's gates and cranes do not hand their translation to the world | the gates' and cranes' translation handed to `nodeMoved` (LATER 895); a capture of an MP81 crane swing or an MP11 gate's slide, the sound's pan across the travel |
 
 ## 8. Vigilance's five access barriers (SUP-03)
 

@@ -35,7 +35,7 @@ export { HD_PACK_AUTHOR, HD_PACK_CREDIT };
 /** TEST_HD_PACK_BUTTON_ADAPTATION: the row's words. */
 export const TEST_HD_PACK_LABEL = 'Add test HD texture pack';
 /** Opens with `HD_PACK_CREDIT` (a plain literal: the modding wiki quotes it, `tools/test/moddingWikiPages.test.ts`). */
-export const TEST_HD_PACK_ABOUT = 'HD textures by GoE Soul. Temporary: downloads our test HD pack into this list and chooses it, until the HD pack is on Thunderstore';
+export const TEST_HD_PACK_ABOUT = 'HD textures by GoE SouL. Temporary: downloads our test HD pack into this list and chooses it, until the HD pack is on Thunderstore';
 export const TEST_HD_PACK_NOT_SERVED = 'The test HD pack is not available yet.';
 
 /** What the adapter uses of the registry (a test hands a fake). `hd`: TEST_HD_PACK_BUTTON_ADAPTATION's `installFrom` alone. */

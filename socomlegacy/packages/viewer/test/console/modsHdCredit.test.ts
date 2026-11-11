@@ -9,7 +9,7 @@ import type { LocalPackSummary } from '../../src/packs/registry';
 
 /**
  * The HD pack's credit (product track, a browser adaptation, words only; the owner, seat 99, 2026-11-09: "make sure our
- * HD Pack wherever referenced always credit GoE Soul"). The MODS screen's HD install area -- the temporary button's about
+ * HD Pack wherever referenced always credit GoE SouL"). The MODS screen's HD install area -- the temporary button's about
  * line, the store link -- and an installed HD pack's row name its author. Synthetic packs, no game data.
  */
 const HD = `hd:${'a'.repeat(64)}`;
@@ -32,26 +32,26 @@ function drawn(view: Partial<ModsView>): HTMLElement {
   return root;
 }
 
-describe('the HD pack credits GoE Soul wherever MODS names it', () => {
+describe('the HD pack credits GoE SouL wherever MODS names it', () => {
   it('the credit is spelled exactly', () => {
-    expect(HD_PACK_AUTHOR).toBe('GoE Soul');
-    expect(HD_PACK_CREDIT).toBe('HD textures by GoE Soul');
+    expect(HD_PACK_AUTHOR).toBe('GoE SouL');
+    expect(HD_PACK_CREDIT).toBe('HD textures by GoE SouL');
   });
 
-  it('the install area: the temporary button\'s about line and the store link name GoE Soul', () => {
+  it('the install area: the temporary button\'s about line and the store link name GoE SouL', () => {
     expect(TEST_HD_PACK_ABOUT.startsWith(`${HD_PACK_CREDIT}. `)).toBe(true);
     const root = drawn({ testHdPack: true, storePage: 'https://thunderstore.example/hd' });
-    expect(root.querySelector('[data-row]:last-child')!.textContent).toContain('GoE Soul');
-    expect(root.querySelector('.cx-mods__store')!.textContent).toContain('GoE Soul');
+    expect(root.querySelector('[data-row]:last-child')!.textContent).toContain('GoE SouL');
+    expect(root.querySelector('.cx-mods__store')!.textContent).toContain('GoE SouL');
   });
 
   it('an installed HD pack\'s row credits its author; another kind\'s row does not', () => {
     const rows = modsRows([summary(HD, 'hd', 'SOCOM II HD Textures'), summary(`texture:MP51:${'b'.repeat(64)}`, 'texture', 'GX')], state);
-    expect(rows[0]!.credit).toBe('GoE Soul');
+    expect(rows[0]!.credit).toBe('GoE SouL');
     expect(rows[1]!.credit).toBeUndefined();
     const root = drawn({ rows });
     const hints = [...root.querySelectorAll('.cx-mods__pack .cx-r__hint')].map((e) => e.textContent ?? '');
-    expect(hints[0]).toMatch(/^HD texture pack by GoE Soul · /);
-    expect(hints[1]).not.toContain('GoE Soul');
+    expect(hints[0]).toMatch(/^HD texture pack by GoE SouL · /);
+    expect(hints[1]).not.toContain('GoE SouL');
   });
 });

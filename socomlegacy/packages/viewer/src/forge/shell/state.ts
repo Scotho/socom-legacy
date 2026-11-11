@@ -55,11 +55,29 @@ export const FORGE_REFUSALS = {
   checking: 'The map check is running',
   card: 'Close the menu to place',
   busy: 'The Forge is loading',
+  // LATER 819: the page's other causes of `busy` (`forgeBusyRefusal`), each in its own words -- "loading" is an open's.
+  restoring: 'An undo or redo is still placing the layout',
+  walkStarting: 'Walk is starting',
+  playStarting: 'Play is starting',
+  lobbyMatchStarting: 'The lobby’s match is starting',
+  lobbyMaking: 'The lobby is being made',
   // R4 (the UI seat's seam note to dot, 2026-10-25 11:23Z): a drop's own refusals (`ForgeEditor.projectDrop`), read by no
   // surface rule -- a drop that falls outside the view, and one before a base is open.
   outsideView: 'Drop it over the view',
   noBase: 'Open a base first',
 } as const;
+
+/**
+ * LATER 819: what holds the page `busy` -- a layout opening (the boot's first open included), an undo or a redo being put
+ * back, a Walk, a Play or a lobby's match starting, a lobby being made -- and the words a press refused then says.
+ */
+export type ForgeBusyCause = 'open' | 'undo' | 'walk' | 'play' | 'lobbyMatch' | 'lobby';
+const BUSY_REFUSALS: Readonly<Record<ForgeBusyCause, keyof typeof FORGE_REFUSALS>> = {
+  open: 'busy', undo: 'restoring', walk: 'walkStarting', play: 'playStarting', lobbyMatch: 'lobbyMatchStarting', lobby: 'lobbyMaking',
+};
+export function forgeBusyRefusal(cause: ForgeBusyCause): string {
+  return FORGE_REFUSALS[BUSY_REFUSALS[cause]];
+}
 
 const EDIT_RULES = ['lobbyHolds', 'serverMatch', 'match', 'walking', 'modal', 'checking'] as const;
 const PLACE_RULES = ['card', 'busy'] as const;

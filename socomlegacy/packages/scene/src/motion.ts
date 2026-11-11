@@ -173,6 +173,11 @@ export function parseMotionZar(zar: Zar): MotionClip[] {
 
 /** Spherical interpolation on the shorter arc, normalised (the named placeholder `MOTION_BLEND`). */
 function slerp(a: Float32Array, ia: number, b: Float32Array, ib: number, t: number): [number, number, number, number] {
+  return slerpInto(a, ia, b, ib, t, [0, 0, 0, 0]);
+}
+
+/** `slerp` written into `out` (returned): the same arithmetic (HIT-ALLOC, a browser adaptation: no array per part). */
+function slerpInto(a: Float32Array, ia: number, b: Float32Array, ib: number, t: number, out: [number, number, number, number]): [number, number, number, number] {
   let bx = b[ib]!, by = b[ib + 1]!, bz = b[ib + 2]!, bw = b[ib + 3]!;
   const ax = a[ia]!, ay = a[ia + 1]!, az = a[ia + 2]!, aw = a[ia + 3]!;
   let dot = ax * bx + ay * by + az * bz + aw * bw;
@@ -185,7 +190,8 @@ function slerp(a: Float32Array, ia: number, b: Float32Array, ib: number, t: numb
   }
   const x = wa * ax + wb * bx, y = wa * ay + wb * by, z = wa * az + wb * bz, w = wa * aw + wb * bw;
   const len = Math.hypot(x, y, z, w) || 1;
-  return [x / len, y / len, z / len, w / len];
+  out[0] = x / len; out[1] = y / len; out[2] = z / len; out[3] = w / len;
+  return out;
 }
 
 /**
@@ -194,6 +200,18 @@ function slerp(a: Float32Array, ia: number, b: Float32Array, ib: number, t: numb
  * `MOTION_BLEND` -- or held at the earlier one. A constant channel is its one key at every time.
  */
 export function sampleClip(clip: MotionClip, time: number, options: SampleOptions = {}): Pose {
+  const parts: PartPose[] = [];
+  const frame = sampleClipInto(clip, time, options, parts);
+  return { time, frame, parts };
+}
+
+/**
+ * `sampleClip` written into `out` (HIT-ALLOC, a browser adaptation for the page's `Animator`: the same floats, no object
+ * per part per call): `out[0..n)` holds the clip's `n` parts (`n` its part count; `out` grows on first use and keeps
+ * any entries past `n`, which the caller does not read); returns the fractional frame sampled. Each entry's arrays are
+ * owned by `out` and written over at the next call.
+ */
+export function sampleClipInto(clip: MotionClip, time: number, options: SampleOptions, out: PartPose[]): number {
   const n = clip.frameCount;
   let frame = (time * n) / clip.duration;
   if (options.loop ?? true) frame = ((frame % n) + n) % n;
@@ -201,20 +219,23 @@ export function sampleClip(clip: MotionClip, time: number, options: SampleOption
   let i = Math.floor(frame), t = frame - i;
   if (i >= n) { i = n - 1; t = 1; }            // exactly at the end of a one-shot clip: the closing key
   if (options.hold) t = t >= 1 ? 1 : 0;
-  const parts = clip.parts.map((p): PartPose => {
-    let translation: [number, number, number];
-    if (p.translations.length === 3) translation = [p.translations[0]!, p.translations[1]!, p.translations[2]!];
+  const parts = clip.parts;
+  for (let k = 0; k < parts.length; k++) {
+    const p = parts[k]!;
+    const o = out[k] ?? (out[k] = { index: 0, name: '', rotation: [0, 0, 0, 0], translation: [0, 0, 0] });
+    o.index = p.index; o.name = p.name;
+    const translation = o.translation;
+    if (p.translations.length === 3) { translation[0] = p.translations[0]!; translation[1] = p.translations[1]!; translation[2] = p.translations[2]!; }
     else {
       const a = 3 * i, b = a + 3, T = p.translations;
-      translation = [T[a]! + (T[b]! - T[a]!) * t, T[a + 1]! + (T[b + 1]! - T[a + 1]!) * t, T[a + 2]! + (T[b + 2]! - T[a + 2]!) * t];
+      translation[0] = T[a]! + (T[b]! - T[a]!) * t; translation[1] = T[a + 1]! + (T[b + 1]! - T[a + 1]!) * t; translation[2] = T[a + 2]! + (T[b + 2]! - T[a + 2]!) * t;
     }
-    let rotation: [number, number, number, number];
-    if (p.rotations.length === 4) rotation = [p.rotations[0]!, p.rotations[1]!, p.rotations[2]!, p.rotations[3]!];
-    else if (t === 0) rotation = [p.rotations[4 * i]!, p.rotations[4 * i + 1]!, p.rotations[4 * i + 2]!, p.rotations[4 * i + 3]!];
-    else rotation = slerp(p.rotations, 4 * i, p.rotations, 4 * i + 4, t);
-    return { index: p.index, name: p.name, rotation, translation };
-  });
-  return { time, frame, parts };
+    const rotation = o.rotation, R = p.rotations;
+    if (R.length === 4) { rotation[0] = R[0]!; rotation[1] = R[1]!; rotation[2] = R[2]!; rotation[3] = R[3]!; }
+    else if (t === 0) { rotation[0] = R[4 * i]!; rotation[1] = R[4 * i + 1]!; rotation[2] = R[4 * i + 2]!; rotation[3] = R[4 * i + 3]!; }
+    else slerpInto(R, 4 * i, R, 4 * i + 4, t, rotation);
+  }
+  return frame;
 }
 
 /**

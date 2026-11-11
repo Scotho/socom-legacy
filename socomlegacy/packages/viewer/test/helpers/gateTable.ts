@@ -23,7 +23,8 @@ import { blastKnock, type Knock } from '../../src/net/blast';
 /** Where the body starts; `weapon` the firearm in hand (PF-17: 0 the rifle, the default; 1 the sidearm). */
 export interface GateBody { at: readonly [number, number]; yaw: number; stance: Stance; weapon?: 0 | 1 }
 /** The stick before the press (and held after it), for `ticks` game ticks; null rows stand still. */
-export interface GateMotion { forward: number; right: number; ticks: number }
+/** `climb` (LC-1): the Action pressed once, on the first tick the ladder offers CLIMB, as a player mounts it. */
+export interface GateMotion { forward: number; right: number; ticks: number; climb?: true }
 /**
  * The press under test. PF-15: a stance press. PF-16: `walk`, no press -- the row's motion alone, toward an obstacle
  * across x at `wall`. PF-17: a round -- the stance press `press` starts a clip, and the round leaves at the first command
@@ -176,9 +177,9 @@ export const GATE_ROWS: readonly GateRow[] = [
   },
   // PF-19 (research 218 s3; ruling PF.R38): FUN_0057e770 D:L440981-441027 has no state gate -- the move released, then
   // the reaction; alive and prone, `Prone cover` in place (D:L441018-441020) with its `NoFire ()`.
-  { // walked onto the ladder and up its rungs, an M67 30 to its side: off the ladder into the air (KNOCK_LADDER_STATE_READING)
+  { // walked to the ladder, CLIMB pressed (LC-1), and up its rungs, an M67 30 to its side: off the ladder into the air (KNOCK_LADDER_STATE_READING)
     name: 'knock on a ladder', world: gateLadder(), body: { at: [0, 20], yaw: 0, stance: 'stand' },
-    motion: { forward: 1, right: 0, ticks: 150 }, input: { kind: 'knock', from: [30, 0, 0] }, expect: 'released, airborne',
+    motion: { forward: 1, right: 0, ticks: 150, climb: true }, input: { kind: 'knock', from: [30, 0, 0] }, expect: 'released, airborne',
   },
   { // prone, an M67 30 off: no push, `Prone cover` on the floor, no round inside it
     name: 'knock prone alive', world: [], body: { at: [0, 0], yaw: EAST, stance: 'prone' },

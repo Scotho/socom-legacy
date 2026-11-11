@@ -199,14 +199,16 @@ describe('the page\'s wiring (frontEnd.ts)', () => {
   const src = readFileSync(new URL('../src/frontEnd.ts', import.meta.url), 'utf8');
 
   it('the loop keeps advancing and asks menuRasterWanted before the render', () => {
-    const loop = src.slice(src.indexOf('const loop = (now: number): void => {'));
-    const body = loop.slice(0, loop.indexOf('frameId = win.requestAnimationFrame(loop);'));
+    const loop = src.slice(src.indexOf('const step = (now: number): boolean => {'));
+    const body = loop.slice(0, loop.indexOf('const frontGuard = new FrameGuard();'));
     // GM-02: the advance's tick count is kept in `ticks` (the instrument reads it); GM-12b: the GPU path's word (GM.R17).
     expect(body).toMatch(/const ticks = s\.advance\(now\);[\s\S]*?if \(ticks > 0 && drawsMenuFrame\(s, hd\.scale, gpu\) && menuRasterWanted\(matchUp, matchGraphics\)\)/);
   });
 
   it('leave raises the flag and sleeps the movie worker under the Xbox preset; returned lowers the flag', () => {
-    const leave = src.split('\n').filter((l) => /^\s*leave: \(\) => \{ matchSound\.leave\(\);/.test(l));
+    // QUAD-CACHE-RELEASE put the quad caches' release first on the line: the match's leave hook is the one line that also
+    // lets the match sound go, wherever on it.
+    const leave = src.split('\n').filter((l) => /^\s*leave: \(\) => \{[^\n]*\bmatchSound\.leave\(\);/.test(l));
     expect(leave).toHaveLength(1);
     expect(leave[0]).toContain('matchUp = true;');
     expect(leave[0]).toContain('matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep();');

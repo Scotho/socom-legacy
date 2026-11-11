@@ -141,7 +141,8 @@ export const MATCH_END_RETURN_READING = 'dlgGameLobby.rdr' as const;
  * (`LobbyMatch.matchOver`'s loading branch; since LOAD-HOLD a page whose assets were already in had sent it at their
  * arrival, `CLIENT_ROUND_WAIT_READING`, and the return sends none again). The load state's done branch for a console
  * whose +0xcc is clear (`FUN_001f5e70` D:L55680-55687, D:L55704-55709, the +0xcd block D:L55730-55745) against the host's return is
- * not read. A late joiner's load is LATER 238's (`LATE_RETURN_RECORD_UPDATE_READING`: W5 / W6, never the lobby).
+ * not read. A late joiner's load is LATER 238's in the original (`LATE_RETURN_RECORD_UPDATE_READING`: W5 / W6, never the
+ * lobby); the port returns it to the lobby (OT.R122, ui `LATE_SEAT_MATCH_ENDING_OWNER`: `LobbyMatch.lateEnding`).
  * Settles: that read, or ONL-32's capture of a seated console loading at a game's end. [reading]
  */
 export const LATE_JOINER_RETURN_FROM_LOADING_READING = 'a client not late still loading when the room returns to its lobby leaves from the loading screen, no loaded sent' as const;
@@ -167,6 +168,9 @@ export const LATE_JOINER_RETURN_FROM_LOADING_READING = 'a client not late still 
  * every seat, so W6's dialog is the abandon. No `loaded` is sent; the socket's close leaves the seat (server
  * `SeatEntry.loading`, LATER 64).
  * Settles: ONL-32's capture of a late joiner loading at a game's end, with and without a lobby change during its load. [reading]
+ * OT.R122 (the owner's ruling, 2026-11-11; ui `LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation): the port no longer follows
+ * this reading -- what the original does stays recorded here and in research 315 §12.1 / §14 / §15 -- and a late load
+ * that meets the game's end returns to the same game's lobby with its client kept (`LobbyMatch.lateEnding`, `frame`).
  */
 export const LATE_RETURN_RECORD_UPDATE_READING = 'any gameLobby view after the returned view is a record update: dlgNetAbandoned.rdr at the load\'s end; none, dlgNetError.rdr' as const;
 /**
@@ -232,9 +236,9 @@ export const ROUND_SCREEN_TIMEOUT_RETURN_READING = 'each round screen 90 s from 
  * host's state comes (`ROUND_SCREENS_AFTER_S` after the `roundOver`, as before); a late console still loading has no
  * Mission tick, so its screens open when its level starts -- here, the match shown (`LobbyMatch.begin`) -- the room's
  * list run from there, FINAL ROUND's 10 s before GAME COMPLETE's 90 s (since LATER 241 a page reaches that only when held
- * for the barrier past the 6: a late load ending at the 6 abandons). So the screens' open is the later of the
+ * for the barrier past the 6: a late load ending at the 6 abandons in the original; OT.R122 returns it to the lobby). So the screens' open is the later of the
  * room's and the match shown. A late load that completes with the host at 6 (the game over) never reaches a Mission
- * tick: its load state's W6 leaves for `dlgNetAbandoned.rdr` (LATER 241, `FUN_001f5e70` D:L55731-55740; research 315
+ * tick: its load state's W6 leaves for `dlgNetAbandoned.rdr` (the port, OT.R122: the game lobby; LATER 241, `FUN_001f5e70` D:L55731-55740; research 315
  * §15). One completing at 4 (a round's result: W6 enters, the told state not 6 or 1) opens ROUND COMPLETE at its level
  * start -- its first Mission tick finds the 4 and pushes the exit state at once (D:L151127-151135) -- and since LATER 74
  * the page draws it from there too (`./netPage`'s `screens` sink: a welcome's result older than the page opens at the
@@ -383,12 +387,6 @@ export class LobbyMatch {
    */
   private abandonedInLoad = false;
   /**
-   * LATER 238 (`LATE_RETURN_RECORD_UPDATE_READING`): the room's returned view came while this late page loads -- null
-   * until then; `updated` (W6) once a later view (a record update) came, or from the return when the assets were already
-   * in (the load ended first). The load's end then leaves on W5 or W6 (`frame`).
-   */
-  private returnedInLoad: { updated: boolean } | null = null;
-  /**
    * LATER 241: when this load's assets came in (the controller's clock), null until then -- its load's end, against the
    * host's told 6 (`frame`).
    */
@@ -466,6 +464,8 @@ export class LobbyMatch {
     this.client = h.client;
     this.held = h.held;
     this.events = h.welcome ? [h.welcome] : [];
+    // LATER 734: the room's kitHeld heard in the lobby, after the welcome it followed (`room.ts` `tellKitHeld`).
+    if (h.kitHeld) this.events.push(...h.kitHeld);
     this.roundEndsAt = null; this.roundHeldS = null; this.roundStartedAt = null; this.lateBy = null; this.gameOver = false; this.shownAt = null;
     this.startedAt = this.now();
     if (h.lateJoiner) h.client.reportLateLoad();             // LATER 64: a late seat's load started (its READY)
@@ -487,7 +487,6 @@ export class LobbyMatch {
       && (h.welcome?.role === 'spectator' || h.welcome?.ghost === true || h.welcome?.rules === 'respawn')
       && roundUnderWay(h.welcome);
     this.abandonedInLoad = false;
-    this.returnedInLoad = null;
     this.assetsAt = null;
     // ROUND-90: a late joiner's welcome may stand in the screens (as the barrier, the welcome only for a late join) --
     // unless a roundStart is handed on: the lobby's socket keeps its welcome and the last roundStart after it (a new
@@ -561,8 +560,8 @@ export class LobbyMatch {
    * is that host: its view, sent at the end of GAME COMPLETE's hold, is when this page leaves -- not the page's own
    * screens' timing. A socket welcomed again during GAME COMPLETE takes the game over from its welcome's standing result
    * (`join.result.matchOver`, PF-28's envelope). A page not late still on the loading screen leaves from there (`matchOver`,
-   * no `loaded` sent by it: `LATE_JOINER_RETURN_FROM_LOADING_READING`); a late one keeps loading and ends its load on W5
-   * or W6 (LATER 238, `LATE_RETURN_RECORD_UPDATE_READING`). LOAD-HOLD: a `roundStart`, or a welcome with a
+   * no `loaded` sent by it: `LATE_JOINER_RETURN_FROM_LOADING_READING`); a late one left for the lobby already, at the game's
+   * end (OT.R122, `lateEnding`; the original's W5 / W6, LATER 238, `LATE_RETURN_RECORD_UPDATE_READING`). LOAD-HOLD: a `roundStart`, or a welcome with a
    * round under way or a ghost seat, is the host's barrier passed for the load (`CLIENT_ROUND_WAIT_READING`). An
    * abandon's reopen (`abandoned` first, or no game over) is not the match's end: the seat's own close path takes it.
    * `matchOver` runs inside the client's listeners: the lobby's socket adopts the client there,
@@ -576,16 +575,26 @@ export class LobbyMatch {
     if (ev.type === 'score' && this.phase === 'loading') this.scored(ev);
     else if (ev.type === 'roundStart') { this.round(ev.seconds); this.gameOver = false; this.barrier = true; this.screens = null; }
     else if (ev.type === 'score') this.clockFrom(ev);
-    else if (ev.type === 'roundOver') { this.gameOver = ev.matchOver; this.screens = { start: this.now() + ROUND_SCREENS_AFTER_S * 1000, list: ev.screens }; }
-    else if (ev.type === 'welcome') { this.gameOver = ev.join?.result?.matchOver === true; if (roundUnderWay(ev)) this.barrier = true; this.screens = this.welcomeScreens(ev); }
+    else if (ev.type === 'roundOver') { this.gameOver = ev.matchOver; this.screens = { start: this.now() + ROUND_SCREENS_AFTER_S * 1000, list: ev.screens }; this.lateEnding(); }
+    else if (ev.type === 'welcome') { this.gameOver = ev.join?.result?.matchOver === true; if (roundUnderWay(ev)) this.barrier = true; this.screens = this.welcomeScreens(ev); this.lateEnding(); }
     else if (ev.type === 'abandoned') { this.gameOver = false; this.screens = null; if (this.phase === 'loading') this.abandonedInLoad = true; }
     else if (ev.type === 'gameLobby' && !ev.launched && (this.gameOver || ev.nextMap !== undefined)) {
       this.gameOver = false;
-      // LATER 238: a late page still loading stays in its load (W5 / W6); any other leaves for the lobby. Its assets
-      // already in, its load ended before the return: W6 (the review's F1, `LATE_RETURN_RECORD_UPDATE_READING`).
-      if (this.phase === 'loading' && this.hand?.lateJoiner === true && ev.nextMap === undefined) this.returnedInLoad = { updated: this.assets === 'done' };
-      else this.matchOver();
-    } else if (ev.type === 'gameLobby' && this.returnedInLoad) this.returnedInLoad.updated = true;   // a record update
+      this.matchOver();                                   // OT.R122: a late load too (was LATER 238's W5 / W6 at its end)
+    }
+  }
+
+  /**
+   * OT.R122 (ui `LATE_SEAT_MATCH_ENDING_OWNER`; the owner's ruling, an adaptation): the game's end heard during a late
+   * seat's load -- the room's last `roundOver`, or a welcome whose standing result ended the game -- returns the page at
+   * once to the same game's lobby with its client kept (`matchOver`: no bye, no close, the hold passed back), so the load's
+   * rest is saved and the lobby's socket hears the same event (its listener added during this dispatch, as at the room's
+   * return): its READY held until the room moves on. The original kept loading and left at its load's end for
+   * `dlgNetError.rdr` or `dlgNetAbandoned.rdr` (LATER 238 / 241, `LATE_RETURN_RECORD_UPDATE_READING`; research 315 §12.1,
+   * §14, §15), still what the original does; a seat not late is untouched (`LATE_JOINER_RETURN_FROM_LOADING_READING`).
+   */
+  private lateEnding(): void {
+    if (this.gameOver && this.phase === 'loading' && this.hand?.lateJoiner === true && this.client?.state === 'open') this.matchOver();
   }
 
   /**
@@ -661,27 +670,23 @@ export class LobbyMatch {
       // The game's end during the load (the room's `abandoned`): the load state's own exit, #528 `dlgNetAbandoned.rdr`
       // (D:L55735-55745) -- the dialog the mount's `NetPage.endGame(528)` gave before LOAD-HOLD, with no match mounted.
       if (this.abandonedInLoad) { this.end(returnDialog(GAME_ENDED_DIALOG_READING), null, 'abandoned-in-load'); return; }
-      // LATER 238: the host returned during a late page's load -- its load's end (the assets; a failed load, the page's
-      // own, ends there too) leaves on W5 `dlgNetError.rdr`, or W6 `dlgNetAbandoned.rdr` after a record update; no
-      // `loaded` sent, no match (`LATE_RETURN_RECORD_UPDATE_READING`).
-      if (this.returnedInLoad) {
-        if (this.assets === 'pending') return;
-        if (this.returnedInLoad.updated) this.end(returnDialog(GAME_ENDED_DIALOG_READING), null, 'late-return-updated');
-        else this.end({ dialog: MATCH_NET_ERROR_DIALOG_READING, why: 'late-return' }, null, 'late-return');
-        return;
-      }
       // LATER 241 (research 315 §15): the host's told 6 -- the game over, written 3.0 s after the last round's result
       // (`FUN_002a9b30` D:L150629-150666), the screens' open here (`ROUND_SCREENS_AFTER_S` after the `roundOver`, or the
-      // welcome's standing result) -- reaching a late load that ended (its assets) and is still in its 0.5 s load-out fade:
-      // the load state re-reads the told state on every frame of that fade (W6's test D:L55731-55740 inside the done block
-      // D:L55678-55747; the fade D:L55748-55755), so with the 6 it leaves for `dlgNetAbandoned.rdr` at once (+0xb0 at least
-      // 0, D:L55732-55733, unread: §14): no match, no `loaded`. A load whose fade ended before the 6 (the told state still 3)
-      // or that met a round's 4 enters, as before -- the assets' time and the fade decide, not a barrier's hold.
+      // welcome's standing result) -- reaching a late load still loading, or ended (its assets) and still in its 0.5 s
+      // load-out fade: the load state re-reads the told state on every frame of that fade (W6's test D:L55731-55740 inside
+      // the done block D:L55678-55747; the fade D:L55748-55755), so the original left with the 6 for `dlgNetAbandoned.rdr`
+      // (+0xb0 at least 0, D:L55732-55733, unread: §14). OT.R122 (ui `LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation): the
+      // page returns there to the same game's lobby with its client kept (`matchOver`) -- at the 6, a load still running
+      // being sure to end past it. This is the game's end the hand-off carried (the welcome's result, a `roundOver` heard
+      // in the lobby); one heard during the load returns at once (`lateEnding`). A load whose fade ended before the 6 (the
+      // told state still 3) or that met a round's 4 enters, as before -- the assets' time and the fade decide. The review's
+      // F2, decided: the return keeps the client, so a socket not open at the 6 (a drop; a `NetClient` never reopens) has
+      // none to keep -- that load takes the old exit unchanged, LATER 241's `dlgNetAbandoned.rdr` at its load's end.
       const sc = this.screens;
-      if (this.hand?.lateJoiner === true && this.gameOver && sc && this.assetsAt !== null && this.now() >= sc.start
-        && this.assetsAt + LOAD_STATE_FADE_SECONDS * 1000 >= sc.start) {
-        this.end(returnDialog(GAME_ENDED_DIALOG_READING), null, 'late-load-game-over');
-        return;
+      if (this.hand?.lateJoiner === true && this.gameOver && sc && this.now() >= sc.start) {
+        const inFade = this.assetsAt !== null && this.assetsAt + LOAD_STATE_FADE_SECONDS * 1000 >= sc.start;
+        if (c.state === 'open' && (this.assetsAt === null || inFade)) { this.matchOver(); return; }
+        if (c.state !== 'open' && inFade) { this.end(returnDialog(GAME_ENDED_DIALOG_READING), null, 'late-load-game-over'); return; }
       }
       // A drop with no match of its own to retry it (the handle's `ended` decides, once made): the match is started
       // and its frame ends it, so the load is never left holding on a socket nobody reopens -- nor on the host's
@@ -722,7 +727,7 @@ export class LobbyMatch {
    * lobby again. From the loading screen (a page not late still loading, ONL-20b's review) the client is the hand-off's,
    * listened to here: the screen hidden and the load's release dropped (`finish`), no `loaded` sent by the return
    * (`LATE_JOINER_RETURN_FROM_LOADING_READING`; one sent at the assets' arrival, LOAD-HOLD, stays sent). A late page's
-   * load is not ended by the return (LATER 238: `event`, `frame`).
+   * load is ended here too, at the game's end (OT.R122, `lateEnding`; the original's LATER 238 kept it loading).
    */
   matchOver(): void {
     let client: NetClient | null;
@@ -809,7 +814,6 @@ export class LobbyMatch {
     this.events = [];
     this.screens = null;
     this.shownAt = null;
-    this.returnedInLoad = null;
     this.pageOff?.(); this.pageOff = null; this.page = null;
   }
 

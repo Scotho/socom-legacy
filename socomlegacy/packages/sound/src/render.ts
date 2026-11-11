@@ -267,18 +267,30 @@ export function groupStage(vol14: number, modifier: number | null): number {
 
 const enum Phase { Attack, Decay, Sustain, Release, Off }
 
-class Envelope {
-  phase = Phase.Attack;
+/**
+ * The SPU's ADSR envelope for one voice (psx-spx). Exported for PAGE-ALLOC-A's pin (`test/envelopeAlloc.test.ts`) only.
+ *
+ * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation): `rate` writes its step and cycle count into the envelope
+ * (`rateStep`, `rateCycles`) where it returned a new `[step, cyc]` a step, a voice, a sample (29 MB in 10 s of shadow's
+ * X2c profile). The same integer arithmetic, in the same order.
+ */
+export class Envelope {
+  /** The phase: a `Phase` (Attack 0, Decay 1, Sustain 2, Release 3, Off 4), typed as its number for the export. */
+  phase: number = Phase.Attack;
   level = 0;
   private cycles = 0;
+  /** `rate`'s answer: the level's step and the samples it holds (was its returned pair). */
+  private rateStep = 0;
+  private rateCycles = 1;
   constructor(private readonly adsr1: number, private readonly adsr2: number) {}
   keyOff(): void { if (this.phase !== Phase.Off) this.phase = Phase.Release; this.cycles = 0; }
-  private rate(shift: number, stepValue: number, exponential: boolean, decrease: boolean): [number, number] {
+  private rate(shift: number, stepValue: number, exponential: boolean, decrease: boolean): void {
     let cyc = 1 << Math.max(0, shift - 11);
     let step = stepValue * (1 << Math.max(0, 11 - shift));
     if (exponential && !decrease && this.level > 0x6000) cyc *= 4;
     if (exponential && decrease) step = idiv(step * this.level, 0x8000);
-    return [step, cyc];
+    this.rateStep = step;
+    this.rateCycles = cyc;
   }
   /** One sample; false once the voice is off. */
   tick(): boolean {
@@ -288,12 +300,14 @@ class Envelope {
     const a1 = this.adsr1, a2 = this.adsr2;
     switch (this.phase) {
       case Phase.Attack:
-        [step, cyc] = this.rate((a1 >> 10) & 0x1f, 7 - ((a1 >> 8) & 3), (a1 & 0x8000) !== 0, false);
+        this.rate((a1 >> 10) & 0x1f, 7 - ((a1 >> 8) & 3), (a1 & 0x8000) !== 0, false);
+        step = this.rateStep; cyc = this.rateCycles;
         this.level += step;
         if (this.level >= 0x7fff) { this.level = 0x7fff; this.phase = Phase.Decay; }
         break;
       case Phase.Decay: {
-        [step, cyc] = this.rate((a1 >> 4) & 0x0f, -8, true, true);
+        this.rate((a1 >> 4) & 0x0f, -8, true, true);
+        step = this.rateStep; cyc = this.rateCycles;
         this.level += step;
         const sustain = ((a1 & 0x0f) + 1) * 0x800;
         if (this.level <= sustain) { this.level = Math.max(this.level, 0); this.phase = Phase.Sustain; }
@@ -302,12 +316,14 @@ class Envelope {
       case Phase.Sustain: {
         const decrease = (a2 & 0x4000) !== 0;
         const stepValue = decrease ? -(8 - ((a2 >> 6) & 3)) : 7 - ((a2 >> 6) & 3);
-        [step, cyc] = this.rate((a2 >> 8) & 0x1f, stepValue, (a2 & 0x8000) !== 0, decrease);
+        this.rate((a2 >> 8) & 0x1f, stepValue, (a2 & 0x8000) !== 0, decrease);
+        step = this.rateStep; cyc = this.rateCycles;
         this.level = Math.min(0x7fff, Math.max(0, this.level + step));
         break;
       }
       case Phase.Release:
-        [step, cyc] = this.rate(a2 & 0x1f, -8, (a2 & 0x20) !== 0, true);
+        this.rate(a2 & 0x1f, -8, (a2 & 0x20) !== 0, true);
+        step = this.rateStep; cyc = this.rateCycles;
         this.level += step;
         if (this.level <= 0) { this.level = 0; this.phase = Phase.Off; }
         break;

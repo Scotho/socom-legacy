@@ -4,7 +4,7 @@ import type { ChannelListEntry } from '../../src/screens/worldOfSocomCommands';
 import { BRIEFING_ROOM, GAME_DETAILS_TYPE_WORDS, GAME_INFO_DETAILS_VAR, gameDetails, type GameListEntry } from '../../src/screens/briefingRoomCommands';
 import { discMissions } from './createGameRig';
 import {
-  CLOSED_CLAN_GAME_TEXT, GAME_LOBBY, isVersionRefusal, NET_ABANDONED, PLAYER_GAME_PASSWORD_VAR, SPECTATOR_GAME_PASSWORD_VAR, TOO_MANY_PLAYERS_TEXT, TOO_MANY_SPECTATORS_TEXT, VERSION_REFUSAL_ABORT_READING, versionRefusalText,
+  CLOSED_CLAN_GAME_TEXT, GAME_LOBBY, isVersionRefusal, MATCH_ENDING_READY_LINE, NET_ABANDONED, PLAYER_GAME_PASSWORD_VAR, SPECTATOR_GAME_PASSWORD_VAR, TOO_MANY_PLAYERS_TEXT, TOO_MANY_SPECTATORS_TEXT, VERSION_REFUSAL_ABORT_READING, versionRefusalText,
   type GameLobbyView,
 } from '../../src/screens/gameLobbyCommands';
 import { UI_TICK_SECONDS } from '../../src/clock/uiClock';
@@ -924,6 +924,53 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     r.commands.gameLobby(view(TWO, { launched: true }));
     await r.settle(SECOND);
     expect([r.valve('mp_major_game_state'), r.starts.map((s) => s.lateJoiner)]).toEqual([2, [false]]);
+  });
+
+  // OT.R122 (the owner's ruling, 2026-11-11; `LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation): a late seat that hears the
+  // game end (the room's last roundOver, `matchOver`) while the game is launched has its READY held -- the native READY
+  // drawn disabled (`./lobbyRecovery`, as the recovery draws it) with one line in the help line's place -- and READY's late
+  // branch starts no load; the room's lobby again lets it go, and READY is then the normal ready.
+  it('OT.R122: late, the game\'s end heard -- READY drawn disabled with the line, its late branch starts no load; the room back in its lobby -- READY open, the normal ready (lobbyReady)', async () => {
+    const r = await lobby({ lobbyView: () => view(TWO, { launched: true }) });
+    await yesWaits(r);
+    r.commands.roundOver(true);
+    await r.settle(SECOND);
+    const parts = r.parts.current!;
+    const ready = parts.widgets.specOf('PlayerReady')!;
+    expect([r.commands.readyHeld(), parts.widgets.enabled(ready), r.text('DescriptionText')]).toEqual([true, false, [MATCH_ENDING_READY_LINE]]);
+    r.commands.ReadyToLoad({ arg: 'NA' } as never, 0 as never, 0 as never);
+    await r.settle(SECOND);
+    expect([r.valve('mp_major_game_state'), r.starts, r.sent, r.current()]).toEqual([1, [], [], GAME_LOBBY]);
+    r.commands.gameLobby(view(TWO, { launched: false }));
+    await r.settle(SECOND);
+    expect([r.commands.readyHeld(), r.valve('late_joiner'), r.parts.current!.widgets.enabled(r.parts.current!.widgets.specOf('PlayerReady')!)]).toEqual([false, 0, true]);
+    go(r, 'PlayerReady');
+    r.press('CROSS', 4);
+    await r.settle(SECOND);
+    expect([r.sent, r.valve('mp_minor_game_state'), r.starts]).toEqual([['lobbyReady'], 2, []]);
+  });
+
+  // The review's F3 (OT.R122): the hold's release while another dialog stands (the ARMORY) draws nothing there -- READY is
+  // drawn open when the lobby is next shown, with no line.
+  it('OT.R122 (the review\'s F3): the ARMORY open during the hold, the room back in its lobby meanwhile -- back in the lobby, READY open with no line', async () => {
+    const r = await lobby({ lobbyView: () => view(TWO, { launched: true }) });
+    await yesWaits(r);
+    r.commands.roundOver(true);
+    await r.settle(SECOND);
+    expect(r.text('DescriptionText')).toEqual([MATCH_ENDING_READY_LINE]);
+    await r.settle(11 * SECOND);                                                   // ArmButtonClock's 10..1
+    go(r, 'weaponselect');
+    r.press('CROSS', 10);
+    await until(r, () => r.current() === ARMORY, 10 * SECOND);
+    await r.settle(SETTLED);
+    r.commands.gameLobby(view(TWO, { launched: false }));                          // the room's return, the ARMORY up
+    await r.settle(SECOND);
+    expect([r.commands.readyHeld(), r.current()]).toEqual([false, ARMORY]);
+    r.press('TRIANGLE', 6);
+    await until(r, () => r.current() === GAME_LOBBY, 10 * SECOND);
+    await r.settle(SETTLED);
+    const parts = r.parts.current!;
+    expect([parts.widgets.enabled(parts.widgets.specOf('PlayerReady')!), r.text('DescriptionText').includes(MATCH_ENDING_READY_LINE)]).toEqual([true, false]);
   });
 
   it('CREATE GAME (ONL-13) is the entry second caller: CRgame opens dlgCreateGame.rdr; its success (JoinGame, the host world report, the socket) lands in the lobby as its host', async () => {

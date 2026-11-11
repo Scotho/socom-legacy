@@ -521,7 +521,7 @@ describe('Display: Graphics (VS-2: the schema\'s renderer row, through the video
 
 // HD-4 item 4 (the owner, 2026-11-01: "make sure home gets the video too"; OT.R79, HD.R8; a browser adaptation): Home's
 // Display offers the page's picture -- the one VIDEO MODE's strip sets -- through the page's one keeper (`./picture`).
-// B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE Soul) value is removed with the picture and
+// B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE SouL) value is removed with the picture and
 // HD-HOLD -- the row offers Modern and PS2, and the HD pack is chosen in Home > Experiments > Mods.
 describe('Display: Video (OT.R79, a browser adaptation)', () => {
   const videoRow = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === VIDEO_PICTURE_ROW)!;
@@ -531,7 +531,7 @@ describe('Display: Video (OT.R79, a browser adaptation)', () => {
     expect(row).toMatchObject({ label: 'Video', def: 0 });
     expect(row.values).toEqual(['Modern', 'PS2']);
     expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2']);
-    expect(JSON.stringify(row)).not.toMatch(/GoE Soul/);
+    expect(JSON.stringify(row)).not.toMatch(/GoE SouL/);
     expect(options.value(VIDEO_PICTURE_ROW)).toBe(0);
   });
   it('a choice here is the page\'s picture: stored, heard by the keeper the VIDEO strip and a match read', () => {

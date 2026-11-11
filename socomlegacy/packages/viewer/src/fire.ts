@@ -148,6 +148,18 @@ export const NET_REFILL_DRY_PULL_READING = 'at once, no round in the same frame'
  */
 export const DRY_CLICK_FRAME_READING = 'each page frame';
 /**
+ * RELOAD_PRESS_FRAME_READING (LATER 330; research 84 s11): the game frame a reload's press arms the kit's timer `+0x820`
+ * in, against the kit's frame that runs it down. R arms it in `FUN_00594cf0` (D:L453460-453463 -> `FUN_005c32b0`), whose
+ * caller is not read; the actor's frame `FUN_005506a0` runs a virtual update (`piVar6[0x30]` vtable `+0x3c`, D:L417905)
+ * before the kit's frame (`FUN_005c0fd0`, D:L417907). `'next'` (the port's): the press's own frame keeps its fire tick and
+ * the timer's first run-down is the next game frame's, as a bolt's or a pump's lock set inside the fire tick
+ * (`FUN_005be9a0` -> `FUN_005c5340` -> `FUN_005c32b0`) runs from the frame after its round. `'same'`: the press runs
+ * before the kit's frame, so the timer runs down in the press's own frame, which has no fire tick -- the reload a game
+ * frame sooner. Settled by resolving that vtable slot (whether it reaches `FUN_00594cf0`) or by a capture of a reload's
+ * press and its `reloadStart` frame against the frame clock.
+ */
+export const RELOAD_PRESS_FRAME_READING = 'next' as 'next' | 'same';
+/**
  * RELOAD_ITEM_UP_READING (GRENADE-RELOAD, research 361 §5-§6; reading, pending review): R with a throwable, a charge or
  * the Detonator up moves nothing. The press (`FUN_00594cf0` D:L453459-453463) arms the kit timer `kit+0x820` with the
  * hand's record's ReloadDelay (`FUN_005c32b0` D:L477656-477679 -> `FUN_005c3780` D:L477826-477833 -> `FUN_003d2c40`
@@ -737,14 +749,22 @@ export class Fire {
    * Seconds until the next round may go; at most 0 is ready. LATER 326 (reading, pending review): the kit's timer
    * `+0x81c` -- set to the rate when a round leaves (`FUN_005be9a0` D:L475488, D:L475517; the rate `FUN_005c09f0`,
    * D:L476571), run down a game frame at a time and clamped at 0 (`FUN_005c0fd0` D:L476644-476646): no leftover carried.
-   * The console runs it down inside the fire tick, which a bolt's or pump's lock (`+0x820`) skips, so the lock holds it;
-   * the page runs it down through the lock -- LATER 330 (the review's F2). A held round the timer allows goes on the page
+   * The console runs it down inside the fire tick, which a frame of the kit's other timer (`+0x820`: a reload's delay, a
+   * bolt's or a pump's lock) skips (D:L476549-476563), so the lock holds it (`frameTimed`; LATER 330, the review's F2;
+   * reading, pending review). A held round the timer allows goes on the page
    * frame any page-time gate lifts (the raise, a reload's or a bolt's clip, the swap's `ready`, the binoculars, the aim),
    * not only at a step -- the rate holds (`update`, the 326 re-read's N1).
    */
   private wait = 0;
   /** LATER 326: browser time not yet run down as whole game frames (`GAME_FRAME_DT`), the kit's frame clock. */
   private gameTime = 0;
+  /**
+   * LATER 330 (reading, pending review): the kit's frame since the last step began with `+0x820` running (a reload's delay
+   * `reloadPending`, a bolt's or a pump's lock `afterShotPending`), so it runs no fire tick (`FUN_005c0fd0`
+   * D:L476549-476563) -- no gate and no run-down of the fire timer (D:L476643-476647) -- the frame the timer ends in
+   * included (D:L476552-476561).
+   */
+  private frameTimed = false;
   /**
    * LATER 587 (reading, pending review): the last `update`'s step brought the timer to 0 and no round has gone since -- the
    * gate opened at that step, the game frame's start `gameTime` counts from. A press on the next page frame is that
@@ -1666,6 +1686,8 @@ export class Fire {
     this.reloadPending = this.reloadDelay();
     this.pressOf = { weapon: this.rifle.name, ring: this.mags, delay: this.reloadPending };   // A1 fold 3: the room's `pressLock`
     this.emit({ type: 'reloadPress', weapon: this.weapon(), seconds: this.reloadPending });
+    // LATER 330: the press's own frame runs the timer down first, with no fire tick, under the other reading.
+    if (RELOAD_PRESS_FRAME_READING === 'same') { this.frameTimed = true; this.kitTimerStep(0); }
   }
 
   /** LATER 72: online, the reload's delay window's end in commands (the room's `pressLock.until`), from the page's net. */
@@ -1763,16 +1785,44 @@ export class Fire {
   }
 
   /**
+   * LATER 330 (reading, pending review): one game frame of the kit's other timer `+0x820` -- a reload's delay
+   * (`reloadPending`) or a bolt's or a pump's lock (`afterShotPending`) -- run down by the frame's dt in float32 and ended
+   * on the frame it goes below 0, the reload (`FUN_005c2a90`) or the after-shot (`FUN_005c3000`) begun then
+   * (`FUN_005c0fd0` D:L476550-476560; the count the room's bots take, `match/src/bots/roles.ts` `botFireFrames`). Was: run
+   * down a browser frame at a time, so its end came up to a game frame early on a fast page. A clip begun here runs on the
+   * page's time (`FUN_005a7ab0`'s lock, the pose's clip) as before: a reload's counted from its page frame's start (the
+   * frame's `dt`, the command its `reloadStart` is named on, as the room counts its lock), an after-shot's from the next.
+   */
+  private kitTimerStep(dt: number): void {
+    const f = Math.fround, frame = f(GAME_FRAME_DT);
+    if (this.reloadPending >= 0) {
+      this.reloadPending = f(f(this.reloadPending) - frame);
+      if (!(this.reloadPending < 0)) return;
+      this.beginReload();
+      if (this.reloadLeft > 0) {
+        this.reloadLeft -= dt;
+        if (this.reloadLeft <= 1e-9) {
+          this.reloadLeft = 0;
+          this.emit({ type: 'reloadEnd', weapon: this.weapon(), completed: true, reason: 'complete' });
+        }
+      }
+    } else if (this.afterShotPending >= 0) {
+      this.afterShotPending = f(f(this.afterShotPending) - frame);
+      if (this.afterShotPending < 0) this.beginAfterShot();
+    }
+  }
+
+  /**
    * One frame, before it is drawn: the reload, the rate's wait, a held trigger's rounds, the scoped kick, and the
    * tracer's one frame -- a tracer lit since the last frame is drawn in this one and gone in the next.
    */
   update(dt: number): number {
     this.takeKept = null;                                           // LATER 526's R3: the rifle updates only unmounted -- the take was accepted and is released; its wait ran in `mountWait`
     const timed = this.reloadPending >= 0 || this.afterShotPending >= 0;   // `kit+0x820` running: no fire tick this frame (D:L476549-476563)
-    if (this.reloadPending >= 0) {
-      this.reloadPending -= dt;
-      if (this.reloadPending <= 1e-9) this.beginReload();
-    }
+    // LATER 330: the timer runs down at the game-frame steps below (`kitTimerStep`); one already spent (`mountUntake`'s
+    // timer that ran out in the take's wait) begins at once, as before.
+    if (this.reloadPending >= 0 && this.reloadPending <= 1e-9) this.beginReload();
+    if (this.afterShotPending >= 0 && this.afterShotPending <= 1e-9) this.beginAfterShot();
     // PF-18: the clip's cut (`FireSource.reloadCut`) ends the lock at the clip's life -- the pose's step ran before this
     // frame's update (`main.ts`), so the life left counts from this frame's end, past which the margin holds.
     const cut = this.reloadLeft > 0 || this.afterShotLeft > 0 ? this.source.reloadCut?.() ?? null : null;
@@ -1784,15 +1834,11 @@ export class Fire {
         this.emit({ type: 'reloadEnd', weapon: this.weapon(), completed: true, reason: 'complete' });
       }
     }
-    // M4: the bolt's or the pump's lock (`FUN_005c0fd0` L476549-476561 runs the kit's timer down), then its clip.
+    // M4: the bolt's or the pump's clip after its lock (the lock is the kit's timer: `kitTimerStep`).
     if (this.afterShotLeft > 0) {
       this.afterShotLeft -= dt;
       if (cut && this.afterShotLeft > 1e-9) this.afterShotLeft = Math.min(this.afterShotLeft, cut.left + RELOAD_CUT_MARGIN_S);
       if (this.afterShotLeft <= 1e-9) this.afterShotLeft = 0;
-    }
-    if (this.afterShotPending >= 0) {
-      this.afterShotPending -= dt;
-      if (this.afterShotPending <= 1e-9) this.beginAfterShot();
     }
     this.tracerFrame();
     this.shadeLate();
@@ -1814,10 +1860,16 @@ export class Fire {
     const steps = Math.floor((this.gameTime + 1e-9) / GAME_FRAME_DT), left = Math.max(0, this.gameTime - steps * GAME_FRAME_DT);
     let fired = 0, opened = false;
     for (let k = 0; k < steps; k++) {
-      if (this.wait > 1e-9 && this.wait - GAME_FRAME_DT <= 1e-9) opened = true;   // LATER 587: this step opens the gate
-      this.wait = Math.max(0, this.wait - GAME_FRAME_DT);   // the frame that ended: its run-down (D:L476644-476646)
       // LATER 338: the step's own moment in this page frame -- its round named at the walk's tick there, on its camera.
       const at = (k + 1) * GAME_FRAME_DT - before;
+      // The frame that ended: its run-down (D:L476644-476646) -- LATER 330: only if it ran its fire tick (`frameTimed`).
+      if (!this.frameTimed) {
+        if (this.wait > 1e-9 && this.wait - GAME_FRAME_DT <= 1e-9) opened = true;   // LATER 587: this step opens the gate
+        this.wait = Math.max(0, this.wait - GAME_FRAME_DT);
+      }
+      // LATER 330: the next frame's `+0x820` running -- run down, perhaps ended -- and no fire tick in it.
+      this.frameTimed = this.reloadPending >= 0 || this.afterShotPending >= 0;
+      if (this.frameTimed) { this.kitTimerStep(dt); continue; }
       if (this.held && this.wait <= 1e-9 && this.pullRound(at)) fired++;   // the next frame's gate and its round
     }
     this.gameTime = left;
@@ -1829,9 +1881,10 @@ export class Fire {
     // the timer runs out only at a step. Not the raise alone (the 326 re-read's N1): any gate `pullRound` reads on the
     // page's own time -- the reload's clip, a bolt's or a pump's clip, the swap's `ready`, the binoculars, the aim --
     // lifting between steps lets the held round go on this page frame too; the rate holds (the timer still runs out only
-    // at a step; the page-time gates themselves are LATER 330's). The second round after such a round comes up to one page
+    // at a step; LATER 330: the kit's own timer `+0x820` runs out only at a step too, and its frame has no fire tick,
+    // `frameTimed`; a clip's lock is the pose's time). The second round after such a round comes up to one page
     // frame later than the rate, never earlier (N2).
-    if (fired === 0 && this.held && this.wait <= 1e-9 && this.pullRound()) { fired++; this.gameTime = 0; this.gateOpened = false; }
+    if (fired === 0 && !this.frameTimed && this.held && this.wait <= 1e-9 && this.pullRound()) { fired++; this.gameTime = 0; this.gateOpened = false; }
     // LATER 179 / 48: the kit frame's dry branch, when no round left this frame (`FUN_005c0ae0` 0, D:L476569-476573) --
     // so on the frame after the emptying round, never on its own -- and not twice for a press (`pull`).
     if (!timed && !this.dryRan && this.shots === this.shotsSeen) this.dryFrame();

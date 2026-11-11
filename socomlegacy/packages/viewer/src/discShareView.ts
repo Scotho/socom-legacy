@@ -76,7 +76,19 @@ export interface DiscShareAdapter {
    * and the launcher opens Play's share area on it once (optional: absent, no).
    */
   hostLinked?(): boolean;
+  /**
+   * DSH-10 (the disc share plan, DSH.R17; DSH.R7): whether this page holds a complete extraction -- the one rule that
+   * enables "Send Game Files" and the disc mark's "SEND DISC" (optional: absent, no -- the stub and a screen's fake).
+   */
+  complete?(): boolean;
 }
+
+/**
+ * RB-26, Q11: whether ending the share now (a deploy, the panel closed) stops something under way -- a copy, or requests
+ * waiting for the host's answer -- so the launch first says so (`SHARE_DEPLOY_STOPS`). DSH-10: here beside `HostView`, so
+ * the console reads it without the transfer's modules (`./discShare` re-exports it).
+ */
+export const hostBusy = (v: HostView | null | undefined): boolean => !!v && (v.active !== undefined || v.pending.length > 0);
 
 /** The address parameter the pairing link carries (DSH.R9: the code filled in). */
 export const DISC_SHARE_PARAM = 'discshare';

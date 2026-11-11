@@ -391,6 +391,15 @@ describe('GM-13: the HD replacement loads\' byte budget (agent/hd-subrect review
     return { promise, resolve, reject };
   };
   const tick = async (): Promise<void> => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  /**
+   * SUITE-WAITS: wait for a state by time, not by a count of event-loop turns. A lookup reaches the budget only after
+   * `hdKeyOf`'s digest, which is real async work: under the whole suite's load 20 turns were not enough
+   * (b0's whole viewer suite at 29c91886f, `budget.waiting` 0 for 2). Bounded, and the assertions after it still decide.
+   */
+  const until = async (ready: () => boolean, ms = 4_000): Promise<void> => {   // under vitest's 5 s default
+    const end = Date.now() + ms;
+    while (!ready() && Date.now() < end) await new Promise((r) => setTimeout(r, 1));
+  };
 
   it('in flight never past the cap, first come first served; one load past the cap runs alone; a failure frees its bytes', async () => {
     expect(HD_UI_LOAD_BYTES_ADAPTATION).toBe(256 * 1024 * 1024);
@@ -445,7 +454,7 @@ describe('GM-13: the HD replacement loads\' byte budget (agent/hd-subrect review
     let changes = 0;
     const t = new HdMenuTextures(source, 1 << 30, () => { changes++; }, { budget, cost: () => 100 });
     t.lookup(img(4, 4, 90)); t.lookup(img(4, 4, 91)); t.lookup(img(4, 4, 92));
-    for (let i = 0; i < 20 && pending.length < 1; i++) await new Promise((r) => setTimeout(r, 0));
+    await until(() => pending.length >= 1 && budget.waiting >= 2);    // all three digests done: one running, two queued
     await tick();
     expect(pending.length).toBe(1);
     expect(budget.waiting).toBe(2);
@@ -487,14 +496,14 @@ describe('GM-13: the HD replacement loads\' byte budget (agent/hd-subrect review
     const budget = new UiGpuLoadBudget(150);
     const t = new HdMenuTextures(source, 1 << 30, () => undefined, { budget, cost: () => 100 });
     t.lookup(img(4, 4, 70)); t.lookup(img(4, 4, 71)); t.lookup(img(4, 4, 72));
-    for (let i = 0; i < 20 && pending.length < 1; i++) await new Promise((r) => setTimeout(r, 0));
+    await until(() => pending.length >= 1 && budget.waiting >= 2);    // all three asked: one running, two held
     await tick();
     expect(pending.length).toBe(1);                                   // 100 + 100 > 150: one at a time
     pending[0]!.resolve(null);
-    for (let i = 0; i < 20 && pending.length < 2; i++) await new Promise((r) => setTimeout(r, 0));
+    await until(() => pending.length >= 2);
     expect(pending.length).toBe(2);
     pending[1]!.resolve(null);
-    for (let i = 0; i < 20 && pending.length < 3; i++) await new Promise((r) => setTimeout(r, 0));
+    await until(() => pending.length >= 3);
     pending[2]!.resolve(null);
     await t.settled();
     expect(pending.length).toBe(3);
@@ -502,7 +511,7 @@ describe('GM-13: the HD replacement loads\' byte budget (agent/hd-subrect review
     const free: ReturnType<typeof deferred<Rgba | null>>[] = [];
     const u = new HdMenuTextures({ replacement: () => { const d = deferred<Rgba | null>(); free.push(d); return d.promise; } });
     u.lookup(img(4, 4, 73)); u.lookup(img(4, 4, 74)); u.lookup(img(4, 4, 75));
-    for (let i = 0; i < 20 && free.length < 3; i++) await new Promise((r) => setTimeout(r, 0));
+    await until(() => free.length >= 3);
     expect(free.length).toBe(3);
     for (const d of free) d.resolve(null);
     await u.settled();

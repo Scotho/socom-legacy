@@ -1179,6 +1179,10 @@ headshot and `CHRSND_DEATH` otherwise, from `character.rdr`'s `sounds` list (as 
 
 ### 8.17 SPINELO_RADIUS_PLACEHOLDER (`net/hitVolumes.ts` L33)
 
+**Retired 2026-11-10** (BONE-BOXES; research 217 §3.6b, research 398): the hit volumes are the bones' boxes, one a bone
+(`FUN_0058b960` D:L447559-447593), so there is no radius; `spinelo`'s bbox is all zero on the SEAL, a box nothing enters.
+The answer below is kept as it was written.
+
 **Answer.** PARTIAL, BELIEVED. The game has no capsules. FUN_003c8920 takes the struck polygon's node, walked up its
 parent chain (`+100`, D:L319391-319397). FUN_005abbc0 maps that node by the handle table. `spinelo` (`+0x2fc`) is a BODY
 node, but per research 78 §3 it moves no vertex most, so it likely owns no struck geometry. The hips/spinehi polygons

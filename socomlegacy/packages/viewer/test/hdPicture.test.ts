@@ -4,7 +4,7 @@ import {MATCH_EXPERIMENTAL_OFF} from '../src/picture';
 import {readFileSync} from 'node:fs';
 
 /**
- * HD.R8 (the owner, 2026-10-31, OT.R92) made VIDEO MODE's third picture "HD (GoE Soul)"; B206 ML-6 (plan
+ * HD.R8 (the owner, 2026-10-31, OT.R92) made VIDEO MODE's third picture "HD (GoE SouL)"; B206 ML-6 (plan
  * 2026-11-06-mods-loader, ML.R11; OT.R110) removed it. MODERN and PS2 hand the match the experimental renderer off,
  * exactly as before (the OFF pins); the HD pack follows the texture pack chosen in MODS, not a picture.
  */

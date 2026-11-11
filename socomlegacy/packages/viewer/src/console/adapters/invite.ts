@@ -2,8 +2,9 @@ import {
   INVITE_ROUTE, inviteHref, inviteOf, isLobbyId, lobbyInviteOf, withoutInvite, type InviteLink,
 } from '@s2u/ui';
 import { answerInvites, clearInviteTaken, markInviteTaken, pageInviteChannel, type InviteChannelOpen } from '../../inviteHost';
+import { LOBBY_LINK_QUICK_WAIT_MS_ADAPTATION, lobbyLinkRoute, markLobbyLinkDirect } from '../../lobbyLinkDirect';
 import { routeSegmentsOfPath } from '../../menuRoutes';
-import type { SessionState } from '../../modern/session';
+import type { SessionAccount, SessionState } from '../../modern/session';
 import type { ConsoleState, DiscState, InvitePage, Overlay } from '../state';
 
 /**
@@ -33,6 +34,13 @@ import type { ConsoleState, DiscState, InvitePage, Overlay } from '../state';
  * logs in over this session. One that stopped being free between its `held` and the offer is refused at the offer by
  * `answerInvites`, which asks `busy()` again before `take` (LATER 89: `take`'s own decline is defence in depth). The
  * channel is closed when the page gives the window up.
+ *
+ * **LOBBY-LINK-DIRECT** (`../../lobbyLinkDirect` `LOBBY_LINK_DIRECT_ADAPTATION`, the owner, 2026-11-11). On a lobby link's
+ * address (`/online/lobby/<id>`) the auto-START also waits while the load's quick sign-in is answering (`quickPending`,
+ * PERSONA-PERSIST (a)), so a remembered player is read signed in; and every START this page makes or sees there -- the
+ * auto-START, the player's own, a taken invite's -- decides once, as it begins and before the hand-over's sign-out, whether
+ * the front end it mounts makes the login path's presses for the player: the disc kept whole (`kept().whole`, DSH.R7)
+ * and the session `signed-in` mark it (`markLobbyLinkDirect`); anything else clears the mark, and the flow is today's.
  */
 export const INVITE_START_ADAPTATION = 'an invite address presses START once, when START is ready; the launcher takes an invite offered on s2u-invite' as const;
 
@@ -77,6 +85,8 @@ export interface AutoStartView {
   extracting: boolean;
   /** START's own needs met (`startReady`: the disc ready, a controller). */
   ready: boolean;
+  /** LOBBY-LINK-DIRECT: a lobby link's address while the load's quick sign-in is answering (wait for it). */
+  signing?: boolean;
 }
 
 /** `off`: nothing to do (a plain visit, or spent); `met`: the player's START is under way, which spends it; `wait`; `start`. */
@@ -86,15 +96,22 @@ export type AutoStartStep = 'off' | 'met' | 'wait' | 'start';
 export function autoStartStep(v: AutoStartView): AutoStartStep {
   if (!v.invite || v.spent) return 'off';
   if (v.start !== 'idle') return 'met';
-  if (v.disc !== 'ready' || v.extracting || v.overlay !== null || !v.ready) return 'wait';
+  if (v.disc !== 'ready' || v.extracting || v.overlay !== null || !v.ready || v.signing === true) return 'wait';
   return 'start';
 }
 
 export interface InviteDeps {
-  /** The page's session's state (`../../modern/session` `pageSession`). */
-  session: { state(): SessionState };
-  /** The disc adapter (`./disc`): its state, its extraction under way, its load's read of the kept extraction. */
-  disc: { state(): DiscState; extracting?(): boolean; loaded?(): Promise<void> };
+  /** The page's session's state (`../../modern/session` `pageSession`), and its account (LOBBY-LINK-DIRECT's name). */
+  session: { state(): SessionState; account?(): SessionAccount | null };
+  /**
+   * The disc adapter (`./disc`): its state, its extraction under way, its load's read of the kept extraction, and what is
+   * kept (`whole`: the complete extraction, DSH.R7's "disc added" -- LOBBY-LINK-DIRECT's rule).
+   */
+  disc: { state(): DiscState; extracting?(): boolean; loaded?(): Promise<void>; kept?(): { whole: boolean } | null };
+  /** LOBBY-LINK-DIRECT: the load's quick sign-in is answering (`./session` `quickPending`); absent, never. */
+  quickPending?: () => boolean;
+  /** The clock (ms) the quick sign-in's wait is bounded on; absent, `Date.now`. */
+  now?: () => number;
   /** Re-draws the page (the adapters' `notify`). */
   notify?: () => void;
   /** The site's base path; absent, the build's (`BASE_URL`). */
@@ -123,6 +140,26 @@ export function liveInvite(win: Window, deps: InviteDeps): LiveInvite {
   let loaded = !deps.disc.loaded;
   void deps.disc.loaded?.().then(() => { loaded = true; deps.notify?.(); }, () => { loaded = true; });
 
+  // LOBBY-LINK-DIRECT: the START's decision for the front end it mounts, made as it begins (the session still signed in).
+  const decide = (l: InviteLink | null): void => {
+    markLobbyLinkDirect(lobbyLinkRoute({
+      lobbyId: l?.lobbyId ?? null, discWhole: deps.disc.kept?.()?.whole === true,
+      session: deps.session.state(), account: deps.session.account?.()?.name ?? null,
+    }));
+  };
+  // The wait is bounded (`LOBBY_LINK_QUICK_WAIT_MS_ADAPTATION`, from the first check that saw it): a quick sign-in that
+  // never answers leaves the auto-START to go on as today, a redraw asked at the bound.
+  let signingSince: number | null = null;
+  const signing = (): boolean => {
+    const l = link();
+    if (!l?.lobbyId || !((deps.quickPending?.() ?? false) || deps.session.state() === 'signing-in')) return false;
+    const now = (deps.now ?? Date.now)();
+    if (signingSince === null) {
+      signingSince = now;
+      setTimeout(() => { deps.notify?.(); }, LOBBY_LINK_QUICK_WAIT_MS_ADAPTATION);
+    }
+    return now - signingSince < LOBBY_LINK_QUICK_WAIT_MS_ADAPTATION;
+  };
   return {
     link,
     waiting: () => (loaded && !spent && link() !== null && deps.disc.state() !== 'ready' ? INVITE_WAITING_LINE : ''),
@@ -130,13 +167,13 @@ export function liveInvite(win: Window, deps: InviteDeps): LiveInvite {
       let detached = false;
       const view = (): AutoStartView => ({
         invite: link() !== null, spent, start: page.S.start, overlay: page.S.overlay, disc: deps.disc.state(),
-        extracting: deps.disc.extracting?.() ?? false, ready: page.ready(),
+        extracting: deps.disc.extracting?.() ?? false, ready: page.ready(), signing: signing(),
       });
       const check = (): void => {
         if (detached) return;
         const step = autoStartStep(view());
-        if (step === 'met') spent = true;
-        else if (step === 'start') { spent = true; page.start(); }
+        if (step === 'met') { spent = true; decide(link()); }
+        else if (step === 'start') { spent = true; decide(link()); page.start(); }
       };
       // Part B: a launcher that holds a sign-in and could press START now, on a page that is not itself asking.
       const free = (): boolean => !detached && link() === null && page.S.start === 'idle' && page.S.overlay === null
@@ -156,6 +193,7 @@ export function liveInvite(win: Window, deps: InviteDeps): LiveInvite {
           // that refuses is held by `inviteHost.test.ts` ("the offer-time busy()").
           if (!free()) return false;
           markInviteTaken(l);                                           // first: the mount skips its own re-offer
+          decide(l);                                                    // LOBBY-LINK-DIRECT: a taken lobby link decided as the address's
           win.history.replaceState(null, '', inviteAddress(win.location, base, l));
           spent = true;
           // START after `take` returns (answerInvites posts 'taken' next); the answerer closed at START, before the

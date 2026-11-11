@@ -1,0 +1,4 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE diagnostics (30, 2026-11-09, after the timed set), r0004 M51 --state 5 (count 1, rifle up, the marking post 0x13419a0 at bearing ~170.3, acc 2.0).
+# T2 exact-back: O2/O1's turns with the turn back closed to slot 5's yaw +/- 0.5, --raise-records 5:
+# --yaw-turns "1000:+70:3,10750:0:0.5". If the re-mark holds, the eye geometry (176-179 against 180.0) was the cause.
+21500 lup 0

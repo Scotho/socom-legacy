@@ -37,7 +37,11 @@ import type { Adapters, QuickSignIn } from '../state';
  * kept: the field's text is the dialog's until the sign-in, and the cookie is the browser's (HttpOnly; never read
  * here). A browser adaptation with no original (OT.R28).
  */
-export type LiveSession = Adapters['session'] & Required<Pick<Adapters['session'], 'agreement' | 'limits' | 'words'>> & { dispose(): void };
+export type LiveSession = Adapters['session'] & Required<Pick<Adapters['session'], 'agreement' | 'limits' | 'words'>> & {
+  /** LOBBY-LINK-DIRECT (`../../lobbyLinkDirect`): the load's quick sign-in is answering (the lobby link's auto-START waits on it). */
+  quickPending(): boolean;
+  dispose(): void;
+};
 
 /** OT.R61: what the remember filing reads and writes of the card (`cardProfileEdits`'s). */
 export type RememberCard = Pick<ProfileCardEdits, 'personas' | 'setPersonaLogin' | 'rememberNewPersona' | 'refusal'>;
@@ -169,6 +173,27 @@ export function liveSession(notify: () => void, deps: SessionDeps = {}): LiveSes
     return '';
   };
   let quickTried = false;
+  let quickRunning = false;
+  /** The quick sign-in's body (`quick`), once its guard has passed. */
+  const quickOnce = async (): Promise<QuickSignIn | null> => {
+    if (!s.quickSignIn) return null;
+    const h = await here();
+    const p = h ? card?.personas().find((r) => r.HOST === h.host && r.PORT === h.port && r.SAVEPASSWORD === 1) : undefined;
+    if (!p) return null;
+    const r = await s.quickSignIn(p.NAME);
+    if (r.ok) {
+      if (await passAgreement(s.account()?.name ?? p.NAME)) return { ok: true, persona: p.NAME, accepted: AGREEMENT_ACCEPTED_WORDS };
+      return s.state() === 'agreement' ? { ok: true, persona: p.NAME, next: 'agreement' } : { ok: true, persona: p.NAME };
+    }
+    const gone = r.error.status === MEDIUS_STATUS.InvalidPassword;
+    // The review's F1: -978 is the cookie gone (step 4: the server cleared it), so the card files NO -- the next load,
+    // or another tab, tries no quick sign-in that would only count against the login limit; a ticked sign-in files YES.
+    if (gone) await file(p.NAME, false, null);
+    return {
+      ok: false, persona: p.NAME, askPassword: gone,
+      error: gone ? `This browser no longer remembers ${p.NAME}. Enter its password.` : r.error.message,
+    };
+  };
   return {
     signedIn: () => s.state() === 'signed-in',
     persona: () => s.account()?.name ?? '',
@@ -189,25 +214,12 @@ export function liveSession(notify: () => void, deps: SessionDeps = {}): LiveSes
     },
     remembers,
     forgets: () => remembers(),
+    quickPending: () => quickRunning,
     async quick(): Promise<QuickSignIn | null> {
       if (quickTried || !remembers() || !s.quickSignIn || s.state() !== 'signed-out') return null;
       quickTried = true;                                             // once a page: no retry loop (step 4)
-      const h = await here();
-      const p = h ? card?.personas().find((r) => r.HOST === h.host && r.PORT === h.port && r.SAVEPASSWORD === 1) : undefined;
-      if (!p) return null;
-      const r = await s.quickSignIn(p.NAME);
-      if (r.ok) {
-        if (await passAgreement(s.account()?.name ?? p.NAME)) return { ok: true, persona: p.NAME, accepted: AGREEMENT_ACCEPTED_WORDS };
-        return s.state() === 'agreement' ? { ok: true, persona: p.NAME, next: 'agreement' } : { ok: true, persona: p.NAME };
-      }
-      const gone = r.error.status === MEDIUS_STATUS.InvalidPassword;
-      // The review's F1: -978 is the cookie gone (step 4: the server cleared it), so the card files NO -- the next load,
-      // or another tab, tries no quick sign-in that would only count against the login limit; a ticked sign-in files YES.
-      if (gone) await file(p.NAME, false, null);
-      return {
-        ok: false, persona: p.NAME, askPassword: gone,
-        error: gone ? `This browser no longer remembers ${p.NAME}. Enter its password.` : r.error.message,
-      };
+      quickRunning = true;                                           // LOBBY-LINK-DIRECT: from the call to its answer
+      try { return await quickOnce(); } finally { quickRunning = false; }
     },
     agreement: {
       title: AGREEMENT_TITLE,

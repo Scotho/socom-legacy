@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildGrid, HELD_RIFLE, HELD_SIDEARM, type CollisionOwner, type Grid, type GridParams, type WeaponRecord, type WorldPoly } from '@s2u/scene';
-import { Fire, RELOAD_DELAY, type FireEvent } from '../src/fire';
+import { buildGrid, GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM, type CollisionOwner, type Grid, type GridParams, type WeaponRecord, type WorldPoly } from '@s2u/scene';
+import { Fire, type FireEvent } from '../src/fire';
 import { RELOAD_SECONDS_PLACEHOLDER } from '../src/reloadClip';
 import { DOUBLE_AMMO_ID, magazinesCarried, MagazineRing, RING_SLOTS } from '../src/magazines';
 
@@ -30,7 +30,7 @@ function fireN(fire: Fire, n: number): void {
 /** `R`, and the reload played out. */
 function reload(fire: Fire): boolean {
   const ok = fire.reload();
-  fire.update(RELOAD_DELAY + 0.001);
+  fire.update(GAME_FRAME_DT + 1e-6);                        // LATER 330: the 0.01 s ReloadDelay is one whole game frame
   fire.update(RELOAD_SECONDS_PLACEHOLDER + 0.01);
   return ok;
 }
@@ -167,7 +167,7 @@ describe('the counts stay whole (conservation, the box, the swaps)', () => {
     fire.shoot();
     // The 12th emptied it and asked nothing: rounds 0, the two others with rounds -> "1 MAG" (FUN_00237760).
     expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 1, reloading: false });
-    fire.update(RELOAD_DELAY + 0.001);
+    fire.update(GAME_FRAME_DT + 1e-6);
     expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 1, reloading: false });
     expect(fire.pull()).toBeNull();                              // `FUN_005c0fd0` D:L476616-476622: FUN_005c2a90 at once
     fire.release();
@@ -197,7 +197,7 @@ describe('the counts stay whole (conservation, the box, the swaps)', () => {
     fire.subscribe((e) => events.push(e));
     fireN(fire, 3);
     expect(fire.reload()).toBe(true);
-    fire.update(RELOAD_DELAY + 0.001);                          // begun: the second magazine in
+    fire.update(GAME_FRAME_DT + 1e-6);                          // LATER 330: its one game frame -- begun: the second magazine in
     fire.setWeapon(HELD_RIFLE);                                 // cut short
     expect(events.at(-1)).toMatchObject({ type: 'reloadEnd', completed: false });
     expect(box(fire)).toBe('30/30 2');

@@ -1,0 +1,7 @@
+# EPH probe script (tools/eph/probe.ts --raise; grammar <t_ms> <input> <pressure>). ENEMY-RAISE diagnostics (30, 2026-11-09, after the timed set), r0004 M51 --state 5 (count 1, rifle up, the marking post 0x13419a0 at bearing ~170.3, acc 2.0).
+# O5' (30's redesign): from the HELD count (no turn), the pause (Start) at ~3 s for 3 s, then closed. Expect the raise state and the idle countdown frozen while the gate byte (0x40a378) reads the pause. --raise-records 1, --wall-clock (the pause stops the guest clock), no --yaw-turns.
+3000 start 1
+3150 start 0
+6000 start 1
+6150 start 0
+14000 lup 0

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { performance } from 'node:perf_hooks';
 import { TICK_HZ } from '../../viewer/src/sim';
-import { bodyVolumes, placedVolumes, posedVolumes, rayBody, stanceVolumes, type Capsule } from '../../viewer/src/net/hitVolumes';
+import { bodyVolumes, placedVolumes, posedBoxes, rayRecords, stanceVolumes, type BoneBox, type HitBody } from '../../viewer/src/net/hitVolumes';
 import { HIT_POSE_CLIPS, hitPoseSnapshot, HitPoser, wireScratch } from '../../viewer/src/net/hitPose';
 import type { MoverSnapshot } from '../../viewer/src/animator';
 import { decodeSnapshot, encodeSnapshot } from '../../viewer/src/net/codec';
@@ -15,6 +15,10 @@ import { REWIND_HISTORY_TICKS } from '../src/room';
 import { CROUCH_WALK, EXTRAS, hitPoseRoom, PAGE_CLIPS, type V3 } from './helpers/hitPoseRoom';
 
 /**
+ * BONE-BOXES (research 217 s3.6b): the room's hit volumes are the bones' boxes now (research 398 s1), so every check
+ * below that held capsules holds the boxes -- their eight corners, body frame -- to the same tolerance; the conditions
+ * are HIT-POSE's, unchanged.
+ *
  * HIT-POSE (owner priority; research 217 s3.6; reading, pending review), the main controller's conditions: (i) A = B --
  * the room's stored capsules at each tick equal those of the page's `Animator` (its drawn skeleton) fed the body as a
  * page receives it (the room's snapshot frame encoded and decoded by `net/codec`, then `snapshotOf`: the review's MAJOR,
@@ -40,18 +44,34 @@ const A_EQUALS_B = 1e-6;
  */
 const STILL_TOLERANCE = 0.75;
 
-const gap = (a: readonly Capsule[], b: readonly Capsule[]): number => {
+/** A box's point (`box` corner fractions 0..1 on each axis) in the body frame, through its bone's matrix. */
+const at = (b: BoneBox, f: readonly number[]): V3 => {
+  const p = [0, 1, 2].map((k) => b.box[k]! + (b.box[3 + k]! - b.box[k]!) * f[k]!), w = b.w;
+  return [0, 1, 2].map((r) => p[0]! * w[r]! + p[1]! * w[4 + r]! + p[2]! * w[8 + r]! + w[12 + r]!) as V3;
+};
+const CORNERS = [0, 1].flatMap((x) => [0, 1].flatMap((y) => [0, 1].map((z) => [x, y, z])));
+/** The worst difference of two box sets' corners (the same bones, the same parts), body frame. */
+const gap = (a: readonly BoneBox[], b: readonly BoneBox[]): number => {
   expect(a.length).toBe(b.length);
   let worst = 0;
   a.forEach((c, i) => {
     const d = b[i]!;
     expect(c.part).toBe(d.part);
-    for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(c.a[k]! - d.a[k]!), Math.abs(c.b[k]! - d.b[k]!));
-    worst = Math.max(worst, Math.abs(c.r - d.r));
+    expect(c.bone).toBe(d.bone);
+    for (const f of CORNERS) {
+      const p = at(c, f), q = at(d, f);
+      for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(p[k]! - q[k]!));
+    }
   });
   return worst;
 };
-const middle = (c: Capsule): V3 => [(c.a[0] + c.b[0]) / 2, (c.a[1] + c.b[1]) / 2, (c.a[2] + c.b[2]) / 2];
+const middle = (b: BoneBox): V3 => at(b, [0.5, 0.5, 0.5]);
+/** The first damaging record a ray makes on a body (the walk's first part that applies: a no-damage bone passed). */
+const firstDamage = (o: V3, d: V3, reach: number, body: HitBody): number | null => {
+  const rs: { part: number; t: number }[] = [];
+  rayRecords(o, d, reach, body, (part, t) => { rs.push({ part, t }); });
+  return rs.sort((x, y) => x.t - y.t).find((r) => r.part >= 0)?.part ?? null;
+};
 
 describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules${MP2 && PACK && READERC ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
   const skeletons = MP2 && PACK && READERC ? simSkeletonsFromBytes(MP2, READERC, PACK) : { seal: [], terrorist: [], escortees: [] };
@@ -61,7 +81,7 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
   // The room's rewind entry: its poser and the stamp the tick's pose was kept under (the perf fold), fitted on demand.
   type Past = { tick: number; pose?: HitPoser; poseAt?: number };
   const history = (t: ReturnType<typeof hitPoseRoom>): Past[] => (t.room.player(2) as unknown as { history: Past[] }).history;
-  const capsOf = (past: Past): Capsule[] | undefined => (past.pose && past.poseAt ? past.pose.capsulesAt(past.poseAt) ?? undefined : undefined);
+  const capsOf = (past: Past): readonly BoneBox[] | undefined => (past.pose && past.poseAt ? past.pose.boxesAt(past.poseAt) ?? undefined : undefined);
 
   it('the server skeleton carries the motion the page draws a copy with: its table and every clip of HIT_POSE_CLIPS the pack holds', () => {
     const m = seal().motion;
@@ -83,7 +103,7 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
         expect(past.tick).toBe(t.room.tick);
         const caps = capsOf(past);
         expect(caps, `${label}: the room kept no pose at tick ${past.tick}`).toBeDefined();
-        const g = gap(caps!, posedVolumes(t.pageSkeleton()!));
+        const g = gap(caps!, posedBoxes(t.pageSkeleton()!));
         worst = Math.max(worst, g);
         expect(g, `${label} tick ${i} (${t.clip()})`).toBeLessThanOrEqual(A_EQUALS_B);
         ticks++;
@@ -103,22 +123,22 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
     console.log(`HIT-POSE A = B: ${ticks} ticks, the largest difference ${worst.toExponential(2)} u (tolerance ${A_EQUALS_B})`);
   });
 
-  it('lazy = eager: the capsules built on demand from a kept tick are the eager posing at that tick, exactly, for every tick the ring keeps', () => {
+  it('lazy = eager: the boxes read on demand from a kept tick are the eager posing at that tick, exactly, for every tick the ring keeps', () => {
     // The perf fold (research 217 s3.6a): the room keeps each tick's damage bones (`HitPoser.keep`) and fits the capsules
     // only for a body a round's ray reaches (`capsulesAt`); held equal to fitting them every tick (`capsules`, the eager
     // path of 76b1eac24) over the A = B walk's 210 ticks -- idle, crouch, crouch-walk, stand, run.
     const t = hitPoseRoom(seal(), clips, table);
     const body = seal(), keep = 72;
     const poser = new HitPoser(body.skeleton, body.motion!, keep);
-    const eager = new Map<number, Capsule[]>();
+    const eager = new Map<number, BoneBox[]>();
     const feed = (n: number): void => {
       for (let i = 0; i < n; i++) {
         t.run(1);
         const p = t.room.player(2)!;
         poser.stepBody(1 / TICK_HZ, bodyOf(2, p.sim.body(), EXTRAS), p.sim.walker.rootTilt.q);
         const stamp = poser.keep();
-        eager.set(stamp, poser.capsules());
-        expect(poser.capsulesAt(stamp)).toEqual(eager.get(stamp));   // the tick just kept
+        eager.set(stamp, poser.boxes());
+        expect(poser.boxesAt(stamp)).toEqual(eager.get(stamp));      // the tick just kept
       }
     };
     feed(30);
@@ -134,9 +154,9 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
     const stamps = [...eager.keys()];
     expect(stamps).toHaveLength(210);
     // every kept tick, read back after the later steps wrote over the skeleton: the same capsules, to the bit
-    for (const s of stamps.slice(-keep)) expect(poser.capsulesAt(s), `stamp ${s}`).toEqual(eager.get(s));
+    for (const s of stamps.slice(-keep)) expect(poser.boxesAt(s), `stamp ${s}`).toEqual(eager.get(s));
     // a tick the ring no longer keeps answers nothing, never another tick's pose
-    for (const s of stamps.slice(0, -keep)) expect(poser.capsulesAt(s), `stamp ${s}`).toBeNull();
+    for (const s of stamps.slice(0, -keep)) expect(poser.boxesAt(s), `stamp ${s}`).toBeNull();
   });
 
   it('the room\'s whole rewind history answers: past HISTORY ticks, every entry\'s kept pose fits, and is the page\'s at its tick', () => {
@@ -145,8 +165,8 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
     // rewind meets them on the idle sets without a word. Pinned at the room: after more than `REWIND_HISTORY_TICKS`
     // ticks, every entry holds a stamp whose capsules fit, each equal (A = B) to the page's drawn skeleton at that tick.
     const t = hitPoseRoom(seal(), clips, table);
-    const page = new Map<number, Capsule[]>();
-    const mark = (): void => { page.set(t.room.tick, posedVolumes(t.pageSkeleton()!)); };
+    const page = new Map<number, BoneBox[]>();
+    const mark = (): void => { page.set(t.room.tick, posedBoxes(t.pageSkeleton()!)); };
     const walk = (n: number): void => {
       for (let i = 0; i < n; i++) {
         t.run(1);
@@ -188,12 +208,16 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
     console.log(`HIT-POSE still: the animator's idle against today's idle set, the largest endpoint difference ${worst.toFixed(4)} u`);
     expect(worst).toBeLessThan(STILL_TOLERANCE);
     const posed = placedVolumes(feet, s.yaw, capsOf(history(t).at(-1)!)!), idle = bodyVolumes(feet, s.yaw, 'stand', v);
-    // From behind (the body's back is +z in its frame): nothing of the body stands between the ray and the part.
+    // From behind (the body's back is +z in its frame), through the idle box's middle (placed at the feet and yaw): the
+    // first part that applies (a scapula's or a shoulder weight's record before it applies nothing) is the bone's.
     const y = (s.yaw * Math.PI) / 180, back: V3 = [Math.sin(y), 0, Math.cos(y)], d: V3 = [-back[0], 0, -back[2]];
-    for (const [i, want] of [[1, PART.HEAD], [4, PART.BODY], [9, PART.RLEG]] as const) {
-      const p = middle(idle[i]!), o: V3 = [p[0] + back[0] * 30, p[1], p[2] + back[2] * 30];
-      expect(rayBody(o, d, 60, idle)?.part).toBe(want);
-      expect(rayBody(o, d, 60, posed)?.part).toBe(want);
+    const sk = seal().skeleton;
+    for (const [bone, want] of [['head', PART.HEAD], ['spinehi', PART.BODY], ['rthigh', PART.RLEG]] as const) {
+      const box = v.stand.find((b) => b.bone === sk.indexOf(bone))!, m = middle(box);
+      const p: V3 = [feet[0] + m[0] * Math.cos(y) + m[2] * Math.sin(y), feet[1] + m[1], feet[2] - m[0] * Math.sin(y) + m[2] * Math.cos(y)];
+      const o: V3 = [p[0] + back[0] * 30, p[1], p[2] + back[2] * 30];
+      expect(firstDamage(o, d, 60, idle), `${bone} on the idle set`).toBe(want);
+      expect(firstDamage(o, d, 60, posed), `${bone} on the live pose`).toBe(want);
     }
   });
 
@@ -259,13 +283,13 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-POSE: the room's posed capsules$
       console.log(`HIT-POSE cost ${label}: 16 bodies, ${ms.toFixed(3)} ms a tick (${(ms / 16).toFixed(4)} ms a body), heap rise ${(rise / n / 1024).toFixed(1)} kB a tick; the tick's budget ${(1000 / TICK_HZ).toFixed(2)} ms at TICK_HZ ${TICK_HZ}`);
       return ms;
     };
-    bench('eager (76b1eac24: round trip, step, capsules)', (p, f) => { p.step(1 / TICK_HZ, roundTrip(f)); p.capsules(); });
+    bench('eager (76b1eac24: round trip, step, boxes copied)', (p, f) => { p.step(1 / TICK_HZ, roundTrip(f)); p.boxes(); });
     const lazy = bench('lazy (this fold: stepBody, keep)', (p, f) => { p.stepBody(1 / TICK_HZ, f.body, f.tilt); p.keep(); });
     bench('part: the codec round trip + snapshotOf', (_p, f) => { roundTrip(f); });
     bench('part: quantiseBody + snapshotOf', (_p, f) => { hitPoseSnapshot(f.body, f.tilt, wire); });
     bench('part: the animator step alone', (p, f) => { p.step(1 / TICK_HZ, snaps.get(f)!); });
-    bench('part: step + capsules (fitted every tick)', (p, f) => { p.step(1 / TICK_HZ, snaps.get(f)!); p.capsules(); });
-    bench('part: step + keep (fitted on demand)', (p, f) => { p.step(1 / TICK_HZ, snaps.get(f)!); p.keep(); });
+    bench('part: step + boxes (copied every tick)', (p, f) => { p.step(1 / TICK_HZ, snaps.get(f)!); p.boxes(); });
+    bench('part: step + keep (read on demand)', (p, f) => { p.step(1 / TICK_HZ, snaps.get(f)!); p.keep(); });
     expect(lazy).toBeLessThan(1000 / TICK_HZ);
   });
 });

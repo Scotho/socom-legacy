@@ -131,3 +131,36 @@ describe('the reply with invitations (for SVC-09: the row\'s INVITATIONS state)'
     expect(none.list.count).toBe(0);
   });
 });
+
+describe('CLAN_INVITE_LIVE_ADAPTATION (CLAN-INVITES, a browser adaptation): the received list refreshed when central marks it', () => {
+  it('refresh() sends FUN_002e8650\'s request (start 0, page size 999) and keeps the list until its replies are in -- never emptied while one waits', async () => {
+    const r = rig([invite()]);
+    r.c.CheckMyInvites(...call(cmd('CheckMyInvites')));
+    await flush();
+    expect([r.list.count, r.list.has]).toEqual([1, true]);
+    let answer: (rs: ClanInvitationReply[]) => void = () => {};
+    const pending: ClanInvitationsService = { check: (q) => { r.queries.push(q); return new Promise((ok) => { answer = ok; }); } };
+    r.events.length = 0;
+    r.list.refresh(pending);
+    expect(r.queries.at(-1)).toEqual(CLAN_INVITATIONS_QUERY);
+    expect([r.list.count, r.list.has]).toEqual([1, true]);                       // CheckMyInvites would read 0 here (FUN_002e9380)
+    answer([invite({ endOfList: false }), invite({ clanInvitationId: 8, clanId: 4, message: 'Clan Y invites you to join.' })]);
+    await flush();
+    expect(r.list.count).toBe(2);
+    expect(r.events).toEqual([DIALOG_EVENTS['MP_MEDIUS_HAS_INVITES']]);        // the replies handled as FUN_002e86c0 handles them
+    expect(r.var()).toEqual({ type: 'array', value: [row('7', 'Clan X invites you to join.', 'Undecided'), row('8', 'Clan Y invites you to join.', 'Undecided')] });
+  });
+
+  it('a refresh answered with none (a revoke, a disband) empties the list and the row reads No Invitations; one never answered changes nothing', async () => {
+    const r = rig([invite()]);
+    r.c.CheckMyInvites(...call(cmd('CheckMyInvites')));
+    await flush();
+    r.list.refresh({ check: () => Promise.reject(new Error('never answered')) });
+    await flush();
+    expect(r.list.count).toBe(1);
+    r.list.refresh({ check: () => Promise.resolve([NONE]) });
+    await flush();
+    expect([r.list.count, r.list.has]).toEqual([0, false]);
+    expect(r.var()).toEqual({ type: 'array', value: [row(' ', NO_INVITATIONS_TEXT, ' ')] });
+  });
+});

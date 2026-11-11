@@ -9,7 +9,7 @@ import * as picture from '../src/picture';
 import { MATCH_CANVAS_CLASS, MATCH_EXPERIMENTAL_OFF, parsePicture, PICTURE_KEY, PICTURE_PS2_CLASS, pictureKeeper, type VideoPicture } from '../src/picture';
 import { PAGE_SETTING_KEYS } from '../src/pageStore';
 
-// B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE Soul) picture is removed with HD-HOLD. A
+// B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE SouL) picture is removed with HD-HOLD. A
 // stored 'experimental' (a browser that chose it before HD-HOLD) reads as MODERN, is never taken by the keeper, and is
 // not written back; the match's experimental renderer is off under both pictures.
 const HD_GONE = 'experimental' as unknown as VideoPicture;

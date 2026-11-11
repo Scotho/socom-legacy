@@ -2537,6 +2537,87 @@ describe('NoInterrupt and the heavy falls (FUN_00587c20, FUN_005af590, FUN_005ac
     expect(fall(20, true, 0.9).landing?.clip).toBe(fall(20, false, 0.9).landing?.clip);
   });
 
+  // FALL-DEATH-LAND: `FUN_005af590` runs the fall's damage before it picks (D:L466656), so a landing whose damage kills
+  // is class 3 -- `Land forward`, no coin (D:L466658-466664). The mover asks the console that applies the damage (the
+  // room: `fallKills`) before its pick; the page, told of its own fall's death a round trip later (`diedOfFall`), turns
+  // the light or heavy landing it predicted into the same `Land forward` at the phase the room's has reached, held.
+  it('a landing whose fall damage kills is Land forward, no coin, whatever its class (D:L466656-466664)', () => {
+    const fallKilled = (height: number, kills: boolean): { w: Walker; draws: number } => {
+      const tower = world([floor(-200, -200, 200, 200, 0), floor(-20, -20, 20, 20, height)]);
+      const w = new Walker(tower);
+      let draws = 0;
+      w.random = () => { draws++; return 0.9; };
+      w.fallKills = () => kills;
+      w.place(0, height + 5, 0);
+      w.state.yaw = facing(0, 0, 1, 0);
+      for (let i = 0; i < 30; i++) w.tick(FORWARD);
+      for (let i = 0; i < 400 && (w.airborne || w.state.y > 0); i++) w.tick(STILL);
+      return { w, draws };
+    };
+    for (const height of [70, 100]) {                               // light (181.4) and heavy (216.8)
+      const { w, draws } = fallKilled(height, true);
+      expect(w.landing?.clip, `${height}`).toBe('landDeath');
+      expect(w.action?.name, `${height}`).toBe('landDeath');
+      expect(draws, `${height}`).toBe(0);                           // the corpse's class 3 draws no coin
+    }
+    expect(fallKilled(70, false).w.landing?.clip).toBe('landHard');  // the living: as before
+    expect(fallKilled(100, false).w.landing?.clip).toBe('hit');
+  });
+
+  it('told of its fall\'s death during the landing it predicted, the page\'s mover lies in Land forward at the same phase, held', () => {
+    for (const [height, clip] of [[70, 'landHard'], [100, 'hit'], [100, 'hitStomach']] as const) {
+      const w = drop(height, clip === 'hitStomach' ? 0.2 : 0.9);
+      expect(w.action?.name).toBe(clip);
+      for (let i = 0; i < 6; i++) w.tick(STILL);                    // the kill's round trip, about 0.1 s
+      const t = w.action!.t;
+      w.diedOfFall();
+      expect(w.dead).toBe(true);
+      expect(w.action?.name, clip).toBe('landDeath');
+      expect(w.action!.t, clip).toBeCloseTo(Math.min(t, ACTION_SECONDS.landDeath), 9);
+      for (let i = 0; i < Math.ceil(ACTION_SECONDS.landDeath / TICK) + 1; i++) w.tick(FORWARD);
+      expect(w.action?.name, clip).toBe('landDeath');
+      expect(w.action!.t, clip).toBe(w.action!.seconds);         // held on its last key: no get-up, no ground state
+      const feet = [w.state.x, w.state.y, w.state.z];
+      for (let i = 0; i < 120; i++) w.tick(FORWARD);
+      expect(w.action?.name, clip).toBe('landDeath');
+      expect([w.state.x, w.state.y, w.state.z], clip).toEqual(feet);
+    }
+  });
+
+  // The review's F1: the stick cuts `Jump land hard` into the ground state once past its NoInterrupt (0.35 of 0.95 s,
+  // 0.3325 s); a kill heard after that finds no landing clip on the page's mover, yet the landing that killed is still its
+  // latest -- the room's body lies in `Land forward`, held, so the page's lies down too.
+  it('told of its fall\'s death after the stick cut the hard landing, the page\'s mover lies in Land forward, held', () => {
+    const w = drop(70);
+    expect(w.action?.name).toBe('landHard');
+    for (let i = 0; i < 30; i++) w.tick(FORWARD);                  // 0.5 s, the stick held: the clip is cut
+    expect(w.action).toBeNull();
+    w.diedOfFall();
+    expect(w.dead).toBe(true);
+    expect(w.action?.name).toBe('landDeath');
+    expect(w.action!.t).toBe(w.action!.seconds);                    // the room's has run out by now: its last key
+    const feet = [w.state.x, w.state.y, w.state.z];
+    for (let i = 0; i < 120; i++) w.tick(FORWARD);
+    expect(w.action?.name).toBe('landDeath');
+    expect(w.action!.t).toBe(w.action!.seconds);
+    expect([w.state.x, w.state.y, w.state.z]).toEqual(feet);
+  });
+
+  it('a hard landing that is no longer the mover\'s latest (a soft one since) is not laid down by diedOfFall', () => {
+    const w = drop(70);
+    for (let i = 0; i < 60; i++) w.tick(STILL);
+    w.state.y += 20;                                                // a 20-unit drop: under the hard rate
+    w.setAirborne(true);
+    for (let i = 0; i < 200 && w.airborne; i++) w.tick(STILL);
+    expect(w.airborne).toBe(false);                                 // the soft drop landed (re-review F1: not the in-air guard)
+    expect(w.landing).not.toBeNull();
+    expect(w.landing?.clip === 'landHard').toBe(false);
+    for (let i = 0; i < 60; i++) w.tick(STILL);
+    w.diedOfFall();
+    expect(w.dead).toBe(true);
+    expect(w.action?.name ?? null).not.toBe('landDeath');
+  });
+
   it('a hit carries the mover by the clip\'s own root travel, and gives way to the stick past 0.8', () => {
     const w = drop(100, 0.9);
     const x = w.state.x, z = w.state.z;
@@ -3007,17 +3088,18 @@ describe.skipIf(!MP6)(`a running jump up MP6's hillside${MP6 ? '' : ` (${FIXTURE
 
 describe('an airborne column is entered on the ground\'s own pick (OWNER-5; FUN_005b0420 467037-467110, FUN_005b5d40 470163-470290)', () => {
   /** The feet before the tick in which the flight crosses z = `edge` going +z, and where the flight ends. */
-  const crossing = (w: Walker, edge: number, jumpAt: number | null): { crossY: number | null; y: number; z: number; airborne: boolean } => {
+  const crossing = (w: Walker, edge: number, jumpAt: number | null): { crossY: number | null; y: number; z: number; airborne: boolean; furthest: number } => {
     w.state.yaw = facing(w.state.x, w.state.z, w.state.x, 200);
     for (let i = 0; i < 600 && w.state.z < (jumpAt ?? Infinity) && !w.airborne; i++) w.tick(FORWARD);
     if (jumpAt !== null) expect(w.jump(), `jump refused at z ${w.state.z.toFixed(1)}`).toBe(true);
-    let crossY: number | null = null;
+    let crossY: number | null = null, furthest = w.state.z;
     for (let i = 0; i < 400 && (w.airborne || i === 0); i++) {
       const before = w.state.y;                                              // the feet as the tick found them
       w.tick(FORWARD);
+      furthest = Math.max(furthest, w.state.z);
       if (crossY === null && w.state.z > edge) crossY = before;
     }
-    return { crossY, y: w.state.y, z: w.state.z, airborne: w.airborne };
+    return { crossY, y: w.state.y, z: w.state.z, airborne: w.airborne, furthest };
   };
 
   it('a running jump at a wall-less ledge 12 high enters it with the feet low (the pick takes a floor up to 20 over them) and ends on it', () => {
@@ -3049,16 +3131,23 @@ describe('an airborne column is entered on the ground\'s own pick (OWNER-5; FUN_
     expect(low.z).toBeGreaterThan(-16);
     const high = cut(25);
     const r = crossing(high, -16, null);
-    expect(r.crossY).toBeNull();                                            // more than 20 over the feet: the miss
+    // More than 20 over the feet: the miss. AIR-PROBE (`AIR_FLOOR_PROBE_READING` 'frame-end', research 399): the probe is
+    // once a game frame at the move's end, and a miss puts x/z back at the last hit -- so the body is over the far side
+    // only on a tick that ends no frame, by at most that frame's in-between ticks of travel (was: never, each sub-step
+    // refused). It comes down in the cut all the same.
+    expect(r.furthest).toBeLessThan(-16 + 2 * 65 / 60);
     expect(r.y).toBe(-60);                                                  // down the cut
     expect(r.z).toBeLessThanOrEqual(-16);
   });
 
-  it('at the map\'s edge (no floor beyond) a running jump is pinned: it never leaves the floor\'s x/z and lands back on it', () => {
+  it('at the map\'s edge (no floor beyond) a running jump is pinned: each game frame\'s end is put back on the floor\'s x/z and it lands back on it', () => {
     const w = new Walker(world([floor(-200, -200, 200, -20, 0)]));
     expect(w.place(0, PROBE_LIFT, -150)).toBe(true);
     const r = crossing(w, -20, -32);
-    expect(r.crossY).toBeNull();
+    // AIR-PROBE (research 399): past the edge only on a tick that ends no game frame, the frame's end put back at the last
+    // hit (`FUN_005b0420` D:L467091-467103) -- by at most the frame's in-between ticks of travel (was: never, the
+    // per-sub-step refusal). It lands back on the floor all the same.
+    expect(r.furthest).toBeLessThan(-20 + 2 * 65 / 60);
     expect(r.z).toBeLessThanOrEqual(-20);
     expect(r.airborne).toBe(false);
     expect(r.y).toBe(0);
@@ -3193,6 +3282,8 @@ describe('the death drops a move (review 2, M-4: FUN_005af590 L466696-466699, FU
     m.useTraversal((w, g) => new Traversal(w.grid, groundPolygons(g)));
     expect(m.respawn([0, 0, 20], 0)).toBe(true);                     // facing -z, at the ladder's foot
     const w = m['walker']!, t = m.traversal() as Traversal;
+    for (let i = 0; i < 600 && t.climbPrompt()?.kind !== 'ladder'; i++) w.tick(FORWARD);   // LC-1: CLIMB offered,
+    t.action();                                                                            // mounted on the press
     for (let i = 0; i < 600 && t.state().kind !== 'ladder'; i++) w.tick(FORWARD);
     expect(t.state().kind).toBe('ladder');
     for (let i = 0; i < 120; i++) w.tick(FORWARD);                   // two seconds up the rungs

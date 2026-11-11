@@ -88,13 +88,13 @@ describe('the owner\'s Thunderstore upload zip (ML-5)',()=>{
     await expect(writeHdThunderstoreZip(join(dir,'pack.zip'),join(dir,'empty'),{})).rejects.toThrow(/current\.json/);
   });
 
-  it('credits GoE Soul in the description and the README when no --credit is given (the owner, 2026-11-09)',async()=>{
+  it('credits GoE SouL in the description and the README when no --credit is given (the owner, 2026-11-09)',async()=>{
     const {root}=layout(),out=join(dir,'pack.zip');
     const r=await writeHdThunderstoreZip(out,root,{});
-    expect(r.manifest.description).toContain('HD textures by GoE Soul');
+    expect(r.manifest.description).toContain('HD textures by GoE SouL');
     expect(r.manifest.description.length).toBeLessThanOrEqual(250);
     const readme=new TextDecoder().decode(new Map((await entries(out)).map(e=>[e.path,e.bytes])).get('README.md')!);
-    expect(readme).toMatch(/## Credit\n\nHD textures by GoE Soul\./);
+    expect(readme).toMatch(/## Credit\n\nHD textures by GoE SouL\./);
     expect((await checkThunderstoreZip(out)).warnings).toEqual([]);
   });
 

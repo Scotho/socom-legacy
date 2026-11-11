@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GameLobbyCommands, NET_ERRNO_DISCONNECTED_READING, UiVarManager, VALVE_TYPE, ValveStore, type GameLobbyMatchStart } from '@s2u/ui';
+import { GameLobbyCommands, LATE_SEAT_MATCH_ENDING_OWNER, MATCH_ENDING_READY_LINE, NET_ERRNO_DISCONNECTED_READING, UiVarManager, VALVE_TYPE, ValveStore, type GameLobbyMatchStart } from '@s2u/ui';
 import { pinnedMatchSocket } from '../src/connectHost';
 import { GameSocketHost, type GameLobbyHandOff } from '../src/gameLobbyHost';
 import {
@@ -518,63 +518,67 @@ describe('ONL-18: closes and the way back', () => {
     expect(r.socket().sent.filter((d) => JSON.parse(d).type === 'loaded')).toHaveLength(0);
   });
 
-  // LATER 238 (research 315 §12.1 W5 / W6, §14; reading, pending review): a late console READY and still loading when
-  // its host returns keeps loading (the load state's done branch, `FUN_001f5e70` D:L55678, tests its own load only) and
-  // ends it on `dlgNetError.rdr` while +0x112 still reads the return signal's 3 (W5, D:L55710-55713), or on
-  // `dlgNetAbandoned.rdr` when a record update set it back to 1 first (W6 with the told state 1, D:L55731-55740) --
-  // never the game's lobby. The update is the room's next `gameLobby` view (`LATE_RETURN_RECORD_UPDATE_READING`).
-  const lateReturned = async (update: boolean): Promise<ReturnType<typeof rig>> => {
+  // OT.R122 (the owner's ruling, 2026-11-11; `LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation): a late console READY and
+  // still loading when its game ends kept loading in the original and left for `dlgNetError.rdr` (W5) or
+  // `dlgNetAbandoned.rdr` (W6) at its load's end -- LATER 238, research 315 §12.1, §14, still what the original does
+  // (`LATE_RETURN_RECORD_UPDATE_READING`). The port departs: the game's end heard during a late load (its last
+  // `roundOver`) returns the page at once to the same game's lobby with the client kept -- no bye, no close, the seat and
+  // central's seat kept; the room's later views (the return, a record update) reach the lobby, not the load.
+  const lateEnded = async (o: { assetsFirst?: boolean; update?: boolean } = {}): Promise<ReturnType<typeof rig>> => {
     const r = rig({ lateJoiner: true });
-    r.match.start(r.handOffs[0]!);
-    r.server(over(true));
-    r.server(lobbyView(false));                                               // the host's return, the load still running
-    if (update) r.server(lobbyView(false));                                   // a record update since the return signal
+    const h = r.handOffs[0]!;
+    r.match.start(h);
+    if (o.assetsFirst) { r.load(); await r.flush(); }
+    r.server(over(true));                                                     // the game's end, heard during the load
+    expect([r.match.phase, r.backs]).toEqual(['ended', [{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: h.client }]]);
+    r.server(lobbyView(false));                                               // the room's return: the lobby's now
+    if (o.update) r.server(lobbyView(false));                                 // a record update
+    if (!o.assetsFirst) { r.load(); await r.flush(); }
     r.step(1000);
-    expect([r.match.phase, r.backs, r.log]).toEqual(['loading', [], ['show mp2', 'load mp2']]);   // not the lobby: still loading
-    r.load(); await r.flush();
-    r.step(100);                                                              // the load's own end
     return r;
   };
 
-  it('LATER 238 (W5): a late joiner still loading at the return ends its load on dlgNetError.rdr -- no errno written, no `loaded`, the client closed, no match', async () => {
-    const r = await lateReturned(false);
-    expect(r.backs).toEqual([{ dialog: MATCH_NET_ERROR_DIALOG_READING, why: 'late-return', client: null }]);
-    expect(r.errno.valve).toBe(0);                                            // W5 writes the start dialog only
+  it('OT.R122 (was LATER 238 W5): a late joiner still loading at the game\'s end returns at once to the game lobby -- the client open and kept, no errno, no `loaded`, no match', async () => {
+    const r = await lateEnded();
+    expect(r.backs).toEqual([{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: r.handOffs[0]!.client }]);
+    expect(r.backs.map((b) => b.dialog)).not.toContain(MATCH_NET_ERROR_DIALOG_READING);
+    expect(r.backs[0]!.client!.state).toBe('open');
+    expect(r.errno.valve).toBe(0);
     expect(r.match.phase).toBe('ended');
     expect(r.started).toHaveLength(0);
     expect(r.socket().sent.filter((d) => JSON.parse(d).type === 'loaded')).toHaveLength(0);
-    expect(r.socket().closed).toEqual([1000]);
-    expect(r.holds).toEqual([true, false]);
+    expect(r.socket().closed).toEqual([]);                                    // no bye, no close: the seat kept
+    expect(r.holds).toEqual([true]);                                          // the hold passes back with the client
     expect(r.log.at(-1)).toBe('hide');
-    // LATER 62's close report names the end, and the server's parse takes it (`late-return` among its returns).
-    expect(r.reports.map((x) => [x.page.why, x.page.path, x.page.phase])).toEqual([['late-return', 'late-return', 'loading']]);
-    expect(parseCloseReport(closeReportBody(r.reports[0]!.page))).not.toBeNull();
+    expect(r.reports).toEqual([]);                                            // the match's own end: no close report (LATER 62)
   });
 
-  it('LATER 238 (W6): a record update after the return -- the room\'s next view -- ends the same load on dlgNetAbandoned.rdr', async () => {
-    const r = await lateReturned(true);
-    expect(r.backs).toEqual([{ dialog: MATCH_ABANDONED_DIALOG, why: 'abandoned', client: null }]);
+  it('OT.R122 (was LATER 238 W6): a record update after the return changes nothing -- the same return, at the game\'s end', async () => {
+    const r = await lateEnded({ update: true });
+    expect(r.backs).toEqual([{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: r.handOffs[0]!.client }]);
+    expect(r.backs.map((b) => b.dialog)).not.toContain(MATCH_ABANDONED_DIALOG);
     expect(r.errno.valve).toBe(0);
     expect(r.started).toHaveLength(0);
-    expect(r.socket().closed).toEqual([1000]);
-    expect(r.reports.map((x) => [x.page.why, x.page.path])).toEqual([['abandoned', 'late-return-updated']]);
+    expect(r.socket().closed).toEqual([]);
   });
 
-  // The review's F1: W5 needs the return before the load's end (+0x112 3 at the done branch); a load that ended first ran
-  // W6 then, with GAME COMPLETE's told state 6 (or its join's 1) -- `dlgNetAbandoned.rdr` (D:L55731-55740), never W5.
-  it('LATER 238 (W6): a late joiner whose assets were in before the return ends at the next frame on dlgNetAbandoned.rdr, a later view or none', async () => {
+  it('OT.R122 (was LATER 238 W6): a late joiner whose assets were in before the game\'s end returns at once the same way, a later view or none', async () => {
     for (const update of [false, true]) {
-      const r = rig({ lateJoiner: true });
-      r.match.start(r.handOffs[0]!);
-      r.load(); await r.flush();
-      r.server(over(true));
-      r.server(lobbyView(false));
-      if (update) r.server(lobbyView(false));
-      r.step(100);
-      expect(r.backs).toEqual([{ dialog: MATCH_ABANDONED_DIALOG, why: 'abandoned', client: null }]);
+      const r = await lateEnded({ assetsFirst: true, update });
+      expect(r.backs).toEqual([{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: r.handOffs[0]!.client }]);
       expect(r.errno.valve).toBe(0);
       expect(r.started).toHaveLength(0);
+      expect(r.socket().closed).toEqual([]);
     }
+  });
+
+  it('OT.R122: a seat that was not late is untouched -- its load keeps on through the game\'s end and leaves at the room\'s return (ONL-20b)', async () => {
+    const r = rig();
+    r.match.start(r.handOffs[0]!);
+    r.server(over(true));
+    expect([r.match.phase, r.backs]).toEqual(['loading', []]);
+    r.server(lobbyView(false));
+    expect(r.backs.map((b) => `${b.why} ${b.dialog}`)).toEqual(['match-over dlgGameLobby.rdr']);
   });
 
   it('ONL-20b: a view not launched without the game over -- an abandon\'s reopen, or one after the room said `abandoned` -- is not the match\'s end; a launched view neither', async () => {
@@ -750,20 +754,21 @@ describe('IP3: `loaded` once the match is prepared, not at the assets (LOAD_REPO
     expect(r.log).not.toContain('unprepare');
   });
 
-  it("review F1: the host's return during a late page's hung prepare still lets it out at the bound", async () => {
+  // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): was "the host's return during a late page's hung prepare still lets it out
+  // at the bound" (LATER 238's exit at the load's end) -- the game's end now returns a late load at once, prepare or none.
+  it("OT.R122: the game's end during a late page's hung prepare returns it at once to the game lobby -- the prepared match dropped, the client kept", async () => {
     const r = rig({ prepare: true, lateJoiner: true });
-    r.match.start(r.handOffs[0]!);
-    r.server({ type: 'roundOver', round: 1, winner: 'seal', wins: { seal: 1, terrorist: 0 }, matchOver: true, screens: [{ screen: 'finalRound', seconds: 10 }, { screen: 'gameComplete', seconds: 10 }] });
-    r.server({ type: 'gameLobby', countdown: null, launched: false, seats: [{ id: 1, name: 'host', team: 'seal', ready: false, host: true, readyIn: 45 }, { id: 2, name: 'socomc', team: 'seal', ready: false, host: false, readyIn: 0 }] });                                               // the host's return, the load still running (LATER 238)
+    const h = r.handOffs[0]!;
+    r.match.start(h);
     r.load(); await r.flush();
-    r.step(PREPARE_WAIT_BOUND_ADAPTATION - 1000);
-    await settle();
-    expect(r.match.phase).toBe('loading');                                    // held by the prepare, as before
-    r.step(2000);
-    await settle();
-    r.step(100);
+    r.server({ type: 'roundOver', round: 1, winner: 'seal', wins: { seal: 1, terrorist: 0 }, matchOver: true, screens: [{ screen: 'finalRound', seconds: 10 }, { screen: 'gameComplete', seconds: 10 }] });
     expect(r.match.phase).toBe('ended');
-    expect(r.backs.map((b) => b.why)).toEqual(['late-return']);
+    expect(r.backs).toEqual([{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: h.client }]);
+    expect(r.log).toContain('unprepare');
+    expect(r.socket().closed).toEqual([]);
+    r.step(PREPARE_WAIT_BOUND_ADAPTATION + 1000);
+    await settle();
+    expect(r.backs).toHaveLength(1);
   });
 
   it("review F4: a load that ends before its match is mounted (abandoned, stopped) drops the prepared match; a mounted match's end does not", async () => {
@@ -1240,13 +1245,19 @@ describe('ROUND-90: a round screen held 90 s -- the timeout return, no errno', (
   // LATER 241 overturns this pin by the original's code (was: GAME COMPLETE's screens from round 2's roundOver, then the
   // room's return the match's end): READY 10 s into round 2's GAME COMPLETE, the load ends after the host's told 6 (53 s),
   // so W6 with the told state 6 leaves for dlgNetAbandoned.rdr at the load's end (`FUN_001f5e70` D:L55731-55740).
-  it('N1 (LATER 241): round 2 ended the match in the lobby, READY in its GAME COMPLETE -- the load ends after the told 6: dlgNetAbandoned.rdr at its end, no match', async () => {
+  // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`) departs from LATER 241's exit: the load past the told 6 returns to the game
+  // lobby with the client kept, at the 6 (here, already past at the hand-off: its first frame), not dlgNetAbandoned.rdr.
+  it('N1 (LATER 241, OT.R122): round 2 ended the match in the lobby, READY in its GAME COMPLETE -- past the told 6: the game lobby at once, the client kept, no match', async () => {
     const r = rig({ lateJoiner: true, join: lateResult, phase: 'over', lobby: afterRound2(true) });
-    r.match.start(r.handOffs[0]!);
+    const h = r.handOffs[0]!;
+    r.match.start(h);
+    r.step(100);
+    expect(r.backs).toEqual([{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: h.client }]);
     r.load(); await r.flush();
     r.step(1000);
-    expect(r.backs.map((b) => `${b.why} ${b.dialog}`)).toEqual(['abandoned dlgNetAbandoned.rdr']);
+    expect(r.backs).toHaveLength(1);
     expect(r.started).toHaveLength(0);
+    expect(r.socket().closed).toEqual([]);
   });
 
   // The re-review's F-1: the welcome's standing result, taken for the screens, gives the game's end too -- a hello during
@@ -1401,18 +1412,40 @@ describe('ROUND-90: a round screen held 90 s -- the timeout return, no errno', (
    */
   const gameOverJoin = { v: 1, result: { ...(roundOver(true) as Extract<ServerEvent, { type: 'roundOver' }>), at: 0 }, projectiles: [], corpses: [], ghosts: [] };
 
-  it('LATER 241: a late hello in GAME COMPLETE whose load ends after the told 6 leaves at its load\'s end on dlgNetAbandoned.rdr -- no match, no `loaded`, no errno', async () => {
+  // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the original's exit here (LATER 241: dlgNetAbandoned.rdr at the load's end)
+  // is replaced by the game lobby with the client kept, at the told 6 -- the load past it is certain to end after it.
+  it('LATER 241 (OT.R122): a late hello in GAME COMPLETE whose load runs past the told 6 returns to the game lobby at the 6 -- the client kept, no match, no `loaded`, no errno', async () => {
     const r = rig({ lateJoiner: true, join: gameOverJoin, phase: 'over' });  // the result 0 ticks old: the 6 at t 3 s
+    const h = r.handOffs[0]!;
+    r.match.start(h);
+    r.step(2900);
+    expect([r.match.phase, r.backs]).toEqual(['loading', []]);               // nothing before the 6
+    r.step(200);
+    expect(r.backs).toEqual([{ dialog: MATCH_END_RETURN_READING, why: 'match-over', client: h.client }]);
+    r.load(); await r.flush();
+    r.step(100);
+    expect(r.backs).toHaveLength(1);
+    expect(r.started).toHaveLength(0);
+    expect(r.socket().sent.filter((d) => JSON.parse(d).type === 'loaded')).toHaveLength(0);
+    expect(r.errno.valve).toBe(0);
+    expect(r.socket().closed).toEqual([]);
+    expect(r.reports).toEqual([]);
+  });
+
+  // The review's F2 (OT.R122, decided): the lobby return keeps the client, so it needs one to keep -- a late hand-off whose
+  // game is over and whose socket dropped (not open) before the told 6 cannot be kept, and takes the old exit unchanged:
+  // LATER 241's `dlgNetAbandoned.rdr` at the load's end (the original's W6 at the told 6), not the match nor #365.
+  it('OT.R122 (the review\'s F2): a late hand-off in GAME COMPLETE whose socket dropped before the told 6 takes the old exit -- dlgNetAbandoned.rdr at its load\'s end, no client kept', async () => {
+    const r = rig({ lateJoiner: true, join: gameOverJoin, phase: 'over' });  // the 6 at t 3 s
     r.match.start(r.handOffs[0]!);
-    r.step(5000);
-    expect([r.match.phase, r.backs]).toEqual(['loading', []]);               // nothing before the load's end
+    r.step(1000);
+    r.socket().onclose?.({ code: 1006, reason: '' });                       // a drop: the client cannot be kept
+    r.step(4000);
+    expect([r.match.phase, r.backs]).toEqual(['loading', []]);               // past the 6, still loading: nothing yet
     r.load(); await r.flush();
     r.step(100);
     expect(r.backs).toEqual([{ dialog: MATCH_ABANDONED_DIALOG, why: 'abandoned', client: null }]);
     expect(r.started).toHaveLength(0);
-    expect(r.socket().sent.filter((d) => JSON.parse(d).type === 'loaded')).toHaveLength(0);
-    expect(r.errno.valve).toBe(0);
-    expect(r.socket().closed).toEqual([1000]);
     expect(r.reports.map((x) => [x.page.why, x.page.path])).toEqual([['abandoned', 'late-load-game-over']]);
   });
 
@@ -1437,19 +1470,23 @@ describe('ROUND-90: a round screen held 90 s -- the timeout return, no errno', (
       r.step(3000 - before);
       r.load(); await r.flush();
       r.step(1000);
-      expect([before, r.match.phase, r.backs.map((b) => b.dialog)]).toEqual(before === 300 ? [300, 'ended', [MATCH_ABANDONED_DIALOG]] : [1000, 'match', []]);
+      expect([before, r.match.phase, r.backs.map((b) => b.dialog)]).toEqual(before === 300 ? [300, 'ended', [MATCH_END_RETURN_READING]] : [1000, 'match', []]);   // OT.R122: the game lobby
+      if (before === 300) expect([r.backs[0]!.why, r.backs[0]!.client, r.socket().closed]).toEqual(['match-over', r.handOffs[0]!.client, []]);
     }
   });
 
-  it('LATER 241: the roundOver heard during the load counts as the welcome\'s result does -- assets after its 6, the abandon; a round\'s result (told 4) enters', async () => {
+  // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): was "assets after its 6, the abandon" -- the game's end heard during a late
+  // load now returns it at once (the load's rest saved) to the game lobby, the client kept; a round's result still enters.
+  it('LATER 241 (OT.R122): the game\'s end heard during a late load returns it at once to the game lobby; a round\'s result (told 4) enters', async () => {
     for (const matchOver of [true, false]) {
       const r = rig({ lateJoiner: true, phase: 'play' });
       r.match.start(r.handOffs[0]!);
       r.server(roundOver(matchOver));                                         // the room's result at t 0: its 4 or 6 at 3 s
+      expect([matchOver, r.backs.map((b) => `${b.why} ${b.dialog}`)]).toEqual([matchOver, matchOver ? ['match-over dlgGameLobby.rdr'] : []]);
       r.step(4000);
       r.load(); await r.flush();
       r.step(1000);
-      expect([matchOver, r.match.phase, r.backs.map((b) => b.dialog)]).toEqual(matchOver ? [true, 'ended', [MATCH_ABANDONED_DIALOG]] : [false, 'match', []]);
+      expect([matchOver, r.match.phase, r.backs.map((b) => b.dialog), r.socket().closed]).toEqual(matchOver ? [true, 'ended', [MATCH_END_RETURN_READING], []] : [false, 'match', [], []]);
     }
   });
 
@@ -1479,16 +1516,173 @@ describe('ROUND-90: a round screen held 90 s -- the timeout return, no errno', (
   // 90 s ends 100 s after the match shown"): a 30 s load from a hello in GAME COMPLETE ends after the host's told 6, so
   // W6 leaves for dlgNetAbandoned.rdr at the load's end and no screen opens. C09's own claim -- the screens from this
   // console's level start -- stays held by the ROUND COMPLETE case above (a load ending at the told 4 enters).
-  it('C09 (LATER 241): a late hello in GAME COMPLETE, a load of 30 s -- the load ends after the told 6: dlgNetAbandoned.rdr at its end, no screens, no timeout', async () => {
+  // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): was dlgNetAbandoned.rdr at the load's end -- now the game lobby at the 6.
+  it('C09 (LATER 241, OT.R122): a late hello in GAME COMPLETE, a load of 30 s -- past the told 6: the game lobby with the client kept, no screens, no timeout', async () => {
     const over = { v: 1, result: { ...(roundOver(true) as Extract<ServerEvent, { type: 'roundOver' }>), at: 0 }, projectiles: [], corpses: [], ghosts: [] };
     const r = rig({ lateJoiner: true, join: over, phase: 'over' });
     r.match.start(r.handOffs[0]!);
     r.step(30_000);
     r.load(); await r.flush();
     r.step(100);
-    expect(r.backs.map((b) => `${b.why} ${b.dialog}`)).toEqual(['abandoned dlgNetAbandoned.rdr']);
+    expect(r.backs.map((b) => `${b.why} ${b.dialog}`)).toEqual(['match-over dlgGameLobby.rdr']);
+    expect(r.socket().closed).toEqual([]);
     expect(r.started).toHaveLength(0);
     at(r, 200_000);
+    expect(r.backs).toHaveLength(1);
+  });
+});
+
+/**
+ * OT.R122 (the owner's ruling, 2026-11-11; `LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation; research 315 §12.1, §14, §15
+ * stay what the original does): a late seat that READYs while the game ends is never booted. The page's whole path -- the
+ * lobby's rows (`GameLobbyCommands`), its socket (`GameSocketHost`) and the load (`LobbyMatch`), the return wired as the
+ * front end wires it (`matchReturned`, then `adopt`) -- with a fake socket for the room. No server, no browser.
+ */
+describe('OT.R122: a late seat while the game ends -- READY held, and a late load returned to the game lobby', () => {
+  const GAME_STATS = (() => { const d = new Uint8Array(256); d[0] = 0x44; d[1] = 5; d[2] = 6; d[8] = 2; return [...d].map((b) => b.toString(16).padStart(2, '0')).join(''); })();
+  const seats = [{ id: 1, name: 'host', team: 'seal' as const, ready: false, host: true, readyIn: 0 }, { id: 2, name: 'socomc', team: 'terrorist' as const, ready: false, host: false, readyIn: 0 }];
+  const view = (launched: boolean, nextMap?: string): ServerEvent => ({ type: 'gameLobby', countdown: null, launched, seats, ...(nextMap ? { nextMap } : {}) } as ServerEvent);
+  const gameOver: ServerEvent = { type: 'roundOver', round: 5, winner: 'seal', wins: { seal: 3, terrorist: 2 }, matchOver: true, screens: [{ screen: 'finalRound', seconds: 10 }, { screen: 'gameComplete', seconds: 10 }] };
+  const welcome = (o: { map?: string; phase?: string; join?: unknown } = {}): ServerEvent => ({
+    type: 'welcome', id: 2, version: 9, map: o.map ?? 'MP2', tick: 0, role: 'player', team: 'terrorist', queue: 0, name: 'socomc', players: [], rules: 'classic', round: 5, rounds: 5, ghost: true,
+    ...(o.phase ? { phase: o.phase } : {}), ...(o.join ? { join: o.join } : {}),
+  } as unknown as ServerEvent);
+  const READY = { arg: 'NA' } as never;
+
+  function page(o: { welcome?: ServerEvent } = {}) {
+    let t = 0;
+    const sockets: Sock[] = [];
+    const starts: GameLobbyMatchStart[] = [];
+    const backs: LobbyMatchReturn[] = [];
+    const recovered: unknown[] = [];
+    let loaded: () => void = () => {};
+    const valves = new ValveStore();
+    let match!: LobbyMatch;
+    const host = new GameSocketHost({
+      pinned: PINNED, ticket: () => 'tkt', holds: () => {}, now: () => t,
+      socket: () => {
+        const sent: string[] = [], closed: number[] = [];
+        const s = { binaryType: '', readyState: 1, sent, closed, send: (d: string) => { sent.push(d); }, close: (c?: number) => { closed.push(c ?? 0); } } as unknown as Sock;
+        sockets.push(s);
+        return s;
+      },
+      matchStart: (h) => { match.start(h); },
+    });
+    const lobby = new GameLobbyCommands({
+      uiVars: new UiVarManager(), valves: () => valves, games: () => [], socket: host, now: () => t,
+      recoverLobby: (state) => { recovered.push(state); return true; },
+      matchStart: (s) => { starts.push(s); host.handOff(s); },
+    });
+    match = new LobbyMatch({
+      now: () => t,
+      screen: { show: () => {}, hide: () => {} },
+      load: () => new Promise<void>((res) => { loaded = res; }),
+      start: (s) => ({ release: () => s.client, close: () => { s.client.close(); } }),
+      // the front end's return (`frontEnd.ts`): the lobby's launch undone at the match's end, its socket taking the client back
+      back: (r) => { backs.push(r); if (r.why === 'match-over') lobby.matchReturned(); if (r.client) host.adopt(r.client); },
+      holds: () => {},
+    });
+    host.attach(lobby);
+    lobby.enterGameLobby({ mediusWorldId: 7, gameName: 'g$~Alpha', maxPlayers: 16, rulesSet: 0, gameStats: GAME_STATS });
+    host.open(7);
+    const socket = (): Sock => sockets.at(-1)!;
+    const server = (ev: ServerEvent): void => { socket().onmessage?.({ data: JSON.stringify(ev) }); };
+    socket().onopen?.({});
+    server(o.welcome ?? welcome({ phase: 'play' }));
+    lobby.JoinGameServer({ arg: '' } as never, 0 as never, 0 as never);
+    server(view(true));                                                       // the seat's first view: launched -- a late joiner
+    const step = (ms: number): void => { for (let i = 0; i < 10; i++) { t += ms / 10; host.frame(); match.frame(); lobby.CheckForcedLaunch(READY, 0 as never, 0 as never); } };
+    const ready = (): void => { t += 6000; lobby.ReadyToLoad(READY, 0 as never, 0 as never); };   // past READY's own 5 s
+    return { host, lobby, match, sockets, socket, server, starts, backs, recovered, valves, step, ready, load: () => loaded(), flush: async () => { await Promise.resolve(); await Promise.resolve(); } };
+  }
+  type Page = ReturnType<typeof page>;
+  const sentTypes = (r: Page): string[] => r.sockets.flatMap((s) => s.sent.map((d) => JSON.parse(d).type as string));
+  const held = (r: Page): unknown => r.recovered.find((x) => (x as { ready?: boolean }).ready === false);   // the first held pass: its line
+
+  it('the constant names the ruling, and the line is the browser\'s own', () => {
+    expect(LATE_SEAT_MATCH_ENDING_OWNER).toMatch(/OT\.R122/);
+    expect(MATCH_ENDING_READY_LINE).toBe('Match ending -- READY opens when the lobby returns.');
+  });
+
+  it('A: a late seat that hears the game end (matchOver) -- READY starts no load and is drawn disabled with the line; the room\'s lobby again opens it, READY then lobbyReady', () => {
+    const r = page();
+    expect(r.valves.find('late_joiner')?.value).toBe(1);
+    r.server(gameOver);
+    expect(r.lobby.readyHeld()).toBe(true);
+    r.step(100);
+    expect(held(r)).toMatchObject({ ready: false, line: MATCH_ENDING_READY_LINE });
+    r.ready();
+    expect([r.starts, r.match.phase, sentTypes(r).filter((x) => x === 'lobbyReady')]).toEqual([[], 'idle', []]);
+    r.server(view(false));                                                    // the room's return: its lobby again
+    expect(r.lobby.readyHeld()).toBe(false);
+    r.step(100);
+    expect(r.recovered.some((x) => (x as { ready?: boolean; line?: string }).ready === true && (x as { line?: string }).line === '')).toBe(true);
+    r.ready();
+    expect([r.starts, sentTypes(r).filter((x) => x === 'lobbyReady')]).toEqual([[], ['lobbyReady']]);
+  });
+
+  it('A: a welcome into GAME COMPLETE (join.result.matchOver) holds READY the same; a roundStart or the abandon lets it go', () => {
+    const result = { ...(gameOver as Extract<ServerEvent, { type: 'roundOver' }>), at: 0 };
+    for (const clear of [{ type: 'roundStart', round: 1, seconds: 360, wins: { seal: 0, terrorist: 0 }, rounds: 5, epoch: 2, startTick: 0 }, { type: 'abandoned' }] as ServerEvent[]) {
+      const r = page({ welcome: welcome({ phase: 'over', join: { v: 1, result, projectiles: [], corpses: [], ghosts: [] } }) });
+      expect(r.lobby.readyHeld()).toBe(true);
+      r.ready();
+      expect(r.starts).toEqual([]);
+      r.server(clear);
+      expect(r.lobby.readyHeld()).toBe(false);
+      r.ready();
+      expect(r.starts.map((s) => s.lateJoiner)).toEqual([true]);             // READY's late branch again
+    }
+  });
+
+  it('A: a round\'s result (not the game\'s end) holds nothing: READY loads the late seat as before', () => {
+    const r = page();
+    r.server({ ...(gameOver as Extract<ServerEvent, { type: 'roundOver' }>), matchOver: false, screens: [{ screen: 'roundComplete', seconds: 5 }] } as ServerEvent);
+    expect(r.lobby.readyHeld()).toBe(false);
+    r.ready();
+    expect(r.starts.map((s) => s.lateJoiner)).toEqual([true]);
+  });
+
+  it('B: READY in the final round, the load past the result -- the game lobby at once, the client kept; READY held until the lobby returns', async () => {
+    const r = page();
+    r.ready();
+    expect([r.starts.map((s) => s.lateJoiner), r.match.phase]).toEqual([[true], 'loading']);
+    expect(r.host.link()).toBeNull();                                         // handed to the load
+    r.server(gameOver);                                                       // the game's end, the load still running
+    expect(r.backs.map((b) => `${b.why} ${b.dialog}`)).toEqual(['match-over dlgGameLobby.rdr']);
+    expect(r.backs.map((b) => b.dialog)).not.toContain(MATCH_ABANDONED_DIALOG);
+    expect(r.socket().closed).toEqual([]);                                    // no bye, no close
+    expect(r.host.link()).toBe(r.backs[0]!.client);                           // the lobby's socket holds the client again
+    expect(r.lobby.readyHeld()).toBe(true);                                   // the lobby heard the same roundOver
+    r.load(); await r.flush();
+    r.step(1000);
+    r.ready();
+    expect(r.starts).toHaveLength(1);                                         // no second load
+    expect(sentTypes(r).filter((x) => x === 'loaded' || x === 'lobbyReady')).toEqual([]);
+  });
+
+  it('B: in the 24/7 room -- returned to the game lobby, the room\'s return with its next map, then the rotation\'s 4021: the seat rejoins and is launched with the others', async () => {
+    const r = page();
+    r.ready();
+    r.server(gameOver);
+    expect(r.backs.map((b) => b.why)).toEqual(['match-over']);
+    r.step(23_000);                                                           // FINAL ROUND, GAME COMPLETE: the lobby waits
+    expect([r.backs.length, r.sockets.length, r.lobby.readyHeld()]).toEqual([1, 1, true]);
+    r.server(view(false, 'MP72'));                                            // the room's return, the rotation's next map
+    expect([r.lobby.readyHeld(), r.lobby.missionName()]).toEqual([false, 'mp72']);
+    const first = r.socket();
+    first.onclose?.({ code: 4021, reason: '' });                              // the rotation's close
+    r.step(4000);
+    expect(r.sockets.length).toBe(2);                                         // the lobby socket's rejoin, as every seat's
+    r.socket().onopen?.({});
+    expect(JSON.parse(r.socket().sent[0]!)).toMatchObject({ type: 'hello', game: 7 });
+    r.server(welcome({ map: 'MP72' }));
+    r.server(view(false));
+    r.ready();
+    expect(sentTypes(r).filter((x) => x === 'lobbyReady')).toEqual(['lobbyReady']);
+    r.server(view(true));                                                     // the room's next launch
+    expect(r.starts.map((s) => s.lateJoiner)).toEqual([true, false]);         // launched with the others, no late joiner
+    expect(r.match.phase).toBe('loading');
     expect(r.backs).toHaveLength(1);
   });
 });
@@ -1497,5 +1691,23 @@ describe('ONL-18: one loading screen for every map (OT.R25)', () => {
   it('the lobby first mission (`mp<n>`, JoinMPGame D[8]) names the map archive the screen and the load read', () => {
     expect(['mp2', 'mp51', 'MP72', 'mp83'].map(missionMapPath)).toEqual(['RUN/MP2.ZDB', 'RUN/MP51.ZDB', 'RUN/MP72.ZDB', 'RUN/MP83.ZDB']);
     expect(['', 'random', 'mp', 'mp1x', '../mp2'].map(missionMapPath)).toEqual([null, null, null, null, null]);
+  });
+});
+
+/**
+ * LATER 734: the `kitHeld` heard in the lobby (`GameLobbyHandOff.kitHeld`) replayed to the match's page after the welcome,
+ * the room's order (`room.ts` tells it after the welcome), so its WEAPON EXCHANGE opens on the held kit.
+ */
+describe('LATER 734: the handed-on kitHeld replayed after the welcome', () => {
+  it('a takeover launch (no late join): the events are the welcome, then the kitHeld, then the round start', async () => {
+    const kit: ServerEvent = { type: 'kitHeld', team: 'seal', char: 1, picks: [{ slot: 0, id: 40 }], kit: [40, 2, 3, 4, 5] };
+    const r = rig({ lobby: (say) => { say(kit); } });
+    r.match.start(r.handOffs[0]!);
+    r.load(); await r.flush();
+    r.step(100);
+    r.server({ type: 'roundStart', round: 1, seconds: 360, wins: { seal: 0, terrorist: 0 }, rounds: 11, epoch: 1, startTick: 0 });
+    r.step(1000);
+    expect(r.started[0]!.events.map((e) => e.type)).toEqual(['welcome', 'kitHeld', 'roundStart']);
+    expect(r.started[0]!.events[1]).toEqual(kit);
   });
 });

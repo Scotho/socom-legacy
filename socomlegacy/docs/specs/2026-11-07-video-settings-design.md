@@ -204,7 +204,9 @@ the native VIDEO patch's rows equal the schema's rows for `native` (through `vid
      report is Xbox One's (§9). `navigator.deviceMemory`'s value on Xbox Edge is unrecorded; the perf report (§4.5)
      carries it so the first Xbox players tell us, and an owner row asks the Xbox seat to read the agent string,
      `deviceMemory` and the renderer string once on a test page before the class ships (the default meanwhile: the
-     two-signal bar above).
+     two-signal bar above). **Widened 2026-11-10** (VS.R1, the owner's word): the renderer string naming the console's
+     own kernel driver (`/\bSraKmd_/i`; the Series X reads "SraKmd_arden") is an Xbox on its own -- v0.4.18's beacons
+     showed consoles whose agent carried no `Xbox` token.
    - **Software renderer**: `softwareRenderer.ts`'s probe (the notice stays).
    - **Touch**: `wantsTouchControls()`.
    - **Low memory**: `deviceMemory` under 4 on a non-Xbox.
@@ -235,7 +237,31 @@ the native VIDEO patch's rows equal the schema's rows for `native` (through `vid
    64 s), reset after a climb that holds 30 s; held as today while a map arrives or under the PS2 picture. Under a
    manual preset it runs under that preset's cap as today; under Automatic its floor is the class's. ~~a dead band of
    ±10%, at least 8 settled frames between steps, an improvement mode climbing one step every 4 s of frames under the
-   band~~
+   band~~ **Amended 2026-11-11 by AQ-8** (the Automatic quality plan's D1 -- the plan is on `agent/auto-quality`,
+   `docs/plans/2026-11-11-automatic-quality.md`; the controller's ruling for v0.4.19; still a browser adaptation): the panic's 33 ms was crossed by one missed
+   refresh at 60 Hz (33.3 ms), so any page holding 30 to 40 fps fell to half the cap inside two seconds and stayed --
+   in the field 93 of 98 bad matches ended at the floor, and on the bench a 16-seat room on an RTX A4500 with no
+   throttle reached it in 69 s. **The rule, stated once: the panic is 6 consecutive frames over 2.5 x the frame time aimed
+   at** -- between a frame of two refresh intervals (one refresh missed: not a panic) and a frame of three (a panic);
+   41.75 ms at the default 16.7, 83.25 ms under a 30 fps cap's 33.3, and every panic figure in the code and its tests
+   is that multiple (`panicShare`). And the trade has a **side test**: a descent from the cap to the floor with no
+   climb is judged there once settled -- the frame time at the floor not at least 15 % under the frame time near the
+   cap, and fewer pixels bought nothing (a place's frame time is the lowest median of the last eight frames read
+   there: ~~near the cap at the steps down to 0.8 of it,~~ at the floor and at the cap's check over a 2 s window -- not a
+   hitch's, not the burst's that set a panic off, not a burst's that falls on a check): the ratio
+   returns to the cap in one change and no ordinary step down is taken. A verdict the cap then disproves (the cap
+   slower than the floor was, by the same 15 %) is taken back once and the trade is not judged again that match.
+   ~~A panic's step takes no reading (its frames are a stall's); a descent that reaches the floor with none has the
+   cap read after the floor instead.~~ **Amended 2026-11-11 by AQ-8 fold 4:** the cap is read after the floor for
+   every descent -- the ratio returns to the cap, and the cap slower than the floor by the 15 % keeps the trade for the
+   match -- because a reference read on the way down is read when frames are slow: in the hub's rendered run of
+   2026-11-11 (`agent-mail/evidence/v0419/aq-panic-hub-20261111T1416Z/rc2-cpu6.jsonl`, CPU throttled 6x) one read at a
+   re-test's first ordinary step fell in a ~48 ms burst and kept a CPU-bound page (~38 ms at any ratio) at the floor.
+   After such a verdict the trade is not lost for the match: once a minute has
+   passed the next step down opens the test again from the cap, each further verdict doubling that wait (to 8
+   minutes) -- a CPU-bound page looks at the floor ever more rarely, and a page whose load has turned to the pixels
+   gets its trade back. A new match begins afresh; a cap raised by more than a step does too, keeping a descent on
+   its way so that it is still judged.
 5. **Xbox memory**: under the Xbox class the HD menu budgets and every pack are refused with a row note ("not on
    Xbox: the browser's 1 GB"), the lobby prepare stays off, and the beacon's perf report carries `performance.memory`
    where exposed so the first real Xbox numbers arrive from players.

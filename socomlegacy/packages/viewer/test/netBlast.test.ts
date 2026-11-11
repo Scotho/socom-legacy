@@ -238,6 +238,8 @@ describe('PF-19: a nonlethal blast during traversal or prone (FUN_0057e770 D:L44
   it("applyKnock on a SEAL on a ladder, a hang or mid-climb releases the move into a fall and lays the knock (FUN_0057e770 D:L440981-441027; KNOCK_LADDER_STATE_READING)", () => {
     expect(KNOCK_LADDER_STATE_READING).toBe('released');
     const ladder = mover(LADDER(), 20);
+    run(ladder.w, FORWARD, () => ladder.t.climbPrompt()?.kind === 'ladder', 400);   // LC-1: CLIMB offered,
+    ladder.t.action();                                                               // mounted on the press
     run(ladder.w, FORWARD, () => ladder.t.state().kind === 'ladder', 400);
     expect(ladder.t.state().kind).toBe('ladder');
     for (let i = 0; i < 60; i++) ladder.w.tick(FORWARD);            // up the rungs, about 13.5

@@ -3,6 +3,7 @@ import {
   type BufferGeometry, type Camera, type ColorRepresentation, type InterleavedBufferAttribute, type Material, type SkinnedMesh,
   type Texture,
 } from 'three';
+import { ConvexHull } from 'three/addons/math/ConvexHull.js';
 import { MeshBasicNodeMaterial, type Node } from 'three/webgpu';
 import {
   float, normalWorld, positionWorld, renderGroup, select, texture as textureNode, uniform, vec2, vec4,
@@ -293,6 +294,98 @@ export function shadowBounds(actor: Object3D, box: Box3): Box3 {
   return box;
 }
 
+/**
+ * SPC-2 (the shadow PC's research loop, SPC.R4 / SPC.R6; a CPU-side browser adaptation behind a switch, off by default):
+ * the box from fewer vertices, the same box. A vertex moved by one affine map -- a rigid mesh's vertex (its world matrix),
+ * or a skinned vertex with one non-zero weight (bind matrix, one bone's product, the weight, the inverse bind matrix, the
+ * world matrix: an affine map of the vertex, `w` included) -- can be the box's extreme on an axis only if it lies on the
+ * convex hull of the vertices that share its map: an affine map keeps a point strictly inside a convex set strictly
+ * inside its image, by its distance to the boundary times the map's smallest stretch. So a vertex inside its group's hull
+ * by more than `HULL_KEEP_MARGIN_ADAPTATION` is skipped; every vertex kept is computed exactly as before, so the extremes -- and the
+ * box, and the map fitted to it -- are the same values (`charShadowHull.test.ts`; research 395). A vertex blended over
+ * two or more bones is not an affine image of its neighbours' and is always kept, as is every vertex of a morphed mesh,
+ * of a group under `HULL_MIN_POINTS_ADAPTATION` or of a group the hull cannot be built for (collinear or identical
+ * points, which three's hull throws on, or fewer than four faces).
+ * The identity's one limit: the margin times the map's smallest stretch times the weight must stay far above the
+ * transform's rounding (about 1e-11 at these coordinates), so a bone, mesh or weight scaled to nearly (not exactly) zero
+ * could break it at that level; no bone or body scale is set in the viewer today.
+ * Nothing in a build sets the switch: only the test does, and the runs of research 395 set it in the page by hand.
+ */
+let hullBounds = false;
+/** SPC-2's switch: on, `shadowBounds` reads each mesh's plan (`boundsPlanOf`); off (the default), every vertex as before. */
+export function setShadowBoundsHull(on: boolean): void { hullBounds = on; }
+/** SPC-2's switch as it stands (the test's hold on "off by default"). */
+export function shadowBoundsHull(): boolean { return hullBounds; }
+/**
+ * How far inside its hull a vertex must lie to be skipped, in the mesh's own units: far above the rounding of the
+ * per-vertex float64 transform (about 1e-12 of the world's coordinates) and far below any model's detail. A browser
+ * adaptation with no original; a larger margin only keeps more vertices.
+ */
+const HULL_KEEP_MARGIN_ADAPTATION = 1e-4;
+/** A group smaller than this keeps every vertex: a hull saves nothing on it. A browser adaptation with no original. */
+const HULL_MIN_POINTS_ADAPTATION = 16;
+
+export interface BoundsPlan {
+  /** The vertex indices to read, ascending; null: every vertex. */
+  readonly indices: Uint32Array | null;
+  readonly total: number;
+  readonly kept: number;
+}
+interface PlanEntry { plan: BoundsPlan; position: unknown; positionVersion: number; skinIndex: unknown; skinWeight: unknown; skinVersion: number; skinned: boolean }
+const plans = new WeakMap<BufferGeometry, PlanEntry>();
+const versionOf = (a: unknown): number => { const v = a as { version?: number; data?: { version: number } } | undefined; return v ? (v.data !== undefined ? v.data.version : v.version ?? 0) : -1; };
+
+/** The vertices `shadowBounds` reads for one mesh under SPC-2's switch (made once per geometry, remade when it changes). */
+export function boundsPlanOf(object: Object3D): BoundsPlan {
+  const o = object as Object3D & { geometry?: BufferGeometry; isSkinnedMesh?: boolean; morphTargetInfluences?: number[] };
+  const geometry = o.geometry!;
+  const position = geometry.getAttribute('position');
+  const total = position.count;
+  const all: BoundsPlan = { indices: null, total, kept: total };
+  if ((geometry.morphAttributes['position']?.length ?? 0) > 0 || (o.morphTargetInfluences?.length ?? 0) > 0) return all;
+  const skinned = o.isSkinnedMesh === true;
+  const skinIndex = geometry.attributes['skinIndex'], skinWeight = geometry.attributes['skinWeight'];
+  const skinVersion = versionOf(skinIndex) * 1e6 + versionOf(skinWeight);
+  const cached = plans.get(geometry);
+  if (cached && cached.position === position && cached.positionVersion === versionOf(position) && cached.skinned === skinned
+    && cached.skinIndex === skinIndex && cached.skinWeight === skinWeight && cached.skinVersion === skinVersion) return cached.plan;
+  // The groups: one map each. A rigid mesh is one group; a skinned one a group per (single bone, its weight) -- the weight
+  // scales the map, so two weights on one bone are two maps -- and the blended are kept apart.
+  const groups = new Map<string, number[]>();
+  const keep: number[] = [];
+  for (let i = 0; i < total; i++) {
+    if (!skinned || skinIndex === undefined || skinWeight === undefined) { (groups.get('rigid') ?? groups.set('rigid', []).get('rigid')!).push(i); continue; }
+    let bone = -1, weight = 0, n = 0;
+    for (let c = 0; c < 4; c++) {
+      const w = c === 0 ? skinWeight.getX(i) : c === 1 ? skinWeight.getY(i) : c === 2 ? skinWeight.getZ(i) : skinWeight.getW(i);
+      if (w !== 0) { n++; weight = w; bone = c === 0 ? skinIndex.getX(i) : c === 1 ? skinIndex.getY(i) : c === 2 ? skinIndex.getZ(i) : skinIndex.getW(i); }
+    }
+    if (n === 1) { const key = `${bone}:${weight}`; (groups.get(key) ?? groups.set(key, []).get(key)!).push(i); }
+    else keep.push(i);                                         // blended (or no weight at all): read as before
+  }
+  const p = new Vector3();
+  for (const idx of groups.values()) {
+    if (idx.length < HULL_MIN_POINTS_ADAPTATION) { keep.push(...idx); continue; }
+    const points = idx.map((i) => new Vector3().fromBufferAttribute(position, i));
+    let faces: { normal: Vector3; constant: number }[] = [];
+    try {
+      const hull = new ConvexHull().setFromPoints(points);
+      faces = hull.faces.map((f) => ({ normal: f.normal, constant: f.constant }));
+    } catch { faces = []; }
+    if (faces.length < 4) { keep.push(...idx); continue; }     // no closed hull (the catch above, or too few faces): keep all
+    for (let k = 0; k < idx.length; k++) {
+      p.copy(points[k]!);
+      let inside = Infinity;                                   // the distance to the nearest face plane, inward
+      for (const f of faces) { const d = f.constant - f.normal.dot(p); if (d < inside) inside = d; }
+      if (!(inside > HULL_KEEP_MARGIN_ADAPTATION)) keep.push(idx[k]!);
+    }
+  }
+  keep.sort((a, b) => a - b);
+  const plan: BoundsPlan = keep.length === total ? all : { indices: Uint32Array.from(keep), total, kept: keep.length };
+  plans.set(geometry, { plan, position, positionVersion: versionOf(position), skinIndex, skinWeight, skinVersion, skinned });
+  return plan;
+}
+
 function expandBounds(box: Box3, object: Object3D): void {
   if (object.userData['effectLightPass'] === true) return;   // an effect light's overlay: the receiver beside it counts
   object.updateWorldMatrix(false, false);
@@ -305,7 +398,10 @@ function expandBounds(box: Box3, object: Object3D): void {
       const skinIndex = geometry.attributes['skinIndex'], skinWeight = geometry.attributes['skinWeight'];
       const ownLoop = skinned && skinIndex !== undefined && skinWeight !== undefined;   // else three's (it throws alike)
       if (ownLoop) _stamp++;                                    // CPS H8 step 2: this mesh's bone products, made afresh
-      for (let i = 0, l = position.count; i < l; i++) {
+      // SPC-2: under the switch, a mesh's planned vertices (the hulls' and the blended); a non-mesh reads every vertex.
+      const indices = hullBounds && (ownLoop || o.isMesh === true) ? boundsPlanOf(o).indices : null;
+      for (let k = 0, l = indices !== null ? indices.length : position.count; k < l; k++) {
+        const i = indices !== null ? indices[k]! : k;
         if (ownLoop) skinnedVertexPosition(o as unknown as SkinnedMesh, skinIndex, skinWeight, i, _vertex);
         else if (o.isMesh === true) (o as unknown as Mesh).getVertexPosition(i, _vertex);
         else _vertex.fromBufferAttribute(position, i);
@@ -577,21 +673,23 @@ export class CharacterShadow {
     renderer.setRenderTarget(this.target);
     renderer.setClearColor(0x000000, 0);
     drawnBy = null;                                  // CPS H8 step 2: the map is being redrawn; this shadow's once it is
-    renderer.clear();
     const autoUpdate = scene.matrixWorldAutoUpdate;
     scene.matrixWorldAutoUpdate = false;
+    // RENDER-FINALLY (a renderer adaptation): the state goes back in the finally, so a throwing clear or render leaves
+    // neither the silhouette nor the map's target behind for the world's render; the error still goes on.
     try {
+      renderer.clear();
       renderer.render(scene, cam);
       drawnBy = this;
       this.drawn = true;
       this.drawCount++;                              // CPS H9: the full path ran to its render's end
     } finally {
       scene.matrixWorldAutoUpdate = autoUpdate;
+      renderer.setClearColor(previousClear, previousAlpha);
+      renderer.setRenderTarget(previousTarget);
+      scene.overrideMaterial = previousOverride;
+      scene.background = previousBackground;
     }
-    renderer.setClearColor(previousClear, previousAlpha);
-    renderer.setRenderTarget(previousTarget);
-    scene.overrideMaterial = previousOverride;
-    scene.background = previousBackground;
   }
 
   /**

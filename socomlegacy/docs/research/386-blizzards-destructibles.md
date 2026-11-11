@@ -52,7 +52,7 @@ One sequence of three commands (each window alike): `SOUND .GLS_BRK_MD` at node 
 `DESTRUCTION_SOURCE` at node -7, `OBJECT_ACTIVE_STATE` node -7 off. Node -7 is `NODE_ROOT` (`@s2u/scene` `effects.ts`
 `NODE_ROOT = -7`), the animation's own root reference -- the window -- **not** a context node: research 173 §5's "context
 node -7" is corrected here. The port runs it as read: in the room the root goes off (on the wire); a page that takes the
-death off the wire plays the sound at the polygons' box centre (`SCENE_SOUND_PLACE_READING`) and logs the
+death off the wire plays the sound at the window node's world origin (`SCENE_SOUND_PLACE_READING`; until 2026-11-10 the polygons' box centre) and logs the
 `DESTRUCTION_SOURCE` (`GLASS_FRAGMENTS_PLACEHOLDER`: its payload past the node byte is not decoded, so no fragments are
 drawn). The window reference's word 0x10000100 saves the active state (bit 28), so the reset puts the pane back.
 

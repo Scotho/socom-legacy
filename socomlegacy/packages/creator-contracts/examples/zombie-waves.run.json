@@ -1,0 +1,385 @@
+{
+  "about": "Issue #766's acceptance runs for the zombie-wave example (not a pack member). The run tells npc.death, spawner.empty and timer.fire itself, so the trace does not wait on shots. The recording room applies nothing. The horde's place is authored for the Crossroads test map, not a disc coordinate. Wave sizes 4, 7 and 10 and the ten-second rest are the test room's own numbers, written as pack defaults.",
+  "layout": {
+    "base": {
+      "kind": "map",
+      "archive": "MP72"
+    },
+    "spawners": [
+      {
+        "id": "horde",
+        "source": "npc",
+        "at": [
+          480,
+          0,
+          -360
+        ],
+        "yaw": 0,
+        "radius": 120,
+        "side": "terrorist",
+        "type": 0
+      }
+    ]
+  },
+  "script": {
+    "seed": 766,
+    "players": [
+      {
+        "id": 1,
+        "team": "seal",
+        "at": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "ticks": [
+      {
+        "events": [
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "spawner.empty",
+            "id": "horde",
+            "fields": {
+              "count": 4
+            }
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "spawner.empty",
+            "id": "horde",
+            "fields": {
+              "count": 4
+            }
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "timer.fire",
+            "id": "rest"
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "spawner.empty",
+            "id": "horde",
+            "fields": {
+              "count": 7
+            }
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "timer.fire",
+            "id": "rest"
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          },
+          {
+            "name": "npc.death",
+            "attacker": 1,
+            "id": "horde",
+            "fields": {
+              "npc": "walker"
+            }
+          }
+        ]
+      },
+      {
+        "events": [
+          {
+            "name": "spawner.empty",
+            "id": "horde",
+            "fields": {
+              "count": 10
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "fired": [
+      "open-1",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "clear-1",
+      "open-2",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "clear-2",
+      "open-3",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "bounty",
+      "clear-3"
+    ],
+    "messages": [
+      "Wave 1",
+      "Wave 1 cleared",
+      "Wave 2",
+      "Wave 2 cleared",
+      "Wave 3",
+      "All waves cleared"
+    ],
+    "phase": "cleared",
+    "wave": 3,
+    "left": 0,
+    "cash": 2100,
+    "awards": 21,
+    "winner": "seal",
+    "releases": 3
+  },
+  "wipe": {
+    "script": {
+      "seed": 766,
+      "players": [
+        {
+          "id": 1,
+          "team": "seal",
+          "at": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "ticks": [
+        {
+          "events": [
+            {
+              "name": "npc.death",
+              "attacker": 1,
+              "id": "horde",
+              "fields": {
+                "npc": "walker"
+              }
+            }
+          ]
+        },
+        {
+          "alive": {
+            "1": false
+          },
+          "events": [
+            {
+              "name": "player.eliminated",
+              "player": 1
+            }
+          ]
+        }
+      ]
+    },
+    "expect": {
+      "fired": [
+        "open-1",
+        "bounty",
+        "wiped"
+      ],
+      "messages": [
+        "Wave 1",
+        "The squad is down"
+      ],
+      "phase": "wave-1",
+      "wave": 1,
+      "left": 3,
+      "cash": 100,
+      "awards": 1,
+      "winner": null,
+      "releases": 1
+    }
+  }
+}

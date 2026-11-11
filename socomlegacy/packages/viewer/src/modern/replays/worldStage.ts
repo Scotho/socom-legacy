@@ -4,7 +4,7 @@ import type { ServerEvent } from '../../net/protocol';
 import type { LoadedSegment, ReplayClient, ReplaySeek } from '../../replay/replayClient';
 import { loadKindOf, replayMapRefusal, type ReplayLoadKind } from '../../replay/refusalKind';
 import { keepCameraChoice, readCameraChoice, type CameraChoiceStore } from './cameraChoice';
-import { askReplayGrant, replayAddress, type ReplayEntry } from './data';
+import { askReplayGrant, publicReplayAddress, replayAddress, type ReplayEntry } from './data';
 import type { ReplayStage, ReplayStageContext, SpectatorControls, SpectatorMode } from './stage';
 import type { TransportClient } from './transport';
 import { installReplayWorld, REPLAY_WORLD_PARAM, uninstallReplayWorld, type ReplayWorldHost, type ReplayWorldPage } from './worldHost';
@@ -34,7 +34,8 @@ import { installReplayWorld, REPLAY_WORLD_PARAM, uninstallReplayWorld, type Repl
  * door it names with the grant as bearer (`loadSegment`'s door), the grant in this function's memory only -- never
  * in storage, an address, or the frame's. A door's refusal (`REPLAY_DOOR_REFUSED`: its 404 or a throw, a grant that
  * may have run out on the way) is re-asked exactly once -- one more grant, one more fetch -- then stands; no clock is
- * compared (central's `expiresAt` and this page's clock are two clocks).
+ * compared (central's `expiresAt` and this page's clock are two clocks). LCM-RP (RB-11, `../../replay/load`
+ * `REPLAY_PUBLIC_FETCH_ADAPTATION`): a page with no ticket asks no grant -- central's public fetch, followed to its door.
  *
  * **The transport drives the page's client.** The handle's `client` is this page's view of the client the test room
  * holds now (`WorldClient`): each call goes to it, its events reach the viewer. The test room makes its room again on
@@ -268,11 +269,16 @@ export class WorldClient implements TransportClient {
   }
 }
 
-type LoadModule = Pick<typeof import('../../replay/load'), 'loadSegment' | 'ReplayLoadError' | 'REPLAY_DOOR_REFUSED'>;
+type LoadModule = Pick<typeof import('../../replay/load'), 'loadSegment' | 'loadPublicSegment' | 'ReplayLoadError' | 'REPLAY_DOOR_REFUSED'>;
 
-/** SA-9b: Watch's segment -- central's own at `<base>/replays/<id>`, or a host's at its door with a grant (the module's doc). */
+/**
+ * SA-9b: Watch's segment -- central's own at `<base>/replays/<id>`, or a host's at its door with a grant (the module's doc).
+ * LCM-RP (RB-11): with no ticket -- the replay page's visitor -- no grant is asked: central's public fetch, the entry's match
+ * named, followed to the door it names (`loadPublicSegment`).
+ */
 export async function segmentFor(entry: ReplayEntry, ctx: ReplayStageContext, mod: LoadModule): Promise<LoadedSegment> {
   const fetchDep = ctx.fetch ? { fetch: ctx.fetch } : {};
+  if (!ctx.ticket()) return mod.loadPublicSegment(publicReplayAddress(ctx.base, entry.id, entry.matchId ?? null), { devDoors: ctx.devDoors === true, ...fetchDep });
   const local = (): Promise<LoadedSegment> => mod.loadSegment(replayAddress(ctx.base, entry.id), { server: ctx.base, ticket: ctx.ticket, ...fetchDep });
   if (entry.host === undefined) return local();
   const fromDoor = async (): Promise<LoadedSegment> => {

@@ -311,9 +311,10 @@ export interface ExtractionHost {
    * the hull's surfaces under the aim pick's rule (`crosshairPick`, `pickSurfaces`). The room's casts from the issuer's
    * camera eye as it holds it, not from the page's `eye` (the sprint 31 fix-up, `ORDER_EYE_READING`, research 239
    * s9.2): from the frame of the command the order names (`seq`) or the next, so `target` (the hostage ordered) is
-   * the pick if it is from either.
+   * the pick if it is from either. LATER 853 (`ORDER_REWIND_ADAPTATION`): `viewTick`, the page's playout clock when it
+   * ordered, puts the hostages where the page drew them (the round's rewind, capped as a round's); absent, their present.
    */
-  pick?(issuer: number, eye: V3, dir: V3, seq?: number, target?: number): OrderPick;
+  pick?(issuer: number, eye: V3, dir: V3, seq?: number, target?: number, viewTick?: number): OrderPick;
   /** HX-4a: an order refused, by why (the room's tally, INT.R5's report to the issuer). */
   dropped?(why: OrderRefusal | 'unknown hostage', issuer: number): void;
 }
@@ -322,8 +323,12 @@ export interface ExtractionHost {
 export interface OrderSeat { id: number; alive: boolean; spectator: boolean; team: Team | null; feet: V3 }
 
 /** HX-4a: the order as the room takes it off the wire (`hostageOrder`, its shape checked by `Room.text`). */
-/** An order as the room hands it on; `seq` the command it names (the room's pick is cast from that command's frame or the next's). */
-export interface HostageOrderEvent { hostage: number; cmd: HostageCommand; eye: V3; dir: V3; seq?: number }
+/**
+ * An order as the room hands it on; `seq` the command it names (the room's pick is cast from that command's frame or the
+ * next's); `viewTick` the page's playout clock when it ordered (LATER 853, `ORDER_REWIND_ADAPTATION`), absent from an
+ * older page.
+ */
+export interface HostageOrderEvent { hostage: number; cmd: HostageCommand; eye: V3; dir: V3; seq?: number; viewTick?: number }
 
 /** A hostage's death as the room tells it: the `kill` event's fields beside its killer. */
 export interface HostageKillInfo { weapon: string | null; how: KillHow; clip: string | null; cause: number; killerName?: string }
@@ -1066,7 +1071,7 @@ export class ExtractionAuthority {
       eye: ev.eye, dir: ev.dir,
     }, {
       cellOf: (f) => orderCellOf(this.map.ai, f),                                // ORDER_CELL_FIELD_READING: the located cell, no maps no order
-      pick: (eye, dir) => this.host.pick!(issuerId, [eye[0]!, eye[1]!, eye[2]!], [dir[0]!, dir[1]!, dir[2]!], ev.seq, h!.id),
+      pick: (eye, dir) => this.host.pick!(issuerId, [eye[0]!, eye[1]!, eye[2]!], [dir[0]!, dir[1]!, dir[2]!], ev.seq, h!.id, ev.viewTick),
     });
     if (why || !h || !issuer) { this.host.dropped?.(why ?? 'not alive', issuerId); return why ?? 'not alive'; }
     onCommand(h, ev.cmd, { id: issuer.id, alive: issuer.alive }, this.leaders);

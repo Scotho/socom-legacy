@@ -11,7 +11,7 @@ import { loadingQuads } from '../src/loadingLayout';
 import { LoadingPanel, loadingDrawList } from '../src/loadingPanel';
 import { rasterizeUiDrawList, type RasterOptions, type UiBitmap, type UiHdTextures, type UiTextures } from '../src/uiCompositorView';
 
-// HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE Soul)): the loading screen drawn at the HD pack's scale,
+// HD-4 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE SouL)): the loading screen drawn at the HD pack's scale,
 // each bitmap the pack replaces drawn from its HD texels, its quads' places in the 640 x 448 frame unchanged. Since
 // GM-22's code step (research 380 §4) the panel draws through the menus' compositor (HD-3's scale and lookup), no
 // longer Canvas 2D; without the option, or at scale 1, it draws the original frame.
@@ -123,7 +123,7 @@ describe('HD-4: the loading screen with the pack off draws the original frame', 
   });
 });
 
-describe('HD-4: the loading screen under HD (GoE Soul) draws at the pack\'s scale', () => {
+describe('HD-4: the loading screen under HD (GoE SouL) draws at the pack\'s scale', () => {
   const picture = bitmaps[1]![1];
   const hdPicture = pattern(256, 128, 9);
   it('a 2560 x 1792 frame at 4x, the replaced bitmap drawn from its HD texels at the same frame place', () => {

@@ -20,7 +20,9 @@ export interface PageWorldHooks {
   setNodeActive(path: string, on: boolean): void;
   /** PB-9b: `WorldView.setNodeOpacity` -- a program's opacity on a node (the bases' pulse outlines, research 284 s8). */
   setNodeOpacity?(path: string, opacity: number): void;
-  /** A program's `SOUND` at its node's place (null: none placed; `SCENE_SOUND_PLACE_READING`), at its volume. */
+  /** LATER 782: `WorldView.setNodeUvOffset` -- a program's `SCROLL_MOTION` on a node (Fish Hook's washes and water). */
+  setNodeUvOffset?(path: string, u: number, v: number): void;
+  /** A program's `SOUND` where the world places it (null: without a place; `SCENE_SOUND_PLACE_READING`), at its volume. */
   sound(name: string, at: [number, number, number] | null, volume: number): void;
   /** XR-04: a program's common-set effect (`COMMON_EFFECT_CALL_READING`) at the calling program's root. */
   effect(name: string, at: [number, number, number]): void;
@@ -43,7 +45,8 @@ export function buildPageWorld(map: LoadedMap, hooks: PageWorldHooks, ambient: r
   const world: WorldState = new WorldState(map.meta ?? bareMeta(), map.ground, grid, {
     visible: (path, on) => { hooks.setNodeActive(path, on); },
     opacity: (path, f) => { hooks.setNodeOpacity?.(path, f); },
-    sound: (name, path, volume) => { hooks.sound(name, path !== null ? world.placeOf(path) : null, volume); },
+    scroll: (path, u, v) => { hooks.setNodeUvOffset?.(path, u, v); },
+    sound: (name, _path, volume, at) => { hooks.sound(name, at, volume); },   // SCENE_SOUND_PLACE_READING: the node's origin
     call: (name, path) => {
       const at = path !== null ? world.placeOf(path) : null;
       if (at) hooks.effect(name, at);

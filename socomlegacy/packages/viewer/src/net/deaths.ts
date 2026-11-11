@@ -81,6 +81,18 @@ export const DEATH_CLIPS: readonly string[] = [...new Set([...Object.values(HEAD
 const pick = (list: readonly string[], random: () => number): string => list[Math.min(list.length - 1, Math.floor(random() * list.length))]!;
 
 /**
+ * FALL-DEATH-LAND: what ANOTHER console shows of a body that fell to its death. The fall's damage runs on the victim's
+ * console alone (`FUN_005ac1f0` D:L464929-464933: a remote controller's `+0x34` answers true, and the function returns
+ * class 0 having played the sound only), so on another console the landing's class is 0 unless the death has already
+ * cleared the body's alive bit there (`FUN_005af590` D:L466658-466660), and class 0 over the hard rate pushes clip 0xb,
+ * `Jump land hard` (D:L466674); the death heard after it plays no clip of its own (cause 7, `FUN_005a54d0` D:L461387).
+ * How the death's state 8 then reaches that copy of the body -- whether it lies down, and in what -- is not read. The
+ * port draws every viewer's copy from the room's mover, the victim's console's (`Walker.fallKills`): `Land forward`,
+ * held (research 151 §5). [reading]
+ */
+export const REMOTE_FALL_DEATH_POSE_READING = "the victim's console's: Land forward, held" as const;
+
+/**
  * The clip a SEAL dies in, or null for a death with no clip of its own. A fall: none (its `Land forward` holds, cause 7,
  * L461387). A blast: none from the death itself (cause 4, L461387) -- the corpse is thrown by the knock (`./blast`
  * `blastKnock`, dead) -- except prone, where the knock does not throw and the game plays a clip of the BODY list for

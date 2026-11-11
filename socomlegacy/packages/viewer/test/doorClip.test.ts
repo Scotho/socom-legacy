@@ -1731,7 +1731,7 @@ describe("LATER 526: a refused take's pop and hold placement undone on the walk 
     r.walk.setFlinchPose(flinch560, { start: from, until });
     r.frames(1);                                                 // command `from`, the stick still
     expect(r.walk.flinching(), 'inside the window').toBe(true);
-    r.setWish(1);                                                // into the ladder: mounted on the touch (`touchLadder`)
+    r.walk.action();                                             // LC-1: CLIMB pressed at the ladder (was: the stick into it, the touch)
     r.frames(1);
     const at = from + 1;
     expect(starts, "the page's mount, on its command").toEqual([at]);
@@ -1752,7 +1752,7 @@ describe("LATER 526: a refused take's pop and hold placement undone on the walk 
     const room = roomFlinch(r, from, until);                     // the room's window from `from`; the page not yet told
     const starts = startsOf(r);
     r.frames(1);
-    r.setWish(1);
+    r.walk.action();                                             // LC-1: the press mounts
     r.frames(1);
     const at = from + 1;
     expect(starts).toEqual([at]);
@@ -1778,7 +1778,7 @@ describe("LATER 526: a refused take's pop and hold placement undone on the walk 
     const starts = startsOf(r);
     r.walk.setFlinchPose(flinch560, { start: from, until });
     r.frames(1);                                                 // command `from`, the stick still
-    r.setWish(1);
+    r.walk.action();                                             // LC-1: the press mounts
     r.frames(1);                                                 // command C = from + 1: the mount
     const at = from + 1;
     expect(starts).toEqual([at]);
@@ -1798,8 +1798,8 @@ describe("LATER 526: a refused take's pop and hold placement undone on the walk 
     const r = rig([LADDER]);
     const s = r.page().state, feet = [s.x, s.y, s.z] as const, yaw = s.yaw;
     const t = r.sent().length;
-    r.setWish(1);
-    r.frames(3);                                                 // mounted on the touch
+    r.walk.action();                                             // LC-1: mounted on the press
+    r.frames(3);
     const replay = r.sent().slice(t);
     expect(replay.length).toBe(3);
     expect(r.walk.respawn(feet, yaw, replay)).toBe(true);

@@ -95,8 +95,14 @@ export interface PublicLobby {
   private: boolean;
   map: string;
   mode: string;
+  /** Everyone in a player seat, the CPUs too (`RoomService.lobbyLink`, `LOBBY_LINK_SEATED_ADAPTATION`): never its watchers. */
   players: number;
   maxPlayers: number;
+  /**
+   * The lobby-cap review (F1; an adaptation, `LOBBY_LINK_SEATED_ADAPTATION`): the game's watchers, said only when there
+   * are any (absent with none, as the card's "+N watching" line).
+   */
+  watching?: number;
   inProgress: boolean;
   locked: boolean;
   stateHash: string;
@@ -111,13 +117,19 @@ export interface LobbyLinkSource {
   worldStatus: number;
   players: number;
   maxPlayers: number;
+  /** The watchers, apart from `players` (`RoomService.lobbyLink`); absent, none. */
+  watching?: number;
 }
 
 export type LobbyBody = Omit<PublicLobby, 'stateHash'>;
 
-/** The fields the image and the head are keyed on. The id is not one of them, so an unknown id and an ended game match. */
+/**
+ * The fields the image and the head are keyed on. The id is not one of them, so an unknown id and an ended game match.
+ * The watchers (the lobby-cap review) only when there are any, so a summary without them keys as it did.
+ */
 export function lobbyStateMaterial(s: LobbyBody): string {
-  return JSON.stringify([s.ended, s.name, s.private, s.map, s.mode, s.players, s.maxPlayers, s.inProgress, s.locked]);
+  const watching = s.watching ?? 0;
+  return JSON.stringify([s.ended, s.name, s.private, s.map, s.mode, s.players, s.maxPlayers, s.inProgress, s.locked, ...(watching > 0 ? [watching] : [])]);
 }
 
 /** A cache key for the image query. Not a secret: FNV-1a over the public fields, base64url. */
@@ -140,6 +152,7 @@ export function describeLobby(source: LobbyLinkSource | null): LobbyBody {
   }
   const isPrivate = (source.securityLevel & 1) !== 0 || (source.securityLevel & 2) !== 0;
   const level = source.gameLevel !== 0 ? source.gameLevel : (source.playlist[0] ?? 0);
+  const watching = Math.max(0, Math.trunc(source.watching ?? 0));
   return {
     id: '',
     ended: false,
@@ -149,6 +162,7 @@ export function describeLobby(source: LobbyLinkSource | null): LobbyBody {
     mode: modeWord(level, source.playlist),
     players: Math.max(0, Math.trunc(source.players)),
     maxPlayers: Math.max(0, Math.trunc(source.maxPlayers)),
+    ...(watching > 0 ? { watching } : {}),
     inProgress: source.worldStatus === 2,
     locked: isPrivate,
   };
@@ -168,11 +182,13 @@ export function publicLobbyFromJson(raw: unknown, id: string): PublicLobby {
   if (typeof r['private'] !== 'boolean' || typeof r['inProgress'] !== 'boolean' || typeof r['locked'] !== 'boolean') return ended;
   if (typeof r['stateHash'] !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(r['stateHash'])) return ended;
   const name = r['ended'] ? 'Match ended' : (r['private'] ? 'Private match' : capName(r['name']));
+  const watching = !r['ended'] && typeof r['watching'] === 'number' && Number.isFinite(r['watching']) ? Math.max(0, Math.trunc(r['watching'])) : 0;
   return {
     id, ended: r['ended'], name, private: r['private'],
     map: r['ended'] ? '' : capName(r['map']), mode: r['ended'] ? '' : capName(r['mode']),
     players: r['ended'] ? 0 : Math.max(0, Math.trunc(r['players'])),
     maxPlayers: r['ended'] ? 0 : Math.max(0, Math.trunc(r['maxPlayers'])),
+    ...(watching > 0 ? { watching } : {}),
     inProgress: r['ended'] ? false : r['inProgress'], locked: r['ended'] ? false : r['locked'],
     stateHash: r['stateHash'],
   };

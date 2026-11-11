@@ -198,8 +198,8 @@ describe('GM-28: the load gate -- the menus\' HD pack loads while the front may 
 
 describe('GM-28: the page\'s readers of the menus\' HD (source inspection: the loop needs a 2D canvas jsdom lacks)', () => {
   const src = readFileSync(resolve(fileURLToPath(import.meta.url), '../../src/frontEnd.ts'), 'utf8');
-  const loop = src.slice(src.indexOf('const loop = (now: number): void => {'));
-  const body = loop.slice(0, loop.indexOf('frameId = win.requestAnimationFrame(loop);'));
+  const loop = src.slice(src.indexOf('const step = (now: number): boolean => {'));
+  const body = loop.slice(0, loop.indexOf('const frontGuard = new FrameGuard();'));
 
   it('the loop: the pack\'s options chosen, the path decided at its scale, then the frame\'s options -- HD to the surface, 1x to the page\'s software', () => {
     expect(body).toMatch(/const chosen = hdMenus\?\.options\(\) \?\? \{ scale: 1 \};/);

@@ -2,14 +2,15 @@ import { DISCORD_INVITE, DISCORD_LABEL, discordMark } from '../discord';
 import { esc, ico } from '../icons';
 import {
   CATS, COMING_WORD, themePicks, DISC_SOURCES, discSource, homeItems, overlayDiscUse, selectedRoom, type Adapters, type ConsoleState, type HomeItem,
-  DEPLOY_NEED_LINES, deployChecks, inputReady, launchCheckTitle, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW, playNeed,
+  DEPLOY_NEED_LINES, deployChecks, inputReady, launchCheckTitle, LAUNCH_DEPLOY_ROW, LAUNCH_DISC_ROW, LAUNCH_PAD_ROW, LAUNCH_PADSET_ROW, LAUNCH_SEND_ROW, LAUNCH_SHARE_ROW, LAUNCH_SKIP_ROW, playNeed,
+  sendState, sendInMenu, SEND_MENU_ROW,
 } from '../state';
 import { SKIP_MENU_HINT, SKIP_MENU_LABEL, SKIP_MENU_ROW, skipMenuOn } from '../skipMenu';
-import { SHARE_ROW_LABEL, SHARE_TITLE, SHARE_XBOX_POINTER } from '../../discShareWords';
-import { shareAreaHtml, shareRowLine } from './discShare';
+import { SEND_MENU_LABEL, SEND_ROW_LABEL, SEND_TITLE, SHARE_ROW_LABEL, SHARE_TITLE, SHARE_XBOX_POINTER } from '../../discShareWords';
+import { sendAreaHtml, shareAreaHtml, shareRowLine } from './discShare';
 import { screenHead } from './head';
 import { markEdges } from './options';
-import { rowHtml, type Row } from './rows';
+import { rowHtml, type Row, type RowOpts } from './rows';
 
 /**
  * The crossbar home (the S2U Briefing design system's prototype, `renderHome` and `readout`; its Crossbar, ActionList
@@ -52,6 +53,15 @@ export function overlayDiscLine(s: ConsoleState, a: Adapters): { state: 'in' | '
  */
 function launchCheckHtml(s: ConsoleState, a: Adapters): string {
   const share = a.discShare;
+  // DSH-10 (DSH.R17): the send area, in the receiver's place and width (`is-share`), its head the row's name.
+  if (share && s.chk.send) {
+    return `<aside class="cx-launchcheck is-share is-send" data-panel="launch" data-key="launchcheck-send" aria-label="${esc(SEND_TITLE)}">
+      <div class="cx-screen cx-screen--panel">
+        ${screenHead('', SEND_TITLE, launchCheckTitle(s, a), '', '', 2)}
+        <div class="cx-screen__body" data-scroll data-key="send-area">${sendAreaHtml(s, share)}</div>
+      </div>
+    </aside>`;
+  }
   if (share && s.chk.share) {
     return `<aside class="cx-launchcheck is-share" data-panel="launch" data-key="launchcheck-share" aria-label="${esc(SHARE_TITLE)}">
       <div class="cx-screen cx-screen--panel">
@@ -77,7 +87,7 @@ function launchCheckHtml(s: ConsoleState, a: Adapters): string {
   // Setup onboarding (ZjCZXTTW: Xbox players did not find the share): the disc out on a page with the share's row, the
   // head's one line points at it (`SHARE_XBOX_POINTER`).
   const pointer = share && disc !== 'ready' ? SHARE_XBOX_POINTER : '';
-  const rows: [number, Row][] = [
+  const rows: [number, Row, Partial<RowOpts>?, string?][] = [
     [LAUNCH_DISC_ROW, { kind: 'check', id: 'disc', label: 'Disc', hint: step?.sub ?? '', icon: 'disc', ok: disc === 'ready', progress: disc === 'ready' ? 1 : disc === 'reading' ? 0.5 : 0, chip: disc === 'ready' ? 'Change' : 'Choose', ...(choice ? { choice } : {}) }],
     [LAUNCH_PAD_ROW, { kind: 'check', id: 'pad', label: 'Controller', hint: pad ? a.controls?.line() ?? 'Controller connected' : 'No controller found · Press any button', icon: 'pad', ok: pad, progress: pad ? 1 : 0, chip: pad ? 'Connected' : 'Not found' }],
     [-1, { kind: 'header', label: '' }],
@@ -85,13 +95,23 @@ function launchCheckHtml(s: ConsoleState, a: Adapters): string {
     [LAUNCH_SKIP_ROW, { kind: 'toggle', id: 'skipmenu', label: SKIP_MENU_LABEL, hint: SKIP_MENU_HINT, on: skipMenuOn() }],   // SKIP-MENU (LR.R33): the panel's toggle kind, above Controller settings
     [LAUNCH_PADSET_ROW, { kind: 'link', id: 'padsettings', label: 'Controller settings', hint: 'Settings › Launcher › Controller', icon: 'pad' }],   // LR-38 (4): the mockup's link row carries its destination's mark; LATER 294: its path is Launcher's
   ];
-  if (share) rows.push([LAUNCH_SHARE_ROW, { kind: 'link', id: 'share', label: SHARE_ROW_LABEL, hint: shareRowLine(share), icon: 'download' }]);   // DSH-5 (DSH.R12)
+  if (share) {
+    // DSH-10 (DSH.R17): "Send Game Files", directly above "Request Game Files (XBOX)" -- enabled only on `sendState`
+    // (the adapter's `complete()`); disabled it is muted (`aria-disabled`) yet reached by the pad and Tab. Its tooltip is
+    // its `title` (the pointer's hover) and the same words in a visually hidden span it names as its description (a pad
+    // and the Xbox have no hover).
+    const send = sendState(a);
+    rows.push([LAUNCH_SEND_ROW, { kind: 'link', id: 'send', label: SEND_ROW_LABEL, hint: send.line, icon: 'upload' },
+      { muted: !send.ok, attrs: `title="${esc(send.tip)}" aria-describedby="cx-send-tip"` },
+      `<span id="cx-send-tip" class="sr-only">${esc(send.tip)}</span>`]);
+    rows.push([LAUNCH_SHARE_ROW, { kind: 'link', id: 'share', label: SHARE_ROW_LABEL, hint: shareRowLine(share), icon: 'download' }]);   // DSH-5 (DSH.R12)
+  }
   return `<aside class="cx-launchcheck" data-panel="launch" data-key="launchcheck" aria-label="${esc(title)}">
       <div class="cx-screen cx-screen--panel">
         ${screenHead('', title, 'Home', '', pointer, 2)}
         <div class="cx-screen__body">
           <div class="cx-rlist" data-scroll data-key="rows-launch" role="group" aria-label="${esc(title)}">
-            ${rows.map(([i, r]) => rowHtml(r, { focused: i >= 0 && i === s.chk.row, index: i, act: 'chkrow', flipped: i === LAUNCH_SKIP_ROW && flip === SKIP_MENU_ROW })).join('')}
+            ${rows.map(([i, r, o, after]) => rowHtml(r, { focused: i >= 0 && i === s.chk.row, index: i, act: 'chkrow', flipped: i === LAUNCH_SKIP_ROW && flip === SKIP_MENU_ROW, ...o }) + (after ?? '')).join('')}
           </div>
         </div>
       </div>
@@ -128,7 +148,18 @@ export function sourceHtml(s: ConsoleState, a: Adapters): string {
  */
 export function sourceMenuHtml(s: ConsoleState, a: Adapters): string {
   const active = discSource(a);
-  return `${s.src.open ? `<ul class="cx-srcmenu" role="menu" aria-label="Disc source">${DISC_SOURCES.map((o, i) => `<li role="none"><button type="button" class="cx-srcopt${i === s.src.row ? ' is-focused' : ''}" role="menuitemradio" aria-checked="${o.id === active}" data-act="srcopt" data-i="${i}">${ico(o.id === active ? 'check' : 'disc')}<span class="cx-label">${esc(o.label)}</span></button></li>`).join('')}</ul>` : ''}`;
+  return `${s.src.open ? `<ul class="cx-srcmenu" role="menu" aria-label="Disc source">${DISC_SOURCES.map((o, i) => `<li role="none"><button type="button" class="cx-srcopt${i === s.src.row ? ' is-focused' : ''}" role="menuitemradio" aria-checked="${o.id === active}" data-act="srcopt" data-i="${i}">${ico(o.id === active ? 'check' : 'disc')}<span class="cx-label">${esc(o.label)}</span></button></li>`).join('')}${sendMenuRowHtml(s, a)}</ul>` : ''}`;
+}
+
+/**
+ * DSH-11 (DSH.R17): the menu's "SEND DISC" -- a `menuitem` (no source to check) with the upload mark, decided by DSH-10's
+ * rule (`sendState`): enabled, its press opens Play's panel on the send area; disabled, muted (`aria-disabled`) and its
+ * press says why. Either way its `title` is DSH-10's tooltip, and the same words a visually hidden description.
+ */
+function sendMenuRowHtml(s: ConsoleState, a: Adapters): string {
+  if (!sendInMenu(s, a)) return '';
+  const st = sendState(a);
+  return `<li role="none"><button type="button" class="cx-srcopt cx-srcopt--send${SEND_MENU_ROW === s.src.row ? ' is-focused' : ''}${st.ok ? '' : ' is-muted'}" role="menuitem"${st.ok ? '' : ' aria-disabled="true"'} title="${esc(st.tip)}" aria-describedby="cx-send-menu-tip" data-act="srcopt" data-i="${SEND_MENU_ROW}" data-send="menu">${ico('upload')}<span class="cx-label">${esc(SEND_MENU_LABEL)}</span></button><span id="cx-send-menu-tip" class="sr-only">${esc(st.tip)}</span></li>`;
 }
 
 /**

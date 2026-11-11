@@ -508,6 +508,10 @@ body.armory-open #toast { display: none !important; }
   padding: 0 var(--s2u-space-3); border-radius: var(--s2u-radius-pill); letter-spacing: var(--s2u-tracking-hint);
 }
 #touch-walk #tw-weapons[hidden] { display: none; }
+/* OT.R120 (SPECTATE_KIT_CHANGE_OWNER, the owner's adaptation): dead and watching a teammate the page flies, and the walk
+   pad hides with INV in it; `is-inv-shown` (`./matchTouch` `weaponsFrame`) shows INV alone of it over the fly camera's layer. */
+.touch.is-inv-shown:not(.is-walking) #touch-walk { display: block; }
+.touch.is-inv-shown:not(.is-walking) #touch-walk > :not(#tw-weapons) { display: none; }
 /* The fullscreen button, while walking: the HUD owns the bottom right (the range strip), so it stands at the left edge. */
 body.is-walking #fullscreen { right: auto; bottom: auto; left: calc(8px + env(safe-area-inset-left, 0px)); top: calc(72px + env(safe-area-inset-top, 0px)); width: 36px; height: 36px; }
 /* Held upright the HUD's bottom strip is taller: the two clusters stand on the bottom row, above it, and the page asks for a turn. */

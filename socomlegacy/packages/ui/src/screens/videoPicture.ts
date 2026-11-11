@@ -19,7 +19,7 @@ export const VIDEO_PICTURE_ADAPTATION = 'OT.R79: VIDEO MODE offers the page\'s M
 /**
  * B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110, the owner 2026-11-06: "we're going to remove the actual in
  * game setting and use this mechanism for it to be a thunderforge pack"): the third picture -- EXPERIMENTAL, captioned
- * "HD (GoE Soul)" by HD.R8 and held by HD-HOLD (`VIDEO_PICTURE_HD_OFFERED`, false) -- is removed with its hold. The HD
+ * "HD (GoE SouL)" by HD.R8 and held by HD-HOLD (`VIDEO_PICTURE_HD_OFFERED`, false) -- is removed with its hold. The HD
  * pack is a texture pack chosen in Home > Experiments > Mods, under either picture; a stored `experimental` reads MODERN
  * (viewer `./picture` `parsePicture`).
  */

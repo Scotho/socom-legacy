@@ -92,8 +92,8 @@ export interface IgnoreListService {
   /**
    * AccountGetID by name (Lobby 0x17, `FUN_00649e28` D:L561475-561495; the name at +0x26, 32 bytes, `FUN_00300c50`
    * D:L202232-202236): its reply's status (+0x1c) and account (+0x18), which `FUN_00300db0` (D:L202258-202270) reads.
-   * NU-14: the services' own (`/lobby/account-id`, a logged-in account of the name, in a room or not:
-   * `ACCOUNT_GET_ID_PRESENCE_READING`, the server's, on #376's "does not exist or is not currently logged in"); it was
+   * NU-14: the services' own (`/lobby/account-id`, any account of the name, logged in or not since CLAN-INVITES:
+   * `ACCOUNT_GET_ID_PRESENCE_OWNER`, the server's, Horizon's lookup on the owner's word of 2026-11-10); it was
    * SVC-18's FindPlayer, which finds only a player in a briefing room or a game.
    */
   accountId(q: { name: string }): Promise<IgnoreAccountReply>;

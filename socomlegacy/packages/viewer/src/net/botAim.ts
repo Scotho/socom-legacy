@@ -1,7 +1,7 @@
 import { MAX_PITCH_RATE, MAX_YAW_RATE } from '../look';
 import { shortTurn, wrapYaw } from '../yaw';
 import { PART } from './damage';
-import { bodyVolumes, type StanceVolumes, type V3 } from './hitVolumes';
+import { placeBodyPoint, placeholderVolumes, type StanceVolumes, type V3 } from './hitVolumes';
 import { TICK_HZ } from './protocol';
 import { cameraLook, centreClaim, type CameraBody } from './shotCone';
 
@@ -21,9 +21,15 @@ export const BOT_PITCH_STEP_DEG = (MAX_PITCH_RATE * 180) / Math.PI / TICK_HZ;
 export const muzzleOf = (feet: readonly number[]): V3 => [feet[0]!, feet[1]! + 15.4, feet[2]!];
 export const clampTo = (v: number, lim: number): number => (v > lim ? lim : v < -lim ? -lim : v);
 
-/** A body's torso: the mean of its BODY capsules' middles (`bodyVolumes`: the skeleton's when loaded, else the placeholder's). */
+/**
+ * A body's torso: with a skeleton, its idle's aim point (`StanceVolumes.torso`, the mean of the BODY bones' middles as
+ * the hit capsules fitted them before BONE-BOXES -- kept so a bot aims where it aimed; the hit volumes are the bone boxes
+ * now, research 398 s1) placed at the feet and yaw; else the mean of the placeholder's BODY capsules' middles.
+ */
 export function torsoPoint(body: { feet: readonly number[]; yaw: number; posture: CameraBody['posture'] }, volumes: StanceVolumes | null): V3 {
-  const torso = bodyVolumes(body.feet, body.yaw, body.posture, volumes).filter((c) => c.part === PART.BODY);
+  const at = volumes?.torso?.[body.posture];
+  if (at) return placeBodyPoint(body.feet, body.yaw, at);
+  const torso = placeholderVolumes(body.feet, body.yaw, body.posture).filter((c) => c.part === PART.BODY);
   let x = 0, y = 0, z = 0;
   for (const c of torso) { x += (c.a[0] + c.b[0]) / 2; y += (c.a[1] + c.b[1]) / 2; z += (c.a[2] + c.b[2]) / 2; }
   return [x / torso.length, y / torso.length, z / torso.length];

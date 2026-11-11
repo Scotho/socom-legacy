@@ -28,6 +28,8 @@ export const CLIENT_ERROR_BEACON_SEND_ADAPTATION = true;
 export const BEACON_PATH_ADAPTATION = '/api/client-error';
 export const BEACON_MIN_GAP_MS_ADAPTATION = 30_000;
 export const BEACON_MAX_PER_LOAD_ADAPTATION = 20;
+/** XBOX-DIAG review F1: the diagnostics' own budget a load (`reportDiag`), apart from the errors' twenty and their gap. */
+export const BEACON_DIAGS_PER_LOAD_ADAPTATION = 20;
 export const BEACON_BYTES_CAP_ADAPTATION = 16_384;
 /** Part B refuses a count above this (400): the page clamps (#685's review P3-6). */
 export const BEACON_COUNT_MAX_ADAPTATION = 1_000_000;
@@ -35,7 +37,8 @@ export const BEACON_COUNT_MAX_ADAPTATION = 1_000_000;
 export const BEACON_CAPS_ADAPTATION = { release: 64, backend: 32, adapter: 128, map: 16, kind: 32, message: 1024, stack: 8192, pageId: 64 } as const;
 
 /** `gpudemoted` (WG-7, W5): Automatic set to WebGL2 after a WebGPU error; central keeps a later kind as a free string. */
-export type BeaconKind = 'error' | 'unhandledrejection' | 'webglcontextlost' | 'gpudevicelost' | 'gpuuncapturederror' | 'chunkload' | 'gpudemoted';
+export type BeaconKind = 'error' | 'unhandledrejection' | 'webglcontextlost' | 'gpudevicelost' | 'gpuuncapturederror' | 'chunkload' | 'gpudemoted'
+  | 'contextdiag' | 'inputdiag';
 export type BeaconBackend = 'webgl2' | 'webgpu' | 'canvas2d' | 'unknown';
 
 export interface BeaconReport {
@@ -63,7 +66,9 @@ export interface BeaconContext {
   matchElapsedMs: number | null;
 }
 
-const KINDS: readonly BeaconKind[] = ['error', 'unhandledrejection', 'webglcontextlost', 'gpudevicelost', 'gpuuncapturederror', 'chunkload', 'gpudemoted'];
+const KINDS: readonly BeaconKind[] = ['error', 'unhandledrejection', 'webglcontextlost', 'gpudevicelost', 'gpuuncapturederror', 'chunkload', 'gpudemoted', 'contextdiag', 'inputdiag'];
+/** XBOX-DIAG (`./matchDiag`): the diagnostic kinds -- not errors: never in the record, sent past the gap within the load's limit. */
+export const DIAG_KINDS: readonly BeaconKind[] = ['contextdiag', 'inputdiag'];
 
 const cut = (s: string | null | undefined, cap: number): string | null => (typeof s === 'string' ? (s.length > cap ? s.slice(0, cap) : s) : null);
 
@@ -247,6 +252,8 @@ export class ClientErrorBeacon {
   readonly pageId: string;
   private readonly rec: BeaconRecord = { first: null, counts: {}, sent: 0, refused: 0 };
   private lastSentAt: number | null = null;
+  /** XBOX-DIAG review F1: the diagnostics' own count. */
+  private diagSent = 0;
   /** VS-8 review F1: the perf reports' own count and gap. */
   private perfSent = 0;
   private perfLastAt: number | null = null;
@@ -281,6 +288,23 @@ export class ClientErrorBeacon {
     this.perfSent++;
     this.perfLastAt = now;
     this.send(JSON.stringify(r));
+    return true;
+  }
+
+  /**
+   * XBOX-DIAG (`./matchDiag`): a diagnostic report -- its kind, its JSON in `message` -- sent at once (it follows the loss
+   * it describes at the same instant, or comes once a match) on its own budget, `BEACON_DIAGS_PER_LOAD_ADAPTATION`; not an
+   * error, so never in the record or the page's report block. True when it was sent.
+   */
+  reportDiag(kind: 'contextdiag' | 'inputdiag', message: string): boolean {
+    if (!(this.o.enabled?.() ?? true)) return false;
+    // Review F1: on its own budget, as the perf report -- never the errors' gap or their twenty, so a diagnostic never
+    // holds a real error back.
+    if (this.diagSent >= BEACON_DIAGS_PER_LOAD_ADAPTATION) return false;
+    let ctx: BeaconContext;
+    try { ctx = this.o.context(); } catch { ctx = { release: null, builtAt: null, backend: null, adapter: null, map: null, matchElapsedMs: null }; }
+    this.diagSent++;
+    this.send(encodeReport(buildReport(kind, message, null, ctx, this.pageId, 1)));
     return true;
   }
 
@@ -354,6 +378,8 @@ export function installClientErrorBeacon(win: Listened & { location?: { origin?:
   const offGraphics = onGraphicsEvent((kind, info) => {
     if (kind === 'gpudemoted') { beacon.report(kind, info.message, null, true); return; }
     beacon.report(kind, `${info.api}${info.detail ? ` ${info.detail}` : ''}: ${info.message}`);
+    // XBOX-DIAG: the loss described -- the renderer's ring, the input so far (`./matchDiagPage`, set by the match's chunk).
+    if (lossDiag && (kind === 'webglcontextlost' || kind === 'gpudevicelost')) { try { lossDiag(kind); } catch { /* an instrument adds no error */ } }
   });
   return () => {
     installed.delete(win);
@@ -363,6 +389,10 @@ export function installClientErrorBeacon(win: Listened & { location?: { origin?:
     offGraphics();
   };
 }
+
+/** XBOX-DIAG: what a lost context or device also sends (`./matchDiagPage`), or null: set by the match's chunk, so the entry imports none of it. */
+let lossDiag: ((why: string) => void) | null = null;
+export function setBeaconLossDiag(fn: ((why: string) => void) | null): void { lossDiag = fn; }
 
 let page: ClientErrorBeacon | null = null;
 /** When the current match attached (`performance.now()`), or null outside one: the match itself says (Codex on #685: the sampler is not the source). */
@@ -470,4 +500,4 @@ export function pagePerfReport(match: PerfMatchEnd, durationMs: number, video: P
 }
 
 /** Tests only: the page's beacon forgotten. */
-export function resetPageClientErrorBeaconForTest(): void { page = null; installed = new WeakSet<object>(); matchOrigin = null; matchFrameMark = null; perfPending = Promise.resolve(false); }
+export function resetPageClientErrorBeaconForTest(): void { page = null; lossDiag = null; installed = new WeakSet<object>(); matchOrigin = null; matchFrameMark = null; perfPending = Promise.resolve(false); }

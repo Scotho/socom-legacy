@@ -743,7 +743,9 @@ With `param_2` (the HUD mode) != 3, `FUN_001f97b0` calls `FUN_001f7a90` (L57112)
   The page's offline match stands in for an online one, so it offers the menu there.
 - **Spectators:** `FUN_002c2fa0() != 0`.
 - **Following a teammate:** the camera target is not self, so the tick stops. `FUN_001f9f20` -> `FUN_001f77c0` hides the
-  menu's parts but keeps its state, and returning to self shows it again.
+  menu's parts but keeps its state, and returning to self shows it again. *(Annotated 2026-11-11: the port departs
+  here on the owner's word, OT.R120 -- `SPECTATE_KIT_CHANGE_OWNER` opens the menu while following a teammate; the
+  original's gate, D:L56659-56660, is as read above.)*
 
 HudCLOC's unused id 60488 (`_60488_YOU_HAVE_DIED_LINE_3_MSG`, "...R2 button to select weapons for the next round") states the
 intent. No code references 0xec48, and 60486 (0xec46) is only the lines' initial text (L57297).
@@ -817,7 +819,7 @@ L139475). The dead player's teammate cycle under mode 1 was not traced: `DEAD_CY
 | S3 | **picker** (state 3, sub-state 3) | from S2 by Action | as S2, plus: picker parts shown; the middle-card highlight x 170..340, y 226..290 pulsing (80,120,120)<->(160,250,250) at 4/s; arrows pulsing (80,80,80)<->(255,255,128) at 2/s; the slot bar solid (160,250,250). Header = the category name or "ALL ..."; 3 cards: previous, **current** (middle), next | Up/Down: item -/+1 within the category (wraps through the whole weapon list, skipping refused items); Left/Right: category -/+1 (skips empty ones; `LAUNCHED` only with a launcher host); Action -> S4; Triangle / Start -> S2 (no change) | S4 or S2 | `FUN_0023d1b0` L87851; `FUN_0023d860` L88080; `FUN_00240b90(,3)` L89525-89540 |
 | S4 | **confirm** (transient) | S3 + Action | -- | `FUN_0023fef0(menu, slot, middle card's item)`: unwind the old item's dependants (`FUN_0023eca0`), set the slot, a 2-slot item (`record+0x27c == 2`) fills the next equipment slot with the placeholder item (0xfe; 0xb9 for 0x91, 0xba for 0x92), a launcher host auto-fills its ammo into equipment slot 2 (and 3). Then `FUN_0023e5e0` writes **all 5** into `character+0x540` -> `+0x2f0` (`FUN_0053eee0`) | -> S2 | L89389-89395; L89138; L88379 |
 | S5 | **locked slot** (row attribute) | the slot's item is 0x8d or 0xfe; 0xb9/0xba without a second slot of the same; or 0x97 while `Enable_c4`'s value & (0x10 SEAL / 0x20 Terrorist) | row in (40,40,40) | skipped by Up/Down | -- | `FUN_0023e910` L88476 |
-| S6 | **hidden** (state kept) | the camera leaves self (teammate cycle) or HUD mode 3 | menu parts hidden (`FUN_001f77c0` -> `FUN_0023e700`); the lines change to `FUN_001f9f20`'s | no menu input (tick not called) | back on self: shown again (`FUN_0023e800`) | L56573-56590; L88413 |
+| S6 | **hidden** (state kept) | the camera leaves self (teammate cycle) or HUD mode 3 | menu parts hidden (`FUN_001f77c0` -> `FUN_0023e700`); the lines change to `FUN_001f9f20`'s | no menu input (tick not called); *the port departs on the owner's word (OT.R120, 2026-11-11): following a teammate the menu opens, `SPECTATE_KIT_CHANGE_OWNER`* | back on self: shown again (`FUN_0023e800`) | L56573-56590; L88413 |
 | S7 | **spectator** | `FUN_002c2fd0(me)` | spectator lines (0x3e30f0..0x3e3180) | no menu | -- | `FUN_001f9160` L56861 |
 | S8 | **round reset** | the round ends (game state 3/5) | -- | every player without `+0xfd1` is rebuilt from `+0x540` (the pick lands here, classic); then HUD UnInit -> `FUN_00240d50` -> state 0, mode 0 | next round, alive: S0 | `FUN_00223680` L75920-75936; `FUN_002a7d40` L149757; L89553-89580 |
 

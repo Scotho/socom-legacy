@@ -2,7 +2,7 @@
 title: "Pack kinds"
 description: "The content, rules and system kinds of a v2 pack, each with its status."
 status: "Format only"
-source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/handlers.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/pageEntry.ts:117", "socomlegacy/packages/viewer/src/forge/page.ts:1577", "socomlegacy/packages/viewer/src/forge/page.ts:961-971", "socomlegacy/packages/viewer/src/forge/matchRules.ts"]
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/src/handlers.ts", "socomlegacy/packages/creator-contracts/examples/zombie-waves/README.md", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/pageEntry.ts:117", "socomlegacy/packages/viewer/src/forge/page.ts:1577", "socomlegacy/packages/viewer/src/forge/page.ts:961-971", "socomlegacy/packages/viewer/src/forge/matchRules.ts"]
 ---
 
 **Status: Format only.** Every kind is checked and a pack that passes is stored; the game's import applies none of
@@ -63,8 +63,10 @@ Two checks apply to this kind alone:
 - Each `rules` member is read as JSON, and the capabilities it names must agree with the manifest's `handlers`
   claims (`pack.RULES_MEMBER_INVALID`, `pack.CAPABILITY_MISMATCH`).
 
-The repository's two example rules packs, capture the flag and paintball (`packages/creator-contracts/examples/`), are
-built on the published vocabulary only. What the rules may and may not do is on [Rules and limits](/rules-and-limits/).
+The repository's example rules packs, capture the flag, paintball and zombie waves
+(`packages/creator-contracts/examples/`), are built on the published vocabulary only. Zombie waves is three patrol
+waves on a Crossroads layout; how to open that map is on [Testing a pack locally](/guides/test-locally/). What the
+rules may and may not do is on [Rules and limits](/rules-and-limits/).
 
 ## `system`
 

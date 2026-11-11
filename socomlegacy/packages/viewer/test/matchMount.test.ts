@@ -902,6 +902,50 @@ describe('ACT-5: the hostages part on both pages (HX-4a, HX-5; ruling HX.R8 clos
     a.m.release();
     expect(reset.mock.contexts).toContain(page);
   });
+  it("LATER 853 (the owner's mega playtest, 2026-11-10): FOLLOW!, then HOLD POSITION, then FOLLOW! again -- after a HOLD the room puts the hostage back in unit 0x11 (OnCommand case 5, FUN_0058fbe0 D:L450536-450539) and the prompt's caption is the FOLLOW! record's (0xe, \"FOLLOW!\" 0x3e4f00: FUN_00593d00 D:L452489-452494, FUN_0021ded0 D:L73783-73791), each press sending the order its caption names", async () => {
+    const nearby = vi.spyOn(Hud.prototype, 'setNearbyAction');
+    const feet = RemotePlayers.prototype.feet, aimBodies = RemotePlayers.prototype.aimBodies;
+    vi.spyOn(RemotePlayers.prototype, 'feet').mockImplementation(function (this: RemotePlayers, id: number) { return id === 240 ? [0, 0, -50] : feet.call(this, id); });
+    vi.spyOn(RemotePlayers.prototype, 'aimBodies').mockImplementation(function (this: RemotePlayers, eye, dir, reach) {
+      return [{ id: 240, distance: 50 }, ...aimBodies.call(this, eye, dir, reach)];
+    });
+    const hostage = { id: 240, alive: true, ai: 0x17, leader: null, rescuer: null, opacity: 1, unit: 0x11, name: 'Hostage', character: 'mp_fem1', at: [0, 0, -50], yaw: 0 };
+    const extraction = { ...welcome, hostages: [hostage] } as unknown as ServerEvent;
+    const ai = { version: 2, maps: [{ index: 0, name: 'sub0', id: 0, flags: 0, min: [-200, 0, -200], max: [200, 0, 200], cellsX: 40, cellsZ: 40, cellSize: [10, 10], zones: [],
+      rows: Array.from({ length: 40 }, (_, z) => ({ x0: 0, x1: 40, first: z * 40 })), cells: new Uint32Array(40 * 40).fill(0x80000001) }], links: { words: 0, records: 0 }, spawns: [] };
+    const a = await armed({}, { events: [extraction], assets: Promise.resolve({ map: { ...grounded(), ai } as unknown as LoadedMap, clips: null }) });
+    a.t.w.step(2);
+    /** The caption fed to the HUD this frame for the hostage's entry (`ActionEntry.caption`), or null. */
+    const caption = (): string | null => {
+      const feed = nearby.mock.calls.at(-1)?.[0];
+      return Array.isArray(feed) ? (feed as readonly { prompt: string; caption?: string }[]).find((e) => e.prompt === 'escortee')?.caption ?? null : null;
+    };
+    const orders = (): number[] => a.x.socks[0]!.sent.filter((d) => typeof d === 'string' && d.startsWith('{'))
+      .map((d) => JSON.parse(d) as { type: string; cmd?: number }).filter((e) => e.type === 'hostageOrder').map((e) => e.cmd!);
+    const tap = (): void => { a.press(0, true); a.t.w.step(2); a.press(0, false); a.t.w.step(2); };
+    const told = (unit: number, ai: number, leader: number | null): void => {
+      a.x.say({ type: 'hostageState', id: 240, alive: true, ai, leader, rescuer: null, opacity: 1, unit } as unknown as ServerEvent);
+      a.t.w.step(3);
+    };
+    const seat = a.m.net()!.client.id;
+    expect(caption()).toBe('FOLLOW!');
+    tap();
+    expect(orders()).toEqual([4]);
+    told(seat + 0x20, 9, seat);                                                          // FOLLOW taken: in the seat's unit, state 9
+    expect(caption()).toBe('HOLD POSITION');
+    tap();
+    expect(orders()).toEqual([4, 5]);
+    told(0x11, 0x17, null);                                                              // HOLD taken: back in unit 0x11, 0x17
+    expect(a.m.net()!.hostages().get(240)).toMatchObject({ unit: 0x11, ai: 0x17 });
+    expect(caption()).toBe('FOLLOW!');                                                   // once the room has taken the HOLD
+    tap();
+    expect(orders()).toEqual([4, 5, 4]);
+    // ...each at the page's playout clock (`NetClient.viewTick`), where it drew the hostage (ORDER_REWIND_ADAPTATION).
+    const views = a.x.socks[0]!.sent.filter((d) => typeof d === 'string' && d.startsWith('{'))
+      .map((d) => JSON.parse(d) as { type: string; viewTick?: unknown }).filter((e) => e.type === 'hostageOrder').map((e) => e.viewTick);
+    expect(views.every((v) => typeof v === 'number' && Number.isFinite(v)), JSON.stringify(views)).toBe(true);
+    a.m.release();
+  });
   it("main.ts: the HostagePage built after the others' bodies, handed to the actions, offered each frame, reset with the drops; its state hook and the marks fed before the render", () => {
     const main = src('main.ts');
     const built = main.indexOf('const hostages = new HostagePage({');
@@ -1998,7 +2042,8 @@ describe('ACT-1: one action part, both pages (ONE-WIRE)', () => {
       /traversal\.input\(\);/, /walk\.frame\(dt\);/, /net\?\.frame\(dt, fly\.camera, fire\.triggerHeld\(\) \|\| acts\.triggerHeld\(\), frameTime\.real\(\)\);/, /acts\.followNet\(\);/,
       /doors\.frame\(dt\);/, /acts\.turrets\.frame\(\);/, /pageWorld\?\.step\(dt\);/, /firearm\.fireFrame\(dt, walking\);/, /acts\.turretFrame\(frameTime\.real\(\), walk\.isDead\(\)\);/,
     ]);
-    order(frameOf(src('matchMount.ts'), /const frame = \(now: number\): void => \{/), [
+    // FRAME-LOOP-GUARD: the match's frame body is `step` (the guard's `frame` wrapper asks for the next one).
+    order(frameOf(src('matchMount.ts'), /const step = \(now: number\): boolean => \{/), [
       /traversal\.input\(\);/, /walk\.frame\(dt\);/, /net\?\.frame\(dt, fly\.camera, firearm\.fire\.triggerHeld\(\) \|\| acts\.triggerHeld\(\), frameTime\.real\(\)\);/, /acts\.followNet\(\);/,
       /doors\.frame\(dt\);/, /acts\.turrets\.frame\(\);/, /world\?\.world\.step\(dt\);/, /firearm\.fireFrame\(dt, walking\);/, /acts\.turretFrame\(frameTime\.real\(\), walk\.isDead\(\)\);/,
     ]);
@@ -2179,7 +2224,7 @@ describe("ACT-4: the HUD lines are main.ts's (ACT.R4)", () => {
   it("the HUD lines' order is main.ts's: traversal.hudFrame(hud), acts.bomb.hudFrame(), hostages.frame(), traversal.effectsFrame(), firearm.feedHud(...), after hud.setVisible", () => {
     // PAR-94 B2/B3: both pages' HUD line gated on the seat's spawn (was: `/hud\.setVisible\(walking\);/`).
     const lines = [/hud\.setVisible\(walking && spawned\);/, /traversal\.hudFrame\(hud\);/, /acts\.bomb\.hudFrame\(\);/, /hostages\.frame\(\);/, /traversal\.effectsFrame\(\);/, /firearm\.feedHud\(walking, \{/];
-    const pages: [string, RegExp][] = [['main.ts', /const frame = \(\): void => \{/], ['matchMount.ts', /const frame = \(now: number\): void => \{/]];
+    const pages: [string, RegExp][] = [['main.ts', /const frame = \(\): void => \{/], ['matchMount.ts', /const step = \(now: number\): boolean => \{/]];
     for (const [f, start] of pages) {
       const whole = src(f), text = whole.slice(whole.search(start));
       const at = lines.map((l) => text.search(l));

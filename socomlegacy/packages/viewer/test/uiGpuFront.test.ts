@@ -447,8 +447,8 @@ describe('GM-12b: mountFrontEnd makes the canvas behind the switch (jsdom: the p
 
 describe("GM-12b: the page's loop and the session's close (source inspection: the loop needs a 2D canvas jsdom lacks)", () => {
   const src = readFileSync(resolve(fileURLToPath(import.meta.url), '../../src/frontEnd.ts'), 'utf8');
-  const loop = src.slice(src.indexOf('const loop = (now: number): void => {'));
-  const body = loop.slice(0, loop.indexOf('frameId = win.requestAnimationFrame(loop);'));
+  const loop = src.slice(src.indexOf('const step = (now: number): boolean => {'));
+  const body = loop.slice(0, loop.indexOf('const frontGuard = new FrameGuard();'));
 
   it('the path is chosen per tick, the hidden frame not drawn on it, the surface drawn there, the swap committed after the draw', () => {
     expect(body).toMatch(/const gpu = gpuFront\?\.drawsOn\(chosen\.scale\) \?\? false;/);   // GM-28: the pack's scale decides the path

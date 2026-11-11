@@ -105,6 +105,10 @@ describe.skipIf(!ZWEAPON)('the launched rounds off zweapon.rdr', () => {
     const frag = throwableRecord(script(), 'M203 FRAG');
     expect(frag).toMatchObject({ armingDistance: 100, gravity: 98, impact: true, muzzleVelocity: 270 });
     expect(frag.acceleration).toBeUndefined();
+    // Its own impact terms (`M203 FRAG Ammo`'s `ImpactDamage`; the record's ranges x 10): what a body it strikes takes,
+    // a dud's too (`HandleImpact` FUN_003c8920 D:L319417-319418, before the arming test) -- not the M67's 0.2 / 400.
+    expect(frag).toMatchObject({ impactDamage: 0.5, effectiveRange: 3500, maximumRange: 100000 });
+    expect(frag.damageModifier).toBeUndefined();
     expect(throwableRecord(script(), 'M203 SMOKE').impact).toBe(false);
     expect(throwableRecord(script(), 'M67')).toEqual(M67);
   });

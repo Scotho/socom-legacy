@@ -9,8 +9,7 @@ import { cardOptionStore, TUNER_SAVE_SETTLE_MS_ADAPTATION, type OptionStore } fr
 import { pageSettings } from '../../pageStore';
 import { PAD_SELECTION_KEY } from '../../setupPad';
 import { TOUCHPAD_CROUCH_TOAST } from '../../controllerInput';
-import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, controllerStanceMode, readPreference, savePreference, setControllerStanceMode } from '../../startupSettings';
-import type { ExtractBackend } from '../../discExtractStore';
+import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, STANCE_SEPARATE_BINDS_TIP, controllerStanceMode, readPreference, savePreference, setControllerStanceMode } from '../../startupSettings';
 import { pagePicture } from '../../picture';
 import { NAME_TAGS_DEFAULT_ADAPTATION, NAME_TAGS_LOOKS, NAME_TAGS_WORDS, readNameTags, saveNameTags } from '../../nameTags';
 import { RANGE_READOUT_DEFAULT_ADAPTATION, RANGE_READOUT_VALUES, RANGE_READOUT_WORDS, readRangeReadout, saveRangeReadout } from '../../rangeReadout';
@@ -28,7 +27,7 @@ import { installAction, readInstallSurface, type InstallSurface } from '../../pw
 import { UPDATE_NOTICE } from '../../pwa/update';
 import { pageVersion } from '../pageVersion';
 import { pagePerfLine } from '../../perfLine';
-import { INSTALL_APP_ROW, KEPT_DISC_ROW, REMAP_ROW, SHARE_SEND_ROW, THEME_PANEL_ROW, type Adapters, type OptCat, type OptRow } from '../state';
+import { INSTALL_APP_ROW, KEPT_DISC_ROW, REMAP_ROW, SHARE_SEND_ROW, THEME_PANEL_ROW, type Adapters, type KeptDisc, type OptCat, type OptRow } from '../state';
 import { SHARE_SEND_ROW_ABOUT, SHARE_SEND_ROW_ACTION, SHARE_SEND_ROW_LABEL, SHARE_SEND_ROW_NOTE } from '../../discShareWords';
 import type { LivePad } from './pad';
 import { SKIP_MENU_HINT, SKIP_MENU_LABEL, SKIP_MENU_ROW, setSkipMenu, skipMenuOn } from '../skipMenu';
@@ -102,7 +101,7 @@ export const OVERLAY_BUTTON_ROW = 'overlay-button';
  * PF.R60 (the owner, 2026-10-27: "please make this a slider, and for modern mode, double the default. ps2 mode keeps the
  * original."; `../../detailDistance`, a browser adaptation over PF-30's per-visual gate, PF.R50): Options > Display's
  * Detail distance, 1.0× (the original) to 4.0× by 0.1, 2.0× by default -- the page's one stored factor, the Forge's View
- * row's too, drawn by the front end's match under the MODERN and HD (GoE Soul) pictures. VIDEO MODE's picture strip is the
+ * row's too, drawn by the front end's match under the MODERN and HD (GoE SouL) pictures. VIDEO MODE's picture strip is the
  * disc's own dialog (`@s2u/ui` `videoPicture`), so the slider sits here, beside the launcher's other Display rows. Under
  * the PS2 picture the row is locked: the original's distance is drawn.
  */
@@ -110,7 +109,7 @@ export const DETAIL_DISTANCE_ROW = 'detail-distance';
 
 /**
  * HD-4 (the owner, 2026-11-01: "make sure home gets the video too"; OT.R79, HD.R8 -- a browser adaptation with no
- * original): Options > Display's "Video", the page's picture -- Modern or PS2 (B206 ML-6 removed HD (GoE Soul): the HD
+ * original): Options > Display's "Video", the page's picture -- Modern or PS2 (B206 ML-6 removed HD (GoE SouL): the HD
  * pack is chosen in Experiments > Mods) -- read and written through the page's one keeper (`../../picture`
  * `pagePicture`), the keeper the disc's VIDEO strip sets and a match started from Home reads (`../../frontEnd` hands it
  * to `../../matchMount`): the two agree both ways, and a running match hears a change. Never the card's `video_mode`.
@@ -228,7 +227,7 @@ export interface OptionsDeps {
   pad?: LivePad;
   signedIn: () => boolean;
   /** DX-3: the disc kept in this browser (`./disc` `kept` / `forgetKept`); absent, the row says nothing is kept. */
-  kept?: { info(): { bytes: number; backend: ExtractBackend; whole: boolean } | null; forget(): Promise<void> };
+  kept?: { info(): KeptDisc | null; forget(): Promise<void> };
   /** OVERLAY-CONSOLE: the overlay's opening button, for Options > Controller's "Overlay button" row; absent, no row. */
   overlayButton?: OverlayButtonBinding;
   /** The connected pads as `index:id` keys and names; absent, `navigator`'s. */
@@ -283,7 +282,9 @@ export function touchHere(): boolean {
 
 /** One row's behaviour: its values, its value's index, its default's, why it is locked, and its write. */
 interface Spec {
-  row: Omit<OptRow, 'values' | 'def' | 'locked'>;
+  row: Omit<OptRow, 'values' | 'def' | 'locked' | 'warn'>;
+  /** SEP-ROWS: the row's warning now (`OptRow.warn`), read at each draw; absent or undefined, none. */
+  warn?(): string | undefined;
   values(): readonly string[];
   get(): number | undefined;
   def(): number | undefined;
@@ -499,8 +500,13 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   // (`STANCE_MODE_ABOUT`, the Button mapping's row's too); SEPARATE chosen here gives the chosen pad's unbound Prone
   // Triangle's button as the Button mapping's row does (`LivePad.enterSeparate`; Crouch left unbound, STM.R1a, but
   // for a free touchpad, SEP-SHOW, said by `takeToast`).
+  // SEP-ROWS (the owner, 2026-11-11: "that alias should now show a tooltip when viewing that setting and a warning icon
+  // when separate is on and crouch and prone are not set"): the row's tip, in its aside (the focused or hovered row's
+  // tooltip), and the warning mark while SEPARATE leaves either stance with no button on the chosen pad
+  // (`LivePad.stanceBindsMissing`, read at each draw, so it follows Button mapping).
   const stanceMode: Spec = {
-    row: { id: 'stance-mode', label: 'Stance mode', about: STANCE_MODE_ABOUT, note: 'Saved to this browser. Applies now.' },
+    row: { id: 'stance-mode', label: 'Stance mode', about: STANCE_MODE_ABOUT, note: 'Saved to this browser. Applies now.', tip: STANCE_SEPARATE_BINDS_TIP },
+    warn: () => (controllerStanceMode() === 'separate' && deps.pad?.stanceBindsMissing?.() ? STANCE_SEPARATE_BINDS_TIP : undefined),
     values: () => [STANCE_MODE_WORDS.pop, STANCE_MODE_WORDS.separate],
     get: () => (controllerStanceMode() === 'separate' ? 1 : 0), def: () => 0, lock: () => undefined,
     set: (i) => {
@@ -913,7 +919,8 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const rowsOf = (specs: Spec[]): OptRow[] => specs.map((s): OptRow => {
     const lock = s.lock();
     const def = s.def();
-    return { ...s.row, ...(s.row.action || s.row.info ? {} : { values: s.values() }), ...(def !== undefined ? { def } : {}), ...(lock ? { locked: lock } : {}) };
+    const warn = s.warn?.();
+    return { ...s.row, ...(s.row.action || s.row.info ? {} : { values: s.values() }), ...(def !== undefined ? { def } : {}), ...(lock ? { locked: lock } : {}), ...(warn ? { warn } : {}) };
   });
 
   return {

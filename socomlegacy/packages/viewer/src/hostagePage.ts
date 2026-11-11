@@ -59,7 +59,7 @@ export interface HostagePageDeps {
   feet(id: number): readonly number[] | null;
   /** The page's aim: the eye and the far point (`WalkMode.fireAim`), or null. */
   aim(): { eye: readonly number[]; far: readonly number[] } | null;
-  /** Every body the ray meets on its capsules (the others' and the hostages': `./net/hitVolumes` `rayBody`), with its distance. */
+  /** Every body the ray meets on its bone boxes (the others' and the hostages': `./net/hitVolumes` `rayBody`), with its distance. */
   bodies(eye: V3, dir: V3, reach: number): readonly PickBody[];
   /** The hull's surfaces along the ray with their materials (`./net/hostageOrder` `pickSurfaces`). */
   surfaces(eye: V3, far: V3): readonly PickSurface[];

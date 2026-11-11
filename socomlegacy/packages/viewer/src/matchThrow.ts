@@ -103,8 +103,11 @@ export interface MatchThrowDeps {
   net(): NetPage | null;
   /** The firearm (`./matchFirearm`), mounted after this part (it takes this part's `hands`): read at a call, never at the mount. */
   firearm(): MatchFirearm;
-  /** The match's audio (`./matchSound` `MatchSound.audio`): the throws' zAnims, the bounces' and the blasts' fallbacks. */
-  audio: Pick<GameAudio, 'onAnimCallback' | 'onFire' | 'play'>;
+  /**
+   * The match's audio (`./matchSound` `MatchSound.audio`): the throws' zAnims, the bounces' and the blasts' fallbacks;
+   * another's rocket passing the page's feet (`onRoundPast`, LATER 645).
+   */
+  audio: Pick<GameAudio, 'onAnimCallback' | 'onFire' | 'play' | 'onRoundPast'>;
   /** The claymore refused (the game's message line, 0x65f880); absent, not shown (both pages: `./matchMessages` `refusalLine`). */
   refuse?(text: string): void;
   /** SUP-03: the page's scene health, whose destructibles are C4's targets; absent, none (C4 refused). */
@@ -256,6 +259,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   const audio: MatchThrowDeps['audio'] = {
     onAnimCallback: (name, at) => (screens() ? null : d.audio.onAnimCallback(name, at)),
     onFire: (name, at) => (screens() ? null : d.audio.onFire(name, at)),
+    onRoundPast: (from, to, actor, isRocket) => (screens() ? null : d.audio.onRoundPast(from, to, actor, isRocket)),
     play: (...args) => (screens() ? false : d.audio.play(...args)),
   };
   const firearm = (): MatchFirearm => d.firearm();
@@ -293,6 +297,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     dead: () => walk.isDead(),                          // THROW-INTERRUPT (research 326 §2.4): the room's death cuts a throw not yet let go
     fireAllowed: () => walk.fireAllowed(),              // P36 (TB-12): the playing clip's NoFire, the room's 'nofire' (FUN_005a7de0 D:L457365)
     // M7: the actors an armed PMN tests (`FUN_00543930`): the page's SEAL and the match's other living bodies.
+    listenerFeet: () => walk.feet(),                    // LATER 645: the feet another's rocket passes (FUN_00598000 D:L454629)
     actors: () => {
       const own = walk.feet();
       const others = (d.net()?.client.bodies() ?? []).filter((b) => (b.flags & 64) !== 0).map((b) => [b.feet[0], b.feet[1], b.feet[2]] as [number, number, number]);
@@ -556,6 +561,12 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     report(info.id, kit, info.from);
     audio.onAnimCallback(info.fireAnim, info.from);
   }));
+  /**
+   * LATER 645 (research 81 s5; reading, pending review): another's rocket passed the page's feet (`GrenadeThrower`'s
+   * `rocketPast`, once a rocket) -- `.ROCKET_BY` at its segment's nearest point (`FUN_00598000` D:L454640-454646), none
+   * under the round screens (OBF-31, as LATER 644's bullets).
+   */
+  offs.push(grenade.on('rocketPast', (e) => { audio.onRoundPast(e.from, e.to, e.actor, true); }));
   /**
    * Research 304: another's throw or charge the room took (relayed to the others, never to its thrower: `FUN_005c5340`
    * D:L479219-479247) -- its FireAnimName at the release (`.THROW_OBJECT`, `c4_start`'s `.PLACE_CHARGE`), as the

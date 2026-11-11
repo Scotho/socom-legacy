@@ -10,7 +10,7 @@ import {
 import type { PadButton } from './gamepad';
 import { heardTalker, VOICE_SUSPENDED_MARK_PLACEHOLDER } from './hudVoice';
 import { NetClient, type NetWalk, type WebSocketLike } from './net/client';
-import { SERVER_UPDATE_CLOSE, type ServerEvent } from './net/protocol';
+import { SERVER_UPDATE_CLOSE, type ServerEvent, type Team } from './net/protocol';
 
 /** OBF-4 (F4-1): the game's end close (4007, `match/src/gameRules.ts` GAME_ENDED_CLOSE), the seat's end a 4022 is read as. */
 const GAME_ENDED_CLOSE_CODE = 4007;
@@ -247,7 +247,7 @@ export function sessionLoadouts(t: GameLobbyTransport, ticket: () => string | nu
 }
 
 /** What the game socket feeds (`GameLobbyCommands`' half); `chatLine` optional (ONL-23): a page with no chat panel (/testroom's match page) has none. */
-export type GameSocketFeed = Pick<GameLobbyCommands, 'welcomed' | 'gameLobby' | 'roundStart' | 'seatEnded' | 'dropped'> & Partial<Pick<GameLobbyCommands, 'chatLine' | 'seatTold' | 'seatClans'>>;
+export type GameSocketFeed = Pick<GameLobbyCommands, 'welcomed' | 'gameLobby' | 'roundStart' | 'seatEnded' | 'dropped'> & Partial<Pick<GameLobbyCommands, 'chatLine' | 'seatTold' | 'seatClans' | 'roundOver' | 'abandoned'>>;   // OT.R122: the game's end and the abandon, for READY's hold
 
 // ---- ONL-16b (web sprint 20): the game lobby's voice (research 227 §1) ----
 
@@ -531,6 +531,17 @@ export interface GameLobbyHandOffFields extends GameLobbyMatchStart {
    * join (its round 1 spawns the seat after the hand-off) or with no spawn of the seat heard.
    */
   spawn?: { event: Extract<ServerEvent, { type: 'spawn' }>; beforeRoundStart: boolean };
+  /**
+   * LATER 734 (LATER 726's review F1): the room's `kitHeld` told on the lobby's socket since its welcome -- the last of
+   * each side, in the order heard -- replayed after the welcome (`LobbyMatch.start`), as the page would have taken it on
+   * its own socket. The room tells a seat its held type, picks and kit (`room.ts` `tellKitHeld`) after a kept record's
+   * welcome or promotion, at the launch, at its `loaded` in a hold and at the hold's ceiling; a takeover reload whose old
+   * socket is still open is not marked late (`central/src/bridge.ts` inherits the flag), so its `loaded` is refused
+   * outside a hold and the welcome's tell is the only one -- on this socket. Without it WEAPON EXCHANGE opened on the
+   * type's own kit (the original keeps the kit on the type: `FUN_0023e5e0`, research 94 §A6, R94.3). Every launch, late
+   * or not; a later tell on the match's socket supersedes it (`PlayerLoadout.held` takes each whole). Absent with none.
+   */
+  kitHeld?: Extract<ServerEvent, { type: 'kitHeld' }>[];
   /** ONL-16b (W20.R9): the lobby's talk input, for the match's taunts part to adopt; absent without the lobby's voice. */
   talk?: LobbyTalk;
   /**
@@ -633,6 +644,8 @@ export class GameSocketHost implements GameSocketPort {
   private roundStartedN = 0;
   /** LATE-SPAWN-HANDOFF (LATER 56): the seat's own last `spawn` heard in the lobby and its place in the order, or null. */
   private ownSpawn: { ev: Extract<ServerEvent, { type: 'spawn' }>; n: number } | null = null;
+  /** LATER 734: the room's last `kitHeld` of each side heard on this socket, in the order heard (`GameLobbyHandOff.kitHeld`). */
+  private kitsHeld = new Map<Team, Extract<ServerEvent, { type: 'kitHeld' }>>();
   /** LATER 80: the room's round counter as its events since the welcome tell it (`roundWelcome`), or null with none heard. */
   private roundNow: number | null = null;
   /** LATE-WATCH N1: when the welcome came: a `roundOver` before it is older than its standing result. */
@@ -745,6 +758,7 @@ export class GameSocketHost implements GameSocketPort {
     this.roundStarted = null;                                     // a new socket: no round of an earlier game handed on
     this.roundEnded = null; this.scored = null;
     this.ownSpawn = null;                                         // LATE-SPAWN-HANDOFF: nor a spawn of an earlier game
+    this.kitsHeld.clear();                                        // LATER 734: a new seat is told its own
     this.refusal = null;
     this.off = client.on((ev) => this.event(ev));
     this.listenVoice(client);
@@ -759,7 +773,7 @@ export class GameSocketHost implements GameSocketPort {
         this.retokened = false;                                   // SA-41: a seat held, a later held hello's refusal re-tokens again
         this.roundNow = null;                                     // LATER 80: the welcome's own round stands until a round event
         this.hold(true);                                          // research 157 §6: the accepted hello holds the session
-        this.feed?.welcomed(ev.id, ev.map);
+        this.feed?.welcomed(ev.id, ev.map, ev.join?.result?.matchOver === true);   // OT.R122: a standing result that ended the game holds READY
         // ARMORY-SAVE: the lobby's choice again on the new seat, when it is the same side's (a reconnect, a reload).
         if (this.choice && ev.role === 'player' && ev.team === this.choice.side) this.sendChoice(this.choice);
         break;
@@ -785,6 +799,8 @@ export class GameSocketHost implements GameSocketPort {
       // B138's BTL.R8: a promotion heard in the lobby -- a queued joiner put in a CPU's or a leaver's place -- is the seat's
       // welcome from now on (`queuedWelcome`), so the match does not replay the spectator's welcome over the seated walk.
       case 'promoted': this.welcome = queuedWelcome(this.welcome, ev); break;
+      // LATER 734: the room's tell of the seat's held kit (a unicast), the last of its side, re-ordered as the newest.
+      case 'kitHeld': this.kitsHeld.delete(ev.team); this.kitsHeld.set(ev.team, ev); break;
       case 'roundStart':
         // LATE-SPAWN-HANDOFF: a new round after the kept spawn's round ended -- the spawn went with that round.
         if (this.ownSpawn && this.roundEnded && this.ownSpawn.n < this.roundEnded.n) this.ownSpawn = null;
@@ -795,12 +811,14 @@ export class GameSocketHost implements GameSocketPort {
       case 'roundOver':                                           // LATE-WATCH F1, N1: a round over, not handed on as begun
         this.roundEnded = { ev, at: this.now(), n };
         this.roundNow = ev.round;                                 // LATER 80: `endRound` leaves the counter; the event names it
+        this.feed?.roundOver?.(ev.matchOver);                     // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the game's end holds READY
         break;
       // The review's row (b): the room's abandon leaves the level (`room.ts` `abandon`: `resetMatch`, `round = 1`, the
       // waiting room, every seat spawned again after it) -- no round of it, its clock or its seat's spawn is handed on.
       case 'abandoned':
         this.roundNow = 1;                                        // LATER 80
         this.roundStarted = null; this.roundEnded = null; this.scored = null; this.ownSpawn = null;
+        this.feed?.abandoned?.();                                 // OT.R122: the held READY let go
         break;
       case 'score': this.scored = { ev, at: this.now() }; break;    // LATE-WATCH F1: the host's timer, for a late hand-off
       case 'voiceFloor': this.voice?.voiceFloor(ev); break;   // ONL-16b: the listener's own channel's entry (W20.R6)
@@ -1003,6 +1021,7 @@ export class GameSocketHost implements GameSocketPort {
     this.roundStarted = null;                                     // the match's rounds are over: none handed on with the next launch
     this.roundEnded = null; this.scored = null;
     this.ownSpawn = null;                                         // LATE-SPAWN-HANDOFF: nor the spawn of a round the match played
+    this.kitsHeld.clear();                                        // LATER 734: the match's page heard its own tells
     this.roundNow = 1;                                            // LATER 80 (F1): the match's end is `returnToLobby`'s round 1
     this.feed?.seatTold?.(client.told.all());                     // ONL-34: the rounds' told pairs the match's client heard, back into the lists
     this.feed?.seatClans?.(client.clans.all());                   // AD-13: the tags told while the match held the client
@@ -1035,12 +1054,14 @@ export class GameSocketHost implements GameSocketPort {
     const own = m.lateJoiner ? this.ownSpawn : null;
     const spawn = own ? { event: own.ev, beforeRoundStart: roundStart !== null && own.n < this.roundStartedN } : null;
     // A score older than the round handed on is an earlier round's clock: that round's total less its time run instead.
+    const kitHeld = [...this.kitsHeld.values()];                   // LATER 734: the lobby's tells, every launch
+    this.kitsHeld.clear();
     const now = this.now();
     const scored = this.scored;
     const score = !m.lateJoiner || !scored ? null
       : roundStart && scored.at < this.roundStartedAt ? restartedScore(scored.ev, Math.max(0, roundStart.seconds - (now - this.roundStartedAt) / 1000))
         : lessWait(scored.ev, (now - scored.at) / 1000);
-    this.o.matchStart?.({ ...m, client, ...this.seat(ticket), ...(this.reseater ? { reseat: this.reseater } : {}), held: true, welcome: roundWelcome(seatWelcome(this.welcome, client.team, this.seats), this.roundNow), roundStart, ...(score ? { score } : {}), ...(roundOver ? { roundOver } : {}), ...(spawn ? { spawn } : {}), ...(talk ? { talk } : {}) });
+    this.o.matchStart?.({ ...m, client, ...this.seat(ticket), ...(this.reseater ? { reseat: this.reseater } : {}), held: true, welcome: roundWelcome(seatWelcome(this.welcome, client.team, this.seats), this.roundNow), roundStart, ...(score ? { score } : {}), ...(roundOver ? { roundOver } : {}), ...(spawn ? { spawn } : {}), ...(kitHeld.length > 0 ? { kitHeld } : {}), ...(talk ? { talk } : {}) });
   }
 }
 

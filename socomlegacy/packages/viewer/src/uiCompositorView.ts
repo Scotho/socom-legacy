@@ -53,7 +53,7 @@ export interface RasterOptions {
   /** A movie picture's pixels (the decoder's frame, top row first); without it a picture draws black. */
   movie?: (picture: MoviePicture) => Rgba | null;
   /**
-   * HD-3 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE Soul)): the frame drawn at 640 x 448 times this
+   * HD-3 (OT.R92, HD.R8; a browser adaptation, only under HD (GoE SouL)): the frame drawn at 640 x 448 times this
    * whole factor -- every position, clip and the 3D pass scaled, the GS's raster rules (integer pixel corners, bilinear
    * texel centres) kept on the larger grid. Absent or 1: the original frame, byte for byte.
    */
@@ -118,6 +118,15 @@ export class UiQuadRasterCache {
   }
 }
 const defaultQuadCache = new UiQuadRasterCache();
+
+/**
+ * QUAD-CACHE-RELEASE (LATER 859; a browser adaptation): the page's default cache -- the one every raster without a cache
+ * of its own fills (the menus' 1x frames) -- and its release. Shadow's X2b (6343231f0, 16 seats): 24.2 MB of it (18
+ * entries) still held in the match; the front end lets it go when a match takes the screen, and a later menu frame
+ * refills it as it draws (a miss draws the same pixels).
+ */
+export function pageQuadCache(): UiQuadRasterCache { return defaultQuadCache; }
+export function releasePageQuadCache(): void { defaultQuadCache.clear(); }
 
 /**
  * GS_SPRITE_COVERAGE_READING: a 2D quad covers the pixels whose integer coordinates lie in x0 <= x < x1, y0 <= y < y1

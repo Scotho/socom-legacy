@@ -67,6 +67,18 @@ function ladderWorld(): { grid: Grid; polys: WorldPoly[] } {
   return { grid: world(polys), polys };
 }
 
+/**
+ * LC-1: walks with `input` until the ladder offers CLIMB (`Traversal.climbPrompt`, kind 'ladder'), then presses the
+ * action button and runs the press's tick -- the mount the original runs only on the press (`FUN_00550ef0`
+ * D:L418120-418155). Throws if no ladder is offered within `max` ticks.
+ */
+function pressLadder(w: Walker, t: Traversal, input: WalkInput, max = 400): void {
+  for (let i = 0; i < max && t.climbPrompt()?.kind !== 'ladder'; i++) w.tick(input);
+  if (t.climbPrompt()?.kind !== 'ladder') throw new Error('no ladder CLIMB offered');
+  t.action();
+  w.tick(input);
+}
+
 /** Ticks until `until` holds or `max` ticks pass; the ticks taken. */
 function run(w: Walker, input: WalkInput, until: () => boolean, max = 2000): number {
   for (let i = 0; i < max; i++) { if (until()) return i; w.tick(input); }
@@ -97,6 +109,7 @@ describe('the ladder on a synthetic wall (research 86 section 2)', () => {
     t.on((e) => events.push(e));
     w.place(0, 10, 20);
     w.state.yaw = 0;                                                 // facing -z, at the ladder
+    pressLadder(w, t, FORWARD);                                       // LC-1: CLIMB offered, mounted on the press
     run(w, FORWARD, () => t.state().kind === 'ladderMount', 400);
     expect(events[0]).toEqual({ type: 'ladderMount', from: 'bottom' });
     run(w, FORWARD, () => t.state().kind === 'ladder', 400);
@@ -135,12 +148,123 @@ describe('the ladder on a synthetic wall (research 86 section 2)', () => {
     beside.place(8, 10, 20); beside.state.yaw = 0;                   // 5 past the quad's edge (x 3), into the plain wall
     run(beside, FORWARD, () => t.state().kind !== 'none', 120);
     expect(t.state().kind).toBe('none');
+    expect(t.climbPrompt(), 'LC-1 (review F4): no CLIMB on the plain wall beside it').toBeNull();
+    t.action(); beside.tick(FORWARD);
+    expect(t.state().kind, 'and a press there mounts nothing').toBe('none');
     const over = new Walker(grid);
     const u = new Traversal(grid, polys);
     over.driver = u;
     over.place(2, 10, 20); over.state.yaw = 0;                       // over the quad
-    run(over, FORWARD, () => u.state().kind !== 'none', 400);
+    pressLadder(over, u, FORWARD);                                   // LC-1: the press mounts what the contact offers
     expect(u.state().kind).toBe('ladderMount');
+  });
+
+  // LC-1 (the owner's playtest of 2026-11-11 on the original, FROSTFIRE r0004: CLIMB offered at the foot ~70 s, no grab;
+  // `FUN_00550ef0` calls the mount `FUN_005b4b40` only under the controller's one-frame bit +0x170 0x4, D:L418120-418155,
+  // which `FUN_00592d50` sets on the Action release with CLIMB selected, D:L452181-452183; the offer is `FUN_00593500` ->
+  // `FUN_0059da60` -> `FUN_005b3ce0(a, 2)`, D:L452294-452301): a ladder's contact OFFERS CLIMB; only the press mounts.
+  describe('LC-1: the ladder offered as CLIMB, mounted only on the action press', () => {
+    const rig = (): { w: Walker; t: Traversal; events: TraversalEvent[] } => {
+      const { grid, polys } = ladderWorld();
+      const w = new Walker(grid), t = new Traversal(grid, polys), events: TraversalEvent[] = [];
+      w.driver = t; t.on((e) => events.push(e));
+      return { w, t, events };
+    };
+
+    it('walking into the ladder facing it does not mount: CLIMB is offered, not automatic (RED before LC-1: it mounted)', () => {
+      const { w, t, events } = rig();
+      w.place(0, 10, 20); w.state.yaw = 0;
+      run(w, FORWARD, () => false, 240);                              // 4 s pushing into the rungs
+      expect(t.state().kind).toBe('none');
+      expect(events).toEqual([]);
+      expect(t.climbPrompt()).toEqual({ visible: true, kind: 'ladder', automatic: false });
+    });
+
+    it('the press at the foot mounts from the bottom on the next tick', () => {
+      const { w, t, events } = rig();
+      w.place(0, 10, 20); w.state.yaw = 0;
+      run(w, FORWARD, () => t.climbPrompt() !== null, 240);
+      t.action();
+      w.tick(FORWARD);
+      expect(t.state().kind).toBe('ladderMount');
+      expect(events[0]).toEqual({ type: 'ladderMount', from: 'bottom' });
+      expect(t.climbPrompt()).toBeNull();                             // no CLIMB once on the ladder
+    });
+
+    it('a still body facing the foot keeps the offer and mounts on the press with no stick (no stick test in FUN_005b4b40)', () => {
+      const { w, t, events } = rig();
+      w.place(0, 10, 20); w.state.yaw = 0;
+      run(w, FORWARD, () => t.climbPrompt() !== null, 240);
+      run(w, STILL, () => false, 60);                                 // let go of the stick, still at the rungs
+      expect(t.climbPrompt()).toEqual({ visible: true, kind: 'ladder', automatic: false });
+      expect(t.state().kind).toBe('none');
+      t.action();
+      w.tick(STILL);
+      expect(events[0]).toEqual({ type: 'ladderMount', from: 'bottom' });
+    });
+
+    it('the head offers CLIMB too and mounts only on the press', () => {
+      const { w, t, events } = rig();
+      w.place(0, 60, -20); w.state.yaw = 180;                          // on the deck facing the ladder (+z)
+      run(w, FORWARD, () => false, 240);
+      expect(t.state().kind).toBe('none');
+      expect(t.climbPrompt()).toEqual({ visible: true, kind: 'ladder', automatic: false });
+      t.action();
+      w.tick(FORWARD);
+      expect(events[0]).toEqual({ type: 'ladderMount', from: 'top' });
+    });
+
+    it('asks the offer\'s common gates as the crate\'s does (the same FUN_005b3ce0): none prone, scoped or swapping', () => {
+      const { w, t } = rig();
+      w.place(0, 10, 20); w.state.yaw = 0;
+      run(w, FORWARD, () => t.climbPrompt() !== null, 240);
+      expect(t.climbPrompt()?.kind).toBe('ladder');
+      w.scoped = true;                                                // D:L452259-452262
+      w.tick(STILL);
+      expect(t.climbPrompt()).toBeNull();
+      t.action(); w.tick(STILL);
+      expect(t.state().kind).toBe('none');                            // the press finds no offer: no mount
+      w.scoped = false;
+      w.tick(STILL);
+      expect(t.climbPrompt()?.kind).toBe('ladder');
+    });
+
+    it('the offer asks only "in front" (> 0, FUN_005b3ce0 D:L469233-469240); the press mounts only at >= 0.3 (FUN_005b4b40) -- review F2', () => {
+      // A ladder on a wall no wider than itself: off its edge nothing is hit, so the contact stays (to 24) as the SEAL moves.
+      const polys = [
+        floor(-100, 0, 100, 100, 0),
+        floor(-100, -100, 100, 0, 40),
+        quad([-3, 0, 0, 3, 0, 0, 3, 40, 0, -3, 40, 0], 2),
+        quad([-3, 0, 0.2, 3, 0, 0.2, 3, 40, 0.2, -3, 40, 0.2], 2, 2, 'worldmodel/lad/ladder'),
+        quad([3, 40, 0.2, -3, 40, 0.2, -3, 50, 0.2, 3, 50, 0.2], 2, 2, 'worldmodel/lad/ladder'),
+      ];
+      const grid = world(polys), w = new Walker(grid), t = new Traversal(grid, polys);
+      w.driver = t;
+      w.place(0, 10, 20); w.state.yaw = 0;
+      run(w, FORWARD, () => t.climbPrompt()?.kind === 'ladder', 240);
+      run(w, FORWARD, () => false, 120);                              // on to the rungs (the offer came from ~19 out)
+      const z = w.state.z;
+      expect(z).toBeLessThan(8);
+      w.place(21, 0, z); w.state.yaw = 0;                             // 21 along the face, ~6.5 out: the offset's dot ~0.29, 22 off (< 24)
+      w.tick(STILL);
+      const front = z / Math.hypot(21, z);
+      expect(front).toBeGreaterThan(0); expect(front).toBeLessThan(0.3);
+      expect(t.climbPrompt()?.kind, 'offered: in front, > 0').toBe('ladder');
+      t.action(); w.tick(STILL);
+      expect(t.state().kind, 'the press mounts nothing under 0.3').toBe('none');
+    });
+
+    it('offers nothing walking into the wall beside it, or backing into it', () => {
+      const { w, t } = rig();
+      w.place(30, 10, 20); w.state.yaw = 0;
+      run(w, FORWARD, () => false, 120);
+      expect(t.climbPrompt()).toBeNull();
+      w.place(0, 10, 20); w.state.yaw = 180;
+      run(w, BACK, () => false, 120);
+      expect(t.climbPrompt()).toBeNull();
+      t.action(); w.tick(BACK);
+      expect(t.state().kind).toBe('none');
+    });
   });
 
   it('climbs back down and steps off at the foot, and the action button slides down at 0.8 g', () => {
@@ -151,6 +275,7 @@ describe('the ladder on a synthetic wall (research 86 section 2)', () => {
     const events: TraversalEvent[] = [];
     t.on((e) => events.push(e));
     w.place(0, 10, 20); w.state.yaw = 0;
+    pressLadder(w, t, FORWARD);
     run(w, FORWARD, () => t.state().kind === 'ladder', 400);
     run(w, FORWARD, () => w.state.y > 10, 400);
     run(w, BACK, () => t.state().kind === 'ladderOffBottom', 800);
@@ -159,6 +284,7 @@ describe('the ladder on a synthetic wall (research 86 section 2)', () => {
     expect(w.state.z).toBeGreaterThan(0.2 + LADDER_STANDOFF);        // stepped back off the rungs
     expect(events.at(-1)).toEqual({ type: 'ladderDismount', at: 'bottom' });
     // Up again, then the slide.
+    pressLadder(w, t, FORWARD);
     run(w, FORWARD, () => t.state().kind === 'ladder', 400);
     run(w, FORWARD, () => w.state.y > 12, 800);
     t.action();
@@ -182,6 +308,7 @@ describe('the ladder on a synthetic wall (research 86 section 2)', () => {
     const events: TraversalEvent[] = [];
     t.on((e) => events.push(e));
     w.place(0, 60, -20); w.state.yaw = 180;                          // on the deck facing the ladder (+z)
+    pressLadder(w, t, FORWARD);
     run(w, FORWARD, () => t.state().kind === 'ladderMountTop', 400);
     expect(events[0]).toEqual({ type: 'ladderMount', from: 'top' });
     run(w, STILL, () => t.state().kind === 'ladder', 400);
@@ -217,6 +344,7 @@ describe.skipIf(!MP2)(`Frostfire's ladders${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`
     const l = t.ladders[0]!;
     expect(w.place(l.x + l.nx * 15, 115, l.z + l.nz * 15)).toBe(true);
     w.state.yaw = Math.atan2(l.nx, l.nz) * 180 / Math.PI;
+    pressLadder(w, t, FORWARD, 600);
     run(w, FORWARD, () => t.state().kind === 'ladder', 600);
     expect(t.state().kind).toBe('ladder');
     const ticks = run(w, FORWARD, () => t.state().kind === 'none', 3000);
@@ -1819,7 +1947,7 @@ describe('the ladder head, as the game plays it (research 86 section 2.4)', () =
     const t = new Traversal(grid, polys);
     w.driver = t;
     w.place(0, 60, -20); w.state.yaw = 180;                          // on the deck, walking toward the ladder (+z)
-    run(w, FORWARD, () => t.state().kind !== 'none', 400);
+    pressLadder(w, t, FORWARD);                                       // LC-1: the head's CLIMB, on the press
     expect(t.state().kind).toBe('turn180');
     expect(t.pose()?.holdRootTurn).toBe(true);
     const ticks = run(w, STILL, () => t.state().kind !== 'turn180', 200);
@@ -1830,7 +1958,7 @@ describe('the ladder head, as the game plays it (research 86 section 2.4)', () =
     const v = new Walker(grid), u = new Traversal(grid, polys);
     v.driver = u;
     v.place(0, 60, -20); v.state.yaw = 0;
-    run(v, BACK, () => u.state().kind !== 'none', 400);
+    pressLadder(v, u, BACK);
     expect(u.state().kind).toBe('ladderMountTop');
   });
 
@@ -1840,6 +1968,7 @@ describe('the ladder head, as the game plays it (research 86 section 2.4)', () =
     const t = new Traversal(grid, polys);
     w.driver = t;
     w.place(0, 60, -20); w.state.yaw = 0;
+    pressLadder(w, t, BACK);
     run(w, BACK, () => t.state().kind === 'ladderMountTop', 400);
     t.holdAction(true);
     run(w, STILL, () => t.state().kind !== 'ladderMountTop', 400);
@@ -2535,6 +2664,7 @@ describe('LATER 414: the stance word one-time bit', () => {
     expect(w.stance).toBe('crouch');
     w.takeStanceTaken();
     let seen = false;
+    pressLadder(w, t, FORWARD);
     run(w, FORWARD, () => { seen ||= w.takeStanceTaken(); return t.state().kind === 'ladder'; }, 400);
     expect(t.state().kind).toBe('ladder');
     expect(seen).toBe(false);
@@ -2549,6 +2679,7 @@ describe('LATER 414: the stance word one-time bit', () => {
     w.state.yaw = 0;
     w.takeStanceTaken();
     let seen = false;
+    pressLadder(w, t, FORWARD);
     run(w, FORWARD, () => { seen ||= w.takeStanceTaken(); return t.state().kind === 'ladder'; }, 400);
     expect(t.state().kind).toBe('ladder');
     expect(seen).toBe(false);

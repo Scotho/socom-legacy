@@ -55,6 +55,21 @@ function originalRounds(frames: readonly number[], held: (i: number) => boolean,
   return rounds;
 }
 
+/**
+ * LATER 330 (reading, pending review): the game frames a bolt's or a pump's lock holds the kit after each round -- the
+ * kit's timer `+0x820`, set to the fired record's `ReloadDelayAfterShot` (else the default 0.01 s) when it is a
+ * `ReloadAfterShot` one (`FUN_005c5340` D:L479321-479343), run down a game frame at a time in float32 and ended on the
+ * frame it goes below 0 (`FUN_005c0fd0` D:L476550-476560); its frames run no fire tick (D:L476549-476563), so the fire
+ * timer's frames come after them (D:L476643-476647). A transcription, apart from the port's kit.
+ */
+function lockFrames(rec: WeaponRecord): number {
+  if (!rec.reloadAfterShot) return 0;
+  const f = Math.fround, dt = f(GAME_FRAME_DT);
+  let left = f(rec.reloadDelayAfterShot ?? 0.01), n = 0;
+  do { left = f(left - dt); n++; } while (!(left < 0));
+  return n;
+}
+
 /** Rounds named on the same command as the round before them: two of one long page frame (LATER 338). */
 const shared = (named: number[]): number => named.filter((s, i) => i > 0 && named[i - 1] === s).length;
 
@@ -149,13 +164,14 @@ describe("LATER 587: a page's semi-automatic pressed every page frame, every wea
   // round j on the first page frame at or after j x ceil(wait / frame) frames, a gap up to a page frame under those
   // frames. The room's cycle (`room.ts` `fire`: the fastest mode's wait x TICK_HZ, less a tick) must refuse none of them --
   // the weapons whose `FireWait` x 30 is whole with no faster mode (the F57, Mark 23, Mark 23SD, DE .50, M40A1, M82A1A)
-  // the tightest. A weapon whose after-shot lock holds the kit (a bolt's) fires slower, every round still the room's.
+  // the tightest. A weapon whose after-shot lock holds the kit (a bolt's, a pump's) fires its lock's frames slower
+  // (`lockFrames`, LATER 330), every round still the room's.
   const SINGLE = Object.values(RECORDS).filter((r) => r.fireModes.includes(1));
   it.each([30, 60, 144])("%s fps: every single-mode weapon fires the original's rounds, the room refusing none", (fps) => {
     const off: string[] = [];
     let total = 0;
     for (const rec of SINGLE) {
-      const q = fireFrames(rec.fireWait, 1) * GAME_FRAME_DT, seconds = Math.max(1.5, 5 * q);
+      const q = (fireFrames(rec.fireWait, 1) + lockFrames(rec)) * GAME_FRAME_DT, seconds = Math.max(1.5, 5 * q);
       const { tally, named } = burst(rec, fps, seconds, undefined, { mash: true });
       total += named.length;
       // The original's count over the run: round j at j x q, on the page by a page frame after it (the run's last frame).
@@ -183,13 +199,12 @@ describe("LATER 587: a page's semi-automatic pressed every page frame, every wea
     const off: string[] = [];
     for (const seed of [11, 4242, 777]) {
       for (const rec of SINGLE) {
-        const q = fireFrames(rec.fireWait, 1) * GAME_FRAME_DT, frames = frameLengths(seed, lo, hi, Math.max(4, 3 * q));
+        const q = (fireFrames(rec.fireWait, 1) + lockFrames(rec)) * GAME_FRAME_DT, frames = frameLengths(seed, lo, hi, Math.max(4, 3 * q));
         const { tally, named, rows } = burst(rec, 60, 0, frames, { mash: true });
         const fast = chainOff(named, q);
         if (named.length < 3 || (tally.fired ?? 0) !== named.length || fast >= 0) off.push(`seed ${seed} ${rec.name}: ${JSON.stringify(tally)}, chain round ${fast} ${rows.filter((r) => !r.endsWith(':fired')).slice(0, 4).join(' ')}`);
-        // F3's cost: no fewer than the original's rounds over the run (round j at j x q; the last page frame's part
-        // aside) less F3_COST -- the bolt guns aside, whose lock the original's count here leaves out.
-        if ((rec as { reloadDelayAfterShot?: number }).reloadDelayAfterShot) continue;
+        // F3's cost: no fewer than the original's rounds over the run (round j at j x q, a bolt's or a pump's lock in it,
+        // LATER 330; the last page frame's part aside) less F3_COST.
         const total = frames.reduce((a, b) => a + b, 0), due = Math.floor((total - hi / 1000) / q) + 1, got = new Set(named).size;
         if (got < due * (1 - F3_COST)) off.push(`seed ${seed} ${rec.name}: ${got} rounds, under the original's ${due} less ${F3_COST * 100}%`);
       }

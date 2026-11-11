@@ -11,6 +11,7 @@ import { screenNodeTree } from './screenScripts';
  * dlgGameLobby's CountDown, CycleReadyButton, SetupNormalJoiner and ArmButtonClock (research 165/314).
  * No dialog rebuild, loadout reset, focus move or socket reconnect. Native entry timers interrupted by CountDown
  * restart only if their NoReadyButton gate is still set; their durations remain in the disc's own animations.
+ * OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the same port draws READY held while the game ends -- disabled, with a line.
  */
 export function recoverLobbyControls(parts: DialogParts | null, dialog: string | undefined, state: LobbyControlRecovery): boolean {
   if (!parts || !dialog || uiCommandFold(dialog) !== uiCommandFold(GAME_LOBBY)) return false;
@@ -38,6 +39,12 @@ export function recoverLobbyControls(parts: DialogParts | null, dialog: string |
   for (const [name, enabled] of [['Glswitchteams', state.switchTeams], ['PlayerReady', state.ready], ['weaponselect', state.armory]] as const) {
     const spec = parts.widgets.specOf(name);
     if (spec && enabled !== undefined) parts.widgets.setEnabled(spec, enabled);
+  }
+  // OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`, an adaptation): the held READY's one line, in the help line's place (the
+  // native DescriptionText, as the lobby's BOTS adaptation writes its own help there), or '' to clear it once let go.
+  if (state.line !== undefined) {
+    parts.nodeCommand({ anim: 'lobby_recovery', sequence: 'lobby_recovery', nodeIndex: 1, node: 'DescriptionText',
+      opcodeByte: NODE_OP_BASE + 1, fn: 'Caption', arg: state.line, loc: 0, bytes: new Uint8Array(0x10) });
   }
   if (state.restartEntryTimers) {
     const armory = scripts.runtime.find('ArmButtonClock');

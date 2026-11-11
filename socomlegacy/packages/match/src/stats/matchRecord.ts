@@ -67,7 +67,8 @@ export interface MatchRecordRound {
    * (`room.ts`'s round end, SEAT_ROUNDS_READING: a seat at the end that played the round -- no classic ghost, no leaver).
    * LCM-6a: `assists` and `damage`, this round's (`MatchRecorder.combatApplied`, the room's `onCombatApplied` observer):
    * the health the seat's applied hits took from enemies, and its assists at enemies' deaths. Always set by this
-   * recorder; optional on the wire, as an older host's part carries neither (additive).
+   * recorder; optional on the wire, as an older host's part carries neither (additive). A seat gone from the rows by the
+   * round's end with assists or damage in it is named too, its counts zero (gap C of the assists-everywhere batch).
    */
   seats: { seat: RecordSeat; kills: number; deaths: number; score: number; rescued: number; roundsWon?: number; roundsLost?: number; assists?: number; damage?: number }[];
   events: MatchEvent[]; eventsDropped: number;
@@ -283,19 +284,31 @@ export class MatchRecorder {
     this.roundDamage.set(seat, (this.roundDamage.get(seat) ?? 0) + healthTaken);
   }
 
-  /** LCM-6a: whether the last `score` puts both seats on one side (unknown: not). */
+  /** LCM-6a: whether the last `score` puts both seats on one side (unknown: not); asked at the hit only. */
   private sameSide(a: number, b: number): boolean {
     const ta = this.rows.find((r) => r.id === a)?.team, tb = this.rows.find((r) => r.id === b)?.team;
     return ta !== undefined && ta === tb;
   }
 
-  /** LCM-6a: a death ends `victim`'s life -- each enemy but the killer who took enough health from him gets an assist. */
+  /**
+   * LCM-6a: a death ends `victim`'s life -- each enemy but the killer who took enough health from him gets an assist.
+   * Assists everywhere (gap E): the hits are counted by record seat -- a takeover's two room ids one seat, one assist for
+   * one death -- and the killer is told by his record seat too, so his kill under a new id earns him no assist beside
+   * it; his hits under his kill's own room id are dropped first (the review's F1). No side check here: the room tells enemies' hits only and `combatApplied` held each at its hit, so a later
+   * score putting the two on one side takes nothing away.
+   */
   private died(victim: number, killer: number | null): void {
     const life = this.lives.get(victim);
     this.lives.delete(victim);
     if (!life) return;
-    for (const [attacker, { taken, seat }] of life) {
-      if (attacker === killer || taken < ASSIST_MIN_DAMAGE_ADAPTATION || this.sameSide(attacker, victim)) continue;
+    // the review's F1: the killer's own hits dropped by his room id too -- his seat now can differ from the one his hit
+    // kept (a leaver's grenade in flight: his account forgotten; a CPU hit before the stream marked it one)
+    if (killer !== null) life.delete(killer);
+    const killerSeat = killer === null ? null : this.seatOf(killer);
+    const bySeat = new Map<RecordSeat, number>();
+    for (const { taken, seat } of life.values()) bySeat.set(seat, (bySeat.get(seat) ?? 0) + taken);
+    for (const [seat, taken] of bySeat) {
+      if (seat === killerSeat || taken < ASSIST_MIN_DAMAGE_ADAPTATION) continue;
       this.totalsOf(seat).assists++;
       this.roundAssists.set(seat, (this.roundAssists.get(seat) ?? 0) + 1);
     }
@@ -321,6 +334,18 @@ export class MatchRecorder {
         assists: this.roundAssists.get(seat) ?? 0, damage: this.roundDamage.get(seat) ?? 0,
       };
     });
+    // Assists everywhere (gap C): a seat with this round's assists or damage and no row at its end (a leaver) -- once, its
+    // counts zero (the room's rows, gone with it), its rounds as they stood (no result for a round it left)
+    const named = new Set(seats.map((s) => s.seat));
+    for (const seat of new Set([...this.roundAssists.keys(), ...this.roundDamage.keys()])) {
+      if (named.has(seat)) continue;
+      named.add(seat);
+      const t = this.totalsOf(seat);
+      seats.push({
+        seat, kills: 0, deaths: 0, score: 0, rescued: this.rescued.get(seat) ?? 0, roundsWon: t.won, roundsLost: t.lost,
+        assists: this.roundAssists.get(seat) ?? 0, damage: this.roundDamage.get(seat) ?? 0,
+      });
+    }
     // PR #753 P2 (with the fold review's F1): the seats first seen in this round's `score`s (`pendingJoined`, as each first
     // appeared: a joiner gone by the round's end too), then any in the round-end rows not yet named -- each once
     this.noteJoiners(this.rows);

@@ -1,5 +1,7 @@
 import type { PageId, SourceLink } from './content/types';
 import siteData from '../site/siteData.json';
+import { pageVersion } from '../console/pageVersion';
+import { viewerCommit } from '../revision';
 // The ds's authored marks (shared/ds 1.2.0, README "Icons and the emblem"; MU.R21): constants of the design system, never
 // content. They are the only markup these pages parse; every content string still goes through `textContent`.
 import { icon, type IconName, type IconSize } from '../../../../../shared/ds/icons';
@@ -96,7 +98,22 @@ export interface Crumb { readonly label: string; readonly href?: string }
  * title and lede"); `section` lights a nav item for a page that is not one of them (the match and player pages sit under
  * the leaderboard): `aria-current="location"`, never "page", so assistive tech is not told it is the leaderboard.
  */
-export interface ShellOptions { readonly crumbs?: readonly Crumb[]; readonly section?: NavPage }
+export interface ShellOptions {
+  readonly crumbs?: readonly Crumb[]; readonly section?: NavPage;
+  /**
+   * LCM-LB (the leaderboard's review, item 6): the footer's fine line -- `record` (the default) the project record's
+   * commit, for the pages that show that record; `release` the release and commit the page itself was built from
+   * (`pageVersion`, `viewerCommit`), for a stats page that shows none of it.
+   */
+  readonly footer?: 'record' | 'release';
+}
+
+/** LCM-LB: the footer's fine line for `ShellOptions.footer` (a short commit, as the record's, when the build named one). */
+function footerLine(kind: 'record' | 'release'): string {
+  if (kind === 'record') return `Project record generated from the repository at commit ${siteData.commit}.`;
+  const commit = viewerCommit();
+  return `Built from release ${pageVersion()}${commit ? ` (${commit.slice(0, 9)})` : ''}.`;
+}
 
 /**
  * LCM-16 (LCM.R11): the breadcrumb -- a nav landmark of an ordered list, the separators drawn by CSS (never read aloud),
@@ -220,7 +237,7 @@ export function pageShell(page: NavPage | null, title: string, kicker: string, d
   const footer = element('footer', 'project-footer');
   footer.append(element('p', 'project-footer-brand', 'SOCOM II LEGACY'), element('p', '', 'A community project. Preserving the game. Building its future.'),
     element('p', 'project-fine', 'Independent fan project. SOCOM II and original materials belong to their respective creators.'),
-    element('p', 'project-fine project-generated', `Project record generated from the repository at commit ${siteData.commit}.`));
+    element('p', 'project-fine project-generated', footerLine(options.footer ?? 'record')));
   shell.append(link('Skip to content', '#project-main', 's2u-skip'), header, main, footer);
   return shell;
 }

@@ -127,11 +127,8 @@ export interface LiveShareDeps {
   hostToken?: string;
 }
 
-/**
- * RB-26, Q11: whether ending the share now (a deploy, the panel closed) stops something under way -- a copy, or requests
- * waiting for the host's answer -- so the launch first says so (`SHARE_DEPLOY_STOPS`).
- */
-export const hostBusy = (v: HostView | null | undefined): boolean => !!v && (v.active !== undefined || v.pending.length > 0);
+/** RB-26, Q11: `hostBusy` (DSH-10 moved it beside `HostView`, `./discShareView`, for the console). */
+export { hostBusy } from './discShareView';
 
 /** The sender's kept extraction when it is whole, else null (DSH.R7: the kept extraction only, never the image). */
 export async function pageSendSource(env: ExtractEnv = {}): Promise<SendSource | null> {
@@ -233,7 +230,7 @@ class Run {
 }
 
 /** The real adapter: every RB-26 host member present, and `dispose()`. */
-export type LiveDiscShare = DiscShareAdapter & Required<Pick<DiscShareAdapter, 'host' | 'openHost' | 'closeHost' | 'approveReq' | 'declineReq' | 'stopActive' | 'hostLinked'>> & { dispose(): void };
+export type LiveDiscShare = DiscShareAdapter & Required<Pick<DiscShareAdapter, 'host' | 'openHost' | 'closeHost' | 'approveReq' | 'declineReq' | 'stopActive' | 'hostLinked' | 'complete'>> & { dispose(): void };
 
 /** The real adapter (the module's header). `dispose()` ends both sides and the host. */
 export function liveDiscShare(deps: LiveShareDeps): LiveDiscShare {
@@ -769,6 +766,7 @@ export function liveDiscShare(deps: LiveShareDeps): LiveDiscShare {
     declineReq,
     stopActive,
     hostLinked: () => deps.hostToken !== undefined,
+    complete: () => deps.complete(),                      // DSH-10 (DSH.R17): the send row's and SEND DISC's rule
     dispose(): void {
       rxEnd(rx.phase !== 'idle' && rx.phase !== 'done' && rx.phase !== 'failed' && rx.phase !== 'declined');
       txEnd(tx.phase === 'sending');
