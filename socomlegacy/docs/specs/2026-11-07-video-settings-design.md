@@ -261,7 +261,22 @@ the native VIDEO patch's rows equal the schema's rows for `native` (through `vid
    passed the next step down opens the test again from the cap, each further verdict doubling that wait (to 8
    minutes) -- a CPU-bound page looks at the floor ever more rarely, and a page whose load has turned to the pixels
    gets its trade back. A new match begins afresh; a cap raised by more than a step does too, keeping a descent on
-   its way so that it is still judged.
+   its way so that it is still judged -- and (AQ-19, 2026-11-11) the test returns to the ratio that descent left,
+   not a cap raised more than a step above it since: that return was one change of up to sixteen times the pixels
+   (a field row of that day: 0.38 to 1.5, the context lost seconds later), and a step down from the ratio returned
+   to is a descent judged like one from the cap. **Amended 2026-11-11 by AQ-17** (found on two rendered runs of a
+   software-rendered match): the side test reads the frame's real time, up to a second -- the scale had been handed
+   the camera's step, clamped at 0.1 s, so a page slower than 10 fps at its floor read the same at the floor and at
+   the cap and was sent to the cap, where it was two to three times slower. Only that reading changed (the median of
+   the last eight frames, at the floor and at the cap): the smoothed time, the step's edge, the panic and the frame
+   counter still read a frame as at most 100 ms, as before, so a page faster than 10 fps behaves as it did and one
+   long frame costs no step. **Amended 2026-11-11 by AQ-18** (the release review of v0.4.20's batch, and a field
+   row on the Microsoft Basic Render Driver whose context was lost seconds after its ratio went from 0.38 to 1.5):
+   on the `software` class the side test does not run, whatever the preset. A software rasteriser's frame time
+   follows the pixels, so a slow page stays at its floor; the ratio never returns to the cap to be judged -- a
+   drawing buffer of four times the pixels, sixteen after a raised cap, on the adapter least able to make one. The
+   cost is a software page bound by our own code, which stays at its floor as every page did before the side test.
+   The match only: the test room and the Forge build the scale without the class.
 5. **Xbox memory**: under the Xbox class the HD menu budgets and every pack are refused with a row note ("not on
    Xbox: the browser's 1 GB"), the lobby prepare stays off, and the beacon's perf report carries `performance.memory`
    where exposed so the first real Xbox numbers arrive from players.

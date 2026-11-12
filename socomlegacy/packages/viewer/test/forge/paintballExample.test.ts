@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { Object3D } from 'three';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, validatePack, type PackRef } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, validatePack, type PackRef } from '@s2u/creator-contracts';
 import { DEFAULT_RIFLE, HELD_SIDEARM, M67, arsenalOf, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot, type WorldPoly } from '@s2u/scene';
 import type { Conn, Room, RoundOverReport } from '../../../match/src/room';
 import { ForgeAgentError } from '../../src/forge/agent/api';
@@ -45,7 +45,7 @@ const pbRun = (): { script: Script; expect: { fired: string[] }; duplicate: { sc
   disallowed: { script: Script; expect: { fired: string[] }; any: { fired: string[] } } } =>
   JSON.parse(readFileSync(`${EXAMPLES}paintball.run.json`, 'utf8'));
 async function packRef(): Promise<PackRef> {
-  const checked = await validatePack(PACK.map((path) => ({ path, bytes: packBytes(path) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+  const checked = await validatePack(PACK.map((path) => ({ path, bytes: packBytes(path) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS });
   if (!checked.ok) throw new Error(`the example must validate: ${JSON.stringify(checked.report.diagnostics)}`);
   return { id: checked.ref.id, version: checked.ref.version, hash: checked.ref.hash };
 }

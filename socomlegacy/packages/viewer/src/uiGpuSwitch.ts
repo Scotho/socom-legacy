@@ -235,6 +235,26 @@ export function isSoftwareAdapter(renderer: string | null | undefined): boolean 
   return typeof renderer === 'string' && SOFTWARE_ADAPTER.test(renderer);
 }
 
+/**
+ * UI_GPU_RENDERER_GATE_ADAPTATION (LATER 927): no original; the renderers whose GPU menus are known to mis-draw with no
+ * error, gated at L4 before any compile (`renderer-gate`). One family, on one report: a MacBook Air in Chrome, "ANGLE
+ * (Intel Inc., Intel(R) HD Graphics 6000, OpenGL 4.1)", whose menus showed the backdrop and no rows or text; the player
+ * said, relayed from Discord, that `?uiGpu=off` let him in (central's rows: `agent-mail/evidence/v0419-window/
+ * MAC-BLANK-MENU-READ.md`). With no `chrome://gpu` from him the pattern is a best reading of that one string: this GPU on
+ * ANGLE's OpenGL back end, on any OS -- the Mac's, Chrome on Linux (where OpenGL is the default back end: a Broadwell HD
+ * 6000 box gets the software menus too) and Windows Chrome forced to `--use-angle=gl`; there the cost is speed only. Not
+ * its Metal back end, not another Intel GPU, until a report says more. Read from `readUiGpuCaps`' string: the unmasked
+ * renderer where the browser gives it, else the plain `RENDERER`; a masked one ("WebKit WebGL") names no GPU and is not
+ * gated. A gated device sends no row, so central cannot count them.
+ * The general catch is the self-check at each link (UIGPU-SELFCHECK, `./uiGpuSelfCheck`).
+ */
+export const UI_GPU_RENDERER_GATE_ADAPTATION: readonly RegExp[] = Object.freeze([/Intel\(R\) HD Graphics 6000\b.*\bOpenGL\b/]);
+
+/** Whether `renderer` is one the gate keeps off the GPU menus (`UI_GPU_RENDERER_GATE_ADAPTATION`). */
+export function isGatedRenderer(renderer: string | null | undefined): boolean {
+  return typeof renderer === 'string' && UI_GPU_RENDERER_GATE_ADAPTATION.some((r) => r.test(renderer));
+}
+
 /** What a made context reports; the presenter (GM-12a) fills it. */
 export interface UiGpuCaps {
   readonly webgl2: boolean;
@@ -251,15 +271,18 @@ export interface UiGpuCaps {
 /**
  * Why a surface's GPU path is unavailable (L4). `no-parallel-link` (GM-23 / GM-19a review fold 4): a surface that must not
  * stall (`UiGpuSurfacePresenter.prepare`: the loading screen, the overlay) found no `KHR_parallel_shader_compile` and let
- * its context go before compiling; the gate (`uiGpuCapability`) never answers it.
+ * its context go before compiling; the gate (`uiGpuCapability`) never answers it. `self-check` (UIGPU-SELFCHECK,
+ * `./uiGpuSelfCheck`): the surface's drawer drew the self-check's scene unlike the software; the gate never answers it.
+ * `renderer-gate`: a renderer `UI_GPU_RENDERER_GATE_ADAPTATION` names (the gate's, after the software adapter).
  */
-export type UiGpuCapabilityReason = 'no-webgl2' | 'software-adapter' | 'max-texture-size' | 'program-link' | 'no-parallel-link';
+export type UiGpuCapabilityReason = 'no-webgl2' | 'software-adapter' | 'max-texture-size' | 'program-link' | 'no-parallel-link' | 'self-check' | 'renderer-gate';
 
 /** The capability gate (resolution 5), in the order a context is checked. */
 export function uiGpuCapability(caps: UiGpuCaps, allowSoftwareAdapter: boolean):
 { readonly ok: true } | { readonly ok: false; readonly reason: UiGpuCapabilityReason } {
   if (!caps.webgl2) return { ok: false, reason: 'no-webgl2' };
   if (!allowSoftwareAdapter && isSoftwareAdapter(caps.renderer)) return { ok: false, reason: 'software-adapter' };
+  if (isGatedRenderer(caps.renderer)) return { ok: false, reason: 'renderer-gate' };        // UIGPU-SELFCHECK's narrow gate
   if (!(caps.maxTextureSize >= UI_GPU_MIN_MAX_TEXTURE_SIZE)) return { ok: false, reason: 'max-texture-size' };
   if (!caps.programsLinked) return { ok: false, reason: 'program-link' };
   return { ok: true };
@@ -267,9 +290,10 @@ export function uiGpuCapability(caps: UiGpuCaps, allowSoftwareAdapter: boolean):
 
 /**
  * Why a session was killed: the loss limit (3 in 5 minutes, GM-12a), a lost context the browser did not restore within
- * `UI_GPU_RESTORE_WAIT_MS_ADAPTATION` (GM-12a), or a guard trip (GM-16).
+ * `UI_GPU_RESTORE_WAIT_MS_ADAPTATION` (GM-12a), a guard trip (GM-16), or a failed self-check (UIGPU-SELFCHECK: every
+ * surface at once, as one device's drawer drew the self-check's scene unlike the software).
  */
-export type UiGpuKillReason = 'loss-limit' | 'restore-timeout' | 'guard-trip';
+export type UiGpuKillReason = 'loss-limit' | 'restore-timeout' | 'guard-trip' | 'self-check';
 
 /** Where an answer came from: the resolution step that decided it. */
 export type UiGpuSource = 'url' | 'storage' | 'session' | 'table' | 'capability';

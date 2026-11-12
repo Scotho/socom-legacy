@@ -27,7 +27,7 @@ import { editorRows, fieldMeta, normalizeProfile, personaItems, recordRows } fro
 import { customItems, forgetFocus, lobbyGameItems, lobbyRoomItems, normalizeLobbies } from './render/lobbies';
 import type { LauncherNav, LauncherSnap } from './history';
 import { settleLoadoutDeepLink } from './routes';
-import { openDiscord } from './discord';
+import { openDiscord, openGithub } from './discord';
 import { copyLauncherAddress, installCopyOffered } from '../pwa/install';
 
 /**
@@ -712,7 +712,7 @@ export class ConsoleController {
     });
   }
 
-  /** Runs an item's act (`disc`, `mic`, `resume`, `rooms`, `signin`, `signout`, `cat:<id>`, `opt:<id>`, `page:<name>`, `discord`, `todo:<what>`, `refresh-*`). */
+  /** Runs an item's act (`disc`, `mic`, `resume`, `rooms`, `signin`, `signout`, `cat:<id>`, `opt:<id>`, `page:<name>`, `discord`, `github`, `todo:<what>`, `refresh-*`). */
   doAct(act: string | undefined): void {
     if (!act) return;
     this.S.accountOpen = false;
@@ -748,9 +748,11 @@ export class ConsoleController {
       else { A.server.openPage(arg); this.toast(`Opens the ${arg} page in a new tab`); }
     }
     // LATER 291: the pad's Cross. A click on the link follows the href and does not come through here. RB-45 (c): a new
-    // tab only for a user activation (a key's press); a pad's says how, as `page` above.
-    else if (k === 'discord') {
+    // tab only for a user activation (a key's press); a pad's says how, as `page` above. The GitHub link beside it (the
+    // owner, 2026-11-12, `./discord`) the same.
+    else if (k === 'discord' || k === 'github') {
       if (!this.gesture()) this.legendError(NEW_TAB_POINTER_WORDS);
+      else if (k === 'github') openGithub();
       else openDiscord();
     }
     else if (k === 'news') { S.overlay = 'news'; A.server.loadNews?.(); }
@@ -2633,7 +2635,8 @@ export class ConsoleController {
     // DSH-5: the share area's Try again (its failed phase).
     else if (act === 'sharerx') { const ph = A.discShare?.receiver().phase; if (S.screen !== 'home' || S.overlay || !S.chk.share || (ph !== 'failed' && ph !== 'declined')) return false; A.discShare!.request(); }
     // LATER 291: the phone row is an anchor. Move the focus and let the click follow the href — do not also open it.
-    else if (act === 'discord') {
+    // GitHub's row beside it (the owner, 2026-11-12) the same.
+    else if (act === 'discord' || act === 'github') {
       if (S.screen !== 'home' || S.overlay) return false;
       S.item[S.cat] = i;
       S.src.open = false;
@@ -2775,7 +2778,7 @@ export class ConsoleController {
     const S = this.S;
     if (S.accountOpen) return;
     if (act === 'item' && S.item[S.cat] !== i) { S.item[S.cat] = i; this.render(); }
-    else if (act === 'discord' && S.screen === 'home' && !S.overlay && S.item[S.cat] !== i) { S.item[S.cat] = i; S.src.open = false; this.render(); }
+    else if ((act === 'discord' || act === 'github') && S.screen === 'home' && !S.overlay && S.item[S.cat] !== i) { S.item[S.cat] = i; S.src.open = false; this.render(); }
     else if (act === 'room' && S.rooms.row !== i) { S.rooms.row = i; this.render(); }
     else if (act === 'optrow' && (S.opt.row !== i || S.opt.zone !== 'rows')) { S.opt.row = i; S.opt.zone = 'rows'; this.render(); }
     else if (act === 'remaprow' && S.screen === 'remap' && S.rm.row !== i && !this.remapListening()) { S.rm.row = i; this.render(); }

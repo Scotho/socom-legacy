@@ -322,3 +322,57 @@ by CHARLIE on every socket, once; each claymore one blast on every page); anothe
 charge is held by the unit tests above. For the controller: if the owner rules the claymore's back is no reach for a
 charge (the dispatch's reading), that is a one-line change in `Room.blast` (`claymoreCone` before `chargeHit`) and
 §3's finding retracted -- not made here.
+
+## 8. The PMN's trip told to every page (MINES-ROOM, 2026-11-12)
+
+- Status: **reading, pending review.** The finding is source inspection of this tree and a unit probe; the parity is a
+  read of the decompilation (r0001). No capture, no browser run, no two-client run; no game or emulator was run.
+- Sources: the mines investigation of 2026-11-12 (`agent-mail/evidence/mines-investigation-2026-11-12/REPORT.md`, its
+  H1 and Fix A; outside the repository); research [85](85-grenades.md) §9.7 (the PMN),
+  [181](181-c3-combat-hud-effects.md) §2.4 (`PMN_FRIENDLY_READING`); this note's §3-§4 (`chargeHit`'s `detonate`). The release
+  controller's ruling (2f, ~00:27Z): the room half only in v0.4.20, the page half deferred (LATER 930).
+
+**H1, the finding (source inspection).** The room trips an armed PMN in `flyFrame` (match `src/room.ts`) against the
+living players' origins (`proximityTripped`, scene `projectile.ts`) and blasts it, but until this change it broadcast
+`detonate` on an explosion for C4 alone; `chargeHit` (§4) was the only other sender. The pages trip their own copies in
+`fly` (viewer `src/grenade.ts`) against their own feet and the snapshot bodies with Alive set, and the room kills the
+victim before that tick's snapshot is built (`flyGrenades` runs before the snapshots), so another player, a spectator
+and a replay mostly saw no explosion and a ghost mine stayed drawn and armed on their pages until the air was cleared.
+
+**The unit probe** (a scratch vitest file against the real `Room`, outside the repository; NOT a capture): 240 trips,
+every one lethal; **0** `detonate` sent; in 186 of the 240 (**77.5 %**) no snapshot showed the victim alive within 10 u
+of the mine, so no page could trip its copy at all. The remaining 54 were reasoned about, not run.
+
+**What the original does (reading).** One authority per mine: a PMN joins the proximity list only offline or on its
+owner's console (`FUN_005bc730` D:L474105-474108), whose actor tick tests it (`FUN_00543930` D:L410281-410305: the 3D
+squared distance against `ProximityDistance` squared, no team test), and that console sends the trip on the wire
+(`FUN_003c7170` D:L318487-318496); the other consoles advance their copies from what they receive.
+
+**The change (the room half).** `flyFrame` keeps `proximityTripped`'s answer and, on the frame's explosion of a PMN it
+tripped on that frame (the trip and the explosion are one frame: `stepGrenade` turns a set trigger into the explosion
+the same step), broadcasts `detonate {pid, by: null}` -- C4's message, to every page, the spectators and the recorder,
+no `except`. An existing message sent in one more case: no protocol change (V20.R11). A PMN a blast or a round queued
+is told once, by `chargeHit` with its `by` -- also when the same frame then trips it by proximity: the trip's
+`detonate` skips a PMN already `queued` (`tripped && !f.queued`). The first build (3ff6e742aa) told such a PMN twice,
+`{by}` then `{by: null}`, when `chargeHit` ran earlier in that frame's walk (a claymore laid before the PMN, or the
+first of two PMNs one walk-in trips); its fresh review found it and the MINES-ROOM fold made it so, no timing change
+(`queued` stays set until the next frame's start). The room as the mine's one authority is a
+port's adaptation of WHERE the test runs (the original's is the owner's console), labelled at the change.
+
+**The page, unchanged.** It still trips its own copy (LATER 930 for the half that stops it, which needs the page to know
+its room announces trips). Either order ends in one explosion: `detonateRemote` sets the trigger of a copy at rest only
+(a copy already `detonated` is passed over), and `proximityTripped` passes over a copy whose trigger is already set.
+The placer's OWN copy takes the room's `detonate` only once `tagOwn` has given it the room's pid (its launch point
+matched within 0.01, `OWN_PID_READING`); if it does not match, the room's message is ignored and the page's own trip
+still sets the copy off, as today.
+The replay folds the recorded `detonate` (`fold.ts` `foldCharge`: a charge's set-off at its tick, once) and a replay
+played on sets its copy off at the event; `REPLAY_PMN_TRIP_READING` (the fold's trip off the snapshots, for a recording
+made before this change) stands.
+
+Held by: match `test/roomEquipment.test.ts` "the PMN's trip is broadcast as `detonate`" (a lethal and a non-lethal
+walk-in: both players, a spectator and the recorder get it once, before the kill; a claymore is no proximity trip),
+`test/roomVolatile.test.ts` (a proximity trip plus a blast: one `detonate`, the room's; was `[]`; and the fold's two
+cases -- the claymore laid first, two PMNs one walk-in trips: one `detonate` per pid, `chargeHit`'s with its `by`);
+viewer `test/grenade.test.ts` "a PMN tripped by the page and by the room's `detonate`" (either order: one explosion, no
+throw, no copy left at rest; the placer's own copy, tagged and untagged), `test/replayAir.test.ts` "the PMN's trip in a replay". Owed: a two-client run with a
+spectator (A places, B walks on, C watches: A and C see the explosion), and the H2-H4 rows (LATER 929-931).

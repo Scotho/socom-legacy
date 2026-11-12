@@ -100,7 +100,8 @@ const PROSE: Record<string, string[]> = {
     `whose role can change play -- ${[...packs.PACK_GAMEPLAY_ROLES].slice(0, -1).map((r) => `\`${r}\``).join(', ')} or \`${[...packs.PACK_GAMEPLAY_ROLES].at(-1)}\` -- cannot be covered by \`cosmetic\` alone`,
   ],
   'kinds/index.mdx': [
-    `one, two or all three of ${packs.PACK_KINDS.slice(0, -1).map((k) => `\`${k}\``).join(', ')} and \`${packs.PACK_KINDS.at(-1)}\``,
+    // FX-5 added the reserved `plugin`, a fourth kind: the sentence counts no kinds any more.
+    `one or more of ${packs.PACK_KINDS.slice(0, -1).map((k) => `\`${k}\``).join(', ')} and \`${packs.PACK_KINDS.at(-1)}\``,
     `must not admit any engine contract before \`${packs.RULES_PACK_CONTRACT_FLOOR}\``,
     `Write \`^${packs.RULES_PACK_CONTRACT_FLOOR}\` or \`>=${packs.RULES_PACK_CONTRACT_FLOOR}\``,
     `The page offers one slot, \`${handlers.HANDLER_SLOTS[0]!.id}\``,
@@ -155,14 +156,14 @@ describe('the modding wiki\'s hand-written pages (MW-7, MW-8)', () => {
     expect(text).toContain(`${store.name.maxChars} characters`);
     expect(text).toContain(`${store.description.maxChars} characters`);
     expect(text).toContain(`${store.icon.width}x${store.icon.height}`);
-    expect(text).toContain(`\`${packs.THUNDERSTORE_TEAM_PLACEHOLDER}\``);
+    expect(text).toContain(`\`${packs.THUNDERSTORE_TEAM}\``);
     expect(text).toContain(`${packs.PACK_BYTES_ADAPTATION / (1024 * 1024)} MiB`);
     expect(text).toContain(`${packs.PACK_DESCRIPTION_CHARS_ADAPTATION} characters`);
     for (const fn of ['thunderstoreName', 'thunderstoreVersion', 'thunderstoreManifest', 'checkThunderstorePackage']) {
       expect(typeof exported[fn], fn).toBe('function');
       expect(text, fn).toContain(`\`${fn}\``);
     }
-    expect(text).toMatch(/not decided yet/);
+    expect(text).toMatch(/not yet created/);
     expect(text).toMatch(/nothing builds a store package/i);
     expect(text).toMatch(/loads nothing from Thunderstore/);
     for (const code of Object.values(packs.THUNDERSTORE_CODES)) expect(text, code).toContain(`\`${code}\``);

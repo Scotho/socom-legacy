@@ -6,6 +6,41 @@ in the original survey is a reading of the original; nothing is cited from the t
 R4B-00's original-source correction in §3 (2026-11-04) is separately **reading, pending review**. What was read: the
 repository https://github.com/FatalityDevelopment/SocomMapBuilder at `master` 2a90555f (one squashed commit dated
 2026-10-25, 164 files, no licence file), its `docs/formats/` (545 lines) and its server and page sources.
+[Corrected 2026-11-11, C1: `master` is now bb53b753ad, 216 commits, with a GPL-3.0 `LICENSE.txt`.]
+
+**Superseded in part (the corrections of 2026-11-11, below):** the survey of 2026-10-25 describes the repository at
+2a90555f; where its `master` has moved on (C1-C4), the corrections win. §3's AIMAPS verdict still holds (C5); the
+rest of §3 and §4-§6 were not re-read against it.
+
+## Corrections of 2026-11-11 (its `master` at bb53b753ad)
+
+Written 2026-11-11 in the Forge lane's seat (redotcom-19). Evidence: **source inspection of the public repository
+through GitHub's API on 2026-11-11, nothing cloned, built or run; every layout below is a lead until re-read on a
+disc's bytes.** Nothing here is a reading of the original. The survey's text stays where it stands, with a bracketed
+correction at each place a point is superseded, so the survey of 2026-10-25 can still be read.
+
+- **C1, the commit and the licence.** The survey read `master` 2a90555f (2026-10-25, 164 files, "no licence file").
+  `master` is now bb53b753ad (pushed 2026-11-08): 216 commits by one contributor, and a GPL-3.0 `LICENSE.txt` (no
+  per-file notices).
+- **C2, what it reads now.** A .NET 8 server with one format library (`server/CodeDesigner.Ps2.FileFormats`) and a
+  `docs/formats/` page per format. Beyond SOCOM II (read and write) it now reads: SOCOM (SCUS-97134) loose map folders
+  (world, props, clutter; not AIMAPS); Combined Assault (SCUS-97545) location archives, worlds, missions, points,
+  tables; Fireteam Bravo and Fireteam Bravo 2 (the ZDB with version word 7; worlds, textures, characters, missions);
+  Fireteam Bravo 3 (`.ssg` containers). SOCOM 3 is claimed only (no SOCOM 3 check or code found; its retail checks
+  are against the Combined Assault disc). Tactical Strike and the SOCOM demo's older ZAR heads are not covered.
+- **C3, no collision and no navigation beyond SOCOM II.** For every title but SOCOM II it has no collision reader and
+  no navigation cells (its own docs say so).
+- **C4, its retail checks are its author's.** Its retail-disc checks run only on its author's machine (CI uses
+  synthetic fixtures), so each count and layout is a claim.
+- **C5, still true.** Its AIMAPS point layout disagrees with ours by one word (`MapPoints.cs`, §3), so its point
+  writes are not evidence.
+- **C6, cautions for a clone.** `cds/` holds patch payloads for the r0004 build (never copied or run);
+  `Zipper/ZDB/ZdbChecksum.cs` reads as a transliteration of the game's own routine (not to be ported: a standard
+  CRC-32 is the fact to prove on disc entries); a checked-in `.mcp.json` means no agent session is opened inside a
+  clone.
+- **C7, the owner's word on its code.** The owner, 2026-11-11 (the Forge lane's seat): its code may be built, run or
+  ported as an EXPERIMENT on the multi-SOCOM test machine, attributed; what ships stays our own readers re-read on the
+  disc's bytes.
 
 ## 1. What it is
 
@@ -16,6 +51,8 @@ instances (move, duplicate, delete; `worldmodel` refused), `CLUTTER.ZAR` placeme
 named points (move, §3); it imports a prop, vehicle, weapon or character from another package with its textures and
 palettes. Beyond the map: a model editor, an animation editor for `MOTION_S.ZAR`, an asset browser, and SOCOM 3,
 Combined Assault and GTA San Andreas converters. The README credits "Code Designer AI" for the research and the build.
+[Corrected 2026-11-11, C2-C4: it now reads SOCOM, Combined Assault and the three Fireteam Bravos beside SOCOM II;
+SOCOM 3 is claimed only; no collision or navigation beyond SOCOM II.]
 
 ## 2. Against the forge
 

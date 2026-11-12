@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSION, ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, type PackContext } from '@s2u/creator-contracts';
 import { IDBFactory } from 'fake-indexeddb';
 import { idbPackDatabase } from '../src/packs/storage';
 import { makeZip } from './zipFixture';
@@ -88,7 +88,7 @@ describe('Forge saved-recipe lifecycle (product adaptation)', () => {
   });
   // FCW-33 fold 1 (product adaptation): the editor's own import admits v2 packs, so the editor and the solo room agree.
   it('admits a v2 pack on the Forge surface (storage only), in Build only', async () => {
-    const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: [] };
+    const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: [] };
     const png = encodePng(1, 1, new Uint8Array([1, 2, 3, 255]));
     const manifest = { format: 's2u-pack', formatVersion: 2, id: 'example.yard', version: '1.2.0', name: 'Yard', description: 'A small yard.',
       target: PACK_TARGET_US, contract: `^${ENGINE_CONTRACT_VERSION}`, kinds: ['content'], sides: 'client', dependencies: [],

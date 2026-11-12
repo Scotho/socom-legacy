@@ -55,8 +55,9 @@ describe('the overlay\'s focus order on the pad: top-down, one visible focus, no
       expect(items).toBeGreaterThan(0);
       const stops: HTMLElement[] = [];
       const ringed = (): HTMLElement[] => {
-        // LATER 291: above the phone rule Home's Discord stop is the header icon, the one visible ring.
-        const head = [...o.inner.querySelectorAll<HTMLElement>('#header .cx-discord.is-focused')];
+        // LATER 291: above the phone rule Home's Discord stop is the header icon, the one visible ring; GitHub's beside it
+        // (the owner, 2026-11-12) the same.
+        const head = [...o.inner.querySelectorAll<HTMLElement>('#header .cx-discord.is-focused, #header .cx-github.is-focused')];
         return head.length ? head : [...o.inner.querySelectorAll<HTMLElement>('#stage .cx-list .is-focused')];
       };
       for (let n = 0; n < items + 2; n++) {
@@ -68,11 +69,16 @@ describe('the overlay\'s focus order on the pad: top-down, one visible focus, no
       }
       expect(stops.length, 'every action reached').toBe(items);
       // Top-down: each stop follows the one before in the page's order. The desktop Discord icon sits in the
-      // header and is still Home's last action, reached after the list.
+      // header and is Home's action after the list; GitHub's icon beside it (the owner, 2026-11-12) the last, after it.
       for (let i = 1; i < stops.length; i++) {
         const cur = stops[i]!;
         if (cur.classList.contains('cx-discord')) {
-          expect(i, 'the header icon is Home\'s last stop').toBe(stops.length - 1);
+          expect(i, 'the Discord icon is Home\'s stop before the last').toBe(stops.length - 2);
+          continue;
+        }
+        if (cur.classList.contains('cx-github')) {
+          expect(i, 'the GitHub icon is Home\'s last stop').toBe(stops.length - 1);
+          expect(stops[i - 1]!.classList.contains('cx-discord'), 'right after the Discord icon').toBe(true);
           continue;
         }
         const following = stops[i - 1]!.compareDocumentPosition(cur) & Node.DOCUMENT_POSITION_FOLLOWING;

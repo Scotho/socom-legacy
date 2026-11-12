@@ -123,7 +123,7 @@ describe('LR-23: Home\'s "Before you deploy" panel is gone; its facts where they
   it('no Home has a Memory card row, the page\'s or the overlay\'s; the card\'s line is Profile\'s Profiles row\'s', () => {
     const a = sampleAdapters();
     boot(a);
-    expect(homeItems('home', page!.ctl.S, a).map((x) => x.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord']);
+    expect(homeItems('home', page!.ctl.S, a).map((x) => x.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);
     const profiles = homeItems('profile', page!.ctl.S, a).find((x) => x.title === 'Profiles')!;
     expect(profiles.sub).toBe(cardLine(a));
     expect(profiles.sub).toMatch(/^Slot 1 · 1 persona · /);

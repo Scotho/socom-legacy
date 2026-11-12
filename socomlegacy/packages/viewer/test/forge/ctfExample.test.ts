@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { Object3D } from 'three';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, validatePack, type PackRef } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, validatePack, type PackRef } from '@s2u/creator-contracts';
 import { ForgeAgentError } from '../../src/forge/agent/api';
 import { createForgeAgentRevisions, createForgeEditorFacade, type ForgeAgentEditor } from '../../src/forge/agent/editorFacade';
 import { emptyLayout, type Layout, type LayoutBase } from '../../src/forge/layout';
@@ -26,7 +26,7 @@ const packBytes = (path: string): Uint8Array => new Uint8Array(readFileSync(`${E
 const ctfRun = (): Json & { layout: { zones: Json[]; spawners: Json[] }; script: Json; expect: { fired: string[] }; dropped: { ticks: Json[]; expect: { fired: string[] } } } =>
   JSON.parse(readFileSync(`${EXAMPLES}capture-the-flag.run.json`, 'utf8'));
 async function packRef(): Promise<PackRef> {
-  const checked = await validatePack(PACK.map((path) => ({ path, bytes: packBytes(path) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+  const checked = await validatePack(PACK.map((path) => ({ path, bytes: packBytes(path) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS });
   if (!checked.ok) throw new Error(`the example must validate: ${JSON.stringify(checked.report.diagnostics)}`);
   return { id: checked.ref.id, version: checked.ref.version, hash: checked.ref.hash };
 }

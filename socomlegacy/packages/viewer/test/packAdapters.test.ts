@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
 import { validateLegacyPack } from '../src/packs/adapters';
 import { buildTexturePack } from '../../../tools/localTexturePack';
 import type { PackSource } from '../src/texturePack';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
-const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
 function mod(version = '1'): BufferedPackFile[] {
   return [{ path: 'mod.json', bytes: bytes(JSON.stringify({ format: 's2u-mod', formatVersion: 1, id: 'demo', name: 'Demo',
     version, author: 'Fixture', description: '', target: 'socom2-us-r0001', files: [{ path: 'NOTES/DEMO.TXT', file: 'demo.txt' }] })) },

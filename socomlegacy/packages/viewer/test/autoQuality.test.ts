@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  AUTO_FLOOR_SHARE_ADAPTATION, autoAdaptiveOptions, autoResolved, CLASS_START_ADAPTATION, FirstMatchProbe, firstMatchProbe,
+  AUTO_FLOOR_SHARE_ADAPTATION, autoAdaptiveOptions, autoResolved, CLASS_SIDE_TEST_ADAPTATION, CLASS_START_ADAPTATION, FirstMatchProbe, firstMatchProbe,
   PROBE_FRAME_MAX_MS_ADAPTATION, PROBE_DOWN_MS_ADAPTATION, PROBE_SECONDS_ADAPTATION, PROBE_UP_MS_ADAPTATION, VIDEO_AUTO_KEY,
 } from '../src/autoQuality';
 import { detectDeviceClass, pageDeviceClass, resetPageRendererProbeForTest, type DeviceClass } from '../src/deviceClass';
@@ -58,6 +58,21 @@ describe('VS-7: the class\'s start (the spec §4.4 item 2)', () => {
     for (const c of classes) expect(AUTO_FLOOR_SHARE_ADAPTATION[c]).toBe(0.5);
     expect(autoAdaptiveOptions('auto', 'xbox')).toEqual({ ...ADAPTIVE_V2_ADAPTATION, floorShare: AUTO_FLOOR_SHARE_ADAPTATION.xbox });
     expect(autoAdaptiveOptions('balanced', 'xbox')).toBe(ADAPTIVE_V2_ADAPTATION);
+  });
+
+  // AQ-18 (the release review of v0.4.20's batch, 2026-11-11; a browser adaptation): the dynamic scale's side test does
+  // not run on the software class -- by the class, whatever the preset (the options are fixed at the mount, and a
+  // player changes a preset mid-match).
+  it('AQ-18: the side test table -- off for the software class, on for every other; the options carry it under every preset', () => {
+    const classes: DeviceClass[] = ['xbox', 'software', 'touch', 'lowMemory', 'standard', 'high'];
+    expect(Object.keys(CLASS_SIDE_TEST_ADAPTATION).sort()).toEqual([...classes].sort());
+    for (const c of classes) expect(CLASS_SIDE_TEST_ADAPTATION[c], c).toBe(c !== 'software');
+    expect(autoAdaptiveOptions('auto', 'software')).toEqual({ ...ADAPTIVE_V2_ADAPTATION, floorShare: AUTO_FLOOR_SHARE_ADAPTATION.software, sideTest: false });
+    for (const p of ['performance', 'balanced', 'quality', 'custom'] as const) expect(autoAdaptiveOptions(p, 'software'), p).toEqual({ ...ADAPTIVE_V2_ADAPTATION, sideTest: false });
+    for (const c of classes.filter((x) => x !== 'software')) {
+      expect(autoAdaptiveOptions('balanced', c), c).toBe(ADAPTIVE_V2_ADAPTATION);        // VS-3's own object, untouched
+      expect(autoAdaptiveOptions('auto', c), c).toEqual({ ...ADAPTIVE_V2_ADAPTATION, floorShare: AUTO_FLOOR_SHARE_ADAPTATION[c] });
+    }
   });
 
   it('autoResolved: the class\'s start with nothing saved', () => {
@@ -296,6 +311,19 @@ describe('VS-7: the keeper\'s Automatic (VS.R7)', () => {
     } finally {
       Object.defineProperty(navigator, 'userAgent', agent);
       delete (navigator as unknown as Record<string, unknown>).userAgent;
+      vi.restoreAllMocks();
+      resetPageRendererProbeForTest();
+    }
+  });
+
+  it('AQ-18: a page on the Microsoft Basic Render Driver (the field row\'s adapter) is the software class, and its scale has no side test under any preset', () => {
+    const gl = { getExtension: () => null, getParameter: () => 'ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)', RENDERER: 0x1f01 };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => gl) as never);
+    resetPageRendererProbeForTest();
+    try {
+      expect(pageDeviceClass()).toBe('software');
+      for (const p of ['auto', 'performance', 'balanced', 'quality', 'custom'] as const) expect(autoAdaptiveOptions(p).sideTest, p).toBe(false);
+    } finally {
       vi.restoreAllMocks();
       resetPageRendererProbeForTest();
     }

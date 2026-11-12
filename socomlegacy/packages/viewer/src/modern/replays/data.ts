@@ -4,10 +4,12 @@
  * format.ts`), so nothing here is a game value.
  *
  * **The route is the match server's own, read as it is** (web sprint 36 PT-26; `packages/central/src/replay/http.ts`;
- * spec 4.9; research 245 §4): `GET /replays` answers `{ replays: [{ id, room, map, rules, startedAt, seconds, players:
- * [{ name, team }] }] }`, newest first, only the replays the bearer may see (W36.R2: a login ticket's account sees the
- * replays it played in; no bearer, or a ticket the server does not know, sees an empty list -- never a 401). No route is
- * added: this reads that one, with the session's ticket (`../session`, memory only) as `Authorization: Bearer`, at the
+ * spec 4.9; research 245 §4): `GET /replays?mine=1` answers `{ replays: [{ id, room, map, rules, startedAt, seconds,
+ * players: [{ name, team }] }] }`, newest first, only the replays whose record names the bearer's account
+ * (REPLAYS-MINE, the owner 2026-11-12: "Your Replays should show Your Accounts Replays"; without `mine` central's
+ * listing is every replay since MS-6, MS.R2, which this list does not ask; no bearer, or a ticket the server does not
+ * know, gets an empty list -- never a 401; a central from before `mine` ignores it and answers its whole listing). No
+ * route is added: this reads that one, with the session's ticket (`../session`, memory only) as `Authorization: Bearer`, at the
  * account requests' base (`accountServiceBase`, `../../connectHost`: the page's own origin, `server=` only under the
  * developer's `?devmode` on a development build), so the live bearer goes nowhere the session's own requests do not.
  * No cookie (`credentials: 'omit'`), no redirect followed (`redirect: 'error'`, as `../../replay/load`'s hosted fetch).
@@ -175,7 +177,7 @@ export interface ReplayListSource {
   more?(ticket: string, cursor: string): Promise<ReplayEntry[]>;
 }
 
-/** `GET <base>/replays` with the ticket as bearer (the module's doc); RV-4: `more` adds `?before=<cursor>`. */
+/** `GET <base>/replays?mine=1` with the ticket as bearer (the module's doc); RV-4: `more` adds `&before=<cursor>`. */
 export function httpReplaySource(base: string, fetchFn?: typeof fetch): ReplayListSource {
   const get = fetchFn ?? globalThis.fetch.bind(globalThis);
   const read = async (url: string, ticket: string): Promise<ReplayEntry[]> => {
@@ -192,8 +194,9 @@ export function httpReplaySource(base: string, fetchFn?: typeof fetch): ReplayLi
     try { return replaysOf(await res.json()); } catch { throw new ReplayListError('refused'); }
   };
   return {
-    list: (ticket) => read(`${base}${MU_REPLAYS_PATH}`, ticket),
-    more: (ticket, cursor) => read(`${base}${MU_REPLAYS_PATH}?before=${encodeURIComponent(cursor)}`, ticket),
+    // REPLAYS-MINE: the bearer's own replays (`packages/central/src/replay/http.ts` `mine=1`), never the public whole
+    list: (ticket) => read(`${base}${MU_REPLAYS_PATH}?mine=1`, ticket),
+    more: (ticket, cursor) => read(`${base}${MU_REPLAYS_PATH}?mine=1&before=${encodeURIComponent(cursor)}`, ticket),
   };
 }
 

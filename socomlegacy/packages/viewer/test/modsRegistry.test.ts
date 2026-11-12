@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { zipSync } from 'fflate';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, validatePack, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, validatePack, type PackContext } from '@s2u/creator-contracts';
 import { createPackRegistry, type PackRegistryOptions } from '../src/packs/registry';
 import { classifyDrop, type ReadSmall } from '../src/packs/classify';
 import { PACKS_ENABLED_KEY, type ChannelFactory, type ModsChannel, type PackFlags } from '../src/packs/modsState';
@@ -18,7 +18,7 @@ import { encodePng } from '../../../tools/png';
  * fourth library, the MODS state record and its notice, the drop classifier. Synthetic packs only (made-up keys and
  * payloads), no game data.
  */
-const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 const zipFile = (name: string, members: Record<string, Uint8Array>): File => new File([zipSync(members).slice().buffer as ArrayBuffer], name);
 const flagsOf = (): PackFlags & { map: Map<string, string> } => {

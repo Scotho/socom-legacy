@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, validatePack, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, validatePack, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
 import { createPackRegistry, type PackRegistryOptions } from '../src/packs/registry';
 import { createForgePageTarget } from '../src/agent/forgeTarget';
 import { idbPackDatabase } from '../src/packs/storage';
@@ -20,7 +20,7 @@ import type { AgentRequest } from '@s2u/forge-agent-protocol';
  * root without changing the pack's identity; a legacy texture pack with its root `manifest.json` imports as before.
  */
 
-const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: [] };
+const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: [] };
 const utf8 = (text: string) => new TextEncoder().encode(text);
 const file = (name: string, data: Uint8Array, webkitRelativePath?: string) =>
   ({ name, size: data.length, ...(webkitRelativePath ? { webkitRelativePath } : {}), arrayBuffer: async () => data.slice().buffer });

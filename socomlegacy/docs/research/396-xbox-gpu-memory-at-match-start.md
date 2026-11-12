@@ -225,3 +225,130 @@ held on the same PC beside it, not yet uploaded: `xbox-gpu-x3-bench/` (the WebGL
 and console record, the F3 caveat's run -- and the WebGPU buffer failure at both heads, each with its trace and
 record), `xbox-gpu-x4-cap-6343231f0/` (the 1024 MB budget), `xbox-gpu-bench-verify*/` (the committed spec's runs),
 and `xbox-gpu-rederive/` (the flag's re-derivation: the generated instrument, each leg's trace JSON and run log).
+
+## 7. The first investigation: PR #631 (2026-10-31 to 2026-11-01), carried here
+
+- **Whose it is.** Written by **Chris** (GitHub `imbennyhim`) and his seat's agent, on `agent/xbox-lobby-capture`, head
+  **ed3b8efd0f** (base 08cb24485, v0.3.36), as the draft pull request #631: "Handoff: unresolved Xbox Edge browser
+  shutdown investigation". The physical Xbox runs are Chris's, played on his Series X. The desktop replies in its thread
+  are the owner's controller seat's (Craig's Claude), from the same nights.
+- **Why it is here.** The owner approved closing #631 once its measurements were saved into this note ("Approved", said in
+  the main controller's seat, redotcom-2f, 2026-11-11 at about 21:20Z, and relayed by it to the Xbox lane, redotcom-c4).
+  - This section keeps the handoff's findings and the thread's measurements.
+  - Its numeric file is kept unchanged at
+    [`data/396-pr631-xbox-browser-stability-measurements.json`](data/396-pr631-xbox-browser-stability-measurements.json).
+    It is the same blob as at ed3b8efd0f (`37a083e99`).
+- **Not carried.** The handoff note itself (`socomlegacy/docs/diagnostics/xbox-browser-stability-handoff.md`) and the two
+  opt-in recorder scripts (`socomlegacy/tools/diagnostics/xboxEventProbe.js`, `xboxResourceProbe.js`) stay readable at
+  ed3b8efd0f. The branch is kept.
+  - The scripts are superseded by `packages/viewer/e2e/gpuTrace.ts` (§6) and by v0.4.19's `contextdiag` / `inputdiag`
+    beacon kinds (`src/matchDiag.ts`).
+  - The raw logs, the photos, the TLS material and the private launcher stayed on Chris's PC, by the handoff's own
+    record.
+- **Checked before it went in (2026-11-11, c4).**
+  - Every key and string of the JSON was listed. It holds counts, sizes, UTC times, the source commit and fixed labels.
+  - It holds no device name, account, address, path or token.
+  - This section quotes the adapter and driver strings from the device report in (a). They identify a console model, not
+    a person.
+- **Evidence kinds**, kept apart below:
+  - **Physical console observations**, reported by the player and relayed by Chris's seat. Their times are when the
+    reports arrived, not instrumented event times.
+  - **One injected-recorder run** on the Xbox, on a private development stack.
+  - **The console's own `edge://gpu` and `edge://system` reports**, from photos and an export.
+  - **Rendered desktop browser runs** by both seats. None of them is an Xbox figure.
+
+### (a) The device, from its own report
+
+- **The report:** the `edge://gpu` export pasted by Chris's seat. It was exported 2026-11-01T04:10:13Z, after Edge was
+  reopened.
+- **The console:** Xbox Series X, Edge 150.0.4078.112.
+  - Active adapter `SraKmd_arden`, Microsoft driver 10.0.26100.9647.
+  - GL `egl-angle` / d3d11, OpenGL ES 3.0, ANGLE 2.1.46474.
+- **Memory:** "Total Physical Memory (Gb): 1", "System Commit Limit (Gb): 3", hardware concurrency 8. These are values the
+  browser is told, not a measured budget for Edge.
+- **Workarounds and features:** the workaround `exit_on_context_lost` is applied. "Problems Detected" says the driver
+  cannot reset the D3D device in the GPU process's sandbox. The ANGLE feature `loseContextOnOutOfMemory` is **enabled**.
+- *Reading (inferred, not measured on the console):* on this device a GPU-process out-of-memory **loses the WebGL context**
+  rather than failing one allocation. That is the page-alive, picture-gone shape, and a candidate mechanism for the
+  field's "WebGL: Unknown reason" (b0's shape 2). The empty reason fits a loss the browser does not explain to the page.
+- **Before the export, in the handoff:**
+  - automatic WebGPU reported `DXGI_ERROR_DEVICE_REMOVED` / `DXGI_ERROR_DRIVER_INTERNAL_ERROR` (shape 1's ancestor);
+  - explicit WebGL2 rendered Frostfire;
+  - a tiny WebGL page failed both WebGL and WebGL2 until the console was restarted.
+- `performance.memory.usedJSHeapSize` sat at exactly 123,000,000 throughout. It is bucketed, so no heap reading of the
+  console stands.
+
+### (b) The physical runs
+
+Chris's Series X. Each outcome is as the player reported it, and every time is a report's time:
+
+| run (UTC, 2026-11-01) | client | setup | outcome |
+|---|---|---|---|
+| private match, 02:11:07.916 -> 02:12:07.980 (recorder samples) | dev build at 08cb24485 on a private stack, PC-served extracted assets | Frostfire, Respawn asked (the recorder kept no rules), against one desktop player; WebGL2, antialias off; the canvas settled at 960x479 (CSS 1280x639) | **the whole of Edge closed**, about 60 s between the first and last match samples; no context loss, page error or `pagehide` recorded |
+| XBOXMEM, map 03:30:20, failure 03:30:43 | nightly v0.3.36 (08cb24485) | Frostfire Classic, 3 bots; **two SOCOM tabs and two others open** | a white page with a frown, Edge left open |
+| XBOXMEM2, map 04:01:18, close 04:07:27 | nightly v0.3.36 | Frostfire Classic, 7 bots, 6-min rounds, one tab (a full restart not confirmed); joined late, so probably spectating round 1 | **Edge closed** at about the end of round 1; no `edge://crashes` entry for the night |
+| XBOXMEM3, map 04:29:08, report 04:29:40 | nightly v0.3.36 | Frostfire Classic, 4-min rounds, READY before the launch, one tab | the map frozen on entry, then **Edge exited** to the Xbox home screen |
+| after S1-S5, 21:25:32 and 21:42:55 | nightly v0.4.0 / v0.4.1 | online Respawn, Vigilance and Frostfire | "Graphics stopped at <t>Z (WebGL: Unknown reason)" **during the load**, then NET ERROR; Edge stayed open |
+
+- **Calibration** (`edge://system` in the lobby, one game tab, displayed values, not a private-bytes total): the SOCOM tab
+  149 MB, the GPU process 222 MB, the browser 73 MB, the rest under 30 MB each.
+- **Frame rate** (offline Frostfire, 20 s samples, same pose, 960x479): antialias on 34.05 and 36.50 FPS; off 41.36 and
+  41.63 FPS.
+- **The lower-resolution variant** (`capturepixels=low`) was never run on the console.
+
+### (c) The desktop measurements
+
+All rendered desktop browser runs, one run each. They are not Xbox figures.
+
+- **The handoff's own comparison** (the JSON, offline Frostfire, the Xbox graphics choice):
+  - DPR 1.25 at 1600x800 and DPR 0.5 at 640x320 hold the same live objects: 233 textures, 7,508 buffers, 122 programs,
+    508 vertex arrays.
+  - The worker's deliveries are the same too (decimal MB): map 13.99, armory 6.36, play 2.01, effects 0.27, sound 75.47,
+    sound loops 32.26.
+  - So the resolution moves none of those.
+- **Two desktop players in a Classic match** (the JSON):
+  - The match settled by 30 s at 163 textures, 5,206 buffers, 115 programs and 521 vertex arrays, unchanged at 60 and 90 s.
+  - The JS heap read 329, 324 and 408 MB at those times, which is not a monotonic leak.
+  - Cumulative `bufferData` bytes climbed (214 -> 390 -> 548 MB) while the counts stood still: re-uploads, not resident
+    memory.
+- **The owner's seat, its first runs.** The browser's whole process tree, in private MB, with the "Xbox" seat at 1280x639
+  CSS and DPR 1.5:
+  - the test room peaked at 1,445;
+  - a menu match peaked at 1,497 in Classic (+12 s after its start) and 1,626 in Respawn (+6 s);
+  - the steady state was 1.1-1.48 GB, with no growth over 3 minutes;
+  - the menus held 606-700 MB into the match's load.
+- **Its later breakdown:**
+  - **After a forced GC, the live JS objects were 22 MB in the lobby and 28 MB at the match's end.**
+  - The GPU process grew from about 190 to 520 MB at the match's start against ~5 MB of texture uploads, and kept ~467 MB
+    after the return (179 in the lobby): driver-side, not broken down further.
+  - **Shader programs were refuted as the large cost:** linking the 121 programs Frostfire uses on the Xbox preset grew
+    the GPU process ~44 MB, ~0.36 MB a program.
+  - Three r186's per-frame uniform `bufferData` at the match's rate (~2,700 calls/s) grew it ~29 MB, then flat.
+  - The sound held ~107 MB of decoded arrays, with ~130 MB of audio buffers made per match.
+- **S1-S5** (shipped in v0.4.0, #633): the loss notice, and under the Xbox preset the loader freed after a match, the menus
+  asleep under it, the match worker ended once loaded, and the sound held once. Its A/B, one run each on Linux SwiftShader:
+  - load peak 1,266 -> 893 MB (-29 %);
+  - match peak -24 %;
+  - steady state -15 %;
+  - after the match -16 %.
+
+### (d) What it adds to this note
+
+- **The context loss during the load predates mega and the GPU menus.** v0.4.0/v0.4.1 lost it there with S1-S5 in, the
+  same window as b0's shape 2 (10.9-14.5 s after the mount). This agrees with §4's last point.
+- **§2's counted GPU bytes are small beside the GPU process's own growth:**
+  - 12-42 MB counted here, against the ~300 MB the GPU process gained at match start on the owner's desktop (driver-side,
+    not given back);
+  - against that, the console reports 1 GB of physical memory and a 3 GB commit limit;
+  - with `loseContextOnOutOfMemory` on, the pressure that matters may be the GPU process's, not the page's uploads;
+  - none of it was measured on the console.
+- **The program count is not the memory lever** (~0.36 MB a program on desktop D3D11). A change to the warm-up is a change
+  to its timing and its peak, not to the programs' bytes.
+- **The open questions are the handoff's own:**
+  - the console's termination reason;
+  - its peak process and GPU memory;
+  - whether the whole-Edge exit and the white page share one cause;
+  - behaviour across repeated matches.
+  - v0.4.19's `contextdiag` settles none of the four, but it is the first instrument that reports from the field, with
+    no recorder, where in the load a loss falls: the backend, the renderer's counts and the load phase reached, every 2 s
+    from the mount and at the loss.

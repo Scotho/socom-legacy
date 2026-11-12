@@ -7,10 +7,13 @@ import { GAME_FRAME_DT } from '@s2u/scene';
 import { noInput, type PadButton } from '../src/gamepad';
 import {
   DEFAULT_MODEL, Hud, HUD_LAYOUT, hudLayout, hudPass, OBJECTIVE_MARK_PULSE_READING, ROUND_SCREEN_HIDES, SCOREBOARD_HIDES, START_MENU_HIDES,
-  type HudModel,
-  HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION,
+  type HudModel, type HudQuad,
+  HUD_ALIVE_BOX_COLOURS_ADAPTATION, HUD_ALIVE_LEFT_LAYOUT_ADAPTATION, HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION,
 } from '../src/hud';
-import { HUD_LIBRARIES } from '../src/hudAssets';
+import { HUD_LIBRARIES, readHud } from '../src/hudAssets';
+import { SCORE_LAYOUT } from '../src/scoreboard';
+import { parseZdb } from '@s2u/archive';
+import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
   aliveCounts, channelIcon, HUD_ALIVE_COUNTS_ADAPTATION, HudVoiceElement, speakerText, tagDrawn, tagTalkSprites, talkMark, voiceBase, voiceCount, voiceCountText, voiceHudFrame,
   VOICE_BUSY_ICON, VOICE_INDICATOR_LOOK_PLACEHOLDER, VOICE_NO_TALK_ICON, VOICE_TAG_ARROW, VOICE_TALK_ICON,
@@ -200,14 +203,11 @@ describe('HUD-ALIVE (OT.R117, a browser adaptation): SEALs alive left, Terrorist
     expect(el.members).toBe(3);
   });
 
-  it('the right number sits on the left box mirrored about the icon (582-598 -> 614-630 x 359-375, centred on x 623)', () => {
-    expect(HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION).toEqual({
-      count: { x: 623, y: 371, scale: 0.8, align: 'centre' }, countBox: { x: 614, y: 359, w: 16, h: 16 },
-    });
-    // Mirrored about the icon's centre x 606 (590 + 32 / 2): 2 x 606 - 598 = 614, 2 x 606 - 589 = 623.
+  it('the right box is the left box mirrored about the icon (582-598 -> 614-630 x 359-375); no right number, no right box', () => {
+    expect(HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION.countBox).toEqual({ x: 614, y: 359, w: 16, h: 16 });
+    // Mirrored about the icon's centre x 606 (590 + 32 / 2): 2 x 606 - 598 = 614.
     const icon = HUD_LAYOUT.voice.icon, mid = icon.x + icon.w / 2;
     expect(2 * mid - (HUD_LAYOUT.voice.countBox.x + HUD_LAYOUT.voice.countBox.w)).toBe(614);
-    expect(2 * mid - HUD_LAYOUT.voice.count.x).toBe(623);
     const q = layout({ voice: { icon: 'action_tune_team.tif', count: '2', right: '1', name: null, talk: null } }).quads.filter((x) => x.element === 'voice');
     const boxes = q.filter((x) => x.texture === 'white').map((b) => [b.x - b.w / 2, b.y - b.h / 2, b.w, b.h]);
     expect(boxes).toEqual([[582, 359, 16, 16], [614, 359, 16, 16]]);
@@ -217,6 +217,90 @@ describe('HUD-ALIVE (OT.R117, a browser adaptation): SEALs alive left, Terrorist
     expect(glyphs[1]!.x).toBeLessThan(630);
     // No right number in the view, no right box (the original's element).
     expect(layout({ voice: { icon: null, count: '1', name: null, talk: null } }).quads.filter((x) => x.element === 'voice' && x.texture === 'white')).toHaveLength(1);
+  });
+
+  // HUD-ALIVE-BOXES (OT.R117; the owner, 2026-11-11/12, seat 2f): with the alive counts on, the boxes take the in-game
+  // scoreboard's team bar colours (SEALs left, TERRORISTS right) at the bar's alpha, and each number is centred in its
+  // own box by the same rule, so the two sit alike.
+  const ALIVE = { icon: 'action_tune_team.tif', count: '2', right: '1', name: null, talk: null };
+  const boxesOf = (voice: NonNullable<HudModel['voice']>) =>
+    layout({ voice }).quads.filter((x) => x.element === 'voice' && x.texture === 'white');
+
+  it('alive counts on: the left box in the scoreboard\'s SEAL bar colour, the right in its TERRORIST bar\'s, at the bar\'s alpha', () => {
+    const bar = (i: 0 | 1) => [...SCORE_LAYOUT.teams[i].header.map((c) => c / 255), SCORE_LAYOUT.header.alpha];
+    expect(HUD_ALIVE_BOX_COLOURS_ADAPTATION).toEqual({ seal: bar(0), terrorist: bar(1) });
+    const [left, right] = boxesOf(ALIVE);
+    expect(left!.rgba).toEqual(bar(0));
+    expect(right!.rgba).toEqual(bar(1));
+    // The scoreboard draws its bars through `c255(t.header, L.header.alpha)` (`./scoreboard`): the same four numbers.
+    expect(src('scoreboard.ts')).toContain('const rgba = c255(t.header, L.header.alpha);');
+    // With no right number the box is the original's: black at alpha 50 (`FUN_00238d00` D:L85750-85751).
+    expect(boxesOf({ ...ALIVE, right: undefined }).map((b) => b.rgba)).toEqual([[0, 0, 0, 50 / 128]]);
+  });
+
+  it('alive counts on: each number on its own box by one rule (box x + 7, baseline 372), the original\'s spot kept without', () => {
+    const L = HUD_ALIVE_LEFT_LAYOUT_ADAPTATION, R = HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION, box = HUD_LAYOUT.voice.countBox;
+    expect(L.count).toEqual({ x: box.x + 7, y: 372, scale: 0.8, align: 'centre' });
+    expect(R.count).toEqual({ x: R.countBox.x + 7, y: 372, scale: 0.8, align: 'centre' });
+    expect([L.count.x, R.count.x]).toEqual([589, 621]);
+    expect(HUD_LAYOUT.voice.count).toEqual({ x: 589, y: 371, scale: 0.8, align: 'centre' });   // the original's, unchanged
+    const cells = (voice: NonNullable<HudModel['voice']>) =>
+      layout({ voice }).quads.filter((x) => x.element === 'voice' && x.texture === 'font_text_01.tif' && x.rgba[0] === 1);
+    for (let n = 0; n <= 16; n++) {
+      const t = String(n), q = cells({ ...ALIVE, count: t, right: t });
+      const left = q.slice(0, t.length), right = q.slice(t.length);
+      const span = (g: typeof q) => [Math.min(...g.map((x) => x.x - x.w / 2)), Math.max(...g.map((x) => x.x + x.w / 2))];
+      const [l0, l1] = span(left), [r0, r1] = span(right);
+      // The same offset from each box's centre (590, 622): the symmetry the owner asked for.
+      expect((r0! + r1!) / 2 - 622, t).toBeCloseTo((l0! + l1!) / 2 - 590, 9);
+      // The glyph cells within half a pixel of their 16-wide box (the cells' outer texels are clear: the ink is inside,
+      // the disc case below).
+      expect(l0!, t).toBeGreaterThanOrEqual(582 - 0.5); expect(l1!, t).toBeLessThanOrEqual(598 + 0.5);
+      expect(r0!, t).toBeGreaterThanOrEqual(614 - 0.5); expect(r1!, t).toBeLessThanOrEqual(630 + 0.5);
+      // Every glyph one baseline lower than the original's spot: the top of the cells 1 lower than at 371.
+      expect(Math.min(...q.map((x) => x.y - x.h / 2)), t).toBeCloseTo(Math.min(...cells({ ...ALIVE, count: t, right: undefined }).map((x) => x.y - x.h / 2)) + 1, 9);
+    }
+    // Without the alive counts the number stays on the original's spot.
+    const orig = cells({ ...ALIVE, count: '1', right: undefined });
+    const want = layout({ voice: { icon: null, count: '1', name: null, talk: null } }).quads.filter((x) => x.element === 'voice' && x.texture === 'font_text_01.tif' && x.rgba[0] === 1);
+    expect(orig.map((g) => [g.x, g.y])).toEqual(want.map((g) => [g.x, g.y]));
+  });
+
+  // The ink, off the disc's font (`font_text_01.tif` out of MP2's HUD2_TXR): each texel with alpha over 60 laid where the
+  // HUD draws it, with the GS's half-pixel corner sampling (`./hud` `GS_SAMPLE_OFFSET`, 0.5 at 640x448) that moves a
+  // textured quad's content right and down.
+  const MP2 = fixture('RUN/MP2.ZDB');
+  it.skipIf(MP2 === null)(`alive counts on: "0".."16"'s ink inside its box and centred on it, within 0.65 across and 0.25 down${MP2 === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+    const font = readHud(MP2!, parseZdb(MP2!)).bitmaps['font_text_01.tif']!;
+    const ink = (glyphs: HudQuad[]) => {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const g of glyphs) {
+        const gx = g.x - g.w / 2 + 0.5, gy = g.y - g.h / 2 + 0.5, su = g.w / (g.u1 - g.u0), sv = g.h / (g.v1 - g.v0);
+        for (let v = Math.floor(g.v0); v < g.v1; v++) for (let u = Math.floor(g.u0); u < g.u1; u++) {
+          if (font.data[(v * font.width + u) * 4 + 3]! <= 60) continue;
+          x0 = Math.min(x0, gx + (u - g.u0) * su); x1 = Math.max(x1, gx + (u + 1 - g.u0) * su);
+          y0 = Math.min(y0, gy + (v - g.v0) * sv); y1 = Math.max(y1, gy + (v + 1 - g.v0) * sv);
+        }
+      }
+      return { x0, x1, y0, y1 };
+    };
+    for (let n = 0; n <= 16; n++) {
+      const t = String(n);
+      const q = layout({ voice: { ...ALIVE, count: t, right: t } }).quads.filter((x) => x.element === 'voice' && x.texture === 'font_text_01.tif' && x.rgba[0] === 1);
+      for (const [glyphs, bx] of [[q.slice(0, t.length), 582], [q.slice(t.length), 614]] as const) {
+        const k = ink(glyphs);
+        expect(k.x0, `${t} @${bx}`).toBeGreaterThan(bx); expect(k.x1, `${t} @${bx}`).toBeLessThan(bx + 16);
+        expect(k.y0, `${t} @${bx}`).toBeGreaterThan(359); expect(k.y1, `${t} @${bx}`).toBeLessThan(375);
+        expect(Math.abs((k.x0 + k.x1) / 2 - (bx + 8)), `${t} @${bx} across`).toBeLessThanOrEqual(0.65);
+        expect(Math.abs((k.y0 + k.y1) / 2 - 367), `${t} @${bx} down`).toBeLessThanOrEqual(0.25);
+      }
+    }
+  });
+
+  it('carries the owner\'s words for the boxes\' colours and centring (2026-11-11/12, seat 2f)', () => {
+    const doc = src('hudVoice.ts');
+    expect(doc).toContain('change the background color that\'s slightly reduced opacity to match the background color of seal and terrorist from the select screen');
+    expect(doc).toContain('the ingame scoreboard that has a comparable opacity but a red i think for terrorsist red for blue color');
   });
 
   it('is labelled one adaptation, carrying the owner\'s two quotes', () => {

@@ -1179,7 +1179,26 @@ export function placedKindsPast(l: Pick<Layout, (typeof PLACED_KINDS)[number]>):
  */
 export const RECORD_POSITION_DENOMINATOR = 10;
 
+/**
+ * FX-1 (the FX plan's FX.R3: "finish scale and rotate"; a browser adaptation, FG.R2 -- the game has no editor): a
+ * placed piece's scale per axis in a pose row (`PoseRow`) is a multiple of one hundredth (`round(s * 100) / 100`),
+ * positive and within `RECORD_SCALE_MIN_ADAPTATION`..`RECORD_SCALE_MAX_ADAPTATION`. The bounds are the owner's default
+ * (H442 b): 0.1 to 4 an axis, the 4 central's own cap on a lobby's piece (`forgeLobby.ts` `FORGE_PIECE_SCALE_MAX`). A
+ * mirror (a negative scale) and a zero scale are out of them.
+ */
+export const RECORD_SCALE_DENOMINATOR = 100;
+export const RECORD_SCALE_MIN_ADAPTATION = 0.1;
+export const RECORD_SCALE_MAX_ADAPTATION = 4;
+
 export type PieceRow = [asset: number, x: number, y: number, z: number, yaw: number, locked?: true];
+/**
+ * FX-1: a tilted or scaled piece's pose, beside its row's own yaw (`PieceRow[4]`): the turn is
+ * `R_y(yaw) * R_x(pitch) * R_z(roll)` -- three's `YXZ` Euler order, the one the Forge's Inspector reads (`viewer` `page.ts`
+ * `fillStubFields`) -- then the scale per axis, so a piece's matrix is `T * R * S`. Pitch is a whole degree in -90..90,
+ * roll a whole degree in 0..359 (as a yaw is); at a pitch of 90 or -90 the roll is 0 and its turn is in the yaw (the one
+ * canonical form). The scale is on `RECORD_SCALE_DENOMINATOR`'s lattice.
+ */
+export type PoseRow = [piece: number, pitch: number, roll: number, sx: number, sy: number, sz: number];
 export type SpawnRow = [team: "A" | "B", x: number, y: number, z: number, yaw: number, locked?: true];
 export type NpcRow = [side: "seal" | "terrorist", type: number, x: number, y: number, z: number, yaw: number, locked?: true];
 /** A placed hostage's record row (`Layout.hostages`, a browser adaptation): its place on the lattice, whole degrees. */
@@ -1261,6 +1280,13 @@ export interface CreatorLayoutRecord {
   /** Each prototype once, in first-use order: a disc id, or a pack's `ContentRef`. */
   assets: RecordAsset[];
   pieces: PieceRow[];
+  /**
+   * FX-1: the poses of the pieces that are tilted or scaled (`PoseRow`), each piece at most once, in piece order; present
+   * only when the layout has one, so a layout of yaw-only pieces at scale 1 is the text it was. Additive inside v3, as
+   * FCW-30's lists: an earlier build's strict v3 check refuses a record carrying it by name (`unknown field poses`), never
+   * reads it as yaw-only pieces.
+   */
+  poses?: PoseRow[];
   spawns: SpawnRow[];
   /** The rows' stable authored ids. */
   ids: RecordIds;
@@ -1322,7 +1348,8 @@ const BLANK_FLOOR = "floor";
 const ASSET = /^[A-Z]{1,3}\d{1,3}:[A-Za-z0-9_.\-]{1,64}$/;
 const V2_FIELDS = ["v", "name", "base", "assets", "pieces", "spawns", "hidden", "npcs", "settings", "camera", "missing", "objectives"];
 const V3_FIELDS = ["schema", "version", "name", "base", "contentBase", "assets", "pieces", "spawns", "ids", "hidden", "npcs", "settings", "camera", "missing",
-  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers"];
+  "objectives", "requires", "mode", "legacyCarry", "zones", "markers", "spawners", "hostages", "extractionZones", "tacPoints", "respawns", "flares", "scenicViews", "turrets", "doors", "gates", "barriers",
+  "poses"];
 const CAMERA_FIELDS = ["x", "y", "z", "yaw", "pitch"];
 const ID_FIELDS = ["pieces", "spawns", "npcs", "bomb", "sites"];
 const SITE_FIELDS = ["team", "at", "yaw", "range", "elevation", "locked"];
@@ -1347,6 +1374,59 @@ const baseOf = (t: string, content?: RecordContentBase): LayoutBase => {
 
 /** The yaw of a column-major 4x4 about y (its first column's turn in the xz plane). */
 const yawOf = (m: readonly number[]): number => Math.atan2(-(m[2] ?? 0), m[0] ?? 1);
+
+/** FX-1: a scale on the record's lattice (`RECORD_SCALE_DENOMINATOR`), held within its bounds. */
+const scaleOnLattice = (n: number): number => Math.min(RECORD_SCALE_MAX_ADAPTATION,
+  Math.max(RECORD_SCALE_MIN_ADAPTATION, Math.round(n * RECORD_SCALE_DENOMINATOR) / RECORD_SCALE_DENOMINATOR + 0));
+/** FX-1: a turn whose `|sin pitch|` reaches this is read at the gimbal (three's `Euler.setFromRotationMatrix`, `YXZ`). */
+const GIMBAL = 0.9999999;
+
+/**
+ * FX-1: a piece's turn and scale on the record's lattice: the row's yaw in whole degrees and, when the piece is tilted or
+ * scaled, its pose (pitch, roll, sx, sy, sz); `pose` null otherwise. The scale per axis is the length of its column; the
+ * turn is read in three's `YXZ` order from the columns divided by those lengths (`Euler.setFromRotationMatrix`). A
+ * piece whose pitch and roll are 0 on the lattice keeps the yaw the record has always written (`yawOf`), which for such
+ * a piece is the `YXZ` yaw, so a yaw-only layout's text does not move. The canonical form: a pitch on the lattice of 90
+ * (-90) writes roll 0 and the yaw less (plus) the roll, the same turn. A matrix that is not `T * R * S` (a mirror, a
+ * shear) is written as the nearest pose this reads, as a yaw-only row was before.
+ */
+function poseOf(m: readonly number[]): { yaw: number; pose: [number, number, number, number, number] | null } {
+  const at = (i: number): number => m[i] ?? 0;
+  const lengths = [0, 4, 8].map((c) => Math.hypot(at(c), at(c + 1), at(c + 2)));
+  const [sx, sy, sz] = lengths.map(scaleOnLattice) as [number, number, number];
+  let yaw = yawOf(m), pitch = 0, roll = 0;
+  if (lengths.every((n) => n > 0 && Number.isFinite(n))) {
+    const unit = (i: number, column: number): number => at(i) / lengths[column]!;
+    const m23 = unit(9, 2);
+    const x = Math.asin(-Math.min(1, Math.max(-1, m23)));
+    const gimbal = Math.abs(m23) >= GIMBAL;
+    const y = gimbal ? Math.atan2(-unit(2, 0), unit(0, 0)) : Math.atan2(unit(8, 2), unit(10, 2));
+    const z = gimbal ? 0 : Math.atan2(unit(1, 0), unit(5, 1));
+    pitch = Math.round((x * 180) / Math.PI) + 0;
+    roll = Math.abs(pitch) === 90 ? 0 : wholeDeg(z);
+    if (pitch !== 0 || roll !== 0) yaw = Math.abs(pitch) === 90 ? y - Math.sign(pitch) * z : y;
+  }
+  const posed = pitch !== 0 || roll !== 0 || sx !== 1 || sy !== 1 || sz !== 1;
+  return { yaw: wholeDeg(yaw), pose: posed ? [pitch, roll, sx, sy, sz] : null };
+}
+
+/**
+ * FX-1: a posed piece's column-major 4x4: `T * R_y(yaw) * R_x(pitch) * R_z(roll) * S`, the elements three's
+ * `Matrix4.makeRotationFromEuler` gives for the `YXZ` order, each column times its scale.
+ */
+function poseMatrix(x: number, y: number, z: number, yawDeg: number, [, pitchDeg, rollDeg, sx, sy, sz]: PoseRow): number[] {
+  const rad = (d: number): number => (d * Math.PI) / 180;
+  const a = Math.cos(rad(pitchDeg)), b = Math.sin(rad(pitchDeg));
+  const c = Math.cos(rad(yawDeg)), d = Math.sin(rad(yawDeg));
+  const e = Math.cos(rad(rollDeg)), f = Math.sin(rad(rollDeg));
+  const ce = c * e, cf = c * f, de = d * e, df = d * f;
+  return [
+    n0((ce + df * b) * sx), n0(a * f * sx), n0((cf * b - de) * sx), 0,
+    n0((de * b - cf) * sy), n0(a * e * sy), n0((df + ce * b) * sy), 0,
+    n0(a * d * sz), n0(-b * sz), n0(a * c * sz), 0,
+    x, y, z, 1,
+  ];
+}
 
 type Carry = { missing?: number[] };
 
@@ -1403,7 +1483,8 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   const assets: RecordAsset[] = [];
   const index = new Map<string, number>();
   const packs: PackRef[] = [];
-  const pieces: PieceRow[] = l.pieces.map((p) => {
+  const poses: PoseRow[] = [];
+  const pieces: PieceRow[] = l.pieces.map((p, at) => {
     const key = p.content ? `pack ${canonicalJson(p.content)}` : p.asset;
     let i = index.get(key);
     if (i === undefined) {
@@ -1412,7 +1493,10 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
       if (p.content) packs.push(p.content.pack);
       index.set(key, i);
     }
-    const row: PieceRow = [i, tenth(p.m[12]!), tenth(p.m[13]!), tenth(p.m[14]!), wholeDeg(yawOf(p.m))];
+    // FX-1: a tilted or scaled piece's pose beside its row; a yaw-only piece at scale 1 writes its row alone, as before
+    const { yaw, pose } = poseOf(p.m);
+    if (pose) poses.push([at, ...pose]);
+    const row: PieceRow = [i, tenth(p.m[12]!), tenth(p.m[13]!), tenth(p.m[14]!), yaw];
     if (p.locked === true) row[5] = true;
     return row;
   });
@@ -1425,7 +1509,7 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     schema: RECORD_SCHEMA, version: RECORD_VERSION, name: l.name?.trim() || name, base: baseText(l.base),
     // FCW-10: an authored map's reference beside its `content:<stem>` base; a retail base writes nothing more
     ...(isContentLayoutBase(l.base) ? { contentBase: { ref: { id: l.base.ref.id, version: l.base.ref.version, hash: l.base.ref.hash }, mapId: l.base.mapId } } : {}),
-    assets, pieces, spawns, ids,
+    assets, pieces, ...(poses.length ? { poses } : {}), spawns, ids,
   };
   if (l.hidden?.length) record.hidden = [...l.hidden];
   if (l.npcs?.length) record.npcs = l.npcs.map((n): NpcRow => {
@@ -1510,15 +1594,19 @@ const isV2 = (r: AnyLayoutRecord): r is LayoutRecordV2 => (r as { v?: unknown })
 export function layoutOfRecord(r: AnyLayoutRecord): Layout {
   const rad = (d: number): number => (d * Math.PI) / 180;
   const ids: RecordIds | null = isV2(r) ? null : r.ids;
+  // FX-1: a tilted or scaled piece's pose by its piece's index (a v2 record has none)
+  const poseRows: PoseRow[] = isV2(r) ? [] : r.poses ?? [];
+  const poses = new Map<number, PoseRow>(poseRows.map((row): [number, PoseRow] => [row[0], row]));
   const layout: Layout & Carry = {
     forge: LAYOUT_VERSION,
     base: baseOf(r.base, isV2(r) ? undefined : r.contentBase),
     pieces: r.pieces.map(([a, x, y, z, yaw, locked], i) => {
       const c = Math.cos(rad(yaw)), s = Math.sin(rad(yaw));
       const asset = r.assets[a]!;
+      const pose = poses.get(i);
       return {
         asset: typeof asset === "string" ? asset : contentAssetKey(asset),
-        m: [n0(c), 0, n0(-s), 0, 0, 1, 0, 0, n0(s), 0, n0(c), 0, x, y, z, 1],
+        m: pose ? poseMatrix(x, y, z, yaw, pose) : [n0(c), 0, n0(-s), 0, 0, 1, 0, 0, n0(s), 0, n0(c), 0, x, y, z, 1],
         ...(locked === true ? { locked: true as const } : {}),
         ...ownId(ids?.pieces[i], ID_PREFIX.piece, i),
         ...(typeof asset === "string" ? {} : { content: cloneContent(asset) }),
@@ -1951,6 +2039,38 @@ function legacyCarryError(r: Record<string, unknown>): string | null {
   return null;
 }
 
+/** A scale on the record's lattice within its bounds (`RECORD_SCALE_*`). */
+const isScale = (n: unknown): boolean => typeof n === "number" && Number.isFinite(n) && n >= RECORD_SCALE_MIN_ADAPTATION
+  && n <= RECORD_SCALE_MAX_ADAPTATION && Math.round(n * RECORD_SCALE_DENOMINATOR) / RECORD_SCALE_DENOMINATOR === n;
+
+/**
+ * FX-1: null when a v3 record's `poses` is absent or well formed (`PoseRow`): 1..`RECORD_LIMITS.pieces` rows, each naming
+ * a piece of the record once, in piece order; pitch a whole degree in -90..90, roll in 0..359, each scale on its lattice
+ * within its bounds; canonical (no roll at a pitch of 90 or -90); and a pose, never a row for a piece that needs none
+ * (pitch 0, roll 0, scale 1, 1, 1), so one layout has one text.
+ */
+function posesError(r: Record<string, unknown>): string | null {
+  if (r["poses"] === undefined) return null;
+  const poses = r["poses"], pieces = r["pieces"] as unknown[];
+  if (!Array.isArray(poses) || poses.length === 0 || poses.length > RECORD_LIMITS.pieces) return `poses is not a list of 1-${RECORD_LIMITS.pieces} piece poses`;
+  let last = -1;
+  for (const [i, p] of poses.entries()) {
+    if (!Array.isArray(p) || p.length !== 6 || !Number.isInteger(p[0])) return `pose ${i} is not [piece#, pitch, roll, sx, sy, sz]`;
+    const [piece, pitch, roll, sx, sy, sz] = p as [number, unknown, unknown, unknown, unknown, unknown];
+    if (piece < 0 || piece >= pieces.length) return `pose ${i} names no piece`;
+    if (piece <= last) return "poses are not in piece order, each piece once";
+    last = piece;
+    if (!Number.isInteger(pitch) || (pitch as number) < -90 || (pitch as number) > 90) return `pose ${i} pitch is not a whole degree in -90..90`;
+    if (!isDeg(roll)) return `pose ${i} roll is not a whole degree in 0..359`;
+    if (!isScale(sx) || !isScale(sy) || !isScale(sz)) {
+      return `pose ${i} scale is not ${RECORD_SCALE_MIN_ADAPTATION}-${RECORD_SCALE_MAX_ADAPTATION} on a lattice of 1/${RECORD_SCALE_DENOMINATOR}`;
+    }
+    if (Math.abs(pitch as number) === 90 && roll !== 0) return `pose ${i} is not canonical: at a pitch of 90 or -90 the roll is 0, its turn in the yaw`;
+    if (pitch === 0 && roll === 0 && sx === 1 && sy === 1 && sz === 1) return `pose ${i} is no pose: its piece is neither tilted nor scaled`;
+  }
+  return null;
+}
+
 /** Null when `r` is a v3 record: strict (no unknown key anywhere), within its bounds, ids unique, every pack required. */
 function checkV3(r: Record<string, unknown>, options: CheckRecordOptions): string | null {
   for (const k of Object.keys(r)) if (!V3_FIELDS.includes(k)) return `unknown field ${k}`;
@@ -1965,7 +2085,7 @@ function checkV3(r: Record<string, unknown>, options: CheckRecordOptions): strin
     const whyStrict = strictObjectivesError(r["objectives"]) ?? objectivesError(r["objectives"]);
     if (whyStrict) return whyStrict;
   }
-  const whyIds = idsError(r) ?? requiresError(r) ?? entityListsError(r, true) ?? entityIdsError(r);
+  const whyIds = posesError(r) ?? idsError(r) ?? requiresError(r) ?? entityListsError(r, true) ?? entityIdsError(r);
   if (whyIds) return whyIds;
   if (r["mode"] !== undefined) {
     const whyMode = modeShapeError(r["mode"]);

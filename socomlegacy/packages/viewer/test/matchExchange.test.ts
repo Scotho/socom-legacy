@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RdrNode } from '@s2u/archive';
 import { arsenalOf, type Loadout, type Pick, type Side } from '@s2u/scene';
 import { pinnedMatchSocket } from '../src/connectHost';
-import { noInput, type Input, type PadButton } from '../src/gamepad';
+import { noInput, type GamepadLike, type Input, type PadButton } from '../src/gamepad';
 import { GameSocketHost, type GameLobbyHandOff } from '../src/gameLobbyHost';
 import { Hud } from '../src/hud';
 import { PlayerLoadout } from '../src/loadout';
@@ -20,7 +20,9 @@ import { NetPage, type NetPageDeps } from '../src/netPage';
 import type { RemotePlayers } from '../src/remotePlayers';
 import { StanceButton } from '../src/stanceButton';
 import type { WalkMode } from '../src/walk';
-import type { MatchGate } from '../src/weaponExchange';
+import {
+  EXCHANGE_STICK_DEAD_ZONE_ADAPTATION, EXCHANGE_STICK_PUSH_ADAPTATION, EXCHANGE_STICK_REST_ADAPTATION, type MatchGate,
+} from '../src/weaponExchange';
 import { WEAPON_SELECT_ELEMENT, type InputDevice } from '../src/weaponSelect';
 import { SPECTATE_KIT_CHANGE_OWNER } from '../src/weaponSelectState';
 
@@ -549,5 +551,166 @@ describe('the one wiring: main.ts\'s lines in the part, both pages mount it sinc
     expect(Object.values(PART_DEPS).flat()).not.toContain('answered');
     expect(src('matchNet.ts')).toMatch(/exchange: \['answered'\],/);
     expect(Object.keys(mountExchange({ net: () => null, map: () => null, side: () => 'seal', loadouts: new PlayerLoadout(), walking: () => true, device: () => 'pad' }).netHooks())).toEqual(['answered']);
+  });
+});
+
+describe('EXCHANGE-STICK: the left stick steps WEAPON EXCHANGE as the d-pad does (a browser adaptation, the owner\'s ruling 2026-11-12)', () => {
+  /** A pad with only its left stick pushed (W3C signs: x right, y down). */
+  const padAt = (x: number, y: number): GamepadLike => ({ axes: [x, y], buttons: [] });
+  /** One pad frame as both pages run it: the stick read, then the buttons' edges and the menu's step. */
+  const frame = (r: ReturnType<typeof rig>, x: number, y: number, ...held: PadButton[]): boolean => {
+    r.ex.stick(padAt(x, y));
+    return r.ex.pad(r.ex.edges(new Set(held)));
+  };
+  const state = (r: ReturnType<typeof rig>) => r.ex.menu.state();
+
+  it('the dead zone and the push and rest thresholds are named *_ADAPTATION constants (the pad\'s 0.3, the menus\' 0.6 / 0.2)', () => {
+    expect(EXCHANGE_STICK_DEAD_ZONE_ADAPTATION).toBe(0.3);
+    expect(EXCHANGE_STICK_PUSH_ADAPTATION).toBeCloseTo(0.6, 6);
+    expect(EXCHANGE_STICK_REST_ADAPTATION).toBeCloseTo(0.2, 6);
+    expect(EXCHANGE_STICK_REST_ADAPTATION).toBeLessThan(EXCHANGE_STICK_PUSH_ADAPTATION);
+  });
+
+  it('stick down / up step the list\'s highlight as the d-pad\'s Down / Up; left / right and down in the picker as the d-pad\'s', () => {
+    const dpad = rig(), stick = rig();
+    dpad.tap('R2'); frame(stick, 0, 0, 'R2'); frame(stick, 0, 0);
+    dpad.tap('Down');
+    expect(frame(stick, 0, 1)).toBe(true); frame(stick, 0, 0);
+    expect(state(stick).slot).toBe(state(dpad).slot);
+    expect(state(stick).slot).not.toBe(0);
+    dpad.tap('Up');
+    frame(stick, 0, -1); frame(stick, 0, 0);
+    expect(state(stick)).toEqual(state(dpad));
+    dpad.tap('Cross'); frame(stick, 0, 0, 'Cross'); frame(stick, 0, 0);   // the picker on both
+    for (const [b, x, y] of [['Down', 0, 1], ['Right', 1, 0], ['Left', -1, 0], ['Up', 0, -1]] as const) {
+      dpad.tap(b);
+      frame(stick, x, y); frame(stick, 0, 0);
+      expect(state(stick), b).toEqual(state(dpad));
+    }
+    expect(state(stick).screen).toBe('picker');
+  });
+
+  it('a held stick is one step until it comes back near the centre; between the rest and the push it stays spent', () => {
+    const r = rig();
+    frame(r, 0, 0, 'R2'); frame(r, 0, 0);                                  // the page reads the stick every frame: at rest
+    frame(r, 0, 1);
+    const once = state(r).slot;
+    expect(once).not.toBe(0);
+    for (let i = 0; i < 30; i++) frame(r, 0, 1);                          // held: no repeat
+    expect(state(r).slot).toBe(once);
+    frame(r, 0, 0.5);                                                      // not yet at rest
+    frame(r, 0, 1);
+    expect(state(r).slot).toBe(once);
+    frame(r, 0, 0.1);                                                      // at rest: re-armed
+    frame(r, 0, 1);
+    expect(state(r).slot).not.toBe(once);
+  });
+
+  it('a diagonal takes the dominant axis; an exact diagonal resolves one way (vertical), the same every time', () => {
+    const r = rig(), d = rig();
+    frame(r, 0, 0, 'R2'); frame(r, 0, 0); frame(r, 0, 0, 'Cross'); frame(r, 0, 0);
+    d.tap('R2'); d.tap('Cross');                                           // the picker: all four directions mean something
+    frame(r, 0.95, 0.7); frame(r, 0, 0);                                  // mostly right
+    d.tap('Right');
+    expect(state(r)).toEqual(state(d));
+    frame(r, -0.7, 0.95); frame(r, 0, 0);                                 // mostly down
+    d.tap('Down');
+    expect(state(r)).toEqual(state(d));
+    frame(r, 0.8, 0.8); frame(r, 0, 0);                                   // exact: down
+    d.tap('Down');
+    expect(state(r)).toEqual(state(d));
+    frame(r, -0.8, -0.8); frame(r, 0, 0);                                 // exact: up
+    d.tap('Up');
+    expect(state(r)).toEqual(state(d));
+  });
+
+  it('closed, the stick does nothing new: no step, no opening, the pad not held (the game\'s lanes keep it)', () => {
+    const r = rig();
+    const before = state(r);
+    for (const [x, y] of [[0, 1], [0, 0], [0, -1], [1, 0], [0, 0]] as const) expect(frame(r, x, y)).toBe(false);
+    expect(r.ex.isOpen()).toBe(false);
+    expect(state(r)).toEqual(before);
+    const walk = { ...noInput(), moveX: 0.5, moveY: -1 };
+    expect(r.ex.input.frame(walk, false)).toMatchObject({ moveX: 0.5, moveY: -1 });
+  });
+
+  it('alive (R2 is the in-match quick select there): the stick neither opens nor steps WEAPON EXCHANGE, nor holds the pad', () => {
+    const n = fakeNet({ ...DEAD, alive: true });
+    const r = rig({ net: n.net });
+    for (const [x, y] of [[0, 1], [0, 0], [-1, 0], [0, 0]] as const) expect(frame(r, x, y)).toBe(false);
+    expect(frame(r, 0, 1, 'R2')).toBe(false);
+    expect(r.ex.isOpen()).toBe(false);
+  });
+
+  it('open, the stick moves no camera: the page\'s input is the menu\'s (sticks zeroed), the follow\'s too', () => {
+    const r = rig();
+    r.tap('R2');
+    expect(frame(r, 0, 1)).toBe(true);                                     // the menu holds the pad on a stick frame
+    const pushed = { ...noInput(), moveX: 0.4, moveY: 1, lookX: 0.3, lookY: -0.2 };
+    expect(r.ex.input.frame(pushed, true)).toMatchObject({ moveX: 0, moveY: 0, lookX: 0, lookY: 0 });
+  });
+
+  it('a stick held as the menu opens is no step until it rests; a press on the same frame as a flick is the press alone', () => {
+    const r = rig();
+    frame(r, 0, 1);                                                        // pushed while closed
+    frame(r, 0, 1, 'R2');                                                  // opens under the held stick
+    frame(r, 0, 1);
+    expect(state(r)).toMatchObject({ screen: 'list', slot: 0 });
+    frame(r, 0, 0);
+    frame(r, 0, 1, 'Cross');                                               // the press, not the flick
+    frame(r, 0, 0);
+    const d = rig(); d.tap('R2'); d.tap('Cross');
+    expect(state(r)).toEqual(state(d));
+  });
+
+  it('the d-pad is unchanged: the same taps give the same menu with the stick read at rest every frame', () => {
+    const plain = rig(), withStick = rig();
+    const seq: PadButton[] = ['R2', 'Down', 'Down', 'Up', 'Cross', 'Right', 'Down', 'Left', 'Up', 'Triangle', 'Down', 'Cross', 'Down', 'Cross', 'Start'];
+    for (const b of seq) {
+      plain.tap(b);
+      frame(withStick, 0, 0, b); frame(withStick, 0, 0);
+      expect(state(withStick), b).toEqual(state(plain));
+    }
+    expect(withStick.n.sent).toEqual(plain.n.sent);
+  });
+
+  it('both pages read the stick every frame, through the loading hold too, before the menu\'s step', () => {
+    for (const [f, name] of [['main.ts', 'exchangePart'], ['matchMount.ts', 'exchange']] as const) {
+      const text = src(f);
+      const hold = text.indexOf(`${name}.hold(new Set([...padButtonsDown(`), step = text.indexOf(`${name}.pad(edges)`);
+      const reads = [...text.matchAll(new RegExp(`${name}\\.stick\\(`, 'g'))].map((m) => m.index!);
+      expect(reads.length, f).toBe(2);
+      expect(reads[0]! > hold && reads[0]! < text.indexOf(`${name}.edges(down)`), f).toBe(true);
+      expect(reads[1]! > text.indexOf(`${name}.edges(down)`) && reads[1]! < step, f).toBe(true);
+    }
+  });
+
+  it('following a teammate (SPECTATE_KIT_CHANGE_OWNER): the stick steps the menu there too', () => {
+    const n = fakeNet({ ...DEAD, cameraOnSelf: false });
+    const r = rig({ net: n.net });
+    frame(r, 0, 0, 'R2'); frame(r, 0, 0);
+    expect(r.ex.isOpen()).toBe(SPECTATE_KIT_CHANGE_OWNER);
+    frame(r, 0, 1);
+    expect(state(r).slot !== 0).toBe(SPECTATE_KIT_CHANGE_OWNER);
+  });
+
+  it('the respawn closes it cleanly under a held stick: no step on the first frame alive, none after the next reopen until it rests', () => {
+    const n = fakeNet({ ...DEAD, cameraOnSelf: false });
+    const r = rig({ net: n.net });
+    frame(r, 0, 0, 'R2'); frame(r, 0, 0);
+    frame(r, 0, 1);                                                        // a step, the stick still held
+    expect(state(r).slot).not.toBe(0);
+    n.set({ ...DEAD, alive: true }, null);
+    r.ex.reset();                                                          // the respawn
+    const closed = state(r);
+    expect(frame(r, 0, 1)).toBe(false);                                    // the first frame alive
+    expect(r.ex.isOpen()).toBe(false);
+    expect(state(r)).toEqual(closed);
+    n.set(DEAD);                                                           // dead again, the stick never let go
+    frame(r, 0, 1, 'R2');
+    for (let i = 0; i < 5; i++) frame(r, 0, 1);
+    expect(state(r)).toMatchObject({ screen: 'list', slot: 0 });
+    frame(r, 0, 0); frame(r, 0, 1);
+    expect(state(r).slot).not.toBe(0);
   });
 });

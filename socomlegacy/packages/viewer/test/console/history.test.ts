@@ -759,6 +759,145 @@ describe('CX-34..36: launcher history', () => {
     expect(nav!.span()).toBe(2);
   });
 
+  describe('a history write the browser refuses (a Chrome before ~117 refuses a path holding %00)', () => {
+    const NAME = 'Zed`x';
+    // Before the file's own afterEach writes history: a failed test must not leave the refusing fakes in place.
+    afterEach(() => { vi.restoreAllMocks(); });
+    const refusal = (kind: string) => () => {
+      // Chrome's own message carries the URL, and so the persona's name.
+      throw new DOMException(`Failed to execute '${kind}' on 'History': A history state object with URL 'http://localhost/profile/personas/h%00${NAME}' cannot be created in a document with origin 'http://localhost'.`, 'SecurityError');
+    };
+
+    it('a refused push does not throw, leaves the count and the entry as they were, and the next push is as if it never was', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const s = boot('/');
+      s.screen = 'options';
+      nav!.sync(s, a);
+      expect(nav!.span()).toBe(1);
+      const before = snap();
+      const len = window.history.length;
+      const push = vi.spyOn(window.history, 'pushState').mockImplementation(refusal('pushState'));
+      s.screen = 'personaEdit';
+      s.pf = { ...s.pf, id: `h\u000010071\u0000${NAME}` };
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      expect(nav!.span()).toBe(1);
+      s.pf = { ...s.pf, row: 1 };                                     // a focus move: tried again, refused again
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      expect(nav!.span()).toBe(1);
+      push.mockRestore();
+      expect(window.history.length).toBe(len);
+      expect(snap()).toEqual(before);
+      s.screen = 'server';
+      s.pf = { ...s.pf, id: null, row: 0 };
+      nav!.sync(s, a);
+      expect(nav!.span()).toBe(2);
+      expect(snap().id).toBe(before.id + 1);
+      expect(snap().depth).toBe(2);
+      window.history.back();
+      await frames();
+      expect(s.screen).toBe('options');
+      expect(nav!.span()).toBe(1);
+      expect(err).toHaveBeenCalledTimes(1);
+      err.mockRestore();
+    });
+
+    it('a refused replace does not throw and leaves the entry as it was; one error for the nav, with no URL or name', () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const s = boot('/');
+      s.screen = 'options';
+      nav!.sync(s, a);
+      const before = snap();
+      const replace = vi.spyOn(window.history, 'replaceState').mockImplementation(refusal('replaceState'));
+      const push = vi.spyOn(window.history, 'pushState').mockImplementation(refusal('pushState'));
+      s.opt.row = 2;                                                   // the same page: a replace
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      s.opt.row = 3;
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      s.screen = 'personaEdit';
+      s.pf = { ...s.pf, id: `h\u000010071\u0000${NAME}` };
+      expect(() => nav!.sync(s, a)).not.toThrow();                     // a push, refused too
+      expect(nav!.span()).toBe(1);
+      replace.mockRestore();
+      push.mockRestore();
+      expect(snap()).toEqual(before);
+      expect(err).toHaveBeenCalledTimes(1);
+      const text = err.mock.calls[0]!.map((x) => String(x)).join(' ');
+      expect(text).not.toContain(NAME);
+      expect(text).not.toContain('profile/personas');
+      expect(text).not.toContain('http');
+      s.screen = 'options';
+      s.pf = { ...s.pf, id: null };
+      s.opt.row = 4;
+      nav!.sync(s, a);                                                 // the replace goes through once the browser takes it
+      expect(snap().opt.row).toBe(4);
+      expect(snap().id).toBe(before.id);
+      err.mockRestore();
+    });
+  });
+
+  describe('a refused history write inside a Back (the popstate paths)', () => {
+    afterEach(() => { vi.restoreAllMocks(); });
+    const refuse = (): never => { throw new DOMException('refused', 'SecurityError'); };
+    /** A listener's throw in jsdom is reported on the window, not to the caller. */
+    const thrown = (): { count: () => number; off: () => void } => {
+      let n = 0;
+      const on = (): void => { n++; };
+      window.addEventListener('error', on);
+      return { count: () => n, off: () => window.removeEventListener('error', on) };
+    };
+
+    it('the blocked Back\'s re-push refused: no throw, the count follows the browser (one back), one log', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const errors = thrown();
+      const s = boot('/');
+      s.cat = CATS.findIndex((c) => c.id === 'profile');
+      nav!.sync(s, a);
+      s.screen = 'loadouts';
+      nav!.sync(s, a);
+      s.screen = 'loadout';
+      nav!.sync(s, a);
+      s.confirmKind = 'loadout-leave';                                 // dirty: Back is blocked
+      nav!.sync(s, a);
+      expect(nav!.span()).toBe(2);
+      vi.spyOn(window.history, 'replaceState').mockImplementation(refuse);
+      vi.spyOn(window.history, 'pushState').mockImplementation(refuse);
+      s.confirmRow = 1;                                                // a refused replace first: the one log
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      window.history.back();                                           // blocked: `push(cur)`, refused
+      await frames();
+      expect(errors.count()).toBe(0);
+      expect(window.location.pathname).toBe('/profile/armory/seal');
+      expect(nav!.span()).toBe(1);                                     // the browser's entry, not one ahead of it
+      expect(s.overlay).toBe('confirm');
+      expect(err).toHaveBeenCalledTimes(1);
+      errors.off();
+    });
+
+    it('goTo\'s snapshot rewrite refused: no throw, the index still follows history.go, the snapshot is the old one, one log', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const errors = thrown();
+      const s = boot('/');
+      s.cat = settings;
+      nav!.sync(s, a);
+      const first = snap();
+      s.screen = 'options';
+      nav!.sync(s, a);
+      expect(nav!.span()).toBe(1);
+      vi.spyOn(window.history, 'replaceState').mockImplementation(refuse);
+      s.screen = 'home';                                               // Circle onto the entry behind: goTo(0)
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      await frames();
+      expect(errors.count()).toBe(0);
+      expect(window.location.pathname).toBe('/settings');
+      expect(nav!.span()).toBe(0);
+      expect(snap()).toEqual(first);                                   // only the rewrite is lost
+      s.item[settings] = 2;                                            // a later refused replace: still one log
+      expect(() => nav!.sync(s, a)).not.toThrow();
+      expect(err).toHaveBeenCalledTimes(1);
+      errors.off();
+    });
+  });
+
   it('#356 fix review: a jump over two entries after a refresh places the landed entry by its depth', async () => {
     const s = boot('/');
     s.screen = 'options';

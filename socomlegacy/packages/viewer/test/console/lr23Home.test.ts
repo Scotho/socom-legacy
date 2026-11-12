@@ -192,7 +192,7 @@ describe('LR-23 (1): the DOM of the page\'s Home', () => {
   it('Play\'s row is marked for its 62px mark', () => {
     boot();
     const items = [...document.querySelectorAll('#stage .cx-list .cx-item')];
-    expect(items.map((i) => i.classList.contains('cx-item--play'))).toEqual([true, false, false]);   // LR-37 (4): three rows
+    expect(items.map((i) => i.classList.contains('cx-item--play'))).toEqual([true, false, false, false]);   // LR-37 (4): three rows; GitHub's the fourth (the owner, 2026-11-12)
   });
 });
 
@@ -200,13 +200,14 @@ describe('LR-23 (2): the rows\' marks are the mockup\'s', () => {
   // LR-37 (4): the page's Memory card row is gone; its mark stays the overlay's (below).
   it('Play and Server status wear play_arrow and monitoring; Discord keeps its mark', () => {
     const p = boot();
-    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => [x.title, x.icon])).toEqual([['Play SOCOM II', 'play'], ['Server status', 'monitoring'], ['Discord', 'globe']]);
+    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => [x.title, x.icon])).toEqual([['Play SOCOM II', 'play'], ['Server status', 'monitoring'], ['Discord', 'globe'], ['GitHub', 'globe']]);
     // the drawn mark's shapes, serialized as the document serializes the set's own (an SVG child's self-closing tag reads back open)
     const norm = (shapes: string): string => { const d = document.createElement('div'); d.innerHTML = `<svg>${shapes}</svg>`; return d.firstElementChild!.innerHTML; };
     const marks = [...document.querySelectorAll('#stage .cx-list .cx-item__icon')].map((i) => i.querySelector('svg')!.innerHTML);
     expect(marks[0]).toBe(norm(P.play));
     expect(marks[1]).toBe(norm(P.monitoring));
     expect(document.querySelector('#stage .cx-list .cx-discord-row .cx-discord__mark')).not.toBeNull();
+    expect(document.querySelector('#stage .cx-list .cx-github-row .cx-github__mark')).not.toBeNull();   // the owner, 2026-11-12
   });
   it('the marks are drawn on the set\'s 24 grid in its stroke (paths and shapes only, no fill, no fetched font)', () => {
     for (const k of ['sdCard', 'monitoring'] as const) {
@@ -255,7 +256,7 @@ describe('LR-23 (3): no right-side panel, no START pill, no dot on the page\'s H
     p.ctl.S.mode = 'overlay';
     p.render();
     expect(document.querySelector('#stage .cx-home .cx-readout')).toBeNull();
-    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => x.title)).toEqual(['Resume game', 'Server status', 'Discord']);
+    expect(homeItems('home', p.ctl.S, p.ctl.A).map((x) => x.title)).toEqual(['Resume game', 'Server status', 'Discord', 'GitHub']);
   });
   it('START stays on the screens that are not Home (Browse rooms names its target there)', () => {
     const p = boot();

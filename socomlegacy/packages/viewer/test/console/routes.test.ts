@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOME_CATEGORY, createState, optCategories, type Adapters } from '../../src/console/state';
+import { HOME_CATEGORY, createState, optCategories, type Adapters, type ConsoleState } from '../../src/console/state';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { gamePath } from '../../src/console/adapters/gamePath';
 import { inviteAt } from '../../src/console/adapters/invite';
@@ -100,6 +100,101 @@ describe('CX-33: the launcher route table', () => {
     expect(launcherBackLabel(s)).toBe('Profiles');
     s.screen = 'personaNew';
     expect(launcherBackLabel(s)).toBe('Profiles');
+  });
+
+  describe('the persona editor\'s path (a browser adaptation: a Chrome before ~117 refuses a path holding %00)', () => {
+    const editPath = (id: string): string => {
+      const s = createState(a);
+      s.screen = 'personaEdit';
+      s.pf = { ...s.pf, id };
+      return encodeLauncherPath(s, a);
+    };
+    const decoded = (path: string): ConsoleState => {
+      const s = createState(a);
+      decodeLauncherPath(`/${path}`, '/', s, a);
+      return s;
+    };
+    // `adapters/profile.ts` `personaId`: HOST, PORT and NAME joined by two NULs. A NAME is anything but `"` and control
+    // characters (`modern/profile/cardEdits.ts` `personaNameProblem`).
+    const id = (host: string, port: string, name: string): string => `${host}\u0000${port}\u0000${name}`;
+    const ids = [
+      id('', '', 'Bob'),
+      id('', '6000', 'Bob'),
+      id('a.b:1', '10071', 'Bob'),
+      ...['/', '%', '`', '~', '.', '+', '&', '?', '#', ' ', 'é', 'new', ',', '%2C', '%00', '%41', 'a/b%2Fc', 'Zed` x'].map((n) => id('h.example', '10071', n)),
+      id('', '', 'new'),
+      'p1',
+    ];
+
+    it('holds neither a NUL nor %00', () => {
+      for (const x of ids) {
+        const path = editPath(x);
+        expect(path, JSON.stringify(x)).not.toContain('\u0000');
+        expect(path.toLowerCase(), JSON.stringify(x)).not.toContain('%00');
+      }
+    });
+
+    it('round-trips every id the launcher can hold, and never reads as the new-persona form', () => {
+      for (const x of ids) {
+        const s = decoded(editPath(x));
+        expect(s.screen, JSON.stringify(x)).toBe('personaEdit');
+        expect(s.pf.id, JSON.stringify(x)).toBe(x);
+        expect(encodeLauncherPath(s, a), JSON.stringify(x)).toBe(editPath(x));
+      }
+    });
+
+    it('an old link (the %00 form, a bookmark or a history entry from before) opens the same persona', () => {
+      for (const x of ids) {
+        const s = decoded(`profile/personas/${encodeURIComponent(x)}`);
+        expect(s.screen, JSON.stringify(x)).toBe('personaEdit');
+        expect(s.pf.id, JSON.stringify(x)).toBe(x);
+      }
+    });
+
+    // The browser's own pipeline: the path goes into a URL, the parser hands back `location.pathname`, and `adopt`
+    // (`../../src/console/history.ts`) calls `classifyLauncherPath` and `decodeLauncherPath` on it with the nav's base.
+    const BASES = ['/', '/socomlegacy/'];
+    const parsed = (base: string, path: string): string => new URL(base + path, 'https://socomlegacy.com').pathname;
+    const undotted = [
+      ...['/', '%', '`', '~', '+', '&', '?', '#', ' ', 'é', 'new', ',', '%2C', '%2F', '%00', '%41', 'a/b%2Fc', 'Zed` x'].map((n) => id('', '10071', n)),
+      id('', '', 'new'),
+      id('a:1', '6000', 'Bob'),
+    ];
+    const dotted = [id('a.b:1', '10071', 'Bob'), id('', '10071', '.'), id('', '10071', 'a.b')];
+
+    it('survives the browser\'s URL parser and adopt\'s calls, under base / and a base below it', () => {
+      for (const base of BASES) {
+        for (const x of undotted) {
+          const path = editPath(x);
+          const pathname = parsed(base, path);
+          expect(pathname, `${base} ${JSON.stringify(x)}`).toBe(base + path);
+          expect(classifyLauncherPath(pathname, base, null), `${base} ${JSON.stringify(x)}`).toBe('ours');
+          const s = createState(a);
+          decodeLauncherPath(pathname, base, s, a);
+          expect(s.screen, `${base} ${JSON.stringify(x)}`).toBe('personaEdit');
+          expect(s.pf.id, `${base} ${JSON.stringify(x)}`).toBe(x);
+        }
+      }
+    });
+
+    it('LATER 923 (an existing limit): a persona whose HOST or NAME holds a dot is skipped by classifyLauncherPath', () => {
+      for (const base of BASES) {
+        for (const x of dotted) {
+          const path = editPath(x);
+          const pathname = parsed(base, path);
+          expect(pathname, `${base} ${JSON.stringify(x)}`).toBe(base + path);
+          // Today's value, not the wanted one: update this on purpose when LATER 923 lands.
+          expect(classifyLauncherPath(pathname, base, null), `${base} ${JSON.stringify(x)}`).toBe('skip');
+          const s = createState(a);
+          decodeLauncherPath(pathname, base, s, a);
+          expect(s.pf.id, `${base} ${JSON.stringify(x)}`).toBe(x);
+        }
+      }
+    });
+
+    it('profile/personas/new is still the new-persona form', () => {
+      expect(decoded('profile/personas/new').screen).toBe('personaNew');
+    });
   });
 
   it('a deep link to button mapping focuses Controller on the Button mapping row', () => {

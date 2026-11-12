@@ -4086,3 +4086,61 @@ describe('FP.R13: the match hook reads the hostages', () => {
     m.close();
   });
 });
+
+// AQ-17 (the Automatic quality plan; product track, a browser adaptation with no original; found 2026-11-11 on two rendered
+// runs of a software-rendered 1920x1080 match of 16, the Shadow PC's evidence/weak-device/rc4-c-e4f0aa472 and
+// aq-c-3c8469b06): the dynamic render scale was handed the frame's `dt` under the camera's 0.1 s clamp, so every frame
+// over 100 ms read as 100 ms. A page slower than 10 fps at its floor read the same at the floor and at the cap, the side
+// test (AQ-8) ruled that the pixels buy nothing and sent it to the cap -- 114 ms a frame at the floor, 259 ms at the cap,
+// in the run; v0.4.18 left such a page at its floor. The scale reads the frame's real time.
+describe('AQ-17: the dynamic render scale reads the frame\'s real time, not the camera\'s clamped step', () => {
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
+
+  /** A mount under Balanced (VS-3's own floor: half the cap), its world in, on a renderer that keeps the ratio it is set. */
+  async function mounted() {
+    localStorage.clear();
+    videoSettingsKeeperV2().set({ preset: 'balanced' });
+    const x = handOff();
+    let assetsIn!: (a: MatchAssets | null) => void;
+    const t = options(x, { assets: new Promise((res) => { assetsIn = res; }) } as Partial<MatchMountOptions>);
+    let ratio = 2;
+    const renderer: MatchRenderer = { ...t.r.r, setPixelRatio: (v) => { ratio = v; }, pixelRatio: () => ratio };
+    const m = mountMatch(document.body, { ...t.o, renderer: () => Promise.resolve(renderer) });
+    await flush();
+    t.w.step(3, 1000 / 60);
+    assetsIn({ map: synthetic(), clips: null }); await flush();
+    t.w.step(3, 1000 / 60);
+    return { t, m, ratio: () => ratio };
+  }
+
+  it('a 250 ms frame is handed to the scale as 0.25 s', async () => {
+    const fed: number[] = [];
+    const ratioFrame = AdaptiveRatio.prototype.frame;
+    vi.spyOn(AdaptiveRatio.prototype, 'frame').mockImplementation(function (this: AdaptiveRatio, ...a: Parameters<AdaptiveRatio['frame']>) {
+      fed.push(a[0]);
+      return ratioFrame.apply(this, a);
+    });
+    const p = await mounted();
+    fed.length = 0;
+    p.t.w.step(5, 250);
+    p.m.close();
+    expect(fed.length).toBeGreaterThan(0);
+    for (const dt of fed) expect(dt).toBeCloseTo(0.25, 9);
+  });
+
+  it('the page of the rendered run -- pixel-bound and slower than 10 fps at its floor: 260 ms a frame at the cap, 115 ms at the floor, the time following the ratio -- ENDS at its floor', async () => {
+    const p = await mounted();
+    const cap = p.ratio(), floor = cap * ADAPTIVE_V2_ADAPTATION.floorShare;
+    expect(cap).toBe(1);
+    let at = 0, low = 0;
+    while (at < 100_000) {
+      const ms = 115 + 145 * Math.max(0, (p.ratio() - floor) / (cap - floor));
+      if (p.ratio() <= floor + 1e-9) low += ms;
+      p.t.w.step(1, ms);
+      at += ms;
+    }
+    p.m.close();
+    expect(p.ratio()).toBeCloseTo(floor, 9);
+    expect(low / at).toBeGreaterThan(0.5);
+  }, 60_000);
+});

@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   CONTENT_MAP_CODES,
   CONTENT_MAP_EXTENT_METRES_ADAPTATION,
+  CONTENT_MAP_FEET_RANGE_UNITS,
+  CONTENT_MAP_METRES_PER_UNIT_ADAPTATION,
+  CONTENT_MAP_NAV_AXIS_MAX,
+  CONTENT_MAP_NAV_CELLS_MAX_ADAPTATION,
+  CONTENT_MAP_POLYGON_POINTS_MAX,
+  CONTENT_MAP_POINTS_MAX_ADAPTATION,
+  CONTENT_MAP_POLYGONS_MAX_ADAPTATION,
+  CONTENT_MAP_REGION_POLYGONS_MAX_ADAPTATION,
+  CONTENT_MAP_REGIONS_MAX_ADAPTATION,
+  CONTENT_MAP_SPAN_METRES_ADAPTATION,
   CONTENT_MAP_V2_FIELDS,
   CONTENT_MAP_VERSION,
   CONTENT_MAP_VERSION_2,
@@ -23,7 +33,7 @@ import {
   type Diagnostic,
   type PackRef,
 } from "../src/index.js";
-import { MAP_PACK, MAP_PACK_OTHER, MAP_REF, mapProp, minimalMapJson, PROP_PACK } from "./contentMapFixtures.js";
+import { FLOOR, MAP_PACK, MAP_PACK_OTHER, MAP_REF, mapProp, minimalMapJson, PROP_PACK } from "./contentMapFixtures.js";
 
 /** FCW-10 (product track; a browser adaptation with no original): one authored map's definition, its refusals and its digest. */
 
@@ -387,5 +397,139 @@ describe("FP-4: content map version 2", () => {
     const def = read(v2());
     expect(read(contentMapMember(def))).toEqual(def);
     expect(contentMapMember(def)["version"]).toBe(2);
+  });
+});
+
+/**
+ * FX-LIMITS (product track; a browser adaptation, the owner 2026-11-11): the content map's size bounds raised to numbers
+ * measured off the game's own 34 maps (`tools/mapSizeCensus.ts`; its record `agent-mail/evidence/forge/fxlimits-88a71dab0/`)
+ * and a new bound on the map's width from the wire's feet range. Each old bound plus one now reads; each new one plus one
+ * is refused. The inputs are built cheaply: one polygon repeated, one-polygon regions, a grid of 0.004 m cells so 8,192
+ * of them fit the minimal map's floor, a whole map moved along x.
+ */
+describe("FX-LIMITS: the content map size bounds, from the disc maps census", () => {
+  const diags = (json: unknown): Diagnostic[] => {
+    const got = readContentMapDefinition(json, MAP_REF);
+    if (!Array.isArray(got)) throw new Error("read, not refused");
+    return got as Diagnostic[];
+  };
+  /** The minimal map with `n` polygons, each the fixture floor, in walkable regions of at most 4,000 (under the per-region bound). */
+  const polygonsMap = (n: number): Record<string, unknown> => minimalMapJson({
+    regions: Array.from({ length: Math.ceil(n / 4000) }, (_, i) => ({
+      id: `r${i}`, role: "walkable", polygons: Array.from({ length: Math.min(4000, n - i * 4000) }, () => FLOOR),
+    })),
+  });
+  /** One polygon of 255 points, all the same point: no area, so refused if its geometry is ever looked at. */
+  const DEGENERATE = Array.from({ length: 255 }, () => [0, 0, 0]);
+  /** A walkable region of `n` degenerate polygons (one shared array: cheap to build however many). */
+  const degenerateRegion = (id: string, n: number): Record<string, unknown> => ({ id, role: "walkable", polygons: new Array(n).fill(DEGENERATE) });
+  /** The minimal map with `n` walkable regions of one floor polygon each. */
+  const regionsMap = (n: number): Record<string, unknown> =>
+    minimalMapJson({ regions: Array.from({ length: n }, (_, i) => ({ id: `r${i}`, role: "walkable", polygons: [FLOOR] })) });
+  /** A grid storing `full` whole rows of 8,192 cells and one more row of `last` cells (no named points). */
+  const navMap = (full: number, last: number): Record<string, unknown> => minimalMapJson({
+    navigation: {
+      kind: "grid", min: [-20, 0, -16], yMax: 4, cellSize: 0.004, cellsX: 8192, cellsZ: full + 1,
+      rows: Array.from({ length: full + 1 }, (_, i) => (i < full ? [0, 8192] : [0, last])),
+    },
+  });
+  /** Every point of `v` (each array of three numbers) moved `dx` metres along x. */
+  const moveX = (v: unknown, dx: number): unknown => {
+    if (Array.isArray(v)) return v.length === 3 && v.every((n) => typeof n === "number") ? [(v[0] as number) + dx, v[1], v[2]] : v.map((w) => moveX(w, dx));
+    if (v !== null && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, w]) => [k, moveX(w, dx)]));
+    return v;
+  };
+
+  it("pins the new bounds, and keeps the engine field bounds (255 points, 8,192 cells an axis) as they were", () => {
+    expect(CONTENT_MAP_POLYGONS_MAX_ADAPTATION).toBe(60_000);
+    expect(CONTENT_MAP_REGIONS_MAX_ADAPTATION).toBe(4096);
+    expect(CONTENT_MAP_NAV_CELLS_MAX_ADAPTATION).toBe(262_144);
+    expect(CONTENT_MAP_EXTENT_METRES_ADAPTATION).toBe(1000);
+    expect(CONTENT_MAP_SPAN_METRES_ADAPTATION).toBe(800);
+    expect(CONTENT_MAP_POINTS_MAX_ADAPTATION).toBe(1_000_000);
+    expect(CONTENT_MAP_REGION_POLYGONS_MAX_ADAPTATION).toBe(4096);
+    expect(CONTENT_MAP_POLYGON_POINTS_MAX).toBe(255);
+    expect(CONTENT_MAP_NAV_AXIS_MAX).toBe(8192);
+  });
+
+  it("the span bound sits inside the wire feet range: two ranges of 1/8-unit i16 steps at 0.1 m a unit", () => {
+    expect(CONTENT_MAP_FEET_RANGE_UNITS).toBe(32767 / 8);
+    const wire = 2 * CONTENT_MAP_FEET_RANGE_UNITS * CONTENT_MAP_METRES_PER_UNIT_ADAPTATION;
+    expect(wire).toBeCloseTo(819.175, 6);
+    expect(CONTENT_MAP_SPAN_METRES_ADAPTATION).toBeLessThan(wire);
+  });
+
+  it("polygons: 20,001 (the old bound plus one) read; 60,001 are refused TOO_LARGE", () => {
+    expect(read(polygonsMap(20_001)).regions.reduce((n, g) => n + g.polygons.length, 0)).toBe(20_001);
+    expect(codes(polygonsMap(60_001))).toEqual([CONTENT_MAP_CODES.tooLarge]);
+  });
+
+  it("one region: 4,096 polygons read; 4,097 are refused TOO_LARGE, naming the region", () => {
+    const region = (n: number): Record<string, unknown> => minimalMapJson({ regions: [{ id: "floor", role: "walkable", polygons: Array.from({ length: n }, () => FLOOR) }] });
+    expect(read(region(4096)).regions[0]!.polygons).toHaveLength(4096);
+    const got = diags(region(4097));
+    expect(got.map((d) => [d.code, d.field])).toEqual([[CONTENT_MAP_CODES.tooLarge, "regions[0].polygons"]]);
+  });
+
+  it("points: over 1,000,000 points in all the regions is refused TOO_LARGE, before any polygon geometry is read", () => {
+    // Four regions of 1,000 polygons of 255 points: 4,000 polygons (under both polygon bounds), 1,020,000 points. Every
+    // polygon is degenerate, so a reader that looked at one would refuse it POLYGON_INVALID instead.
+    const got = diags(minimalMapJson({ regions: [0, 1, 2, 3].map((i) => degenerateRegion(`r${i}`, 1000)) }));
+    expect(got.map((d) => [d.code, d.field])).toEqual([[CONTENT_MAP_CODES.tooLarge, "regions"]]);
+    expect(got[0]!.text).toContain("points");
+  });
+
+  it("the counts come before the geometry: a bad polygon in the first region does not hide a later region over its bound", () => {
+    const got = diags(minimalMapJson({ regions: [degenerateRegion("bad", 1), { id: "big", role: "walkable", polygons: new Array(4097).fill(FLOOR) }] }));
+    expect(got.map((d) => [d.code, d.field])).toEqual([[CONTENT_MAP_CODES.tooLarge, "regions[1].polygons"]]);
+    // and with the counts in bounds, the same bad polygon is refused for its geometry
+    expect(codes(minimalMapJson({ regions: [degenerateRegion("bad", 1), { id: "floor", role: "walkable", polygons: [FLOOR] }] }))).toEqual([CONTENT_MAP_CODES.polygonInvalid]);
+  });
+
+  it("regions: 1,025 (the old bound plus one) read; 4,097 are refused TOO_LARGE", () => {
+    expect(read(regionsMap(1025)).regions).toHaveLength(1025);
+    expect(codes(regionsMap(4097))).toEqual([CONTENT_MAP_CODES.tooLarge]);
+  });
+
+  it("navigation: 65,537 stored cells (the old bound plus one) read; 262,145 are refused TOO_LARGE", () => {
+    const old = read(navMap(8, 1)).navigation!;
+    expect(old.rows.reduce((n, [x0, x1]) => n + x1 - x0, 0)).toBe(65_537);
+    const got = diags(navMap(32, 1));
+    expect(got.map((d) => [d.code, d.field])).toEqual([[CONTENT_MAP_CODES.tooLarge, "navigation.rows"]]);
+  });
+
+  it("extent: a bound 401 m from the origin (the old bound plus one) reads; one 1,001 m off is refused OUT_OF_BOUNDS", () => {
+    expect(read(minimalMapJson({ bounds: { min: [-401, -1, -16], max: [20, 4, 16] } })).bounds.min[0]).toBe(-401);
+    expect(codes(minimalMapJson({ bounds: { min: [-1001, -1, -16], max: [-980, 4, 16] } }))).toEqual([CONTENT_MAP_CODES.outOfBounds]);
+  });
+
+  it("span: bounds 800 m wide read; 801 m wide are refused TOO_WIDE, naming the axis and the width", () => {
+    expect(read(minimalMapJson({ bounds: { min: [-420, -1, -16], max: [380, 4, 16] } })).bounds.max[0]).toBe(380);
+    expect(read(minimalMapJson({ bounds: { min: [-20, -400, -16], max: [20, 400, 16] } })).bounds.min[1]).toBe(-400);
+    const x = diags(minimalMapJson({ bounds: { min: [-421, -1, -16], max: [380, 4, 16] } }));
+    expect(x.map((d) => [d.code, d.field, d.actual, d.expected])).toEqual([[CONTENT_MAP_CODES.tooWide, "bounds", "x 801", "800"]]);
+    expect(x[0]!.text).toContain("801");
+    const y = diags(minimalMapJson({ bounds: { min: [-20, -401, -16], max: [20, 400, 16] } }));
+    expect(y.map((d) => [d.code, d.actual])).toEqual([[CONTENT_MAP_CODES.tooWide, "y 801"]]);
+    expect(CONTENT_MAP_CODES.tooWide).toBe("map.TOO_WIDE");
+  });
+
+  it("a narrow map 900 m from the origin passes the span and the extent; moved to 1,001 m it is refused by the extent alone", () => {
+    const far = read(moveX(minimalMapJson(), 900));
+    expect([far.bounds.min[0], far.bounds.max[0]]).toEqual([880, 920]);
+    expect(far.spawns.map((s) => s.at[0])).toEqual([885, 915]);
+    expect(codes(moveX(minimalMapJson(), 981))).toEqual([CONTENT_MAP_CODES.outOfBounds]);
+  });
+
+  it("a region past the declared bounds is still refused OUT_OF_BOUNDS: the span is measured over the bounds, which hold every point", () => {
+    const wide = [{ id: "floor", role: "walkable", polygons: [[[-20, 0, 16], [500, 0, 16], [500, 0, -16], [-20, 0, -16]]] }];
+    expect(codes(minimalMapJson({ regions: wide }))).toEqual([CONTENT_MAP_CODES.outOfBounds]);
+  });
+
+  it("a bound is not gameplay: the canonical form keeps its version, and a map moved within the bounds digests as a moved map", async () => {
+    expect(GAMEPLAY_CANONICAL_VERSION).toBe(3);
+    const base = await gameplayDigest(read(minimalMapJson()));
+    expect(await gameplayDigest(read(minimalMapJson()))).toBe(base);
+    expect(await gameplayDigest(read(moveX(minimalMapJson(), 900)))).not.toBe(base);
   });
 });

@@ -1,5 +1,5 @@
 import { pageVersion } from '../pageVersion';
-import { DISCORD_INVITE, DISCORD_LABEL, discordMark } from '../discord';
+import { DISCORD_INVITE, DISCORD_LABEL, discordMark, GITHUB_LABEL, GITHUB_REPO, githubMark } from '../discord';
 import { esc, ico, shoulder } from '../icons';
 import { CATS, homeItems, SAMPLE_DATA, type Adapters, type ConsoleState } from '../state';
 import { clock24 } from './theme';
@@ -72,11 +72,13 @@ export function keepClock(doc: Document, h24: () => boolean): void {
  * only while the sample adapters are in (`SAMPLE_DATA`). A browser adaptation with no original (OT.R28).
  *
  * LATER 291: the pad reaches Discord as Home's last row. On a wide layout that stop is this header icon (the list row
- * is hidden). At the phone rule the list row is the stop, so the icon takes no pad ring.
+ * is hidden). At the phone rule the list row is the stop, so the icon takes no pad ring. The GitHub icon beside it (the
+ * owner, 2026-11-12, `../discord`) is the same for Home's GitHub row, the stop after Discord's -- above `GITHUB_ROW_PX`
+ * only; up to it Home's GitHub row is the stop (`githubRow`) and this icon is not shown (`../console.css`).
  */
-function discordPad(s: ConsoleState, a: Adapters, narrow: boolean): boolean {
+function discordPad(s: ConsoleState, a: Adapters, narrow: boolean, act: 'discord' | 'github' = 'discord'): boolean {
   if (narrow || s.screen !== 'home' || s.overlay || CATS[s.cat]?.id !== 'home') return false;
-  return homeItems('home', s, a)[s.item[s.cat] ?? 0]?.act === 'discord';
+  return homeItems('home', s, a)[s.item[s.cat] ?? 0]?.act === act;
 }
 
 /**
@@ -114,7 +116,7 @@ function serverMarkHtml(s: ConsoleState, a: Adapters): string {
   return `<span class="cx-srvmark is-${k}" role="img" aria-label="Server status: ${SERVER_MARK_WORDS[k]}" title="${esc(`Server: ${st.line}`)}">${ico('server')}<i class="cx-srvmark__dot" aria-hidden="true"></i></span>`;
 }
 
-export function headerHtml(s: ConsoleState, a: Adapters, narrow = false, now: Date = new Date()): string {
+export function headerHtml(s: ConsoleState, a: Adapters, narrow = false, now: Date = new Date(), githubRow = narrow): string {
   const signedIn = a.session.signedIn();
   const persona = a.session.persona();
   const proto = a.data === SAMPLE_DATA && a.states
@@ -150,6 +152,7 @@ export function headerHtml(s: ConsoleState, a: Adapters, narrow = false, now: Da
       ${proto}
       ${s.mode === 'overlay' ? '' : clockHtml(now, clock24(a))}
       <a class="cx-discord${discordPad(s, a, narrow) ? ' is-focused' : ''}" href="${DISCORD_INVITE}" target="_blank" rel="noopener noreferrer" aria-label="${esc(DISCORD_LABEL)}">${discordMark()}</a>
+      <a class="cx-github${!githubRow && discordPad(s, a, narrow, 'github') ? ' is-focused' : ''}" href="${GITHUB_REPO}" target="_blank" rel="noopener noreferrer" aria-label="${esc(GITHUB_LABEL)}">${githubMark()}</a>
       ${account}
     </div>`;
 }

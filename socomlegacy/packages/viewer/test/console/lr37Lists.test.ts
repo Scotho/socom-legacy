@@ -43,7 +43,7 @@ describe('LR-37 (4): no Memory card on the launcher page', () => {
     const A = sampleAdapters();
     expect(titles(A, 'home')).not.toContain('Memory card');
     expect(titles(A, 'home', 'overlay')).not.toContain('Memory card');
-    expect(titles(A, 'home', 'overlay')).toEqual(['Resume game', 'Server status', 'Discord']);
+    expect(titles(A, 'home', 'overlay')).toEqual(['Resume game', 'Server status', 'Discord', 'GitHub']);
   });
 });
 

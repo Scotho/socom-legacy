@@ -1,5 +1,5 @@
 import {
-  behaviourCatalogue, checkCreatorRecord, checkPackRef, checkReport, diagnostic, ENGINE_CONTRACT_VERSION, forgeModeChoices, layoutEntityIds, layoutOfRecord,
+  behaviourCatalogue, checkCreatorRecord, checkPackRef, checkReport, diagnostic, ENGINE_CONTRACT_VERSIONS, forgeModeChoices, layoutEntityIds, layoutOfRecord,
   PACK_FORMAT, PACK_FORMAT_VERSION, PACK_MANIFEST_FILE, PACK_TARGET_US, parseLayout, readCreatorRecord, recordOfLayout, rulesCatalogue,
   rulesModeCatalogue, sha256Hex, validatePack, validateRules,
   type AnyLayoutRecord, type CheckReport, type CreatorLayoutRecord, type Diagnostic, type ForgeModeChoice, type InstalledRulesPack, type Layout, type PackManifest,
@@ -59,7 +59,11 @@ export type ForgeLayout = Layout & { rules?: ForgeRulesDraft };
 export const UNSEALED_HASH = '0'.repeat(64);
 /** The rules member's path in an exported pack. */
 export const RULES_MEMBER_PATH = 'rules/mode.json';
-/** The engine contract range an exported rules pack states (the rules spec §7: a rules pack states `^0.1.1`). */
+/**
+ * The engine contract range an exported rules pack states (the rules spec §7: a rules pack states `^0.1.1`). It stays
+ * `^0.1.1` at contract 0.2.0 (FX-5: a writer writes the lowest range its content needs, and a rules pack uses no 0.2
+ * field); the build reads it through 0.1.2 in `ENGINE_CONTRACT_VERSIONS`.
+ */
 export const RULES_PACK_CONTRACT = '^0.1.1';
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -207,7 +211,7 @@ export class RulesPackError extends Error {
  * reserved capability is absent from that catalogue, so a claim on it is refused by name.
  */
 function rulesPackContext() {
-  return { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, handlers: behaviourCatalogue() };
+  return { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, handlers: behaviourCatalogue() };
 }
 
 /**

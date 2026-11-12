@@ -30,10 +30,13 @@ export type Status = (typeof STATUSES)[number];
 /** A description section: the keys the code has, one hand-written line each. */
 export type Descriptions = Record<string, Record<string, string>>;
 
-/** The values the manifest page publishes, by their exported names (the build's own values). */
+/**
+ * The values the manifest page publishes, by their exported names (the build's own values). A list of strings
+ * (`ENGINE_CONTRACT_VERSIONS`, FX-5) is written as its items joined by `, `.
+ */
 export const PUBLISHED_VALUES = [
-  'PACK_FORMAT', 'PACK_FORMAT_VERSION', 'PACK_MANIFEST_FILE', 'ENGINE_CONTRACT_VERSION', 'PACK_TARGET_US',
-  'RULES_PACK_CONTRACT_FLOOR', 'THUNDERSTORE_TEAM_PLACEHOLDER',
+  'PACK_FORMAT', 'PACK_FORMAT_VERSION', 'PACK_MANIFEST_FILE', 'ENGINE_CONTRACT_VERSION', 'ENGINE_CONTRACT_VERSIONS', 'PACK_TARGET_US',
+  'RULES_PACK_CONTRACT_FLOOR', 'PACK_CONTRACT_0_2_FLOOR', 'THUNDERSTORE_TEAM',
 ] as const;
 
 const exported = packs as unknown as Record<string, unknown>;
@@ -56,6 +59,7 @@ export function codeKeys(): Record<string, string[]> {
   return {
     manifest: [...packs.PACK_MANIFEST_KEYS],
     fileRow: [...packs.PACK_FILE_ROW_KEYS],
+    provenance: [...packs.PACK_PROVENANCE_KINDS],
     handlerClaim: [...packs.PACK_HANDLER_CLAIM_KEYS],
     kinds: [...packs.PACK_KINDS],
     legacyKinds: [...packs.LEGACY_PACK_KINDS],
@@ -221,7 +225,8 @@ function storeRuleValue(key: string): string {
 
 function publishedValue(name: string): string {
   const v = exported[name];
-  if (typeof v !== 'string' && typeof v !== 'number') throw new Error(`${name} is not an exported string or number`);
+  if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string')) return v.join(', ');
+  if (typeof v !== 'string' && typeof v !== 'number') throw new Error(`${name} is not an exported string, number or list of strings`);
   return String(v);
 }
 
@@ -239,6 +244,7 @@ export function referenceData(d: Descriptions): Record<string, unknown> {
     source: 'socomlegacy/packages/creator-contracts/src/packs.ts',
     manifest: plain('manifest'),
     fileRow: plain('fileRow'),
+    provenance: plain('provenance'),
     handlerClaim: plain('handlerClaim'),
     kinds: plain('kinds'),
     legacyKinds: plain('legacyKinds'),
@@ -317,6 +323,12 @@ function manifestPage(d: Descriptions): string {
     '',
     table(['field', 'what it is'], rows('fileRow')),
     '',
+    '## Provenance',
+    '',
+    'A `files` row\'s `provenance` (contract 0.2) is an object whose `kind` is one of these.',
+    '',
+    table(['kind', 'what it is'], rows('provenance')),
+    '',
     '## A `handlers` claim',
     '',
     table(['field', 'what it is'], rows('handlerClaim')),
@@ -372,10 +384,26 @@ function manifestPage(d: Descriptions): string {
       keys.targetAliases!.map((k) => [code(k), code(packs.PACK_TARGET_ALIASES[k]!), cell(d['targetAliases']![k]!, `targetAliases.${k}`)]),
     ),
     '',
+    ...CONTRACT_0_2_0,
     ...CONTRACT_0_1_2,
     ...AGENT(page('manifest')),
   ].join('\n');
 }
+
+/**
+ * FX-5 (product track): what engine contract 0.2.0 adds, in words, beside the fields the tables above list from the
+ * code: the contract floor of the four 0.2 fields (`pack.CONTRACT_FIELD`) and the build's list of versions.
+ */
+const CONTRACT_0_2_0: readonly string[] = [
+  '## Beside the manifest: contract 0.2.0',
+  '',
+  'Engine contract 0.2.0 adds the four optional fields above -- the manifest\'s `license`, `authors` and `extensions`, and',
+  'a `files` row\'s `provenance` -- and the map pack\'s `layouts/<slug>.json` member. A pack that uses one states a',
+  'range that admits no engine before 0.2.0, such as `^0.2.0`, or is refused with `pack.CONTRACT_FIELD`. A pack that',
+  'uses none keeps its range: the build reads every engine contract version in `ENGINE_CONTRACT_VERSIONS`, so a pack',
+  'written for `^0.1.1` still reads.',
+  '',
+];
 
 /**
  * FP-9 (FP.R9; product track): what engine contract 0.1.2 (the Forge path's FP-4) adds beside the manifest, in words, with

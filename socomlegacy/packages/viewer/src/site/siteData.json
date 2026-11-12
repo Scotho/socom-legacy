@@ -1,5 +1,5 @@
 {
-  "commit": "26f833fac",
+  "commit": "3d167bd35a",
   "sprints": [
     {
       "number": 6,
@@ -1266,9 +1266,19 @@
       "title": "The shadow PC (SPC) -- plan"
     },
     {
+      "id": "2026-11-11-forge-export-sprint",
+      "date": "2026-11-11",
+      "title": "The Forge export sprint (FX) -- plan"
+    },
+    {
       "id": "2026-11-11-v0419-release",
       "date": "2026-11-11",
       "title": "v0.4.19 -- the release batch after mega -- plan"
+    },
+    {
+      "id": "2026-11-11-v0420-release",
+      "date": "2026-11-11",
+      "title": "v0.4.20 -- the patch after v0.4.19, released whole -- plan"
     }
   ],
   "issues": {

@@ -27,7 +27,7 @@ describe('LR-14: the overlay\'s Home list (LR.R18, superseded by LR.R32)', () =>
     const p = boot();
     p.ctl.S.mode = 'overlay';
     const items = homeItems('home', p.ctl.S, p.ctl.A);
-    expect(items.map((x) => x.title)).toEqual(['Resume game', 'Server status', 'Discord']);
+    expect(items.map((x) => x.title)).toEqual(['Resume game', 'Server status', 'Discord', 'GitHub']);
     expect(items.find((x) => x.act === 'server')).toBeTruthy();
     expect(items.some((x) => x.act === 'play')).toBe(false);
     expect(items.some((x) => 'dot' in x)).toBe(false);
@@ -43,7 +43,7 @@ describe('LR-14: the overlay\'s Home list (LR.R18, superseded by LR.R32)', () =>
   it('the page\'s Home is LR-13\'s, the Memory card gone (LR-37 (4)); no dot on Play (LR-23, LR.R22; was: Play\'s dot)', () => {
     const p = boot();
     const items = homeItems('home', p.ctl.S, p.ctl.A);
-    expect(items.map((x) => x.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord']);
+    expect(items.map((x) => x.title)).toEqual(['Play SOCOM II', 'Server status', 'Discord', 'GitHub']);
     expect('dot' in items[0]!).toBe(false);
   });
 });

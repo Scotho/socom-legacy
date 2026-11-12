@@ -130,7 +130,8 @@ describe('the clock: with the panel untouched the frame is main\'s', () => {
     const main = src('main.ts');
     expect(main).toContain('    const dt = Math.min(frameTime.frame(performance.now()), 0.1);     // a backgrounded tab must not teleport the camera (PAR-24: the real seconds kept)\n');
     expect(main).toContain('    const raw = dt;\n    {\n      const dt = scaleDt(raw);');
-    expect(main).toContain('    if (adaptiveRatio.frame(dt, performance.now()');      // four spaces: outside the block, the real dt
+    // AQ-17: the frame's real seconds -- neither the clock's scaled dt nor the camera's step clamped at 0.1 s (four spaces: outside the block).
+    expect(main).toContain('    if (adaptiveRatio.frame(frameTime.real(), performance.now()');
     expect(main.split('scaleDt(').length - 1).toBe(1);
   });
 

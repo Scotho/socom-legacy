@@ -6,7 +6,7 @@ import { parseZdb } from '@s2u/archive';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
   ACTION_BOMB_CAPTION_IDS, ACTION_CAPTION_TEXT, ACTION_ICON_FADE, ACTION_ICONS, ACTION_PROMPT_COLOUR, ACTION_RECORD_CAPTIONS, AT_REST,
-  actionCaptionOf, MAP_ACTION_CAPTION_READING, VICTORY_CAPTION_READING, DEFAULT_MODEL, DEFAULT_ROUND, FIRE_MODE_ROUNDS, HUD_LAYOUT, Hud, ammoLines, hudLayout, roundStartAt, timerText, capLines, messageAlpha,
+  actionCaptionOf, VICTORY_CAPTION_READING, DEFAULT_MODEL, DEFAULT_ROUND, FIRE_MODE_ROUNDS, HUD_LAYOUT, Hud, ammoLines, hudLayout, roundStartAt, timerText, capLines, messageAlpha,
   compassMarks, DEFUSE_TIMER_LAYOUT_READING, EXTRACT_CAPTION_READING, gameCaption, HOLD_BAR_FADE, HUD_COLOURS, hudPass,
   BASE_MARK_TYPE_RGB_READING, OBJECTIVE_MARK_RGB_READING, OBJECTIVE_POST_OFFSET_READING, SPAWN_FADE, STANCE_FADE, type HudModel, type RoundInfo,
   INFO_CLIENT_COUNT_READING, INFO_SESSION_MASTER_READING, infoNumberText, validClientCount,
@@ -2032,7 +2032,7 @@ describe('LkPaioX5 (a): the action list beside the prompt', () => {
  * LkPaioX5 part 2 (b) (research 87 §5, "The action list"; reading, pending review): the caption under the head,
  * `FUN_00220350` (D:L74385-74496) -- one label for every record, at (306, 435) (`FUN_003631a0` with `DAT_003dc678`,
  * `DAT_003dc67c`). A map action's record (type 13): UNAVAILABLE when the player may not use it (D:L74401-74403), else its
- * own text, not drawn yet (`MAP_ACTION_CAPTION_READING`). The bomb's (type 7): HudCLOC 0xec41 with no bomb node, 0xec40
+ * own text (D:L74420), the caption its offer carries (G1: `./mapActions` `mapActionCaption`). The bomb's (type 7): HudCLOC 0xec41 with no bomb node, 0xec40
  * with one (D:L74458-74461), passed with no table lookup. The pick-ups (4, 5): "%s %s" of TAKE and the weapon's name
  * (D:L74471), only while a weapon is the candidate (D:L74470). Every other: the record's own (D:L74479).
  */
@@ -2061,8 +2061,12 @@ describe('LkPaioX5 (b): the caption under the prompt', () => {
     expect(actionCaptionOf({ prompt: 'bomb' }, null)).toBeNull();                       // no table loaded: none
     expect(actionCaptionOf({ prompt: 'door', allowed: false }, loc)).toBe('UNAVAILABLE');
     expect(actionCaptionOf({ prompt: 'lever', allowed: false }, loc)).toBe('UNAVAILABLE');
-    expect(actionCaptionOf({ prompt: 'door' }, loc)).toBeNull();                         // MAP_ACTION_CAPTION_READING
-    expect(MAP_ACTION_CAPTION_READING).toMatch(/^not drawn/);
+    // G1 (action-labels review): an allowed map action shows the caption its offer carries, none without one.
+    expect(actionCaptionOf({ prompt: 'door', caption: 'OPEN DOOR' }, loc)).toBe('OPEN DOOR');
+    expect(actionCaptionOf({ prompt: 'lever', caption: 'FLIP SWITCH' }, loc)).toBe('FLIP SWITCH');
+    expect(actionCaptionOf({ prompt: 'door', allowed: false, caption: 'OPEN DOOR' }, loc)).toBe('UNAVAILABLE');
+    expect(actionCaptionOf({ prompt: 'door' }, loc)).toBeNull();
+    expect(actionCaptionOf({ prompt: 'action', caption: 'FLIP SWITCH' }, loc)).toBe('ACTION');   // G3's fallback unchanged
     expect(actionCaptionOf({ prompt: 'pickup', name: 'M4A1' }, loc)).toBe('TAKE M4A1');
     expect(actionCaptionOf({ prompt: 'pickup' }, loc)).toBeNull();                      // no weapon candidate: none
     expect(actionCaptionOf({ prompt: 'escortee', caption: 'FOLLOW!' }, loc)).toBe('FOLLOW!');
@@ -2089,6 +2093,10 @@ describe('LkPaioX5 (b): the caption under the prompt', () => {
     const hud = new Hud();
     hud.setNearbyAction([{ prompt: 'pickup', name: 'M4A1' }, { prompt: 'door' }]);
     expect(hud.state().model.actionCaption).toBe('TAKE M4A1');
+    hud.setNearbyAction([{ prompt: 'lever', caption: 'FLIP SWITCH' }, { prompt: 'c4' }]);   // G1: the switch's own text
+    expect(hud.state().model.actionCaption).toBe('FLIP SWITCH');
+    hud.setNearbyAction([{ prompt: 'door' }]);
+    expect(hud.state().model.actionCaption).toBeNull();
     hud.setNearbyAction([{ prompt: 'bomb' }]);
     expect(hud.state().model.actionCaption).toBeNull();
     hud.setLocCaptions(loc);

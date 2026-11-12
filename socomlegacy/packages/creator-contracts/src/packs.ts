@@ -5,7 +5,7 @@
  * build's context, and only a passing check yields a usable manifest and `PackRef`.
  */
 import { checkReport, diagnostic, type CheckReport, type Diagnostic, type DiagnosticInput, type PackDiagnostic } from "./diagnostics.js";
-import { compareUtf8, createSha256, packDigest, sha256Hex, type Sha256 } from "./digest.js";
+import { canonicalJson, compareUtf8, createSha256, packDigest, sha256Hex, type Sha256 } from "./digest.js";
 import { compareSemver, parseRange, parseSemver, satisfiesRange } from "./semver.js";
 
 export const PACK_FRAMEWORK_ADAPTATION =
@@ -20,9 +20,43 @@ export const PACK_MANIFEST_FILE = "s2u-pack.json" as const;
  * the pack framework v2; a manifest's `contract` range is checked against it). Under the repository's caret SemVer
  * (`semver.ts`: `^0.y.z` fixes the minor) an additive seam bumps the patch, so `^0.1.0` packs keep loading, and an
  * incompatible one the minor. 0.1.1 is FCW-30's rules vocabulary (a rules pack states `^0.1.1`); 0.1.2 is FP-4's bundle
- * (`bundle.ts`) and content map v2 (`maps.ts`), both additive. A registry builds its PackContext with it, not a guess.
+ * (`bundle.ts`) and content map v2 (`maps.ts`), both additive. 0.2.0 is FX-5's (the pack format 0.2 spec,
+ * `docs/specs/2026-11-11-pack-format-0.2-and-forge-io.md` section 2 decision 8; FX.R11 "contract 0.2.0 in one step"):
+ * the map pack (`mapPack.ts`) and the manifest's 0.2 fields. A `^0.1.x` range cannot admit 0.2.0, so the build reads
+ * every version of `ENGINE_CONTRACT_VERSIONS`, not this one alone; this is the newest of them, the one it publishes.
  */
-export const ENGINE_CONTRACT_VERSION = "0.1.2";
+export const ENGINE_CONTRACT_VERSION = "0.2.0";
+/**
+ * The engine contract versions this build reads (FX-5; the spec's decision 8): a pack is read when its `contract` range
+ * admits ANY ONE of them (`contractAdmits`). 0.1.2 is kept while the build implements 0.1.x's whole surface, so a
+ * `^0.1.0` / `^0.1.1` pack written before 0.2 (each Forge rules draft, the example packs, a creator's) still reads; an
+ * exact pin to 0.1.1 did not read on 0.1.2 and does not now. Ascending; the last is `ENGINE_CONTRACT_VERSION`.
+ */
+export const ENGINE_CONTRACT_VERSIONS: readonly string[] = Object.freeze(["0.1.2", ENGINE_CONTRACT_VERSION]);
+/**
+ * The lowest contract that carries the 0.2 additions (FX-5): a layout member in a map pack, and the manifest's
+ * `license`, `authors`, `extensions` and a row's `provenance`. A writer states a range that admits no engine before it
+ * (`^0.2.0`) when its pack uses one, and keeps the lowest range its content needs otherwise (`^0.1.1` for a rules pack).
+ * A fixed fact, as `RULES_PACK_CONTRACT_FLOOR` is: it stays 0.2.0 when `ENGINE_CONTRACT_VERSION` moves on.
+ */
+export const PACK_CONTRACT_0_2_FLOOR = "0.2.0";
+/**
+ * A build's engine contract as a `PackContext` takes it: one version (a caller that pins one, a test of an older build)
+ * or the list a build reads (`ENGINE_CONTRACT_VERSIONS`, every default context's).
+ */
+export type EngineContract = string | readonly string[];
+/** The versions an `EngineContract` names, as a list (one version is a list of one). */
+export function engineContractVersions(contract: EngineContract): readonly string[] {
+  return typeof contract === "string" ? [contract] : contract;
+}
+/**
+ * Whether a pack's `contract` range admits the build: true when ANY ONE of the build's versions satisfies it
+ * (`satisfiesRange`); false when none does, or the range or every version does not parse. The default build is
+ * `ENGINE_CONTRACT_VERSIONS`.
+ */
+export function contractAdmits(range: string, contract: EngineContract = ENGINE_CONTRACT_VERSIONS): boolean {
+  return engineContractVersions(contract).some((version) => satisfiesRange(version, range) === true);
+}
 /** The disc revision this build targets (the US disc's product code, DATA_SOURCES.md); a manifest's `target`. */
 export const PACK_TARGET_US = "SCUS-97275";
 /**
@@ -67,12 +101,23 @@ export const PACK_HANDLER_OPTIONS_DEPTH_ADAPTATION = 2;
 export const PACK_ID_CHARS_ADAPTATION = 64;
 export const PACK_NAME_CHARS_ADAPTATION = 48;
 export const PACK_DESCRIPTION_CHARS_ADAPTATION = 400;
+/**
+ * The 0.2 fields' bounds (FX-5; the pack format 0.2 spec section 3, carrying #750's sections 2-3): `authors` holds 1-16
+ * names of 1-48 printable characters (#750's numbers; a name's bound is the pack name's); `license` is one SPDX id of at
+ * most 64 characters (FX-5's choice: the SPDX list's ids are shorter); `extensions` is at most 16 KiB of canonical JSON
+ * (#750's `PACK_EXTENSIONS_BYTES_ADAPTATION`, four times a claim's options).
+ */
+export const PACK_AUTHORS_ADAPTATION = 16;
+export const PACK_AUTHOR_CHARS_ADAPTATION = PACK_NAME_CHARS_ADAPTATION;
+export const PACK_LICENSE_CHARS_ADAPTATION = 64;
+export const PACK_EXTENSIONS_BYTES_ADAPTATION = 16 * 1024;
 
 /**
  * The lowest engine contract a rules pack may admit (FCW-33, FCW-30's review F4): 0.1.1 is the first contract that
  * carries the rules vocabulary (`rules.ts`'s header; FCW-30). A fixed fact, not the build's version: it stays 0.1.1
- * when `ENGINE_CONTRACT_VERSION` moves on. A rules pack's `contract` holds, in every `||` alternative, a lower bound
- * (`>=`, `>`, `^`, `~`, `=` or a bare version) at or above it, so the range admits no engine before it.
+ * when `ENGINE_CONTRACT_VERSION` moves on (it did, to 0.2.0: FX-5). A rules pack's `contract` holds, in every `||`
+ * alternative, a lower bound (`>=`, `>`, `^`, `~`, `=` or a bare version) at or above it, so the range admits no engine
+ * before it.
  */
 export const RULES_PACK_CONTRACT_FLOOR = "0.1.1";
 /**
@@ -91,18 +136,43 @@ export const PACK_RULES_MEMBER_BYTES_ADAPTATION = PACK_MANIFEST_BYTES_ADAPTATION
 export const THUNDERSTORE_STORE_FILES = Object.freeze(["manifest.json", "icon.png", "README.md", "CHANGELOG.md"] as const);
 const STORE_FILES: ReadonlySet<string> = new Set(THUNDERSTORE_STORE_FILES);
 
-export const PACK_KINDS = ["content", "rules", "system"] as const;
+/**
+ * The v2 kinds. `plugin` (FX-5; OT.R118; the 0.2 spec section 3) is RESERVED: a server plugin for a community server,
+ * its runtime Fuse's design. A pack holding it states `sides: "server"` and a 0.2 contract, validates with a warning
+ * (`KIND_NOT_APPLIED`), and is never applied by a page (`appliesOn`); nothing in this build runs one.
+ */
+export const PACK_KINDS = ["content", "rules", "system", "plugin"] as const;
 export type PackKind = (typeof PACK_KINDS)[number];
 /** The three earlier loaders (XT.R11), read through `legacy` adapters onto v2 `content`. */
 export const LEGACY_PACK_KINDS = ["mod", "model", "texture"] as const;
 export type LegacyPackKind = (typeof LEGACY_PACK_KINDS)[number];
 export const PACK_SIDES = ["client", "server", "both"] as const;
 export type PackSide = (typeof PACK_SIDES)[number];
+/**
+ * Whether `side` applies a pack's members (FX-5; the 0.2 spec section 3: `sides` read): `client` is a page, for what it
+ * draws and plays; `server` is a match's host. A `server` pack's members are never applied by a page, and a pack holding
+ * the reserved `plugin` kind never is either, whatever its `sides`; a `client` pack's never by a server. Nothing here
+ * applies anything: a caller that decides what a page may apply asks this.
+ */
+export function appliesOn(manifest: { readonly sides: PackSide; readonly kinds: readonly PackKind[] }, side: Exclude<PackSide, "both">): boolean {
+  if (side === "client") return manifest.sides !== "server" && !manifest.kinds.includes("plugin");
+  return manifest.sides !== "client";
+}
 export const PACK_ROLES = ["mesh", "texture", "audio", "collision", "gameplay", "rules", "system", "data", "legacy-manifest"] as const;
 export type PackFileRole = (typeof PACK_ROLES)[number];
 /** XT.R12: what a change is declared to be. */
 export const PACK_INTENT_KINDS = ["cosmetic", "gameplay-value", "new-behaviour"] as const;
 export type PackIntentKind = (typeof PACK_INTENT_KINDS)[number];
+/**
+ * A member's provenance (FX-5, contract 0.2; #750 section 3 as the 0.2 spec amends it): `original`, made by the pack's
+ * authors; `derived`, from a named pack (`{from: PackRef}`) or from a file the player supplied to a converter (`{from:
+ * "import"}`, device-local by H275's default); `extracted`, game content read off a disc -- refused in every context
+ * (`PROVENANCE_REFUSED`: no game data ships, MISSION). A row's `provenance` is `{kind}` or `{kind: "derived", from}`.
+ */
+export const PACK_PROVENANCE_KINDS = ["original", "derived", "extracted"] as const;
+export type PackProvenanceKind = (typeof PACK_PROVENANCE_KINDS)[number];
+/** The literal a `derived` provenance names for a converter's output from a file the player supplied. */
+export const PACK_PROVENANCE_IMPORT = "import" as const;
 /** The payload types each role carries (XT.R1's open formats); `data` is any. */
 const ROLE_TYPES: Readonly<Record<PackFileRole, RegExp | null>> = {
   mesh: /\.(glb|gltf)$/i,
@@ -166,6 +236,18 @@ export const PACK_CODES = {
   rulesMemberInvalid: "pack.RULES_MEMBER_INVALID",
   /** A rules member's `RulesSpec.capabilities` and the manifest's `behaviour` handler claims disagree (FCW-33). */
   capabilityMismatch: "pack.CAPABILITY_MISMATCH",
+  /**
+   * A 0.2 field (`license`, `authors`, `extensions`, a row's `provenance`) in a pack whose `contract` admits an engine
+   * before `PACK_CONTRACT_0_2_FLOOR` (FX-5): a 0.1.x build would refuse the field unknown, so the range must say 0.2.
+   */
+  contractField: "pack.CONTRACT_FIELD",
+  /** A member declared `extracted` (game content read off a disc): refused in every context (FX-5; no game data ships). */
+  provenanceRefused: "pack.PROVENANCE_REFUSED",
+  /**
+   * A warning, never an error: the pack holds a kind no page applies -- the reserved `plugin` (FX-5; OT.R118). The pack
+   * validates and is stored; nothing in this build runs it.
+   */
+  kindNotApplied: "pack.KIND_NOT_APPLIED",
   checkSkipped: "pack.CHECK_SKIPPED",
 } as const;
 export type PackCode = (typeof PACK_CODES)[keyof typeof PACK_CODES];
@@ -176,11 +258,18 @@ export interface PackRef {
   readonly version: string;
   readonly hash: string;
 }
+/** A member's provenance (`PACK_PROVENANCE_KINDS`); a validated manifest never holds `extracted`. */
+export type PackProvenance =
+  | { readonly kind: "original" }
+  | { readonly kind: "derived"; readonly from: PackRef | typeof PACK_PROVENANCE_IMPORT }
+  | { readonly kind: "extracted" };
 export interface PackFileEntry {
   readonly path: string;
   readonly sha256: string;
   readonly size: number;
   readonly role: PackFileRole;
+  /** Contract 0.2 (FX-5): where the member came from; absent, undeclared. Inside the pack hash. */
+  readonly provenance?: PackProvenance;
 }
 export type PackDependency = { readonly id: string; readonly range: string } | { readonly archive: string; readonly sha256: string };
 export interface PackIntent {
@@ -217,6 +306,16 @@ export interface PackManifest {
   readonly files: readonly PackFileEntry[];
   readonly intents: readonly PackIntent[];
   readonly handlers?: readonly PackHandlerClaim[];
+  /** Contract 0.2 (FX-5): the pack's licence, one SPDX id by its shape. Inside the pack hash. */
+  readonly license?: string;
+  /** Contract 0.2 (FX-5): the authors' display names, in the authors' order; no contact data. Inside the pack hash. */
+  readonly authors?: readonly string[];
+  /**
+   * Contract 0.2 (FX-5; #750 section 2): one object of tools' own data, keyed by reverse-dotted names
+   * (`org.example.tool`), never interpreted by the contract or the game -- only bounded (16 KiB of canonical JSON) and
+   * scanned for URIs. Inside the pack hash, as every manifest field is.
+   */
+  readonly extensions?: Readonly<Record<string, unknown>>;
   /** Set only by a legacy adapter: the earlier loader and its manifest member. */
   readonly legacy?: { readonly kind: LegacyPackKind; readonly manifest: string };
 }
@@ -285,8 +384,11 @@ export type LegacyPackInput =
 export interface PackContext {
   /** The build's disc revision. */
   readonly target: string;
-  /** The build's engine contract version (SemVer). */
-  readonly contract: string;
+  /**
+   * The build's engine contract: one version (SemVer), or the list it reads (`ENGINE_CONTRACT_VERSIONS`, a default
+   * context's); a pack's range must admit any one of them (`contractAdmits`).
+   */
+  readonly contract: EngineContract;
   /** Packs available to satisfy dependencies; absent: dependencies are not resolved (skipped). */
   readonly packs?: readonly AvailablePack[];
   /** The user's own disc archives by path, with their SHA-256; absent: archive dependencies are skipped. */
@@ -295,6 +397,12 @@ export interface PackContext {
   readonly handlers?: readonly PackHandlerCapability[];
   /** Slots already held, by the holding pack's id. */
   readonly claimedSlots?: Readonly<Record<string, string>>;
+  /**
+   * A `{id, range}` dependency no pack in `packs` satisfies (FX-5; FX.R11 "a missing dependency is listed, not
+   * refused"): `refuse` (the default) is `DEPENDENCY_MISSING`; `list` passes it and names it in the result's `missing`.
+   * A disc archive dependency, a cycle and an absent `packs` list are as before either way.
+   */
+  readonly missingDependencies?: "refuse" | "list";
   /** With no `s2u-pack.json`: the earlier loader's parsed manifest. */
   readonly legacy?: LegacyPackInput;
   /** The digest; WebCrypto by default. */
@@ -302,7 +410,14 @@ export interface PackContext {
 }
 
 export type PackValidation =
-  | { readonly ok: true; readonly manifest: PackManifest; readonly ref: PackRef; readonly report: CheckReport }
+  | {
+      readonly ok: true;
+      readonly manifest: PackManifest;
+      readonly ref: PackRef;
+      readonly report: CheckReport;
+      /** With `missingDependencies: "list"` only: the `{id, range}` dependencies no available pack satisfies, in manifest order. */
+      readonly missing?: readonly { readonly id: string; readonly range: string }[];
+    }
   | { readonly ok: false; readonly report: CheckReport };
 
 type Extra = Pick<DiagnosticInput, "file" | "field" | "expected" | "actual" | "hint">;
@@ -315,6 +430,10 @@ class Findings {
   }
   skipped(field: string, text: string): void {
     this.list.push(diagnostic({ source: "pack", severity: "note", status: "skipped", code: PACK_CODES.checkSkipped, text, field }) as PackDiagnostic);
+  }
+  /** A finding that refuses nothing: the report stays a pass (`reportStatus`). */
+  warning(code: PackCode, text: string, extra: Extra = {}): void {
+    this.list.push(diagnostic({ source: "pack", severity: "warning", code, text, ...extra }) as PackDiagnostic);
   }
 }
 
@@ -471,6 +590,30 @@ function copyClaimOptions(raw: unknown): { readonly value: Record<string, unknow
   return { value };
 }
 const text = (v: unknown, min: number, max: number): v is string => typeof v === "string" && v.length >= min && v.length <= max && PRINTABLE.test(v);
+/**
+ * An SPDX licence id by its shape only (FX-5; the brief: "checked by shape only"): a letter or digit, then letters,
+ * digits, dots and hyphens, an optional trailing `+` (`CC0-1.0`, `MIT`, `GPL-2.0+`, `LicenseRef-x`); no expression
+ * (`MIT OR Apache-2.0`), no space. Nothing checks it against the SPDX list.
+ */
+const SPDX_ID = /^[A-Za-z0-9][A-Za-z0-9.-]*\+?$/;
+/** An `extensions` key: a reverse-dotted name, two or more dotted lower-case segments (`org.example.tool`), at most 64. */
+const EXTENSION_NAME = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+$/;
+/**
+ * A `derived` provenance's `from` pack: exactly {id, version, hash}, as `content.ts` `checkPackRef` takes one (not
+ * imported: that module imports this one's types).
+ */
+const packRefShape = (v: unknown): v is PackRef =>
+  isObject(v) && Object.keys(v).length === 3 && packId(v.id) && typeof v.version === "string" && parseSemver(v.version) !== null && typeof v.hash === "string" && HEX64.test(v.hash);
+/** A row's `provenance` as the contract takes it (`PackProvenance`), a fresh copy; null for any other shape. */
+function readProvenance(v: unknown): PackProvenance | null {
+  if (!plainObject(v)) return null;
+  const keys = Object.keys(v).length;
+  if (v.kind === "original") return keys === 1 ? { kind: "original" } : null;
+  if (v.kind === "extracted") return keys === 1 ? { kind: "extracted" } : null;
+  if (v.kind !== "derived" || keys !== 2 || !Object.prototype.hasOwnProperty.call(v, "from")) return null;
+  if (v.from === PACK_PROVENANCE_IMPORT) return { kind: "derived", from: PACK_PROVENANCE_IMPORT };
+  return packRefShape(v.from) ? { kind: "derived", from: { id: v.from.id, version: v.from.version, hash: v.from.hash } } : null;
+}
 const oneOf = <T extends string>(list: readonly T[], v: unknown): v is T => typeof v === "string" && (list as readonly string[]).includes(v);
 
 type PathResult = { ok: true; path: string } | { ok: false; code: PackCode; text: string };
@@ -526,8 +669,11 @@ function scanUris(value: unknown, at: string, f: Findings, flagged: Set<string>)
   else if (isObject(value)) for (const [k, v] of Object.entries(value)) scanUris(v, at ? `${at}.${k}` : k, f, flagged);
 }
 
-const TOP_KEYS = new Set(["format", "formatVersion", "id", "version", "name", "description", "target", "contract", "kinds", "sides", "dependencies", "files", "intents", "handlers"]);
-const ROW_KEYS = new Set(["path", "sha256", "size", "role"]);
+const TOP_KEYS = new Set([
+  "format", "formatVersion", "id", "version", "name", "description", "target", "contract", "kinds", "sides", "dependencies", "files", "intents", "handlers",
+  "license", "authors", "extensions",
+]);
+const ROW_KEYS = new Set(["path", "sha256", "size", "role", "provenance"]);
 const CLAIM_KEYS = new Set(["slot", "handler", "actions", "options"]);
 /**
  * The fields the validator accepts -- a manifest's top level (beside `legacy`, an adapter's alone), a `files` row, a
@@ -582,8 +728,10 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
     f.error(PACK_CODES.targetMismatch, "The pack is for another disc revision than this build's.", { field: "target", expected: context.target, actual: raw.target });
   }
   if (typeof raw.contract !== "string" || !parseRange(raw.contract)) invalid("contract", "contract is a version range such as ^1.0.0.");
-  else if (satisfiesRange(context.contract, raw.contract) !== true) {
-    f.error(PACK_CODES.contractMismatch, "The build's engine contract is outside the pack's range.", { field: "contract", expected: raw.contract, actual: context.contract });
+  else if (!contractAdmits(raw.contract, context.contract)) {
+    // FX-5 (the spec's decision 8): any one of the build's versions in the range reads the pack; `actual` lists them.
+    const actual = engineContractVersions(context.contract).join(", ");
+    f.error(PACK_CODES.contractMismatch, "The build's engine contract is outside the pack's range.", { field: "contract", expected: raw.contract, actual });
   }
   const kinds = raw.kinds;
   if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > PACK_KINDS.length || new Set(kinds).size !== kinds.length || !kinds.every((k) => oneOf(PACK_KINDS, k))) {
@@ -593,6 +741,23 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
   if (Array.isArray(kinds) && kinds.includes("rules") && typeof raw.contract === "string" && parseRange(raw.contract) && !rangeHasFloor(raw.contract, RULES_PACK_CONTRACT_FLOOR)) {
     const why = `A rules pack's contract admits no engine before ${RULES_PACK_CONTRACT_FLOOR}, the first with the rules vocabulary.`;
     f.error(PACK_CODES.contractFloor, why, { field: "contract", expected: `^${RULES_PACK_CONTRACT_FLOOR}`, actual: raw.contract, hint: `State ^${RULES_PACK_CONTRACT_FLOOR} or a range whose every alternative starts at ${RULES_PACK_CONTRACT_FLOOR} or above.` });
+  }
+  // FX-5: a 0.2 field needs a range that admits no engine before 0.2.0 (as the rules floor, by `rangeHasFloor`); with a
+  // contract that does not parse, that refusal stands alone. `refuse02` is true when it refuses the field.
+  const contract02 = typeof raw.contract !== "string" || !parseRange(raw.contract) || rangeHasFloor(raw.contract, PACK_CONTRACT_0_2_FLOOR);
+  const refuse02 = (field: string): boolean => {
+    if (contract02) return false;
+    const why = `${field} is a contract ${PACK_CONTRACT_0_2_FLOOR} field: the pack's contract must admit no engine before ${PACK_CONTRACT_0_2_FLOOR}.`;
+    const hint = `State ^${PACK_CONTRACT_0_2_FLOOR}, or leave the field out to keep the lower range.`;
+    f.error(PACK_CODES.contractField, why, { field, expected: `^${PACK_CONTRACT_0_2_FLOOR}`, actual: String(raw.contract), hint });
+    return true;
+  };
+  // FX-5 (OT.R118): the reserved `plugin` kind -- a server's alone, a 0.2 kind, and one no page applies (a warning).
+  if (Array.isArray(kinds) && kinds.includes("plugin")) {
+    if (oneOf(PACK_SIDES, raw.sides) && raw.sides !== "server") invalid("sides", 'A plugin pack runs on a server alone: its sides is "server".', "server");
+    refuse02("kinds");
+    const hint = "The kind is reserved for community servers' plugins (OT.R118): the pack is stored, and nothing in this build runs it.";
+    f.warning(PACK_CODES.kindNotApplied, "plugin is a kind no page applies.", { field: "kinds", actual: "plugin", hint });
   }
 
   const dependencies: PackDependency[] = [];
@@ -659,8 +824,20 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
       if (types && !types.test(p.path)) {
         return f.error(PACK_CODES.roleMismatch, `A ${row.role} member is not that payload type.`, { file: p.path, field: `${at}.role`, expected: types.source, actual: p.path.split("/").pop() });
       }
+      // FX-5: the member's provenance, contract 0.2; `extracted` is refused in every context.
+      let provenance: PackProvenance | undefined;
+      if (row.provenance !== undefined) {
+        const read = readProvenance(row.provenance);
+        if (read === null) return invalid(`${at}.provenance`, 'provenance is {kind: "original"}, {kind: "derived", from: a pack reference or "import"} or {kind: "extracted"}.');
+        if (read.kind === "extracted") {
+          const hint = "Leave the member out: no game data ships, in a pack or anywhere.";
+          return f.error(PACK_CODES.provenanceRefused, "A member declared extracted is game content read off a disc, never a pack member.", { file: p.path, field: `${at}.provenance`, hint });
+        }
+        if (refuse02(`${at}.provenance`)) return;
+        provenance = read;
+      }
       refusedRaw.delete(row.path as string);
-      files.push({ path: p.path, sha256: row.sha256, size: row.size as number, role: row.role });
+      files.push({ path: p.path, sha256: row.sha256, size: row.size as number, role: row.role, ...(provenance ? { provenance } : {}) });
     });
   }
   files.sort((a, b) => compareUtf8(a.path, b.path));
@@ -742,6 +919,44 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
     }
   }
 
+  // FX-5, contract 0.2: the licence, the authors and the extensions, each optional and each by its shape.
+  let license: string | undefined;
+  if (raw.license !== undefined) {
+    if (typeof raw.license !== "string" || raw.license.length > PACK_LICENSE_CHARS_ADAPTATION || !SPDX_ID.test(raw.license)) {
+      invalid("license", `license is one SPDX licence id such as CC0-1.0 or MIT, at most ${PACK_LICENSE_CHARS_ADAPTATION} characters.`);
+    } else if (!refuse02("license")) license = raw.license;
+  }
+  let authors: string[] | undefined;
+  if (raw.authors !== undefined) {
+    const list = raw.authors;
+    if (Array.isArray(list) && list.some((_, i) => flagged.has(`authors[${i}]`))) {
+      // An address in a name: EXTERNAL_URI is said already.
+    } else if (
+      !Array.isArray(list) || list.length < 1 || list.length > PACK_AUTHORS_ADAPTATION ||
+      !list.every((a) => text(a, 1, PACK_AUTHOR_CHARS_ADAPTATION) && !a.includes("@") && !a.includes("://"))
+    ) {
+      invalid("authors", `authors lists 1-${PACK_AUTHORS_ADAPTATION} display names of 1-${PACK_AUTHOR_CHARS_ADAPTATION} printable characters, with no e-mail address or link.`);
+    } else if (!refuse02("authors")) authors = [...(list as string[])];
+  }
+  let extensions: Record<string, unknown> | undefined;
+  if (raw.extensions !== undefined) {
+    const ext = raw.extensions;
+    let canonical: string | null = null;
+    if (plainObject(ext) && Object.keys(ext).every((k) => k.length <= 64 && EXTENSION_NAME.test(k))) {
+      try {
+        canonical = canonicalJson(ext);
+      } catch {
+        canonical = null;
+      }
+    }
+    const bytes = canonical === null ? 0 : new TextEncoder().encode(canonical).length;
+    if (canonical === null) invalid("extensions", "extensions is one JSON object whose keys are reverse-dotted names such as org.example.tool.");
+    else if (bytes > PACK_EXTENSIONS_BYTES_ADAPTATION) {
+      const why = `extensions are at most ${PACK_EXTENSIONS_BYTES_ADAPTATION} bytes of canonical JSON.`;
+      f.error(PACK_CODES.limitExceeded, why, { field: "extensions", expected: String(PACK_EXTENSIONS_BYTES_ADAPTATION), actual: String(bytes) });
+    } else if (!refuse02("extensions")) extensions = JSON.parse(canonical) as Record<string, unknown>;
+  }
+
   let legacyField: PackManifest["legacy"];
   if (legacy && raw.legacy !== undefined) {
     const l = raw.legacy;
@@ -764,6 +979,9 @@ function readManifest(raw: Record<string, unknown>, context: PackContext, f: Fin
     files,
     intents,
     ...(handlers ? { handlers } : {}),
+    ...(license !== undefined ? { license } : {}),
+    ...(authors !== undefined ? { authors } : {}),
+    ...(extensions !== undefined ? { extensions } : {}),
     ...(legacyField ? { legacy: legacyField } : {}),
   };
   return { manifest, packDeps, archiveDeps, claims };
@@ -954,9 +1172,11 @@ function capabilityChecks(manifest: PackManifest, bodies: readonly { readonly pa
   });
 }
 
-function contextChecks(parsed: Parsed, context: PackContext, f: Findings): void {
+/** The context's checks; returns the `{id, range}` dependencies it listed rather than refused (`missingDependencies`). */
+function contextChecks(parsed: Parsed, context: PackContext, f: Findings): { id: string; range: string }[] {
   const { manifest } = parsed;
   const deps = manifest.dependencies;
+  const missing: { id: string; range: string }[] = [];
   if (parsed.packDeps.length) {
     if (!context.packs) f.skipped("dependencies", "No list of available packs was given, so dependencies were not resolved.");
     else {
@@ -964,6 +1184,10 @@ function contextChecks(parsed: Parsed, context: PackContext, f: Findings): void 
         const dep = deps[i] as { id: string; range: string };
         const candidates = context.packs.filter((p) => p.ref.id === dep.id);
         if (!candidates.some((p) => satisfiesRange(p.ref.version, dep.range) === true)) {
+          if (context.missingDependencies === "list") {
+            missing.push({ id: dep.id, range: dep.range });
+            continue;
+          }
           f.error(PACK_CODES.dependencyMissing, `No available ${dep.id} is in ${dep.range}.`, {
             field: `dependencies[${i}]`,
             expected: `${dep.id} ${dep.range}`,
@@ -1021,6 +1245,7 @@ function contextChecks(parsed: Parsed, context: PackContext, f: Findings): void 
       f.error(PACK_CODES.handlerConflict, `Slot ${claim.slot} is held by another pack.`, { field: `handlers[${i}].slot`, expected: "a free slot", actual: holder });
     }
   }
+  return missing;
 }
 
 function freeze<T>(value: T): T {
@@ -1167,11 +1392,11 @@ export async function validatePack(files: readonly PackFile[], context: PackCont
     }
     if (!f.errors && manifest.files.some((m) => m.role === "rules")) capabilityChecks(manifest, rulesBodies, f);
   }
-  contextChecks(parsed, context, f);
+  const missing = contextChecks(parsed, context, f);
   const report = checkReport(f.list, { evidence: "validation" });
   if (report.status !== "pass") return { ok: false, report };
   const ref: PackRef = freeze({ id: manifest.id, version: manifest.version, hash: await packDigest(manifest, context.sha256) });
-  return { ok: true, manifest: freeze(manifest), ref, report };
+  return { ok: true, manifest: freeze(manifest), ref, report, ...(context.missingDependencies === "list" ? { missing: freeze(missing) } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1181,11 +1406,13 @@ export async function validatePack(files: readonly PackFile[], context: PackCont
 export const THUNDERSTORE_ADAPTATION =
   "Thunderstore's package format, fitted with no fetch and no store page (H342): its root files ride beside s2u-pack.json outside the pack's identity, and an export maps our identity onto the store's" as const;
 /**
- * The Thunderstore team (namespace) our packs publish under: the owner's to name (HUMAN_TASKS H342; the rules spec §8,
- * §13). A stand-in until H342 is answered -- itself a valid store name, so an export's dependency pins are well formed
- * -- and never a real team. Listed in research 370's placeholders.
+ * The Thunderstore team (namespace) the project's own packs publish under, named by the owner on 2026-11-11 (plan
+ * `2026-11-11-forge-export-sprint.md` FX.R2, answering HUMAN_TASKS H342): "SOCOM_Legacy yeah that sounds good i think".
+ * The community is `socom-legacy`; the store's team names take letters, digits and `_` only, so the slug cannot be the
+ * team. The team is not yet created on thunderstore.io: the owner makes it "when we have something to upload" (FX.R2).
+ * The default of `thunderstoreIdentity` and of `thunderstoreManifest`'s own `team`; never a dependency's team.
  */
-export const THUNDERSTORE_TEAM_PLACEHOLDER = "TEAM_PLACEHOLDER";
+export const THUNDERSTORE_TEAM = "SOCOM_Legacy";
 /**
  * Thunderstore's stated package rules as data (wiki.thunderstore.io, "Creating a package", read 2026-10-26 and quoted
  * in `docs/specs/2026-10-27-creator-rules-contract.md` §8; nothing fetched at run time): the root files, the store
@@ -1217,6 +1444,8 @@ export const THUNDERSTORE_CODES = Object.freeze({
   websiteInvalid: "store.WEBSITE_INVALID",
   /** A `{id, range}` dependency with no available release in its range to pin. */
   dependencyUnresolved: "store.DEPENDENCY_UNRESOLVED",
+  /** A `{id, range}` dependency whose store team the export was not given: refused, never guessed (FX-4). */
+  dependencyTeamUnknown: "store.DEPENDENCY_TEAM_UNKNOWN",
   /** A note: a disc archive dependency stays in `s2u-pack.json`; the store has no such dependency. */
   archiveDependency: "store.ARCHIVE_DEPENDENCY",
   fileMissing: "store.FILE_MISSING",
@@ -1243,8 +1472,8 @@ export function thunderstoreName(id: string): string | null {
   const name = id.replace(/[.-]/g, "_");
   return storeName(name) ? name : null;
 }
-/** Our id as the store's `Team-Name` under `team` (the placeholder until H342); null when either is outside the grammar. */
-export function thunderstoreIdentity(id: string, team: string = THUNDERSTORE_TEAM_PLACEHOLDER): { readonly team: string; readonly name: string; readonly full: string } | null {
+/** Our id as the store's `Team-Name` under `team` (`THUNDERSTORE_TEAM` by default); null when either is outside the grammar. */
+export function thunderstoreIdentity(id: string, team: string = THUNDERSTORE_TEAM): { readonly team: string; readonly name: string; readonly full: string } | null {
   const name = thunderstoreName(id);
   return name !== null && storeName(team) ? { team, name, full: `${team}-${name}` } : null;
 }
@@ -1262,8 +1491,17 @@ export interface ThunderstoreManifest {
   readonly dependencies: readonly string[];
 }
 export interface ThunderstoreExportOptions {
-  /** The team; `THUNDERSTORE_TEAM_PLACEHOLDER` until H342 names it. */
+  /**
+   * The package's own team, `THUNDERSTORE_TEAM` by default: checked against the store's grammar (`TEAM_INVALID`) and
+   * written nowhere -- the store's manifest has no team; the uploader's account gives it. Never a dependency's team.
+   */
   readonly team?: string;
+  /**
+   * Each `{id, range}` dependency's store team, by our id (own keys only): the team that published it, as the caller can
+   * prove it (the store's download name `<Team>-<name>-<version>`, a registry record). A dependency with none is
+   * `DEPENDENCY_TEAM_UNKNOWN`.
+   */
+  readonly teams?: Readonly<Record<string, string>>;
   /** The packs the dependency ranges resolve against (the device's); absent, a `{id, range}` dependency is unresolved. */
   readonly packs?: readonly AvailablePack[];
   /** The store's `website_url` (ours cannot carry one: `EXTERNAL_URI`); empty by default. */
@@ -1279,14 +1517,20 @@ export type ThunderstoreExport =
  * A validated v2 manifest as the store's `manifest.json`. The name is `thunderstoreName(id)`; the version must be
  * strictly Major.Minor.Patch. Each `{id, range}` dependency becomes the exact pin `Team-Name-x.y.z`, its version the
  * highest release among `options.packs` with that id inside the range (pre-releases are not store versions, so never
- * pinned); none is `DEPENDENCY_UNRESOLVED`. A disc archive dependency has no store form: it stays in `s2u-pack.json`
+ * pinned); none is `DEPENDENCY_UNRESOLVED`.
+ *
+ * The dependency-team rule (FX-4; spec 2026-11-11 §2.5): a pin's `Team` is the team that published that dependency,
+ * `options.teams[dep.id]` -- never the exporter's own `team`. Our id cannot carry a store team (its grammar is
+ * `[a-z0-9.-]`, the store's team `[A-Za-z0-9_]`: `SOCOM_Legacy` has no spelling in an id), so no team is read off an
+ * id. A dependency with no team given is `DEPENDENCY_TEAM_UNKNOWN`; one given outside the store's grammar is
+ * `TEAM_INVALID` on that dependency. Each dependency reports one refusal, resolution first. A disc archive dependency has no store form: it stays in `s2u-pack.json`
  * (a note). Any two ids among the pack's own and its dependency closure (the given packs' own dependencies, followed) that meet on one store name are
  * `NAME_COLLISION`. Nothing is truncated or renamed to fit: what does not fit is refused.
  */
 export function thunderstoreManifest(manifest: PackManifest, options: ThunderstoreExportOptions = {}): ThunderstoreExport {
   const list: Diagnostic[] = [];
   const error = (code: ThunderstoreCode, text: string, extra: Extra = {}): void => void list.push(diagnostic({ source: "pack", severity: "error", code, text, ...extra }));
-  const team = options.team ?? THUNDERSTORE_TEAM_PLACEHOLDER;
+  const team = options.team ?? THUNDERSTORE_TEAM;
   if (!storeName(team)) error(THUNDERSTORE_CODES.teamInvalid, "The team is 1-128 of A-Z, a-z, 0-9 and _.", { field: "team", actual: String(team).slice(0, 80) });
   const name = thunderstoreName(manifest.id);
   if (name === null) error(THUNDERSTORE_CODES.nameInvalid, "The pack's id has no store name.", { field: "id", actual: manifest.id });
@@ -1344,11 +1588,66 @@ export function thunderstoreManifest(manifest: PackManifest, options: Thundersto
       error(THUNDERSTORE_CODES.dependencyUnresolved, `No available release of ${dep.id} is in ${dep.range} to pin.`, { field, expected: `${dep.id} ${dep.range}`, actual });
       return;
     }
-    pins.push(`${team}-${depName}-${best.ref.version}`);
+    const teams = options.teams ?? {};
+    const depTeam = Object.hasOwn(teams, dep.id) ? teams[dep.id] : undefined;
+    if (depTeam === undefined) {
+      const hint = "Give the team that published it (the store's Team-Name of the dependency); the exporter's team is never assumed.";
+      error(THUNDERSTORE_CODES.dependencyTeamUnknown, `The store team of ${dep.id} is not known.`, { field, actual: dep.id, hint });
+      return;
+    }
+    if (!storeName(depTeam)) {
+      error(THUNDERSTORE_CODES.teamInvalid, "The team is 1-128 of A-Z, a-z, 0-9 and _.", { field, expected: dep.id, actual: String(depTeam).slice(0, 80) });
+      return;
+    }
+    pins.push(`${depTeam}-${depName}-${best.ref.version}`);
   });
   const report = checkReport(list, { evidence: "validation" });
   if (report.status !== "pass" || name === null || version === null) return { ok: false, report };
   return { ok: true, manifest: freeze({ name, version_number: version, website_url: website, description, dependencies: pins }), report };
+}
+
+/** What `thunderstoreReadme` writes from: the pack's validated manifest, and what the manifest does not hold (yet). */
+export interface ThunderstoreReadmeInput {
+  readonly manifest: PackManifest;
+  /** The maps the pack holds, each by the name a player knows (a display name, never a disc stem) and its member path. */
+  readonly maps?: readonly { readonly name: string; readonly path: string }[];
+  /** The licence (an SPDX id): the caller's, else the manifest's own `license` (FX-5, contract 0.2). */
+  readonly license?: string;
+  /** The authors' names: the caller's, else the manifest's own `authors` (FX-5, contract 0.2). */
+  readonly authors?: readonly string[];
+}
+/** One plain line per kind for the store README, in `PACK_KINDS`' order. */
+const README_KIND_LINES: Readonly<Record<PackKind, string>> = Object.freeze({
+  content: "Content: models, textures, sounds or maps.",
+  rules: "Rules: game-mode rules as data, never code.",
+  system: "System: changes made through handler slots the engine owns.",
+  plugin: "Plugin (reserved): code for a community server, run by the server alone; no page applies it.",
+});
+/**
+ * The store's `README.md` for a pack (FX-4; A3 E3; a browser adaptation with no original): its name and description,
+ * its id and version, what it is (one line per kind in `PACK_KINDS`' order, then one per map given), what it needs
+ * (each dependency in the manifest's order, or that it needs nothing), and its licence and authors when given or when
+ * the manifest carries them (contract 0.2, FX-5; the caller's win). Plain
+ * words, LF line ends, one trailing newline; the same input gives the same bytes. It is a store file: outside the
+ * pack's digest (`THUNDERSTORE_STORE_FILES`).
+ */
+export function thunderstoreReadme(input: ThunderstoreReadmeInput): string {
+  const m = input.manifest;
+  const lines: string[] = [`# ${m.name}`, ""];
+  if (m.description) lines.push(m.description, "");
+  lines.push(`Pack \`${m.id}\`, version ${m.version}.`, "", "## What it is", "");
+  for (const kind of PACK_KINDS) if (m.kinds.includes(kind)) lines.push(`- ${README_KIND_LINES[kind]}`);
+  for (const map of input.maps ?? []) lines.push(`- A map: ${map.name} (\`${map.path}\`).`);
+  lines.push("", "## What it needs", "");
+  if (m.dependencies.length === 0) lines.push("Nothing else: this pack stands alone.");
+  for (const dep of m.dependencies) {
+    lines.push("id" in dep ? `- The pack \`${dep.id}\`, a version in \`${dep.range}\`.` : `- \`${dep.archive}\` from your own copy of the game; it is not in this package.`);
+  }
+  const license = input.license ?? m.license;
+  const authors = input.authors ?? m.authors;
+  if (license) lines.push("", "## Licence", "", license);
+  if (authors && authors.length > 0) lines.push("", "## Authors", "", ...authors.map((a) => `- ${a}`));
+  return `${lines.join("\n")}\n`;
 }
 
 export interface ThunderstoreCheckOptions {

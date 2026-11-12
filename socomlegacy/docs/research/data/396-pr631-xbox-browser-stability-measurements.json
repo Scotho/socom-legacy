@@ -1,0 +1,1080 @@
+{
+  "sourceCommit": "08cb24485a3d2f938aa6b30bccb87158acb110ee",
+  "status": "Xbox whole-browser shutdown unresolved",
+  "units": {
+    "bufferBytes": "Cumulative delivered or uploaded bytes, not resident memory",
+    "audioBytes": "Cumulative PCM buffer creation, not retained memory",
+    "heap": "Main-thread browser-reported usedJSHeapSize only"
+  },
+  "physicalXbox": {
+    "assetSource": "PC-served extracted files",
+    "requestedGraphics": "xbox",
+    "actualContext": "webgl2",
+    "antialias": false,
+    "firstMatchSampleUtc": "2026-11-01T02:11:07.916Z",
+    "lastSampleUtc": "2026-11-01T02:12:07.980Z",
+    "lastCanvas": {
+      "width": 960,
+      "height": 479,
+      "cssWidth": 1280,
+      "cssHeight": 639
+    },
+    "lastContextLost": false,
+    "userReported": "The whole browser closed after the match loaded",
+    "outcome": "Failed stability test",
+    "heapReadingUsable": false,
+    "lowerResolutionPhysicalTest": "Not performed"
+  },
+  "offlineDesktop": [
+    {
+      "profile": "baseline",
+      "ratio": 1.25,
+      "canvases": [
+        {
+          "width": 1600,
+          "height": 800,
+          "cssWidth": 1280,
+          "cssHeight": 640
+        },
+        {
+          "width": 640,
+          "height": 448,
+          "cssWidth": 0,
+          "cssHeight": 0
+        },
+        {
+          "width": 288,
+          "height": 140,
+          "cssWidth": 0,
+          "cssHeight": 0
+        }
+      ],
+      "initial": {
+        "profile": "baseline",
+        "nativeRatio": 1.25,
+        "effectiveRatio": 1.25,
+        "graphics": [
+          {
+            "type": "webgl2",
+            "resources": {
+              "Texture": {
+                "created": 310,
+                "deleted": 77,
+                "live": 233,
+                "peak": 233
+              },
+              "Buffer": {
+                "created": 8448,
+                "deleted": 940,
+                "live": 7508,
+                "peak": 7508
+              },
+              "Framebuffer": {
+                "created": 1,
+                "deleted": 0,
+                "live": 1,
+                "peak": 1
+              },
+              "Renderbuffer": {
+                "created": 0,
+                "deleted": 0,
+                "live": 0,
+                "peak": 0
+              },
+              "Shader": {
+                "created": 162,
+                "deleted": 0,
+                "live": 162,
+                "peak": 162
+              },
+              "Program": {
+                "created": 122,
+                "deleted": 0,
+                "live": 122,
+                "peak": 122
+              },
+              "VertexArray": {
+                "created": 508,
+                "deleted": 0,
+                "live": 508,
+                "peak": 508
+              }
+            },
+            "bufferUploadBytes": 72224244,
+            "bufferAllocations": 98579
+          }
+        ],
+        "workers": {
+          "created": 1,
+          "terminated": 0,
+          "messages": {
+            "index": {
+              "count": 1,
+              "cumulativeBufferBytes": 0,
+              "maxMessageBufferBytes": 0,
+              "truncated": false
+            },
+            "play": {
+              "count": 1,
+              "cumulativeBufferBytes": 2007376,
+              "maxMessageBufferBytes": 2007376,
+              "truncated": false
+            },
+            "map": {
+              "count": 1,
+              "cumulativeBufferBytes": 13994042,
+              "maxMessageBufferBytes": 13994042,
+              "truncated": false
+            },
+            "armory": {
+              "count": 1,
+              "cumulativeBufferBytes": 6355696,
+              "maxMessageBufferBytes": 6355696,
+              "truncated": false
+            },
+            "effects": {
+              "count": 1,
+              "cumulativeBufferBytes": 272336,
+              "maxMessageBufferBytes": 272336,
+              "truncated": false
+            },
+            "sound": {
+              "count": 1,
+              "cumulativeBufferBytes": 75470032,
+              "maxMessageBufferBytes": 75470032,
+              "truncated": false
+            },
+            "soundLoops": {
+              "count": 1,
+              "cumulativeBufferBytes": 32256000,
+              "maxMessageBufferBytes": 32256000,
+              "truncated": false
+            }
+          }
+        },
+        "audio": {
+          "buffersCreated": 6,
+          "cumulativePcmBytes": 32385632,
+          "maxSingleBufferBytes": 9216000
+        }
+      },
+      "settled": {
+        "profile": "baseline",
+        "nativeRatio": 1.25,
+        "effectiveRatio": 1.25,
+        "graphics": [
+          {
+            "type": "webgl2",
+            "resources": {
+              "Texture": {
+                "created": 310,
+                "deleted": 77,
+                "live": 233,
+                "peak": 233
+              },
+              "Buffer": {
+                "created": 8448,
+                "deleted": 940,
+                "live": 7508,
+                "peak": 7508
+              },
+              "Framebuffer": {
+                "created": 1,
+                "deleted": 0,
+                "live": 1,
+                "peak": 1
+              },
+              "Renderbuffer": {
+                "created": 0,
+                "deleted": 0,
+                "live": 0,
+                "peak": 0
+              },
+              "Shader": {
+                "created": 162,
+                "deleted": 0,
+                "live": 162,
+                "peak": 162
+              },
+              "Program": {
+                "created": 122,
+                "deleted": 0,
+                "live": 122,
+                "peak": 122
+              },
+              "VertexArray": {
+                "created": 508,
+                "deleted": 0,
+                "live": 508,
+                "peak": 508
+              }
+            },
+            "bufferUploadBytes": 162582644,
+            "bufferAllocations": 214094
+          }
+        ],
+        "workers": {
+          "created": 1,
+          "terminated": 0,
+          "messages": {
+            "index": {
+              "count": 1,
+              "cumulativeBufferBytes": 0,
+              "maxMessageBufferBytes": 0,
+              "truncated": false
+            },
+            "play": {
+              "count": 1,
+              "cumulativeBufferBytes": 2007376,
+              "maxMessageBufferBytes": 2007376,
+              "truncated": false
+            },
+            "map": {
+              "count": 1,
+              "cumulativeBufferBytes": 13994042,
+              "maxMessageBufferBytes": 13994042,
+              "truncated": false
+            },
+            "armory": {
+              "count": 1,
+              "cumulativeBufferBytes": 6355696,
+              "maxMessageBufferBytes": 6355696,
+              "truncated": false
+            },
+            "effects": {
+              "count": 1,
+              "cumulativeBufferBytes": 272336,
+              "maxMessageBufferBytes": 272336,
+              "truncated": false
+            },
+            "sound": {
+              "count": 1,
+              "cumulativeBufferBytes": 75470032,
+              "maxMessageBufferBytes": 75470032,
+              "truncated": false
+            },
+            "soundLoops": {
+              "count": 1,
+              "cumulativeBufferBytes": 32256000,
+              "maxMessageBufferBytes": 32256000,
+              "truncated": false
+            }
+          }
+        },
+        "audio": {
+          "buffersCreated": 10,
+          "cumulativePcmBytes": 40065632,
+          "maxSingleBufferBytes": 9216000
+        }
+      },
+      "pageErrors": []
+    },
+    {
+      "profile": "low",
+      "ratio": 0.5,
+      "canvases": [
+        {
+          "width": 640,
+          "height": 320,
+          "cssWidth": 1280,
+          "cssHeight": 640
+        },
+        {
+          "width": 640,
+          "height": 448,
+          "cssWidth": 0,
+          "cssHeight": 0
+        },
+        {
+          "width": 288,
+          "height": 140,
+          "cssWidth": 0,
+          "cssHeight": 0
+        }
+      ],
+      "initial": {
+        "profile": "low-pixels",
+        "nativeRatio": 1.25,
+        "effectiveRatio": 0.5,
+        "graphics": [
+          {
+            "type": "webgl2",
+            "resources": {
+              "Texture": {
+                "created": 310,
+                "deleted": 77,
+                "live": 233,
+                "peak": 233
+              },
+              "Buffer": {
+                "created": 8448,
+                "deleted": 940,
+                "live": 7508,
+                "peak": 7508
+              },
+              "Framebuffer": {
+                "created": 1,
+                "deleted": 0,
+                "live": 1,
+                "peak": 1
+              },
+              "Renderbuffer": {
+                "created": 0,
+                "deleted": 0,
+                "live": 0,
+                "peak": 0
+              },
+              "Shader": {
+                "created": 162,
+                "deleted": 0,
+                "live": 162,
+                "peak": 162
+              },
+              "Program": {
+                "created": 122,
+                "deleted": 0,
+                "live": 122,
+                "peak": 122
+              },
+              "VertexArray": {
+                "created": 508,
+                "deleted": 0,
+                "live": 508,
+                "peak": 508
+              }
+            },
+            "bufferUploadBytes": 58939892,
+            "bufferAllocations": 81391
+          }
+        ],
+        "workers": {
+          "created": 1,
+          "terminated": 0,
+          "messages": {
+            "index": {
+              "count": 1,
+              "cumulativeBufferBytes": 0,
+              "maxMessageBufferBytes": 0,
+              "truncated": false
+            },
+            "play": {
+              "count": 1,
+              "cumulativeBufferBytes": 2007376,
+              "maxMessageBufferBytes": 2007376,
+              "truncated": false
+            },
+            "map": {
+              "count": 1,
+              "cumulativeBufferBytes": 13994042,
+              "maxMessageBufferBytes": 13994042,
+              "truncated": false
+            },
+            "armory": {
+              "count": 1,
+              "cumulativeBufferBytes": 6355696,
+              "maxMessageBufferBytes": 6355696,
+              "truncated": false
+            },
+            "effects": {
+              "count": 1,
+              "cumulativeBufferBytes": 272336,
+              "maxMessageBufferBytes": 272336,
+              "truncated": false
+            },
+            "sound": {
+              "count": 1,
+              "cumulativeBufferBytes": 75470032,
+              "maxMessageBufferBytes": 75470032,
+              "truncated": false
+            },
+            "soundLoops": {
+              "count": 1,
+              "cumulativeBufferBytes": 32256000,
+              "maxMessageBufferBytes": 32256000,
+              "truncated": false
+            }
+          }
+        },
+        "audio": {
+          "buffersCreated": 6,
+          "cumulativePcmBytes": 32385632,
+          "maxSingleBufferBytes": 9216000
+        }
+      },
+      "settled": {
+        "profile": "low-pixels",
+        "nativeRatio": 1.25,
+        "effectiveRatio": 0.5,
+        "graphics": [
+          {
+            "type": "webgl2",
+            "resources": {
+              "Texture": {
+                "created": 310,
+                "deleted": 77,
+                "live": 233,
+                "peak": 233
+              },
+              "Buffer": {
+                "created": 8448,
+                "deleted": 940,
+                "live": 7508,
+                "peak": 7508
+              },
+              "Framebuffer": {
+                "created": 1,
+                "deleted": 0,
+                "live": 1,
+                "peak": 1
+              },
+              "Renderbuffer": {
+                "created": 0,
+                "deleted": 0,
+                "live": 0,
+                "peak": 0
+              },
+              "Shader": {
+                "created": 162,
+                "deleted": 0,
+                "live": 162,
+                "peak": 162
+              },
+              "Program": {
+                "created": 122,
+                "deleted": 0,
+                "live": 122,
+                "peak": 122
+              },
+              "VertexArray": {
+                "created": 508,
+                "deleted": 0,
+                "live": 508,
+                "peak": 508
+              }
+            },
+            "bufferUploadBytes": 143419892,
+            "bufferAllocations": 189391
+          }
+        ],
+        "workers": {
+          "created": 1,
+          "terminated": 0,
+          "messages": {
+            "index": {
+              "count": 1,
+              "cumulativeBufferBytes": 0,
+              "maxMessageBufferBytes": 0,
+              "truncated": false
+            },
+            "play": {
+              "count": 1,
+              "cumulativeBufferBytes": 2007376,
+              "maxMessageBufferBytes": 2007376,
+              "truncated": false
+            },
+            "map": {
+              "count": 1,
+              "cumulativeBufferBytes": 13994042,
+              "maxMessageBufferBytes": 13994042,
+              "truncated": false
+            },
+            "armory": {
+              "count": 1,
+              "cumulativeBufferBytes": 6355696,
+              "maxMessageBufferBytes": 6355696,
+              "truncated": false
+            },
+            "effects": {
+              "count": 1,
+              "cumulativeBufferBytes": 272336,
+              "maxMessageBufferBytes": 272336,
+              "truncated": false
+            },
+            "sound": {
+              "count": 1,
+              "cumulativeBufferBytes": 75470032,
+              "maxMessageBufferBytes": 75470032,
+              "truncated": false
+            },
+            "soundLoops": {
+              "count": 1,
+              "cumulativeBufferBytes": 32256000,
+              "maxMessageBufferBytes": 32256000,
+              "truncated": false
+            }
+          }
+        },
+        "audio": {
+          "buffersCreated": 10,
+          "cumulativePcmBytes": 40065632,
+          "maxSingleBufferBytes": 9216000
+        }
+      },
+      "pageErrors": []
+    }
+  ],
+  "multiplayerDesktop": {
+    "rules": "classic",
+    "stages": [
+      {
+        "label": "briefing",
+        "time": "2026-11-01T02:27:31.985Z",
+        "phase": "idle",
+        "heap": 189478851,
+        "resources": {
+          "profile": "baseline",
+          "nativeRatio": 1,
+          "effectiveRatio": 1,
+          "graphics": [],
+          "workers": {
+            "created": 0,
+            "terminated": 0,
+            "messages": {}
+          },
+          "audio": {
+            "buffersCreated": 58,
+            "cumulativePcmBytes": 5070320,
+            "maxSingleBufferBytes": 315392
+          }
+        },
+        "canvases": [
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 640,
+            "cssHeight": 448
+          }
+        ]
+      },
+      {
+        "label": "game-lobby",
+        "time": "2026-11-01T02:27:49.157Z",
+        "phase": "idle",
+        "heap": 164010920,
+        "resources": {
+          "profile": "baseline",
+          "nativeRatio": 1,
+          "effectiveRatio": 1,
+          "graphics": [],
+          "workers": {
+            "created": 0,
+            "terminated": 0,
+            "messages": {}
+          },
+          "audio": {
+            "buffersCreated": 101,
+            "cumulativePcmBytes": 10087512,
+            "maxSingleBufferBytes": 315392
+          }
+        },
+        "canvases": [
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 640,
+            "cssHeight": 448
+          }
+        ]
+      },
+      {
+        "label": "match-start",
+        "time": "2026-11-01T02:28:45.896Z",
+        "phase": "match",
+        "heap": 341591197,
+        "resources": {
+          "profile": "baseline",
+          "nativeRatio": 1,
+          "effectiveRatio": 1,
+          "graphics": [
+            {
+              "type": "webgl2",
+              "resources": {
+                "Texture": {
+                  "created": 116,
+                  "deleted": 0,
+                  "live": 116,
+                  "peak": 116
+                },
+                "Buffer": {
+                  "created": 2680,
+                  "deleted": 0,
+                  "live": 2680,
+                  "peak": 2680
+                },
+                "Framebuffer": {
+                  "created": 1,
+                  "deleted": 0,
+                  "live": 1,
+                  "peak": 1
+                },
+                "Renderbuffer": {
+                  "created": 0,
+                  "deleted": 0,
+                  "live": 0,
+                  "peak": 0
+                },
+                "Shader": {
+                  "created": 77,
+                  "deleted": 0,
+                  "live": 77,
+                  "peak": 77
+                },
+                "Program": {
+                  "created": 53,
+                  "deleted": 0,
+                  "live": 53,
+                  "peak": 53
+                },
+                "VertexArray": {
+                  "created": 513,
+                  "deleted": 0,
+                  "live": 513,
+                  "peak": 513
+                }
+              },
+              "bufferUploadBytes": 2223724,
+              "bufferAllocations": 4023
+            }
+          ],
+          "workers": {
+            "created": 1,
+            "terminated": 0,
+            "messages": {
+              "play": {
+                "count": 1,
+                "cumulativeBufferBytes": 2007376,
+                "maxMessageBufferBytes": 2007376,
+                "truncated": false
+              },
+              "map": {
+                "count": 1,
+                "cumulativeBufferBytes": 13994042,
+                "maxMessageBufferBytes": 13994042,
+                "truncated": false
+              },
+              "effects": {
+                "count": 1,
+                "cumulativeBufferBytes": 272336,
+                "maxMessageBufferBytes": 272336,
+                "truncated": false
+              },
+              "sound": {
+                "count": 1,
+                "cumulativeBufferBytes": 75470032,
+                "maxMessageBufferBytes": 75470032,
+                "truncated": false
+              },
+              "soundLoops": {
+                "count": 1,
+                "cumulativeBufferBytes": 32256000,
+                "maxMessageBufferBytes": 32256000,
+                "truncated": false
+              }
+            }
+          },
+          "audio": {
+            "buffersCreated": 113,
+            "cumulativePcmBytes": 42887600,
+            "maxSingleBufferBytes": 9216000
+          }
+        },
+        "canvases": [
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 640,
+            "cssHeight": 448
+          }
+        ]
+      },
+      {
+        "label": "match-30s",
+        "time": "2026-11-01T02:29:15.910Z",
+        "phase": "match",
+        "heap": 329055431,
+        "resources": {
+          "profile": "baseline",
+          "nativeRatio": 1,
+          "effectiveRatio": 1,
+          "graphics": [
+            {
+              "type": "webgl2",
+              "resources": {
+                "Texture": {
+                  "created": 163,
+                  "deleted": 0,
+                  "live": 163,
+                  "peak": 163
+                },
+                "Buffer": {
+                  "created": 5218,
+                  "deleted": 12,
+                  "live": 5206,
+                  "peak": 5206
+                },
+                "Framebuffer": {
+                  "created": 1,
+                  "deleted": 0,
+                  "live": 1,
+                  "peak": 1
+                },
+                "Renderbuffer": {
+                  "created": 0,
+                  "deleted": 0,
+                  "live": 0,
+                  "peak": 0
+                },
+                "Shader": {
+                  "created": 148,
+                  "deleted": 0,
+                  "live": 148,
+                  "peak": 148
+                },
+                "Program": {
+                  "created": 115,
+                  "deleted": 0,
+                  "live": 115,
+                  "peak": 115
+                },
+                "VertexArray": {
+                  "created": 521,
+                  "deleted": 0,
+                  "live": 521,
+                  "peak": 521
+                }
+              },
+              "bufferUploadBytes": 214432880,
+              "bufferAllocations": 203686
+            }
+          ],
+          "workers": {
+            "created": 1,
+            "terminated": 0,
+            "messages": {
+              "play": {
+                "count": 1,
+                "cumulativeBufferBytes": 2007376,
+                "maxMessageBufferBytes": 2007376,
+                "truncated": false
+              },
+              "map": {
+                "count": 1,
+                "cumulativeBufferBytes": 13994042,
+                "maxMessageBufferBytes": 13994042,
+                "truncated": false
+              },
+              "effects": {
+                "count": 1,
+                "cumulativeBufferBytes": 272336,
+                "maxMessageBufferBytes": 272336,
+                "truncated": false
+              },
+              "sound": {
+                "count": 1,
+                "cumulativeBufferBytes": 75470032,
+                "maxMessageBufferBytes": 75470032,
+                "truncated": false
+              },
+              "soundLoops": {
+                "count": 1,
+                "cumulativeBufferBytes": 32256000,
+                "maxMessageBufferBytes": 32256000,
+                "truncated": false
+              }
+            }
+          },
+          "audio": {
+            "buffersCreated": 119,
+            "cumulativePcmBytes": 62127664,
+            "maxSingleBufferBytes": 9640064
+          }
+        },
+        "canvases": [
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 640,
+            "cssHeight": 448
+          }
+        ]
+      },
+      {
+        "label": "match-60s",
+        "time": "2026-11-01T02:29:45.925Z",
+        "phase": "match",
+        "heap": 324070337,
+        "resources": {
+          "profile": "baseline",
+          "nativeRatio": 1,
+          "effectiveRatio": 1,
+          "graphics": [
+            {
+              "type": "webgl2",
+              "resources": {
+                "Texture": {
+                  "created": 163,
+                  "deleted": 0,
+                  "live": 163,
+                  "peak": 163
+                },
+                "Buffer": {
+                  "created": 5218,
+                  "deleted": 12,
+                  "live": 5206,
+                  "peak": 5206
+                },
+                "Framebuffer": {
+                  "created": 1,
+                  "deleted": 0,
+                  "live": 1,
+                  "peak": 1
+                },
+                "Renderbuffer": {
+                  "created": 0,
+                  "deleted": 0,
+                  "live": 0,
+                  "peak": 0
+                },
+                "Shader": {
+                  "created": 148,
+                  "deleted": 0,
+                  "live": 148,
+                  "peak": 148
+                },
+                "Program": {
+                  "created": 115,
+                  "deleted": 0,
+                  "live": 115,
+                  "peak": 115
+                },
+                "VertexArray": {
+                  "created": 521,
+                  "deleted": 0,
+                  "live": 521,
+                  "peak": 521
+                }
+              },
+              "bufferUploadBytes": 390447344,
+              "bufferAllocations": 365464
+            }
+          ],
+          "workers": {
+            "created": 1,
+            "terminated": 0,
+            "messages": {
+              "play": {
+                "count": 1,
+                "cumulativeBufferBytes": 2007376,
+                "maxMessageBufferBytes": 2007376,
+                "truncated": false
+              },
+              "map": {
+                "count": 1,
+                "cumulativeBufferBytes": 13994042,
+                "maxMessageBufferBytes": 13994042,
+                "truncated": false
+              },
+              "effects": {
+                "count": 1,
+                "cumulativeBufferBytes": 272336,
+                "maxMessageBufferBytes": 272336,
+                "truncated": false
+              },
+              "sound": {
+                "count": 1,
+                "cumulativeBufferBytes": 75470032,
+                "maxMessageBufferBytes": 75470032,
+                "truncated": false
+              },
+              "soundLoops": {
+                "count": 1,
+                "cumulativeBufferBytes": 32256000,
+                "maxMessageBufferBytes": 32256000,
+                "truncated": false
+              }
+            }
+          },
+          "audio": {
+            "buffersCreated": 124,
+            "cumulativePcmBytes": 71727664,
+            "maxSingleBufferBytes": 9640064
+          }
+        },
+        "canvases": [
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 640,
+            "cssHeight": 448
+          }
+        ]
+      },
+      {
+        "label": "match-90s",
+        "time": "2026-11-01T02:30:15.936Z",
+        "phase": "match",
+        "heap": 408450763,
+        "resources": {
+          "profile": "baseline",
+          "nativeRatio": 1,
+          "effectiveRatio": 1,
+          "graphics": [
+            {
+              "type": "webgl2",
+              "resources": {
+                "Texture": {
+                  "created": 163,
+                  "deleted": 0,
+                  "live": 163,
+                  "peak": 163
+                },
+                "Buffer": {
+                  "created": 5218,
+                  "deleted": 12,
+                  "live": 5206,
+                  "peak": 5206
+                },
+                "Framebuffer": {
+                  "created": 1,
+                  "deleted": 0,
+                  "live": 1,
+                  "peak": 1
+                },
+                "Renderbuffer": {
+                  "created": 0,
+                  "deleted": 0,
+                  "live": 0,
+                  "peak": 0
+                },
+                "Shader": {
+                  "created": 148,
+                  "deleted": 0,
+                  "live": 148,
+                  "peak": 148
+                },
+                "Program": {
+                  "created": 115,
+                  "deleted": 0,
+                  "live": 115,
+                  "peak": 115
+                },
+                "VertexArray": {
+                  "created": 521,
+                  "deleted": 0,
+                  "live": 521,
+                  "peak": 521
+                }
+              },
+              "bufferUploadBytes": 547589360,
+              "bufferAllocations": 509896
+            }
+          ],
+          "workers": {
+            "created": 1,
+            "terminated": 0,
+            "messages": {
+              "play": {
+                "count": 1,
+                "cumulativeBufferBytes": 2007376,
+                "maxMessageBufferBytes": 2007376,
+                "truncated": false
+              },
+              "map": {
+                "count": 1,
+                "cumulativeBufferBytes": 13994042,
+                "maxMessageBufferBytes": 13994042,
+                "truncated": false
+              },
+              "effects": {
+                "count": 1,
+                "cumulativeBufferBytes": 272336,
+                "maxMessageBufferBytes": 272336,
+                "truncated": false
+              },
+              "sound": {
+                "count": 1,
+                "cumulativeBufferBytes": 75470032,
+                "maxMessageBufferBytes": 75470032,
+                "truncated": false
+              },
+              "soundLoops": {
+                "count": 1,
+                "cumulativeBufferBytes": 32256000,
+                "maxMessageBufferBytes": 32256000,
+                "truncated": false
+              }
+            }
+          },
+          "audio": {
+            "buffersCreated": 130,
+            "cumulativePcmBytes": 83247664,
+            "maxSingleBufferBytes": 9640064
+          }
+        },
+        "canvases": [
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 0,
+            "cssHeight": 0
+          },
+          {
+            "width": 640,
+            "height": 448,
+            "cssWidth": 640,
+            "cssHeight": 448
+          }
+        ]
+      }
+    ],
+    "physicalXboxPass": false
+  },
+  "limitations": [
+    "Graphics objects are counts, not GPU memory measurements.",
+    "bufferData byte estimates ignore source-offset/length overloads.",
+    "Worker object-visit cap is not a hard CPU or temporary-stack bound for large primitive arrays.",
+    "Event recorder retains canvas/context references and observes only the first context attempt per canvas; fresh-page single-match comparisons only."
+  ]
+}

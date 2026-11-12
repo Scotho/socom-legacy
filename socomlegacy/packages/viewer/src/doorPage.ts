@@ -101,6 +101,17 @@ export class DoorPage {
     return pickDoor(set, grid, aim.eye, aim.far, feet);
   }
 
+  /**
+   * G1 (action-labels review; reading, pending review): the door under the reticle's node and its valve's value now, for
+   * its caption (OPEN DOOR, or CLOSE DOOR when the valve's short is non-zero: `./mapActions` `mapActionCaption`,
+   * `FUN_002b48e0` D:L156975-156979), or null.
+   */
+  targetState(): { node: string; valve: number } | null {
+    const i = this.target(), set = this.set;
+    const spec = i === null || !set ? undefined : set.specs[i];
+    return spec ? { node: spec.node, valve: set!.state(i!).valve } : null;
+  }
+
   /** The action button (`WalkMode.setActionFilter`): true when a door took it -- used here, or asked of the server. */
   action(): boolean {
     const i = this.target();

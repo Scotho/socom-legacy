@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Object3D } from 'three';
 import {
-  ENGINE_CONTRACT_VERSION, PACK_FORMAT, PACK_FORMAT_VERSION, PACK_TARGET_US, sha256Hex, validatePack, type PackRef,
+  ENGINE_CONTRACT_VERSION, ENGINE_CONTRACT_VERSIONS, PACK_FORMAT, PACK_FORMAT_VERSION, PACK_TARGET_US, sha256Hex, validatePack, type PackRef,
 } from '@s2u/creator-contracts';
 import { decodeBase64, type AgentRequest } from '@s2u/forge-agent-protocol';
 import { createForgePageTarget } from '../../src/agent/forgeTarget';
@@ -48,7 +48,7 @@ async function prettyPack(): Promise<{ files: RulesPackFile[]; ref: PackRef }> {
     intents: [{ kind: 'new-behaviour', files: ['rules/mode.json'] }],
   };
   const files = [{ path: 's2u-pack.json', text: JSON.stringify(manifest, null, 2) }, { path: 'rules/mode.json', text: member }];
-  const checked = await validatePack(files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+  const checked = await validatePack(files.map((f) => ({ path: f.path, bytes: utf8(f.text) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS });
   if (!checked.ok) throw new Error('the hand-written fixture must validate');
   return { files, ref: { id: checked.ref.id, version: checked.ref.version, hash: checked.ref.hash } };
 }

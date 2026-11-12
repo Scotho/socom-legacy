@@ -1,7 +1,7 @@
 import { surfaceMaterial } from '@s2u/scene';
 import { actionRayDetail, type ActionRayDetail } from './equipment';
 import { promptOfBitmap, type ActionPrompt } from './hud';
-import { ACTION_TYPE_CODES, actionReachNote, type MapAction } from './mapActions';
+import { ACTION_TYPE_CODES, actionReachNote, mapActionCaption, type MapAction } from './mapActions';
 import type { ClientEvent, ServerEvent } from './net/protocol';
 import type { WorldState } from './worldState';
 
@@ -175,6 +175,18 @@ export class ActionPage {
   shownPrompt(): ActionPrompt | null {
     const t = this.shown?.target;
     return t ? promptOfBitmap(t.record.bitmap) ?? 'action' : null;
+  }
+
+  /**
+   * G1 (action-labels review; reading, pending review): the latched switch's caption, its record's `descriptor` or FLIP
+   * SWITCH (`./mapActions` `mapActionCaption`: `FUN_002209c0` D:L74567-74582, `FUN_002b48e0` D:L156982-156984); null
+   * with none latched. Without casting again.
+   */
+  shownCaption(): string | null {
+    const t = this.shown?.target;
+    if (!t) return null;
+    const world = this.deps.world();
+    return mapActionCaption(t.record, t.record.valve !== '' && world ? world.valve(t.record.valve) : 0);
   }
 
   /** The HUD's prompt for the target: samples, then the record's `bitmap` (`action_x.tif`'s `action` otherwise). */

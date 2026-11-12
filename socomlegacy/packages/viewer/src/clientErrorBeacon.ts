@@ -38,7 +38,7 @@ export const BEACON_CAPS_ADAPTATION = { release: 64, backend: 32, adapter: 128, 
 
 /** `gpudemoted` (WG-7, W5): Automatic set to WebGL2 after a WebGPU error; central keeps a later kind as a free string. */
 export type BeaconKind = 'error' | 'unhandledrejection' | 'webglcontextlost' | 'gpudevicelost' | 'gpuuncapturederror' | 'chunkload' | 'gpudemoted'
-  | 'contextdiag' | 'inputdiag';
+  | 'contextdiag' | 'inputdiag' | 'uigpufallback';
 export type BeaconBackend = 'webgl2' | 'webgpu' | 'canvas2d' | 'unknown';
 
 export interface BeaconReport {
@@ -66,9 +66,10 @@ export interface BeaconContext {
   matchElapsedMs: number | null;
 }
 
-const KINDS: readonly BeaconKind[] = ['error', 'unhandledrejection', 'webglcontextlost', 'gpudevicelost', 'gpuuncapturederror', 'chunkload', 'gpudemoted', 'contextdiag', 'inputdiag'];
+const KINDS: readonly BeaconKind[] = ['error', 'unhandledrejection', 'webglcontextlost', 'gpudevicelost', 'gpuuncapturederror', 'chunkload', 'gpudemoted', 'contextdiag', 'inputdiag', 'uigpufallback'];
 /** XBOX-DIAG (`./matchDiag`): the diagnostic kinds -- not errors: never in the record, sent past the gap within the load's limit. */
-export const DIAG_KINDS: readonly BeaconKind[] = ['contextdiag', 'inputdiag'];
+// UIGPU-FALLBACK-ROWS (v0.4.20): `uigpufallback`, a GPU menu surface's fallback to the software (`./uiGpuPresenter`).
+export const DIAG_KINDS: readonly BeaconKind[] = ['contextdiag', 'inputdiag', 'uigpufallback'];
 
 const cut = (s: string | null | undefined, cap: number): string | null => (typeof s === 'string' ? (s.length > cap ? s.slice(0, cap) : s) : null);
 
@@ -296,7 +297,7 @@ export class ClientErrorBeacon {
    * it describes at the same instant, or comes once a match) on its own budget, `BEACON_DIAGS_PER_LOAD_ADAPTATION`; not an
    * error, so never in the record or the page's report block. True when it was sent.
    */
-  reportDiag(kind: 'contextdiag' | 'inputdiag', message: string): boolean {
+  reportDiag(kind: 'contextdiag' | 'inputdiag' | 'uigpufallback', message: string): boolean {
     if (!(this.o.enabled?.() ?? true)) return false;
     // Review F1: on its own budget, as the perf report -- never the errors' gap or their twenty, so a diagnostic never
     // holds a real error back.

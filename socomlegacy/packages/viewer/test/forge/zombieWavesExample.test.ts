@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { Object3D } from 'three';
-import { behaviourCatalogue, ENGINE_CONTRACT_VERSION, PACK_TARGET_US, validatePack, type LayoutBase, type PackRef } from '@s2u/creator-contracts';
+import { behaviourCatalogue, ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, validatePack, type LayoutBase, type PackRef } from '@s2u/creator-contracts';
 import { ForgeAgentError } from '../../src/forge/agent/api';
 import { adoptForgeRules, planForgeLayout } from '../../src/forge/agent/commands';
 import { createForgeAgentRevisions, createForgeEditorFacade, type ForgeAgentEditor } from '../../src/forge/agent/editorFacade';
@@ -40,7 +40,7 @@ interface WaveRun {
 const wavesRun = (): WaveRun => JSON.parse(readFileSync(`${EXAMPLES}zombie-waves.run.json`, 'utf8'));
 const LAYOUT_FILE = `${EXAMPLES}zombie-waves.crossroads.json`;
 async function packRef(): Promise<PackRef> {
-  const checked = await validatePack(PACK.map((path) => ({ path, bytes: packBytes(path) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, handlers: behaviourCatalogue() });
+  const checked = await validatePack(PACK.map((path) => ({ path, bytes: packBytes(path) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, handlers: behaviourCatalogue() });
   if (!checked.ok) throw new Error(`the example must validate: ${JSON.stringify(checked.report.diagnostics)}`);
   return { id: checked.ref.id, version: checked.ref.version, hash: checked.ref.hash };
 }

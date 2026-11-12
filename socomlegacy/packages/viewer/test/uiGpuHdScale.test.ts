@@ -247,6 +247,9 @@ describe('GM-13 review F3 (owed to GM-14a): the page\'s HD keys and texture opti
       canvas: f.canvas as unknown as UiGpuSurfaceOptions['canvas'], software: new SoftwareStub(), transparent: false, surface: 'front', clock,
       hdKeys: () => keys, textures: { uploadBytesPerFrame: 1 },
     });
+    // UIGPU-SELFCHECK: the link runs the surface's self-check, whose two images (content-keyed, never HD) are hashed once
+    // a page; the count of HD hashing starts after it.
+    s.create(); s.poll();
     const hashed = uiGpuKeyCounts.hashed;
     s.present(items, textures, options);
     expect(s.stats.frames.L1).toBe(1);                 // the budget option: one texture up, the other waits (L1 at 1x)

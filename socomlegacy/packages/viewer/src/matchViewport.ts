@@ -27,6 +27,19 @@ export const FRAME_MS_START_ADAPTATION = 16.7;
 export const FRAME_MS_SMOOTHING_ADAPTATION = 0.08;
 /** How often the smoothed time is read and the ratio checked (`main.ts`'s readout: "redrawing text every frame is itself a cost"). */
 export const RATIO_TICK_MS_ADAPTATION = 200;
+/**
+ * AQ-17 (a browser adaptation, no original): the longest frame `AdaptiveRatio`'s SIDE TEST reads, ms. The class is
+ * handed the frame's REAL time -- not the camera's step, which the pages clamp at 0.1 s and which made every page
+ * slower than 10 fps read as 10 fps at its floor and at its cap alike -- and the side test's median bounds it here: a
+ * frame over a second is a stall (a hidden tab, a load), not a frame rate.
+ */
+export const RATIO_FRAME_MAX_MS_ADAPTATION = 1000;
+/**
+ * AQ-17's fold (a browser adaptation, no original): the longest frame the smoothed time, the step's edge, the panic and
+ * the frame counter read, ms -- the camera's clamp they always read under (v0.4.19's behaviour, kept): a longer frame
+ * in the smoothed average cost a healthy page a step after a single stall.
+ */
+export const RATIO_STEP_FRAME_MAX_MS_ADAPTATION = 100;
 /** A touch dock changes the canvas box without a browser viewport change. */
 export const PICTURE_RESIZE_EVENT = 's2u-picture-resize';
 
@@ -114,6 +127,11 @@ export interface AdaptiveOptions {
    * that place's frame time, so a burst that falls on the moment of the check is not the page's rate there.
    */
   sideWindowMs: number;
+  /**
+   * AQ-18: false, no side test -- a descent stays where the steps leave it, and the ratio never returns to the cap to be
+   * judged (`./autoQuality` `CLASS_SIDE_TEST_ADAPTATION`: a software rasteriser). Absent or true: the side test runs.
+   */
+  sideTest?: boolean;
 }
 
 /** The spec §4.4 item 4's values (VS-3; AQ-8's panic edge and side test; a browser adaptation, no original). */
@@ -164,6 +182,12 @@ const GRID_EPSILON = 1e-9;
  * so a CPU-bound page looks at the floor ever more rarely and a page whose load has turned to the pixels gets its
  * trade back. `start` begins afresh; a cap raised by more than a step (more pixels than were judged) does too,
  * keeping a descent on its way so that it is still judged.
+ *
+ * AQ-19 (the release review of v0.4.20's batch, 2026-11-11; a browser adaptation, no original): the test returns to
+ * the ratio its descent LEFT (`sideTop`) -- the cap, unless the cap has been raised more than a step above it since.
+ * It went to the new cap: a page the pixels bind, standing at its floor with the trade found to help, took a cap raised
+ * 0.75 -> 1.5 as one change from 0.375 to 1.5, sixteen times the pixels (the field row of that day: the context lost
+ * seconds later). A step down from that ratio marks a descent as leaving the cap does, so its re-test is judged too.
  */
 export class AdaptiveRatio {
   private readonly opts: Readonly<AdaptiveOptions>;
@@ -200,6 +224,8 @@ export class AdaptiveRatio {
   private readonly sorted = new Float64Array(RECENT_FRAMES);
   /** AQ-8: the ratio left the cap and has not climbed since: the descent the floor will judge. */
   private descending = false;
+  /** AQ-19: the ratio that descent left -- the cap then, or the ratio the test last returned to (null: none yet). */
+  private descentFrom: number | null = null;
   /** AQ-8: the frame time at the floor when the trade was found to buy nothing, until the cap has been checked against it. */
   private msAtFloor: number | null = null;
   /** AQ-8: when the last 'not-pixels' was found, ms, and the wait from it before a step down may open the test again (0: none yet). */
@@ -267,6 +293,7 @@ export class AdaptiveRatio {
     this.capWas = null;
     this.restart();
     this.sideReset();
+    this.descentFrom = null;
     this.recentCount = 0;
     this.recentAt = 0;
     target.setPixelRatio(this.cap);
@@ -275,14 +302,20 @@ export class AdaptiveRatio {
   /**
    * One frame of `dt` seconds at `now` ms: the smoothing and the panic's count, then on the 200 ms tick the check. True
    * on the tick (`main.ts` redraws its frame counter then). No frame time (`dt` 0), no smoothing and no tick.
+   *
+   * AQ-17: `dt` is the frame's real seconds (`frameTime.real()`) -- never the camera's step clamped at 0.1 s, under
+   * which a page slower than 10 fps at its floor read the same at the floor and at the cap, and the side test sent a
+   * page the pixels do help to the cap (the rendered runs of 2026-11-11). Its fold: only the side test's reading (the
+   * ring of the last frames, `recentMedian`) takes the real time, up to `RATIO_FRAME_MAX_MS_ADAPTATION`; the smoothed
+   * time, the step's edge and the panic read it up to `RATIO_STEP_FRAME_MAX_MS_ADAPTATION`, as they did in v0.4.19.
    */
   frame(dt: number, now: number, target: RatioTarget | null, hold: boolean): boolean {
     if (!(dt > 0)) return false;
-    const ms = dt * 1000, o = this.opts;
+    const real = Math.min(dt * 1000, RATIO_FRAME_MAX_MS_ADAPTATION), ms = Math.min(real, RATIO_STEP_FRAME_MAX_MS_ADAPTATION), o = this.opts;
     this.smoothed += (ms - this.smoothed) * o.ewma;
     if (hold) { this.restart(); this.recentCount = 0; this.recentAt = 0; }
     else {
-      this.recent[this.recentAt] = ms;                 // AQ-8: the last frames, for the frame time the ratio leaves the cap at
+      this.recent[this.recentAt] = real;               // AQ-8: the last frames, the side test's reading (AQ-17: their real time)
       this.recentAt = (this.recentAt + 1) % RECENT_FRAMES;
       if (this.recentCount < RECENT_FRAMES) this.recentCount++;
       this.settled++;
@@ -331,9 +364,11 @@ export class AdaptiveRatio {
    * - That check: the cap slower than the floor was, by the bar, turns the verdict to 'pixels' (never judged again this
    *   match) and the trade resumes at this tick; not, 'not-pixels' stands, with its wait.
    * Each is read over `sideWindowMs` first (`sideRead`): the lowest median in the window is the place's frame time.
+   * AQ-18: never with `sideTest` false -- the verdict stays 'unknown' and the steps alone move the ratio.
    */
   private side(now: number, target: RatioTarget): boolean {
     const o = this.opts;
+    if (o.sideTest === false) return false;            // AQ-18: no side test for this page (a software rasteriser)
     if (this.msAtFloor !== null) {
       const capNow = this.sideRead(now);
       if (capNow === null) return false;
@@ -350,13 +385,22 @@ export class AdaptiveRatio {
     this.msAtFloor = nowMs;
     this.verdictAt = now;
     this.sideWait = this.sideWait === 0 ? o.sideRetryMs : Math.min(o.sideRetryMaxMs, this.sideWait * 2);
-    target.setPixelRatio(this.cap);
+    target.setPixelRatio(this.sideTop());              // AQ-19: the ratio the descent left -- the cap, unless raised since
     this.lastChange = now;
     this.lastClimb = null;
     this.bouncedFrom = null;
     this.climbWait = o.improveEveryMs;
     this.restart();
     return true;
+  }
+
+  /**
+   * AQ-19: where the side test returns to, and the ratio a step down from which is a descent it judges: the cap -- or,
+   * with the cap raised more than a step above the ratio the descent left, that ratio (a size this match has drawn at).
+   */
+  private sideTop(): number {
+    const from = this.descentFrom;
+    return from !== null && this.cap > from * (1 + this.opts.stepShare) ? from : this.cap;
   }
 
   /**
@@ -403,7 +447,10 @@ export class AdaptiveRatio {
     }
     if (steps < 0 ? !(ratio > floor + GRID_EPSILON) : !(ratio < cap - GRID_EPSILON)) return;
     if (steps > 0) this.descending = false;                                // AQ-8: a climb ends the descent the side test would judge
-    else if (ratio >= cap - GRID_EPSILON) this.descending = true;          // AQ-8: leaving the cap
+    else if (ratio >= this.sideTop() - GRID_EPSILON) {                     // AQ-8: leaving the cap (AQ-19: or the ratio the test returned to)
+      this.descending = true;
+      this.descentFrom = ratio >= cap - GRID_EPSILON ? cap : ratio;
+    }
     const n = (cap - ratio) / size;
     const k = steps < 0 ? Math.floor(n + GRID_EPSILON) - steps : Math.ceil(n - GRID_EPSILON) - steps;
     let next = cap - Math.max(0, k) * size;

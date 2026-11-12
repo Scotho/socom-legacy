@@ -204,12 +204,35 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
   // The URL this nav was constructed on. `dispose` restores it so a later boot in the same window does not inherit a pushed path.
   const opened = here();
 
-  const write = (kind: 'push' | 'replace', snap: LauncherSnap, keepUrl = false): void => {
+  /**
+   * A browser adaptation: a browser may refuse a history write (a Chrome before ~117 refused any path holding `%00`).
+   * The refusal never leaves the nav: one error for its lifetime -- the error's name only, never its message, which
+   * carries the URL and so a persona's name -- and the caller keeps its bookkeeping as it was. False when refused.
+   */
+  let refusedLogged = false;
+  const tryHistory = (fn: () => void): boolean => {
+    try {
+      fn();
+      return true;
+    } catch (e) {
+      if (!refusedLogged) {
+        refusedLogged = true;
+        console.error(`launcher history: the browser refused a history entry (${e instanceof Error ? e.name : typeof e})`);
+      }
+      return false;
+    }
+  };
+
+  /** The browser's entry first; the caller commits its stack only on true. */
+  const write = (kind: 'push' | 'replace', snap: LauncherSnap, keepUrl = false): boolean => {
     const url = keepUrl ? here() : urlFor(snap.path);
     const state = { s2uLauncher: snap };
-    if (kind === 'push') win.history.pushState(state, '', url);
-    else win.history.replaceState(state, '', url);
-    win.dispatchEvent(new (win as Window & typeof globalThis).CustomEvent(LAUNCHER_NAVIGATE_EVENT_ADAPTATION));
+    const ok = tryHistory(() => {
+      if (kind === 'push') win.history.pushState(state, '', url);
+      else win.history.replaceState(state, '', url);
+    });
+    if (ok) win.dispatchEvent(new (win as Window & typeof globalThis).CustomEvent(LAUNCHER_NAVIGATE_EVENT_ADAPTATION));
+    return ok;
   };
 
   const onPop = (ev: PopStateEvent): void => {
@@ -276,7 +299,7 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
       index = j;
       stack[j] = desired;
       // Keep the URL `go` landed on (a quiet entry may still be `/console`): only the snapshot changes.
-      if (!gamePath(win.location.pathname, base)) win.history.replaceState({ s2uLauncher: desired }, '', here());
+      if (!gamePath(win.location.pathname, base)) tryHistory(() => { win.history.replaceState({ s2uLauncher: desired }, '', here()); });
     };
     win.history.go(delta);
   };
@@ -288,26 +311,31 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
     if (!isRecord(st) || !('s2uLauncher' in st)) return;
     const rest = { ...st };
     delete rest['s2uLauncher'];
-    win.history.replaceState(Object.keys(rest).length ? rest : null, '', here());
+    tryHistory(() => { win.history.replaceState(Object.keys(rest).length ? rest : null, '', here()); });
   };
 
   /** `/console` is the launcher's alias. A same-page replace keeps it; rewriting to `/` drops the alias the entry was opened on. */
   const consoleAlias = (): boolean => routeSegmentsOfPath(win.location.pathname, base)[0] === 'console';
 
+  /** A refused write leaves `desired` and the stack as they were. */
   const replace = (desired: LauncherSnap, keepUrl = false): void => {
+    const was = { id: desired.id, depth: desired.depth };
     desired.id = stack[index]!.id;
     desired.depth = offset + index;
-    stack[index] = desired;
-    write('replace', desired, keepUrl);
+    if (write('replace', desired, keepUrl)) stack[index] = desired;
+    else Object.assign(desired, was);
   };
 
+  /** The browser's entry first: a refused push leaves `stack`, `index` and `seq` as they were (so `span` and Back hold). */
   const push = (desired: LauncherSnap): void => {
+    const was = { id: desired.id, depth: desired.depth };
+    desired.id = seq + 1;
+    desired.depth = offset + index + 1;
+    if (!write('push', desired)) { Object.assign(desired, was); return; }
+    seq = desired.id;
     stack = stack.slice(0, index + 1);
-    desired.id = ++seq;
     stack.push(desired);
     index = stack.length - 1;
-    desired.depth = offset + index;
-    write('push', desired);
   };
 
   /** An earlier entry of the same page: Circle landed on a page we already pushed. */
@@ -356,12 +384,16 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
         if (desired.page === cur.page) {
           desired.id = cur.id;
           desired.depth = cur.depth;
-          stack[index] = desired;
           // A category change is the same page and still leaves `/console`: the alias stays only while the path does.
-          if (desired.path !== cur.path) { quiet = false; write('replace', desired); }
+          // A refused write keeps the entry, and the alias, as they were.
+          if (desired.path !== cur.path) {
+            if (write('replace', desired)) { stack[index] = desired; quiet = false; }
+            return;
+          }
+          stack[index] = desired;
           return;
         }
-        write('replace', cur, true);
+        if (!write('replace', cur, true)) return;
         quiet = false;
         push(desired);
         return;
@@ -440,7 +472,7 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
         // push steps drop pending traversals).
         travel = false;
         after = null;
-        win.history.pushState(null, '', handed ? here() : opened);
+        tryHistory(() => { win.history.pushState(null, '', handed ? here() : opened); });
       }
       // START already handed the window over. Once the address is the base or a menu path, restoring `opened`
       // would put the launcher path back after `gamePage` and the menu router would skip the boot. A walk that
@@ -452,7 +484,7 @@ export function launcherNav(win: Window, base: string, hooks: LauncherNavHooks):
       }
       // A test (and a second boot) must not inherit a path this session pushed.
       if (!(ready && !quiet && !foreign && !gamePath(win.location.pathname, base))) return;
-      win.history.replaceState(null, '', opened);
+      tryHistory(() => { win.history.replaceState(null, '', opened); });
     },
   };
 }

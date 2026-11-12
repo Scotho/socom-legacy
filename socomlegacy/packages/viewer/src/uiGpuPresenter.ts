@@ -1,6 +1,8 @@
 import type { Rgba } from '@s2u/gs';
 import type { MoviePicture, UiDrawItem } from '@s2u/ui';
-import { rasterizeUiDrawList, type RasterOptions, type UiBitmap, type UiTextures } from './uiCompositorView';
+import { rasterizeUiDrawList, UiQuadRasterCache, type RasterOptions, type UiBitmap, type UiTextures } from './uiCompositorView';
+import { reportFrameError } from './frameGuard';
+import { UI_GPU_SELF_CHECK_ADAPTATION, uiGpuSelfCheckCompare, uiGpuSelfCheckCrop, uiGpuSelfCheckScene, type UiGpuSelfCheckResult } from './uiGpuSelfCheck';
 import { planFrame, releaseUiFramePlanMemo, type UiFramePlan, type UiPlanBlendMode, type UiPlanStep } from './uiFramePlan';
 import {
   UI_GPU_GUARD_SAMPLE_ADAPTATION, UI_GPU_GUARD_TRIP_ADAPTATION, UiGpuGuard, uiGpuExactMask, uiGpuIdle, type UiGpuGuardBound, type UiGpuGuardRecord,
@@ -353,7 +355,36 @@ export interface UiGpuSurfaceOptions {
   guardOn?: boolean;
   /** GM-14c: the guard's reference raster under `on`; absent, today's software path (`rasterizeUiDrawList`). A test plants through it. */
   guardReference?: (items: readonly UiDrawItem[], textures: UiTextures, options: RasterOptions) => Rgba;
+  /**
+   * UIGPU-SELFCHECK: where a failed self-check's line goes besides `log` -- the page's error beacon (`./frameGuard`
+   * `reportFrameError`, the client error beacon's `error` row) when absent; a test's own.
+   */
+  report?: (line: string) => void;
+  /**
+   * UIGPU-FALLBACK-ROWS: where a fallback's row goes (its compact JSON) -- the page's client error beacon as the
+   * diagnostic kind `uigpufallback` when absent; a test's own.
+   */
+  fallback?: (row: string) => void;
 }
+
+/**
+ * UIGPU-FALLBACK-ROWS (the owner, 2026-11-12 ~01:45Z: "can we log when those fallbacks happen"; a browser instrument, no
+ * original): a GPU menu surface's fallback to the software -- L4 (`unavailable`: the capability gate, the renderer gate,
+ * the self-check) or L3 (`die`: the loss limit, a restore that never came, a guard trip) -- is reported once a page per
+ * level and reason, whichever surface met it first, as `{ v: 1, s: surface, lv, why, r: the menus' renderer (cut to
+ * 120), src: where the string came from }`. `no-parallel-link` is the loading surface's designed path (it draws its own
+ * software while a match loads), not a fallback, and is not reported; nor is `software-adapter` (v0.4.20 rc2's red,
+ * 2026-11-12): a software adapter (SwiftShader, the Basic Render Driver) falls to the software menus by design, as before
+ * v0.4.20 -- the row named nothing wrong, the adapter string rides on the page's other rows, and every software page sent
+ * one. A failed send never reaches the page.
+ */
+const fallbackRowsSent = new Set<string>();
+const FALLBACK_ROW_SKIPPED: ReadonlySet<string> = new Set(['no-parallel-link', 'software-adapter']);
+/** A test's reset of the page's once-a-page memory. */
+export function resetUiGpuFallbackRowsForTest(): void { fallbackRowsSent.clear(); }
+
+/** UIGPU-SELFCHECK: one self-check's record -- passed or not, its ms, the compare (null when skipped, and why). */
+export interface UiGpuSelfCheckRecord { ok: boolean; ms: number; result: UiGpuSelfCheckResult | null; skipped?: string }
 
 /**
  * GM-14c: a draw list's data copied for the guard's idle raster -- every array and plain object, so a caller that
@@ -498,6 +529,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
   private restores: UiGpuSurfaceStats['restores'] = [];
   private caps: UiGpuCaps | null = null;
   private refusedBy: UiGpuCapabilityReason | null = null;
+  private readonly checks: UiGpuSelfCheckRecord[] = [];
   private readonly onLost = (e: Event): void => this.contextLost(e);
   private readonly onRestored = (): void => this.contextRestored();
 
@@ -508,6 +540,8 @@ export class UiGpuSurfacePresenter implements UiPresenter {
   get ready(): boolean { return this.st === 'ready'; }
   /** The path the last frame took. */
   get lastPath(): 'gpu' | 'software' | null { return this.lastWas; }
+  /** UIGPU-SELFCHECK: every self-check this surface ran, oldest first (one at each link: make, restore, return). */
+  get selfChecks(): readonly UiGpuSelfCheckRecord[] { return this.checks.map((c) => ({ ...c })); }
   /** GM-16: the surface's guard, once a shadow frame made it (null before). */
   get guard(): UiGpuGuard | null { return this.guardRef; }
   get stats(): UiGpuSurfaceStats {
@@ -578,7 +612,84 @@ export class UiGpuSurfacePresenter implements UiPresenter {
       this.unavailable('program-link');
       return;
     }
+    if (!this.selfCheck()) return;                           // UIGPU-SELFCHECK: before the first frame is trusted
     this.st = 'ready';
+  }
+
+  /**
+   * UIGPU-SELFCHECK (`./uiGpuSelfCheck`; a browser adaptation, the ladder's L4): the self-check's scene drawn by this
+   * surface's drawer into its frame target -- the plan and the blend its frames use, never presented, the canvas
+   * untouched -- read back, and compared with the software's frame of the scene. True: the surface may go ready (it
+   * matched, or the drawer refused the scene for a named reason, which the frames would meet as L1 too). False: a mismatch
+   * put this surface at L4 and every surface on the software for the session (the switch's kill, `self-check`), one line
+   * to the log and one to the page's error beacon, nothing shown to the player; or a GL error inside it was counted as a
+   * loss, as inside a present.
+   */
+  private selfCheck(): boolean {
+    const backend = this.backend;
+    if (!this.gpu || !backend) return true;
+    const t0 = this.o.clock.now();
+    const scene = uiGpuSelfCheckScene();
+    const options: RasterOptions = { scale: 1, transparent: this.o.transparent };
+    const frames: { blend: UiPlanBlendMode; frame: Rgba }[] = [];
+    const { x0, y0, x1, y1 } = UI_GPU_SELF_CHECK_ADAPTATION.region;
+    try {
+      // Each blend mode the GPU path has, through its own presenter on this backend (the surface's blend table is not
+      // asked: the check covers both whatever the table says at a scale).
+      for (const blend of UI_GPU_SELF_CHECK_ADAPTATION.blends) {
+        const drawn = new GpuUiPresenter(backend, { blend }).drawOffscreen(scene.items, scene.textures, options);
+        // Review nit: should `ff` be refused after `exact` drew, `exact`'s frame is dropped with it and the check not run --
+        // it cannot happen at the scene's size (two small images, far under a frame's upload budget).
+        if (!drawn.drawn) {
+          const why = drawn.why.join('; ');
+          this.checks.push({ ok: true, ms: this.o.clock.now() - t0, result: null, skipped: why });
+          this.o.log?.(`[uiGpu] ${this.o.surface}: self-check not run (${blend}: ${why})`);
+          return true;
+        }
+        // Review F2: the probe's rectangle only, never the whole frame (a stall on the loading screen's path, GM-23).
+        const frame = backend.readPixelsIn(x0, y0, x1 - x0, y1 - y0);
+        // Review F1: a context lost under the read-back reads nothing and throws nothing -- a loss, never a mis-draw.
+        if (this.gl?.isContextLost()) {
+          this.lose('context', 'the context was lost during the self-check (its read-back holds nothing)');
+          return false;
+        }
+        // Delta review: a GPU process gone under the read may leave the bytes zero before the browser raises the flag. The
+        // scene's clear writes alpha 255 on BOTH surfaces, the opaque and the transparent (the guard's review read it so), and
+        // the backdrop covers the whole rectangle opaquely besides -- so any frame this drawer drew, however mis-drawn, has
+        // alpha in the probe, and a read-back with no alpha anywhere is no frame: a loss (`context` once the flag is up, else
+        // `error`, which rebuilds on the live context and checks again; three in five minutes end the session on the
+        // software, the loss limit), never a kill. A mis-draw that keeps the clear (the reported failure) reaches the compare.
+        if (!frame.data.some((v, i) => (i & 3) === 3 && v !== 0)) {
+          const lost = this.gl?.isContextLost() === true;
+          this.lose(lost ? 'context' : 'error', 'the self-check read back no frame (every alpha 0): counted as a loss, not a mis-draw');
+          return false;
+        }
+        if (backend.transparent) divideTransparentFrame(frame.data);
+        frames.push({ blend, frame });
+      }
+    } catch (e) {
+      const lost = this.gl?.isContextLost() === true;
+      this.lose(lost ? 'context' : 'error', `${lost ? 'the context was lost during the self-check' : 'a GL error inside the self-check, counted as a loss'}: ${message(e)}`);
+      return false;
+    }
+    const reference = uiGpuSelfCheckCrop(rasterizeUiDrawList(scene.items, scene.textures, { ...options, quadCache: new UiQuadRasterCache() }).frame);
+    let failed: { blend: UiPlanBlendMode; result: UiGpuSelfCheckResult } | null = null, worst: UiGpuSelfCheckResult | null = null;
+    for (const { blend, frame } of frames) {
+      const result = uiGpuSelfCheckCompare(frame, reference);
+      if (!worst || result.off > worst.off || (result.off === worst.off && result.maxAbs > worst.maxAbs)) worst = result;
+      if (!result.ok && !failed) failed = { blend, result };
+    }
+    this.checks.push({ ok: failed === null, ms: this.o.clock.now() - t0, result: failed?.result ?? worst });
+    if (!failed) return true;
+    const { blend, result } = failed, f = result.first;
+    const line = `uiGpu self-check: the ${this.o.surface} surface drew ${result.off} of ${result.pixels} probe pixels off by more than `
+      + `${UI_GPU_SELF_CHECK_ADAPTATION.byteTolerance} under ${blend} (max ${result.maxAbs}${f ? `; first (${f.x},${f.y}) gpu ${f.gpu.join(',')} software ${f.software.join(',')}` : ''}) `
+      + `on ${this.caps?.renderer ?? 'an unnamed renderer'}: every menu surface on the software for the session`;
+    this.o.log?.(`[uiGpu] ${this.o.surface}: ${line}`);
+    try { (this.o.report ?? ((l: string) => { reportFrameError(new Error(l)); }))(line); } catch { /* a report never stops the fallback */ }
+    this.unavailable('self-check');
+    this.o.host?.kill('self-check');
+    return false;
   }
 
   present(items: readonly UiDrawItem[], textures: UiTextures, options: RasterOptions = {}, probe?: UiPresentProbe | null): UiPresented {
@@ -702,9 +813,27 @@ export class UiGpuSurfacePresenter implements UiPresenter {
     this.listening = false;
   }
 
+  /** UIGPU-FALLBACK-ROWS: the fallback's row, once a page per level and reason; never a throw into the page. */
+  private fallbackRow(lv: 'L3' | 'L4', why: string): void {
+    const key = `${lv}|${why}`;
+    if (FALLBACK_ROW_SKIPPED.has(why) || fallbackRowsSent.has(key)) return;
+    fallbackRowsSent.add(key);
+    try {
+      const row = JSON.stringify({ v: 1, s: this.o.surface, lv, why, r: this.caps?.renderer?.slice(0, 120) ?? null, src: this.caps?.rendererSource ?? null });
+      // rc1 red (2026-11-12): the beacon loaded at send time, never imported statically -- Playwright's Node loader reaches
+      // this module (e2e/uiGpuHarness.ts) and the beacon's chain imports package.json, which Node refuses without an
+      // import attribute. On the page the beacon is already loaded (the entry installs it), so this resolves at once; a
+      // failed load loses the row silently, as an instrument may.
+      (this.o.fallback ?? ((m: string) => {
+        void import('./clientErrorBeacon').then((b) => { b.pageClientErrorBeacon().reportDiag('uigpufallback', m); }).catch(() => undefined);
+      }))(row);
+    } catch { /* an instrument never stops the fallback */ }
+  }
+
   /** L4: no GPU for this surface (the gate's reason); the context let go. */
   private unavailable(reason: UiGpuCapabilityReason): { ok: false; reason: UiGpuCapabilityReason } {
     this.refusedBy = reason;
+    this.fallbackRow('L4', reason);
     if (this.backend) this.dropBackend(this.gl?.isContextLost() !== true);
     this.unlisten();
     if (this.loseExt && this.gl && !this.gl.isContextLost()) this.loseExt.loseContext();
@@ -746,6 +875,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
    * otherwise sit beside the match's for the session); without `WEBGL_lose_context` it is kept and stays counted.
    */
   private die(reason: UiGpuKillReason): void {
+    this.fallbackRow('L3', reason);
     this.clearWait();
     if (this.backend) this.dropBackend(this.gl?.isContextLost() !== true);
     this.letGo();

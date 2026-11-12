@@ -68,7 +68,7 @@ describe('SA-9b: the listing\'s host and the (host, id) key', () => {
 
   it('the console adapter lists two hosts\' equal ids and a local one apart, and Watch opens the row\'s own entry', async () => {
     const listing = { replays: [entry(ID, '2026-10-18T10:00:00Z', H1), entry(ID, '2026-10-18T09:00:00Z', H2), entry(ID, '2026-10-18T08:00:00Z')] };
-    const r = routes({ [`GET ${BASE}/replays`]: () => json(200, listing) });
+    const r = routes({ [`GET ${BASE}/replays?mine=1`]: () => json(200, listing) });
     const opened: { entry: ReplayEntry; ctx: ReplayStageContext }[] = [];
     const stage: ReplayStage = { open: (e, c) => { opened.push({ entry: e, ctx: c }); return new Promise(() => {}); } };
     const replays = liveReplays(() => {}, { source: httpReplaySource(BASE, r.fetch), session: fakeSession('signed-in'), stage, frame: () => {} });

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LinearSRGBColorSpace, Mesh, PerspectiveCamera, type BufferGeometry, type Color, type Material, type Object3D, type RenderTarget, Scene, type Texture } from 'three';
 import { createHash } from 'node:crypto';
-import { ENGINE_CONTRACT_VERSION, EXTENSION_CODES, PACK_MANIFEST_FILE, PACK_TARGET_US, validatePack, type Diagnostic, type PackHandlerClaim, type PackRef } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSION, ENGINE_CONTRACT_VERSIONS, EXTENSION_CODES, PACK_MANIFEST_FILE, PACK_TARGET_US, validatePack, type Diagnostic, type PackHandlerClaim, type PackRef } from '@s2u/creator-contracts';
 
 /**
  * A stand-in for three's WebGPURenderer: every draw recorded, and `info.memory` kept as three keeps it -- a geometry, a
@@ -252,7 +252,7 @@ describe("the tint's options come from the pack's claim (LATER 458)", () => {
     };
     const v = await validatePack(
       [{ path: PACK_MANIFEST_FILE, bytes: new TextEncoder().encode(JSON.stringify(manifest)) }, { path: 'systems/tint.json', bytes }],
-      { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: host.catalogue().handlers, claimedSlots: {} },
+      { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: host.catalogue().handlers, claimedSlots: {} },
     );
     if (!v.ok) throw new Error(v.report.diagnostics.map((d) => d.code).join());
     const claim = v.manifest.handlers![0]!;

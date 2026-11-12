@@ -2,10 +2,16 @@
  * PAGE-ALLOC-A's oracle (LATER 867 (A); a product-track pin): `hudLayout` as it stood at agent/v0419 3a8fa1ba85
  * (`src/hud.ts`), kept verbatim but for its name and the imports, so `pageAllocA.test.ts` can hold the reworked
  * function to the same quads and rects with `Object.is` on every number. Not used by the game.
+ *
+ * One deliberate change carried since (the same edit made in `src/hud.ts` and here, so the pin keeps holding the
+ * allocation rework, not the voice element's look): HUD-ALIVE-BOXES (OT.R117, a browser adaptation; the owner,
+ * 2026-11-11/12, seat 2f; `agent/hud-alive-boxes`, 2026-11-12) -- with the alive counts on, the voice element's two
+ * boxes in the scoreboard's team bar colours and each number on its own box (`HUD_ALIVE_BOX_COLOURS_ADAPTATION`,
+ * `HUD_ALIVE_LEFT_LAYOUT_ADAPTATION`, `HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION`).
  */
 import {
   ACTION_COLOURS, ACTION_ICON_FADE, ACTION_ICONS, AT_REST, BASE_MARK_TYPE_RGB_READING, C4_FUSE_BAR_PRESENTATION_ADAPTATION,
-  compassMarks, FIRE_MODE_ROUNDS, HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION, HUD_COLOURS, HUD_LAYOUT, infoBoxName, infoNumberText,
+  compassMarks, FIRE_MODE_ROUNDS, HUD_ALIVE_BOX_COLOURS_ADAPTATION, HUD_ALIVE_LEFT_LAYOUT_ADAPTATION, HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION, HUD_COLOURS, HUD_LAYOUT, infoBoxName, infoNumberText,
   MP_TEAM_TAG_COLOUR_READING, NAV_MARK, OBJECTIVE_MARK_RGB_READING, OWN_BODY_HIDES, SPECTATOR_HELP, SPECTATOR_HELP_TAIL_PLACEHOLDER,
   SPECTATOR_HIDES, SPECTATOR_INFO_LAYOUT, SPECTATOR_INFO_RGB_PLACEHOLDER, SPECTATOR_INFO_TEXT_RGB_PLACEHOLDER,
   SPECTATOR_OWN_INFO_PLACEHOLDER, spectatorInfoText, STANCE_WORDS, taggedName, TEAM_TAG_LAYOUT, TEAMMATE_HIDES, teamTagLayout,
@@ -165,11 +171,16 @@ export function hudLayoutBase(
   if (model.voice) {
     const V = HUD_LAYOUT.voice, v = model.voice, rest = VOICE_ICON_RAMP.target / 128;
     const iconA = timing.voice?.icon ?? rest, talkA = timing.voice?.talk ?? rest;
-    bitmap('voice', WHITE, R(V.countBox.x), Y(V.countBox.y), V.countBox.w * s, V.countBox.h * s, HUD_COLOURS.voiceBox);
-    text('voice', v.count, V.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
-    if (v.right != null) {   // HUD-ALIVE (OT.R117, a browser adaptation): the Terrorists alive, the left box mirrored
+    // HUD-ALIVE (OT.R117, a browser adaptation): with the alive counts on (`right` set) the SEALs alive on the left box in
+    // the scoreboard's SEAL bar colour, the Terrorists alive on the left box mirrored in its TERRORIST bar colour, each
+    // number centred on its own box (HUD-ALIVE-BOXES); without them the original's element, box and spot.
+    const alive = v.right != null;
+    bitmap('voice', WHITE, R(V.countBox.x), Y(V.countBox.y), V.countBox.w * s, V.countBox.h * s,
+      alive ? HUD_ALIVE_BOX_COLOURS_ADAPTATION.seal : HUD_COLOURS.voiceBox);
+    text('voice', v.count, alive ? HUD_ALIVE_LEFT_LAYOUT_ADAPTATION.count : V.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
+    if (v.right != null) {
       const A = HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION;
-      bitmap('voice', WHITE, R(A.countBox.x), Y(A.countBox.y), A.countBox.w * s, A.countBox.h * s, HUD_COLOURS.voiceBox);
+      bitmap('voice', WHITE, R(A.countBox.x), Y(A.countBox.y), A.countBox.w * s, A.countBox.h * s, HUD_ALIVE_BOX_COLOURS_ADAPTATION.terrorist);
       text('voice', v.right, A.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
     }
     if (v.name) text('voice', v.name, V.name, R);

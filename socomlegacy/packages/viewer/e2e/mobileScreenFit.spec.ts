@@ -90,6 +90,12 @@ test('home Mobile settings and editor fit phone and tablet viewports', async ({ 
 test('game viewport and controls fit the phone/tablet sizes and rotation', async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize(phones[1]!);
+  // The Menu-over-compass centring below (to half a pixel) was written when the page drew at Balanced, 100% of its
+  // pixels. Since v0.4.17 the default is Automatic (VS-1, afd74b5b3f), which on the gate's software class resolves to
+  // Performance -- 75% of the pixels, at most 720 lines (`../src/autoQuality.ts`) -- and the v0.4.19 gate's browser view
+  // read the Menu 0.585 px off the compass's centre at 295x667 there. The preset this spec was written against is seeded (`s2u.viewer.video2`, `../src/videoSettings.ts`), so the
+  // layout is measured on every renderer at the same scale.
+  await page.addInitScript(() => localStorage.setItem('s2u.viewer.video2', JSON.stringify({ preset: 'balanced' })));
   await page.goto('/testroom?mode=play&fly&devmode&map=MP2');
   await expect(page.locator('#status')).toContainText(/triangles|tris/);
   await holdReleased(page);

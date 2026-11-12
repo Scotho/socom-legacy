@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, validatePack } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSION, ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, validatePack } from '@s2u/creator-contracts';
 import { withCallbackServer } from '../../../tools/forge-agent-probe/callback';
 import { e2ePort } from './ports';
 import { beginPair, pairBody, PROBE_PAIR_TIMEOUT_MS } from '../../../tools/forge-agent-probe/pairing';
@@ -223,7 +223,7 @@ test.describe(`FUI-23: a rules pack's cue heard, held for a gesture${MISSING.len
       }
     };
     const input = packFiles();
-    const checked = await validatePack(input.map((f) => ({ path: f.path, bytes: new Uint8Array(Buffer.from(f.text, 'utf8')) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+    const checked = await validatePack(input.map((f) => ({ path: f.path, bytes: new Uint8Array(Buffer.from(f.text, 'utf8')) })), { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS });
     expect(checked.ok, JSON.stringify(checked.report)).toBe(true);
     await mutate('forge.rules.import', { files: input });
 

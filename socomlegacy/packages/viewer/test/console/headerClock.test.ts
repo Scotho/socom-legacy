@@ -55,6 +55,7 @@ describe('the header', () => {
     const order = [...h.querySelector('.cx-status')!.children].map((e) => e.className.split(' ')[0]);
     expect(order.indexOf('cx-clock')).toBeLessThan(order.indexOf('cx-discord'));
     expect(order.indexOf('cx-discord')).toBeLessThan(order.indexOf('cx-account-menu'));
+    expect(order.indexOf('cx-github')).toBe(order.indexOf('cx-discord') + 1);   // the owner, 2026-11-12: GitHub beside Discord
   });
   it('the 12-hour choice adds AM / PM', () => {
     const a = sampleAdapters();

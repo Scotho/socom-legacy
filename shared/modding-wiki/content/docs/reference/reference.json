@@ -32,15 +32,15 @@
     },
     {
       "key": "contract",
-      "description": "Required. A version range, such as `^0.1.1`, that the build's engine contract version (`ENGINE_CONTRACT_VERSION`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `||`. A pack of kind `rules` must not admit any engine before `0.1.1`."
+      "description": "Required. A version range, such as `^0.1.1`, that at least one of the engine contract versions the build reads (`ENGINE_CONTRACT_VERSIONS`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `||`. A pack of kind `rules` must not admit any engine before `0.1.1`."
     },
     {
       "key": "kinds",
-      "description": "Required. A list naming each of `content`, `rules` and `system` at most once, and at least one of them: what the pack contains."
+      "description": "Required. A list naming each of `content`, `rules`, `system` and `plugin` at most once, and at least one of them: what the pack contains. `plugin` is reserved: `sides` `server` and a contract that admits no engine before `0.2.0`."
     },
     {
       "key": "sides",
-      "description": "Required. One of `client`, `server` or `both`. The check only tests that it is one of the three; nothing else in the contract reads it. The earlier formats are read as `client`."
+      "description": "Required. One of `client`, `server` or `both`: which side applies the pack's members. A page never applies a `server` pack's members, nor a `plugin` pack's (the contract's `appliesOn`). The earlier formats are read as `client`."
     },
     {
       "key": "dependencies",
@@ -57,6 +57,18 @@
     {
       "key": "handlers",
       "description": "Optional. A list of at most 32 claims on handler slots the engine owns (see the `handlers` claim below). No pack code runs: a claim only names a handler the engine already has."
+    },
+    {
+      "key": "license",
+      "description": "Optional, contract `0.2.0`. The pack's licence: one SPDX licence id such as `CC0-1.0` or `MIT`, at most 64 characters, checked by its shape only (an `OR` expression is refused). It is part of the pack's identity hash."
+    },
+    {
+      "key": "authors",
+      "description": "Optional, contract `0.2.0`. The authors' display names, in their order: 1 to 16 names of 1 to 48 printable ASCII characters. No contact details: a name holding `@` or a link is refused. It is part of the pack's identity hash."
+    },
+    {
+      "key": "extensions",
+      "description": "Optional, contract `0.2.0`. One object of a tool's own data, keyed by reverse-dotted names such as `org.example.tool`; the game never reads inside it. At most 16384 bytes as canonical JSON, with no link anywhere inside. It is part of the pack's identity hash."
     }
   ],
   "fileRow": [
@@ -75,6 +87,24 @@
     {
       "key": "role",
       "description": "What the member is: one of the roles below. The path's file type must be one the role allows."
+    },
+    {
+      "key": "provenance",
+      "description": "Optional, contract `0.2.0`. Where the member came from: an object whose `kind` is one of the provenance kinds below, with a `from` for `derived`. It is part of the pack's identity hash."
+    }
+  ],
+  "provenance": [
+    {
+      "key": "original",
+      "description": "Made by the pack's authors: the object has a `kind` and nothing else."
+    },
+    {
+      "key": "derived",
+      "description": "Made from something else: from another pack, with `from` that pack's reference `{id, version, hash}`, or from a file you supplied to a converter, with `from` the text `import` (such a member stays on your device)."
+    },
+    {
+      "key": "extracted",
+      "description": "Game content read off a disc. Refused in every case with `pack.PROVENANCE_REFUSED`: no game data ships in a pack."
     }
   ],
   "handlerClaim": [
@@ -107,6 +137,10 @@
     {
       "key": "system",
       "description": "Engine systems: changes made through claims on engine-owned handler slots (the one such slot today is the full-screen picture pass `visual.post`). The check sets no rule of its own on this kind."
+    },
+    {
+      "key": "plugin",
+      "description": "Reserved for a community server's plugin: the pack states `sides` `server` and a contract that admits no engine before `0.2.0`. It passes the check with the warning `pack.KIND_NOT_APPLIED`: no page applies it, and nothing in this build runs it."
     }
   ],
   "legacyKinds": [
@@ -126,15 +160,15 @@
   "sides": [
     {
       "key": "client",
-      "description": "The value `client`. The check accepts it; the contract gives it no further rule."
+      "description": "The value `client`: a page applies the pack's members, a server does not."
     },
     {
       "key": "server",
-      "description": "The value `server`. The check accepts it; the contract gives it no further rule."
+      "description": "The value `server`: a match's server applies the pack's members, a page never does."
     },
     {
       "key": "both",
-      "description": "The value `both`. The check accepts it; the contract gives it no further rule."
+      "description": "The value `both`: a page and a server each apply the pack's members (a `plugin` pack's never on a page)."
     }
   ],
   "roles": [
@@ -246,8 +280,13 @@
     },
     {
       "key": "ENGINE_CONTRACT_VERSION",
-      "value": "0.1.2",
-      "description": "The engine contract version this build publishes; a pack's `contract` range must include it."
+      "value": "0.2.0",
+      "description": "The newest engine contract version this build reads, and the one it publishes."
+    },
+    {
+      "key": "ENGINE_CONTRACT_VERSIONS",
+      "value": "0.1.2, 0.2.0",
+      "description": "Every engine contract version this build reads, oldest first. A pack is read when its `contract` range admits at least one of them, so a pack written for `^0.1.1` still reads on a 0.2 build."
     },
     {
       "key": "PACK_TARGET_US",
@@ -260,9 +299,14 @@
       "description": "The first engine contract with the rules vocabulary. A `rules` pack's `contract` must start at it or above in every `||` alternative; it stays the same when the build's contract moves on."
     },
     {
-      "key": "THUNDERSTORE_TEAM_PLACEHOLDER",
-      "value": "TEAM_PLACEHOLDER",
-      "description": "A stand-in for the Thunderstore team packs would publish under, used in exported dependency pins. It is not a real team: the team is not named yet."
+      "key": "PACK_CONTRACT_0_2_FLOOR",
+      "value": "0.2.0",
+      "description": "The first engine contract with the 0.2 additions: the manifest's `license`, `authors` and `extensions`, a `files` row's `provenance`, and a map pack's `layouts/` member. A pack that uses one states a range that admits no engine before it, such as `^0.2.0` (otherwise `pack.CONTRACT_FIELD`); a pack that uses none keeps its lower range. It stays the same when the build's contract moves on."
+    },
+    {
+      "key": "THUNDERSTORE_TEAM",
+      "value": "SOCOM_Legacy",
+      "description": "The Thunderstore team the project's own packs publish under (the owner named it on 2026-11-11). It is not yet created on the store. A dependency is pinned under its own team, never this one by default."
     }
   ],
   "targetAliases": [
@@ -273,6 +317,16 @@
     }
   ],
   "bounds": [
+    {
+      "key": "PACK_AUTHORS_ADAPTATION",
+      "value": 16,
+      "description": "Names in `authors` (`pack.FIELD_INVALID`)."
+    },
+    {
+      "key": "PACK_AUTHOR_CHARS_ADAPTATION",
+      "value": 48,
+      "description": "Characters in one name in `authors` (`pack.FIELD_INVALID`)."
+    },
     {
       "key": "PACK_BYTES_ADAPTATION",
       "value": 536870912,
@@ -287,6 +341,11 @@
       "key": "PACK_DESCRIPTION_CHARS_ADAPTATION",
       "value": 400,
       "description": "Characters in `description` (`pack.FIELD_INVALID`)."
+    },
+    {
+      "key": "PACK_EXTENSIONS_BYTES_ADAPTATION",
+      "value": 16384,
+      "description": "Bytes of `extensions` written as canonical JSON (`pack.LIMIT_EXCEEDED`)."
     },
     {
       "key": "PACK_FILES_ADAPTATION",
@@ -322,6 +381,11 @@
       "key": "PACK_INTENTS_ADAPTATION",
       "value": 64,
       "description": "Entries in `intents` (`pack.LIMIT_EXCEEDED`)."
+    },
+    {
+      "key": "PACK_LICENSE_CHARS_ADAPTATION",
+      "value": 64,
+      "description": "Characters in `license` (`pack.FIELD_INVALID`)."
     },
     {
       "key": "PACK_MANIFEST_BYTES_ADAPTATION",
@@ -574,6 +638,18 @@
       "description": "A `rules` member's capabilities and the manifest's `handlers` claims disagree: a capability with no matching claim or action, or a claim on a `behaviour.` slot that no rules member names."
     },
     {
+      "key": "pack.CONTRACT_FIELD",
+      "description": "A contract `0.2.0` field (`license`, `authors`, `extensions` or a row's `provenance`) in a pack whose `contract` admits an engine before 0.2.0. State `^0.2.0`, or leave the field out."
+    },
+    {
+      "key": "pack.PROVENANCE_REFUSED",
+      "description": "A member whose `provenance` says `extracted`: game content read off a disc is never a pack member."
+    },
+    {
+      "key": "pack.KIND_NOT_APPLIED",
+      "description": "A warning, not an error: the pack holds the reserved `plugin` kind, which no page applies. The pack still passes and is stored; nothing in this build runs it."
+    },
+    {
       "key": "pack.CHECK_SKIPPED",
       "description": "A note, not an error: a check could not run because the build gave it nothing to check against (the available packs, your disc archives or the handler list). The report is then incomplete, never a pass."
     }
@@ -606,6 +682,10 @@
     {
       "key": "store.DEPENDENCY_UNRESOLVED",
       "description": "No release of a dependency inside its range was given to pin."
+    },
+    {
+      "key": "store.DEPENDENCY_TEAM_UNKNOWN",
+      "description": "The export was not given the store team that published a dependency, so it cannot write the pin. The team is never guessed."
     },
     {
       "key": "store.ARCHIVE_DEPENDENCY",

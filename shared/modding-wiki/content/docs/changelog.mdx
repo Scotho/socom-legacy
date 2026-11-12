@@ -18,7 +18,7 @@ publishes its own version, and a pack whose range does not include it is refused
 |---|---|---|
 | `PACK_FORMAT` | `s2u-pack` | The `format` every v2 manifest names. |
 | `PACK_FORMAT_VERSION` | `2` | The `formatVersion` every v2 manifest names. |
-| `ENGINE_CONTRACT_VERSION` | `0.1.2` | The engine contract this build publishes. |
+| `ENGINE_CONTRACT_VERSION` | `0.2.0` | The newest engine contract this build reads, the one it publishes. It also reads every version in `ENGINE_CONTRACT_VERSIONS`. |
 | `RULES_PACK_CONTRACT_FLOOR` | `0.1.1` | The lowest engine contract a `rules` pack may admit. It stays 0.1.1 when the engine contract moves on. |
 | `RULES_VOCABULARY_VERSION` | `0` | The version of the rules vocabulary (events, conditions, actions). |
 | `PACK_TARGET_US` | `SCUS-97275` | The disc revision a pack's `target` names. |
@@ -30,6 +30,25 @@ the middle one.
 ## History
 
 Newest first. Dates are when the change landed in the code, except where an entry says it is dated when written.
+
+### 2026-11-11 -- content map bounds: raised, and two new caps that narrow
+
+*Dated when written: this lands with the build after v0.4.19.*
+
+The bounds a content map (`s2u.creator/content-map`) is checked against, read from the disc's 34 maps (the project's
+map-size census):
+
+- **Raised:** a map's regions may carry 60,000 collision polygons in all (was 20,000); a map may name 4,096 regions
+  (was 1,024); its points may lie 1,000 m from the origin on each axis (was 400 m), with the map no wider than 800 m on
+  any axis (the same width the old 400 m allowed); its navigation grid may store 262,144 cells (was 65,536).
+- **New, and narrower than before:** one region may carry no more than 4,096 polygons (before, only the map's total
+  was bounded, so one region could carry as many as 20,000); and all the regions' polygons may carry no more than
+  1,000,000 points together (before, no points bound: as many as 20,000 polygons of 255 points, about 5.1 million).
+
+**A content map saved earlier that opened on v0.4.19 no longer opens on this build** if one of its regions carries over
+4,096 polygons, or its polygons over 1,000,000 points in all: it is refused with `map.TOO_LARGE`. Split the large region
+into several of 4,096 polygons or fewer. Every map of the disc fits well inside both caps.
+*Today: works -- a content map is checked against these bounds whenever it is read.*
 
 ### 2026-11-09 -- the HD pack credits GoE SouL
 

@@ -9512,7 +9512,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let fpsAt = last, frames = 0;
   const frame = (now: number): void => {
     packOverlay.refresh();                                   // ML-9's F1 / F2: the strip as the Play or a load starts and ends
-    const dt = Math.min((now - last) / 1000, 0.1);
+    const realDt = (now - last) / 1000, dt = Math.min(realDt, 0.1);   // AQ-17: the render scale counts the real frame
     last = now;
     // FUI-22: the list's tiles told when their dock is drawn or not (Docks, Walk, a match); their tooltip's frame.
     const assetsShown = shell.isShown('asset-browser');
@@ -9572,7 +9572,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     extensions?.frame(dt);
     syncAxisWidget();
     created.render(scene, fly.viewportCamera());
-    adaptiveRatio.frame(dt, now, ratioTarget, view.ps2 || busy);   // FP-2: `../matchMount`'s tail; held under the PS2 frame and while the page loads
+    adaptiveRatio.frame(realDt, now, ratioTarget, view.ps2 || busy);   // FP-2: `../matchMount`'s tail; held under the PS2 frame and while the page loads
     frames++;
     if (now - fpsAt > 500) {
       sFps.textContent = `${Math.round((frames * 1000) / (now - fpsAt))} fps · ${created.backend}`;

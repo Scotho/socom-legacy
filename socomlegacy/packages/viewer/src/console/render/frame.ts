@@ -1,4 +1,5 @@
 import { NARROW_PX } from '../fit';
+import { githubOnRow } from '../discord';
 import { pageList } from '../grammar';
 import { morph } from '../morph';
 import type { MotionDir } from '../motion';
@@ -227,17 +228,19 @@ export function renderFrame(doc: Document, s: ConsoleState, a: Adapters): void {
   applyBrightness(doc, s, a);                                        // LR-37 (8): the game's Brightness, on the launcher too                                            // LR-1: the theme part M reads
   // LATER 291: the phone rule (`../fit` NARROW_PX) chooses which Discord control is the pad stop.
   const narrow = (doc.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY) <= NARROW_PX;
+  // The GitHub link (the owner, 2026-11-12): Home's row, not the header's icon, up to `../discord` GITHUB_ROW_PX.
+  const githubRow = githubOnRow(doc.defaultView, narrow);
   const bd = $('backdrop');
   if (bd) bd.className = 'cx-backdrop' + (s.screen !== 'home' || s.overlay ? ' is-deep' : '') + (a.options.value('scan') ? ' is-scan' : '') + (a.options.value('drift') ? ' is-drift' : '');
   drawSheets(doc, s, a, theme);
   const header = $('header');
-  if (header) morph(header, headerHtml(s, a, narrow));
+  if (header) morph(header, headerHtml(s, a, narrow, undefined, githubRow));
   if (header && s.mode !== 'overlay') keepClock(doc, () => clock24(a));   // LR-1: the clock between draws
   const stage = $('stage');
   // LR-1 (LR.R3): read at every draw, so the last place is always the one drawn before this press.
   const bump = edgeBump(doc, s, s.screen === 'home' ? homeItems(CATS[s.cat]?.id ?? '', s, a).length : 0);
   const dir = screenDir(doc, s.screen);                               // RB-4: the stage's way, for an exit that opts in
-  if (stage) morph(stage, s.screen === 'home' ? homeHtml(s, a, narrow, bump) : s.screen === 'rooms' ? roomsHtml(s, a) : s.screen === 'replays' ? replaysHtml(s, a)
+  if (stage) morph(stage, s.screen === 'home' ? homeHtml(s, a, narrow, bump, githubRow) : s.screen === 'rooms' ? roomsHtml(s, a) : s.screen === 'replays' ? replaysHtml(s, a)
     : s.screen === 'remap' ? remapHtml(s, a)                                            // CX-14: the button mapping screen
     : s.screen === 'loadoutSides' ? loadoutSidesHtml(s, a)
     : s.screen === 'loadouts' ? loadoutsHtml(s, a) : s.screen === 'loadout' ? loadoutHtml(s, a)   // CX-LOADOUTS
@@ -274,9 +277,9 @@ export function renderFrame(doc: Document, s: ConsoleState, a: Adapters): void {
   const toast = $('toast');
   if (toast) morph(toast, toastHtml(s));
   // LATER 291: above the phone rule the Discord stop is the header icon. The Home row is hidden there, so the document
-  // focus goes to the icon that shows the pad ring.
+  // focus goes to the icon that shows the pad ring. The GitHub icon beside it (the owner, 2026-11-12) the same.
   const stageFocus = (doc.querySelector('#overlay .is-focused') ?? (s.overlay ? null : doc.querySelector('#stage .is-focused'))) as HTMLElement | null;
-  const discordIcon = !s.overlay && !narrow ? doc.querySelector<HTMLElement>('#header .cx-discord.is-focused') : null;
+  const discordIcon = !s.overlay && !narrow ? doc.querySelector<HTMLElement>('#header .cx-discord.is-focused, #header .cx-github.is-focused') : null;
   const f = discordIcon ?? stageFocus;
   // Field typing in the sign-in dialog (the review's F4): the real password field keeps the focus until a pad press.
   const padFocus = s.input === 'pad' && !(s.overlay === 'signin' && s.si.typing) && !(s.overlay === 'search' && s.q.typing) && !(s.overlay === 'field' && s.fd.typing);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, sha256Hex, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, sha256Hex, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
 import { createPackRegistry } from '../src/packs/registry';
 import { validateLegacyPack } from '../src/packs/adapters';
 import { idbPackDatabase, PACKS_BYTES, PACKS_DB } from '../src/packs/storage';
@@ -11,7 +11,7 @@ import { buildTexturePack } from '../src/texturePackBuild';
 
 /** Product adaptation: stored validation uses authored small records; no renderer or large fixture is involved. */
 const bytes = (text: string) => new TextEncoder().encode(text);
-const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
 const mod = (text = 'authored native bytes'): StoredMod => ({ id: 'native', label: 'Native', files: [
   { name: 'mod.json', bytes: bytes(JSON.stringify({ format: 's2u-mod', formatVersion: 1, id: 'native', name: 'Native',
     version: '1', author: 'Fixture', description: '', target: 'socom2-us-r0001', files: [{ path: 'NOTES/NATIVE.TXT', file: 'native.txt' }] })) },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkCreatorRecord, recordOfLayout, sha256Hex, validatePack, ENGINE_CONTRACT_VERSION, PACK_TARGET_US, type RulesSpec } from '@s2u/creator-contracts';
+import { checkCreatorRecord, recordOfLayout, sha256Hex, validatePack, ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, type RulesSpec } from '@s2u/creator-contracts';
 import { planForgeLayout } from '../../src/forge/agent/commands';
 import { decodeHistoryStep, encodeHistoryStep, History, recordEdit } from '../../src/forge/history';
 import { emptyLayout, serializeLayout, type Layout } from '../../src/forge/layout';
@@ -199,7 +199,7 @@ describe('FCW-32 export: the rules as a v2 rules pack, and back', () => {
     const pack = await buildRulesPack(l.rules!.pack, l.rules!.spec);
     expect(pack.ref).toEqual(l.rules!.pack);
     const files = pack.files.map((f) => ({ path: f.path, bytes: new TextEncoder().encode(f.text) }));
-    const checked = await validatePack(files, { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION });
+    const checked = await validatePack(files, { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS });
     expect(checked.ok && checked.ref).toEqual(l.rules!.pack);
     const back = await importRulesPack(pack.files);
     expect({ pack: back.pack, spec: back.spec }).toEqual(l.rules);

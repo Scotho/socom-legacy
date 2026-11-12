@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { IDBFactory } from 'fake-indexeddb';
-import { ENGINE_CONTRACT_VERSION, PACK_TARGET_US, type PackContext } from '@s2u/creator-contracts';
+import { ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US, type PackContext } from '@s2u/creator-contracts';
 import { HD_ROOT, HdNotServed, servedHdSource } from '../src/hdTexturePackServed';
 import { installHdFromSource, memoryHdStore, type HdStore } from '../src/hdTexturePackStore';
 import { sha256 } from '../src/texturePack';
@@ -105,7 +105,7 @@ describe('ML-12: the served HD pack installed from its fetched source (installHd
   });
 });
 
-const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
 const flagsOf = (): PackFlags => { const m = new Map<string, string>(); return { get: (k) => m.get(k) ?? null, set: (k, v) => { m.set(k, v); }, remove: (k) => { m.delete(k); } }; };
 const bus = (): ChannelFactory => () => { const ch: ModsChannel = { onmessage: null, close: () => {}, postMessage: () => {} }; return ch; };
 function registryOptions(hd: HdStore): PackRegistryOptions {

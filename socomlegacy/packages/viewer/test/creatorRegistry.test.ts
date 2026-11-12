@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
-import { CHECK_REPORT_SCHEMA, CHECK_REPORT_VERSION, DIAGNOSTIC_SCHEMA, DIAGNOSTIC_VERSION, ENGINE_CONTRACT_VERSION, PACK_TARGET_US,
+import { CHECK_REPORT_SCHEMA, CHECK_REPORT_VERSION, DIAGNOSTIC_SCHEMA, DIAGNOSTIC_VERSION, ENGINE_CONTRACT_VERSIONS, PACK_TARGET_US,
   sha256Hex, validatePack, type BufferedPackFile, type PackContext } from '@s2u/creator-contracts';
 import { idbPackDatabase, PACKS_BYTES, PACKS_DB, PACKS_SCOPES } from '../src/packs/storage';
 import { createPackRegistry } from '../src/packs/registry';
@@ -201,7 +201,7 @@ describe('creator registry legacy compatibility (product adaptation)', () => {
     const factory = new IDBFactory(), database = idbPackDatabase(() => factory);
     await database.read('packs', async () => ({ records: [] }));
     const library = surface === 'stored validation' ? idbModLibrary(() => factory) : memoryModLibrary();
-    const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+    const context: PackContext = { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
     const original = crypto.subtle.digest.bind(crypto.subtle), hashInputs: Uint8Array[] = [];
     const hash = async (value: Uint8Array): Promise<Uint8Array> => new Uint8Array(await original('SHA-256', new Uint8Array(value).buffer));
     const baseline = { ...context, sha256: async (value: Uint8Array) => { hashInputs.push(value.slice()); return hash(value); } };

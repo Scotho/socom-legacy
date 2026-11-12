@@ -8,7 +8,7 @@ source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/doc
 **Status: Format only.** Every kind is checked and a pack that passes is stored; the game's import applies none of
 them. Each kind below has its own status: only `rules` runs anywhere, in the Forge's local Play.
 
-A v2 pack's manifest lists its kinds in `kinds`: one, two or all three of `content`, `rules` and `system`, each at
+A v2 pack's manifest lists its kinds in `kinds`: one or more of `content`, `rules`, `system` and `plugin`, each at
 most once. The kinds say what the pack contains; each member's `role` and each `intents` entry say exactly what it
 changes ([Pack anatomy](/anatomy/)).
 
@@ -17,6 +17,7 @@ changes ([Pack anatomy](/anatomy/)).
 | `content` | assets and maps: models, textures, sounds, collision, data, an authored map | **Format only** |
 | `rules` | the rules of a game mode, as data | **Forge, local only** |
 | `system` | claims on engine systems, such as a full-screen picture effect | **Planned** |
+| `plugin` | reserved: a community server's plugin, `sides` `server` only; no page applies it and nothing runs it yet | **Planned** |
 
 The earlier formats (data mods, texture packs, the model pack, HD texture packs) are not v2 kinds; they have
 [their own page](/kinds/earlier-formats/).

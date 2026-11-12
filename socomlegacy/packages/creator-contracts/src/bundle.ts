@@ -31,8 +31,8 @@ import type { Sha256 } from "./digest.js";
 import { CONTENT_MAP_VERSIONS, contentMapMemberPath, readContentMapDefinition } from "./maps.js";
 import { RECORD_LIMITS, RECORD_SCHEMA, RECORD_VERSION, readCreatorRecord, type CheckRecordOptions, type CreatorLayoutRecord } from "./layout.js";
 import {
-  ENGINE_CONTRACT_VERSION, PACK_BYTES_ADAPTATION, PACK_MANIFEST_BYTES_ADAPTATION, PACK_MANIFEST_FILE, PACK_TARGET_US, packPath, validatePack,
-  type AvailablePack, type PackHandlerCapability, type PackManifest, type PackRef,
+  ENGINE_CONTRACT_VERSIONS, PACK_BYTES_ADAPTATION, PACK_MANIFEST_BYTES_ADAPTATION, PACK_MANIFEST_FILE, PACK_TARGET_US, packPath, validatePack,
+  type AvailablePack, type EngineContract, type PackHandlerCapability, type PackManifest, type PackRef,
 } from "./packs.js";
 
 export const FORGE_BUNDLE_SCHEMA = "s2u.creator/forge-map-bundle" as const;
@@ -109,8 +109,8 @@ export type ForgeBundleValidation =
 export interface ValidateBundleOptions extends CheckRecordOptions {
   /** The build's disc revision: `PACK_TARGET_US` by default. */
   readonly target?: string;
-  /** The build's engine contract: `ENGINE_CONTRACT_VERSION` by default. */
-  readonly contract?: string;
+  /** The build's engine contract: the versions it reads, `ENGINE_CONTRACT_VERSIONS`, by default (FX-5). */
+  readonly contract?: EngineContract;
   /** Packs this device holds beside the carried ones, for a carried pack's `{id, range}` dependencies. */
   readonly packs?: readonly AvailablePack[];
   readonly archives?: Readonly<Record<string, string>>;
@@ -315,7 +315,7 @@ export async function validateForgeBundle(entries: readonly BundleEntry[], optio
     const members = files.filter((e) => e.path.startsWith(at)).map((e) => ({ path: e.path.slice(at.length), bytes: e.bytes }));
     const checked = await validatePack(members, {
       target: options.target ?? PACK_TARGET_US,
-      contract: options.contract ?? ENGINE_CONTRACT_VERSION,
+      contract: options.contract ?? ENGINE_CONTRACT_VERSIONS,
       packs: available,
       ...(options.archives ? { archives: options.archives } : {}),
       ...(options.handlers ? { handlers: options.handlers } : {}),

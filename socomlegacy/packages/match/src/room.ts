@@ -8557,7 +8557,7 @@ export class Room {
   /** One game frame of one projectile (`flyGrenades`): the proximity, the step, a direct hit, a blast. */
   private flyFrame(f: Flying, hull: HullCast, origins: readonly (readonly [number, number, number])[]): void {
     if (f.g.state === 'removed') return;
-    if (f.g.record.proximity !== undefined) proximityTripped(f.g, origins);
+    const tripped = f.g.record.proximity !== undefined && proximityTripped(f.g, origins);   // MINES-ROOM: told below
     const bodies: (BodyHit | HostageBodyHit)[] = [];
     const cast = f.g.record.impact && f.g.state === 'flight' ? this.bodyCast(hull, f.owner, bodies) : hull;
     const start: V3 = [f.g.pos[0], f.g.pos[1], f.g.pos[2]];       // where the frame began (GRENADE_CONTACT_RANGE_READING)
@@ -8573,7 +8573,15 @@ export class Room {
       // C4's Timer1 and its blast are one frame (`HandleTimers` 0x3c99a0, then `FUN_003c7600`). The page's
       // copy waits for this `detonate` -- the owner included, no `except` -- instead of opening the barricade
       // on its own fuse while this room is still behind (research 209 §18).
-      if (f.kind === 'C4') this.broadcast({ type: 'detonate', pid: f.pid, by: null });
+      // MINES-ROOM (research 235 §8): a proximity trip (the PMN's, `ProximityDistance`) is told the same way, to every
+      // page and the spectators and the recorder. The original has one authority per mine -- the owner's console tests
+      // it (`FUN_005bc730` D:L474105-474108, `FUN_00543930` D:L410281-410305) and sends the trip on the wire
+      // (`FUN_003c7170` D:L318487-318496); here the room is that authority, a port's adaptation of WHERE the test runs.
+      // An existing message sent in one more case: no protocol change (V20.R11). The trip of THIS frame only (it goes
+      // off on the frame it is tripped, `stepGrenade`): a PMN a blast or a round queued was told by `chargeHit`, its
+      // `by` with it -- this frame too (`queued`, set earlier in the frame's walk, holds the trip's second word: the
+      // MINES-ROOM fold). The page still trips its own copy (LATER 930); `detonateRemote` passes over a copy gone off.
+      if (f.kind === 'C4' || (tripped && !f.queued)) this.broadcast({ type: 'detonate', pid: f.pid, by: null });
       this.blast(f, e.point);
     }
   }

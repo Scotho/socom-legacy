@@ -26,13 +26,16 @@ pack contract's code, so it is the checker's own list.
 | `name` | Required. The pack's display name: 1 to 48 printable ASCII characters. |
 | `description` | Optional. A short description: up to 400 printable ASCII characters. It is part of the pack's identity hash, so changing it changes the pack's hash. |
 | `target` | Required. The disc revision the pack is for. It must be exactly the build's target (see `PACK_TARGET_US` below); an earlier spelling is refused and the finding names the canonical one. |
-| `contract` | Required. A version range, such as `^0.1.1`, that the build's engine contract version (`ENGINE_CONTRACT_VERSION`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `\|\|`. A pack of kind `rules` must not admit any engine before `0.1.1`. |
-| `kinds` | Required. A list naming each of `content`, `rules` and `system` at most once, and at least one of them: what the pack contains. |
-| `sides` | Required. One of `client`, `server` or `both`. The check only tests that it is one of the three; nothing else in the contract reads it. The earlier formats are read as `client`. |
+| `contract` | Required. A version range, such as `^0.1.1`, that at least one of the engine contract versions the build reads (`ENGINE_CONTRACT_VERSIONS`) must satisfy. Ranges take `*`, `=`, `>`, `>=`, `<`, `<=`, `^` and `~`, sets separated by spaces and alternatives by `\|\|`. A pack of kind `rules` must not admit any engine before `0.1.1`. |
+| `kinds` | Required. A list naming each of `content`, `rules`, `system` and `plugin` at most once, and at least one of them: what the pack contains. `plugin` is reserved: `sides` `server` and a contract that admits no engine before `0.2.0`. |
+| `sides` | Required. One of `client`, `server` or `both`: which side applies the pack's members. A page never applies a `server` pack's members, nor a `plugin` pack's (the contract's `appliesOn`). The earlier formats are read as `client`. |
 | `dependencies` | Required, empty when there are none. A list of at most 64 entries, each either `{id, range}` (another pack, by its id and a version range) or `{archive, sha256}` (one of your own disc archives, by its path and SHA-256). The same id or archive may not appear twice, and a pack may not depend on itself. |
 | `files` | Required, at least one row. Every member of the pack except the manifest itself, one row each (see the `files` row below). A file in the zip that is not listed is refused, apart from Thunderstore's root files beside the manifest. |
 | `intents` | Required. A list of at most 64 entries, each `{kind, files}`: which members a change is declared to be, and what kind of change it is. Every member must be named by at least one intent. |
 | `handlers` | Optional. A list of at most 32 claims on handler slots the engine owns (see the `handlers` claim below). No pack code runs: a claim only names a handler the engine already has. |
+| `license` | Optional, contract `0.2.0`. The pack's licence: one SPDX licence id such as `CC0-1.0` or `MIT`, at most 64 characters, checked by its shape only (an `OR` expression is refused). It is part of the pack's identity hash. |
+| `authors` | Optional, contract `0.2.0`. The authors' display names, in their order: 1 to 16 names of 1 to 48 printable ASCII characters. No contact details: a name holding `@` or a link is refused. It is part of the pack's identity hash. |
+| `extensions` | Optional, contract `0.2.0`. One object of a tool's own data, keyed by reverse-dotted names such as `org.example.tool`; the game never reads inside it. At most 16384 bytes as canonical JSON, with no link anywhere inside. It is part of the pack's identity hash. |
 
 ## A `files` row
 
@@ -42,6 +45,17 @@ pack contract's code, so it is the checker's own list.
 | `sha256` | The SHA-256 of the member's bytes, as 64 lower-case hex digits. The check hashes the member and refuses it when the hash differs. |
 | `size` | The member's size in bytes, a whole number of 0 or more. The check compares it with the stored size before reading any bytes. |
 | `role` | What the member is: one of the roles below. The path's file type must be one the role allows. |
+| `provenance` | Optional, contract `0.2.0`. Where the member came from: an object whose `kind` is one of the provenance kinds below, with a `from` for `derived`. It is part of the pack's identity hash. |
+
+## Provenance
+
+A `files` row's `provenance` (contract 0.2) is an object whose `kind` is one of these.
+
+| kind | what it is |
+|---|---|
+| `original` | Made by the pack's authors: the object has a `kind` and nothing else. |
+| `derived` | Made from something else: from another pack, with `from` that pack's reference `{id, version, hash}`, or from a file you supplied to a converter, with `from` the text `import` (such a member stays on your device). |
+| `extracted` | Game content read off a disc. Refused in every case with `pack.PROVENANCE_REFUSED`: no game data ships in a pack. |
 
 ## A `handlers` claim
 
@@ -59,6 +73,7 @@ pack contract's code, so it is the checker's own list.
 | `content` | Content: assets and maps (models, textures, sounds, collision, data, an authored map). The earlier formats are read as `content` packs. The check sets no rule of its own on this kind. |
 | `rules` | Declarative rules for a game mode, in `rules`-role JSON members: data only, never code. A `rules` pack's `contract` must start at `0.1.1` or above, and its members' capabilities must agree with its `handlers` claims. |
 | `system` | Engine systems: changes made through claims on engine-owned handler slots (the one such slot today is the full-screen picture pass `visual.post`). The check sets no rule of its own on this kind. |
+| `plugin` | Reserved for a community server's plugin: the pack states `sides` `server` and a contract that admits no engine before `0.2.0`. It passes the check with the warning `pack.KIND_NOT_APPLIED`: no page applies it, and nothing in this build runs it. |
 
 ### The earlier formats
 
@@ -74,9 +89,9 @@ An earlier loader's pack has no `s2u-pack.json`; the contract reads it through a
 
 | side | what it is |
 |---|---|
-| `client` | The value `client`. The check accepts it; the contract gives it no further rule. |
-| `server` | The value `server`. The check accepts it; the contract gives it no further rule. |
-| `both` | The value `both`. The check accepts it; the contract gives it no further rule. |
+| `client` | The value `client`: a page applies the pack's members, a server does not. |
+| `server` | The value `server`: a match's server applies the pack's members, a page never does. |
+| `both` | The value `both`: a page and a server each apply the pack's members (a `plugin` pack's never on a page). |
 
 ## Roles and payload types
 
@@ -111,16 +126,26 @@ intent alone.
 | `PACK_FORMAT` | `s2u-pack` | The manifest's `format`. |
 | `PACK_FORMAT_VERSION` | `2` | The manifest's `formatVersion`. |
 | `PACK_MANIFEST_FILE` | `s2u-pack.json` | The manifest's file name at the pack's root. |
-| `ENGINE_CONTRACT_VERSION` | `0.1.2` | The engine contract version this build publishes; a pack's `contract` range must include it. |
+| `ENGINE_CONTRACT_VERSION` | `0.2.0` | The newest engine contract version this build reads, and the one it publishes. |
+| `ENGINE_CONTRACT_VERSIONS` | `0.1.2, 0.2.0` | Every engine contract version this build reads, oldest first. A pack is read when its `contract` range admits at least one of them, so a pack written for `^0.1.1` still reads on a 0.2 build. |
 | `PACK_TARGET_US` | `SCUS-97275` | The disc revision this build targets (the US disc's product code); a pack's `target` must be exactly this. |
 | `RULES_PACK_CONTRACT_FLOOR` | `0.1.1` | The first engine contract with the rules vocabulary. A `rules` pack's `contract` must start at it or above in every `\|\|` alternative; it stays the same when the build's contract moves on. |
-| `THUNDERSTORE_TEAM_PLACEHOLDER` | `TEAM_PLACEHOLDER` | A stand-in for the Thunderstore team packs would publish under, used in exported dependency pins. It is not a real team: the team is not named yet. |
+| `PACK_CONTRACT_0_2_FLOOR` | `0.2.0` | The first engine contract with the 0.2 additions: the manifest's `license`, `authors` and `extensions`, a `files` row's `provenance`, and a map pack's `layouts/` member. A pack that uses one states a range that admits no engine before it, such as `^0.2.0` (otherwise `pack.CONTRACT_FIELD`); a pack that uses none keeps its lower range. It stays the same when the build's contract moves on. |
+| `THUNDERSTORE_TEAM` | `SOCOM_Legacy` | The Thunderstore team the project's own packs publish under (the owner named it on 2026-11-11). It is not yet created on the store. A dependency is pinned under its own team, never this one by default. |
 
 ### Target aliases
 
 | earlier spelling | canonical target | what it is |
 |---|---|---|
 | `socom2-us-r0001` | `SCUS-97275` | The `s2u-mod` v1 spelling of the target. Only the `mod` adapter accepts it; in a v2 manifest it is refused and the finding names the canonical target. |
+
+## Beside the manifest: contract 0.2.0
+
+Engine contract 0.2.0 adds the four optional fields above -- the manifest's `license`, `authors` and `extensions`, and
+a `files` row's `provenance` -- and the map pack's `layouts/<slug>.json` member. A pack that uses one states a
+range that admits no engine before 0.2.0, such as `^0.2.0`, or is refused with `pack.CONTRACT_FIELD`. A pack that
+uses none keeps its range: the build reads every engine contract version in `ENGINE_CONTRACT_VERSIONS`, so a pack
+written for `^0.1.1` still reads.
 
 ## Beside the manifest: contract 0.1.2
 

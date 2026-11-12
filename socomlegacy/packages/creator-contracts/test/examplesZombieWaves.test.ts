@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  behaviourCatalogue, ENGINE_CONTRACT_VERSION, forgeModeChoices, layoutEntityIds, PACK_CODES, PACK_TARGET_US, packDigest,
+  behaviourCatalogue, ENGINE_CONTRACT_VERSIONS, forgeModeChoices, layoutEntityIds, PACK_CODES, PACK_TARGET_US, packDigest,
   RULE_ACTIONS, RULE_EVENTS, RULES_CODES, rulesCatalogue, rulesModeCatalogue, sha256Hex, validatePack, validateRules,
   type PackManifest, type RulesSpec,
 } from "../src/index.js";
@@ -42,7 +42,7 @@ const run = (): WaveRun => JSON.parse(readFileSync(RUN, "utf8")) as WaveRun;
 const spec = (): RulesSpec => JSON.parse(textOf("rules/waves.json")) as RulesSpec;
 const manifest = (): PackManifest => JSON.parse(textOf("s2u-pack.json")) as PackManifest;
 const packFiles = () => [{ path: "s2u-pack.json", bytes: bytesOf("s2u-pack.json") }, { path: "rules/waves.json", bytes: bytesOf("rules/waves.json") }];
-const context = () => ({ target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], archives: {}, handlers: behaviourCatalogue() });
+const context = () => ({ target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], archives: {}, handlers: behaviourCatalogue() });
 const floor = () => rulesCatalogue({ layout: layoutEntityIds({ spawners: [{ id: "horde" }] }) });
 
 describe("issue #766: the zombie-wave example's manifest", () => {

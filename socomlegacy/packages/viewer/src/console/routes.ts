@@ -107,6 +107,36 @@ export function settleLoadoutDeepLink(s: ConsoleState, a: Adapters): void {
   if (mission) lo.edit(mission);
 }
 
+/**
+ * The persona editor's path segment (a browser adaptation, OT.R28; the id itself is not touched). A persona id is
+ * HOST, PORT and NAME joined by NULs (`./adapters/profile` `personaId`, `FUN_002fbce0`'s key). Encoded whole, it put
+ * `%00` in the path twice, and a Chrome before ~117 refuses such a URL in `pushState`. Each NUL-separated part is
+ * encoded on its own and the parts joined by `,`: `encodeURIComponent` always escapes `,` inside a part (a NAME's `,` is
+ * `%2C`) and `,` is legal unescaped in a path segment, so the split is exact, and the segment holds no NUL and no `%00`
+ * for any id the name check allows (it refuses control characters). A real id has two separators, so its segment never
+ * reads `new`. An old link (`%00` form) holds no raw `,`, so it is one part, decoded once: the same id.
+ */
+const PERSONA_PATH_SEPARATOR_ADAPTATION = ',';
+
+const personaSegment = (id: string): string =>
+  id.split('\u0000').map((part) => encodeURIComponent(part)).join(PERSONA_PATH_SEPARATOR_ADAPTATION);
+
+/** Null when a part does not decode (a hand-typed `%zz`). Read off the RAW segment: a decoded `%2C` is a NAME's comma. */
+const personaIdOfSegment = (raw: string): string | null => {
+  try {
+    return raw.split(PERSONA_PATH_SEPARATOR_ADAPTATION).map((part) => decodeURIComponent(part)).join('\u0000');
+  } catch {
+    return null;
+  }
+};
+
+/** The path's segments as written, not decoded (`routeSegmentsOfPath`'s split, without its decode). */
+function rawSegmentsOfPath(pathname: string, base: string): string[] {
+  const b = base.endsWith('/') ? base : `${base}/`;
+  if (!pathname.startsWith(b)) return [];
+  return pathname.slice(b.length).split('/').filter((p) => p !== '');
+}
+
 /** The path under the base, no leading slash. Home is `''`. */
 export function encodeLauncherPath(s: ConsoleState, a: Adapters): string {
   const cat = CATS[s.cat]?.id ?? 'home';
@@ -131,7 +161,7 @@ export function encodeLauncherPath(s: ConsoleState, a: Adapters): string {
     }
     case 'remap': return 'settings/controller/mapping';
     case 'persona': return 'profile/personas';
-    case 'personaEdit': return `profile/personas/${encodeURIComponent(s.pf.id ?? '')}`;
+    case 'personaEdit': return `profile/personas/${personaSegment(s.pf.id ?? '')}`;
     case 'personaNew': return 'profile/personas/new';
     case 'record': return 'profile/record';
     case 'loadoutSides': return 'profile/armory';
@@ -232,7 +262,13 @@ export function decodeLauncherPath(pathname: string, base: string, s: ConsoleSta
     if (rest === '') { home(s, 'profile'); return; }
     if (rest === 'personas' && segs.length === 2) { s.screen = 'persona'; return; }
     if (rest === 'personas' && segs[2] === 'new') { s.screen = 'personaNew'; return; }
-    if (rest === 'personas' && segs[2]) { s.screen = 'personaEdit'; s.pf = { ...s.pf, id: segs[2]! }; return; }
+    if (rest === 'personas' && segs[2]) {
+      // The raw segment (`personaSegment`): `segs` are decoded twice over, which would turn a NAME's `%41` into `A`.
+      const raw = rawSegmentsOfPath(pathname, base)[2];
+      s.screen = 'personaEdit';
+      s.pf = { ...s.pf, id: (raw !== undefined ? personaIdOfSegment(raw) : null) ?? segs[2]! };
+      return;
+    }
     if (rest === 'record') { s.screen = 'record'; return; }
     if (rest === 'armory' && !segs[2]) { s.screen = 'loadoutSides'; s.lo.row = 0; return; }
     if (rest === 'armory' && (segs[2] === 'seal' || segs[2] === 'terrorist')) {

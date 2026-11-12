@@ -5,7 +5,7 @@
  */
 import { checkRecord, readSaved, type LayoutRecord } from '../forge/record';
 import { isAuthoringEnvelope } from '../forge/rulesAuthoring';
-import { checkReport, createSha256, diagnostic, ENGINE_CONTRACT_VERSION, FORGE_BUNDLE_FILE, PACK_TARGET_US, satisfiesRange, sha256Hex, validateForgeBundle, validatePack, type AvailablePack, type BufferedPackFile, type CheckReport, type PackContext, type PackFile, type PackKind, type PackManifest, type PackRef } from '@s2u/creator-contracts';
+import { checkReport, createSha256, diagnostic, ENGINE_CONTRACT_VERSIONS, FORGE_BUNDLE_FILE, PACK_TARGET_US, satisfiesRange, sha256Hex, validateForgeBundle, validatePack, type AvailablePack, type BufferedPackFile, type CheckReport, type PackContext, type PackFile, type PackKind, type PackManifest, type PackRef } from '@s2u/creator-contracts';
 import { idbPackDatabase, PackDependencyChanged, PackStorageError, sharesPackDatabase, type PackDatabase, type PackFence } from './storage';
 import type { NativeIdentityWriter, NativePackIdentity, NativePackObservation } from './identity';
 import { validateLegacyPack } from './adapters';
@@ -227,7 +227,7 @@ function manifestPaths(bytes: Uint8Array, field: 'files' | 'models'): void {
 
 export function createPackRegistry(options: PackRegistryOptions = {}): PackRegistry {
   const maps = options.maps ?? pageSettings;
-  const buildContext: PackContext = options.context ?? { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSION, packs: [], handlers: [] };
+  const buildContext: PackContext = options.context ?? { target: PACK_TARGET_US, contract: ENGINE_CONTRACT_VERSIONS, packs: [], handlers: [] };
   const nativeMods = options.mods ? undefined : idbModLibrary(pageIndexedDb);
   const hintAvailable = (): boolean => {
     if (!nativeMods) return true;

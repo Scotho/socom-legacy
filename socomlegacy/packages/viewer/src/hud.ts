@@ -12,7 +12,7 @@ import { HUD_LIBRARIES, NOT_ICONS, type HudBitmaps } from './hudAssets';
 import { FONT_TEXT_01, layoutText, textWidth } from './hudFont';
 import { keepClearNeighbours, messageMeasureScale, messagePanelSpan, wrapMessageLine, type KeepClear } from './hudMessagePanel';
 import type { HudRenderer, Rect } from './reticle';
-import { DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, SCORE_TOP, scoreboardLayout, type GameDetails, type ScoreRowInfo } from './scoreboard';
+import { DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, SCORE_LAYOUT, SCORE_TOP, scoreboardLayout, type GameDetails, type ScoreRowInfo } from './scoreboard';
 import type { Presentation } from './renderer';
 import { ROUND_SCREEN_BITMAPS, roundScreenLayout, type RoundScreen } from './roundScreens';
 import { roundBanner } from './net/rules';
@@ -198,15 +198,42 @@ export const HUD_LAYOUT = {
 
 /**
  * HUD-ALIVE (OT.R117; **a browser adaptation**, `./hudVoice` `HUD_ALIVE_COUNTS_ADAPTATION`, the owner's words there):
- * where the Terrorists-alive number sits. The original draws no number in the voice element's right corner, so its place
- * is ours: the left number's box (582-598 x 359-375, the number centred on x 589, `HUD_LAYOUT.voice`) mirrored about the
- * channel icon's centre x 606 (590 + 32 / 2) -- the box 614-630 x 359-375, the number centred on x 623 = 2 x 606 - 589 --
- * at the left number's baseline 371, scale 0.8, box colour and text colour. It sits under the speaker's line (baseline
- * 352), clear of it.
+ * where the two alive numbers sit. The original draws no number in the voice element's right corner, so its place is
+ * ours: the left number's box (582-598 x 359-375, `HUD_LAYOUT.voice`) mirrored about the channel icon's centre x 606
+ * (590 + 32 / 2) -- the box 614-630 x 359-375 -- at scale 0.8 and the left number's text colour. It sits under the
+ * speaker's line (baseline 352), clear of it.
+ *
+ * HUD-ALIVE-BOXES (the owner, 2026-11-11/12, seat 2f, verbatim in `./hudVoice`: "Ensure both are centered in their
+ * square, the right one looks uncentered"): each number on its own box by one rule, x = the box's x + 7 and the
+ * baseline 372 -- 589 left, 621 right. The rule is the ink's, measured off the disc's `font_text_01.tif` (MP2's
+ * HUD2_TXR; `test/hudVoice.test.ts`): a string centred on x (`textWidth`, `layoutText`: the glyphs' `PEN_NUDGE` -0.6,
+ * the GS's half-pixel corner sampling `GS_SAMPLE_OFFSET` +0.5) puts its ink 0.4 to 1.1 right of x and, on baseline 372,
+ * rows 361.6-372.8 -- so on x = box + 7 the ink of "0".."16" sits -0.6 to +0.1 of the box's centre across and +0.2
+ * down, the same in both boxes. Until 2026-11-12 the right number was the left one's x mirrored (2 x 606 - 589 = 623),
+ * which mirrors the spot but not the glyphs: its ink sat 1.4 to 2.1 right of its box's centre, and both 0.8 high on
+ * baseline 371. Without the alive counts the number is the original's, on `HUD_LAYOUT.voice.count` (589, 371).
  */
 export const HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION = {
-  count: { x: 623, y: 371, scale: 0.8, align: 'centre' } as TextSpot,
+  count: { x: 621, y: 372, scale: 0.8, align: 'centre' } as TextSpot,
   countBox: { x: 614, y: 359, w: 16, h: 16 },
+} as const;
+/** HUD-ALIVE-BOXES: the SEALs-alive number on the original's box (`HUD_LAYOUT.voice.countBox`), by the rule above. */
+export const HUD_ALIVE_LEFT_LAYOUT_ADAPTATION = {
+  count: { x: 589, y: 372, scale: 0.8, align: 'centre' } as TextSpot,
+} as const;
+/**
+ * HUD-ALIVE-BOXES (OT.R117; **a browser adaptation**; the owner, 2026-11-11/12, seat 2f, verbatim in `./hudVoice`):
+ * with the alive counts on, the left box in the in-game scoreboard's SEALs bar colour and the right box in its
+ * TERRORISTS bar colour, each at the bar's alpha 80 -- `./scoreboard`'s `SCORE_LAYOUT.teams[i].header` (32, 32, 64) and
+ * (64, 32, 32) and `SCORE_LAYOUT.header.alpha` (the original's `FUN_00229d00` colours, research 87 §12), reused here by
+ * his choice. Converted as the board converts them (`c255`: each channel over 255) and as this HUD's other untextured
+ * fills are (`HUD_COLOURS.health`): both reach the screen as the vertex colour over a white texel (`WHITE`, 255 = 1.0),
+ * one blend, so the box and the bar are the same colour on screen. Without the alive counts the box is the original's
+ * black at alpha 50 (`HUD_COLOURS.voiceBox`).
+ */
+export const HUD_ALIVE_BOX_COLOURS_ADAPTATION = {
+  seal: [...SCORE_LAYOUT.teams[0].header.map((c) => c / 255), SCORE_LAYOUT.header.alpha] as Rgba4,
+  terrorist: [...SCORE_LAYOUT.teams[1].header.map((c) => c / 255), SCORE_LAYOUT.header.alpha] as Rgba4,
 } as const;
 
 /**
@@ -332,7 +359,7 @@ export const ACTION_PROMPT_COLOUR: Record<ActionPrompt, Exclude<keyof typeof ACT
 /**
  * The prompts that are a map's action, the type-13 record: the only one `FUN_0021f210` greys, when the player's
  * `+200` word and the action's `+0x30` word share no bit (D:L73957-73959, the side icons' D:L74005-74007; its caption
- * then UNAVAILABLE, `FUN_00220350` D:L74402-74403, not drawn yet). What the two words hold is not read; the port's
+ * then UNAVAILABLE, `FUN_00220350` D:L74402-74403). What the two words hold is not read; the port's
  * caller says it (`allowed`).
  */
 export const MAP_ACTION_PROMPTS: ReadonlySet<ActionPrompt> = new Set<ActionPrompt>(['door', 'button', 'lever']);
@@ -364,7 +391,10 @@ export interface ActionEntry {
   allowed?: boolean;
   /** LkPaioX5 part 2 (b): a TAKE's weapon name (the drop's record's `DisplayName`, `FUN_00220870` D:L74508-74536). */
   name?: string;
-  /** LkPaioX5 part 2 (b): a caption its page gives (a hostage's order: `./hostagePage` `ESCORTEE_PROMPTS`). */
+  /**
+   * LkPaioX5 part 2 (b): a caption its page gives (a hostage's order: `./hostagePage` `ESCORTEE_PROMPTS`; G1, a door's or
+   * a switch's record's text: `./matchActions`, `./mapActions` `mapActionCaption`).
+   */
   caption?: string;
 }
 /**
@@ -372,7 +402,7 @@ export interface ActionEntry {
  * as `FUN_0021ded0` sets it (the ELF's literal at `at`, checked on the disc by `hud.test.ts`), which `FUN_00220350`
  * draws under the head (D:L74479; a pick-up's through "%s %s", D:L74469-74476). The escortee's two (FOLLOW!, HOLD
  * POSITION) come from its page (`ActionEntry.caption`); the bomb's are HudCLOC's (`ACTION_BOMB_CAPTION_IDS`); a map
- * action's record's are not drawn (`MAP_ACTION_CAPTION_READING`).
+ * action's record's come with its entry (G1: `ActionEntry.caption`, `./mapActions` `mapActionCaption`).
  */
 export const ACTION_RECORD_CAPTIONS: Partial<Record<ActionPrompt, { at: number; text: string }>> = {
   climb: { at: 0x3e4e00, text: 'CLIMB' }, ladder_slide: { at: 0x3e4de8, text: 'LADDER SLIDE' }, action: { at: 0x3e4df8, text: 'ACTION' },
@@ -396,15 +426,14 @@ export const ACTION_CAPTION_TEXT = {
  * hold; through the hold the label is not written again (D:L74427-74443).
  */
 export const ACTION_BOMB_CAPTION_IDS = { bomb: 0xec41, bomb_defuse: 0xec40 } as const;
-/**
- * LkPaioX5 part 2 (b): MAP_ACTION_CAPTION_READING -- a map action's record (type 13) the player may use is captioned with
- * the action's own text: `FUN_002209c0` sets the record's `+0x90` from the action's `+0x2c` -- `actions.rdr`'s `descriptor`,
- * the loader's `FUN_0032ee10(.., "descriptor")` (D:L157285, D:L157318-157321) -- else `FUN_002b48e0`'s by its type (OPEN
- * DOOR or CLOSE DOOR by its valve, FLIP SWITCH, DEFUSE BOMB, MP BOMB, PLACE SATCHEL, BREACH, TAKE ITEM; D:L156967+), else
- * UNKNOWN (D:L74567-74582); an action whose `tcm` key set `+0x3f` bit 2 (D:L157420-157423) takes a text at 0x436500 or
- * PLEASE ADD TO MISSION.RDR (D:L74405-74416). The port reads neither key yet and draws none.
+/*
+ * LkPaioX5 part 2 (b), G1 of the action-labels review (reading, pending review; was the map-action caption reading, "not
+ * drawn"): a map action's record (type 13) the player may use is captioned with the action's own text, which
+ * `FUN_002209c0` sets in its `+0x90` (D:L74567-74582) and `FUN_00220350` draws (D:L74420) -- built for a DOOR and a
+ * SWITCH (`./mapActions` `mapActionCaption`, carried on the entry by `./matchActions`). Still unported: the other types'
+ * texts and UNKNOWN (`MAP_ACTION_CAPTION_OTHER_TYPES_READING`), and the `tcm` action's text at 0x436500 or PLEASE ADD TO
+ * MISSION.RDR (D:L74405-74416; the key sets `+0x3f` bit 2, D:L157420-157423).
  */
-export const MAP_ACTION_CAPTION_READING = 'not drawn: the descriptor key and the type texts are unported' as const;
 /**
  * LkPaioX5 part 2 (b): ACTION_CAPTION_EMPTY_READING -- what the label shows once the list is empty: `FUN_0021f210` returns
  * before `FUN_00220350` with no entry (D:L73904-73905) and nothing found hides the label, nor clears it in the pick-ups'
@@ -420,7 +449,8 @@ export const ACTION_CAPTION_EMPTY_READING = 'none: no prompt, or a pick-up witho
 export function actionCaptionOf(e: ActionEntry, loc: Readonly<Record<string, string>> | null): string | null {
   const msg = (t: string): string => (t.startsWith('_') ? loc?.[t] ?? t : t);
   const p = e.prompt;
-  if (MAP_ACTION_PROMPTS.has(p)) return e.allowed === false ? msg(ACTION_CAPTION_TEXT.unavailable.text) : null;
+  // A map action: UNAVAILABLE when not allowed (D:L74401-74403), else the caption its entry carries (G1), else none.
+  if (MAP_ACTION_PROMPTS.has(p)) return e.allowed === false ? msg(ACTION_CAPTION_TEXT.unavailable.text) : e.caption !== undefined ? msg(e.caption) : null;
   if (p === 'bomb' || p === 'bomb_defuse') return loc?.[String(ACTION_BOMB_CAPTION_IDS[p])] ?? null;
   if (p === 'escortee') return e.caption !== undefined ? msg(e.caption) : null;
   const own = ACTION_RECORD_CAPTIONS[p];
@@ -1558,11 +1588,16 @@ export function hudLayout(
   if (model.voice) {
     const V = HUD_LAYOUT.voice, v = model.voice, rest = VOICE_ICON_RAMP.target / 128;
     const iconA = timing.voice?.icon ?? rest, talkA = timing.voice?.talk ?? rest;
-    bitmap('voice', WHITE, R(V.countBox.x), Y(V.countBox.y), V.countBox.w * s, V.countBox.h * s, HUD_COLOURS.voiceBox);
-    text('voice', v.count, V.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
-    if (v.right != null) {   // HUD-ALIVE (OT.R117, a browser adaptation): the Terrorists alive, the left box mirrored
+    // HUD-ALIVE (OT.R117, a browser adaptation): with the alive counts on (`right` set) the SEALs alive on the left box in
+    // the scoreboard's SEAL bar colour, the Terrorists alive on the left box mirrored in its TERRORIST bar colour, each
+    // number centred on its own box (HUD-ALIVE-BOXES); without them the original's element, box and spot.
+    const alive = v.right != null;
+    bitmap('voice', WHITE, R(V.countBox.x), Y(V.countBox.y), V.countBox.w * s, V.countBox.h * s,
+      alive ? HUD_ALIVE_BOX_COLOURS_ADAPTATION.seal : HUD_COLOURS.voiceBox);
+    text('voice', v.count, alive ? HUD_ALIVE_LEFT_LAYOUT_ADAPTATION.count : V.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
+    if (v.right != null) {
       const A = HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION;
-      bitmap('voice', WHITE, R(A.countBox.x), Y(A.countBox.y), A.countBox.w * s, A.countBox.h * s, HUD_COLOURS.voiceBox);
+      bitmap('voice', WHITE, R(A.countBox.x), Y(A.countBox.y), A.countBox.w * s, A.countBox.h * s, HUD_ALIVE_BOX_COLOURS_ADAPTATION.terrorist);
       text('voice', v.right, A.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
     }
     if (v.name) text('voice', v.name, V.name, R);

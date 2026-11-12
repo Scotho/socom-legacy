@@ -101,9 +101,11 @@ describe('LR-28 fact 1: no part of Home\'s list takes the pointer over the rail\
           p.render();
           const list = document.querySelector<HTMLElement>('#stage .cx-home.is-page .cx-home__body > .cx-list')!;
           expect(list, `${c.id} row ${f}: the page's list`).not.toBeNull();
-          // LR-29: the wide layout hides the Discord row (the header icon is its stop), so the list holds at the row before it.
-          const hidden = homeItems(c.id, p.ctl.S, p.ctl.A)[f]?.act === 'discord';
-          const shift = Math.max(0, (hidden ? f - 1 : f) - 1);
+          // LR-29: the wide layout hides the Discord row (the header icon is its stop), so the list holds at the row before it;
+          // GitHub's row after it (the owner, 2026-11-12) too, held at the same row (the one before Discord's).
+          const acts = homeItems(c.id, p.ctl.S, p.ctl.A).map((x) => x.act);
+          const hidden = acts[f] === 'discord' || acts[f] === 'github';
+          const shift = Math.max(0, (hidden ? acts.indexOf('discord') - 1 : f) - 1);
           expect(list.getAttribute('style')).toContain(`--cx-list-shift: ${shift}`);
           const listBox: [number, number] = [-shift * 70, n * 70 - 4 - shift * 70];
           if (pointerEvents(list, env) !== 'none' && overlaps(listBox, RAIL)) hits.push(`${c.id} f${f}: the list's own box`);
@@ -126,7 +128,7 @@ describe('LR-28 fact 1: no part of Home\'s list takes the pointer over the rail\
     p.ctl.S.item[p.ctl.S.cat] = 2;
     p.render();
     const env = { w: 1280, h: 720 };
-    const rows = [...document.querySelectorAll<HTMLElement>('#stage .cx-list [data-act="item"], #stage .cx-list [data-act="discord"]')];
+    const rows = [...document.querySelectorAll<HTMLElement>('#stage .cx-list [data-act="item"], #stage .cx-list [data-act="discord"], #stage .cx-list [data-act="github"]')];
     expect(pointerEvents(rows[0]!, env)).toBe('none');                     // is-above
     expect(pointerEvents(rows[1]!, env)).toBe('auto');
     expect(pointerEvents(rows[2]!, env)).toBe('auto');

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 // `src/hook.ts` is types only; its `declare global` is what makes `window.__viewer` exist inside `page.evaluate`.
 import type {} from '../src/hook';
+import { padControlGroups } from '../src/controlsList';
 import { shortTurn } from '../src/yaw';
 import { TEST_ROOM } from './urls';
 
@@ -138,7 +139,13 @@ test('a pad on the PS2 layout: the toast, the layout, the walk and the fly camer
   // On foot the list names the walking controls: R1's fire, the zoom, R3's reload, the fire mode, Cross's action, the
   // d-pad's peek, the weapon slots (L1, L2, R2), Select's scoreboard, no boost; WEAPON EXCHANGE's R2 when dead and its
   // five buttons inside (web sprint 4, M8); the ARMORY's seven (web sprint 5 S3: six inside, and the seat it opens on -- no button opens it in a match: the owner, 2026-10-02).
-  await expect(page.locator('#pad-list tbody tr:not(.pad-group)')).toHaveCount(28);
+  // The row count is the model's, not a literal: the page fills `#pad-list` from `padControlGroups(mode, toggle,
+  // multiplayer)` (`../src/ui.ts` `renderControls`; on foot, the play flag on under ?fly&devmode, multiplayer when the
+  // page has `#mp-section`), and the list grows with the controls (28 when this pin was a literal; rows added by
+  // d6af289ca8, 2026-10-20, and 1c4ca4e470, 2026-11-05). `test/controlsTabs.test.ts` pins the rows themselves.
+  const multiplayer = await page.evaluate(() => document.getElementById('mp-section') !== null);
+  const walkRows = padControlGroups('walk', true, multiplayer).reduce((n, g) => n + g.rows.length, 0);
+  await expect(page.locator('#pad-list tbody tr:not(.pad-group)')).toHaveCount(walkRows);
   await expect(page.locator('#pad-list tbody')).toContainText('scoreboard');
   await expect(page.locator('#pad-list tbody')).toContainText('action: doors, climb, ladders');
   await expect(page.locator('#pad-list tbody')).toContainText('R3reload');
