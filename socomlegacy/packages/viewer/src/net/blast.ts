@@ -1,6 +1,7 @@
 import { flashLevel, segmentHit, type Grid } from '@s2u/scene';
 import type { Stance, Walker } from '../mover';
 import { roundAdmits } from '../round';
+import { under } from '../mapMeta';
 import { applyHit, fragmentCount, fragmentDamage, fragmentPart, PART, type Health } from './damage';
 
 /**
@@ -176,9 +177,12 @@ export function blastKnock(victim: BlastVictim, point: readonly number[], record
  * D:L464853) clear of the world -- queued through `FUN_0031dd90` as a round's segment is, so the batch's class
  * (`FUN_002d3030` at class 0) admits it as the round's (`../round` `roundAdmits`: the side bit, and the camera-only
  * faces passed). Was every polygon: a camera-only frame (Frostfire's panes' `camcol`) refused the blast.
+ * `ignore` (FORGE_SCRIPT_BLAST_ADAPTATION): a Forge script explosion's own object, whose middle it goes off at -- its
+ * faces passed, so the object it is set at does not shield what is round it (the bomb's sits on the floor, in nothing).
  */
-export function blastSeen(grid: Grid, from: readonly number[], to: readonly number[]): boolean {
-  return segmentHit(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], roundAdmits) === null;
+export function blastSeen(grid: Grid, from: readonly number[], to: readonly number[], ignore?: string): boolean {
+  const accept = ignore ? (p: Parameters<typeof roundAdmits>[0] & { path: string }) => roundAdmits(p) && !under(p.path, ignore) : roundAdmits;
+  return segmentHit(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], accept) === null;
 }
 
 /**

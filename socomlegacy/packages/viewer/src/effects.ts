@@ -241,6 +241,11 @@ interface RunContext {
   parent?: EffectRun;
   /** A round's run (`onRound`, and what its runs call): `retireRounds` lets it go at a hidden tab's return. */
   round?: boolean;
+  /**
+   * A placed ambient effect whose sounds its own audio script stands in for (`./forge/forgeObjects` `audioProgram`, the
+   * game's own commands) -- it and what it calls play no sound (its particles and light as ever).
+   */
+  silent?: boolean;
 }
 
 export interface EffectStats {
@@ -515,6 +520,33 @@ export class Effects {
   /** Runs the animation `name` of the map's zAnim archives at `place`; false when the map has none of that name. */
   play(name: string, place: EffectPlace): boolean {
     return this.run(name, place) !== null;
+  }
+
+  /**
+   * FORGE_OBJECT_PLACE_ADAPTATION (`./forge/forgeObjects` `playForgeAmbients`): a program played at a node of the caller's
+   * own -- `node`, a name no map holds, at `matrix` -- its root renamed to it (a copy of the program: the map's own is
+   * unchanged), so an ambient effect of another map's, rooted at that map's node, plays here. Null without the program.
+   */
+  playAt(name: string, node: string, matrix: Matrix4, opts: { silent?: boolean } = {}): EffectHandle | null {
+    const program = this.programs.get(name.toLowerCase());
+    if (!program) return null;
+    return this.playProgram(program, node, matrix, opts);
+  }
+
+  /**
+   * As `playAt`, for a program in hand (an ambient's audio script: `./forge/forgeObjects` `audioProgram`, the game's own
+   * commands) -- rooted at `node`, at `matrix`, an ambient run. `silent`: it and what it calls play no sound.
+   */
+  playProgram(program: EffectProgram, node: string, matrix: Matrix4, opts: { silent?: boolean } = {}): EffectHandle {
+    const nodes = program.nodes.slice();
+    nodes[program.root] = node;
+    this.sceneNodes.set(node, matrix);
+    const place: EffectPlace = { node: matrix, position: [matrix.elements[12]!, matrix.elements[13]!, matrix.elements[14]!] };
+    // An ambient effect's run, as the map's own (`ambient`): its looping (`~`) sounds are the audio's emitters
+    // (`./forge/forgeObjects` `forgeAmbientEmitters`), never a one-off play here; its other sounds play as they come.
+    const r = this.start({ ...program, nodes }, place, true);
+    if (opts.silent) (r.context as RunContext).silent = true;
+    return { name: program.name, place, alive: () => !r.finished, get finished() { return r.finished; }, stop: () => this.stopCalled(r) };
   }
 
   /**
@@ -1097,6 +1129,23 @@ export class Effects {
     answersIndoors: true,   // INV-RAIN F3: `test` answers set 0's 66 and 72 (`indoors`); other hosts fold them as unread
   };
 
+  /**
+   * FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's `FIRE_WEAPON` handed on by the world runner (`../worldState`
+   * `WorldHooks.scriptRound`), its round launched at `at` as `begin`'s is at a node -- the record's look (MPBOMB's
+   * `satchel`), its damage none here (the room's). False when the record is not in (`EffectData.scriptWeapons`).
+   */
+  scriptRound(op: Extract<EffectOp, { op: 'fireWeapon' }>, at: readonly [number, number, number]): boolean {
+    const record = this.data?.scriptWeapons?.find(w => w.name === op.weapon && w.ammo === op.ammo);
+    if (!record || record.muzzleVelocity !== 0 || record.model !== 'NONE') return false;
+    const fuse = op.f1 === -1 ? record.fuse : op.f1;
+    if (!Number.isFinite(fuse) || fuse < 0) return false;
+    const round = launchGrenade([at[0], at[1], at[2]], [0, 0, 0], record);
+    round.fuse = fuse;
+    round.removal = op.f2 === -1 ? record.removal : op.f2;
+    this.scriptRounds.push({ round, ready: false });
+    return true;
+  }
+
   private begin(op: EffectOp, run: EffectRun): OpTick | void {
     const ctx = run.context as RunContext;
     switch (op.op) {
@@ -1210,6 +1259,7 @@ export class Effects {
         // A retune starts no voice (FUN_002659c0 112365-112390); a priority-slot play (0x400 / 0x800) the game sounds
         // unplaced in FUN_00348dc0's one-voice slot (245376-245420), which the viewer drops (SOUND_PRIORITY_SLOT_READING).
         if (op.newPlay === false) return;
+        for (let r: EffectRun | undefined = run; r; r = (r.context as RunContext).parent) if ((r.context as RunContext).silent) return;
         if (ctx.ambient && op.sound.startsWith('~')) return;
         const at = op.node > 0 ? this.nodeMatrix(run, op.node) : null;
         // The command's own volume (flag 0x10's f32 at +8, else 1.0: `FUN_002659c0` 112363-112461), as the zAnim path.

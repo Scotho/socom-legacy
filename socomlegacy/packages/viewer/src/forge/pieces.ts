@@ -1,7 +1,7 @@
 import { HOSTAGE_GUIDE_COLOUR, keepWorldTurn } from './interactOverlay';
 import {
   BoxGeometry, BufferAttribute, BufferGeometry, ConeGeometry, CylinderGeometry, Group, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial,
-  RingGeometry, type Material, type Object3D,
+  CanvasTexture, RingGeometry, Sprite, SpriteMaterial, type Material, type Object3D,
 } from 'three';
 import type { LoadedMap } from '../loadMap';
 import { DEFAULT_LIGHTING } from '../lighting';
@@ -19,8 +19,41 @@ import { prototypeMap } from './library';
  * Known limit, said rather than hidden: the rig's light is baked into the vertex colours at build (`../lighting`), so a
  * piece turned from the way it was built keeps the light it had at the identity.
  */
+/**
+ * How much brighter a preview's prop is drawn than the world's default (a browser adaptation's own value, FG.R2): the
+ * map's props are lit dark for the game's night and dusk, and in a small tile on a grey ground they read as silhouettes.
+ * A gain (../lighting rightenOf: 1 + brighten / 128), 1 the world's own.
+ */
+export const PREVIEW_BRIGHTEN = 1.7;
+
 export class PieceLibrary {
   private readonly templates = new Map<string, { view: WorldView; group: Group; rig: GlobalLighting | null } | null>();
+  /**
+   * The asset browser's previews' own templates (the owner, 2026-11-11: previews "normal textured, and geometry"): built
+   * as the placed ones are but never given the page's Draw switches (`onBuild`) -- the world's defaults, no wireframe --
+   * since a clone shares its template's materials and what the Draw switches set on them.
+   */
+  private readonly previewTemplates = new Map<string, { view: WorldView; group: Group; rig: GlobalLighting | null } | null>();
+  /** The placed ones' templates (the page's day / night and rig reach these, never a preview's). */
+  private placed(): { view: WorldView; group: Group; rig: GlobalLighting | null }[] {
+    return [...this.templates.values()].flatMap((t) => (t ? [t] : []));
+  }
+  private all(): { view: WorldView; group: Group; rig: GlobalLighting | null }[] {
+    return [...this.templates.values(), ...this.previewTemplates.values()].flatMap((t) => (t ? [t] : []));
+  }
+  /** A template built from `one` (its reveal queues run at once: a piece is a few draws), the Draw switches on it unless a preview's. */
+  private build(one: LoadedMap, rig: GlobalLighting | null, preview: boolean): { view: WorldView; group: Group; rig: GlobalLighting | null } {
+    const view = buildWorld(one);
+    // A preview's own light (the owner, 2026-11-11: most props "quite dark" in the asset browser): its archive's rig,
+    // brighter by PREVIEW_BRIGHTEN -- the day / night and a blank map's rig never reach it; the placed ones keep theirs.
+    view.setLighting(preview
+      ? { ...DEFAULT_LIGHTING, rig, brighten: (PREVIEW_BRIGHTEN - 1) * 128 }
+      : { ...DEFAULT_LIGHTING, rig: this.rigOverride ?? rig, brighten: this.brighten });
+    for (const task of view.revealWorld) task();
+    for (const task of view.revealProps) task();
+    if (!preview) this.onBuild?.(view);
+    return { view, group: view.group, rig };
+  }
   /**
    * FG-24: the brighten the page's day / night setting puts on every template (`./settings` `brightenFor`; an
    * adaptation, no original): a uniform, moved without a rebake -- each template keeps its own archive's rig.
@@ -35,35 +68,25 @@ export class PieceLibrary {
   }
 
   /** The template for `asset` out of its archive's decoded map, or null when the archive holds no such prototype. */
-  template(asset: string, map: LoadedMap): Group | null {
-    if (this.templates.has(asset)) return this.templates.get(asset)?.group ?? null;
+  template(asset: string, map: LoadedMap, preview = false): Group | null {
+    const cache = preview ? this.previewTemplates : this.templates;
+    if (cache.has(asset)) return cache.get(asset)?.group ?? null;
     const id = parseAssetId(asset);
     const one = id ? prototypeMap(map, id.model) : null;
-    if (!one) { this.templates.set(asset, null); return null; }
-    const view = buildWorld(one);
-    view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? map.lightRig, brighten: this.brighten });
-    // The reveal queues run at once: a piece is a few draws, not a map's thousands.
-    for (const task of view.revealWorld) task();
-    for (const task of view.revealProps) task();
-    this.onBuild?.(view);
-    this.templates.set(asset, { view, group: view.group, rig: map.lightRig });
-    return view.group;
+    if (!one) { cache.set(asset, null); return null; }
+    const t = this.build(one, map.lightRig, preview);
+    cache.set(asset, t);
+    return t.group;
   }
 
   /**
    * A placement drawn from a map of its own (a turret's template, `./turrets` `turretModelMap`): built once by `key`
    * as a prototype is, then a clone each time.
    */
-  modelOf(key: string, one: LoadedMap): Group | null {
-    if (!this.templates.has(key)) {
-      const view = buildWorld(one);
-      view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? one.lightRig, brighten: this.brighten });
-      for (const task of view.revealWorld) task();
-      for (const task of view.revealProps) task();
-      this.onBuild?.(view);
-      this.templates.set(key, { view, group: view.group, rig: one.lightRig });
-    }
-    const t = this.templates.get(key);
+  modelOf(key: string, one: LoadedMap, preview = false): Group | null {
+    const cache = preview ? this.previewTemplates : this.templates;
+    if (!cache.has(key)) cache.set(key, this.build(one, one.lightRig, preview));
+    const t = cache.get(key);
     if (!t) return null;
     const g = new Group();
     g.add(t.group.clone(true));
@@ -77,18 +100,18 @@ export class PieceLibrary {
   private rigOverride: GlobalLighting | null = null;
   setRig(rig: GlobalLighting | null): void {
     this.rigOverride = rig;
-    for (const t of this.templates.values()) t?.view.setLighting({ ...DEFAULT_LIGHTING, rig: rig ?? t.rig, brighten: this.brighten });
+    for (const t of this.placed()) t.view.setLighting({ ...DEFAULT_LIGHTING, rig: rig ?? t.rig, brighten: this.brighten });
   }
 
   /** FG-24: the brighten on every template, built and to come; the same rig object, so `WorldView.setLighting` rebakes nothing. */
   setBrighten(brighten: number): void {
     this.brighten = brighten;
-    for (const t of this.templates.values()) t?.view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? t.rig, brighten });
+    for (const t of this.placed()) t.view.setLighting({ ...DEFAULT_LIGHTING, rig: this.rigOverride ?? t.rig, brighten });
   }
 
-  /** A new placement of `asset` (a clone of its template), tagged so a pick finds its root. */
-  piece(asset: string, map: LoadedMap): Group | null {
-    const t = this.template(asset, map);
+  /** A new placement of `asset` (a clone of its template), tagged so a pick finds its root; `preview`: a preview's template. */
+  piece(asset: string, map: LoadedMap, preview = false): Group | null {
+    const t = this.template(asset, map, preview);
     if (!t) return null;
     const g = new Group();
     g.add(t.clone(true));
@@ -98,8 +121,9 @@ export class PieceLibrary {
   }
 
   dispose(): void {
-    for (const t of this.templates.values()) t?.view.dispose();
+    for (const t of this.all()) t.view.dispose();
     this.templates.clear();
+    this.previewTemplates.clear();
   }
 }
 
@@ -335,7 +359,7 @@ export function forgeRootOf(o: Object3D | null): Object3D | null {
   for (let at = o; at; at = at.parent) {
     if (at.userData['forgeGhost']) return null;
     if (at.userData['forgePiece'] || at.userData['forgeSpawn'] || at.userData['forgeRespawn'] || at.userData['forgeFlare'] || at.userData['forgeNpc'] || at.userData['forgeBomb']
-      || at.userData['forgeHostage'] || at.userData['forgeZone'] || at.userData['forgePoint'] || at.userData['forgeView'] || at.userData['forgeTurret'] || at.userData['forgeDoor'] || at.userData['forgeGate'] || at.userData['forgeBarrier']) return at;
+      || at.userData['forgeHostage'] || at.userData['forgeZone'] || at.userData['forgePoint'] || at.userData['forgeView'] || at.userData['forgeTurret'] || at.userData['forgeDoor'] || at.userData['forgeGate'] || at.userData['forgeBarrier'] || at.userData['forgeTrigger']) return at;
   }
   return null;
 }
@@ -398,8 +422,41 @@ export function ghostOf(source: Object3D): Object3D {
 }
 
 /** Frees a ghost's own geometry and materials. */
+/**
+ * A ghost's icon (the owner, 2026-11-10: "I don't see a live preview" of a bomb start, a site, a point...; a browser
+ * adaptation, FG.R2): a marker drawn by its billboard alone (`./mapDataBillboards`, placed markers only) has nothing a
+ * ghost can show -- so its ghost wears that billboard's letter on its colour (`mark`), square, a constant size on the
+ * screen, over the marker's pick box. Freed with the ghost (`disposeGhost`).
+ */
+export function ghostIcon(mark: { glyph: string; colour: string }): Sprite {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  if (g) {
+    g.fillStyle = mark.colour;
+    g.fillRect(4, 4, 56, 56);
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 40px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(mark.glyph, 32, 34);
+  }
+  const tex = new CanvasTexture(c);
+  const sprite = new Sprite(new SpriteMaterial({ map: tex, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+  sprite.scale.set(GHOST_ICON_SCALE, GHOST_ICON_SCALE, 1);
+  sprite.position.y = 24;
+  sprite.renderOrder = 10_001;
+  sprite.raycast = () => undefined;
+  sprite.name = 'ghost icon';
+  return sprite;
+}
+/** A ghost icon's size: a share of the screen's height (`sizeAttenuation` off), about a placed billboard's. */
+const GHOST_ICON_SCALE = 0.045;
+
 export function disposeGhost(g: Object3D): void {
   g.traverse((o) => {
+    // A ghost's own icon (`ghostIcon`): its texture and material are the ghost's alone.
+    if (o instanceof Sprite) { o.material.map?.dispose(); o.material.dispose(); return; }
     if (!(o instanceof Mesh)) return;
     o.geometry.dispose();
     for (const m of matsOf(o.material)) m.dispose();

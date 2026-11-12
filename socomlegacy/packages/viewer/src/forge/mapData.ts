@@ -1,5 +1,6 @@
-import type { SpawnSlot } from '@s2u/scene';
+import type { EffectProgram, SpawnSlot } from '@s2u/scene';
 import { plantingSideOfNode } from '../net/objective';
+import { actionTeamText, actionTriggerText, bitmapWords, damageTriggerText, programEffects, type ActionEffects } from './actionSummary';
 
 /**
  * The Outliner's Map Data branches beyond the props and the spawn slots (a browser adaptation, FG.R2: the game has no
@@ -26,8 +27,19 @@ export interface MapDataSource {
   gates?: readonly { index: number; node: string; local: readonly number[]; parent: readonly number[] }[];
   /** `LoadedMap.cranes`: a hook and the switch that pauses it. */
   cranes?: readonly { index: number; node: string; control: { at: V3 } }[];
-  /** `LoadedMap.actions`: `actions.rdr`'s context actions on placed nodes, each at its node's origin. */
-  actions?: readonly { node: string; type: string; at: V3 }[];
+  /**
+   * `LoadedMap.actions`: `actions.rdr`'s context actions on placed nodes, each at its node's origin, with the record's
+   * other fields where the map gives them (`../mapActions` `MapAction`; a test's literal may leave them out), and `aim`,
+   * the middle of its node's collision (`./actionSummary` `aimPointOf`) -- where the player aims to use it.
+   */
+  actions?: readonly ({ node: string; type: string; at: V3; aim?: V3 } & Partial<ActionFields>)[];
+  /** `LoadedMap.meta.scene.programs`: the map's zAnim programs, what an action's `anim` runs (research 209). */
+  programs?: readonly EffectProgram[];
+  /**
+   * `LoadedMap.meta.scene.destructibles`: each damage block on its placed node (research 209 s13) -- a C4 barrier, a
+   * plank, a base -- at the middle of its node's collision (`at`; none, it has no place to mark and is left out).
+   */
+  destructibles?: readonly { anim: string; targetPath: string; health: number; shield: number; program: EffectProgram; at?: V3 }[];
   /** `LoadedMap.tac`: the tactical map's named points and zones (ground plane only). */
   tac?: { points: readonly { name: string; kind: number; x: number; z: number }[]; zones: readonly { name: string; kind: number; minX: number; minZ: number; maxX: number; maxZ: number }[] } | null;
   /** `LoadedMap.scenicViews`: the spectator camera's fixed views (`mission.rdr`'s `Scenic_Views`). */
@@ -37,11 +49,31 @@ export interface MapDataSource {
    * -- the lamp glows, and the sun, the moon and the stars (`facadeOf`, research 36) -- by its node's name, world space.
    */
   flares?: readonly { name: string; at: V3 }[];
+  /** `LoadedMap.ambientPlaces`: the map's own ambient effects at their root nodes (fire, water, torches, insects). */
+  ambientPlaces?: readonly { program: string; node: string; at: V3 }[];
   /**
    * The map's ladders (`@s2u/scene` `findLadders`): no object of their own -- each is two hull polygons marked
    * `m_appflags` 2 (research 86 §2) -- read off the base's hull, at the span's foot and its owner node's path.
    */
   ladders?: readonly { path: string; x: number; z: number; bottom: number; top: number }[];
+}
+
+/** The record fields a context action's summary reads (`../mapActions` `ActionRecord`). */
+interface ActionFields {
+  typeCode: number; valve: string; anims: readonly string[]; team: number | null; range: number; elevation: number; points: number; bitmap: string;
+}
+
+/** The effects worth a word, in a tooltip: `turns on a, b · turns off c · fires W`. */
+function effectWords(e: ActionEffects): string[] {
+  const list = (verb: string, names: string[]): string[] => (names.length ? [`${verb} ${names.join(', ')}`] : []);
+  return [...list('turns on', e.shows), ...list('turns off', e.hides), ...list('moves', e.moves), ...list('fires', e.weapons),
+    ...list('executes', e.actions), ...list('plays', e.effects)];
+}
+
+/** The effects for the Inspector's Data: only the lists with something in them. */
+function effectData(e: ActionEffects): Partial<ActionEffects> {
+  // The placed paths are the guide lines' (`./page`), not words for the Data list.
+  return Object.fromEntries(Object.entries(e).filter(([k, v]) => k !== 'paths' && (v as string[]).length > 0)) as Partial<ActionEffects>;
 }
 
 export interface MapDataRow {
@@ -82,7 +114,7 @@ function nodeOrigin(local: readonly number[], parent: readonly number[]): [numbe
 
 /**
  * The map's data as the Outliner's branches, only those the map has, in this order: respawn points, hostages, the bomb
- * start, turrets, doors, gates, cranes, context actions (the doors left to their own branch), tactical points, tactical
+ * start, turrets, doors, gates, cranes, ladders, context actions (the doors left to their own branch), damage triggers, tactical points, tactical
  * zones, spectator views. `floorAt(x, z)`: the height to look at for a point the file places on the ground plane only.
  */
 export function mapDataGroups(map: MapDataSource, floorAt: (x: number, z: number) => number): MapDataGroup[] {
@@ -123,8 +155,36 @@ export function mapDataGroups(map: MapDataSource, floorAt: (x: number, z: number
     const side = plantingSideOfNode(a.node);
     return side === 'seal' ? ', the SEALs plant there' : side === 'terrorist' ? ', the Terrorists plant there' : '';
   };
-  add('actions', 'Context Actions', (map.actions ?? []).filter((a) => a.type.toUpperCase() !== 'DOOR').map((a, i) =>
-    at(`action:${i}`, `${a.type || 'Action'} · ${a.node}`, a.at, `Context action ${a.type || '(untyped)'} on ${a.node}${planter(a)}`, a)));
+  // What each action does, read off its programs (`./actionSummary`), an EXECUTE_ACTION followed to its action's own.
+  const programs = new Map((map.programs ?? []).map((p) => [p.name, p] as const));
+  const actionAnims = (valve: string): readonly string[] => (map.actions ?? []).find((a) => a.valve === valve)?.anims ?? [];
+  add('actions', 'Context Actions', (map.actions ?? []).filter((a) => a.type.toUpperCase() !== 'DOOR').map((a, i) => {
+    const effects = programEffects(a.anims ?? [], programs, { actionAnims });
+    const trigger = actionTriggerText({ type: a.type, typeCode: a.typeCode ?? (a.type ? 0 : 8) });
+    const summary = {
+      trigger,
+      ...(a.bitmap ? { prompt: bitmapWords(a.bitmap) } : {}),
+      ...(a.typeCode !== undefined ? { team: actionTeamText(a.team ?? null) } : {}),
+      ...(a.range !== undefined ? { reach: a.range } : {}),
+      ...(a.elevation !== undefined && a.elevation !== -1 ? { heightReach: a.elevation } : {}),
+      ...(a.points ? { points: a.points } : {}),
+      ...effectData(effects),
+    };
+    const words = [trigger, ...(summary.team ? [summary.team] : []), ...(a.range !== undefined ? [`reach ${a.range}`] : []), ...effectWords(effects)];
+    const { aim, ...record } = a;
+    return at(`action:${i}`, `${a.type || 'Action'} · ${a.node}`, aim ?? a.at,
+      `Context action ${a.type || '(untyped)'} on ${a.node}${planter(a)} · ${words.join(' · ')}`, { ...record, summary });
+  }));
+  // The damage blocks (a barrier, a plank, a base): what sets each off and what its death runs.
+  add('damage', 'Damage Triggers', (map.destructibles ?? []).flatMap((d, i) => {
+    if (!d.at) return [];
+    const effects = programEffects([d.program.name], new Map([...programs, [d.program.name, d.program]]), { actionAnims });
+    const node = d.targetPath.split(/[/=]/).filter(Boolean).pop() ?? d.targetPath;
+    const trigger = damageTriggerText(d.health, d.shield);
+    const { program: _program, at: _at, ...block } = d;
+    return [{ ...at(`damage:${i}`, `${d.anim} · ${node}`, d.at, `Destructible ${d.anim} on ${node} · ${[trigger, ...effectWords(effects)].join(' · ')}`,
+      { ...block, summary: { trigger, ...effectData(effects) } }), kind: 'damage' }];
+  }));
   add('tacPoints', 'Tactical Points', (map.tac?.points ?? []).map((p, i) =>
     at(`tacpoint:${i}`, p.name || `Point ${i + 1}`, [p.x, floorAt(p.x, p.z), p.z], `Tactical map point ${p.name || i + 1}`, p)));
   add('tacZones', 'Tactical Zones', (map.tac?.zones ?? []).map((z, i) => {
@@ -139,5 +199,10 @@ export function mapDataGroups(map: MapDataSource, floorAt: (x: number, z: number
     title: `Spectator view ${v.name || i + 1} at ${where(v.at)} · read only · click to look through it`, data: v,
   })));
   add('flares', 'Flares', (map.flares ?? []).map((f, i) => at(`flare:${i}`, f.name || `Flare ${i + 1}`, f.at, `Flare ${f.name || i + 1} (a light's glow, turned to the camera)`, f)));
+  // The map's own ambient effects (its mission set's self-starting programs) where its scene roots them.
+  add('ambients', 'Ambient Effects', (map.ambientPlaces ?? []).map((a, i) => {
+    const node = a.node.split('/').pop() ?? a.node;
+    return at(`ambient:${i}`, `${a.program} \u00b7 ${node}`, a.at, `Ambient effect ${a.program} at ${node} (played from the round's start; the Ambient tool copies it)`, a);
+  }));
   return groups;
 }

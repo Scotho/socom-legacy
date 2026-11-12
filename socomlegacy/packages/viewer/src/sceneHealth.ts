@@ -65,6 +65,12 @@ export interface SceneDestructible {
   root: string;
   /** The program's node references placed, in `program.nodes` order; null where none is (index 0, `NA`). */
   nodes: (string | null)[];
+  /**
+   * FORGE_SCRIPT_WRECK_ADAPTATION (the owner, 2026-11-10; a browser adaptation, FG.R2, no original): a placed damage
+   * trigger's wreck valve (`./forge/placedAccess`), which a Forge switch's `EXECUTE_ACTION` names to run this death as a
+   * lethal hit does (`wreck`). Absent on the disc's own.
+   */
+  wreck?: string;
 }
 
 /** The scene's part of a map's metadata (`MapMeta.scene`): the destructibles and the set's programs by name. */
@@ -214,7 +220,7 @@ export function blastSkipPath(d: Pick<SceneDestructible, 'targetPath' | 'root' |
  * material's PENETRATION (`surfaceMaterial(p.material, defaultMaterial).penetration`, `FUN_002dc1d0`). A round with
  * `IgnoreExplosionDI` skips it (D:L319096: the caller's).
  */
-export function blastLine(grid: Grid, from: V3, to: V3, targetPath: string, radius: number, penetration: (p: WorldPoly) => number): boolean {
+export function blastLine(grid: Grid, from: V3, to: V3, targetPath: string, radius: number, penetration: (p: WorldPoly) => number, ignore?: string): boolean {
   // `segmentHits` asks `accept` of each owner's polygons in its surface order: the count is that order. LATER 416: the
   // blast ray queues through `FUN_0031dd90` as a round's segment does (`FUN_003c7ee0` D:L319056), so the batch's class
   // admits what the round's does (`roundAdmits`: the camera-only faces passed).
@@ -223,6 +229,7 @@ export function blastLine(grid: Grid, from: V3, to: V3, targetPath: string, radi
   const first = new Map<CollisionOwner, SegmentHit>();
   for (const h of hits) {
     if (under(h.owner.path, targetPath)) continue;
+    if (ignore && under(h.owner.path, ignore)) continue;   // FORGE_SCRIPT_BLAST_ADAPTATION: the explosion's own object (`blastSeen`)
     const kept = first.get(h.owner);
     if (!kept || order.get(h.poly)! < order.get(kept.poly)!) first.set(h.owner, h);
   }
@@ -394,10 +401,14 @@ export function placeRefs(
   parents: readonly ZAnimNodeParent[] = [],
 ): (string | null)[] {
   const index = byName(meta.instances);
+  // FORGE_PATH_REF_ADAPTATION (the owner, 2026-11-08; a browser adaptation, FG.R2): a Forge switch's script names its
+  // nodes by their placed path (`../forge/placedAccess` `scriptPrograms`) -- a reference holding a '/' is that path. No
+  // disc reference holds one (a zAnim name is a node's name), so the disc's programs are placed as before.
+  const isPath = (name: string | undefined): name is string => name !== undefined && name.includes('/');
   const named = (name: string | undefined): MapInstance[] => (name === undefined || name === 'NA' ? [] : index.get(name.toLowerCase()) ?? []);
   const beneath = (list: readonly MapInstance[], root: string): string | null => list.find((i) => i.path !== root && under(i.path, root))?.path ?? null;
-  let root: string | null = null;
-  const rootCands = named(names[rootIndex]);
+  let root: string | null = isPath(names[rootIndex]) ? names[rootIndex]! : null;
+  const rootCands = root !== null ? [] : named(names[rootIndex]);
   if (scope !== null) {
     for (const c of rootCands) if (under(scope, c.path) && (root === null || c.path.length > root.length)) root = c.path;
     root ??= beneath(rootCands, scope);
@@ -407,6 +418,7 @@ export function placeRefs(
     const name = names[i];
     if (i === 0 || name === undefined || name === 'NA') return null;
     if (i === rootIndex) return root;
+    if (isPath(name)) return name;
     const list = named(name);
     const parent = parents[i] ?? 0;
     if (parent === 'root') return root !== null ? beneath(list, root) : null;
@@ -616,6 +628,27 @@ export class SceneHealth {
     this.hpNow[id] = Math.min(this.hpNow[id]!, 0);
     if (run) this.world.runProgram(d.program, { root: d.root, nodes: d.nodes, caller: d.targetPath, valve: null, silent: false, presentation: true });
     return true;
+  }
+
+  /**
+   * FORGE_SCRIPT_WRECK_ADAPTATION: the records a wreck valve names (`SceneDestructible.wreck`) killed as a lethal hit
+   * kills one (`apply`): spent, the health at 0, the death's sequences run (`silent` the room's skip_effects, a page's
+   * `presentation` run of the room's, PF.R26). Null when no record carries the valve (not a wreck's: an action's);
+   * else whether one was still live.
+   */
+  wreck(valve: string, silent: boolean, presentation: boolean): boolean | null {
+    const v = valve.toLowerCase();
+    const named = this.list.filter((d) => d.wreck?.toLowerCase() === v);
+    if (!named.length) return null;
+    let ran = false;
+    for (const d of named) {
+      if (this.spent[d.id]) continue;
+      this.spent[d.id] = true;
+      this.hpNow[d.id] = 0;
+      this.world.runProgram(d.program, { root: d.root, nodes: d.nodes, caller: d.targetPath, valve: null, silent, ...(presentation ? { presentation: true } : {}) });
+      ran = true;
+    }
+    return ran;
   }
 
   /** A spent record whole again (its reset health and armour, unspent): the room's state gave its target back. */

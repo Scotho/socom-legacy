@@ -89,13 +89,30 @@ export function buildInspector(doc: Document, resetIcon = ''): InspectorDom {
   row('Position', 'fx-position-fields', [x, y, z], resetPosition);
   row('Rotation °', 'fx-rotation-fields', [pitch, yaw, roll], resetRotation);
   row('Scale', 'fx-scale-fields', [sx, sy, sz], resetScale);
-  const lock = forgeEl(doc, 'button', 'fx-chip fx-lock', 'Lock');
+  const lock = forgeEl(doc, 'button', 'fx-lock fx-lock-icon', '');
   lock.type = 'button';
   lock.title = 'Lock the selection: it cannot be selected or moved until it is unlocked in the outliner';
   lock.disabled = true;
   const data = forgeEl(doc, 'dl', 'fx-inspect-data');
   data.hidden = true;
-  body.append(head, fields, data, lock);
+  /**
+   * Two folding sections (the owner, 2026-11-11: "the transform section, and Properties section, I want to be able to
+   * collapse them"): Transform (position, rotation, scale and the lock), Properties (the selection's own fields and its
+   * record). Each one's open state kept in this browser; Properties drawn only while the selection has some.
+   */
+  const section = (id: string, title: string, ...content: HTMLElement[]): HTMLDetailsElement => {
+    const d = forgeEl(doc, 'details', 'fx-fold fx-inspect-section');   // the dock's one section look (`.fx-fold`)
+    d.dataset['inspectSection'] = id;
+    const s = forgeEl(doc, 'summary', 'fx-inspect-section-title', title);
+    d.append(s, ...content);
+    const key = `forge.inspector.${id}.open`;
+    try { d.open = globalThis.localStorage?.getItem(key) !== '0'; } catch { d.open = true; }
+    d.addEventListener('toggle', () => { try { globalThis.localStorage?.setItem(key, d.open ? '1' : '0'); } catch { /* kept for the session only */ } });
+    return d;
+  };
+  // The lock in the head, left of the kind at its right, on the same line (the owner, 2026-11-11); an icon (the page's).
+  name.after(lock);
+  body.append(head, section('transform', 'Transform', fields), section('properties', 'Properties', data));
   return { body, head, name, kind, fields, x, y, z, pitch, yaw, roll, sx, sy, sz, resetPosition, resetRotation, resetScale, lock, data };
 }
 
@@ -129,7 +146,8 @@ export function dataRows(value: unknown, prefix = '', depth = 0): [string, strin
  */
 export interface InspectorEditor {
   label: string;
-  kind: 'text' | 'number' | 'select' | 'check';
+  /** `button`: a press, no value of its own -- its `value` the button's words, `set(true)` the press. */
+  kind: 'text' | 'number' | 'select' | 'check' | 'button';
   value: string | number | boolean;
   /** Each `[value, label, greyed?]`: a greyed one listed, not choosable. */
   options?: readonly (readonly [string, string, boolean?])[];
@@ -160,6 +178,18 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
   dom.data.dataset['sig'] = sig;
   const covered = new Set(editors.flatMap((e) => e.covers ?? []));
   const fields = editors.flatMap((e) => {
+    // A button (an ambient effect's sound played, a preview): its words its value, its press `set(true)`.
+    if (e.kind === 'button') {
+      const b = forgeEl(doc, 'button', 'fx-tool fx-inspect-edit fx-inspect-button', String(e.value));
+      b.type = 'button';
+      b.disabled = e.disabled === true;
+      b.setAttribute('aria-label', e.label);
+      if (e.title) b.title = e.title;
+      b.addEventListener('click', () => e.set(true));
+      const dd = forgeEl(doc, 'dd', '');
+      dd.append(b);
+      return [forgeEl(doc, 'dt', '', e.label), dd];
+    }
     let input: HTMLInputElement | HTMLSelectElement;
     if (e.kind === 'select') {
       const s = forgeEl(doc, 'select', 'fx-select fx-inspect-edit');
@@ -202,6 +232,6 @@ export function showInspectorData(dom: Pick<InspectorDom, 'data'>, rows: readonl
 export function inspectorPanel(dom: InspectorDom, reveal: (id: string) => void): ForgePanel {
   const menuSection = (): MenuItem[] => [revealRow(reveal, 'inspector', 'Inspector', dom.name.textContent ?? '',
     'The selection’s place and turn · ✕ shows it in the dock')];
-  return builtPanel({ id: 'inspector', title: 'Inspector', dock: 'right', order: 20, defaultOpen: true, tab: 'Object',
+  return builtPanel({ id: 'inspector', title: 'Inspector', dock: 'right', order: 20, defaultOpen: true,
     padLegend: [{ button: 'circle', label: 'Deselect' }, { button: 'dpad', label: 'Rotate' }], menuSection }, dom.body);
 }

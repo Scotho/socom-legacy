@@ -23,6 +23,8 @@ export const FORGE_LAYOUT_KEY = 's2u-forge-layout';
 export const FORGE_VIEW_KEY = 's2u-forge-view';
 /** FORGE (FUI-1, `./forge/shell/panel`): which of the Forge's registered panels are open, one record (a browser adaptation). */
 export const FORGE_PANELS_KEY = 's2u-forge-panels';
+/** FORGE (`./forge/shell/dockShell`): the workbench's tree -- its splits, groups, tabs and sizes, the closed panels' places. */
+export const FORGE_DOCK_LAYOUT_KEY = 's2u-forge-dock';
 
 /**
  * Every key the page keeps (research 99 §4, the inventory). `pageStore.test.ts` holds the viewer's sources to it: a new
@@ -60,6 +62,7 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   FORGE_LAYOUT_KEY,                  // forge/page.ts: the layout autosaved (a recipe); since R3-B read once, moved to forge/savesStore.ts
   FORGE_VIEW_KEY,                    // forge/page.ts: the view panel's switches
   FORGE_PANELS_KEY,                  // forge/shell/panel.ts: the docks' panels open or folded (FUI-1)
+  FORGE_DOCK_LAYOUT_KEY,             // forge/shell/dockShell.ts: the workbench's docking tree (the owner, 2026-11-11)
   's2u-forge-favourites',            // forge/favourites.ts FAVOURITES_KEY: the starred props
   's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
   'forge.agent.permissions.shortForm', // agent/panel.ts SHORT_FORM_KEY: the grant panel's "only what the agent asked for" (FUI-25)

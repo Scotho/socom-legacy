@@ -88,6 +88,7 @@ export interface MatchActionsDeps {
    */
   gatePress?: (action: number, seq: number) => boolean;
   cranePress?: (valve: string, seq: number) => boolean;
+  isCrane?: (valve: string) => boolean;
   map(): LoadedMap | null;
   view(): WorldView | null;
   /** The page's world state (`./worldState`, MAP-02), or null. */
@@ -259,6 +260,7 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
     offline: d.craneToggle,
     ...(d.gatePress ? { gatePress: d.gatePress } : {}),
     ...(d.cranePress ? { cranePress: d.cranePress } : {}),
+    ...(d.isCrane ? { isCrane: d.isCrane } : {}),
   });
   roomEvents.on((ev) => actions.event(ev));
   /**

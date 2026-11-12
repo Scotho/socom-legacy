@@ -25,6 +25,21 @@ export function palette(map: LoadedMap): PaletteEntry[] {
   return [...placed].sort(([a], [b]) => a.localeCompare(b)).map(([model, n]) => ({ asset: assetId(map.archive, model), model, placed: n }));
 }
 
+/**
+ * A map's props each with the model library it is read from (`LoadedMap.modelLibraries`): `shared` when that library is
+ * no one map's -- not the map's own (`<stem>`) nor its world (`WORL`): a prop the disc shares between maps (the Pave
+ * Hawk's `PAVE`, the turrets' `TURR`). The forge's Shared and All lists (a browser adaptation, FG.R2).
+ */
+export interface LibraryProp { model: string; lib: string; shared: boolean; placed: number }
+export function libraryProps(map: LoadedMap): LibraryProp[] {
+  const own = map.archive.toUpperCase();
+  return palette(map).map((p) => {
+    const lib = map.modelLibraries?.[p.model] ?? map.archive;
+    const L = lib.toUpperCase();
+    return { model: p.model, lib, shared: L !== own && L !== 'WORL', placed: p.placed };
+  });
+}
+
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /**

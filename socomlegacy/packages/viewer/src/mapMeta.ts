@@ -2,6 +2,7 @@ import { parseRdr, rdrGet, Zar, zdbMember, type RdrNode, type ZdbEntry } from '@
 import { decodeEffectProgram, flattenScene, missionNameOf, parseAnimSets, type SceneNode, type ZAnimArchive, type ZAnimNodeRef } from '@s2u/scene';
 import { readMapActions, type MapAction } from './mapActions';
 import { sceneOf, type SceneMeta } from './sceneHealth';
+import type { AudioStep } from '@s2u/creator-contracts';
 
 export { actionAtPick } from './mapActions';
 
@@ -47,8 +48,22 @@ export interface MapInitial {
   saveParent: boolean;
 }
 
+/** A Forge ambient effect placed (`./forge/forgeObjects`): its program of map `source`, at its path's place, turned `yaw`. */
+/**
+ * A placed ambient effect (`./forge/forgeObjects` `withForgeObjects`): `source` its map, `name` its program; `audio` its
+ * audio script (the game's own commands), standing in for its program's own sounds.
+ */
+export interface ForgeAmbient { path: string; source: string; name: string; at: [number, number, number]; yaw: number; audio?: AudioStep[] }
+
 export interface MapMeta {
   stem: string;
+  /**
+   * The Forge objects' places by path (`./forge/forgeObjects` `withForgeObjects`; a browser adaptation, FG.R2): an empty's,
+   * an ambient effect's -- what `WorldState.placeOf` answers for a path with no collision. Absent on a disc map.
+   */
+  forgePlaces?: Record<string, [number, number, number]>;
+  /** The Forge ambient effects to play from the map's start (`./forge/forgeObjects` `playForgeAmbients`). Absent: none. */
+  forgeAmbients?: ForgeAmbient[];
   /** Every placed record, typed: `typeCode` 8 for a type-less one. */
   actions: MapAction[];
   /** `flattenScene` order; `id` is the index. */

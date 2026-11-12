@@ -55,10 +55,17 @@ export type ViewerRequest =
   }
   /** The play mode's clips (W2.2b): `RUN/MOTION_P.ZAR`'s named clips and `motion.rdr`'s entries for them, once a source. */
   | { kind: 'play'; id: number; source: SourceRequest; clips: string[] }
+  /**
+   * The original's loading screen alone (`./loadingAssets` `loadingFromDisc`; the forge's Play, `./forge/match`
+   * `forgeLoadingScreen`): answered with a `loading` message, as a `load`'s screen is, and no map.
+   */
+  | { kind: 'loadingScreen'; id: number; source: SourceRequest; path: string }
   /** A map's sound (socomlegacy/docs/research/81, `./soundData`): its banks, the script, the materials, the weapons, the callbacks. */
-  | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string; cuesFrom?: { path: string; archive: string } }
+  | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string; cuesFrom?: { path: string; archive: string }; /** A forge switch's sounds, by the map each is from (`soundFromDisc` `lend`). */ lend?: { from: string; names: string[] }[];
+    /** A forge layout's ambient effects' loops (`./forge/forgeObjects` `forgeAmbientEmitters`), sounded as the map's emitters. */
+    emitters?: SoundData['emitters'] }
   /** EFFECTS: a map's effect programs, models, textures and mark tables (socomlegacy/docs/research/89, `./effectData`). */
-  | { kind: 'effects'; id: number; source: SourceRequest; path: string; archive: string; borrow?: { path: string; names: string[] } }
+  | { kind: 'effects'; id: number; source: SourceRequest; path: string; archive: string; borrow?: { path: string; names: string[] } | { path: string; names: string[] }[] }
   /** The pre-round ARMORY's layout, scripts, strings, fonts, models, bitmaps and roster for a map (web sprint 5, `./armoryData`). */
   | { kind: 'armory'; id: number; source: SourceRequest; path: string; archive: string; /** The UI models too (false: the page holds them). */ models?: boolean };
 
@@ -145,7 +152,8 @@ ctx.addEventListener('message', (event: MessageEvent<ViewerInbound>) => {
         ctx.postMessage({ kind: 'index', id: request.id, maps, problems, ...(campaign ? { campaign } : {}) });
       } else if (request.kind === 'sound') {
         // Never an error either: without the banks the walk is silent.
-        const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive, request.cuesFrom);
+        const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive, request.cuesFrom, request.lend);
+        if (request.emitters?.length) data.emitters.push(...request.emitters);   // a forge layout's ambient loops, rendered with the map's
         data.loopsFollow = true;
         // The loops are rendered from the bank bytes before those are handed over, and sent after the data.
         const loops = renderAmbienceLoops(data, LOOP_SECONDS_PLACEHOLDER, LOOP_FADE_SECONDS_PLACEHOLDER, LONG_LOOP_SECONDS_PLACEHOLDER);
@@ -171,6 +179,9 @@ ctx.addEventListener('message', (event: MessageEvent<ViewerInbound>) => {
           paths = discListing.paths;
         }
         ctx.postMessage({ kind: 'mod-disc', paths });
+      } else if (request.kind === 'loadingScreen') {
+        const data = await loadingFromDisc(sourceFor(request.source), request.path);
+        ctx.postMessage({ kind: 'loading', id: request.id, data }, loadingTransferables(data));
       } else if (request.kind === 'play') {
         // Never an error either: without the owner's pack the body stands in its bind pose.
         const data = await playFromDisc(sourceFor(request.source), request.clips);

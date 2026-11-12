@@ -1,6 +1,7 @@
 import { DEFAULT_LIGHTING } from '../lighting';
 import type { FogSettings } from '../fog';
 import type { LoopbackOptions } from '../net/loopback';
+import { MAX_ROUNDS, RESPAWN_MAX_ROUNDS, RESPAWN_ROUND_SECONDS } from '../net/rules';
 import { DEFAULT_SETTINGS, NPC_BEHAVIOURS, SETTINGS_BOUNDS, type LayoutSettings, type NpcBehaviour } from './layout';
 
 /**
@@ -89,7 +90,8 @@ export const FOG_STEP_RATIO = 1.25;
  * One pad step of `key` by `dir` (left -1, right 1), held at its bounds; the fog from `discFar` (the map's own
  * distance) when the layout names none, and always a move of at least one step; friendly fire toggled either way.
  */
-export function stepSetting(s: LayoutSettings, key: NumericSetting | 'friendlyFire' | 'npcBehaviour', dir: 1 | -1, discFar: number): LayoutSettings {
+export function stepSetting(s: LayoutSettings, key: SteppedSetting, dir: 1 | -1, discFar: number): LayoutSettings {
+  if (key === 'respawn') return respawnSetting(s, !s.respawn);
   if (key === 'timeOfDay') return timeSetting(s, boundSetting('timeOfDay', (s.timeOfDay ?? 1) + dir * SETTINGS_BOUNDS.timeOfDay.step));
   if (key === 'friendlyFire') return { ...s, friendlyFire: !s.friendlyFire };
   if (key === 'npcBehaviour') {                                      // NPB-6: through the words, wrapping either way
@@ -107,6 +109,29 @@ export function stepSetting(s: LayoutSettings, key: NumericSetting | 'friendlyFi
   return out;
 }
 
+/** Every row a pad step moves. */
+export type SteppedSetting = NumericSetting | 'friendlyFire' | 'npcBehaviour' | 'respawn';
+
+/**
+ * CREATE GAME's RESPAWN row (research 348 §1: `refresh_cg_screen` writes `mp_max_round_time` 1200 / `mp_max_rounds` 1 for
+ * respawn, the classic screen 360 / 11): the rules switched, and the rounds and round time moved to the other screen's
+ * defaults only while they still hold this screen's -- an author's own values are kept.
+ */
+export function respawnSetting(s: LayoutSettings, respawn: boolean): LayoutSettings {
+  if (respawn === s.respawn) return s;
+  const [fromRounds, fromSeconds, toRounds, toSeconds] = respawn
+    ? [MAX_ROUNDS, DEFAULT_SETTINGS.roundSeconds, RESPAWN_MAX_ROUNDS, RESPAWN_ROUND_SECONDS]
+    : [RESPAWN_MAX_ROUNDS, RESPAWN_ROUND_SECONDS, MAX_ROUNDS, DEFAULT_SETTINGS.roundSeconds];
+  const atDefaults = s.rounds === fromRounds && s.roundSeconds === fromSeconds;
+  return { ...s, respawn, ...(atDefaults ? { rounds: toRounds, roundSeconds: toSeconds } : {}) };
+}
+
+/**
+ * CREATE GAME's EQlimit words (research 362 §2's table; the briefing's PISTOLS ONLY, SHOTGUNS ONLY, SNIPERS ONLY,
+ * `FUN_002e1f20` D:L184211-184225; 4 the scripts' No Bombs, which the briefing leaves without a word).
+ */
+export const EQ_LIMIT_LABEL: readonly string[] = Object.freeze(['None', 'Pistols only', 'Shotguns only', 'Snipers only', 'No bombs']);
+
 /** NPB-6: the words the panel and the pad show for each NPC behaviour (an adaptation, no original). */
 export const NPC_BEHAVIOUR_LABEL: Readonly<Record<NpcBehaviour, string>> = Object.freeze({
   sentry: 'Sentries (hold position)', patrol: 'Patrol (the bots’ brain)',
@@ -123,18 +148,27 @@ export function settingsDelta(s: LayoutSettings): Partial<LayoutSettings> {
   if (s.skyFrom) out.skyFrom = s.skyFrom;
   if (s.fog) out.fog = s.fog;
   if (s.night) out.night = s.night;
+  if (s.arsenal) out.arsenal = s.arsenal;                    // the match's arsenal over the map's (`./arsenalSetting`)
+  if (s.characters) out.characters = s.characters;           // the ARMORY's types over the map's (`./rosterSetting`)
+  // The map's own world values written over (`./worldSettings`): the surface, the reverb, the view, the loading screen.
+  if (s.defaultMaterial) out.defaultMaterial = s.defaultMaterial;
+  if (s.reverb) out.reverb = s.reverb;
+  if (s.fov) out.fov = s.fov;
+  if (s.loading) out.loading = s.loading;
   return out;
 }
 
 /**
  * The page's room's options from the settings: the room's own (`RoomOptions.maxRounds`, `roundSeconds`,
- * `allowFriendlyFire`, `maxPlayers`), passed through -- at the disc's values the room's own defaults (11 rounds, 6
+ * `allowFriendlyFire`, `maxPlayers`, `eqLimit`, `rules`), passed through -- at the disc's values the room's own defaults (11 rounds, 6
  * minutes, no friendly fire, 16 players). Above 16 players this page's own Play room's sides still hold 8 each
  * (`../net/lobby` `TEAM_SIZE`); a forge lobby's room on the match server seats them all, half a side (FG-29's team
  * size, the server's `forgeLobby.ts`), with the start points for them (FG-37, `forgeSimMap.ts`).
  */
-export const roomOptionsOf = (s: LayoutSettings): Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers'> => ({
+export const roomOptionsOf = (s: LayoutSettings): Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers' | 'eqLimit' | 'rules'> => ({
   maxRounds: s.rounds, roundSeconds: s.roundSeconds, allowFriendlyFire: s.friendlyFire, maxPlayers: s.players,
+  // CREATE GAME's EQlimit and RESPAWN, the room's own options (`RoomOptions.eqLimit`, `rules`): absent at their defaults.
+  ...(s.eqLimit ? { eqLimit: s.eqLimit } : {}), ...(s.respawn ? { rules: 'respawn' as const } : {}),
 });
 
 /** Saved Forge adaptation: a new time edit always removes the legacy dimmer. */

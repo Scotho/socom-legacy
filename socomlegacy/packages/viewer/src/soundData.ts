@@ -116,7 +116,7 @@ export interface SoundData {
    */
   layers?: AmbienceLayers;
   /** The emitters: a looping sound at a world position, at its command's volume (absent: 1.0). */
-  emitters: { anim: string; sound: string; node: string; position: [number, number, number]; volume?: number }[];
+  emitters: SoundEmitter[];
   /**
    * The reverb: the preset's 32 registers (null without `LIBSD.IRX`), the depth zones (depth 0..1, ramp seconds), and
    * the preset's response, computed in the worker (`renderReverb`) so the page's unlock does no arithmetic.
@@ -145,6 +145,11 @@ export interface SoundData {
    * 186 §3.1); absent or empty without VAGSTORE (the page's round is then silent).
    */
   streams?: { name: string; file: string; sound: RenderedSound; group?: number }[];
+  /**
+   * FORGE_SCRIPT_SOUND_ADAPTATION (the owner, 2026-11-10; a browser adaptation): the streams a Forge switch's script
+   * plays (`SoundLend`), which its `SOUND` plays as a stream where no bank holds the name (`./matchSound` `sceneSound`).
+   */
+  lentStreams?: string[];
   /** Research 124: the round's cues read off the map's `objectives` script, null when it has none. */
   roundCues?: RoundCues | null;
   /** The parts that could not be read, and why. */
@@ -339,8 +344,13 @@ function silent(archive: string, missing: string[]): SoundData {
  * plays another mode there borrows a map of that mode's script (CUES_FROM_DONOR_READING: its generic valves --
  * `mp_bomb`, `bomb_owner`, `mp_winner`, `player_team` -- drive it as on its own map; a line testing one of its own map's
  * names -- a VIP's valve, a tent -- may not fire on this one [reading: not run against the original]).
+ *
+ * `lend` (the owner, 2026-11-10; a browser adaptation, FG.R2): sounds a forge switch's script plays, each from the map
+ * it was chosen from (`./forge/scriptAssets`) -- out of that map's own banks (`lendBankSounds`), else, a name none of
+ * them holds (a `MUS_` cue, a `^` line), that map's streams (`readSoundStreams` over its blocks, `lentStreams`); one
+ * neither holds is named in `missing`.
  */
-export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }): Promise<SoundData> {
+export async function soundFromDisc(source: AssetSource, mapPath: string, archive: string, cuesFrom?: { path: string; archive: string }, lend: readonly SoundLend[] = []): Promise<SoundData> {
   const cues = cuesFrom ?? { path: mapPath, archive };
   const files = [...SOUND_BANK_KINDS.map((k) => `${archive}_${k}.bnk`), ...SOUND_GLOBAL_BANKS];
   let found: Map<string, Uint8Array>;
@@ -368,6 +378,8 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
   let sets: Map<string, SoundSet> | null = null;
   let streamEntries: Map<string, Map<number, StreamEntry>> | null = null;
   let scriptRoot:RdrNode|null=null;
+  /** The lent names no bank of their map holds: its streams' (`lend`). */
+  const streamLend: SoundLend[] = [];
   let filed: ((name: string) => boolean) | undefined;
   const script = await one(SOUND_SCRIPT_PATH, 'sounds.rdr');
   if (script) {
@@ -557,6 +569,8 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     try { await borrowMissing(source, banks, sets, new Set([...wanted, ...grenadeWanted]), archive, missing); } catch (e) { missing.push(`borrowing: ${why(e)}`); }
     // Research 304: a grenade's sound only from the map's own banks -- the borrowing keeps its bank choice for the rest.
     for (const b of banks) if (b.only) b.only = b.only.filter((n) => !grenadeWanted.has(n) || wanted.has(n));
+    // A forge switch's sounds, out of the banks of the map each was chosen from (`lend`).
+    try { streamLend.push(...await lendBankSounds(source, banks, lend, missing)); } catch (e) { missing.push(`lent sounds: ${why(e)}`); }
     // Bank by bank: one that will not parse is named in `missing`, and the others' entries still come.
     for (const { file, bytes } of banks) {
       let bank: SoundBank;
@@ -597,7 +611,16 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     : cues.archive === archive ? await readSoundStreams(source, streamEntries, archive, [...roundNames.flatMap(membersOf), ...streamNames], missing)
     : [...await readSoundStreams(source, streamEntries, cues.archive, roundNames, missing), ...await readSoundStreams(source, streamEntries, archive, streamNames, missing)];
 
+  // A forge switch's streams (`lend`), out of the blocks of the map each was chosen from, with their params.
+  const lentStreams: string[] = [];
+  if (streamEntries) for (const l of streamLend) {
+    const got = await readSoundStreams(source, streamEntries, l.from, l.names, missing);
+    for (const s of got) if (!streams.some((x) => x.name === s.name)) { streams.push(s); lentStreams.push(s.name); }
+    if (sets) for (const s of got) { const p = soundParams(sets, missionSoundBlocks(l.from), s.name); if (p) params.push([s.name, p]); }
+  }
+
   return {
+    ...(lentStreams.length ? { lentStreams } : {}),
     archive, banks, materials, params, weapons, callbacks, callbackVolumes, fireDistances, defaultMaterial, beds, layers, emitters,
     reverb, ...(characterVoices ? { characterVoices } : {}), ...(escorteeVoices ? { escorteeVoices } : {}), missing, elevation, standHeight, streams, roundCues, taunts, tacticalGroups,
   };
@@ -653,6 +676,88 @@ export async function readSoundStreams(
  * The bank is found through `sounds.rdr`'s sets (a set is a bank's block, `MP9_AM` is `MP9_am.bnk`), greedily, the bank
  * that covers the most still-missing names first; its other sounds are not registered (`SoundData.banks[].only`).
  */
+/** One of the guns' sounds (`weaponSoundCatalog`): its bank name, its weapon's `InternalName` and which key names it. */
+export interface WeaponSoundEntry { name: string; weapon: string; kind: 'fire close' | 'fire med' | 'fire far' | 'reload' | 'reload after shot' }
+
+/**
+ * The guns' sounds (the owner, 2026-11-10: "move all the gun sounds to a separate category"; the forge's Sound choice):
+ * every `ZWEAPON` record's `FireSoundClose`/`Med`/`Far`, `ReloadSound` and `ReloadAfterShotSound` (`weaponSounds`,
+ * `RUN/ZWEAPON.ZAR` `zweapon.rdr`), each name once (its first weapon's), trailing blanks trimmed, by name. Every disc
+ * map's banks hold all of them (read on the disc, 2026-11-10: MP2, MP72, MP6, M51 -- 146 each), so a switch plays one
+ * out of its own map's banks.
+ */
+export async function weaponSoundCatalog(source: AssetSource): Promise<WeaponSoundEntry[]> {
+  const bytes = (await readZarMembers(source, SOUND_WEAPONS_PATH, ['zweapon.rdr'])).get('zweapon.rdr');
+  if (!bytes) return [];
+  const table = parseRdr(bytes);
+  const out = new Map<string, WeaponSoundEntry>();
+  for (const weapon of weaponNames(table)) {
+    const w = weaponSounds(table, weapon);
+    if (!w) continue;
+    const keys: [string | null, WeaponSoundEntry['kind']][] = [[w.fireClose, 'fire close'], [w.fireMed, 'fire med'], [w.fireFar, 'fire far'], [w.reload, 'reload'], [w.afterShot, 'reload after shot']];
+    for (const [n, kind] of keys) if (n && !out.has(n.trim())) out.set(n.trim(), { name: n.trim(), weapon, kind });
+  }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** One of `SoundData.emitters`. */
+export interface SoundEmitter { anim: string; sound: string; node: string; position: [number, number, number]; volume?: number }
+
+/** Sounds a forge switch plays from a map (`soundFromDisc` `lend`): the map's archive stem and the names. */
+export interface SoundLend { from: string; names: readonly string[] }
+
+/** The sound banks of map `archive` (`SOUND_BANK_KINDS`): `MP72_am.bnk`, `MP72_fx.bnk`, `MP72_vc.bnk`. */
+export const mapBankFiles = (archive: string): string[] => SOUND_BANK_KINDS.map((k) => `${archive}_${k}.bnk`);
+
+/**
+ * Every sound name map `archive`'s banks hold (the forge's Sound choice, `./forge/scriptAssets`): each once, trailing
+ * blanks trimmed, sorted. None where the source has no banks of it.
+ */
+export async function bankSoundNames(source: AssetSource, archive: string): Promise<string[]> {
+  const found = await readZarMembers(source, SOUND_BANKS_PATH, mapBankFiles(archive));
+  const out = new Set<string>();
+  for (const bytes of found.values()) { try { for (const n of parseBankFile(bytes).names.keys()) out.add(n.trim()); } catch { /* a bank that will not parse lends nothing */ } }
+  return [...out].sort();
+}
+
+/**
+ * `lend`'s sounds into `banks`, each out of its own map's banks: a name the banks can play already is left (the same
+ * name, the map's own); else the first of its map's banks holding it is added lending only it (`only`), or its `only`
+ * widened where that bank is in already. What no bank of its map holds comes back, by map: its streams' to try.
+ */
+export async function lendBankSounds(source: AssetSource, banks: SoundData['banks'], lend: readonly SoundLend[], missing: string[]): Promise<SoundLend[]> {
+  const namesOf = new Map<string, Set<string>>();
+  const names = (file: string, bytes: Uint8Array): Set<string> => {
+    let got = namesOf.get(file);
+    if (!got) { got = new Set(); try { for (const n of parseBankFile(bytes).names.keys()) { got.add(n); got.add(n.trim()); } } catch { /* none */ } namesOf.set(file, got); }
+    return got;
+  };
+  const plays = (n: string): boolean => banks.some((b) => names(b.file, b.bytes).has(n) && (!b.only || b.only.includes(n) || b.only.includes(`${n} `)));
+  const rest: SoundLend[] = [];
+  for (const l of lend) {
+    const need = l.names.filter((n) => !plays(n));
+    if (!need.length) continue;
+    const files = mapBankFiles(l.from);
+    const have = new Map(banks.filter((b) => files.includes(b.file)).map((b) => [b.file, b]));
+    const read = await readZarMembers(source, SOUND_BANKS_PATH, files.filter((f) => !have.has(f)));
+    const left: string[] = [];
+    for (const n of need) {
+      const file = files.find((f) => { const b = have.get(f); const bytes = b?.bytes ?? read.get(f); return !!bytes && names(f, bytes).has(n); });
+      if (!file) { left.push(n); continue; }
+      const own = names(file, have.get(file)?.bytes ?? read.get(file)!);
+      const spelt = own.has(n) ? [...own].find((x) => x === n || x.trim() === n) ?? n : n;
+      const b = have.get(file);
+      if (b) { if (b.only && !b.only.includes(spelt)) b.only.push(spelt); continue; }
+      const added = { file, bytes: read.get(file)!.slice(), only: [spelt] };
+      banks.push(added);
+      have.set(file, added);
+    }
+    if (left.length) rest.push({ from: l.from, names: left });
+  }
+  void missing;
+  return rest;
+}
+
 export async function borrowMissing(
   source: AssetSource, banks: SoundData['banks'], sets: ReadonlyMap<string, SoundSet>, wanted: ReadonlySet<string>,
   archive: string, missing: string[],

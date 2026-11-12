@@ -134,7 +134,7 @@ import { EQUIPMENT_SLOTS } from './equipment';
 import { INVENTORY_MENU_KEYS_READING } from './inventoryMenu';
 import { THROW_CLIPS } from './throwPose';
 import { grenadePlace, mountThrowables } from './matchThrow';
-import { refusalLine } from './matchMessages';
+import { postScriptMessage, refusalLine } from './matchMessages';
 import { abortLines, MatchAbort } from './matchAbort';
 import { mountTaunts } from './matchTaunts';
 import { mountChat } from './matchChat';
@@ -1049,7 +1049,7 @@ const acts = mountActions({
   walk, fly, doors, traversal, grenade, remote, play, firearm,   // research 303: the dance's body, its trigger and reload
   net: () => net, map: () => loaded, view: () => view, world: () => pageWorld,
   craneToggle: (valve) => cranes.toggleLocal(valve),
-  gatePress: (action, seq) => gates.press(action, seq), cranePress: (valve, seq) => cranes.press(valve, seq),   // P8
+  gatePress: (action, seq) => gates.press(action, seq), cranePress: (valve, seq) => cranes.press(valve, seq), isCrane: (valve) => cranes.owns(valve),   // P8
   bombView: {
     roundAudio, hud, remotePlayers: remote, effects, worldBomb: grenade.worldBomb(),
     ownBody: ownBombBody(play, throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1 (research 214 s3): the own body
@@ -2475,6 +2475,9 @@ function show(map: LoadedMap): void {
       const at = path !== null ? pageWorld?.placeOf(path) ?? null : null;
       if (at) effects.play(name, { position: at, normal: [0, 1, 0] });
     },
+    message: (text, colour) => { postScriptMessage(hud, text, colour); },   // a Forge switch's script's message (`./forge/placedAccess`)
+    // FORGE_SCRIPT_BLAST_ADAPTATION: a Forge script's blast, its look (`Effects.scriptRound`); its damage is the room's.
+    scriptRound: (op, path) => { const at = path !== null ? pageWorld?.placeOf(path) ?? null : null; if (at) effects.scriptRound(op, at); },
     destruction: (path) => {
       const key = path ?? '';
       if (debrisSeen.has(key)) return;

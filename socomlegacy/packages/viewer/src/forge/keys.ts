@@ -75,7 +75,7 @@ export function forgeLeaseExit(e: ForgeKeyEvent, s: ForgeKeyState): ForgeLeaseEx
  * Info, Other) -- 1 to 9 then 0 the first ten, Shift with 1 to 8 the rest. The Place tool has none: choosing a prop places.
  */
 export const FORGE_TOOL_ORDER = [
-  'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'gate', 'barrier', 'ladder', 'turret', 'flare',
+  'spawnA', 'spawnB', 'respawnA', 'respawnB', 'door', 'ladder', 'turret', 'barrier', 'switch', 'gate', 'flare',
   'bomb', 'siteSeal', 'siteTerrorist', 'hostage', 'zone', 'point', 'view', 'npc',
 ] as const;
 export type ForgeToolKey = 'select' | (typeof FORGE_TOOL_ORDER)[number];
@@ -100,7 +100,7 @@ function toolOfKey(e: ForgeKeyEvent): ForgeToolKey | null {
 }
 
 export type ForgeKeyAction =
-  | 'undo' | 'redo' | 'copy' | 'paste' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
+  | 'undo' | 'redo' | 'copy' | 'paste' | 'cut' | 'openLayout' | 'saves' | 'walk' | 'play' | 'stopWalk' | 'door' | 'closeCard'
   | { tool: ForgeToolKey } | 'translate' | 'rotate' | 'scale' | 'snap'
   | 'duplicate' | 'delete' | 'frame' | 'docks' | 'deselect' | 'cancelPlace'
   | 'prevAsset' | 'nextAsset' | 'turnLeft' | 'turnRight' | 'menu'
@@ -115,7 +115,7 @@ const EDITOR_KEYS: Readonly<Record<string, ForgeKeyAction>> = {
   // The tools' keys are `toolOfKey`'s (Q and the number keys, `FORGE_TOOL_ORDER`).
   // The gizmo's modes on W, E, R, as an engine editor's: the fly camera's W and E (and its R) move it only while RMB is
   // held, and the camera keeps them from the editor then (`../camera` `onKeyDown`).
-  KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyG: 'snap', KeyC: 'duplicate', Delete: 'delete', Backspace: 'delete',
+  KeyW: 'translate', KeyE: 'rotate', KeyR: 'scale', KeyG: 'snap', Delete: 'delete', Backspace: 'delete',
   BracketLeft: 'prevAsset', BracketRight: 'nextAsset', Comma: 'turnLeft', Period: 'turnRight', KeyM: 'menu',
 };
 
@@ -128,6 +128,12 @@ export function forgeKeyAction(e: ForgeKeyEvent, s: ForgeKeyState): ForgeKeyActi
   const chord = e.ctrlKey || e.metaKey;
   if (chord && !e.altKey && (e.code === 'KeyZ' || e.code === 'KeyY')) return e.code === 'KeyY' || e.shiftKey ? 'redo' : 'undo';
   if (chord && !e.altKey && !e.shiftKey && (e.code === 'KeyC' || e.code === 'KeyV')) return e.code === 'KeyC' ? 'copy' : 'paste';
+  // Cut (the owner, 2026-11-11: the Edit menu's): a copy, then the selection deleted.
+  if (chord && !e.altKey && !e.shiftKey && e.code === 'KeyX') return 'cut';
+  // Duplicate on Ctrl+D (the owner, 2026-11-11; was C alone): the browser's bookmark key taken while the editor has it.
+  if (chord && !e.altKey && !e.shiftKey && e.code === 'KeyD') return 'duplicate';
+  // The File menu's (the owner, 2026-11-11): Open Ctrl+O, Saves Ctrl+S. New has no key: the browser keeps Ctrl+N.
+  if (chord && !e.altKey && !e.shiftKey && (e.code === 'KeyO' || e.code === 'KeyS')) return e.code === 'KeyO' ? 'openLayout' : 'saves';
   if (chord || e.altKey) return null;
   if (s.navigating && FLY_LETTERS.has(e.code)) return null;   // the camera's while it navigates
   if (e.code === 'KeyV') return s.playing ? 'stopWalk' : 'walk';     // FG-50: Walk and Edit, the camera kept

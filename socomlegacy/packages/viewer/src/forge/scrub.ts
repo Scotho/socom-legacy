@@ -33,6 +33,8 @@ export interface ScrubDetail { value: number; cancelled?: true }
 
 /** The fields given their own options (`scrubNumber`): the page-wide scrub (`scrubAllNumbers`) leaves them to it. */
 const own = new WeakSet<HTMLInputElement>();
+/** Those fields' options, for the wheel's step (`wheelAllNumbers`). */
+const ownOptions = new WeakMap<HTMLInputElement, ScrubOptions>();
 
 /** The decimals a step or a value is written with (`0.25` 2, `5` 0), at most 4. */
 const decimalsOf = (text: string): number => Math.min(4, text.includes('.') ? text.split('.')[1]!.replace(/e.*$/i, '').length : 0);
@@ -53,13 +55,72 @@ export function scrubOptionsOf(input: HTMLInputElement): ScrubOptions {
 export function scrubNumber(input: HTMLInputElement, options: ScrubOptions): () => void {
   input.classList.add('fx-scrub');
   own.add(input);
+  ownOptions.set(input, options);
   const onDown = (e: Event): void => { beginScrub(input, e, options); };
   input.addEventListener('pointerdown', onDown);
   return () => {
     input.removeEventListener('pointerdown', onDown);
     input.classList.remove('fx-scrub');
     own.delete(input);
+    ownOptions.delete(input);
   };
+}
+
+/** A notch of the wheel, in CSS pixels of travel (a trackpad's small deltas summed to it), and a line's worth. */
+const WHEEL_NOTCH_PX = 50;
+const WHEEL_LINE_PX = 40;
+/** How long after the wheel's last notch its steps are one edit (`change`), ms: a browser adaptation's own value. */
+const WHEEL_SETTLE_MS = 400;
+
+/**
+ * Every number field under `root` stepped by the wheel while the pointer is on it (the owner, 2026-11-11: "when the mouse
+ * is over them and I scroll, allow the value to be changed with the scroll direction"; a browser adaptation, FG.R2): up
+ * adds a step, down takes one away -- its `step` (or its scrub's rate where it has no step), Shift a tenth, Ctrl (Cmd)
+ * ten -- held to its min and max. Each notch is heard as a scrub's value (`fx-scrub`, `input`: a live preview), the
+ * notches together one `change` once the wheel rests (`WHEEL_SETTLE_MS`) or the pointer leaves, so a turn of the wheel is
+ * one edit. The page does not scroll under it. A disabled, read-only or typed-in field is left to the browser.
+ */
+export function wheelAllNumbers(root: Document | HTMLElement): () => void {
+  let travel = 0;
+  let active: HTMLInputElement | null = null;
+  let settle: ReturnType<typeof setTimeout> | null = null;
+  const commit = (): void => {
+    if (settle !== null) { clearTimeout(settle); settle = null; }
+    const field = active;
+    active = null;
+    travel = 0;
+    field?.removeEventListener('pointerleave', commit);
+    field?.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const onWheel = (e: Event): void => {
+    const w = e as WheelEvent;
+    const t = w.target;
+    if (!(t instanceof HTMLInputElement) || t.type !== 'number' || t.disabled || t.readOnly) return;
+    const doc = t.ownerDocument;
+    if (doc.activeElement === t) return;                        // being typed in: the browser's own
+    const start = Number(t.value);
+    if (t.value.trim() === '' || !Number.isFinite(start)) return;
+    w.preventDefault();
+    if (active !== t) { if (active) commit(); active = t; t.addEventListener('pointerleave', commit); }
+    travel += w.deltaMode === 1 ? w.deltaY * WHEEL_LINE_PX : w.deltaY;
+    if (settle !== null) clearTimeout(settle);
+    settle = setTimeout(commit, WHEEL_SETTLE_MS);
+    if (Math.abs(travel) < WHEEL_NOTCH_PX) return;
+    const dir = travel < 0 ? 1 : -1;                            // up: more
+    travel = 0;
+    const options = ownOptions.get(t) ?? scrubOptionsOf(t);
+    const stepText = t.step.trim(), stepNum = Number(stepText);
+    const unit = stepText !== '' && stepText.toLowerCase() !== 'any' && Number.isFinite(stepNum) && stepNum > 0 ? stepNum : options.rate;
+    const factor = w.shiftKey ? FINE : w.ctrlKey || w.metaKey ? COARSE : 1;
+    const digits = Math.max(options.digits ?? 0, decimalsOf(String(unit * factor)));
+    const min = t.min === '' ? -Infinity : Number(t.min), max = t.max === '' ? Infinity : Number(t.max);
+    const next = Math.min(max, Math.max(min, start + dir * unit * factor));
+    t.value = String(Number(next.toFixed(digits)));
+    t.dispatchEvent(new CustomEvent<ScrubDetail>('fx-scrub', { detail: { value: Number(t.value) } }));
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  root.addEventListener('wheel', onWheel, { capture: true, passive: false });
+  return () => { root.removeEventListener('wheel', onWheel, { capture: true }); if (active) commit(); };
 }
 
 /**

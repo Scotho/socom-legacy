@@ -110,6 +110,14 @@ export interface ForgeShellPage extends ForgeShell {
   moveTab(from: DockZone, tab: string, to: DockZone): void;
   /** Restore registered panels, tab groups, and open states to their declared defaults. */
   resetLayout(): void;
+  /**
+   * The toolbar's Window menu (the owner, 2026-11-11: "only the top level panels not the sub sections"): every dock tab a
+   * viewer may close and open again -- its key, its word, a panel of it (`id`, what `reveal` takes) -- and whether it is
+   * in the docks now. Absent: a shell whose panels are never closed.
+   */
+  windowItems?(): { id: string; key: string; title: string; docked: boolean }[];
+  /** A panel's whole tab out of the docks (the Window menu's close), every section it holds with it. */
+  closeTabOf?(id: string): void;
 }
 
 export class ForgePanelError extends Error {

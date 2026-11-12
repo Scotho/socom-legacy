@@ -1,4 +1,4 @@
-import { Box3, type Object3D, type Vector3 } from 'three';
+import { Box3, Vector3, type Object3D } from 'three';
 import { probeGround, type Grid } from '@s2u/scene';
 import { groundGrid, type GroundData } from '../mover';
 import { centreOf, type Quat, type Vec3 } from './group';
@@ -144,14 +144,59 @@ const isBeneath = (o: Object3D, root: Object3D): boolean => { for (let at: Objec
  * stands at `at`. Its editor guides (`userData.forgeGuide`: a plant site's reach, a turret's arc) are drawings, not the
  * object: left out of the box, or a guide reaching below the marker -- a site's reach cylinder -- lifts it off the floor.
  */
-export function seatOn(object: Object3D, at: Vector3): void {
-  object.position.copy(at);
+/**
+ * A wall mount (the owner, 2026-11-10: "anything that should be placed on the wall to use the normal of where the
+ * cursor is being placed"; a browser adaptation, FG.R2): a face under the cursor whose normal is this near level is a
+ * wall -- 60 degrees or steeper from the floor -- and what is placed on it takes its turn; a flatter one is a floor, as
+ * before. An editor rule, not a game value.
+ */
+export const WALL_NORMAL_Y_MAX = 0.5;
+
+/** The box of `object` and its children but its editor guides (`userData.forgeGuide`: drawings, not the object). */
+export function objectBox(object: Object3D): Box3 {
   object.updateMatrixWorld(true);
   const guides: { guide: Object3D; parent: Object3D }[] = [];
   object.traverse((o) => { if (o !== object && o.userData['forgeGuide'] && o.parent && !guides.some((g) => isBeneath(o, g.guide))) guides.push({ guide: o, parent: o.parent }); });
   for (const { guide, parent } of guides) parent.remove(guide);
   const box = new Box3().setFromObject(object);
   for (const { guide, parent } of guides) parent.add(guide);
+  return box;
+}
+
+/**
+ * `object` mounted on a wall (`WALL_NORMAL_Y_MAX`) at `point`, whose face's outward normal is `normal`: turned so its
+ * own `front` (x, z in its frame: +Z, the side a placement turns to the camera, for most) points out of the wall, and
+ * moved out until the back of its box (in its own frame) is on the wall. `how`: `mount`, its box's middle at the point's
+ * height (a switch, a prop); `stand`, its box's bottom on `floorY` below (a ladder), the point's height where none is.
+ */
+export function mountOnWall(object: Object3D, point: Vector3, normal: Vector3, front: readonly [number, number] = [0, 1],
+  how: 'mount' | 'stand' = 'mount', floorY?: (x: number, z: number, fromY: number) => number | null): void {
+  const out = new Vector3(normal.x, 0, normal.z);
+  if (out.lengthSq() < 1e-9) return;
+  out.normalize();
+  // Its box in its own frame (its scale kept): no turn, at the origin.
+  const q = object.quaternion.clone();
+  object.quaternion.identity();
+  object.position.set(0, 0, 0);
+  const box = objectBox(object);
+  object.quaternion.copy(q);
+  object.rotation.set(0, Math.atan2(out.x, out.z) - Math.atan2(front[0], front[1]), 0);
+  // How far the box reaches behind its origin, against its front: the distance out from the wall.
+  let back = 0;
+  if (!box.isEmpty()) for (const x of [box.min.x, box.max.x]) for (const z of [box.min.z, box.max.z]) back = Math.max(back, -(x * front[0] + z * front[1]));
+  const at = point.clone().addScaledVector(out, back + WALL_GAP);
+  if (box.isEmpty()) at.y = point.y;
+  else if (how === 'stand') at.y = (floorY?.(at.x, at.z, point.y) ?? point.y) - box.min.y;
+  else at.y = point.y - (box.min.y + box.max.y) / 2;
+  object.position.copy(at);
+  object.updateMatrixWorld(true);
+}
+/** A wall mount's clearance: its back just off the wall's face, so the two never fight in the draw. */
+const WALL_GAP = 0.05;
+
+export function seatOn(object: Object3D, at: Vector3): void {
+  object.position.copy(at);
+  const box = objectBox(object);
   if (box.isEmpty() || !Number.isFinite(box.min.y)) return;
   object.position.y += at.y - box.min.y;
   object.updateMatrixWorld(true);

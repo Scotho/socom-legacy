@@ -11,42 +11,49 @@ import type { MapDataGroup, MapDataRow } from './mapData';
  */
 
 /**
- * A billboard's look by kind: its letter, its colour (an editor's palette, not the game's), the Inspector's word, and its
- * shape -- the map's own data a disc, the user's own placements a rounded square, so the two read apart at a glance.
+ * A billboard's look by kind: its letter, its colour (an editor's palette, not the game's) and the Inspector's word -- a
+ * disc, the same for the map's own data and the user's own placements of a kind (the owner, 2026-11-10: "unify the
+ * billboards ... they should use the same icon").
  */
 /** The map's hostages' mark colour, a placed hostage's too. */
 const MAP_HOSTAGE_COLOUR = '#f2d14b';
 
-export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; word: string; shape?: 'disc' | 'square' }> = {
-  // The user's own placements (square): their props, their spawns by team, their NPCs, their bomb markers.
-  // A user kind with a map counterpart is that kind's letter and colour (props M, spawns S, the bomb start B): only square.
-  userProps: { glyph: 'M', colour: '#9aa5b1', word: 'User prop', shape: 'square' },
-  // A placed spawn in the disc spawn slot's colours (`../overlays` SPAWN_COLOURS); square, where a slot is round.
-  userSpawnA: { glyph: 'Ss', colour: '#4d9bff', word: 'Spawn A (SEALs)', shape: 'square' },
-  userSpawnB: { glyph: 'St', colour: '#ff6a3d', word: 'Spawn B (Terrorists)', shape: 'square' },
-  // A placed respawn point by its team, as the map's (Rs, Rt; their colours), square as every placement.
-  userRespawnA: { glyph: 'Rs', colour: '#9cc8ff', word: 'Respawn point A (SEALs)', shape: 'square' },
-  userRespawnB: { glyph: 'Rt', colour: '#ffa27f', word: 'Respawn point B (Terrorists)', shape: 'square' },
-  // A placed flare: a disc facade prop (`./mapCensus` `flarePropsOf`), the map's flares' F, square as every placement.
-  userFlares: { glyph: 'F', colour: '#fff2a8', word: 'Flare', shape: 'square' },
-  userNpcs: { glyph: 'N', colour: '#b9a6ff', word: 'NPC', shape: 'square' },
+export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; word: string }> = {
+  // The user's own placements: their props, their spawns by team, their NPCs, their bomb markers -- each its map
+  // counterpart's mark (props M, spawns S, the bomb start B).
+  userProps: { glyph: 'M', colour: '#9aa5b1', word: 'User prop' },
+  // A placed spawn in the disc spawn slot's colours (`../overlays` SPAWN_COLOURS).
+  userSpawnA: { glyph: 'Ss', colour: '#4d9bff', word: 'Spawn A (SEALs)' },
+  userSpawnB: { glyph: 'St', colour: '#ff6a3d', word: 'Spawn B (Terrorists)' },
+  // A placed respawn point by its team, as the map's (Rs, Rt; their colours).
+  userRespawnA: { glyph: 'Rs', colour: '#9cc8ff', word: 'Respawn point A (SEALs)' },
+  userRespawnB: { glyph: 'Rt', colour: '#ffa27f', word: 'Respawn point B (Terrorists)' },
+  // A placed flare: a disc facade prop (`./mapCensus` `flarePropsOf`), the map's flares' F.
+  userFlares: { glyph: 'F', colour: '#fff2a8', word: 'Flare' },
+  userNpcs: { glyph: 'N', colour: '#b9a6ff', word: 'NPC' },
   // The bomb's markers as `./pieces` colours them: the start sand, a site its planting team's (`SIDE_COLOUR`).
-  userEscortees: { glyph: 'H', colour: MAP_HOSTAGE_COLOUR, word: 'Hostage', shape: 'square' },
-  userTacZones: { glyph: 'Z', colour: '#3fb58a', word: 'Extraction zone', shape: 'square' },
-  userTacPoints: { glyph: 'P', colour: '#5fd38d', word: 'Tactical point', shape: 'square' },
-  userScenicViews: { glyph: 'V', colour: '#ff79c6', word: 'Spectator view', shape: 'square' },
-  userTurrets: { glyph: 'T', colour: '#c77dff', word: 'Turret', shape: 'square' },
-  userDoors: { glyph: 'D', colour: '#a0c878', word: 'Door', shape: 'square' },
+  userEscortees: { glyph: 'H', colour: MAP_HOSTAGE_COLOUR, word: 'Hostage' },
+  userTacZones: { glyph: 'Z', colour: '#3fb58a', word: 'Extraction zone' },
+  userTacPoints: { glyph: 'P', colour: '#5fd38d', word: 'Tactical point' },
+  userScenicViews: { glyph: 'V', colour: '#ff79c6', word: 'Spectator view' },
+  userTurrets: { glyph: 'T', colour: '#c77dff', word: 'Turret' },
+  userDoors: { glyph: 'D', colour: '#a0c878', word: 'Door' },
   // A placed ladder: a disc ladder prop (its own hull's ladder polygons), the map's L.
-  userLadders: { glyph: 'L', colour: '#e07a5f', word: 'Ladder', shape: 'square' },
+  userLadders: { glyph: 'L', colour: '#e07a5f', word: 'Ladder' },
   // A placed gate (a disc access object with its slide, `./placedAccess`): the map's G.
-  userGates: { glyph: 'G', colour: '#78c8a8', word: 'Gate', shape: 'square' },
-  // A placed C4 barrier: a context action (C4's), the map's ! mark.
-  userBarriers: { glyph: '!', colour: '#e0e0e0', word: 'C4 barrier (context action)', shape: 'square' },
-  userBombStart: { glyph: 'B', colour: '#ff4d4d', word: 'Bomb start', shape: 'square' },
-  // A placed plant site is a context action (MPBOMB) as the disc's tents are: the map's ! mark, square.
-  userSiteSeal: { glyph: '!', colour: '#e0e0e0', word: 'Site · SEAL (MPBOMB)', shape: 'square' },
-  userSiteTerrorist: { glyph: '!', colour: '#e0e0e0', word: 'Site · Terrorist (MPBOMB)', shape: 'square' },
+  userGates: { glyph: 'G', colour: '#78c8a8', word: 'Gate' },
+  // A placed damage trigger (a copied C4 barrier or hit trigger, `./placedAccess`): the map's damage triggers' X.
+  userBarriers: { glyph: 'X', colour: '#ff9f43', word: 'Damage trigger (C4 barrier or hit trigger)' },
+  userBombStart: { glyph: 'B', colour: '#ff4d4d', word: 'Bomb start' },
+  // A placed plant site is a context action (MPBOMB) as the disc's tents are: the map's ! mark.
+  userSiteSeal: { glyph: '!', colour: '#e0e0e0', word: 'Site · SEAL (MPBOMB)' },
+  userSiteTerrorist: { glyph: '!', colour: '#e0e0e0', word: 'Site · Terrorist (MPBOMB)' },
+  // A placed gate's switch: a context action (SWITCH), the map's ! mark.
+  userSwitches: { glyph: '!', colour: '#e0e0e0', word: 'Switch (SWITCH)' },
+  // The Forge objects (`./forgeObjects`): an ambient effect (a map's fire, water, weather).
+  userAmbients: { glyph: '~', colour: '#e08a2c', word: 'Ambient effect' },
+  // The map's own ambient effects (`./mapData` `ambients`), round as the map's data is.
+  ambients: { glyph: '~', colour: '#e08a2c', word: 'Ambient effect (the map\'s)' },
   // The base map's own props (M, map prop): they draw themselves, so their marks start switched off.
   mapProps: { glyph: 'M', colour: '#9aa5b1', word: 'Map prop' },
   // A spawn slot by its side: Ss the SEALs' (side A, 0 -- `bombMarkers`' team 0 is the SEALs), St the Terrorists' (side
@@ -63,6 +70,8 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   gates: { glyph: 'G', colour: '#78c8a8', word: 'Gate' },
   cranes: { glyph: 'C', colour: '#c9853a', word: 'Crane' },
   actions: { glyph: '!', colour: '#e0e0e0', word: 'Context action' },
+  // A damage trigger: a destructible whose death runs its program (C4 or damage, or any hit at health 0; `./mapData`).
+  damage: { glyph: 'X', colour: '#ff9f43', word: 'Damage trigger' },
   tacPoints: { glyph: 'P', colour: '#5fd38d', word: 'Tactical point' },
   tacZones: { glyph: 'Z', colour: '#3fb58a', word: 'Tactical zone' },
   scenicViews: { glyph: 'V', colour: '#ff79c6', word: 'Spectator view' },
@@ -73,47 +82,38 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
 };
 
 /**
- * The Billboards dropdown's switches, a kind each, in two sections: the map's own data (`map`, the Outliner's Map Data
- * branches' order) and the user's own placements (`user`, User Data's). Which mark kinds each shows; a spawn slot's two
- * sides are one switch, as a placed spawn's two teams are.
+ * The View dropdown's switches, a kind each (the owner, 2026-11-10: "only have a single list not a user and map data
+ * list"): each switch shows or hides that kind's marks, the map's own and the user's own placements alike (one icon). The
+ * map's alone are hidden all at once by Only user data (`isUserMarkKind`). A spawn's two sides are one switch.
  */
-export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds: readonly string[]; group: 'map' | 'user' }[] = [
-  { id: 'mapProps', label: 'Props', kinds: ['mapProps'], group: 'map' },
-  { id: 'slots', label: 'Spawns', kinds: ['slotA', 'slotB'], group: 'map' },
-  { id: 'respawns', label: 'Respawn points', kinds: ['respawnA', 'respawnB'], group: 'map' },
-  { id: 'escortees', label: 'Hostages', kinds: ['escortees'], group: 'map' },
-  { id: 'bombStart', label: 'Bomb start', kinds: ['bombStart'], group: 'map' },
-  { id: 'turrets', label: 'Turrets', kinds: ['turrets'], group: 'map' },
-  { id: 'doors', label: 'Doors', kinds: ['doors'], group: 'map' },
-  { id: 'gates', label: 'Gates', kinds: ['gates'], group: 'map' },
-  { id: 'ladders', label: 'Ladders', kinds: ['ladders'], group: 'map' },
-  { id: 'actions', label: 'Context actions', kinds: ['actions'], group: 'map' },
-  { id: 'tacPoints', label: 'Tactical points', kinds: ['tacPoints'], group: 'map' },
-  { id: 'tacZones', label: 'Tactical zones', kinds: ['tacZones'], group: 'map' },
-  { id: 'scenicViews', label: 'Spectator views', kinds: ['scenicViews'], group: 'map' },
-  { id: 'flares', label: 'Flares (lights)', kinds: ['flares'], group: 'map' },
-  // Last (the owner, 2026-11-06): one map has cranes, and with no user counterpart its row left a gap mid-list.
-  { id: 'cranes', label: 'Cranes', kinds: ['cranes'], group: 'map' },
-  { id: 'userProps', label: 'Props', kinds: ['userProps'], group: 'user' },
-  { id: 'userSpawns', label: 'Spawns', kinds: ['userSpawnA', 'userSpawnB'], group: 'user' },
-  { id: 'userRespawns', label: 'Respawn points', kinds: ['userRespawnA', 'userRespawnB'], group: 'user' },
-  { id: 'userEscortees', label: 'Hostages', kinds: ['userEscortees'], group: 'user' },
-  { id: 'userTacZones', label: 'Tactical zones', kinds: ['userTacZones'], group: 'user' },
-  { id: 'userTacPoints', label: 'Tactical points', kinds: ['userTacPoints'], group: 'user' },
-  { id: 'userScenicViews', label: 'Spectator views', kinds: ['userScenicViews'], group: 'user' },
-  { id: 'userTurrets', label: 'Turrets', kinds: ['userTurrets'], group: 'user' },
-  { id: 'userDoors', label: 'Doors', kinds: ['userDoors'], group: 'user' },
-  { id: 'userLadders', label: 'Ladders', kinds: ['userLadders'], group: 'user' },
-  { id: 'userGates', label: 'Gates', kinds: ['userGates'], group: 'user' },
-  { id: 'userFlares', label: 'Flares', kinds: ['userFlares'], group: 'user' },
-  { id: 'userObjectives', label: 'Bomb start', kinds: ['userBombStart'], group: 'user' },
-  { id: 'userActions', label: 'Context actions', kinds: ['userSiteSeal', 'userSiteTerrorist', 'userBarriers'], group: 'user' },
-  // Last (the owner, 2026-11-06): NPCs have no map counterpart, so they take the user column's first free cell at the bottom.
-  { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'], group: 'user' },
+export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds: readonly string[] }[] = [
+  { id: 'mapProps', label: 'Props', kinds: ['mapProps', 'userProps'] },
+  { id: 'slots', label: 'Spawns', kinds: ['slotA', 'slotB', 'userSpawnA', 'userSpawnB'] },
+  { id: 'respawns', label: 'Respawn points', kinds: ['respawnA', 'respawnB', 'userRespawnA', 'userRespawnB'] },
+  { id: 'escortees', label: 'Hostages', kinds: ['escortees', 'userEscortees'] },
+  { id: 'bombStart', label: 'Bomb start', kinds: ['bombStart', 'userBombStart'] },
+  { id: 'turrets', label: 'Turrets', kinds: ['turrets', 'userTurrets'] },
+  { id: 'doors', label: 'Doors', kinds: ['doors', 'userDoors'] },
+  { id: 'gates', label: 'Gates', kinds: ['gates', 'userGates'] },
+  { id: 'ladders', label: 'Ladders', kinds: ['ladders', 'userLadders'] },
+  { id: 'actions', label: 'Context actions', kinds: ['actions', 'userSiteSeal', 'userSiteTerrorist', 'userSwitches'] },
+  { id: 'tacPoints', label: 'Tactical points', kinds: ['tacPoints', 'userTacPoints'] },
+  { id: 'tacZones', label: 'Tactical zones', kinds: ['tacZones', 'userTacZones'] },
+  { id: 'scenicViews', label: 'Spectator views', kinds: ['scenicViews', 'userScenicViews'] },
+  { id: 'flares', label: 'Flares', kinds: ['flares', 'userFlares'] },
+  // Under Objects, with the Triggers dropdown that places them (the owner, 2026-11-08).
+  { id: 'damage', label: 'Damage triggers', kinds: ['damage', 'userBarriers'] },
+  { id: 'cranes', label: 'Cranes', kinds: ['cranes'] },
+  { id: 'ambients', label: 'Ambient effects', kinds: ['ambients', 'userAmbients'] },
+  { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'] },
 ];
 
+/** Whether a mark kind is one of the user's own placements' (`user*`), not the map's own data's. */
+export const isUserMarkKind = (kind: string): boolean => kind.startsWith('user');
+
 /** A user placement's mark kind by what it is (the page's `userData`: a piece, a spawn's team, an NPC, a bomb marker's kind). */
-export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; flare?: boolean }): string | null {
+export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: 'A' | 'B'; npc?: boolean; bomb?: 'start' | 'seal' | 'terrorist' | null; hostage?: boolean; zone?: boolean; point?: boolean; view?: boolean; turret?: boolean; door?: boolean; ladder?: boolean; gate?: boolean; barrier?: boolean; switch?: boolean; flare?: boolean; object?: 'ambient' }): string | null {
+  if (r.object) return 'userAmbients';   // a Forge object (`./forgeObjects`)
   if (r.hostage) return 'userEscortees';
   if (r.zone) return 'userTacZones';
   if (r.point) return 'userTacPoints';
@@ -124,6 +124,7 @@ export function userMarkKind(r: { piece?: boolean; team?: 'A' | 'B'; respawn?: '
   if (r.flare) return 'userFlares';
   if (r.gate) return 'userGates';
   if (r.barrier) return 'userBarriers';
+  if (r.switch) return 'userSwitches';
   if (r.bomb) return r.bomb === 'start' ? 'userBombStart' : r.bomb === 'seal' ? 'userSiteSeal' : 'userSiteTerrorist';
   if (r.respawn) return r.respawn === 'A' ? 'userRespawnA' : 'userRespawnB';
   if (r.team) return r.team === 'A' ? 'userSpawnA' : 'userSpawnB';
@@ -196,7 +197,7 @@ export const MAP_DATA_SELECTED_BORDER = '#d8a640';
  * One kind's mark, drawn once a look: a disc with an outline and the kind's letter -- selected, the outline thick and
  * the selection colour. A canvas is the only font three.js has.
  */
-function markTexture(mark: { glyph: string; colour: string; shape?: 'disc' | 'square' }, selected: boolean): CanvasTexture | null {
+function markTexture(mark: { glyph: string; colour: string }, selected: boolean): CanvasTexture | null {
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -204,16 +205,7 @@ function markTexture(mark: { glyph: string; colour: string; shape?: 'disc' | 'sq
   if (!ctx) return null;
   const border = selected ? 8 : 4;
   ctx.beginPath();
-  if (mark.shape === 'square') {
-    // A user placement's mark: a rounded square (the map's are discs).
-    const inset = border / 2 + 1, side = size - inset * 2, r = 12;
-    ctx.moveTo(inset + r, inset);
-    ctx.arcTo(inset + side, inset, inset + side, inset + side, r);
-    ctx.arcTo(inset + side, inset + side, inset, inset + side, r);
-    ctx.arcTo(inset, inset + side, inset, inset, r);
-    ctx.arcTo(inset, inset, inset + side, inset, r);
-    ctx.closePath();
-  } else ctx.arc(size / 2, size / 2, size / 2 - border / 2 - 1, 0, Math.PI * 2);
+  ctx.arc(size / 2, size / 2, size / 2 - border / 2 - 1, 0, Math.PI * 2);
   ctx.fillStyle = mark.colour;
   ctx.fill();
   ctx.lineWidth = border;
@@ -383,61 +375,46 @@ export class MapDataBillboards {
     const mark = MAP_DATA_MARKS[kind];
     const map = mark ? markTexture(mark, selected) : null;
     if (!map) return null;
-    const m = new SpriteMaterial({ map, transparent: true, depthWrite: false, depthTest: !this.onTop, sizeAttenuation: false });
+    const m = new SpriteMaterial({ map, ...billboardMaterialParams(this.onTop) });
     this.materials.set(id, m);
     return m;
   }
 }
 
-/** Each user kind's map counterpart (the same billboard's kind): the dropdown's rows pair them. */
-export const BILLBOARD_PAIRS: Readonly<Record<string, string>> = {
-  userProps: 'mapProps', userSpawns: 'slots', userRespawns: 'respawns', userEscortees: 'escortees', userTacZones: 'tacZones', userTacPoints: 'tacPoints',
-  userScenicViews: 'scenicViews', userTurrets: 'turrets', userDoors: 'doors', userLadders: 'ladders', userGates: 'gates', userFlares: 'flares',
-  userObjectives: 'bombStart', userActions: 'actions',
-};
+/**
+ * A mark's material settings (a browser adaptation, FG.R2): drawn over everything when `onTop` (no depth test), else hidden
+ * behind what stands in front; never fogged (the owner, 2026-11-09) -- the map's fog is the world's, a mark is read through
+ * it at any distance -- the same size on screen at any distance, written to no depth.
+ */
+export function billboardMaterialParams(onTop: boolean): { transparent: true; depthWrite: false; depthTest: boolean; sizeAttenuation: false; fog: false } {
+  return { transparent: true, depthWrite: false, depthTest: !onTop, sizeAttenuation: false, fog: false };
+}
 
 type KindToggle = (typeof MAP_DATA_KIND_TOGGLES)[number];
 
 /**
- * The Billboards dropdown's sections (the owner, 2026-11-06): the placing toolbar's own headers (`./page` `modeSection`),
- * each its map switches in this order; Other the kinds no tool places (cranes; and NPCs, the user switch with no map
- * counterpart). Props sit with Objects; context actions with Demolition, where the disc's MPBOMB sites are.
+ * The View dropdown's sections (the owner, 2026-11-06): the placing toolbar's own headers (`./page` `modeSection`), each its
+ * switches in this order; Other the kinds no tool places (cranes), the ambient effects and NPCs. A switch no section names
+ * goes to Other.
  */
-export const BILLBOARD_SECTIONS: readonly { heading: string; map: readonly string[]; user?: readonly string[] }[] = [
-  { heading: 'Spawn', map: ['slots', 'respawns'] },
-  { heading: 'Objects', map: ['mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares'] },
-  { heading: 'Demolition · Breach', map: ['bombStart', 'actions'] },
-  { heading: 'Escort · Extraction', map: ['escortees', 'tacZones'] },
-  { heading: 'Info', map: ['tacPoints', 'scenicViews'] },
-  { heading: 'Other', map: ['cranes'], user: ['userNpcs'] },
+export const BILLBOARD_SECTIONS: readonly { heading: string; ids: readonly string[] }[] = [
+  { heading: 'Spawn', ids: ['slots', 'respawns'] },
+  { heading: 'Objects', ids: ['mapProps', 'doors', 'gates', 'ladders', 'turrets', 'flares', 'damage'] },
+  { heading: 'Demolition · Breach', ids: ['bombStart', 'actions'] },
+  { heading: 'Escort · Extraction', ids: ['escortees', 'tacZones'] },
+  { heading: 'Info', ids: ['tacPoints', 'scenicViews'] },
+  { heading: 'Other', ids: ['cranes', 'ambients', 'userNpcs'] },
 ];
 
-/**
- * The Billboards dropdown's rows (the owner, 2026-11-06), by section (`BILLBOARD_SECTIONS`): a section's heading, then its
- * map switches each beside its user counterpart (`BILLBOARD_PAIRS`), an empty cell where a side has none; a section's
- * own user switches with no map counterpart (NPCs) fill its empty user cells, else rows of their own. A switch no section
- * names goes to Other.
- */
-export type BillboardRow = { heading: string } | { user: KindToggle | null; map: KindToggle | null };
+/** The View dropdown's rows, by section (`BILLBOARD_SECTIONS`): a section's heading, then its switches, one list. */
+export type BillboardRow = { heading: string } | { toggle: KindToggle };
+
 export function billboardRows(): BillboardRow[] {
-  const users = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'user');
-  const maps = MAP_DATA_KIND_TOGGLES.filter((t) => t.group === 'map');
-  const named = new Set(BILLBOARD_SECTIONS.flatMap((s) => [...s.map, ...(s.user ?? [])]));
+  const named = new Set(BILLBOARD_SECTIONS.flatMap((x) => x.ids));
   const out: BillboardRow[] = [];
   for (const section of BILLBOARD_SECTIONS) {
-    const other = section.heading === 'Other';
-    const mapIds = [...section.map, ...(other ? maps.filter((m) => !named.has(m.id)).map((m) => m.id) : [])];
-    const rows = mapIds.flatMap((id) => {
-      const map = maps.find((m) => m.id === id);
-      return map ? [{ user: users.find((u) => BILLBOARD_PAIRS[u.id] === id) ?? null, map }] : [];
-    });
-    const lone = [...(section.user ?? []), ...(other ? users.filter((u) => !BILLBOARD_PAIRS[u.id] && !named.has(u.id)).map((u) => u.id) : [])];
-    for (const id of lone) {
-      const u = users.find((t) => t.id === id);
-      if (!u) continue;
-      const free = rows.find((r) => !r.user);
-      if (free) free.user = u; else rows.push({ user: u, map: null });
-    }
+    const ids = [...section.ids, ...(section.heading === 'Other' ? MAP_DATA_KIND_TOGGLES.filter((t) => !named.has(t.id)).map((t) => t.id) : [])];
+    const rows = ids.flatMap((id) => { const toggle = MAP_DATA_KIND_TOGGLES.find((t) => t.id === id); return toggle ? [{ toggle }] : []; });
     if (rows.length) out.push({ heading: section.heading }, ...rows);
   }
   return out;

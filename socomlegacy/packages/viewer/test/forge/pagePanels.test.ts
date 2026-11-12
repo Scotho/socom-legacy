@@ -158,13 +158,12 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     // FCW-32 step 4 (FUI.R23 D1): the Rules panel under Object, after the Inspector.
     expect(drawn()).toEqual(['outliner', 'inspector', 'rules']);
     const tree = right.querySelector<HTMLUListElement>('ul.fx-outliner')!;
-    // Two roots, Map Data and User Data, each holding its branches.
+    // One tree (the owner, 2026-11-10: no Map Data / User Data): a branch a kind, the map's own and the layout's together.
     const branchesOf = (parent: Element): (string | null)[] =>
       [...parent.querySelectorAll(':scope > li.fx-tree-branch')].map((branch) => branch.getAttribute('data-tree-branch'));
-    expect(branchesOf(tree)).toEqual(['mapData', 'userData']);
-    expect(branchesOf(tree.querySelector('[data-tree-branch="mapData"] > .fx-outliner-children')!)).toEqual(['mapProps']);   // no slots on the test map
-    expect(branchesOf(tree.querySelector('[data-tree-branch="userData"] > .fx-outliner-children')!)).toEqual(['userProps', 'userSpawns', 'rules']);
-    expect(tree.querySelector('[data-tree-branch="mapData"] > .fx-tree-toggle')?.textContent).toContain('Map Data');
+    expect(branchesOf(tree)).toContain('mapProps');
+    expect(branchesOf(tree)).not.toContain('mapData');
+    expect(branchesOf(tree)).not.toContain('userData');
     const mapBranch = tree.querySelector<HTMLLIElement>('[data-tree-branch="mapProps"]')!;
     expect(mapBranch.querySelector('.fx-tree-toggle')?.textContent).toContain('Props');
     mapBranch.querySelector<HTMLButtonElement>('.fx-tree-toggle')!.click();
@@ -232,14 +231,14 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     }
     expect(api.read().revision, 'a stub makes no edit').toBe(revision);
     expect([inspectorField('Pitch').value, inspectorField('Scale Y').value]).toEqual(['0', '1']);
-    expect(tree.querySelector('[data-tree-branch="userProps"] [data-user-prop]')?.textContent).toContain('crate');
+    expect(tree.querySelector('[data-tree-branch="mapProps"] [data-user-prop]')?.textContent).toContain('crate');
     for (const at of [[10, 0, 0], [20, 0, 0]]) {
       expect(await api.execute('piece.place', { asset: 'MP2:crate', at }, api.read().revision)).toMatchObject({ ok: true });
     }
-    const userRows = (): HTMLElement[] => [...tree.querySelectorAll<HTMLElement>('[data-tree-branch="userProps"] [data-user-prop]')];
+    const userRows = (): HTMLElement[] => [...tree.querySelectorAll<HTMLElement>('[data-tree-branch="mapProps"] [data-user-prop]')];
     userRows()[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     userRows()[2]!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
-    expect(tree.querySelectorAll('[data-tree-branch="userProps"] [data-user-prop].is-on')).toHaveLength(3);
+    expect(tree.querySelectorAll('[data-tree-branch="mapProps"] [data-user-prop].is-on')).toHaveLength(3);
     document.querySelector<HTMLButtonElement>('[data-forge="menu"]')!.click();
     expect(document.querySelector('.fx-menu-list [data-forge-menu-row="frame-selection"]')?.classList.contains('is-off')).toBe(false);
   }, 90_000);

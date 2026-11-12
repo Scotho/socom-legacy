@@ -1,4 +1,13 @@
+import { LineBasicMaterial } from 'three';
 import { groundPolygons, type GroundData } from '../mover';
+
+/**
+ * The hull's lines' material (the owner, 2026-11-09): drawn in the world's depth -- a wall in front hides the hull behind
+ * it, as it hides the world (was: over everything) -- never fogged, its colours the segments' own, translucent.
+ */
+export function hullLineMaterial(): LineBasicMaterial {
+  return new LineBasicMaterial({ vertexColors: true, fog: false, depthTest: true, depthWrite: false, transparent: true, opacity: 0.85 });
+}
 
 /**
  * FORGE (a browser adaptation, no original): the layout's hull drawn -- every polygon's edges as line segments, what

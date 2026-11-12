@@ -10,6 +10,7 @@ import type { EffectData } from '../effectData';
 import type { GameLobbyHandOff } from '../gameLobbyHost';
 import type { LoadedMap } from '../loadMap';
 import { mountMatch, type MatchAssets, type MountedMatch } from '../matchMount';
+import type { LoadingScreen } from '../loadingAssets';
 import { NetClient, type NetWalk } from '../net/client';
 import { LoopbackMatch, simClipsOfPlay, simMapOfLoaded, type LoopbackOptions } from '../net/loopback';
 import type { ServerEvent } from '../net/protocol';
@@ -19,6 +20,7 @@ import type { SoundData } from '../soundData';
 import { frontEndSoundData, makeUiSoundHost, readUiSoundFiles } from '../uiSoundHost';
 import type { ViewerRequest, ViewerResponse } from '../worker';
 import { DEFAULT_SETTINGS, type NpcBehaviour, type NpcMarker } from './layout';
+import type { LentScriptAssets } from './scriptAssets';
 import type { ContentPlacement } from './matchMap';
 import type { ForgeLobbyHandOff } from './lobbyClient';
 import { matchHandOff } from './lobbyPage';
@@ -54,8 +56,9 @@ export interface ForgeMatch {
 /**
  * The map's effect data and sound, read off the same source as the test room reads them (`../worker`'s `effects`,
  * `sound` and `soundLoops`): what the match's firearm, marks and sound draw on. Null each where the source has none.
+ * `lent`: the layout's switch scripts' sounds and effects from other maps (`./scriptAssets` `lentScriptAssets`), lent in.
  */
-export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
+export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive'>, cuesFrom?: { path: string; archive: string }, lent?: LentScriptAssets): Promise<{ effects: EffectData | null; sound: MatchAssets['sound'] }> {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   let ids = 0;
   const waiting = new Map<number, (r: ViewerResponse | null) => void>();
@@ -75,8 +78,11 @@ export async function matchExtras(source: SourceRequest, map: Pick<LoadedMap, 'p
   try {
     const [e, s] = await Promise.all([
       // The bomb's blast borrowed with the cues where the map's own sets lack it (`../effectData` `borrow`).
-      ask((id) => ({ kind: 'effects', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { borrow: { path: cuesFrom.path, names: [BLAST_EFFECT] } } : {}) })),
-      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}) })),
+      ask((id) => {
+        const borrow = [...(cuesFrom ? [{ path: cuesFrom.path, names: [BLAST_EFFECT] }] : []), ...(lent?.effects ?? []).map((e) => ({ path: `RUN/${e.from}.ZDB`, names: e.names }))];
+        return { kind: 'effects', id, source, path: map.path, archive: map.archive, ...(borrow.length ? { borrow } : {}) };
+      }),
+      ask((id) => ({ kind: 'sound', id, source, path: map.path, archive: map.archive, ...(cuesFrom ? { cuesFrom } : {}), ...(lent?.sounds.length ? { lend: lent.sounds } : {}), ...(lent?.emitters?.length ? { emitters: lent.emitters } : {}) })),
     ]);
     const data = s?.kind === 'soundLoops' ? [...sounds.values()][0] ?? null : null;
     return { effects: e?.kind === 'effects' ? e.data : null, sound: data && s?.kind === 'soundLoops' ? { data, loops: s.loops } : null };
@@ -369,6 +375,29 @@ export async function startForgeMatch(target: HTMLElement, o: {
       audio.release();
     },
   };
+}
+
+/**
+ * The original's loading screen for `path` (research 125; `../loadingAssets` `loadingFromDisc`, read in a worker of its
+ * own as `lobbyArmoryData` reads the ARMORY's): what the forge's Play shows while its match loads when the Play settings
+ * ask (a browser adaptation: the forge's Play has no loading of its own to cover). Null when the worker fails; a screen
+ * that will not read whole names what it lacks in its `missing`, as the main page's does.
+ */
+export async function forgeLoadingScreen(source: SourceRequest, path: string): Promise<LoadingScreen | null> {
+  const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
+  try {
+    return await new Promise<LoadingScreen | null>((resolve) => {
+      worker.addEventListener('message', (e: MessageEvent<ViewerResponse>) => {
+        const m = e.data;
+        if (m.kind === 'loading') resolve(m.data);
+        else if (m.kind === 'error') resolve(null);
+      });
+      worker.addEventListener('error', () => resolve(null));
+      worker.postMessage({ kind: 'loadingScreen', id: 1, source, path } satisfies ViewerRequest);
+    });
+  } finally {
+    worker.terminate();
+  }
 }
 
 /**

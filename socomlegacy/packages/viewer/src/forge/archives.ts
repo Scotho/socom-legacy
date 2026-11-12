@@ -1,8 +1,10 @@
+import { libraryProps, type LibraryProp } from './library';
 import type { LoadedMap, LoadStage } from '../loadMap';
 import type { PlayClips } from '../play';
 import type { SourceRequest } from '../discSource';
 import type { ForgeRequest, ForgeResponse, ListedArchive } from './forgeWorker';
 import { copiesOf, type MapCopies } from './mapCensus';
+import type { WeaponSoundEntry } from '../soundData';
 
 /**
  * FORGE (a browser adaptation, no original): the forge's archives, read by its own decode thread (`./forgeWorker`, the
@@ -38,9 +40,15 @@ export class Archives {
   private clipsAsked: Promise<PlayClips | null> | null = null;
   /** Each archive's census (`census`), asked once; the asks one at a time, so the worker holds one map at once. */
   private counted = new Map<string, Promise<MapCopies | null>>();
+  /** The guns' sounds (`weaponSounds`), asked once. */
+  private guns: Promise<WeaponSoundEntry[]> | null = null;
+  /** Each archive's script names (`scriptNames`), asked once. */
+  private named = new Map<string, Promise<{ sounds: string[]; effects: string[] } | null>>();
   /** The maps being loaded for use now: the census waits on them. */
   private loading = new Set<Promise<unknown>>();
   private censusQueue: Promise<unknown> = Promise.resolve();
+  /** Each archive's props with their libraries (`libraryProps`), as its census read them: the asset browser's Shared and All. */
+  private propLists = new Map<string, LibraryProp[]>();
   onProgress: OnProgress | null = null;
   /** The archives the source holds, once listed (a path by stem). */
   private paths = new Map<string, string>();
@@ -67,7 +75,31 @@ export class Archives {
     this.paths = new Map();
     this.clipsAsked = null;
     this.counted = new Map();
+    this.named = new Map();
+    this.guns = null;
     this.censusQueue = Promise.resolve();
+    this.propLists = new Map();
+  }
+
+  /** The guns' sounds (`../soundData` `weaponSoundCatalog`): the Sound choice's Weapons category, asked once. */
+  weaponSounds(): Promise<WeaponSoundEntry[]> {
+    this.guns ??= this.ask((id) => ({ kind: 'weaponSounds', id, source: this.source })).then((r) => (r.kind === 'weaponSounds' ? r.sounds : []), () => []);
+    return this.guns;
+  }
+
+  /**
+   * Every sound and effect a switch's script may play from archive `stem` (`./scriptAssets`): its banks' sounds and its
+   * programs', its sets' effects -- read by the worker, asked once. Null where it will not read.
+   */
+  scriptNames(stem: string): Promise<{ sounds: string[]; effects: string[] } | null> {
+    let p = this.named.get(stem);
+    if (!p) {
+      const path = this.paths.get(stem) ?? `RUN/${stem}.ZDB`;
+      p = this.ask((id) => ({ kind: 'scriptNames', id, source: this.source, path, archive: stem }))
+        .then((r) => (r.kind === 'scriptNames' ? { sounds: r.sounds, effects: r.effects } : null), () => null);
+      this.named.set(stem, p);
+    }
+    return p;
   }
 
   private ask(make: (id: number) => ForgeRequest, stem?: string): Promise<ForgeResponse> {
@@ -99,13 +131,23 @@ export class Archives {
       p = this.censusQueue.then(async () => {
         while (this.loading.size) await Promise.allSettled([...this.loading]);
         const loaded = this.loaded.get(stem);
-        if (loaded) return loaded.then(copiesOf, () => null);
-        return this.ask((id) => ({ kind: 'census', id, source: this.source, path })).then((r) => (r.kind === 'census' ? r.copies : null), () => null);
+        if (loaded) return loaded.then((m) => { this.propLists.set(stem, libraryProps(m)); return copiesOf(m); }, () => null);
+        return this.ask((id) => ({ kind: 'census', id, source: this.source, path })).then((r) => {
+          if (r.kind !== 'census') return null;
+          if (r.props) this.propLists.set(stem, r.props);
+          return r.copies;
+        }, () => null);
       });
       this.censusQueue = p;
       this.counted.set(stem, p);
     }
     return p;
+  }
+
+  /** Archive `stem`'s props with their libraries (`libraryProps`), read with its census (`census`); null where it will not read. */
+  async props(stem: string): Promise<LibraryProp[] | null> {
+    await this.census(stem);
+    return this.propLists.get(stem) ?? null;
   }
 
   load(stem: string): Promise<LoadedMap> {
