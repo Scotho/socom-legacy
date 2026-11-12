@@ -320,7 +320,7 @@ const AMBIENT_DEFAULT_RANGE: [number, number] = [160, 430];
 const PALETTE_ALL = '*all';
 type ObjectTab = 'props' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare' | 'ambient';
 const OBJECT_TABS: readonly (readonly [ObjectTab, string])[] = [
-  ['props', 'Props'], ['door', 'Door'], ['ladder', 'Ladder'], ['turret', 'Turret'], ['barrier', 'Damage trigger'], ['switch', 'Switch'], ['gate', 'Gate'], ['flare', 'Flare'], ['ambient', 'Ambient'],
+  ['props', 'Props'], ['door', 'Door'], ['ladder', 'Ladder'], ['turret', 'Turret'], ['barrier', 'Damage trigger'], ['switch', 'Switch'], ['gate', 'Gate'], ['flare', 'Flare'], ['ambient', 'Effect'],
 ];
 /** A disc object a tile names: its map and its name there. */
 type ObjectRef = { source: string; name: string };
@@ -846,7 +846,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     siteSeal: tool('bomb', 'Site SEAL', 'Place the site the SEALs plant at', 'fx-side-seal'),
     siteTerrorist: tool('bomb', 'Site Terrorist', 'Place the site the Terrorists plant at', 'fx-side-terrorist'),
     // The Forge objects (`../forge/forgeObjects`), under Other's More...: a disc map's ambient effect.
-    ambient: tool('place', 'Ambient', "Place an ambient effect: one of a disc map's own -- its fire, smoke, waterfall, torch, rain, bugs, with its sound and light -- playing from the round's start where it stands"),
+    ambient: tool('place', 'Effect', "Place an effect (an ambient effect): one of a disc map's own -- its fire, smoke, waterfall, torch, rain, bugs, with its sound and light -- playing from the round's start where it stands"),
   };
   // Each tool's key in its tooltip (`./keys` `forgeToolKeyLabel`: Q, then the number keys in the tools row's order).
   for (const [m, b] of Object.entries(modeBtns)) { const k = forgeToolKeyLabel(m); if (k) b.title += key(k); }
@@ -2085,7 +2085,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * 2026-11-06; a browser adaptation, FG.R2): Spawn (spawns, respawn points), Objects (door, ladder, turret, damage
    * trigger, switch, gate, flare), then Demolition's bomb and sites, Escort's and Extraction's hostages and zones
    * (`MODE_TOOL_TYPES`, which greys a section the layout's game type does not play), Info (tactical points, spectator
-   * views) and Other (NPCs, ambient effects). Select and Place stay on the toolbar.
+   * views) and Other (NPCs); ambient effects with the objects. Select and Place stay on the toolbar.
    */
   const toolsRow = el(doc, 'nav', 'fx-tools-row');
   toolsRow.setAttribute('aria-label', 'Objects to place (the Place tool places the one chosen)');
@@ -2100,13 +2100,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   toolsRow.append(
     modeSection('Spawn', 'spawn', group(modeBtns.spawnA, modeBtns.spawnB), group(modeBtns.respawnA, modeBtns.respawnB)),
-    modeSection('Objects', 'objects', group(modeBtns.door, modeBtns.ladder, modeBtns.turret, modeBtns.barrier, modeBtns.switch, modeBtns.gate, modeBtns.flare)),
+    // Ambient with the objects (the owner, 2026-11-11).
+    modeSection('Objects', 'objects', group(modeBtns.door, modeBtns.ladder, modeBtns.turret, modeBtns.barrier, modeBtns.switch, modeBtns.gate, modeBtns.flare, modeBtns.ambient)),
     // Breach plays the bomb's start and the SEALs' site too (`./objectives` `breachReady`): one section, both modes named.
     modeSection(`${FORGE_GAME_TYPE_NAME[2]} · ${FORGE_GAME_TYPE_NAME[1]}`, 'demolition', group(modeBtns.bomb, modeBtns.siteSeal, modeBtns.siteTerrorist)),
     modeSection(`${FORGE_GAME_TYPE_NAME[3]} · ${FORGE_GAME_TYPE_NAME[4]}`, 'escort', group(modeBtns.hostage, modeBtns.zone)),
     modeSection('Info', 'info', group(modeBtns.point, modeBtns.view)),
-    // The ambient effect top level beside the NPC (the owner, 2026-11-11: no More... dropdown).
-    modeSection('Other', 'other', group(modeBtns.npc, modeBtns.ambient)),
+    modeSection('Other', 'other', group(modeBtns.npc)),
   );
   doc.body.append(top, toolsRow, workbench, statusBar, checkSheet, modal, help, workspaceDock, selectSettings, playSettings);
   // The wrapped toolbar's height, so the docks and the viewport (top: var(--fx-top)) follow it.
@@ -7145,7 +7145,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawLegendNow();
     statusChips.update();                                     // FUI-4: Build / Walk / Play
     sMode.textContent = playing ? 'PLAY' : entityTool ? `PLACE ${entityTool.toUpperCase()}`
-      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'AMBIENT' } as const)[mode];
+      : ({ place: 'PLACE', select: 'SELECT', spawnA: 'SPAWN A', spawnB: 'SPAWN B', respawnA: 'RESPAWN A', respawnB: 'RESPAWN B', npc: 'NPC', hostage: 'HOSTAGE', zone: 'ZONE', turret: 'TURRET', door: 'DOOR', gate: 'GATE', barrier: 'DAMAGE TRIGGER', switch: 'SWITCH', ladder: 'LADDER', flare: 'FLARE', point: 'POINT', view: 'VIEW', bomb: 'BOMB', siteSeal: 'SITE SEAL', siteTerrorist: 'SITE TERRORIST', ambient: 'EFFECT' } as const)[mode];
   };
   /**
    * The selection drawn (FG-47): the single selection's `selected` / `baseSelected` derived, the gizmo on the one

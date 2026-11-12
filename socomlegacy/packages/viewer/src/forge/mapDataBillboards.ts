@@ -51,9 +51,10 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   // A placed gate's switch: a context action (SWITCH), the map's ! mark.
   userSwitches: { glyph: '!', colour: '#e0e0e0', word: 'Switch (SWITCH)' },
   // The Forge objects (`./forgeObjects`): an ambient effect (a map's fire, water, weather).
-  userAmbients: { glyph: '~', colour: '#e08a2c', word: 'Ambient effect' },
+  // Cyan, apart from the damage triggers' orange (the owner, 2026-11-11: "too close of color"); called an Effect.
+  userAmbients: { glyph: '~', colour: '#38d0e8', word: 'Effect' },
   // The map's own ambient effects (`./mapData` `ambients`), round as the map's data is.
-  ambients: { glyph: '~', colour: '#e08a2c', word: 'Ambient effect (the map\'s)' },
+  ambients: { glyph: '~', colour: '#38d0e8', word: 'Effect (the map\'s)' },
   // The base map's own props (M, map prop): they draw themselves, so their marks start switched off.
   mapProps: { glyph: 'M', colour: '#9aa5b1', word: 'Map prop' },
   // A spawn slot by its side: Ss the SEALs' (side A, 0 -- `bombMarkers`' team 0 is the SEALs), St the Terrorists' (side
@@ -104,7 +105,7 @@ export const MAP_DATA_KIND_TOGGLES: readonly { id: string; label: string; kinds:
   // Under Objects, with the Triggers dropdown that places them (the owner, 2026-11-08).
   { id: 'damage', label: 'Damage triggers', kinds: ['damage', 'userBarriers'] },
   { id: 'cranes', label: 'Cranes', kinds: ['cranes'] },
-  { id: 'ambients', label: 'Ambient effects', kinds: ['ambients', 'userAmbients'] },
+  { id: 'ambients', label: 'Effects', kinds: ['ambients', 'userAmbients'] },
   { id: 'userNpcs', label: 'NPCs', kinds: ['userNpcs'] },
 ];
 
